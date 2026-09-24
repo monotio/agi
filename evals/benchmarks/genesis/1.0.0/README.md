@@ -1,16 +1,10 @@
-# Genesis benchmark, 1.0.0 baseline
+# Genesis benchmark, app 1.0.0
 
-Five models built the same adventure openings, from the same two briefs,
-through the app's production authoring session: the real `AgentSession`,
-provider adapters, tools, and boot validation. Every run completed and passed
-its playtest.
-
-This baseline was recorded on the 1.0.0 release candidate, before the harness
-fixes its failures pointed to: stale source revisions, shifted assembler
-line numbers, planned-room exits counted as playtest failures, 16-bit said()
-ids, AGI Studio spellings, ignored words, and the feedback on unknown fields,
-refused walks and rooms that do not play like AGI rooms. The
-[1.0.0 snapshot](../1.0.0/README.md) repeats it on the fixed harness.
+The [baseline](../1.0.0-baseline/README.md) run, repeated on the harness fixes
+its failures pointed to. Five models built the same adventure openings from
+the same two briefs through the app's production authoring session: the real
+`AgentSession`, provider adapters, tools, and boot validation. Every run
+completed and passed its playtest.
 
 - [`matrix/matrix.md`](matrix/matrix.md) compares cost, content, picture depth
   and control lines, and brief coverage, with hand-written readings per brief.
@@ -18,15 +12,34 @@ refused walks and rooms that do not play like AGI rooms. The
 - [`runs/`](runs/) holds each run: the report, the conversation, session
   events, the opening frame, and the generated game in `<run>.resources/`.
 
+## Against the baseline
+
+| Ten runs      | Baseline | 1.0.0  | Change |
+| ------------- | -------- | ------ | ------ |
+| Tool failures | 88       | 49     | −44%   |
+| Repair turns  | 79       | 46     | −42%   |
+| Model turns   | 306      | 258    | −16%   |
+| Cost          | $15.26   | $14.22 | −7%    |
+
+The cheaper models changed most in what they build. GPT-6 Luna now sets a
+horizon, draws control lines and animates ego; its baseline rooms were
+walkable everywhere, sky and water included. GPT-6 Sol now marks water.
+
+Two follow-up fixes landed after this run, from failures it still showed.
+Registering a word no longer stales a source that only prints it (seven
+failures here), and a plan room's `name` is read as its `title` (four). A
+replay of every recorded run's tool calls confirms neither failure recurs;
+the next snapshot will measure them.
+
 ## Settings
 
 | Setting | Value                                                                                                                              |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Briefs  | [`knights-trial`](../../../../games/knights-trial/SKILL.md), [`badge-of-millhaven`](../../../../games/badge-of-millhaven/SKILL.md) |
 | Lanes   | Claude Opus 5.5 at `high` and `medium`; GPT-6 Astra, Sol and Luna at `medium`                                                      |
-| Prompt  | the `lean` variant, the release candidate's system prompt and tools                                                                |
+| Prompt  | the `lean` variant with 1.0.0's system prompt and tools, before the two follow-up fixes                                            |
 | Runs    | one per lane and brief; an allowance of up to $10 each, which no run reached                                                       |
-| Prices  | list prices in [`src/agent/modelEffort.ts`](../../../../src/agent/modelEffort.ts); the ten runs cost $15.26 together               |
+| Prices  | list prices in [`src/agent/modelEffort.ts`](../../../../src/agent/modelEffort.ts); the ten runs cost $14.22 together               |
 
 One run per lane and brief gives no variance. Read differences of a few
 percent as noise, and weigh the pictures and the games alongside the numbers.

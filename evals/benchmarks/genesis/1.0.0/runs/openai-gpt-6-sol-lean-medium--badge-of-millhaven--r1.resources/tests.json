@@ -1,0 +1,146 @@
+{
+  "format": "monotio.agi.tests.v1",
+  "tests": [
+    {
+      "name": "Precinct assignment and lead",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "command",
+          "command": "read board",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk prakash",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk prakash",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "read file",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": [
+          0,
+          1,
+          2
+        ],
+        "flags": [
+          {
+            "id": 40,
+            "value": true
+          }
+        ],
+        "vars": null,
+        "printed": "The file contains Hale's initial call",
+        "text": null,
+        "score": 10,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 250
+    },
+    {
+      "name": "Precinct desk is a barrier",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "move",
+          "command": null,
+          "direction": "up",
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": 50,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": null,
+        "vars": null,
+        "printed": null,
+        "text": null,
+        "score": null,
+        "object": {
+          "num": 0,
+          "view": 1,
+          "x0": 75,
+          "y0": 133,
+          "x1": 85,
+          "y1": 152,
+          "active": true
+        },
+        "reachable": null
+      },
+      "cycleBudget": 150
+    }
+  ]
+}

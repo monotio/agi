@@ -1,0 +1,307 @@
+// ===== logic 0 (811 bytes)
+#message 1 "File"
+#message 2 "Save Game      F5"
+#message 3 "Restore Game   F7"
+#message 4 "Restart Game   F9"
+#message 5 "Quit          Alt+Z"
+#message 6 "Speed"
+#message 7 "Slow"
+#message 8 "Normal"
+#message 9 "Fast"
+#message 10 "Fastest"
+#message 11 "Sound"
+#message 12 "On"
+#message 13 "Off"
+#message 14 "Help"
+#message 15 "Help           F1"
+#message 16 "About"
+#message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu."
+#message 18 "An adventure written with AGI IS HERE."
+#message 19 "I don't know the word \"%s11\"."
+#message 20 "Prakash points to the board. Try TALK SERGEANT or READ BOARD; the corridor is left and Station Street is right."
+
+if (!isset(f200)) {
+  set(f200);
+  configure.screen(1, 22, 0);
+  status.line.on();
+  set(f9);
+  assignn(v10, 2);
+  set.menu(m1);
+  set.menu.item(m2, 201);
+  set.menu.item(m3, 202);
+  set.menu.item(m4, 203);
+  set.menu.item(m5, 204);
+  set.menu(m6);
+  set.menu.item(m7, 205);
+  set.menu.item(m8, 206);
+  set.menu.item(m9, 207);
+  set.menu.item(m10, 208);
+  set.menu(m11);
+  set.menu.item(m12, 209);
+  set.menu.item(m13, 210);
+  set.menu(m14);
+  set.menu.item(m15, 211);
+  set.menu.item(m16, 212);
+  submit.menu();
+  set(f14);
+  set.key(27, 0, 200);
+  set.key(0, 59, 211);
+  set.key(0, 63, 201);
+  set.key(0, 65, 202);
+  set.key(0, 67, 203);
+  set.key(0, 44, 204);
+  set.key(9, 0, 213);
+  assignn(v0, 1);
+  new.room.v(v0);
+}
+call.v(v0);
+if (isset(f202)) {
+  call(255);
+}
+if (!isset(f202)) {
+  if (controller(200)) {
+    menu.input();
+  }
+  if (controller(201)) {
+    save.game();
+  }
+  if (controller(202)) {
+    restore.game();
+  }
+  if (controller(203)) {
+    restart.game();
+  }
+  if (controller(204)) {
+    quit(0);
+  }
+  if (controller(205)) {
+    assignn(v10, 4);
+  }
+  if (controller(206)) {
+    assignn(v10, 2);
+  }
+  if (controller(207)) {
+    assignn(v10, 1);
+  }
+  if (controller(208)) {
+    assignn(v10, 0);
+  }
+  if (controller(209)) {
+    set(f9);
+  }
+  if (controller(210)) {
+    reset(f9);
+  }
+  if (controller(211)) {
+    print(m17);
+  }
+  if (controller(212)) {
+    print(m18);
+  }
+  if (controller(213)) {
+    status();
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (greatern(v9, 0)) {
+    if (equaln(v9, 1)) {
+      word.to.string(s11, 1);
+    }
+    if (equaln(v9, 2)) {
+      word.to.string(s11, 2);
+    }
+    if (equaln(v9, 3)) {
+      word.to.string(s11, 3);
+    }
+    if (equaln(v9, 4)) {
+      word.to.string(s11, 4);
+    }
+    if (equaln(v9, 5)) {
+      word.to.string(s11, 5);
+    }
+    if (equaln(v9, 6)) {
+      word.to.string(s11, 6);
+    }
+    if (equaln(v9, 7)) {
+      word.to.string(s11, 7);
+    }
+    if (equaln(v9, 8)) {
+      word.to.string(s11, 8);
+    }
+    if (equaln(v9, 9)) {
+      word.to.string(s11, 9);
+    }
+    if (equaln(v9, 10)) {
+      word.to.string(s11, 10);
+    }
+    if (equaln(v9, 11)) {
+      word.to.string(s11, 11);
+    }
+    print(m19);
+  } else {
+    print(m20);
+  }
+}
+return;
+
+
+// ===== logic 1 (999 bytes)
+#message 1 "Prakash taps the folder. \"A bottle of sedative is missing from the pharmacy. The delivery driver says he left before closing. Check the route sheet before you decide what that means.\""
+#message 2 "The board names the driver as Eli Bell. His van was assigned a Pier Road relay stop after the pharmacy delivery. Prakash has pinned a note: compare Bell's signed route with his statement, then check the pharmacy and records."
+#message 3 "Your badge and radio are on your duty belt. The radio is charged; dispatch can repeat the driver's route when you need it."
+#message 4 "Prakash is waiting beside the case board. The desk has a file tray for forms that arrive in the wrong order. The corridor is to the left; Station Street is through the doors on the right."
+
+if (isset(f5)) {
+  assignn(v33, 1);
+  load.pic(v33);
+  draw.pic(v33);
+  show.pic();
+  set.horizon(50);
+  load.view(1);
+  animate.obj(o0);
+  set.view(o0, 1);
+  assignn(v34, 1);
+  step.time(o0, v34);
+  assignn(v35, 3);
+  cycle.time(o0, v35);
+  position(o0, 47, 148);
+  draw(o0);
+  normal.motion(o0);
+  normal.cycle(o0);
+  stop.cycling(o0);
+  get.posn(o0, v36, v37);
+  assignn(v6, 0);
+  player.control();
+  accept.input();
+}
+get.posn(o0, v38, v39);
+if (equaln(v6, 0)) {
+  stop.cycling(o0);
+}
+if (!equaln(v6, 0) && (!equalv(v38, v36) || !equalv(v39, v37))) {
+  start.cycling(o0);
+}
+if (equalv(v38, v36) && equalv(v39, v37)) {
+  stop.cycling(o0);
+}
+assignv(v36, v38);
+assignv(v37, v39);
+if (equaln(v2, 4)) {
+  new.room(2);
+}
+if (equaln(v2, 2)) {
+  new.room(3);
+}
+if (said("speak", "prakash") || said("speak", "prakash") || said("speak", "prakash") || said("speak", "prakash")) {
+  set(f4);
+  if (!isset(f32)) {
+    set(f32);
+    addn(v3, 10);
+  }
+  print(m1);
+}
+if (said("check", "board") || said("check", "board") || said("check", "board") || said("examine", "board") || said("check", "assignment") || said("examine", "board")) {
+  set(f4);
+  print(m2);
+}
+if (said("show", "badge") || said("show", "call") || said("examine", "badge")) {
+  set(f4);
+  print(m3);
+}
+if (said("examine") || said("examine", "desk")) {
+  set(f4);
+  print(m4);
+}
+return;
+
+
+// ===== logic 255 (324 bytes)
+#message 1 ">"
+#message 2 " "
+#message 3 "You have died."
+#message 4 "Restore"
+#message 5 "Restart"
+#message 6 "Quit"
+#message 7 "1-3, SPACE, ENTER"
+
+if (!isset(f202)) {
+  set(f202);
+  assignn(v250, 0);
+  program.control();
+  prevent.input();
+  stop.motion(o0);
+  stop.cycling(o0);
+  reset(f14);
+  load.sound(255);
+  sound(255, f201);
+}
+reset(f203);
+if (equaln(v19, 32)) {
+  increment(v250);
+  if (equaln(v250, 3)) {
+    assignn(v250, 0);
+  }
+}
+if (equaln(v19, 49)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (equaln(v19, 50)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (equaln(v19, 51)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (equaln(v19, 13)) {
+  set(f203);
+}
+if (controller(202)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (controller(203)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (controller(204)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (isset(f203)) {
+  if (equaln(v250, 0)) {
+    restore.game();
+  }
+  if (equaln(v250, 1)) {
+    set(f16);
+    restart.game();
+  }
+  if (equaln(v250, 2)) {
+    quit(0);
+  }
+}
+set.text.attribute(0, 15);
+clear.text.rect(9, 10, 16, 30, 15);
+display(10, 14, m3);
+display(12, 15, m4);
+display(13, 15, m5);
+display(14, 15, m6);
+display(15, 12, m7);
+if (equaln(v250, 0)) {
+  display(12, 13, m1);
+  display(13, 13, m2);
+  display(14, 13, m2);
+}
+if (equaln(v250, 1)) {
+  display(12, 13, m2);
+  display(13, 13, m1);
+  display(14, 13, m2);
+}
+if (equaln(v250, 2)) {
+  display(12, 13, m2);
+  display(13, 13, m2);
+  display(14, 13, m1);
+}
+set.text.attribute(15, 0);
+return;

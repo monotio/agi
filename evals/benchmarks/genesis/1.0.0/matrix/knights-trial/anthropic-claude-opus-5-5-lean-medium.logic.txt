@@ -1,0 +1,641 @@
+// ===== logic 0 (2519 bytes)
+#message 1 "File"
+#message 2 "Save Game      F5"
+#message 3 "Restore Game   F7"
+#message 4 "Restart Game   F9"
+#message 5 "Quit          Alt+Z"
+#message 6 "Speed"
+#message 7 "Slow"
+#message 8 "Normal"
+#message 9 "Fast"
+#message 10 "Fastest"
+#message 11 "Sound"
+#message 12 "On"
+#message 13 "Off"
+#message 14 "Help"
+#message 15 "Help           F1"
+#message 16 "About"
+#message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu."
+#message 18 "Knight's Trial. Wenna the squire sets out to bring the light back to Thornwall."
+#message 19 "I don't know the word \"%s11\"."
+#message 20 "I don't understand that."
+#message 21 "BY ORDER OF BRANNOC, KING OF THORNWALL:\nThe candles of the kingdom are going out. Wanted: one brave soul to fetch the Three Bright Things - the Bell under the water, the Ember that never dies and the Map that will not sit still. Apply to the king in the great hall.\nReward: gratitude, and the second-best chair."
+#message 22 "You don't have the notice."
+#message 23 "A round loaf of travel bread, wrapped in a cloth."
+#message 24 "You had better save it. Someone on the road may want it more than you do."
+#message 25 "A brass lantern, dented but lit. Good for lighting things."
+#message 26 "The lantern is already lit."
+#message 27 "The brass button shines like a small sun. You can see your face in it."
+#message 28 "A tarnished brass button stamped with the royal thorn. Under the grime it might shine."
+#message 29 "It could not get any shinier."
+#message 30 "You rub the button on your sleeve. The sleeve comes away cleaner; the button does not. It needs something soft and a little oily, like wool."
+#message 31 "The Bell is small and old, and it hums faintly when you hold it."
+#message 32 "The Ember glows inside the lantern and never dims."
+#message 33 "The Map will not sit still. Rivers slide across it while you watch."
+#message 34 "Short brown hair, a rust-red tunic and sleeves a size too big. Squire's issue."
+#message 35 "Say exactly what you want to do, such as LIGHT CANDLE or GIVE BREAD."
+#message 36 "You see nothing special about it."
+#message 37 "You can't take that."
+#message 38 "Nobody answers."
+#message 39 "Nobody here wants that."
+#message 40 "You can't light that."
+#message 41 "You don't have that."
+
+if (!isset(f200)) {
+  set(f200);
+  configure.screen(1, 22, 0);
+  status.line.on();
+  set(f9);
+  assignn(v10, 2);
+  set.menu(m1);
+  set.menu.item(m2, 201);
+  set.menu.item(m3, 202);
+  set.menu.item(m4, 203);
+  set.menu.item(m5, 204);
+  set.menu(m6);
+  set.menu.item(m7, 205);
+  set.menu.item(m8, 206);
+  set.menu.item(m9, 207);
+  set.menu.item(m10, 208);
+  set.menu(m11);
+  set.menu.item(m12, 209);
+  set.menu.item(m13, 210);
+  set.menu(m14);
+  set.menu.item(m15, 211);
+  set.menu.item(m16, 212);
+  submit.menu();
+  set(f14);
+  set.key(27, 0, 200);
+  set.key(0, 59, 211);
+  set.key(0, 63, 201);
+  set.key(0, 65, 202);
+  set.key(0, 67, 203);
+  set.key(0, 44, 204);
+  set.key(9, 0, 213);
+  assignn(v7, 230);
+  assignn(v0, 1);
+  new.room.v(v0);
+}
+call.v(v0);
+if (isset(f202)) {
+  call(255);
+}
+if (!isset(f202)) {
+  if (controller(200)) {
+    menu.input();
+  }
+  if (controller(201)) {
+    save.game();
+  }
+  if (controller(202)) {
+    restore.game();
+  }
+  if (controller(203)) {
+    restart.game();
+  }
+  if (controller(204)) {
+    quit(0);
+  }
+  if (controller(205)) {
+    assignn(v10, 4);
+  }
+  if (controller(206)) {
+    assignn(v10, 2);
+  }
+  if (controller(207)) {
+    assignn(v10, 1);
+  }
+  if (controller(208)) {
+    assignn(v10, 0);
+  }
+  if (controller(209)) {
+    set(f9);
+  }
+  if (controller(210)) {
+    reset(f9);
+  }
+  if (controller(211)) {
+    print(m17);
+  }
+  if (controller(212)) {
+    print(m18);
+  }
+  if (controller(213)) {
+    status();
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (said("inv")) {
+    status();
+  }
+  if (said("read", "notice") || said("check", "notice")) {
+    if (has(0)) {
+      set(f30);
+      print(m21);
+    } else {
+      print(m22);
+    }
+  }
+  if (said("check", "bread")) {
+    if (has(1)) {
+      print(m23);
+    } else {
+      print(m41);
+    }
+  }
+  if (said("bite", "bread") || said("bite")) {
+    if (has(1)) {
+      print(m24);
+    } else {
+      print(m41);
+    }
+  }
+  if (said("check", "lamp")) {
+    if (has(2)) {
+      print(m25);
+    } else {
+      print(m41);
+    }
+  }
+  if (said("ignite", "lamp")) {
+    if (has(2)) {
+      print(m26);
+    } else {
+      print(m41);
+    }
+  }
+  if (said("check", "brass")) {
+    if (has(3)) {
+      if (isset(f31)) {
+        print(m27);
+      } else {
+        print(m28);
+      }
+    } else {
+      print(m41);
+    }
+  }
+  if (said("clean", "brass") || said("clean")) {
+    if (has(3)) {
+      if (isset(f31)) {
+        print(m29);
+      } else {
+        print(m30);
+      }
+    } else {
+      print(m41);
+    }
+  }
+  if (said("check", "bell") && has(4)) {
+    print(m31);
+  }
+  if (said("check", "ember") && has(5)) {
+    print(m32);
+  }
+  if (said("check", "map") && has(6)) {
+    print(m33);
+  }
+  if (said("check", "me")) {
+    print(m34);
+  }
+  if (said("use", "...")) {
+    print(m35);
+  }
+  if (said("check", "...")) {
+    print(m36);
+  }
+  if (said("collect", "...")) {
+    print(m37);
+  }
+  if (said("ask", "...")) {
+    print(m38);
+  }
+  if (said("give", "...") || said("feed", "...")) {
+    print(m39);
+  }
+  if (said("ignite", "...")) {
+    print(m40);
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (greatern(v9, 0)) {
+    if (equaln(v9, 1)) {
+      word.to.string(s11, 1);
+    }
+    if (equaln(v9, 2)) {
+      word.to.string(s11, 2);
+    }
+    if (equaln(v9, 3)) {
+      word.to.string(s11, 3);
+    }
+    if (equaln(v9, 4)) {
+      word.to.string(s11, 4);
+    }
+    if (equaln(v9, 5)) {
+      word.to.string(s11, 5);
+    }
+    if (equaln(v9, 6)) {
+      word.to.string(s11, 6);
+    }
+    if (equaln(v9, 7)) {
+      word.to.string(s11, 7);
+    }
+    if (equaln(v9, 8)) {
+      word.to.string(s11, 8);
+    }
+    if (equaln(v9, 9)) {
+      word.to.string(s11, 9);
+    }
+    if (equaln(v9, 10)) {
+      word.to.string(s11, 10);
+    }
+    if (equaln(v9, 11)) {
+      word.to.string(s11, 11);
+    }
+    print(m19);
+  } else {
+    print(m20);
+  }
+}
+return;
+
+
+// ===== logic 1 (4270 bytes)
+#message 1 "The gate of Castle Thornwall. The drawbridge is down across the moat, and the meadow road runs east into the countryside. An alligator floats in the moat, watching you."
+#message 2 "A royal notice is nailed to the board by the road."
+#message 3 "Someone has left supplies by the barrel: a loaf of bread and a lit lantern."
+#message 4 "You are Wenna, third squire to King Brannoc. The candles of Thornwall have been going out one by one, and this morning the king nailed a notice to the board outside his own gate."
+#message 5 "Castle Thornwall is gray and square, patched with three colors of stone. Smoke rises from a crooked chimney on the roof. The great hall is inside."
+#message 6 "The drawbridge is down and the gate stands open. The great hall lies straight ahead."
+#message 7 "Green water, slow and deep. An alligator drifts in it with only its eyes and snout showing."
+#message 8 "The alligator floats with its eyes and snout above the water. It watches you the way a cook watches a pie cooling on a sill."
+#message 9 "You wish the alligator good morning. It blinks once, slowly, which could mean anything."
+#message 10 "The alligator looks at the bread, then at you, and plainly prefers you. You keep the bread."
+#message 11 "You have nothing the alligator wants. Nothing you would part with, anyway."
+#message 12 "You would have to swim out to reach it. That is the problem."
+#message 13 "The alligator's eyes follow you to the edge of the moat. Swimming here would be a very bad idea."
+#message 14 "You wade into the moat anyway. The alligator was waiting for exactly this, and it does not waste the opportunity."
+#message 15 "A crooked brick chimney leans off the castle roof like a tired guard. The kitchen fire is still going."
+#message 16 "The road runs east through the meadow into the countryside."
+#message 17 "An old barrel with a flat lid. Someone left a loaf of bread on it for whoever takes the road."
+#message 18 "An old barrel with a flat lid."
+#message 19 "A round loaf of travel bread, wrapped in a cloth and still a little warm."
+#message 20 "You tuck the loaf into your satchel."
+#message 21 "You need to be closer to the barrel."
+#message 22 "You already have it."
+#message 23
+#message 24 "You pick up the lantern. Its handle is warm."
+#message 25 "BY ORDER OF BRANNOC, KING OF THORNWALL:\nThe candles of the kingdom are going out. Wanted: one brave soul to fetch the Three Bright Things - the Bell under the water, the Ember that never dies and the Map that will not sit still. Apply to the king in the great hall.\nReward: gratitude, and the second-best chair."
+#message 26 "You pull the notice off its nail. Behind it, pressed into the wood, is a tarnished brass button stamped with the royal thorn. You take both."
+#message 27 "You need to be closer to the board."
+#message 28 "A wooden board under a little red roof. The king posts his news here."
+#message 29 "King Brannoc is inside, in the great hall across the drawbridge."
+#message 30 "You will have to tell the king yourself. He is in the great hall."
+#message 31 "You have already accepted the king's errand."
+#message 32 "There are no candles out here. The roadside candles stand along the meadow road."
+#message 33 "An old tree leans over the moat bank. Its roots go down to the water."
+#message 34 "A thick hedge marks the edge of the castle grounds."
+#message 35 "A pale blue sky with a line of chimney smoke drawn across it."
+#message 36 "Meadow grass, with a few yellow flowers."
+#message 37 "The alligator is not the sort of thing one takes."
+#message 38 "A brass lantern stands beside the barrel, dented but lit. Someone left it for whoever takes the road."
+#message 39 "You would have to wade into the moat to do that. The alligator is hoping you will."
+#message 40 "The board is empty now except for a nail hole."
+
+if (isset(f5)) {
+  load.view(1);
+  load.view(2);
+  load.view(3);
+  load.view(4);
+  assignn(v41, 1);
+  load.pic(v41);
+  draw.pic(v41);
+  discard.pic(v41);
+  set.horizon(64);
+  animate.obj(o1);
+  set.view(o1, 2);
+  set.loop(o1, 0);
+  position(o1, 20, 80);
+  ignore.objs(o1);
+  assignn(v42, 10);
+  cycle.time(o1, v42);
+  draw(o1);
+  animate.obj(o5);
+  set.view(o5, 4);
+  ignore.horizon(o5);
+  ignore.objs(o5);
+  position(o5, 101, 12);
+  assignn(v43, 12);
+  cycle.time(o5, v43);
+  draw(o5);
+  if (obj.in.room(0, v0)) {
+    animate.obj(o2);
+    set.view(o2, 3);
+    set.loop(o2, 0);
+    position(o2, 33, 104);
+    set.priority(o2, 12);
+    ignore.objs(o2);
+    stop.cycling(o2);
+    draw(o2);
+  }
+  if (obj.in.room(1, v0)) {
+    animate.obj(o3);
+    set.view(o3, 3);
+    set.loop(o3, 1);
+    position(o3, 121, 125);
+    set.priority(o3, 13);
+    ignore.objs(o3);
+    stop.cycling(o3);
+    draw(o3);
+  }
+  if (obj.in.room(2, v0)) {
+    animate.obj(o4);
+    set.view(o4, 3);
+    set.loop(o4, 2);
+    position(o4, 134, 142);
+    set.priority(o4, 13);
+    ignore.objs(o4);
+    assignn(v44, 8);
+    cycle.time(o4, v44);
+    draw(o4);
+  }
+  animate.obj(o0);
+  set.view(o0, 1);
+  if (equaln(v1, 2)) {
+    position(o0, 77, 72);
+    set.loop(o0, 2);
+  } else {
+    if (equaln(v1, 3)) {
+      position(o0, 150, 112);
+      set.loop(o0, 1);
+    } else {
+      position(o0, 60, 128);
+      set.loop(o0, 2);
+    }
+  }
+  draw(o0);
+  show.pic();
+  accept.input();
+  player.control();
+  if (!isset(f33)) {
+    set(f33);
+    print(m4);
+    print(m1);
+  }
+}
+if (equaln(v2, 1)) {
+  new.room(2);
+}
+if (equaln(v2, 2)) {
+  new.room(3);
+}
+if (equaln(v2, 3) || equaln(v2, 4)) {
+  assignn(v2, 0);
+}
+if (isset(f2) && !isset(f4)) {
+  if (said("check")) {
+    print(m1);
+    if (obj.in.room(0, v0)) {
+      print(m2);
+    }
+    if (obj.in.room(1, v0) || obj.in.room(2, v0)) {
+      print(m3);
+    }
+  }
+  if (said("check", "castle") || said("check", "hall")) {
+    print(m5);
+  }
+  if (said("check", "arch") || said("check", "bridge")) {
+    print(m6);
+  }
+  if (said("check", "moat")) {
+    print(m7);
+  }
+  if (said("check", "alligator")) {
+    print(m8);
+  }
+  if (said("ask", "alligator") || said("ask")) {
+    print(m9);
+  }
+  if (said("give", "bread", "alligator") || said("feed", "alligator") || said("give", "bread") || said("feed", "bread", "alligator") || said("give", "alligator", "bread")) {
+    if (has(1)) {
+      print(m10);
+    } else {
+      print(m11);
+    }
+  }
+  if (said("pet", "alligator")) {
+    print(m12);
+  }
+  if (said("collect", "alligator")) {
+    print(m37);
+  }
+  if (said("dive") || said("dive", "moat") || said("dive", "alligator")) {
+    if (!isset(f32)) {
+      set(f32);
+      print(m13);
+    } else {
+      erase(o0);
+      print(m14);
+      call(255);
+    }
+  }
+  if (said("collect", "moat")) {
+    print(m39);
+  }
+  if (said("check", "chimney")) {
+    print(m15);
+  }
+  if (said("check", "countryside")) {
+    print(m16);
+  }
+  if (said("check", "barrel")) {
+    if (obj.in.room(1, v0)) {
+      print(m17);
+    } else {
+      print(m18);
+    }
+  }
+  if (obj.in.room(1, v0)) {
+    if (said("check", "bread")) {
+      print(m19);
+    }
+    if (said("collect", "bread")) {
+      distance(o0, o3, v46);
+      if (greatern(v46, 30)) {
+        print(m21);
+      } else {
+        erase(o3);
+        get(1);
+        print(m20);
+      }
+    }
+  }
+  if (said("collect", "bread") && has(1)) {
+    print(m22);
+  }
+  if (obj.in.room(2, v0)) {
+    if (said("check", "lamp")) {
+      print(m38);
+    }
+    if (said("collect", "lamp")) {
+      distance(o0, o4, v46);
+      if (greatern(v46, 30)) {
+        print(m21);
+      } else {
+        erase(o4);
+        get(2);
+        print(m24);
+      }
+    }
+  }
+  if (said("collect", "lamp") && has(2)) {
+    print(m22);
+  }
+  if (obj.in.room(0, v0)) {
+    if (said("check", "notice") || said("read", "notice") || said("read", "board")) {
+      set(f30);
+      print(m25);
+    }
+    if (said("collect", "notice")) {
+      distance(o0, o2, v46);
+      if (greatern(v46, 34)) {
+        print(m27);
+      } else {
+        erase(o2);
+        get(0);
+        get(3);
+        print(m26);
+      }
+    }
+    if (said("check", "board")) {
+      print(m28);
+      print(m2);
+    }
+  }
+  if (said("check", "board")) {
+    print(m28);
+    print(m40);
+  }
+  if (said("collect", "notice") && has(0)) {
+    print(m22);
+  }
+  if (said("ask", "brannoc") || said("check", "brannoc")) {
+    print(m29);
+  }
+  if (said("accept", "errand") || said("accept")) {
+    if (isset(f20)) {
+      print(m31);
+    } else {
+      print(m30);
+    }
+  }
+  if (said("ignite", "candle")) {
+    print(m32);
+  }
+  if (said("check", "oak")) {
+    print(m33);
+  }
+  if (said("check", "bush")) {
+    print(m34);
+  }
+  if (said("check", "sky")) {
+    print(m35);
+  }
+  if (said("check", "flowers")) {
+    print(m36);
+  }
+}
+return;
+
+
+// ===== logic 255 (324 bytes)
+#message 1 ">"
+#message 2 " "
+#message 3 "You have died."
+#message 4 "Restore"
+#message 5 "Restart"
+#message 6 "Quit"
+#message 7 "1-3, SPACE, ENTER"
+
+if (!isset(f202)) {
+  set(f202);
+  assignn(v250, 0);
+  program.control();
+  prevent.input();
+  stop.motion(o0);
+  stop.cycling(o0);
+  reset(f14);
+  load.sound(255);
+  sound(255, f201);
+}
+reset(f203);
+if (equaln(v19, 32)) {
+  increment(v250);
+  if (equaln(v250, 3)) {
+    assignn(v250, 0);
+  }
+}
+if (equaln(v19, 49)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (equaln(v19, 50)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (equaln(v19, 51)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (equaln(v19, 13)) {
+  set(f203);
+}
+if (controller(202)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (controller(203)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (controller(204)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (isset(f203)) {
+  if (equaln(v250, 0)) {
+    restore.game();
+  }
+  if (equaln(v250, 1)) {
+    set(f16);
+    restart.game();
+  }
+  if (equaln(v250, 2)) {
+    quit(0);
+  }
+}
+set.text.attribute(0, 15);
+clear.text.rect(9, 10, 16, 30, 15);
+display(10, 14, m3);
+display(12, 15, m4);
+display(13, 15, m5);
+display(14, 15, m6);
+display(15, 12, m7);
+if (equaln(v250, 0)) {
+  display(12, 13, m1);
+  display(13, 13, m2);
+  display(14, 13, m2);
+}
+if (equaln(v250, 1)) {
+  display(12, 13, m2);
+  display(13, 13, m1);
+  display(14, 13, m2);
+}
+if (equaln(v250, 2)) {
+  display(12, 13, m2);
+  display(13, 13, m2);
+  display(14, 13, m1);
+}
+set.text.attribute(15, 0);
+return;

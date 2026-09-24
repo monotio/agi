@@ -1,0 +1,643 @@
+// ===== logic 0 (2502 bytes)
+#message 1 "File"
+#message 2 "Save Game      F5"
+#message 3 "Restore Game   F7"
+#message 4 "Restart Game   F9"
+#message 5 "Quit          Alt+Z"
+#message 6 "Speed"
+#message 7 "Slow"
+#message 8 "Normal"
+#message 9 "Fast"
+#message 10 "Fastest"
+#message 11 "Sound"
+#message 12 "On"
+#message 13 "Off"
+#message 14 "Help"
+#message 15 "Help           F1"
+#message 16 "About"
+#message 17 "Type commands such as LOOK, READ NOTICE or TAKE LANTERN and press ENTER. Arrow keys walk. TAB shows what you carry. ESC opens the menu."
+#message 18 "Knight's Trial. Wenna, third squire of Thornwall, goes looking for the Three Bright Things before the last candle burns out."
+#message 19 "I don't know the word \"%s11\"."
+#message 20 "I don't understand that."
+#message 21 "BY ORDER OF KING BRANNOC OF THORNWALL: The last candle in the kingdom is burning down. Wanted: a squire to find the Three Bright Things - the Bell under the water, the Ember that never goes out, and the Map that wanders. Whoever takes down this notice takes up the errand."
+#message 22 "On the back, in the king's own handwriting: 'P.S. Three roadside candles have gone out on the country roads. If you pass one, light it. Every little light helps. - B.'"
+#message 23 "A brass lantern, lit. The brass has gone dull and green. A good polish would improve it."
+#message 24 "A brass lantern, lit and polished until you can see your own face in it."
+#message 25 "You rub the lantern on your sleeve. The sleeve gets dirtier and the lantern doesn't get any shinier. Something gritty would work better."
+#message 26 "You scrub the lantern with the river sand until the brass shines like new."
+#message 27 "The lantern is already as shiny as it will get."
+#message 28 "The lantern is already lit."
+#message 29 "A round loaf of bread in the cook's basket, still a little warm."
+#message 30 "You're saving it. Somebody out there might want it more than you do."
+#message 31 "There's no candle here to light."
+#message 32 "You'd need to be holding the notice to read the back."
+#message 33 "The Bell. It rings softly by itself whenever you move."
+#message 34 "The Ember glows warm in your hand without burning it."
+#message 35 "The Map. The roads on it drift slowly, like weeds in a stream."
+#message 36 "You don't have a lantern."
+
+if (!isset(f200)) {
+  set(f200);
+  configure.screen(1, 22, 0);
+  status.line.on();
+  set(f9);
+  assignn(v10, 2);
+  assignn(v7, 230);
+  set.menu(m1);
+  set.menu.item(m2, 201);
+  set.menu.item(m3, 202);
+  set.menu.item(m4, 203);
+  set.menu.item(m5, 204);
+  set.menu(m6);
+  set.menu.item(m7, 205);
+  set.menu.item(m8, 206);
+  set.menu.item(m9, 207);
+  set.menu.item(m10, 208);
+  set.menu(m11);
+  set.menu.item(m12, 209);
+  set.menu.item(m13, 210);
+  set.menu(m14);
+  set.menu.item(m15, 211);
+  set.menu.item(m16, 212);
+  submit.menu();
+  set(f14);
+  set.key(27, 0, 200);
+  set.key(0, 59, 211);
+  set.key(0, 63, 201);
+  set.key(0, 65, 202);
+  set.key(0, 67, 203);
+  set.key(0, 44, 204);
+  set.key(9, 0, 213);
+  assignn(v0, 1);
+  new.room.v(v0);
+}
+call.v(v0);
+if (isset(f202)) {
+  call(255);
+}
+if (!isset(f202)) {
+  if (controller(200)) {
+    menu.input();
+  }
+  if (controller(201)) {
+    save.game();
+  }
+  if (controller(202)) {
+    restore.game();
+  }
+  if (controller(203)) {
+    restart.game();
+  }
+  if (controller(204)) {
+    quit(0);
+  }
+  if (controller(205)) {
+    assignn(v10, 4);
+  }
+  if (controller(206)) {
+    assignn(v10, 2);
+  }
+  if (controller(207)) {
+    assignn(v10, 1);
+  }
+  if (controller(208)) {
+    assignn(v10, 0);
+  }
+  if (controller(209)) {
+    set(f9);
+  }
+  if (controller(210)) {
+    reset(f9);
+  }
+  if (controller(211)) {
+    print(m17);
+  }
+  if (controller(212)) {
+    print(m18);
+  }
+  if (controller(213)) {
+    status();
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (said("inv")) {
+    status();
+  }
+  if (has(1) && (said("read", "board") || said("examine", "board"))) {
+    print(m21);
+    print(m22);
+    set(f42);
+  }
+  if (said("read", "back") || said("examine", "back") || said("read", "back", "board") || said("examine", "back", "board")) {
+    if (has(1)) {
+      print(m22);
+      set(f42);
+    } else {
+      print(m32);
+    }
+  }
+  if (has(3) && said("examine", "lamp")) {
+    if (isset(f47)) {
+      print(m24);
+    } else {
+      print(m23);
+    }
+  }
+  if (said("clean", "lamp") || said("clean")) {
+    if (has(3)) {
+      if (isset(f47)) {
+        print(m27);
+      } else {
+        if (has(7)) {
+          set(f47);
+          drop(7);
+          print(m26);
+        } else {
+          print(m25);
+        }
+      }
+    } else {
+      print(m36);
+    }
+  }
+  if (has(3) && said("ignite", "lamp")) {
+    print(m28);
+  }
+  if (has(2) && (said("examine", "bread") || said("examine", "basket"))) {
+    print(m29);
+  }
+  if (has(2) && said("eat", "bread")) {
+    print(m30);
+  }
+  if (said("ignite", "candle")) {
+    print(m31);
+  }
+  if (has(4) && said("examine", "bell")) {
+    print(m33);
+  }
+  if (has(5) && said("examine", "ember")) {
+    print(m34);
+  }
+  if (has(6) && said("examine", "map")) {
+    print(m35);
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (greatern(v9, 0)) {
+    if (equaln(v9, 1)) {
+      word.to.string(s11, 1);
+    }
+    if (equaln(v9, 2)) {
+      word.to.string(s11, 2);
+    }
+    if (equaln(v9, 3)) {
+      word.to.string(s11, 3);
+    }
+    if (equaln(v9, 4)) {
+      word.to.string(s11, 4);
+    }
+    if (equaln(v9, 5)) {
+      word.to.string(s11, 5);
+    }
+    if (equaln(v9, 6)) {
+      word.to.string(s11, 6);
+    }
+    if (equaln(v9, 7)) {
+      word.to.string(s11, 7);
+    }
+    if (equaln(v9, 8)) {
+      word.to.string(s11, 8);
+    }
+    if (equaln(v9, 9)) {
+      word.to.string(s11, 9);
+    }
+    if (equaln(v9, 10)) {
+      word.to.string(s11, 10);
+    }
+    if (equaln(v9, 11)) {
+      word.to.string(s11, 11);
+    }
+    print(m19);
+  } else {
+    print(m20);
+  }
+}
+return;
+
+
+// ===== logic 1 (4974 bytes)
+#message 1 "Castle Thornwall is down to its last candle. King Brannoc has pinned a notice by the gate, and you, Wenna, his third squire, are the only one awake to read it."
+#message 2 "Castle Thornwall stands across the moat with its drawbridge down. A notice board stands west of the path and a bench to the east. The path runs east into the meadows. An alligator drifts in the moat."
+#message 3 "Gray stone, a faded pennant and one lit window high in the east tower. That window is where the last candle burns. The great hall is through the gate."
+#message 4 "The drawbridge is down. It has not been raised in years, because nobody remembers which chain does what."
+#message 5 "The moat is deep and dark and goes all the way around the castle. The alligator likes it that way."
+#message 6 "An alligator floats in the moat with only its eyes and nostrils above the water. It has watched this gate longer than any guard."
+#message 7 "The alligator doesn't answer. It keeps looking at you as though working out how much of you there is."
+#message 8 "The alligator opens its mouth hopefully. You close the basket. The bread is for the journey."
+#message 9 "You have nothing the alligator wants, apart from yourself."
+#message 10 "You look down at the dark water. The alligator raises its head a little and waits. Swimming here would be a very bad idea."
+#message 11 "You slip into the moat. The alligator has been waiting all morning for exactly this, and it doesn't waste the chance."
+#message 12 "You would have to go to the edge of the moat first."
+#message 13 "BY ORDER OF KING BRANNOC OF THORNWALL: The last candle in the kingdom is burning down. Wanted: a squire to find the Three Bright Things - the Bell under the water, the Ember that never goes out, and the Map that wanders. Whoever takes down this notice takes up the errand."
+#message 14 "You are too far away to read it."
+#message 15 "You unpin the notice and roll it up. By old custom, whoever takes down a royal notice takes up its errand, so the errand is yours now. There is something written on the back."
+#message 16 "You need to go over to the notice board first."
+#message 17 "To take up the king's errand, take his notice down from the board."
+#message 18 "You already have the errand. The notice is in your pack."
+#message 19 "The cook has left a basket of bread and a lit lantern on the bench for you."
+#message 20 "An empty wooden bench. It has seen a lot of squires set off."
+#message 21 "You take the bread, basket and all. A note from the cook is tucked inside: 'For the road, and for anyone who asks about it nicely.'"
+#message 22 "You need to get closer to the bench."
+#message 23 "You pick up the brass lantern. It burns steadily, though the brass has gone dull and green."
+#message 24 "A fresh loaf in a basket, still warm."
+#message 25 "A brass lantern, lit. The brass is dull and green with age."
+#message 26 "King Brannoc is in the great hall, across the drawbridge."
+#message 27 "The path leaves the drawbridge and runs east into the meadows."
+#message 28 "Old trees crowd the west side of the gate. Nothing is hiding in them except a few birds."
+#message 29 "A thick hedge, taller than the gardener and better kept."
+#message 30 "You stop at the edge of the meadow. Leaving without the king's errand would just be a walk, and the notice is still on the board."
+#message 31 "That's somewhere out in the countryside, not here at the gate."
+#message 32 "The Three Bright Things are somewhere out in the countryside. The notice says what to look for."
+#message 33 "There are no candles to light here at the gate."
+#message 34 "One window in the east tower glows. The last candle in Thornwall burns behind it."
+#message 35 "The red pennant of Thornwall, faded to the color of an old brick."
+#message 36 "Far to the east, smoke rises from a crooked chimney."
+#message 37 "A mild, clear morning."
+#message 38 "Daisies and buttercups. The meadow grows right up to the gate."
+#message 39 "You would like to keep both hands."
+#message 40 "The alligator would sooner take you."
+#message 41 "You have nothing to carry water in, and the alligator is using it."
+#message 42 "You already have it."
+#message 43 "Walk north across the drawbridge to reach the gate."
+#message 44 "The notice is pinned flat to the board. You can't see the back from here."
+#message 45 "The bench stays where it is."
+#message 46 "There isn't one here."
+
+if (isset(f5)) {
+  assignn(v40, 1);
+  load.pic(v40);
+  draw.pic(v40);
+  discard.pic(v40);
+  load.view(0);
+  load.view(1);
+  load.view(2);
+  load.view(3);
+  load.view(4);
+  set.horizon(62);
+  reset(f52);
+  animate.obj(o0);
+  set.view(o0, 0);
+  if (equaln(v1, 2)) {
+    position(o0, 76, 70);
+    set.loop(o0, 2);
+  } else {
+    if (equaln(v1, 3)) {
+      position(o0, 146, 138);
+      set.loop(o0, 1);
+    } else {
+      position(o0, 76, 132);
+      set.loop(o0, 2);
+    }
+  }
+  draw(o0);
+  assignn(v44, 5);
+  assignn(v46, 3);
+  assignn(v45, 6);
+  animate.obj(o1);
+  set.view(o1, 1);
+  position(o1, 20, 78);
+  ignore.objs(o1);
+  cycle.time(o1, v44);
+  step.time(o1, v46);
+  draw(o1);
+  assignn(v41, 0);
+  move.obj(o1, 46, 78, 1, f52);
+  if (obj.in.room(2, v0)) {
+    animate.obj(o2);
+    set.view(o2, 2);
+    position(o2, 113, 103);
+    set.priority(o2, 11);
+    ignore.objs(o2);
+    stop.cycling(o2);
+    draw(o2);
+  }
+  if (obj.in.room(3, v0)) {
+    animate.obj(o3);
+    set.view(o3, 3);
+    position(o3, 126, 103);
+    set.priority(o3, 11);
+    ignore.objs(o3);
+    cycle.time(o3, v45);
+    draw(o3);
+  }
+  if (obj.in.room(1, v0)) {
+    animate.obj(o4);
+    set.view(o4, 4);
+    position(o4, 34, 97);
+    set.priority(o4, 10);
+    ignore.objs(o4);
+    stop.cycling(o4);
+    draw(o4);
+  }
+  show.pic();
+  accept.input();
+  if (!isset(f54)) {
+    set(f54);
+    print(m1);
+  }
+}
+if (isset(f52)) {
+  reset(f52);
+  if (equaln(v41, 0)) {
+    assignn(v41, 1);
+    move.obj(o1, 4, 78, 1, f52);
+  } else {
+    assignn(v41, 0);
+    move.obj(o1, 46, 78, 1, f52);
+  }
+}
+if (said("examine")) {
+  print(m2);
+}
+if (said("examine", "castle")) {
+  print(m3);
+}
+if (said("examine", "bridge")) {
+  print(m4);
+}
+if (said("examine", "window")) {
+  print(m34);
+}
+if (said("examine", "banner")) {
+  print(m35);
+}
+if (said("examine", "chimney")) {
+  print(m36);
+}
+if (said("examine", "cloud")) {
+  print(m37);
+}
+if (said("examine", "flower")) {
+  print(m38);
+}
+if (said("examine", "countryside")) {
+  print(m27);
+}
+if (said("examine", "forest")) {
+  print(m28);
+}
+if (said("examine", "bush")) {
+  print(m29);
+}
+if (said("examine", "moat")) {
+  print(m5);
+}
+if (said("examine", "alligator")) {
+  print(m6);
+}
+if (said("ask", "alligator")) {
+  print(m7);
+}
+if (said("pat", "alligator")) {
+  print(m39);
+}
+if (said("collect", "alligator")) {
+  print(m40);
+}
+if (said("collect", "moat")) {
+  print(m41);
+}
+if (said("enter", "castle") || said("enter", "bridge")) {
+  print(m43);
+}
+if (said("examine", "brannoc") || said("ask", "brannoc")) {
+  print(m26);
+}
+if (said("examine", "bird") || said("ask", "bird") || said("examine", "salamander") || said("examine", "lady") || said("examine", "well")) {
+  print(m31);
+}
+if (said("examine", "things") || said("collect", "things")) {
+  print(m32);
+}
+if (!has(4) && said("examine", "bell")) {
+  print(m32);
+}
+if (!has(5) && said("examine", "ember")) {
+  print(m32);
+}
+if (!has(6) && said("examine", "map")) {
+  print(m32);
+}
+if (said("ignite", "candle")) {
+  print(m33);
+}
+if (said("feed", "bread", "alligator") || said("feed", "alligator", "bread") || said("feed", "alligator")) {
+  if (has(2)) {
+    print(m8);
+  } else {
+    print(m9);
+  }
+}
+if (said("bathe") || said("bathe", "moat") || said("jump", "moat") || said("enter", "moat") || said("jump")) {
+  if (posn(o0, 0, 85, 159, 110) || posn(o0, 66, 62, 94, 86)) {
+    if (!isset(f41)) {
+      set(f41);
+      print(m10);
+    } else {
+      erase(o0);
+      print(m11);
+      call(255);
+    }
+  } else {
+    print(m12);
+  }
+}
+if (obj.in.room(1, v0) && (said("examine", "board") || said("read", "board"))) {
+  if (posn(o0, 10, 86, 70, 134)) {
+    print(m13);
+  } else {
+    print(m14);
+  }
+}
+if (obj.in.room(1, v0) && (said("read", "back") || said("examine", "back") || said("read", "back", "board") || said("examine", "back", "board"))) {
+  print(m44);
+}
+if (said("collect", "board")) {
+  if (has(1)) {
+    print(m42);
+  } else {
+    if (posn(o0, 10, 86, 70, 134)) {
+      get(1);
+      erase(o4);
+      set(f40);
+      addn(v3, 10);
+      print(m15);
+    } else {
+      print(m16);
+    }
+  }
+}
+if (said("accept") || said("accept", "errand") || said("collect", "errand")) {
+  if (isset(f40)) {
+    print(m18);
+  } else {
+    print(m17);
+  }
+}
+if (said("examine", "bench")) {
+  if (obj.in.room(2, v0) || obj.in.room(3, v0)) {
+    print(m19);
+  } else {
+    print(m20);
+  }
+}
+if (said("collect", "bench")) {
+  print(m45);
+}
+if (obj.in.room(2, v0) && (said("examine", "bread") || said("examine", "basket"))) {
+  print(m24);
+}
+if (obj.in.room(3, v0) && said("examine", "lamp")) {
+  print(m25);
+}
+if (said("collect", "bread") || said("collect", "basket")) {
+  if (has(2)) {
+    print(m42);
+  } else {
+    if (obj.in.room(2, v0)) {
+      if (posn(o0, 96, 94, 150, 142)) {
+        get(2);
+        erase(o2);
+        print(m21);
+      } else {
+        print(m22);
+      }
+    } else {
+      print(m46);
+    }
+  }
+}
+if (said("collect", "lamp")) {
+  if (has(3)) {
+    print(m42);
+  } else {
+    if (obj.in.room(3, v0)) {
+      if (posn(o0, 96, 94, 150, 142)) {
+        get(3);
+        erase(o3);
+        print(m23);
+      } else {
+        print(m22);
+      }
+    } else {
+      print(m46);
+    }
+  }
+}
+if (equaln(v2, 1)) {
+  new.room(2);
+}
+if (equaln(v2, 2)) {
+  if (isset(f40)) {
+    new.room(3);
+  } else {
+    assignn(v6, 0);
+    get.posn(o0, v42, v43);
+    assignn(v42, 142);
+    reposition.to.v(o0, v42, v43);
+    print(m30);
+  }
+}
+return;
+
+
+// ===== logic 255 (324 bytes)
+#message 1 ">"
+#message 2 " "
+#message 3 "You have died."
+#message 4 "Restore"
+#message 5 "Restart"
+#message 6 "Quit"
+#message 7 "1-3, SPACE, ENTER"
+
+if (!isset(f202)) {
+  set(f202);
+  assignn(v250, 0);
+  program.control();
+  prevent.input();
+  stop.motion(o0);
+  stop.cycling(o0);
+  reset(f14);
+  load.sound(255);
+  sound(255, f201);
+}
+reset(f203);
+if (equaln(v19, 32)) {
+  increment(v250);
+  if (equaln(v250, 3)) {
+    assignn(v250, 0);
+  }
+}
+if (equaln(v19, 49)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (equaln(v19, 50)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (equaln(v19, 51)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (equaln(v19, 13)) {
+  set(f203);
+}
+if (controller(202)) {
+  assignn(v250, 0);
+  set(f203);
+}
+if (controller(203)) {
+  assignn(v250, 1);
+  set(f203);
+}
+if (controller(204)) {
+  assignn(v250, 2);
+  set(f203);
+}
+if (isset(f203)) {
+  if (equaln(v250, 0)) {
+    restore.game();
+  }
+  if (equaln(v250, 1)) {
+    set(f16);
+    restart.game();
+  }
+  if (equaln(v250, 2)) {
+    quit(0);
+  }
+}
+set.text.attribute(0, 15);
+clear.text.rect(9, 10, 16, 30, 15);
+display(10, 14, m3);
+display(12, 15, m4);
+display(13, 15, m5);
+display(14, 15, m6);
+display(15, 12, m7);
+if (equaln(v250, 0)) {
+  display(12, 13, m1);
+  display(13, 13, m2);
+  display(14, 13, m2);
+}
+if (equaln(v250, 1)) {
+  display(12, 13, m2);
+  display(13, 13, m1);
+  display(14, 13, m2);
+}
+if (equaln(v250, 2)) {
+  display(12, 13, m2);
+  display(13, 13, m2);
+  display(14, 13, m1);
+}
+set.text.attribute(15, 0);
+return;
