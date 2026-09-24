@@ -16,7 +16,20 @@ export const VIEW_SOURCE_DOC = `View source: one command per line, between \`vie
 - \`cel NAME copy EARLIER\` copies an earlier cel (size and transparency included); \`row Y SYMBOLS\` lines replace whole rows (Y counts from 0), then \`endcel\`. Draw a frame once and copy it for the next.
 - \`loop N NAME NAME...\` lists a loop's cels in order; loops are numbered from 0 without gaps, and a cel may appear more than once. \`loop N mirror M\` shows loop M flipped left to right.
 - Optional \`description "TEXT"\` (a JSON string).
-For a walking actor, loops are 0 right, 1 left, 2 front, 3 back; mirror left from right unless the design is asymmetric, and draw front and back.`;
+For a walking actor, loops are 0 right, 1 left, 2 front, 3 back; mirror left from right unless the design is asymmetric, and draw front and back.
+Example, a flag waving in two frames that also faces left:
+view
+cel flag0 4 3 0
+CC..
+CCCC
+.44.
+endcel
+cel flag1 copy flag0
+row 0 .CC.
+endcel
+loop 0 flag0 flag1
+loop 1 mirror 0
+endview`;
 
 const KEYWORDS: Record<string, true> = {
   view: true,
@@ -104,7 +117,9 @@ export function compileViewSource(source: string): BuildViewInput {
     readDescription(first.text, first.line);
     first = next();
   }
-  if (first?.text !== "view") fail(first?.line ?? 1, 'source must start with "view".');
+  // "view" may carry a name, which has no meaning in the resource.
+  if (!first || !/^view(?:\s+\S+)?$/.test(first.text))
+    fail(first?.line ?? 1, 'source must start with "view".');
   for (;;) {
     const current = next();
     if (!current) fail(lines.length, 'source must end with "endview".');

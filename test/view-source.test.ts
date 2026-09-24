@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compileViewSource } from "../src/view/viewSource.ts";
+import { compileViewSource, VIEW_SOURCE_DOC } from "../src/view/viewSource.ts";
 import { buildView, parseView, selectViewCel } from "../src/view/view.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 
@@ -151,6 +151,23 @@ describe("view source", () => {
     ];
     for (const [source, message] of cases)
       assert.throws(() => compileViewSource(source), message, source);
+  });
+
+  it("accepts a name after view and compiles the example in its own documentation", () => {
+    // GPT-6 Luna wrote "view wenna" six times; the name carries no meaning.
+    assert.deepEqual(
+      compileViewSource(CHEST.replace("view\n", "view chest\n")),
+      compileViewSource(CHEST),
+    );
+    assert.throws(
+      () => compileViewSource(CHEST.replace("view\n", "view a b\n")),
+      /start with "view"/,
+    );
+    const example = /\n(view\n[\s\S]*?\nendview)/.exec(VIEW_SOURCE_DOC)?.[1];
+    assert.ok(example, "the documentation shows a complete view");
+    const input = compileViewSource(example);
+    assert.equal(input.loops.length, 2);
+    assert.deepEqual(input.loops[1], { mirrorLoop: 0 });
   });
 
   it("accepts the description before view as well as inside it", () => {
