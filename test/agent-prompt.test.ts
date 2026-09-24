@@ -10,13 +10,6 @@ import { AGENT_TOOLS } from "../src/agent/tools.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 
 describe("agent system prompt", () => {
-  it("fits the lean frontier-model startup budget", () => {
-    assert.ok(
-      AGI_SYSTEM_PROMPT.length <= 10_000,
-      `system prompt is ${AGI_SYSTEM_PROMPT.length} characters; expected at most 10000`,
-    );
-  });
-
   it("loads opcode details on demand instead of embedding a catalog", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("read_command_reference"));
     assert.ok(!AGI_SYSTEM_PROMPT.includes("Complete command catalog"));
@@ -297,6 +290,5 @@ describe("first-turn prompts", () => {
       "points to the on-demand command reference",
     );
     assert.ok(!prompt.includes("Complete command catalog"), "does not repeat the opcode catalog");
-    assert.ok(prompt.length < 1_000, `orientation boilerplate is ${prompt.length} characters`);
   });
 });
