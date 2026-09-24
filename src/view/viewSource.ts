@@ -256,21 +256,28 @@ function symmetry(cel: BuildCelInput): number {
  */
 export function viewSourceWarnings(input: BuildViewInput): string[] {
   const warnings: string[] = [];
+  // A repeated cel inside a changing loop holds a pose, as AGI has no
+  // per-cel timing; only a loop whose cels are all the same never moves.
   input.loops.forEach((loop, index) => {
     const cels = loop.cels ?? [];
-    for (let cel = 0; cel + 1 < cels.length; cel++) {
-      const a = cels[cel]!.pixels;
-      const b = cels[cel + 1]!.pixels;
-      if (a.length === b.length && Array.prototype.every.call(a, (value, i) => value === b[i])) {
-        warnings.push(
-          `Loop ${index}: cels ${cel} and ${cel + 1} are identical, so that step shows no motion; change the rows that move (for a walk, the legs).`,
-        );
-        break;
-      }
-    }
+    const first = cels[0]?.pixels;
+    if (
+      first &&
+      cels.length > 1 &&
+      cels.every(
+        (cel) =>
+          cel.pixels.length === first.length &&
+          Array.prototype.every.call(cel.pixels, (value, i) => value === first[i]),
+      )
+    )
+      warnings.push(
+        `Loop ${index}: all ${cels.length} cels are identical, so it shows no motion; change the rows that move (for a walk, the legs).`,
+      );
   });
+  // Facing advice is for a walker: four loops with an animated right loop.
+  const walker = input.loops.length === 4 && (input.loops[0]?.cels?.length ?? 0) > 1;
   const right = input.loops[0]?.cels?.[0];
-  if (input.loops.length === 4 && right && symmetry(right) >= 0.95)
+  if (walker && right && symmetry(right) >= 0.95)
     warnings.push(
       "Loop 0 faces right but its first cel is symmetric like a front view; draw the figure in profile, facing right (loop 2 is the front).",
     );

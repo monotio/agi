@@ -83,9 +83,9 @@ describe("sprite authoring tools", () => {
       "view\ncel a 3 1 0\n120\nendcel\ncel b copy a\nendcel\nloop 0 a b\nendview",
     );
     assert.equal(result?.success, true, result?.error ?? "");
-    assert.match(result?.message ?? "", /Loop 0: cels 0 and 1 are identical/);
+    assert.match(result?.message ?? "", /Loop 0: all 2 cels are identical/);
     assert.deepEqual(result?.details?.["warnings"], [
-      "Loop 0: cels 0 and 1 are identical, so that step shows no motion; change the rows that move (for a walk, the legs).",
+      "Loop 0: all 2 cels are identical, so it shows no motion; change the rows that move (for a walk, the legs).",
     ]);
   });
 

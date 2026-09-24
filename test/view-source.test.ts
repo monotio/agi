@@ -194,7 +194,7 @@ describe("view source", () => {
     assert.deepEqual(viewSourceWarnings(compileViewSource(ACTOR)), []);
     const still = ACTOR.replace("row 6 .74C4C7.\nrow 22 ..77....\nrow 25 ..88....\n", "");
     assert.deepEqual(viewSourceWarnings(compileViewSource(still)), [
-      "Loop 0: cels 0 and 1 are identical, so that step shows no motion; change the rows that move (for a walk, the legs).",
+      "Loop 0: all 2 cels are identical, so it shows no motion; change the rows that move (for a walk, the legs).",
     ]);
     const facing = (right: string) =>
       [
@@ -210,6 +210,18 @@ describe("view source", () => {
       /Loop 0 faces right but its first cel is symmetric like a front view; draw the figure in profile/,
     );
     assert.deepEqual(viewSourceWarnings(compileViewSource(facing("..444.\n.44444\n..4.4."))), []);
+    // A held frame inside a moving loop is AGI timing, not a defect, and a
+    // four-loop bundle of one-cel props is not a walker (Opus, Astra and Sol
+    // views the release benchmark flagged and rightly ignored).
+    const hold =
+      "view\ncel a 3 1 0\n120\nendcel\ncel b copy a\nrow 0 021\nendcel\nloop 0 a a b\nendview";
+    assert.deepEqual(viewSourceWarnings(compileViewSource(hold)), []);
+    const props = [
+      "view",
+      ...["a", "b", "c", "d"].flatMap((name) => [`cel ${name} 3 1 0`, "121", "endcel"]),
+      "loop 0 a\nloop 1 b\nloop 2 c\nloop 3 d\nendview",
+    ].join("\n");
+    assert.deepEqual(viewSourceWarnings(compileViewSource(props)), []);
     // A prop or a one-loop view gets no facing advice.
     assert.deepEqual(viewSourceWarnings(compileViewSource(CHEST)), []);
   });
