@@ -287,11 +287,11 @@ const STEP_FIELDS = [
 /** Fields (besides action/ticks/captureTicks) each step kind uses. */
 const ACTION_FIELDS: Readonly<Record<StepAction, readonly string[]>> = {
   command: ["command"],
-  move: ["direction"],
+  move: ["direction", "until"],
   enter: [],
   wait: ["until"],
   key: ["key"],
-  direction: ["direction"],
+  direction: ["direction", "until"],
   walkTo: ["x", "y"],
   answer: ["answer"],
   walkWaypoints: ["waypoints"],
@@ -415,7 +415,7 @@ export function validateGameTestStep(value: unknown, label: string): GameTestSte
     y: kind === "walkTo" ? integer(step["y"], `${label}.y`, 0, 167) : null,
     answer: kind === "answer" ? text(step["answer"], `${label}.answer`, 80) : null,
     until:
-      kind === "wait" && step["until"] != null
+      (kind === "wait" || kind === "move" || kind === "direction") && step["until"] != null
         ? validateUntilPredicate(step["until"], `${label}.until`)
         : null,
     waypoints: kind === "walkWaypoints" ? waypoints : null,

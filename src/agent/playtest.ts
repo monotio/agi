@@ -630,7 +630,8 @@ export function playtestRoom(
         ? action["action"] === "walkTo" ||
           action["action"] === "walkPath" ||
           action["action"] === "walkWaypoints" ||
-          (action["action"] === "wait" && action["until"] != null)
+          (["wait", "move", "direction"].includes(String(action["action"])) &&
+            action["until"] != null)
           ? 600
           : 1
         : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
@@ -658,8 +659,14 @@ export function playtestRoom(
           requested[captureIndex],
           `steps[${index}].captureTicks[${captureIndex}]`,
           1,
-          ticks,
+          60000,
         );
+        if (tick > ticks) {
+          const needed = Math.max(...requested.filter((item) => Number.isInteger(item)));
+          throw new Error(
+            `steps[${index}].captureTicks[${captureIndex}] is tick ${tick}, but this step runs ${ticks} tick${ticks === 1 ? "" : "s"}; set ticks to at least ${needed}.`,
+          );
+        }
         if (validated.length && tick <= validated[validated.length - 1]!)
           throw new Error(`steps[${index}].captureTicks must be strictly increasing.`);
         validated.push(tick);
@@ -785,7 +792,12 @@ export function playtestRoom(
         }
         moveDirection = dir;
         simulation.directionInput(dir);
-        simulation.recordAction(`direction(${dir})`);
+        // Walking a direction until something happens: "right until room 2".
+        if (step["until"] != null)
+          until = validateUntilPredicate(step["until"], `steps[${index}].until`);
+        simulation.recordAction(
+          until ? `direction(${dir}, ${describeUntil(until)})` : `direction(${dir})`,
+        );
       } else if (action === "walkTo") {
         walkTarget = {
           x: integer(step["x"], `steps[${index}].x`, 0, 159),
@@ -907,8 +919,8 @@ export function playtestRoom(
             });
       let navigationOutcome: NavigationOutcome | null = null;
       for (let cycle = 0; cycle < ticks; cycle++) {
+        if (until !== null && untilMet(engine, until)) break;
         if (action === "wait") {
-          if (until !== null && untilMet(engine, until)) break;
           if (engine.modalKind)
             throw new SimulationStop(
               `steps[${index}]: the ${engine.modalKind} modal pauses animation. Add an enter action before waiting to observe animation. Completed ${cycle} of ${ticks} requested cycles.`,
@@ -976,9 +988,9 @@ export function playtestRoom(
           throw new Error(message);
         }
       }
-      if (action === "wait" && until !== null && !untilMet(engine, until))
+      if (until !== null && !untilMet(engine, until))
         throw new Error(
-          `steps[${index}]: wait did not satisfy ${describeUntil(until)} within ${ticks} cycles.`,
+          `steps[${index}]: ${action} did not satisfy ${describeUntil(until)} within ${ticks} cycles.`,
         );
       Object.assign(observed, {
         roomAfter: engine.vars[0],

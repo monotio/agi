@@ -585,8 +585,10 @@ test("playtest checkpoints preserve distinct intermediate frames when a cycle re
 test("playtest rejects invalid checkpoint requests before simulation", () => {
   for (const [captureTicks, ticks, pattern] of [
     [[2, 1], 2, /strictly increasing/i],
-    [[1, 3], 2, /integer from 1 to 2/i],
-    [[1.5], 2, /integer from 1 to 2/i],
+    // Opus sent captureTicks [5, 15, 30] on a direction step with null ticks
+    // (one tick) and read only "an integer from 1 to 1".
+    [[1, 3], 2, /captureTicks\[1\] is tick 3, but this step runs 2 ticks; set ticks to at least 3/],
+    [[1.5], 2, /captureTicks\[0\] must be an integer from 1 to 60000/i],
     [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 10, /at most 9/i],
   ] as const) {
     const result = playtestRoom(world(), {

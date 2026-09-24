@@ -67,6 +67,8 @@ export const PLAYTEST_STEPS_SCHEMA = {
       y: { type: ["integer", "null"], minimum: 0, maximum: 167 },
       answer: { type: ["string", "null"], maxLength: 80 },
       until: {
+        description:
+          "wait, direction or move: run until this holds (room, flag or var); fails if it does not within ticks (default 600).",
         type: ["object", "null"],
         additionalProperties: false,
         properties: {
@@ -261,7 +263,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_words",
     description:
-      'Compile parser vocabulary into WORDS.TOK. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. `ignored` lists words the parser drops before matching (AGI word group 0), such as a, an and the, so LOOK AT THE NOTICE can match said("look", "notice") when at and the are ignored. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.',
+      'Compile parser vocabulary into WORDS.TOK. A word starts with a letter and uses only a-z, 0-9, apostrophes and spaces (a phrase): write break in, not break-in. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. `ignored` lists words the parser drops before matching (AGI word group 0), such as a, an and the, so LOOK AT THE NOTICE can match said("look", "notice") when at and the are ignored. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.',
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -661,7 +663,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "playtest_room",
     description:
-      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo (position), walkPath (target region), walkWaypoints (explicit route) or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting. Navigation returns typed outcomes in steps[].navigation and stops for explicit modal input. Navigation steps default to 600 logic cycles, bounded by the remaining scenario budget; host polls, logic cycles and eligible movement updates are reported separately. Null `cycleBudget` (600, including setup) and `instructionBudget` (50000) bound the run. An exit to a room the world plan declares reports `reached_planned_room` (success: the room is built when the player arrives); an unplanned missing destination reports `needs_authoring`.",
+      "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo (position), walkPath (target region), walkWaypoints (explicit route) or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting. A print() window stops the game until it is dismissed: after a room that prints on entry, or a command that prints, add an enter step before the next walk, wait or command. Navigation returns typed outcomes in steps[].navigation and stops for explicit modal input. Navigation steps default to 600 logic cycles, bounded by the remaining scenario budget; host polls, logic cycles and eligible movement updates are reported separately. Null `cycleBudget` (600, including setup) and `instructionBudget` (50000) bound the run. An exit to a room the world plan declares reports `reached_planned_room` (success: the room is built when the player arrives); an unplanned missing destination reports `needs_authoring`.",
     parameters: {
       type: "object",
       additionalProperties: false,

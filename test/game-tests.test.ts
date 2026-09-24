@@ -761,6 +761,49 @@ test("wait accepts cycles or an until predicate over room, flag and var", () => 
   assert.match(unmet.error ?? "", /did not satisfy.*within 5 cycles/);
 });
 
+test("a direction or move step can walk until a predicate holds", () => {
+  // Opus wrote "walk right until room 2" as a direction step with until in
+  // two Genesis benchmark runs. The room copies ego's x into v42 each cycle.
+  const state = world(`${ROOM_LOGIC.replace("return;", "")}get.posn(o0, v42, v43);\nreturn;`);
+  const walk = (action: string, ticks: number | null) =>
+    playtestRoom(state, {
+      room: 1,
+      spawnX: null,
+      spawnY: null,
+      steps: [
+        step(action, {
+          direction: "right",
+          until: { room: null, flag: null, var: { id: 42, value: null, min: 100, max: null } },
+          ticks,
+        }),
+      ],
+      expect: null,
+      cycleBudget: null,
+      instructionBudget: null,
+    });
+  for (const action of ["direction", "move"]) {
+    const walked = walk(action, null);
+    assert.equal(walked.success, true, walked.error ?? "");
+    const short = walk(action, 5);
+    assert.equal(short.success, false);
+    assert.match(short.error ?? "", new RegExp(`${action} did not satisfy v42 .* within 5 cycles`));
+  }
+  const stored = parseGameTests(
+    new TextEncoder().encode(
+      JSON.stringify({
+        format: GAME_TESTS_FORMAT,
+        tests: [
+          {
+            ...takeKey,
+            steps: [{ action: "direction", direction: 3, until: { room: 2 }, ticks: 60 }],
+          },
+        ],
+      }),
+    ),
+  );
+  assert.deepEqual(stored.tests[0]?.steps[0]?.["until"], { room: 2, flag: null, var: null });
+});
+
 test("score, var range, object and reachable expectations report observed values", () => {
   const state = world();
   const run = (expect: unknown) =>
