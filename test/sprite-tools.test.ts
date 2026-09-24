@@ -68,6 +68,29 @@ describe("sprite authoring tools", () => {
     assert.equal(result?.images?.length, 1);
   });
 
+  it("takes as many cels per facing as the interpreter allows, and names rows sent as cels", () => {
+    // The shorthand capped every facing at 15 cels, the limit of packed-header
+    // interpreters only; 2.936 allows 255. Luna hit the cap by sending each
+    // pixel row of one cel as its own cel, which now gets its own message.
+    const state = createAgentSessionState();
+    const walk = Array.from({ length: 20 }, (_, index) => [index % 2 ? "120" : "021", "340"]);
+    const long = writeActor(state, { ...ACTOR, num: 2, right: walk });
+    assert.equal(long?.success, true, long?.error ?? "");
+    assert.equal(
+      parseView(state.container.getResource("view", 2)!, state.profile).loops[0]!.cels.length,
+      20,
+    );
+    const rows = writeActor(state, {
+      ...ACTOR,
+      num: 3,
+      right: ["00088800", "00888880", "08888888", "00666660", "00066600", "00111100"].map((row) => [
+        row,
+      ]),
+    });
+    assert.equal(rows?.success, false);
+    assert.match(rows?.error ?? "", /right: 6 cels of one row each.*array of row strings/);
+  });
+
   it("accepts a single direction and safely populates missing loops with warnings", () => {
     const state = createAgentSessionState();
     const result = writeActor(state, {

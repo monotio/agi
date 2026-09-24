@@ -5,6 +5,7 @@ import { buildProjectZip, buildPublicGameZip } from "../app/src/projectArchive.t
 import {
   GAME_TESTS_FILE,
   GAME_TESTS_FORMAT,
+  GAME_TESTS_MAX_BYTES,
   parseGameTests,
   serializeGameTests,
   testsForResource,
@@ -158,20 +159,22 @@ test("the stored format round-trips and rejects what it cannot run", () => {
   );
   const twice = JSON.stringify({ format: GAME_TESTS_FORMAT, tests: [takeKey, takeKey] });
   assert.throws(() => parseGameTests(new TextEncoder().encode(twice)), /unique/);
-  // The 256 KiB bound holds on reading and on writing.
-  assert.throws(() => parseGameTests(new Uint8Array(262145)), /larger than 256 KiB/);
+  // A large game keeps a test per puzzle: well past the 64 tests and
+  // 256 KiB that were once the limit. The one bound is a game archive entry.
   const bulky = {
     ...takeKey,
     steps: Array.from({ length: 256 }, () =>
       step("command", { command: "take key".padEnd(80, " x") }),
     ),
   };
+  const many = serializeGameTests(
+    Array.from({ length: 100 }, (_, index) => ({ ...bulky, name: `bulky ${index}` })),
+  );
+  assert.ok(many.length > 262144);
+  assert.equal(parseGameTests(many).tests.length, 100);
   assert.throws(
-    () =>
-      serializeGameTests(
-        Array.from({ length: 8 }, (_, index) => ({ ...bulky, name: `bulky ${index}` })),
-      ),
-    /256 KiB/,
+    () => parseGameTests(new Uint8Array(GAME_TESTS_MAX_BYTES + 1)),
+    /larger than 64 MiB/,
   );
 });
 
@@ -759,6 +762,34 @@ test("wait accepts cycles or an until predicate over room, flag and var", () => 
   const unmet = until({ room: null, flag: { id: 31, value: true }, var: null }, 5);
   assert.equal(unmet.success, false);
   assert.match(unmet.error ?? "", /did not satisfy.*within 5 cycles/);
+});
+
+test("expect.printed sees every message of a long scenario", () => {
+  // Only the first 32 printed messages used to be kept, so a message printed
+  // late in a long test was reported as never printed.
+  const state = world(`
+if (isset(f5)) {
+ assignn(v10, 1); load.pic(v10); draw.pic(v10); show.pic();
+ load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();
+}
+if (said("look")) {
+ addn(v44, 1);
+ if (equaln(v44, 40)) { print("The fortieth look."); } else { print("Again."); }
+}
+return;`);
+  const result = playtestRoom(state, {
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: Array.from({ length: 40 }, () => [
+      step("command", { command: "look" }),
+      step("enter"),
+    ]).flat(),
+    expect: expectation({ printed: "fortieth look" }),
+    cycleBudget: null,
+    instructionBudget: null,
+  });
+  assert.equal(result.success, true, result.error ?? "");
 });
 
 test("a direction or move step can walk until a predicate holds", () => {

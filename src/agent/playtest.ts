@@ -30,10 +30,15 @@ import { resourceSetHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./tools.ts";
 
 const DEFAULT_CYCLES = 600;
-/** Genesis boots get this many cycles, plus GENESIS_CYCLES_PER_ACK for every dismissed message or key. */
+/** The most logic cycles one scenario may run: a playtest's cycleBudget or a step's ticks. */
+const MAX_SCENARIO_CYCLES = 60000;
+/**
+ * Genesis boots get this many cycles, plus GENESIS_CYCLES_PER_ACK for every
+ * dismissed message or key, up to MAX_SCENARIO_CYCLES: a long intro passes,
+ * and one that never reaches a playable scene ends in warnings.
+ */
 const GENESIS_CYCLES = 120;
 const GENESIS_CYCLES_PER_ACK = 30;
-const GENESIS_MAX_ACKS = 16;
 
 const DIRECTION_DELTAS: Readonly<Record<number, readonly [number, number]>> = {
   1: [0, -1],
@@ -104,6 +109,7 @@ interface CapturedCheckpoint {
 
 export class Simulation {
   readonly engine: Engine;
+  /** Every printed message, for expect.printed; details report the latest 32. */
   readonly messages: string[] = [];
   readonly missingRooms: number[] = [];
   /** Answers queued by answer steps for the game's get.string prompts. */
@@ -113,7 +119,6 @@ export class Simulation {
   readonly actionHistory: string[] = [];
   cycles = 0;
   readonly cycleBudget: number;
-  private readonly started = Date.now();
   estimatedGameTimeMs: number | null = 0;
   line: string | null = null;
   keys: number[] = [];
@@ -163,7 +168,7 @@ export class Simulation {
     };
     const host: EngineHost = {
       print: (text) => {
-        if (this.messages.length < 32) this.messages.push(text.slice(0, 1000));
+        this.messages.push(text);
       },
       displayAt: () => {},
       statusLine: () => {},
@@ -249,8 +254,6 @@ export class Simulation {
   }
   private advanceRecordedClock(ticks: number): void {
     for (let i = 0; i < ticks; i++) {
-      if (i % 1000 === 0 && Date.now() - this.started > 5000)
-        throw new Error("Recorded replay reached its five-second execution deadline.");
       this.engine.advanceClock(1000 / 60);
       this.engine.soundTick();
     }
@@ -259,8 +262,6 @@ export class Simulation {
   replay(recording: RecordedReplay): void {
     this.engine.restoreReplayState(recording.state);
     for (const operation of recording.operations) {
-      if (Date.now() - this.started > 5000)
-        throw new Error("Recorded replay reached its five-second execution deadline.");
       switch (operation[0]) {
         case "clock":
           this.advanceRecordedClock(operation[1]);
@@ -306,10 +307,6 @@ export class Simulation {
     if (++this.cycles > this.cycleBudget)
       throw new Error(
         `Simulation cycle limit (${this.cycleBudget}) exceeded. Increase cycleBudget for a longer sequence.`,
-      );
-    if (Date.now() - this.started > 5000)
-      throw new Error(
-        "Simulation reached its five-second execution deadline. Split the scenario into shorter checks.",
       );
     // Each requested tick is a logic cycle. Positive v10 waits that many 50 ms
     // timer increments; zero is host-rate-dependent, so it has no wall-time claim.
@@ -473,7 +470,8 @@ export class Simulation {
           parsedWords: state.parsedWordTexts,
         },
         objects: engine.readObjects(),
-        messages: this.messages,
+        messages: this.messages.slice(-32).map((message) => message.slice(0, 1000)),
+        ...(this.messages.length > 32 ? { messagesPrinted: this.messages.length } : {}),
         text: textRows(frame).filter((row) => row.trim()),
         checkpoints,
         recentActions: this.actionHistory.slice(-5),
@@ -634,7 +632,7 @@ export function playtestRoom(
             action["until"] != null)
           ? 600
           : 1
-        : integer(action["ticks"], `steps[${index}].ticks`, 1, 60000);
+        : integer(action["ticks"], `steps[${index}].ticks`, 1, MAX_SCENARIO_CYCLES);
     };
     const captureTicksByStep: number[][] = [];
     let totalCaptureTicks = 0;
@@ -659,7 +657,7 @@ export function playtestRoom(
           requested[captureIndex],
           `steps[${index}].captureTicks[${captureIndex}]`,
           1,
-          60000,
+          MAX_SCENARIO_CYCLES,
         );
         if (tick > ticks) {
           const needed = Math.max(...requested.filter((item) => Number.isInteger(item)));
@@ -680,7 +678,7 @@ export function playtestRoom(
       state,
       args["cycleBudget"] == null
         ? DEFAULT_CYCLES
-        : integer(args["cycleBudget"], "cycleBudget", 1, 60000),
+        : integer(args["cycleBudget"], "cycleBudget", 1, MAX_SCENARIO_CYCLES),
       args["instructionBudget"] == null
         ? 50000
         : integer(args["instructionBudget"], "instructionBudget", 1, 1000000),
@@ -906,7 +904,6 @@ export function playtestRoom(
         navigationGoal === null
           ? null
           : new NavigationController(engine, navigationGoal, {
-              now: () => Date.now(),
               ...(simulation.pendingNavigationDirection === null
                 ? {}
                 : { pendingDirection: simulation.pendingNavigationDirection }),
@@ -914,7 +911,6 @@ export function playtestRoom(
                 hostPolls: Math.min(ticks, simulation.cycleBudget - simulation.cycles),
                 logicCycles: Math.min(ticks, simulation.cycleBudget - simulation.cycles),
                 movementUpdates: ticks,
-                wallMs: 5000,
               },
             });
       let navigationOutcome: NavigationOutcome | null = null;
@@ -1205,12 +1201,10 @@ export function playtestRoom(
             planned: true,
           },
           {
-            now: () => Date.now(),
             ...(simulation.pendingNavigationDirection === null
               ? {}
               : { pendingDirection: simulation.pendingNavigationDirection }),
             budgets: {
-              wallMs: 5000,
               hostPolls: Math.min(600, simulation.cycleBudget - simulation.cycles),
               logicCycles: Math.min(600, simulation.cycleBudget - simulation.cycles),
             },
@@ -1319,7 +1313,7 @@ export function validateGenesis(state: AgentSessionState): AgentToolResult {
       throw new Error(
         "Cannot finish genesis: missing required initial resources: boot logic 0 or WORDS.TOK.",
       );
-    simulation = new Simulation(state, DEFAULT_CYCLES, 50000, { pressKeys: true });
+    simulation = new Simulation(state, MAX_SCENARIO_CYCLES, 50000, { pressKeys: true });
     const engine = simulation.engine;
     const warnings: string[] = [];
     let dismissed = 0;
@@ -1351,12 +1345,8 @@ export function validateGenesis(state: AgentSessionState): AgentToolResult {
       if (engine.modalKind) {
         engine.ackPrint();
         dismissed += 1;
-        budget += GENESIS_CYCLES_PER_ACK;
+        budget = Math.min(MAX_SCENARIO_CYCLES, budget + GENESIS_CYCLES_PER_ACK);
       }
-      if (dismissed + simulation.keyPresses > GENESIS_MAX_ACKS)
-        throw new Error(
-          `Boot did not reach an interactive scene after ${GENESIS_MAX_ACKS} dismissed messages or key presses.`,
-        );
     }
     if (!seen)
       throw new Error(

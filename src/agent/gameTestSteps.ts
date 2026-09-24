@@ -560,8 +560,8 @@ export function decodeBase64(text: string, label: string): Uint8Array {
 
 const SETUP_FIELDS = ["image", "replay"];
 /**
- * One setup image can never exceed the 256 KiB TESTS.JSON cap it shares with
- * every test in the file, so anything longer is rejected before decoding.
+ * A setup image is a host save image, far smaller than this; anything longer
+ * is rejected before decoding.
  */
 const SETUP_IMAGE_MAX_CHARS = 262144;
 

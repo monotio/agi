@@ -359,6 +359,22 @@ describe("agent tools", () => {
     assert.match(res.message ?? "", /higher-priority scenery 20\/192 cells/);
   });
 
+  it("write_picture checks every actor layout the source asks for", () => {
+    // Probes past the sixteenth were silently skipped.
+    const session = createAgentSessionState();
+    const actors = Array.from(
+      { length: 20 },
+      (_, index) => `# actor: a${index} x${index * 7} y120 width6 height24 priority11`,
+    );
+    const res = executeAgentTool(session, "write_picture", {
+      room: 8,
+      source: [...actors, "pri 4", "fill 0,0", "end"].join("\n"),
+    });
+    assert.equal(res.success, true, res.error ?? "");
+    for (let index = 0; index < 20; index++)
+      assert.match(res.message ?? "", new RegExp(`- a${index}: logical`));
+  });
+
   it("write_picture reports preservation and leak metrics when revising the same picture", () => {
     const session = createAgentSessionState();
     const first = "vis 2\nrect 0,100 159,167\nfill 80,140\nend";

@@ -129,12 +129,19 @@ function direction(
   transparentColor: number,
   adjustments: string[],
 ): BuildCelInput[] {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 15) {
-    throw new Error(`${label} must contain 1..15 cels.`);
+  // A cel count is one byte; buildView applies the profile's own limit
+  // (15 where the interpreter packs loop headers, 255 otherwise).
+  if (!Array.isArray(value) || value.length < 1 || value.length > 255) {
+    throw new Error(`${label} must contain 1..255 cels.`);
   }
-  return value.map((rows, index) =>
+  const cels = value.map((rows, index) =>
     celFromRows(rows, `${label} cel ${index}`, transparentColor, adjustments),
   );
+  if (cels.length > 2 && cels.every((cel) => cel.height === 1))
+    throw new Error(
+      `${label}: ${cels.length} cels of one row each. A cel is an array of row strings, top to bottom; send one cel's rows together in one array.`,
+    );
+  return cels;
 }
 
 function u16le(payload: Uint8Array, offset: number): number {

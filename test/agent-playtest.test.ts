@@ -193,6 +193,34 @@ test("genesis executes actual boot logic and accepts a start room other than one
   );
 });
 
+test("handover accepts a long intro: thirty messages and a silent title animation", () => {
+  // Boot validation failed after sixteen dismissed messages, and its
+  // simulation stopped at 600 cycles, so a story told over many windows or a
+  // half-minute title animation could never pass handover.
+  const state = world();
+  state.container.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      `
+if (lessn(v44, 30)) { addn(v44, 1); print("Once upon a time."); return; }
+if (lessn(v45, 250)) { addn(v45, 1); addn(v45, 1); addn(v45, 1); return; }
+if (lessn(v46, 250)) { addn(v46, 1); return; }
+if (lessn(v47, 250)) { addn(v47, 1); return; }
+if (!isset(f40)) {
+ set(f40);
+ assignn(v10, 1); load.pic(v10); draw.pic(v10); show.pic();
+ load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();
+}
+return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const result = validateGenesis(state);
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal(result.details?.["genesisValidated"], true);
+});
+
 test("genesis rejects missing runtime dependencies despite existing expected resource numbers", () => {
   const state = world();
   state.container.putResource(
@@ -756,6 +784,26 @@ test("playtest walkTo and expect.reachable navigate around barrier obstacles", (
   const step = (result.details?.["steps"] as Record<string, unknown>[])[0]!;
   assert.equal(step["xAfter"], 88);
   assert.equal(step["yAfter"], 120);
+});
+
+test("a slow machine reaches the same playtest verdict as a fast one", (t) => {
+  // Playtests stopped at five seconds of wall time, so a slow phone failed a
+  // stored test that a desktop passed. Cycle and instruction budgets bound
+  // the work; here every clock read costs a second and the verdict holds.
+  const state = world();
+  state.container.putResource(
+    "picture",
+    1,
+    Uint8Array.of(0xf0, 2, 0xf2, 0, 0xf6, 85, 115, 85, 125, 0xff),
+  );
+  let clock = 0;
+  t.mock.method(Date, "now", () => (clock += 1000));
+  const result = playtestRoom(state, {
+    room: 1,
+    steps: [{ action: "walkTo", x: 88, y: 120, ticks: 60 }],
+    expect: { reachable: { x: 80, y: 120 } },
+  });
+  assert.equal(result.success, true, result.error ?? "");
 });
 
 test("failure details record recentActions history for diagnosis", () => {

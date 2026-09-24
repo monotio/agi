@@ -186,15 +186,12 @@ interface ActorLayout {
   priority: number;
 }
 
-const MAX_ACTOR_LAYOUTS = 16;
-
 /** `# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>`. */
 function parseActorLayouts(source: string): ActorLayout[] {
   const pattern =
     /^#\s*actor:\s*(\S+)\s+x(\d+)\s+y(\d+)\s+width(\d+)\s+height(\d+)\s+priority(\d+)/i;
   const actors: ActorLayout[] = [];
   for (const line of source.split(/\r?\n/)) {
-    if (actors.length >= MAX_ACTOR_LAYOUTS) break;
     const match = pattern.exec(line.trim());
     if (!match) continue;
     const actor = {
