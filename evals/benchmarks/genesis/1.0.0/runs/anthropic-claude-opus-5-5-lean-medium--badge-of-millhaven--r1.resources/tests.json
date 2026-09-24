@@ -2,16 +2,16 @@
   "format": "monotio.agi.tests.v1",
   "tests": [
     {
-      "name": "room1_assignment_and_exit",
+      "name": "room1_assignment_camera_exit",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
       "steps": [
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -22,12 +22,26 @@
           "captureTicks": null
         },
         {
-          "action": "walkTo",
+          "action": "command",
+          "command": "take camera",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
           "command": null,
           "direction": null,
           "key": null,
-          "x": 76,
-          "y": 120,
+          "x": null,
+          "y": null,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -50,36 +64,8 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "take form",
           "direction": null,
           "key": null,
           "x": null,
@@ -92,10 +78,52 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "take the camera",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -110,69 +138,31 @@
           "command": null,
           "direction": null,
           "key": null,
-          "x": 116,
-          "y": 110,
+          "x": 120,
+          "y": 125,
           "answer": null,
           "until": null,
           "waypoints": null,
           "target": null,
-          "ticks": null,
+          "ticks": 400,
           "captureTicks": null
         },
         {
-          "action": "command",
-          "command": "take the evidence kit",
-          "direction": null,
+          "action": "direction",
+          "command": null,
+          "direction": 3,
           "key": null,
           "x": null,
           "y": null,
           "answer": null,
-          "until": null,
+          "until": {
+            "room": 3,
+            "flag": null,
+            "var": null
+          },
           "waypoints": null,
           "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "walkTo",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": 134,
-          "y": 98,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "wait",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": 5,
+          "ticks": 400,
           "captureTicks": null
         }
       ],
@@ -181,20 +171,11 @@
         "carriedItems": [
           0,
           1,
-          2,
-          3
+          2
         ],
         "flags": [
           {
-            "id": 32,
-            "value": true
-          },
-          {
-            "id": 33,
-            "value": true
-          },
-          {
-            "id": 34,
+            "id": 50,
             "value": true
           }
         ],
@@ -205,165 +186,21 @@
         "object": null,
         "reachable": null
       },
-      "cycleBudget": 4000
-    },
-    {
-      "name": "room1_kit_needs_assignment_records_open",
-      "room": 1,
-      "spawnX": null,
-      "spawnY": null,
-      "steps": [
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "take kit",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "read board",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "walkTo",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": 14,
-          "y": 98,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "wait",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": 5,
-          "captureTicks": null
-        }
-      ],
-      "expect": {
-        "room": 2,
-        "carriedItems": [
-          0,
-          1
-        ],
-        "flags": [
-          {
-            "id": 35,
-            "value": true
-          },
-          {
-            "id": 33,
-            "value": false
-          }
-        ],
-        "vars": null,
-        "printed": null,
-        "text": null,
-        "score": 0,
-        "object": null,
-        "reachable": null
-      },
       "cycleBudget": 2000
     },
     {
-      "name": "room1_street_blocked_before_assignment",
+      "name": "room1_exit_blocked_without_assignment",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
       "steps": [
         {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "walkTo",
+          "action": "enter",
           "command": null,
           "direction": null,
           "key": null,
-          "x": 132,
-          "y": 112,
+          "x": null,
+          "y": null,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -374,7 +211,7 @@
         {
           "action": "direction",
           "command": null,
-          "direction": 1,
+          "direction": 7,
           "key": null,
           "x": null,
           "y": null,
@@ -382,7 +219,7 @@
           "until": null,
           "waypoints": null,
           "target": null,
-          "ticks": 30,
+          "ticks": 120,
           "captureTicks": null
         }
       ],
@@ -391,7 +228,7 @@
         "carriedItems": null,
         "flags": [
           {
-            "id": 32,
+            "id": 50,
             "value": false
           }
         ],
@@ -402,7 +239,116 @@
         "object": null,
         "reachable": null
       },
-      "cycleBudget": 2000
+      "cycleBudget": 1500
+    },
+    {
+      "name": "room1_file_incomplete_report",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk to prakash",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "file report",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": [
+          {
+            "id": 55,
+            "value": false
+          }
+        ],
+        "vars": null,
+        "printed": "dispatch log",
+        "text": null,
+        "score": 10,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 1500
     }
   ]
 }

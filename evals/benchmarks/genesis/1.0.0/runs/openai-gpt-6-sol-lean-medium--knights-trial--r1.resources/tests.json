@@ -2,7 +2,7 @@
   "format": "monotio.agi.tests.v1",
   "tests": [
     {
-      "name": "Gate supplies and notice",
+      "name": "Gate supplies persist when taken",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
@@ -14,20 +14,6 @@
           "key": null,
           "x": null,
           "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "walkTo",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": 106,
-          "y": 145,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -64,64 +50,8 @@
           "captureTicks": null
         },
         {
-          "action": "walkTo",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": 91,
-          "y": 140,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
           "action": "command",
           "command": "take lantern",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "enter",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "walkTo",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": 48,
-          "y": 137,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "read notice",
           "direction": null,
           "key": null,
           "x": null,
@@ -142,10 +72,6 @@
         ],
         "flags": [
           {
-            "id": 40,
-            "value": true
-          },
-          {
             "id": 41,
             "value": true
           },
@@ -162,16 +88,24 @@
             "max": null
           }
         ],
-        "printed": "THREE BRIGHT THINGS WANTED",
+        "printed": "Wenna takes the lit lantern",
         "text": null,
         "score": 0,
-        "object": null,
+        "object": {
+          "num": 2,
+          "view": 3,
+          "x0": null,
+          "y0": null,
+          "x1": null,
+          "y1": null,
+          "active": false
+        },
         "reachable": null
       },
-      "cycleBudget": 600
+      "cycleBudget": 150
     },
     {
-      "name": "Drawbridge to king's hall",
+      "name": "Alligator warns before danger",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
@@ -183,20 +117,6 @@
           "key": null,
           "x": null,
           "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "walkTo",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": 71,
-          "y": 96,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -206,7 +126,7 @@
         },
         {
           "action": "command",
-          "command": "enter gate",
+          "command": "swim moat",
           "direction": null,
           "key": null,
           "x": null,
@@ -220,79 +140,22 @@
         }
       ],
       "expect": {
-        "room": 2,
+        "room": 1,
         "carriedItems": null,
-        "flags": null,
+        "flags": [
+          {
+            "id": 49,
+            "value": true
+          }
+        ],
         "vars": null,
-        "printed": null,
+        "printed": "Swimming would be a poor choice",
         "text": null,
-        "score": null,
+        "score": 0,
         "object": null,
         "reachable": null
       },
-      "cycleBudget": 400
-    },
-    {
-      "name": "Meadow road exit",
-      "room": 1,
-      "spawnX": null,
-      "spawnY": null,
-      "steps": [
-        {
-          "action": "enter",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "walkTo",
-          "command": null,
-          "direction": null,
-          "key": null,
-          "x": 145,
-          "y": 147,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "direction",
-          "command": null,
-          "direction": 3,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": 16,
-          "captureTicks": null
-        }
-      ],
-      "expect": {
-        "room": 3,
-        "carriedItems": null,
-        "flags": null,
-        "vars": null,
-        "printed": null,
-        "text": null,
-        "score": null,
-        "object": null,
-        "reachable": null
-      },
-      "cycleBudget": 400
+      "cycleBudget": 150
     }
   ]
 }

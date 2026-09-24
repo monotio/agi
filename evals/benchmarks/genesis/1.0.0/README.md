@@ -1,35 +1,16 @@
 # Genesis benchmark, app 1.0.0
 
-The [baseline](../1.0.0-baseline/README.md) run, repeated on the harness fixes
-its failures pointed to. Five models built the same adventure openings from
-the same two briefs through the app's production authoring session: the real
-`AgentSession`, provider adapters, tools, and boot validation. Every run
-completed and passed its playtest.
+Five models built the same adventure openings from the same two briefs
+through the app's production authoring session: the real `AgentSession`,
+provider adapters, tools, and boot validation. All ten runs completed and
+passed their playtests, for $10.11 together.
 
 - [`matrix/matrix.md`](matrix/matrix.md) compares cost, content, picture depth
-  and control lines, and brief coverage, with hand-written readings per brief.
+  and control lines, sprites and animation, and brief coverage, with
+  hand-written readings per brief.
   [`matrix/metrics.json`](matrix/metrics.json) holds every measurement.
 - [`runs/`](runs/) holds each run: the report, the conversation, session
   events, the opening frame, and the generated game in `<run>.resources/`.
-
-## Against the baseline
-
-| Ten runs      | Baseline | 1.0.0  | Change |
-| ------------- | -------- | ------ | ------ |
-| Tool failures | 88       | 49     | −44%   |
-| Repair turns  | 79       | 46     | −42%   |
-| Model turns   | 306      | 258    | −16%   |
-| Cost          | $15.26   | $14.22 | −7%    |
-
-The cheaper models changed most in what they build. GPT-6 Luna now sets a
-horizon, draws control lines and animates ego; its baseline rooms were
-walkable everywhere, sky and water included. GPT-6 Sol now marks water.
-
-Two follow-up fixes landed after this run, from failures it still showed.
-Registering a word no longer stales a source that only prints it (seven
-failures here), and a plan room's `name` is read as its `title` (four). A
-replay of every recorded run's tool calls confirms neither failure recurs;
-the next snapshot will measure them.
 
 ## Settings
 
@@ -37,9 +18,15 @@ the next snapshot will measure them.
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Briefs  | [`knights-trial`](../../../../games/knights-trial/SKILL.md), [`badge-of-millhaven`](../../../../games/badge-of-millhaven/SKILL.md) |
 | Lanes   | Claude Opus 5.5 at `high` and `medium`; GPT-6 Astra, Sol and Luna at `medium`                                                      |
-| Prompt  | the `lean` variant with 1.0.0's system prompt and tools, before the two follow-up fixes                                            |
-| Runs    | one per lane and brief; an allowance of up to $10 each, which no run reached                                                       |
-| Prices  | list prices in [`src/agent/modelEffort.ts`](../../../../src/agent/modelEffort.ts); the ten runs cost $14.22 together               |
+| Prompt  | the `lean` variant: 1.0.0's system prompt and tools                                                                                |
+| Runs    | one per lane and brief, with an allowance of up to $10 each, which no run reached                                                  |
+| Prices  | list prices in [`src/agent/modelEffort.ts`](../../../../src/agent/modelEffort.ts)                                                  |
+
+The runs were recorded on commit 8d0956a. The one later change to the
+authoring tools narrowed `write_view`'s two sprite warnings (4e08c87): every
+warning it removed was one the models had ignored, and replaying the
+narrowed rules over these runs flags one view, Sol's four-direction sergeant
+drawn facing front.
 
 One run per lane and brief gives no variance. Read differences of a few
 percent as noise, and weigh the pictures and the games alongside the numbers.

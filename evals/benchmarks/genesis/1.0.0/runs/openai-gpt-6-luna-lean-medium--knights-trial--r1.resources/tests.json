@@ -2,26 +2,12 @@
   "format": "monotio.agi.tests.v1",
   "tests": [
     {
-      "name": "gate_errand_and_supplies",
+      "name": "Gate Errand and Supplies",
       "room": 1,
-      "spawnX": 30,
-      "spawnY": 151,
+      "spawnX": null,
+      "spawnY": null,
       "steps": [
         {
-          "action": "command",
-          "command": "read notice",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
           "action": "enter",
           "command": null,
           "direction": null,
@@ -65,7 +51,35 @@
         },
         {
           "action": "command",
-          "command": "look alligator",
+          "command": "talk king",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk king",
           "direction": null,
           "key": null,
           "x": null,
@@ -121,6 +135,34 @@
         },
         {
           "action": "command",
+          "command": "get bread",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
           "command": "take lantern",
           "direction": null,
           "key": null,
@@ -136,6 +178,20 @@
         {
           "action": "enter",
           "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "swim moat",
           "direction": null,
           "key": null,
           "x": null,
@@ -166,30 +222,16 @@
           {
             "id": 34,
             "value": true
-          },
-          {
-            "id": 35,
-            "value": true
           }
         ],
-        "vars": [
-          {
-            "id": 3,
-            "value": 10,
-            "min": null,
-            "max": null
-          }
-        ],
-        "printed": null,
+        "vars": null,
+        "printed": "The alligator watches from the moat. The drawbridge is considerably safer than swimming.",
         "text": null,
         "score": 10,
         "object": null,
-        "reachable": {
-          "x": 30,
-          "y": 151
-        }
+        "reachable": null
       },
-      "cycleBudget": 600
+      "cycleBudget": 2400
     }
   ]
 }

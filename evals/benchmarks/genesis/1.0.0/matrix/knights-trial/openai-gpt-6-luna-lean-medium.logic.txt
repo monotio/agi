@@ -145,150 +145,163 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
 return;
 
 
-// ===== logic 1 (1948 bytes)
-#message 1 "Thornwall Gate"
-#message 2 "The gray castle stands beyond the drawbridge. A royal notice hangs beside the road; a loaf and a lit lantern wait near the gate. The alligator watches from the moat."
-#message 3 "The notice is signed by King Brannoc. It orders Thornwall's third squire to find the Three Bright Things: the underwater Bell, an undying Ember, and a wandering Map. Bring them home before the last candle burns out."
-#message 4 "You accept the king's errand. The hall lies across the bridge; the meadow road begins beyond the gate."
-#message 5 "The notice asks for the Bell, the Ember and the Map. The king is waiting in the hall across the bridge."
-#message 6 "The bread is for the road. A hungry heron may be willing to talk over it."
-#message 7 "You take the bread."
-#message 8 "The loaf is already in your pack."
-#message 9 "The lantern is lit. Its brass case should keep the flame sheltered."
-#message 10 "You take the lit lantern."
-#message 11 "The lantern is already in your pack."
-#message 12 "The alligator watches from the moat. Swimming toward it would be a poor first use of the bread."
-#message 13 "The drawbridge leads into the castle hall. The meadow road opens at the lower edge of the green."
-#message 14 "There is no heron at the gate. The meadow road is the way to the river."
-#message 15 "The lantern already burns steadily."
-#message 16 "The moat is cold, and the alligator has noticed you. Keep to the bridge."
-#message 17 "You see the royal notice, a loaf of bread, and a lit lantern at the castle gate. The drawbridge crosses a moat where an alligator is watching."
-#message 18 "The castle gate is open. You can cross the drawbridge into the hall or take the meadow road."
+// ===== logic 1 (1747 bytes)
+#message 1 "The gray keep rises above a blue moat. King Brannoc waits by the gate. A notice hangs on the wall; bread and a lit lantern are ready for the road. An alligator watches from the water. The drawbridge is the safe crossing."
+#message 2 "The notice names three Bright Things: an underwater Bell, an undying Ember, and a wandering Map. Bring them home before Thornwall's last candle goes out."
+#message 3 "King Brannoc gives you the charge. \"Find the Bell, Ember and Map. I would like Thornwall to remain on the maps, if it is not too much trouble.\""
+#message 4 "You have already accepted the king's errand."
+#message 5 "You take the loaf. The heron at the river may have opinions about it."
+#message 6 "You already packed the bread."
+#message 7 "You take the lit lantern. It should help in a dark place."
+#message 8 "The lantern is already in your pack, still lit."
+#message 9 "The alligator watches from the moat. The drawbridge is considerably safer than swimming."
+#message 10 "Wenna is at Thornwall Gate. Read the notice, talk to King Brannoc, take the bread, or take the lantern."
+#message 11 "The notice is clear enough: three treasures, then home to Thornwall."
+#message 12 "It is lit already. You will want it for a dark place."
+#message 13 "The bread is for the journey. The heron is down the river."
+#message 14 "The bridge is sound. The moat is deep, and the alligator looks patient."
 
 if (isset(f5)) {
-  assignn(v7, 230);
-  assignn(v40, 1);
-  load.pic(v40);
-  draw.pic(v40);
+  assignn(v32, 1);
+  load.pic(v32);
+  draw.pic(v32);
   show.pic();
-  set.horizon(89);
+  set.horizon(90);
   load.view(1);
   animate.obj(o0);
   set.view(o0, 1);
-  position(o0, 30, 151);
+  assignn(v33, 1);
+  step.time(o0, v33);
+  assignn(v34, 3);
+  cycle.time(o0, v34);
+  position(o0, 80, 155);
   draw(o0);
+  normal.motion(o0);
+  normal.cycle(o0);
+  stop.cycling(o0);
+  get.posn(o0, v35, v36);
+  load.view(5);
+  animate.obj(o1);
+  set.view(o1, 5);
+  set.loop(o1, 0);
+  position(o1, 107, 116);
+  set.priority(o1, 4);
+  draw(o1);
+  stop.cycling(o1);
   load.view(2);
-  if (!has(0)) {
-    animate.obj(o1);
-    set.view(o1, 2);
-    set.loop(o1, 0);
-    position(o1, 56, 129);
-    draw(o1);
+  animate.obj(o2);
+  set.view(o2, 2);
+  set.loop(o2, 0);
+  position(o2, 20, 132);
+  set.priority(o2, 4);
+  draw(o2);
+  stop.cycling(o2);
+  if (!isset(f33)) {
+    load.view(3);
+    animate.obj(o3);
+    set.view(o3, 3);
+    set.loop(o3, 0);
+    position(o3, 45, 116);
+    set.priority(o3, 4);
+    draw(o3);
+    stop.cycling(o3);
   }
-  load.view(3);
-  if (!has(1)) {
-    animate.obj(o2);
-    set.view(o2, 3);
-    position(o2, 139, 120);
-    draw(o2);
+  if (!isset(f34)) {
+    load.view(4);
+    animate.obj(o4);
+    set.view(o4, 4);
+    set.loop(o4, 0);
+    position(o4, 119, 116);
+    set.priority(o4, 4);
+    draw(o4);
+    stop.cycling(o4);
   }
-  assignn(v41, 3);
-  cycle.time(o0, v41);
+  assignn(v6, 0);
   player.control();
   accept.input();
-  print(m2);
+  print(m1);
 }
-if (said("examine")) {
-  print(m17);
-  set(f4);
+get.posn(o0, v37, v38);
+if (equaln(v6, 0)) {
+  stop.cycling(o0);
 }
-if (said("examine", "notice") || said("read", "notice")) {
-  set(f35);
-  print(m3);
-  if (!isset(f32)) {
-    set(f32);
-    addn(v3, 10);
-    print(m4);
-  } else {
-    print(m5);
-  }
-  set(f4);
+if (!equaln(v6, 0) && (!equalv(v37, v35) || !equalv(v38, v36))) {
+  start.cycling(o0);
 }
-if (said("examine", "bread")) {
-  print(m6);
-  set(f4);
+if (equalv(v37, v35) && equalv(v38, v36)) {
+  stop.cycling(o0);
 }
-if (said("get", "bread")) {
-  if (has(0)) {
-    print(m8);
-  } else {
-    get(0);
-    erase(o1);
-    set(f33);
-    print(m7);
-  }
-  set(f4);
-}
-if (said("examine", "lantern")) {
-  print(m9);
-  set(f4);
-}
-if (said("get", "lantern")) {
-  if (has(1)) {
-    print(m11);
-  } else {
-    get(1);
-    erase(o2);
-    set(f34);
-    print(m10);
-  }
-  set(f4);
-}
-if (said("ignite", "lantern") || said("use", "lantern")) {
-  print(m15);
-  set(f4);
-}
-if (said("examine", "alligator") || said("speak", "alligator")) {
-  print(m12);
-  set(f4);
-}
-if (said("examine", "gate") || said("examine", "bridge")) {
-  print(m18);
-  set(f4);
-}
-if (said("examine", "castle")) {
-  print(m18);
-  set(f4);
-}
-if (said("examine", "brannoc") || said("speak", "brannoc")) {
-  print(m5);
-  set(f4);
-}
-if (said("give", "bread") && !has(0)) {
-  print(m6);
-  set(f4);
-}
-if (said("give", "bread") && has(0)) {
-  print(m14);
-  set(f4);
-}
-if (said("examine", "heron") || said("speak", "heron")) {
-  print(m14);
-  set(f4);
-}
-if (said("use", "bread")) {
-  print(m6);
-  set(f4);
-}
-if (said("ignite", "bread")) {
-  print(m16);
-  set(f4);
-}
+assignv(v35, v37);
+assignv(v36, v38);
 if (equaln(v2, 2)) {
   new.room(2);
 }
 if (equaln(v2, 3)) {
   new.room(3);
+}
+if (said("read", "notice")) {
+  print(m2);
+  set(f4);
+}
+if (said("examine", "notice")) {
+  print(m11);
+  set(f4);
+}
+if (said("speak", "brannoc") || said("speak", "brannoc") || said("accept", "errand")) {
+  if (!isset(f32)) {
+    set(f32);
+    addn(v3, 10);
+    print(m3);
+  } else {
+    print(m4);
+  }
+  set(f4);
+}
+if (said("get", "bread") || said("get", "bread")) {
+  if (!isset(f33)) {
+    get(0);
+    set(f33);
+    erase(o3);
+    print(m5);
+  } else {
+    print(m6);
+  }
+  set(f4);
+}
+if (said("get", "lamp") || said("get", "lamp")) {
+  if (!isset(f34)) {
+    get(1);
+    set(f34);
+    erase(o4);
+    print(m7);
+  } else {
+    print(m8);
+  }
+  set(f4);
+}
+if (said("examine", "alligator") || said("examine", "moat") || said("use", "moat") || said("swim", "moat")) {
+  print(m9);
+  set(f4);
+}
+if (said("examine", "brannoc")) {
+  print(m3);
+  set(f4);
+}
+if (said("examine", "bread")) {
+  print(m13);
+  set(f4);
+}
+if (said("examine", "lamp") || said("ignite", "lamp")) {
+  print(m12);
+  set(f4);
+}
+if (said("examine", "bridge") || said("examine", "gate")) {
+  print(m14);
+  set(f4);
+}
+if (said("examine")) {
+  print(m10);
+  set(f4);
 }
 return;
 

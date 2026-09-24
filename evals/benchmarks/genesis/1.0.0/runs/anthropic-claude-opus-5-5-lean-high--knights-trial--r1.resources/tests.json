@@ -2,16 +2,30 @@
   "format": "monotio.agi.tests.v1",
   "tests": [
     {
-      "name": "gate-accept-errand-and-supplies",
+      "name": "gate_accept_errand",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
       "steps": [
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -27,7 +41,7 @@
           "direction": null,
           "key": null,
           "x": 34,
-          "y": 120,
+          "y": 138,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -50,10 +64,10 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -78,22 +92,8 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "read back of notice",
           "direction": null,
           "key": null,
           "x": null,
@@ -106,10 +106,66 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "command",
+          "command": "take hook",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": [
+          1,
+          4
+        ],
+        "flags": [
+          {
+            "id": 50,
+            "value": true
+          }
+        ],
+        "vars": null,
+        "printed": "You work the brass hook loose",
+        "text": null,
+        "score": 10,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 2000
+    },
+    {
+      "name": "gate_take_supplies",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -124,7 +180,7 @@
           "command": null,
           "direction": null,
           "key": null,
-          "x": 118,
+          "x": 112,
           "y": 128,
           "answer": null,
           "until": null,
@@ -148,22 +204,8 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "take lantern",
           "direction": null,
           "key": null,
           "x": null,
@@ -176,10 +218,38 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "command",
+          "command": "get lamp",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "polish the lantern",
+          "direction": null,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -193,93 +263,35 @@
       "expect": {
         "room": 1,
         "carriedItems": [
-          1,
           2,
           3
         ],
         "flags": [
           {
-            "id": 40,
-            "value": true
-          },
-          {
-            "id": 42,
+            "id": 61,
             "value": true
           }
         ],
         "vars": null,
-        "printed": "brass lantern",
-        "text": null,
-        "score": 10,
-        "object": null,
-        "reachable": null
-      },
-      "cycleBudget": 3000
-    },
-    {
-      "name": "gate-east-blocked-without-errand",
-      "room": 1,
-      "spawnX": 140,
-      "spawnY": 136,
-      "steps": [
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "move",
-          "command": null,
-          "direction": "right",
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": 30,
-          "captureTicks": null
-        }
-      ],
-      "expect": {
-        "room": 1,
-        "carriedItems": null,
-        "flags": [
-          {
-            "id": 40,
-            "value": false
-          }
-        ],
-        "vars": null,
-        "printed": "You stop at the edge",
+        "printed": "You rub the lantern",
         "text": null,
         "score": 0,
         "object": null,
         "reachable": null
       },
-      "cycleBudget": 600
+      "cycleBudget": 2000
     },
     {
-      "name": "gate-moat-warning-then-death",
+      "name": "gate_swim_warns_then_kills",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
       "steps": [
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -290,12 +302,12 @@
           "captureTicks": null
         },
         {
-          "action": "walkTo",
+          "action": "enter",
           "command": null,
           "direction": null,
           "key": null,
-          "x": 36,
-          "y": 96,
+          "x": null,
+          "y": null,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -318,10 +330,10 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -346,10 +358,10 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -379,7 +391,7 @@
         "carriedItems": null,
         "flags": [
           {
-            "id": 41,
+            "id": 60,
             "value": true
           },
           {

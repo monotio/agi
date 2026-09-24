@@ -1,4 +1,4 @@
-// ===== logic 0 (835 bytes)
+// ===== logic 0 (879 bytes)
 #message 1 "File"
 #message 2 "Save Game      F5"
 #message 3 "Restore Game   F7"
@@ -15,8 +15,8 @@
 #message 14 "Help"
 #message 15 "Help           F1"
 #message 16 "About"
-#message 17 "Type a command and press ENTER: LOOK, TALK, READ, TAKE, SHOW, CHECK, RADIO, PHOTOGRAPH. Arrow keys walk. ESC opens the menu. TAB lists what you carry."
-#message 18 "Badge of Millhaven. Officer Dana Reyes, first week on the force."
+#message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu, TAB shows what you carry. Try TALK, LOOK, READ, TAKE, SHOW, RADIO, PHOTOGRAPH and FILE."
+#message 18 "Badge of Millhaven. Officer Dana Reyes, first week on the Millhaven police force."
 #message 19 "I don't know the word \"%s11\"."
 #message 20 "I don't understand that."
 
@@ -104,6 +104,11 @@ if (!isset(f202)) {
   }
 }
 if (isset(f2) && !isset(f4) && !isset(f202)) {
+  if (said("inventory")) {
+    status();
+  }
+}
+if (isset(f2) && !isset(f4) && !isset(f202)) {
   if (greatern(v9, 0)) {
     if (equaln(v9, 1)) {
       word.to.string(s11, 1);
@@ -146,279 +151,280 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
 return;
 
 
-// ===== logic 1 (4748 bytes)
-#message 1 "Millhaven Police Department, 7:00 AM. Your first week on the force. Sergeant Prakash is at the front desk, moving forms between three trays."
-#message 2 "The precinct lobby. Sergeant Prakash stands behind the front desk. A bulletin board and an equipment shelf hang on the wall. The Records Office door is on the left; glass doors lead out to Main Street on the right."
-#message 3 "\"Reyes. Good, you're awake. Hollis Pharmacy on Main Street was broken into last night. A Swiftline delivery driver, Gus Tully, called it in. He says he saw a man run from the back door at 2:10 AM.\""
-#message 4 "\"Check his story, document the scene and bring me a report that will stand up in court. Take the evidence kit from the shelf and a report form from the IN tray. Bukowski is waiting with the car out front. Try to get a word in.\""
-#message 5 "\"Case details are on the board, Reyes. Kit's on the shelf, forms are in the IN tray, and Bukowski is out front with the car. Check the driver's story before you believe it.\""
-#message 6 "Sergeant Prakash has thirty years on the force and a gray mustache that has outlasted four police chiefs. He is moving a form from one tray to another."
-#message 7 "CASE 114. Break-in, Hollis Pharmacy, 12 Main Street. Reported 2:10 AM by Gus Tully, driver, Swiftline Deliveries, van 7. Pharmacist: Ada Hollis. Swiftline delivery logs are kept in the Records Office."
-#message 8 "The front desk is worn oak. On it sit a dispatch radio, a nameplate reading SGT. R. PRAKASH, and three wire trays."
-#message 9 "Three wire trays, labeled IN, OUT and WRONG TRAY. The WRONG TRAY is the fullest. The IN tray holds blank report forms."
-#message 10 "You take a blank report form from the IN tray.\n\n\"That's the IN tray, Reyes. Good. When it's filled out, it goes in the OUT tray. Not the other one.\""
-#message 11 "You already have a report form. One is plenty."
-#message 12 "You take the evidence kit from the shelf: a camera, evidence bags and gloves."
-#message 13 "\"That kit is for officers with an assignment, Reyes. Talk to me first.\""
-#message 14 "You already have the evidence kit."
-#message 15 "The equipment shelf holds an evidence kit: camera, evidence bags and gloves."
-#message 16 "The equipment shelf is empty."
-#message 17 "\"Reyes!\" Prakash calls. \"Assignment first. Then the street.\""
-#message 18 "\"Dispatch. No assignment on file for you yet, Reyes. The sergeant is standing right there.\""
-#message 19 "\"Dispatch. Case 114, break-in at Hollis Pharmacy, 12 Main Street. Reporting party Gus Tully, Swiftline van 7, 2:10 AM. Bukowski is out front with the car. I'll be here.\""
-#message 20 "Millhaven Police, badge 2217. Still shiny."
-#message 21 "Your shoulder radio. Dispatch is one call away."
-#message 22 "Prakash glances at your badge. \"I issued you that on Monday, Reyes. I remember.\""
-#message 23 "You need the camera from the evidence kit."
-#message 24 "Save the film for the crime scene."
-#message 25 "The Records Office door. Behind it: delivery logs, old case files and a clerk who guards both."
-#message 26 "The glass doors open onto Main Street. The patrol car is parked just outside."
-#message 27 "Bukowski is waiting with the patrol car out front."
-#message 28 "You need a report form first. The IN tray has plenty."
-#message 29 "\"A report needs a case, Reyes. Evidence, a suspect, an arrest. Go get them.\""
-#message 30 "Gus Tully is out on Main Street. Check his story there."
-#message 31 "Step up to the desk first."
-#message 32 "Green fluorescent tubes hum overhead. Everyone in the lobby looks slightly seasick."
-#message 33 "Talk to Sergeant Prakash, read the board, and pick up what you need before heading out the front doors."
-#message 34 "That's out in the district, not here in the lobby."
-#message 35 "A blank incident report, four pages with carbon copies."
-#message 36 "Camera, evidence bags and gloves."
-#message 37 "A rubber plant. Someone waters it with cold coffee."
-#message 38 "Prakash takes the form, reads the first line and hands it back. \"Blank, Reyes. Reports work better with words in them.\""
-#message 39 "Walk to a door to leave: Records on the left, Main Street on the right."
-#message 40 "The dispatch radio's red light blinks every few seconds."
+// ===== logic 1 (4914 bytes)
+#message 1 "Millhaven Police Department, 7:58 AM. Your first week on the job. Sergeant Prakash is at the front desk, working through a stack of forms."
+#message 2 "The front desk of the Millhaven precinct. Sergeant Prakash sits behind the counter beside two wire trays. A bulletin board and the equipment shelf are on the back wall. The records hallway is to the west. The front doors open east onto Main Street."
+#message 3 "\"Reyes. Good, you're early. Hale's Pharmacy on Main Street had its back window broken overnight. Boxes of painkillers are gone.\""
+#message 4 "\"The delivery driver who called it in, Rick Mendez, says he showed up at six and saw nothing. Check his story. Records has the dispatch logs.\""
+#message 5 "\"Sign out a camera from the shelf before you go. Bukowski is waiting at the car. The details are on the board.\""
+#message 6 "Prakash: \"The driver, Mendez. Compare what he told us with the dispatch log in Records, then talk to him again on Main Street.\""
+#message 7 "Prakash: \"Document the pharmacy. Photographs of the window, and anything the thief left behind.\""
+#message 8 "Prakash: \"You've got a witness and evidence. Records keeps the Quayside Freight ledger. See where they lead.\""
+#message 9 "Prakash: \"Pier Road, then. Take Bukowski, and call for backup before you go through any door.\""
+#message 10 "Prakash: \"You made an arrest. Now make it stick. File your report with me.\""
+#message 11 "Prakash: \"Go home, Reyes. Get some sleep.\""
+#message 12 "HALE'S PHARMACY, 14 MAIN ST. Break-in reported 6:10 AM by Rick Mendez, driver, Quayside Freight. Rear window broken. Prescription painkillers missing. Assigned: Reyes, Bukowski."
+#message 13 "Two wire trays. One is labeled IN. The other is labeled FORMS COMPLETED IN THE WRONG TRAY."
+#message 14 "Sergeant Prakash has worked this desk for nineteen years. He reads every form twice."
+#message 15 "The equipment shelf. A department camera sits in the top cubby."
+#message 16 "The equipment shelf. The camera cubby is empty. Your name is on the sign-out sheet."
+#message 17 "Prakash looks up. \"Equipment goes out with an assignment, Reyes. You don't have one yet.\""
+#message 18 "You sign the sheet on the clipboard and take the camera."
+#message 19 "You already have the camera."
+#message 20 "Millhaven PD badge number 417. Still shiny."
+#message 21 "Prakash: \"I issued you that badge on Monday, Reyes. I remember it.\""
+#message 22 "The dispatch speaker on the wall. Its light blinks whenever a channel opens."
+#message 23 "Dispatch: \"Go ahead, Reyes.\" You ask for the case details. \"Hale's Pharmacy, 14 Main. Reported at 6:10 by Rick Mendez, Quayside Freight. Anything else?\""
+#message 24 "Dispatch: \"You're standing in the police station, Reyes. Backup is all around you.\""
+#message 25 "Nothing here needs photographing."
+#message 26 "You don't have a camera."
+#message 27 "Bud is out at the patrol car on Main Street."
+#message 28 "Prakash: \"Reyes. Assignment first, then the street.\""
+#message 29 "Prakash: \"You haven't got a case to file yet.\""
+#message 30 "Prakash reads the report. \"The driver's story. You never checked it against the dispatch log. Fix that and come back.\""
+#message 31 "Prakash reads the report. \"No photographs of the pharmacy, no physical evidence. Go back and document the scene.\""
+#message 32 "Prakash reads the report. \"Nothing here ties the break-in to anyone. Check the Quayside records against your evidence.\""
+#message 33 "Prakash reads the report. \"A suspect and no arrest. Finish it, with backup.\""
+#message 34 "You drop the report in the nearest tray. Prakash lifts it out of the tray marked FORMS COMPLETED IN THE WRONG TRAY and moves it to IN."
+#message 35 "Prakash reads every page twice. \"Driver's statement, photographs, the bottle, the ledger, and an arrest with backup. This one will stick.\""
+#message 36 "\"Good first week, Reyes. Go home.\" Your first shift is over."
+#message 37 "Prakash: \"Already filed. It's in the right tray this time.\""
+#message 38 "The front doors lead east to Main Street."
+#message 39 "The hallway to the west leads to the records office."
+#message 40 "Prakash: \"You have an assignment. Do it.\""
+#message 41 "Prakash: \"Talk to me first, Reyes. Then read the board.\""
+#message 42 "Prakash: \"Right here. Hale's Pharmacy break-in. Get moving.\""
+#message 43 "The camera sits in the cubby. The sign-out sheet is on the shelf."
+#message 44 "A wooden counter with two wire trays and Prakash behind it."
+#message 45 "Prakash: \"If it's a crime, Reyes, it goes in a report. If it isn't, it goes in a report anyway.\""
+#message 46 "Prakash: \"Mendez is out on Main Street, not in here.\""
 
 if (isset(f5)) {
-  assignn(v40, 1);
-  load.pic(v40);
-  draw.pic(v40);
-  discard.pic(v40);
+  load.pic(v0);
+  draw.pic(v0);
+  discard.pic(v0);
+  load.view(0);
   load.view(1);
   load.view(2);
   load.view(3);
-  load.view(4);
-  animate.obj(o0);
-  set.view(o0, 1);
   animate.obj(o1);
-  set.view(o1, 2);
-  position(o1, 76, 104);
-  set.priority(o1, 9);
+  set.view(o1, 1);
+  position(o1, 101, 90);
+  set.priority(o1, 7);
+  stop.cycling(o1);
   ignore.objs(o1);
   draw(o1);
-  stop.cycling(o1);
   animate.obj(o2);
-  set.view(o2, 3);
-  position(o2, 98, 92);
-  set.priority(o2, 11);
+  set.view(o2, 2);
+  position(o2, 122, 58);
+  set.priority(o2, 5);
+  assignn(v50, 6);
+  cycle.time(o2, v50);
   ignore.objs(o2);
-  ignore.horizon(o2);
-  assignn(v34, 12);
-  cycle.time(o2, v34);
   draw(o2);
-  if (!isset(f33)) {
+  if (!has(2)) {
     animate.obj(o3);
-    set.view(o3, 4);
-    position(o3, 115, 77);
-    set.priority(o3, 11);
+    set.view(o3, 3);
+    position(o3, 54, 51);
+    set.priority(o3, 5);
     ignore.objs(o3);
-    ignore.horizon(o3);
     draw(o3);
-    stop.cycling(o3);
   }
+  animate.obj(o0);
+  set.view(o0, 0);
   if (equaln(v1, 2)) {
-    position(o0, 14, 104);
+    position(o0, 2, 125);
   } else {
     if (equaln(v1, 3)) {
-      position(o0, 134, 104);
+      position(o0, 150, 125);
     } else {
-      position(o0, 76, 140);
+      position(o0, 40, 130);
     }
   }
-  set.horizon(97);
+  assignn(v51, 2);
+  cycle.time(o0, v51);
+  set.horizon(76);
   draw(o0);
   show.pic();
   accept.input();
-  if (!isset(f36)) {
-    set(f36);
+  if (!isset(f50)) {
     print(m1);
   }
 }
-if (said("examine")) {
+if (said("check")) {
   print(m2);
 }
-if (said("examine", "around")) {
+if (said("check", "around")) {
   print(m2);
 }
-if (said("help")) {
-  print(m33);
+if (said("check", "man")) {
+  print(m14);
 }
-if (said("exit")) {
-  print(m39);
-}
-if (said("ask", "prakash") || said("ask") || said("hello") || said("hello", "prakash") || said("ask", "prakash", "assignment") || said("ask", "prakash", "case") || said("ask", "prakash", "driver") || said("check", "assignment") || said("examine", "assignment")) {
-  if (!posn(o0, 30, 97, 126, 132)) {
-    print(m31);
+if (said("ask", "man") || said("ask") || said("ask", "assignment") || said("help")) {
+  if (!isset(f50)) {
+    print(m3);
+    print(m4);
+    print(m5);
+    set(f50);
+    addn(v3, 10);
   } else {
-    if (!isset(f32)) {
-      set(f32);
-      addn(v3, 10);
-      print(m3);
-      print(m4);
+    if (!isset(f51)) {
+      print(m6);
     } else {
-      print(m5);
-    }
-  }
-}
-if (said("examine", "prakash")) {
-  print(m6);
-}
-if (said("read", "board") || said("examine", "board") || said("read", "case") || said("check", "board")) {
-  set(f35);
-  print(m7);
-}
-if (said("examine", "counter")) {
-  print(m8);
-}
-if (said("examine", "tray") || said("check", "tray")) {
-  print(m9);
-}
-if (said("collect", "blank form") || said("collect", "case") || said("collect", "tray")) {
-  if (has(3)) {
-    print(m11);
-  } else {
-    if (!posn(o0, 30, 97, 126, 132)) {
-      print(m31);
-    } else {
-      get(3);
-      set(f34);
-      print(m10);
-    }
-  }
-}
-if (said("collect", "camera")) {
-  if (has(2)) {
-    print(m14);
-  } else {
-    if (!isset(f32)) {
-      print(m13);
-    } else {
-      if (!posn(o0, 94, 97, 140, 120)) {
-        print(m31);
+      if (!isset(f52)) {
+        print(m7);
       } else {
-        get(2);
-        set(f33);
-        erase(o3);
-        print(m12);
+        if (!isset(f53)) {
+          print(m8);
+        } else {
+          if (!isset(f54)) {
+            print(m9);
+          } else {
+            if (!isset(f55)) {
+              print(m10);
+            } else {
+              print(m11);
+            }
+          }
+        }
       }
     }
   }
 }
-if (said("examine", "shelf")) {
-  if (isset(f33)) {
+if (said("check", "assignment")) {
+  if (isset(f50)) {
+    print(m42);
+  } else {
+    print(m41);
+  }
+}
+if (said("read", "board") || said("check", "board") || said("read", "case")) {
+  print(m12);
+  set(f56);
+}
+if (said("check", "tray") || said("read", "tray")) {
+  print(m13);
+}
+if (said("check", "counter")) {
+  print(m44);
+}
+if (said("check", "equipment") || said("check", "camera")) {
+  if (has(2)) {
     print(m16);
   } else {
     print(m15);
   }
 }
-if (said("examine", "camera")) {
+if (said("get", "camera")) {
   if (has(2)) {
-    print(m36);
-  } else {
-    print(m15);
-  }
-}
-if (said("examine", "blank form")) {
-  if (has(3)) {
-    print(m35);
-  } else {
-    print(m9);
-  }
-}
-if (said("call", "dispatch") || said("call") || said("ask", "dispatch") || said("call", "assignment")) {
-  if (isset(f32)) {
     print(m19);
   } else {
-    print(m18);
-  }
-}
-if (said("examine", "badge")) {
-  print(m20);
-}
-if (said("examine", "call")) {
-  if (posn(o0, 30, 97, 126, 132)) {
-    print(m40);
-  } else {
-    print(m21);
-  }
-}
-if (said("show", "badge") || said("show", "badge", "prakash") || said("give", "badge", "prakash")) {
-  print(m22);
-}
-if (said("photo") || said("photo", "...")) {
-  if (has(2)) {
-    print(m24);
-  } else {
-    print(m23);
-  }
-}
-if (said("examine", "door")) {
-  print(m26);
-}
-if (said("examine", "records")) {
-  print(m25);
-}
-if (said("examine", "main street")) {
-  print(m26);
-}
-if (said("ask", "bud") || said("examine", "bud")) {
-  print(m27);
-}
-if (said("file", "case") || said("file", "blank form") || said("give", "blank form", "prakash") || said("give", "case", "prakash") || said("give", "blank form") || said("show", "blank form", "prakash")) {
-  if (!has(3)) {
-    print(m28);
-  } else {
-    if (!isset(f44)) {
-      if (isset(f40)) {
-        print(m29);
-      } else {
-        print(m38);
-      }
+    if (!isset(f50)) {
+      print(m17);
     } else {
-      print(m29);
+      get(2);
+      erase(o3);
+      print(m18);
     }
   }
 }
-if (said("check", "driver") || said("check", "story") || said("ask", "driver") || said("examine", "driver") || said("check", "driver", "story")) {
-  print(m30);
+if (said("check", "badge")) {
+  print(m20);
 }
-if (said("examine", "lamp")) {
-  print(m32);
+if (said("give", "badge") || said("give", "badge", "man")) {
+  print(m21);
 }
-if (said("examine", "plant")) {
-  print(m37);
+if (said("check", "dispatch") || said("check", "call")) {
+  print(m22);
 }
-if (said("examine", "drugstore") || said("examine", "warehouse") || said("examine", "suspect") || said("examine", "bottle") || said("examine", "ledger") || said("examine", "van") || said("arrest", "...") || said("examine", "backup")) {
-  print(m34);
+if (said("call") || said("call", "dispatch") || said("ask", "dispatch")) {
+  print(m23);
 }
-if (posn(o0, 8, 97, 19, 100)) {
-  new.room(2);
+if (said("call", "backup") || said("call", "dispatch", "backup")) {
+  print(m24);
 }
-if (posn(o0, 126, 97, 145, 100)) {
-  if (isset(f32)) {
+if (said("photo") || said("photo", "*")) {
+  if (has(2)) {
+    print(m25);
+  } else {
+    print(m26);
+  }
+}
+if (said("check", "bud") || said("ask", "bud")) {
+  print(m27);
+}
+if (said("ask", "driver") || said("check", "driver")) {
+  print(m46);
+}
+if (said("check", "door")) {
+  print(m38);
+}
+if (said("check", "hall")) {
+  print(m39);
+}
+if (said("check", "case") || said("ask", "case")) {
+  print(m45);
+}
+if (said("file", "case") || said("file") || said("give", "case", "man") || said("give", "case")) {
+  if (isset(f55)) {
+    print(m37);
+  } else {
+    if (!isset(f50)) {
+      print(m29);
+    } else {
+      if (!isset(f51)) {
+        print(m30);
+      } else {
+        if (!isset(f52)) {
+          print(m31);
+        } else {
+          if (!isset(f53)) {
+            print(m32);
+          } else {
+            if (!isset(f54)) {
+              print(m33);
+            } else {
+              print(m34);
+              print(m35);
+              print(m36);
+              set(f55);
+              addn(v3, 50);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+if (equaln(v2, 4)) {
+  if (isset(f50)) {
+    new.room(2);
+  } else {
+    assignn(v2, 0);
+    print(m28);
+    get.posn(o0, v52, v53);
+    assignn(v52, 6);
+    reposition.to.v(o0, v52, v53);
+  }
+}
+if (equaln(v2, 2)) {
+  if (isset(f50)) {
     new.room(3);
   } else {
-    assignn(v6, 0);
-    position(o0, 134, 106);
-    print(m17);
+    assignn(v2, 0);
+    print(m28);
+    get.posn(o0, v52, v53);
+    assignn(v52, 146);
+    reposition.to.v(o0, v52, v53);
   }
 }
 return;
 
 
-// ===== logic 255 (324 bytes)
+// ===== logic 255 (320 bytes)
 #message 1 ">"
 #message 2 " "
-#message 3 "You have died."
+#message 3 "Case lost."
 #message 4 "Restore"
 #message 5 "Restart"
 #message 6 "Quit"

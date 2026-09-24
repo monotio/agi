@@ -145,177 +145,158 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
 return;
 
 
-// ===== logic 1 (3167 bytes)
-#message 1 "The precinct desk faces a case board, two doorways, and Sergeant Prakash. Records are through the right door; the street is left."
-#message 2 "Prakash hands you the pharmacy file. 'Hale reported a break-in. Delivery driver says he was there at nine. Check his story against the records before you go near Pier Road.'"
-#message 3 "The board lists Hale's Pharmacy, a nine o'clock delivery, and the shipping address: Pier Road warehouse. Somebody underlined CHECK THE TIME."
-#message 4 "Prakash taps the file. 'Talk to the driver, check the ledger in records, and document Hale's damage. Come back when the case holds together.'"
-#message 5 "Dispatch answers. 'Millhaven channel clear. Call again when you need backup. And tell Bud not to sing into the handset.'"
-#message 6 "Your badge identifies Officer Dana Reyes. The photograph was taken before your first night shift."
-#message 7 "The file contains Hale's initial call: smashed rear window, missing stock, a delivery van outside at nine. The time has not been verified."
-#message 8 "The right doorway leads to records. The left entrance opens onto the district street."
-#message 9 "Prakash keeps a tray for completed reports and another for reports he has already returned."
-#message 10 "The tray is empty. You need an arrest supported by the driver's account, the ledger and the pharmacy evidence."
-#message 11 "Prakash reads the report, signs the case file and clocks you out. 'Good work, Reyes. Next time, make the forms look this neat the first time.'"
-#message 12 "Prakash hands back the report. 'Bring me the full account: driver, ledger, Hale's evidence, and a properly supported arrest.'"
-#message 13 "Prakash says, 'Start with the board. Ask me about the case; then visit the driver, Hale's Pharmacy and records.'"
-#message 14 "There is nothing on the desk to take. Your badge and radio are already on your belt."
-#message 15 "Prakash says, 'I need your report, not your badge.'"
-#message 16 "The radio is on your belt. Dispatch is one call away."
-#message 17 "The precinct is quiet. You can talk to Prakash, read the board, check your file, call dispatch or walk to the street and records."
-#message 18 "Your case file is in your hand. Read it for the initial report."
-#message 19 "The desk has no evidence to photograph. Photograph the damage at Hale's Pharmacy."
-#message 20 "Prakash looks up from a stack of forms. 'How is Hale's case coming along?'"
-#message 21 "You already have the assignment. The board and your case file have the details."
-#message 22 "The warehouse address is on the board, but an address alone will not support an arrest."
-#message 23 "The ledger is kept in the records office through the right doorway."
-#message 24 "Your shift is finished. The signed case file is in Prakash's tray."
+// ===== logic 1 (2937 bytes)
+#message 1 "The precinct's green lamps light a case board, a records corridor, and Prakash's front counter. The street doors are behind you. Your badge and radio are on your belt."
+#message 2 "Prakash slides a file across the counter. 'Pharmacy break-in. The delivery driver says his van was nowhere near it after closing. Dispatch logged a detour toward Pier Road. Check his story, document the scene, and come back with a report that holds up.'"
+#message 3 "The board lists the pharmacy break-in, the delivery driver's account, and the Pier Road detour. Records are down the left corridor; the pharmacy is out on the street."
+#message 4 "'Talk to the driver and compare his route with dispatch. Photograph the pharmacy before you move anything,' Prakash says."
+#message 5 "The front counter holds Prakash's report tray. He will not accept a guess in place of a case."
+#message 6 "Your badge reads OFFICER DANA REYES. First week, same small print as everyone else."
+#message 7 "The radio connects you to dispatch. For now, the detour toward Pier Road is all they have."
+#message 8 "'Dispatch here. Delivery van detoured toward Pier Road after the pharmacy closed. Ask again if you need that repeated.'"
+#message 9 "The report is not ready. Prakash needs the driver's discrepancy, documented pharmacy evidence, the warehouse connection, and a supported arrest."
+#message 10 "Prakash checks the evidence, signs your report, and puts it in the correct tray. 'Good work, Reyes. Go home before I find another form.' Your first shift is finished."
+#message 11 "Prakash already gave you the assignment. The case board keeps the details handy."
+#message 12 "The records office is down the left corridor. The street doors lead to the pharmacy."
+#message 13 "Ask Prakash for the assignment, read the board, or head to records or the street."
+#message 14 "Prakash watches the report tray. 'The file needs facts, Reyes. Start with the driver and the pharmacy.'"
+#message 15 "The blank forms stay in the tray until the arrest and evidence are in order."
+#message 16 "The street is quiet. Bud is due outside the pharmacy."
+#message 17 "The radio crackles once and falls silent. Dispatch can repeat the van's route."
+#message 18 "The precinct board shows the detour; there is nothing to photograph here. Save the camera for the pharmacy."
+#message 19 "Prakash checks your badge. 'Yes, Reyes. You work here. Now find the driver.'"
+#message 20 "The records office holds the dispatch log and delivery ledger."
+#message 21 "Prakash turns over the completed case. 'Filed. You can let Bud tell the story now.'"
 
 if (isset(f5)) {
+  assignn(v7, 215);
   assignn(v40, 1);
   load.pic(v40);
   draw.pic(v40);
   show.pic();
-  set.horizon(100);
+  set.horizon(108);
   load.view(1);
   animate.obj(o0);
   set.view(o0, 1);
-  position(o0, 78, 152);
-  draw(o0);
+  if (equaln(v1, 2)) {
+    position(o0, 21, 143);
+  }
+  if (equaln(v1, 3)) {
+    position(o0, 58, 151);
+  }
+  if (!equaln(v1, 2) && !equaln(v1, 3)) {
+    position(o0, 57, 145);
+  }
   assignn(v41, 5);
   cycle.time(o0, v41);
+  draw(o0);
   load.view(2);
   animate.obj(o1);
   set.view(o1, 2);
-  position(o1, 78, 107);
+  position(o1, 114, 130);
+  set.loop(o1, 2);
+  fix.loop(o1);
+  assignn(v42, 12);
+  cycle.time(o1, v42);
   draw(o1);
-  ignore.objs(o1);
-  set.priority(o1, 12);
-  assignn(v7, 215);
-  player.control();
   accept.input();
   print(m1);
 }
-if (isset(f2)) {
+if (equaln(v2, 4)) {
+  new.room(2);
+}
+if (equaln(v2, 3)) {
+  new.room(3);
+}
+if (isset(f2) && !isset(f4)) {
   if (said("examine") || said("examine", "desk")) {
     print(m1);
     set(f4);
   }
-  if (said("ask", "prakash") || said("ask", "assignment") || said("ask", "assignment") || said("get", "assignment")) {
-    if (!isset(f40)) {
-      set(f40);
-      addn(v3, 10);
-      get(2);
-      print(m2);
-    } else {
-      if (isset(f45)) {
-        print(m24);
-      } else {
-        print(m4);
-      }
-    }
-    set(f4);
-  }
-  if (said("ask") || said("ask", "desk")) {
-    print(m20);
-    set(f4);
-  }
-  if (said("read", "board") || said("examine", "board") || said("check", "board")) {
-    print(m3);
-    set(f4);
-  }
-  if (said("read", "file") || said("read", "assignment") || said("check", "file")) {
-    if (has(2)) {
-      print(m7);
-    } else {
-      print(m13);
-    }
-    set(f4);
-  }
-  if (said("call") || said("call", "dispatch") || said("call", "dispatch") || said("check", "call")) {
+  if (said("examine", "prakash")) {
     print(m5);
     set(f4);
   }
-  if (said("examine", "badge") || said("show", "badge") || said("check", "badge")) {
+  if (said("examine", "assignment") || said("read", "assignment") || said("read", "assignment") || said("examine", "assignment")) {
+    print(m3);
+    set(f4);
+  }
+  if (said("ask", "prakash") || said("ask", "assignment")) {
+    if (!isset(f40)) {
+      set(f40);
+      addn(v3, 10);
+      print(m2);
+    } else {
+      print(m4);
+    }
+    set(f4);
+  }
+  if (said("ask", "dispatch") || said("call", "dispatch") || said("call") || said("check", "call")) {
+    print(m8);
+    set(f4);
+  }
+  if (said("examine", "badge") || said("check", "badge")) {
     print(m6);
     set(f4);
   }
   if (said("examine", "call")) {
+    print(m7);
+    set(f4);
+  }
+  if (said("show", "badge") || said("show", "badge", "prakash")) {
+    print(m19);
+    set(f4);
+  }
+  if (said("examine", "office") || said("examine", "office")) {
+    print(m20);
+    set(f4);
+  }
+  if (said("examine", "outside") || said("examine", "door")) {
     print(m16);
     set(f4);
   }
-  if (said("examine", "door") || said("examine", "street")) {
-    print(m8);
+  if (said("read", "report") || said("check", "report") || said("examine", "report") || said("get", "form")) {
+    print(m15);
     set(f4);
   }
-  if (said("examine", "desk") || said("examine", "desk")) {
-    print(m9);
+  if (said("show", "evidence") || said("ask", "case") || said("check", "case")) {
+    print(m14);
     set(f4);
   }
-  if (said("check", "report") || said("read", "report")) {
+  if (said("read", "ledger") || said("check", "ledger")) {
+    print(m20);
+    set(f4);
+  }
+  if (said("photo", "assignment") || said("photo", "desk")) {
+    print(m18);
+    set(f4);
+  }
+  if (said("get", "badge") || said("get", "call")) {
+    print(m6);
+    set(f4);
+  }
+  if (said("help")) {
+    print(m12);
+    set(f4);
+  }
+  if (said("file", "report") || said("show", "report") || said("check", "form")) {
     if (isset(f45)) {
-      print(m24);
-    } else {
-      print(m10);
-    }
-    set(f4);
-  }
-  if (said("show", "report") || said("file", "report") || said("show", "file")) {
-    if (isset(f45)) {
-      print(m24);
+      print(m21);
     } else {
       if (isset(f40) && isset(f41) && isset(f42) && isset(f43) && isset(f44)) {
         set(f45);
         addn(v3, 50);
-        print(m11);
+        print(m10);
       } else {
-        print(m12);
+        print(m9);
       }
     }
     set(f4);
   }
-  if (said("get", "file")) {
-    if (has(2)) {
-      print(m18);
-    } else {
-      print(m13);
-    }
-    set(f4);
-  }
-  if (said("get", "desk") || said("get", "board")) {
-    print(m14);
-    set(f4);
-  }
-  if (said("show", "badge", "prakash")) {
-    print(m15);
-    set(f4);
-  }
-  if (said("photo") || said("photo", "desk")) {
-    print(m19);
-    set(f4);
-  }
-  if (said("examine", "warehouse")) {
-    print(m22);
-    set(f4);
-  }
-  if (said("examine", "ledger") || said("check", "ledger")) {
-    print(m23);
-    set(f4);
-  }
-  if (said("help") || said("help")) {
+  if (!isset(f4)) {
     print(m13);
     set(f4);
   }
-  if (!isset(f4) && equaln(v9, 0)) {
-    print(m17);
-    set(f4);
-  }
-}
-if ((posn(o0, 0, 127, 2, 167) || equaln(v2, 4)) && (equaln(v6, 7) || equaln(v2, 4))) {
-  new.room(3);
-}
-if ((posn(o0, 150, 127, 159, 167) || equaln(v2, 2)) && (equaln(v6, 3) || equaln(v2, 2))) {
-  new.room(2);
 }
 return;
 

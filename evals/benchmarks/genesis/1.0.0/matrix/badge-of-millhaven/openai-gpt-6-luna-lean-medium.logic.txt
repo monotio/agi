@@ -1,4 +1,4 @@
-// ===== logic 0 (811 bytes)
+// ===== logic 0 (724 bytes)
 #message 1 "File"
 #message 2 "Save Game      F5"
 #message 3 "Restore Game   F7"
@@ -18,7 +18,7 @@
 #message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu."
 #message 18 "An adventure written with AGI IS HERE."
 #message 19 "I don't know the word \"%s11\"."
-#message 20 "Prakash points to the board. Try TALK SERGEANT or READ BOARD; the corridor is left and Station Street is right."
+#message 20 "I don't understand that."
 
 if (!isset(f200)) {
   set(f200);
@@ -145,18 +145,27 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
 return;
 
 
-// ===== logic 1 (999 bytes)
-#message 1 "Prakash taps the folder. \"A bottle of sedative is missing from the pharmacy. The delivery driver says he left before closing. Check the route sheet before you decide what that means.\""
-#message 2 "The board names the driver as Eli Bell. His van was assigned a Pier Road relay stop after the pharmacy delivery. Prakash has pinned a note: compare Bell's signed route with his statement, then check the pharmacy and records."
-#message 3 "Your badge and radio are on your duty belt. The radio is charged; dispatch can repeat the driver's route when you need it."
-#message 4 "Prakash is waiting beside the case board. The desk has a file tray for forms that arrive in the wrong order. The corridor is to the left; Station Street is through the doors on the right."
+// ===== logic 1 (1018 bytes)
+#message 1 "The precinct lobby is quiet. Sergeant Prakash waits behind the front desk; today's pharmacy call is on the briefing board."
+#message 2 "Sergeant Prakash taps the open case folder. \"A pharmacy was broken into overnight. The delivery driver says his van never left the depot. A signed slip puts it at the pharmacy at 2:10. Check the story, document the scene, and keep your evidence together. Bud can back you up if this reaches Pier Road.\""
+#message 3 "The board reads: PHARMACY BREAK-IN. Driver claims the van stayed at the depot; signed delivery slip says 2:10 a.m. Get the pharmacy evidence, compare it with dispatch records, and call for backup before the warehouse."
+#message 4 "Your badge is clean and clipped to your navy uniform. Your radio is charged. Prakash has not sent you out without a case number."
 
 if (isset(f5)) {
   assignn(v33, 1);
   load.pic(v33);
   draw.pic(v33);
   show.pic();
-  set.horizon(50);
+  load.view(2);
+  animate.obj(o1);
+  set.view(o1, 2);
+  set.loop(o1, 2);
+  fix.loop(o1);
+  set.priority(o1, 7);
+  position(o1, 91, 119);
+  draw(o1);
+  stop.cycling(o1);
+  set.horizon(72);
   load.view(1);
   animate.obj(o0);
   set.view(o0, 1);
@@ -164,7 +173,7 @@ if (isset(f5)) {
   step.time(o0, v34);
   assignn(v35, 3);
   cycle.time(o0, v35);
-  position(o0, 47, 148);
+  position(o0, 27, 147);
   draw(o0);
   normal.motion(o0);
   normal.cycle(o0);
@@ -173,6 +182,7 @@ if (isset(f5)) {
   assignn(v6, 0);
   player.control();
   accept.input();
+  print(m1);
 }
 get.posn(o0, v38, v39);
 if (equaln(v6, 0)) {
@@ -186,30 +196,20 @@ if (equalv(v38, v36) && equalv(v39, v37)) {
 }
 assignv(v36, v38);
 assignv(v37, v39);
-if (equaln(v2, 4)) {
+if (equaln(v2, 2)) {
   new.room(2);
 }
-if (equaln(v2, 2)) {
-  new.room(3);
-}
-if (said("speak", "prakash") || said("speak", "prakash") || said("speak", "prakash") || said("speak", "prakash")) {
-  set(f4);
+if (said("speak", "prakash") || said("speak", "prakash") || said("ask", "assignment") || said("speak", "assignment")) {
   if (!isset(f32)) {
-    set(f32);
     addn(v3, 10);
+    set(f32);
   }
-  print(m1);
-}
-if (said("check", "board") || said("check", "board") || said("check", "board") || said("examine", "board") || said("check", "assignment") || said("examine", "board")) {
-  set(f4);
   print(m2);
 }
-if (said("show", "badge") || said("show", "call") || said("examine", "badge")) {
-  set(f4);
+if (said("read", "assignment") || said("examine", "assignment") || said("check", "assignment")) {
   print(m3);
 }
-if (said("examine") || said("examine", "desk")) {
-  set(f4);
+if (said("examine", "badge") || said("check", "badge")) {
   print(m4);
 }
 return;

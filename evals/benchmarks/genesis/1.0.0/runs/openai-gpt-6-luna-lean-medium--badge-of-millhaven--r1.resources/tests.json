@@ -2,14 +2,70 @@
   "format": "monotio.agi.tests.v1",
   "tests": [
     {
-      "name": "precinct assignment and case-board lead",
+      "name": "precinct assignment and briefing",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
       "steps": [
         {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
           "action": "command",
           "command": "talk sergeant",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk sergeant",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
           "direction": null,
           "key": null,
           "x": null,
@@ -36,8 +92,8 @@
           "captureTicks": null
         },
         {
-          "action": "command",
-          "command": "talk prakash",
+          "action": "enter",
+          "command": null,
           "direction": null,
           "key": null,
           "x": null,
@@ -52,7 +108,10 @@
       ],
       "expect": {
         "room": 1,
-        "carriedItems": null,
+        "carriedItems": [
+          0,
+          1
+        ],
         "flags": [
           {
             "id": 32,
@@ -60,13 +119,13 @@
           }
         ],
         "vars": null,
-        "printed": "Prakash taps the folder",
+        "printed": null,
         "text": null,
         "score": 10,
         "object": null,
         "reachable": null
       },
-      "cycleBudget": 1200
+      "cycleBudget": 1000
     }
   ]
 }

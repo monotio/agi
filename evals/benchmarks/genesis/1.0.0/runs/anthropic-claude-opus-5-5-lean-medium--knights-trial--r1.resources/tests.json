@@ -2,30 +2,16 @@
   "format": "monotio.agi.tests.v1",
   "tests": [
     {
-      "name": "gate_supplies_and_button",
+      "name": "gate_accept_errand_and_supplies",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
       "steps": [
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -40,36 +26,8 @@
           "command": null,
           "direction": null,
           "key": null,
-          "x": 34,
-          "y": 126,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "read notice",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
+          "x": 44,
+          "y": 120,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -92,10 +50,38 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "look in basket",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -110,8 +96,8 @@
           "command": null,
           "direction": null,
           "key": null,
-          "x": 120,
-          "y": 150,
+          "x": 108,
+          "y": 138,
           "answer": null,
           "until": null,
           "waypoints": null,
@@ -134,22 +120,8 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "get the lantern",
           "direction": null,
           "key": null,
           "x": null,
@@ -162,10 +134,24 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "walkTo",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
+          "x": 104,
+          "y": 112,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "take lantern",
+          "direction": null,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -176,8 +162,8 @@
           "captureTicks": null
         },
         {
-          "action": "command",
-          "command": "look button",
+          "action": "enter",
+          "command": null,
           "direction": null,
           "key": null,
           "x": null,
@@ -193,37 +179,44 @@
       "expect": {
         "room": 1,
         "carriedItems": [
-          0,
           1,
           2,
           3
         ],
         "flags": [
           {
-            "id": 30,
+            "id": 32,
+            "value": true
+          },
+          {
+            "id": 33,
+            "value": true
+          },
+          {
+            "id": 34,
             "value": true
           }
         ],
         "vars": null,
-        "printed": "tarnished brass button",
+        "printed": null,
         "text": null,
-        "score": 0,
+        "score": 10,
         "object": null,
         "reachable": null
       },
-      "cycleBudget": 3000
+      "cycleBudget": 2000
     },
     {
-      "name": "gate_moat_warning_then_death",
+      "name": "gate_swim_warns_first",
       "room": 1,
-      "spawnX": 40,
-      "spawnY": 95,
+      "spawnX": null,
+      "spawnY": null,
       "steps": [
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -234,10 +227,53 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "command",
+          "command": "swim in moat",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": null,
+        "flags": [
+          {
+            "id": 35,
+            "value": true
+          },
+          {
+            "id": 202,
+            "value": false
+          }
+        ],
+        "vars": null,
+        "printed": "You decide to think it over.",
+        "text": null,
+        "score": null,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 600
+    },
+    {
+      "name": "gate_swim_twice_dies",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -262,22 +298,8 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "enter",
           "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "swim in moat",
           "direction": null,
           "key": null,
           "x": null,
@@ -290,10 +312,24 @@
           "captureTicks": null
         },
         {
-          "action": "key",
+          "action": "command",
+          "command": "swim",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
           "command": null,
           "direction": null,
-          "key": 13,
+          "key": null,
           "x": null,
           "y": null,
           "answer": null,
@@ -325,90 +361,16 @@
           {
             "id": 202,
             "value": true
-          },
-          {
-            "id": 32,
-            "value": true
           }
         ],
         "vars": null,
-        "printed": null,
-        "text": "You have died",
+        "printed": "delighted to meet you",
+        "text": null,
         "score": null,
         "object": null,
         "reachable": null
       },
-      "cycleBudget": 1000
-    },
-    {
-      "name": "gate_moat_is_barrier",
-      "room": 1,
-      "spawnX": 40,
-      "spawnY": 95,
-      "steps": [
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "key",
-          "command": null,
-          "direction": null,
-          "key": 13,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "move",
-          "command": null,
-          "direction": "up",
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": 40,
-          "captureTicks": null
-        }
-      ],
-      "expect": {
-        "room": 1,
-        "carriedItems": null,
-        "flags": null,
-        "vars": null,
-        "printed": null,
-        "text": null,
-        "score": null,
-        "object": {
-          "num": 0,
-          "view": null,
-          "x0": null,
-          "y0": 86,
-          "x1": null,
-          "y1": 167,
-          "active": null
-        },
-        "reachable": null
-      },
-      "cycleBudget": 1000
+      "cycleBudget": 600
     }
   ]
 }

@@ -145,212 +145,228 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
 return;
 
 
-// ===== logic 1 (2897 bytes)
-#message 1 "Thornwall's gray walls stand across the moat. A royal notice hangs beside the drawbridge. Bread sits on a bench; a lit lantern hangs on a hook. A path runs east through the meadow. An alligator floats near the far bank."
-#message 2 "The notice reads: THREE BRIGHT THINGS WANTED. The underwater Bell, the undying Ember and the wandering Map. Report to King Brannoc in the hall. The ink is still wet."
-#message 3 "The bread is a fresh, round loaf. Someone left it where a traveler would find it."
-#message 4 "You take the bread. Its crust is still warm."
-#message 5 "You take the lit lantern. Its flame stays steady in the breeze."
-#message 6 "The lantern is lit. Its brass sides could use a polish."
-#message 7 "The alligator watches from the moat. The drawbridge is the safer way across."
-#message 8 "You step toward the water. The alligator opens one eye. There is still time to step back."
-#message 9 "The alligator reaches you before the far bank does."
-#message 10 "The castle gate opens onto the king's hall. Walk up the drawbridge or enter the gate."
-#message 11 "The path to the east leads into the meadow."
-#message 12 "The loaf is too far away. It rests on the bench beside the bridge."
-#message 13 "The lantern hangs out of reach from here. Step toward its hook."
-#message 14 "The notice is on the post beside the drawbridge. Come a little closer to read it."
-#message 15 "You already have the bread."
-#message 16 "You already have the lantern."
-#message 17 "The notice names three treasures. Read it for the whole errand. Bread waits on the bench and a lantern hangs by the path. The gate leads to the king; the east path leads to the meadow."
-#message 18 "The bread would be better given to someone hungry."
-#message 19 "You hold the lantern up. Its little flame lights the gate, but nothing here needs lighting."
-#message 20 "You cannot carry the notice away. The king wants everyone to see it."
-#message 21 "The alligator is not interested in conversation."
-#message 22 "The bridge is solid, and the gate stands open at the far end."
-#message 23 "The notice does not mention how to find the treasures. The king may know more."
-#message 24 "The moat is deep, blue and occupied."
-#message 25 "The king is in the hall across the bridge."
-#message 26 "The bread belongs to your pack now."
-#message 27 "The lantern is already burning."
-#message 28 "You can read the notice, take the bread and lantern, or cross the drawbridge to see the king. The meadow path runs east."
-#message 29 "Wenna's sleeves are a little long. Her boots fit well enough."
-#message 30 "The bench has room for one loaf and no excuses."
+// ===== logic 1 (2702 bytes)
+#message 1 "Thornwall Gate. The king's notice stands beside the drawbridge. Bread and a lit lantern wait by the meadow path. An alligator watches the moat. The hall is west; the meadow is east."
+#message 2 "The notice reads: 'The Three Bright Things are lost. Those willing to help should speak to King Brannoc in the hall. Please do not feed the alligator.'"
+#message 3 "Wenna takes the journey bread. It is still warm under the crust."
+#message 4 "Wenna takes the lit lantern. Its brass handle has been polished recently."
+#message 5 "The bread is already in your bag."
+#message 6 "The lantern is already in your hand."
+#message 7 "The alligator follows Wenna with one eye. Its mouth stays open."
+#message 8 "The moat is deep, and the alligator is waiting. Swimming would be a poor choice."
+#message 9 "Wenna steps into the moat. The alligator proves surprisingly quick."
+#message 10 "The castle hall lies west across the drawbridge. The meadow path runs east."
+#message 11 "The bread smells of rosemary. A heron in the meadow might appreciate it."
+#message 12 "The lantern's flame is steady. Its brass casing reflects the castle wall."
+#message 13 "The gate stands open. The king is waiting in the hall to the west."
+#message 14 "The drawbridge is sound. Its planks cross the moat toward the hall."
+#message 15 "The meadow path leads east, away from the castle."
+#message 16 "Wenna has nobody here to give the bread to. A heron waits in the meadow."
+#message 17 "The lantern is already lit."
+#message 18 "You can read the notice, take the bread or lantern, and follow the west or east path."
+#message 19 "King Brannoc is in the hall to the west. His notice asks for help."
+#message 20 "A heron is said to frequent the meadow east of the gate."
+#message 21 "The Three Bright Things are an underwater Bell, an undying Ember and a wandering Map. The king knows more."
+#message 22 "The lantern is fixed to its post no longer; Wenna could carry it."
+#message 23 "There is no candle here to light. Keep the lantern for the road."
+#message 24 "The notice is nailed to the post. Wenna leaves it for the next traveler."
+#message 25 "Wenna has a steady walk and a difficult errand ahead."
+#message 26 "The moat bars the way north. Use the drawbridge rather than trying the water."
+#message 27 "The castle wall blocks the way. The open drawbridge leads west."
 
 if (isset(f5)) {
   assignn(v7, 230);
+  status.line.off();
+  status.line.on();
   assignn(v40, 1);
   load.pic(v40);
   draw.pic(v40);
-  set.horizon(65);
+  show.pic();
+  set.horizon(105);
   load.view(1);
-  set.view(o0, 1);
-  position(o0, 71, 148);
-  if (equaln(v1, 3)) {
-    position(o0, 148, 147);
-  }
-  if (equaln(v1, 2)) {
-    position(o0, 70, 101);
-  }
+  load.view(2);
+  load.view(3);
+  load.view(4);
   animate.obj(o0);
-  assignn(v41, 6);
+  set.view(o0, 1);
+  position(o0, 109, 157);
+  assignn(v41, 8);
   cycle.time(o0, v41);
   draw(o0);
-  if (!isset(f40)) {
-    load.view(2);
+  if (!isset(f41)) {
     animate.obj(o1);
     set.view(o1, 2);
-    position(o1, 112, 120);
+    position(o1, 123, 150);
     draw(o1);
   }
-  if (!isset(f41)) {
-    load.view(3);
+  if (!isset(f42)) {
     animate.obj(o2);
     set.view(o2, 3);
-    position(o2, 100, 118);
+    position(o2, 147, 139);
+    assignn(v42, 9);
+    cycle.time(o2, v42);
     draw(o2);
   }
-  show.pic();
-  player.control();
+  animate.obj(o3);
+  set.view(o3, 4);
+  position(o3, 65, 123);
+  assignn(v43, 14);
+  cycle.time(o3, v43);
+  draw(o3);
   accept.input();
   print(m1);
+}
+if (isset(f2) && said("examine")) {
+  print(m1);
+  set(f4);
+}
+if (isset(f2) && said("examine", "notice")) {
+  print(m2);
+  set(f4);
+}
+if (isset(f2) && said("read", "notice")) {
+  print(m2);
+  set(f4);
+}
+if (isset(f2) && said("get", "notice")) {
+  print(m24);
+  set(f4);
+}
+if (isset(f2) && said("examine", "bread")) {
+  print(m11);
+  set(f4);
+}
+if (isset(f2) && said("get", "bread")) {
+  if (!isset(f41)) {
+    set(f41);
+    get(0);
+    erase(o1);
+    print(m3);
+  } else {
+    print(m5);
+  }
+  set(f4);
+}
+if (isset(f2) && said("examine", "lamp")) {
+  print(m12);
+  set(f4);
+}
+if (isset(f2) && said("get", "lamp")) {
+  if (!isset(f42)) {
+    set(f42);
+    get(1);
+    erase(o2);
+    print(m4);
+  } else {
+    print(m6);
+  }
+  set(f4);
+}
+if (isset(f2) && said("ignite", "lamp")) {
+  print(m17);
+  set(f4);
+}
+if (isset(f2) && said("use", "lamp")) {
+  print(m23);
+  set(f4);
+}
+if (isset(f2) && said("examine", "alligator")) {
+  print(m7);
+  set(f4);
+}
+if (isset(f2) && said("speak", "alligator")) {
+  print(m7);
+  set(f4);
+}
+if (isset(f2) && said("examine", "moat")) {
+  print(m8);
+  set(f4);
+}
+if (isset(f2) && said("dive")) {
+  if (!isset(f49)) {
+    set(f49);
+    print(m8);
+  } else {
+    print(m9);
+    call(255);
+  }
+  set(f4);
+}
+if (isset(f2) && said("dive", "moat")) {
+  if (!isset(f49)) {
+    set(f49);
+    print(m8);
+  } else {
+    print(m9);
+    call(255);
+  }
+  set(f4);
+}
+if (isset(f2) && said("examine", "bridge")) {
+  print(m14);
+  set(f4);
+}
+if (isset(f2) && said("examine", "castle")) {
+  print(m13);
+  set(f4);
+}
+if (isset(f2) && said("examine", "gate")) {
+  print(m13);
+  set(f4);
+}
+if (isset(f2) && said("examine", "meadow")) {
+  print(m15);
+  set(f4);
+}
+if (isset(f2) && said("feed", "bread")) {
+  print(m16);
+  set(f4);
+}
+if (isset(f2) && said("speak", "brannoc")) {
+  print(m19);
+  set(f4);
+}
+if (isset(f2) && said("examine", "heron")) {
+  print(m20);
+  set(f4);
+}
+if (isset(f2) && said("examine", "bell")) {
+  print(m21);
+  set(f4);
+}
+if (isset(f2) && said("examine", "ember")) {
+  print(m21);
+  set(f4);
+}
+if (isset(f2) && said("examine", "map")) {
+  print(m21);
+  set(f4);
+}
+if (isset(f2) && said("examine", "wenna")) {
+  print(m25);
+  set(f4);
+}
+if (isset(f2) && said("help")) {
+  print(m18);
+  set(f4);
+}
+if (isset(f2) && !isset(f4)) {
+  print(m18);
+  set(f4);
+}
+if (equaln(v2, 4)) {
+  new.room(2);
 }
 if (equaln(v2, 2)) {
   new.room(3);
 }
-if (posn(o0, 59, 72, 79, 89) && equaln(v6, 1)) {
-  new.room(2);
+if (equaln(v2, 1)) {
+  print(m26);
+  position(o0, 109, 144);
 }
-if (isset(f2) && !isset(f4)) {
-  if (said("examine")) {
-    print(m1);
-    set(f4);
-  }
-  if (said("examine", "notice") || said("read", "notice")) {
-    if (posn(o0, 8, 99, 57, 160)) {
-      set(f42);
-      print(m2);
-    } else {
-      print(m14);
-    }
-    set(f4);
-  }
-  if (said("examine", "bread")) {
-    if (isset(f40)) {
-      print(m26);
-    } else {
-      print(m3);
-    }
-    set(f4);
-  }
-  if (said("get", "bread")) {
-    if (isset(f40)) {
-      print(m15);
-    } else {
-      if (posn(o0, 88, 120, 136, 157)) {
-        set(f40);
-        get(0);
-        erase(o1);
-        print(m4);
-      } else {
-        print(m12);
-      }
-    }
-    set(f4);
-  }
-  if (said("examine", "lamp")) {
-    print(m6);
-    set(f4);
-  }
-  if (said("get", "lamp")) {
-    if (isset(f41)) {
-      print(m16);
-    } else {
-      if (posn(o0, 82, 119, 115, 157)) {
-        set(f41);
-        get(1);
-        erase(o2);
-        print(m5);
-      } else {
-        print(m13);
-      }
-    }
-    set(f4);
-  }
-  if (said("ignite", "lamp") || said("use", "lamp")) {
-    if (has(1)) {
-      print(m19);
-    } else {
-      print(m6);
-    }
-    set(f4);
-  }
-  if (said("get", "notice")) {
-    print(m20);
-    set(f4);
-  }
-  if (said("examine", "alligator") || said("speak", "alligator")) {
-    print(m7);
-    set(f4);
-  }
-  if (said("examine", "moat")) {
-    print(m24);
-    set(f4);
-  }
-  if (said("swim") || said("swim", "moat")) {
-    if (!isset(f50)) {
-      set(f50);
-      print(m8);
-    } else {
-      print(m9);
-      set(f202);
-    }
-    set(f4);
-  }
-  if (said("examine", "bridge") || said("examine", "castle")) {
-    print(m22);
-    set(f4);
-  }
-  if (said("enter", "castle") || said("enter", "hall")) {
-    if (posn(o0, 46, 90, 94, 151)) {
-      new.room(2);
-    } else {
-      print(m10);
-    }
-    set(f4);
-  }
-  if (said("examine", "meadow")) {
-    print(m11);
-    set(f4);
-  }
-  if (said("examine", "brannoc") || said("speak", "brannoc")) {
-    print(m25);
-    set(f4);
-  }
-  if (said("read")) {
-    print(m23);
-    set(f4);
-  }
-  if (said("give", "bread")) {
-    print(m18);
-    set(f4);
-  }
-  if (said("examine", "sword")) {
-    print(m29);
-    set(f4);
-  }
-  if (said("examine", "candle")) {
-    print(m27);
-    set(f4);
-  }
-  if (said("help")) {
-    print(m17);
-    set(f4);
-  }
-  if (isset(f2) && !isset(f4)) {
-    print(m28);
-    set(f4);
-  }
+if (equaln(v2, 3)) {
+  print(m27);
+  position(o0, 109, 153);
 }
 return;
 

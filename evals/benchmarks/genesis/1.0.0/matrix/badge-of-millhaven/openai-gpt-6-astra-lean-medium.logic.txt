@@ -1,4 +1,4 @@
-// ===== logic 0 (750 bytes)
+// ===== logic 0 (770 bytes)
 #message 1 "File"
 #message 2 "Save Game      F5"
 #message 3 "Restore Game   F7"
@@ -16,17 +16,17 @@
 #message 15 "Help           F1"
 #message 16 "About"
 #message 17 "Type a command and press ENTER. Arrow keys walk. ESC opens the menu."
-#message 18 "Badge of Millhaven\nOfficer Dana Reyes - first week on patrol."
+#message 18 "MILLHAVEN POLICE DEPARTMENT\nOfficer Dana Reyes\nPatrol assignment: Bell's Pharmacy"
 #message 19 "I don't know the word \"%s11\"."
 #message 20 "I don't understand that."
 
 if (!isset(f200)) {
   set(f200);
   configure.screen(1, 22, 0);
+  assignn(v7, 215);
   status.line.on();
   set(f9);
   assignn(v10, 2);
-  assignn(v7, 215);
   set.menu(m1);
   set.menu.item(m2, 201);
   set.menu.item(m3, 202);
@@ -146,218 +146,177 @@ if (isset(f2) && !isset(f4) && !isset(f202)) {
 return;
 
 
-// ===== logic 1 (4512 bytes)
-#message 1 "PRECINCT FRONT DESK\n\nSergeant Prakash waits behind the desk. A case folder lies beside the blinking receiver. The assignment board hangs to the left. Records is west; Market Street is east."
-#message 2 "Prakash slides over case MH-041.\n\n\"Bell's Pharmacy, Market Street. Alarm at 21:20. Driver Ellis Vann is still outside. Hear his account, then check it. Photograph the lock before collecting anything.\"\n\nHe issues a camera and evidence kit. \"The board has the details. Records has the delivery ledger and dispatch log.\""
-#message 3 "\"Start with Vann outside Bell's Pharmacy,\" Prakash says. \"Then speak to Bell and document the break-in. Compare their accounts with the ledger and dispatch log in Records.\""
-#message 4 "MH-041: BELL'S PHARMACY\nAlarm: 21:20, rear entrance.\nDriver: Ellis Vann, waiting on Market Street.\n\nHear the driver's account. Photograph the lock; collect and label evidence. Ask the pharmacist about missing stock. Compare the delivery ledger and dispatch log in Records."
-#message 5 "Prakash has a fresh report and a sharpened pencil ready. A second tray is labelled FORMS COMPLETED IN THE WRONG TRAY."
-#message 6 "The brass badge reads MILLHAVEN POLICE. Officer Dana Reyes. Your first week on patrol."
-#message 7 "Prakash glances at the badge. \"Reyes. Good. Let's get you an assignment.\""
-#message 8 "Dispatch answers: \"Bell's Pharmacy alarm, 21:20. Driver Ellis Vann is waiting outside. The van's movements are in our log at Records. I can repeat that whenever you need it.\""
-#message 9 "The portable radio is charged and tuned to Dispatch."
-#message 10 "The blue desk has a receiver, a case folder and two paperwork trays. Prakash keeps the assignment board up to date."
-#message 11 "Prakash holds the folder. \"Talk to me first, Reyes. You need the circumstances, not just the cover sheet.\""
-#message 12 "The case report is in your kit. The desk is clear where the folder lay."
-#message 13 "Case MH-041 is open. The report has spaces for the driver's account, scene photographs, labelled evidence, record checks, witness statement and arrest details."
-#message 14 "\"No rush to file an empty report,\" Prakash says. \"Start with the driver and the pharmacy. Bring back the evidence; we can correct the paperwork here.\""
-#message 15 "The issued camera has fresh film. Save the first photograph for the pharmacy's forced lock."
-#message 16 "The evidence kit contains gloves, bags and labels. Preserve any lot numbers on the pharmacy's missing stock."
-#message 17 "Prakash will issue a camera and evidence kit with your assignment."
-#message 18 "Ellis Vann is waiting beside his delivery van on Market Street, east of the precinct."
-#message 19 "Bell's Pharmacy is on Market Street. The alarm came from its rear entrance."
-#message 20 "Records keeps the delivery ledger and dispatch log. The west passage leads there."
-#message 21 "Prakash says, \"A warehouse address needs a connection to the case. Compare the records with what the witnesses tell you.\""
-#message 22 "No bottle has been booked into evidence. Check the pharmacy scene."
-#message 23 "Prakash says, \"Names come after evidence. First find out what happened at Bell's.\""
-#message 24 "Bud is out on Market Street. Dispatch says he has already asked whether the van driver wants coffee."
-#message 25 "Prakash taps the second tray. \"It saves a surprising amount of explanation.\""
-#message 26 "There is no scene evidence to photograph at the front desk."
-#message 27 "Prakash is ready to talk. You can read the assignment board, check your badge or call Dispatch. Records is west; Market Street is east."
-#message 28 "The camera and evidence kit are already packed with your report."
-#message 29 "\"Keep your badge handy,\" Prakash says. \"Bell will want to know who's asking.\""
-#message 30 "The desk receiver carries Dispatch's channel. Your portable radio reaches the same operator."
-#message 31 "Prakash sits behind the desk beside the blinking receiver. The assignment board keeps the case details handy. Records is west; Market Street is east."
+// ===== logic 1 (3395 bytes)
+#message 1 "Millhaven Precinct. Sergeant Prakash waits behind the desk. The case board hangs to his right. Records is through the west door; the street is east."
+#message 2 "Prakash: Bell's Pharmacy was broken into before dawn. Driver Len Voss says he made his delivery at 9:10. Bell says nothing arrived. Start with Voss outside the pharmacy, then check his time with Dispatch. I've posted the details on the board."
+#message 3 "Prakash: Ask Voss about the delivery, then check his time with Dispatch. Photograph the forced lock before collecting anything. Records can trace a marked lot. Keep the witnesses' accounts with the evidence."
+#message 4 "CASE BOARD\nBell's Pharmacy, Millhaven Street.\nDriver: Len Voss. Claimed delivery: 9:10.\nCheck the time with Dispatch. Photograph the lock before collecting evidence.\nRecords: west. Street: east."
+#message 5 "The board lists Bell's Pharmacy and a reported break-in. Prakash has the assignment."
+#message 6 "The desk has an incoming tray, an outgoing tray, and a tray marked WRONG TRAY. A radio's green lamp blinks beside them."
+#message 7 "Prakash: Reyes. I remember. Your badge was the only thing on your application that didn't need another signature."
+#message 8 "Badge 214, Officer Dana Reyes. The brass still has its original shine."
+#message 9 "Dispatch: Reyes, you're clear. Talk to Sergeant Prakash for your assignment."
+#message 10 "Dispatch: Voss is by Bell's Pharmacy on Millhaven Street. Get his account first. Call me from there and I'll check the vehicle log."
+#message 11 "The radio is charged and tuned to Dispatch."
+#message 12 "Prakash: There's no report to file yet. Take the assignment, speak to the driver, and document the pharmacy."
+#message 13 "Prakash: Keep the report open. I still need the checked delivery time, pharmacy evidence, a supported warehouse connection, and the arrest record. Records can help assemble it."
+#message 14 "Prakash reads each page, checks the evidence log, and signs. 'Good work, Reyes. This one will hold up.' Dana's first shift ends with a complete case in the right tray."
+#message 15 "Prakash: The case is filed, Reyes. Go home before someone finds another form."
+#message 16 "Prakash: Bud will meet you on the street. If this leads to a confrontation, call backup before going in."
+#message 17 "The board and desk equipment stay here. Dana already carries a badge and radio."
+#message 18 "The precinct is quiet. Prakash can brief you; the board keeps the details. Records is west and the street is east."
+#message 19 "The break-in is at Bell's Pharmacy, east of the precinct. The desk has no evidence to photograph."
+#message 20 "Prakash: Bring me the evidence before we name a suspect. Records can check delivery lots and addresses."
+#message 21 "Records is through the west door. The clerk can compare delivery records with the evidence."
+#message 22 "Millhaven Street is through the east door. Bell's Pharmacy and its delivery driver are nearby."
 
 if (isset(f5)) {
-  assignn(v40, 1);
-  load.pic(v40);
-  draw.pic(v40);
-  set.horizon(96);
+  assignn(v7, 215);
   load.view(1);
   load.view(2);
   load.view(3);
   load.view(4);
+  assignn(v40, 1);
+  load.pic(v40);
+  draw.pic(v40);
+  set.horizon(77);
   animate.obj(o0);
   set.view(o0, 1);
   set.loop(o0, 2);
-  set.cel(o0, 0);
-  position(o0, 77, 142);
+  position(o0, 78, 135);
   if (equaln(v1, 2)) {
-    position(o0, 12, 126);
+    position(o0, 20, 126);
   }
   if (equaln(v1, 3)) {
-    position(o0, 138, 126);
+    position(o0, 132, 126);
   }
-  assignn(v41, 4);
-  cycle.time(o0, v41);
-  assignn(v43, 1);
-  step.time(o0, v43);
-  step.size(o0, v43);
+  assignn(v32, 3);
+  cycle.time(o0, v32);
   draw(o0);
   animate.obj(o1);
   set.view(o1, 2);
-  set.loop(o1, 2);
-  fix.loop(o1);
-  position(o1, 91, 101);
-  ignore.horizon(o1);
-  ignore.objs(o1);
+  position(o1, 65, 87);
   set.priority(o1, 8);
-  draw(o1);
   stop.cycling(o1);
-  if (!isset(f32)) {
-    animate.obj(o2);
-    set.view(o2, 3);
-    position(o2, 73, 92);
-    ignore.horizon(o2);
-    ignore.objs(o2);
-    set.priority(o2, 11);
-    draw(o2);
-    stop.cycling(o2);
-  }
+  draw(o1);
+  animate.obj(o2);
+  set.view(o2, 3);
+  position(o2, 96, 89);
+  set.priority(o2, 11);
+  ignore.objs(o2);
+  assignn(v33, 9);
+  cycle.time(o2, v33);
+  draw(o2);
   animate.obj(o3);
   set.view(o3, 4);
-  position(o3, 63, 91);
   ignore.horizon(o3);
+  position(o3, 113, 55);
+  set.priority(o3, 8);
   ignore.objs(o3);
-  set.priority(o3, 11);
-  assignn(v42, 20);
-  cycle.time(o3, v42);
+  stop.cycling(o3);
+  set.cel(o3, 0);
+  if (isset(f40)) {
+    set.cel(o3, 1);
+  }
   draw(o3);
   show.pic();
   accept.input();
   player.control();
-  if (!isset(f45)) {
-    set(f45);
-    print(m1);
-  }
+  print(m1);
 }
-if (said("examine") || said("examine", "room")) {
-  if (isset(f32)) {
-    print(m31);
-  } else {
-    print(m1);
-  }
+if (said("examine")) {
+  print(m1);
 }
-if (said("speak") || said("speak", "prakash")) {
-  if (!isset(f32)) {
-    set(f32);
-    get(2);
-    get(3);
-    get(4);
-    erase(o2);
+if (said("speak", "prakash") || said("speak")) {
+  if (!isset(f40)) {
+    set(f40);
     addn(v3, 10);
+    set.cel(o3, 1);
     print(m2);
   } else {
-    print(m3);
+    if (isset(f45)) {
+      print(m15);
+    } else {
+      print(m3);
+    }
   }
 }
-if (said("examine", "assignment") || said("read", "assignment") || said("check", "assignment")) {
-  print(m4);
+if (said("read", "assignment") || said("examine", "assignment") || said("check", "assignment")) {
+  if (isset(f40)) {
+    print(m4);
+  } else {
+    print(m5);
+  }
 }
 if (said("examine", "prakash")) {
-  print(m5);
+  print(m16);
 }
-if (said("examine", "badge") || said("check", "badge")) {
+if (said("examine", "desk") || said("check", "desk")) {
   print(m6);
 }
 if (said("show", "badge") || said("show", "badge", "prakash")) {
-  if (isset(f32)) {
-    print(m29);
-  } else {
-    print(m7);
-  }
+  print(m7);
 }
-if (said("call") || said("call", "dispatch") || said("speak", "dispatch") || said("call", "prakash")) {
+if (said("examine", "badge") || said("check", "badge")) {
   print(m8);
 }
-if (said("examine", "call") || said("check", "call")) {
-  print(m9);
-}
-if (said("examine", "counter") || said("check", "counter")) {
-  if (isset(f32)) {
-    print(m12);
-  } else {
+if (said("call") || said("call", "dispatch") || said("check", "driver")) {
+  if (isset(f40)) {
     print(m10);
-  }
-}
-if (said("get", "case")) {
-  if (isset(f32)) {
-    print(m12);
   } else {
-    print(m11);
+    print(m9);
   }
 }
-if (said("examine", "case") || said("read", "case") || said("check", "case") || said("show", "case") || said("show", "case", "prakash")) {
-  if (isset(f32)) {
+if (said("examine", "call") || said("check", "call")) {
+  print(m11);
+}
+if (said("call", "backup") || said("speak", "bud")) {
+  print(m16);
+}
+if (said("read", "report") || said("examine", "report")) {
+  if (isset(f40)) {
     print(m13);
   } else {
-    print(m11);
+    print(m12);
   }
 }
-if (said("file", "case") || said("file")) {
-  print(m14);
-}
-if (said("examine", "camera") || said("check", "camera")) {
-  if (has(3)) {
+if (said("file", "report") || said("show", "report") || said("show", "report", "prakash")) {
+  if (isset(f45)) {
     print(m15);
   } else {
-    print(m17);
+    if (isset(f41) && isset(f42) && isset(f43) && isset(f44) && isset(f47) && has(5)) {
+      set(f45);
+      addn(v3, 50);
+      print(m14);
+    } else {
+      if (isset(f40)) {
+        print(m13);
+      } else {
+        print(m12);
+      }
+    }
   }
 }
-if (said("examine", "evidence kit") || said("check", "evidence kit")) {
-  if (has(4)) {
-    print(m16);
-  } else {
-    print(m17);
-  }
+if (said("get", "badge") || said("get", "call") || said("get", "assignment") || said("get", "report")) {
+  print(m17);
 }
-if (said("get", "camera") || said("get", "evidence kit")) {
-  if (isset(f32)) {
-    print(m28);
-  } else {
-    print(m17);
-  }
-}
-if (said("examine", "driver") || said("check", "driver") || said("speak", "driver")) {
-  print(m18);
-}
-if (said("examine", "pharmacy") || said("check", "pharmacy")) {
-  print(m19);
-}
-if (said("examine", "records") || said("examine", "ledger") || said("read", "ledger") || said("check", "ledger")) {
-  print(m20);
-}
-if (said("examine", "warehouse") || said("check", "warehouse")) {
+if (said("examine", "records")) {
   print(m21);
 }
-if (said("examine", "bottle") || said("get", "bottle")) {
+if (said("examine", "street")) {
   print(m22);
 }
-if (said("examine", "suspect") || said("check", "suspect")) {
-  print(m23);
+if (said("examine", "pharmacy") || said("photograph") || said("photograph", "desk")) {
+  print(m19);
 }
-if (said("speak", "bud") || said("examine", "bud")) {
-  print(m24);
+if (said("examine", "warehouse") || said("examine", "suspect") || said("examine", "bottle") || said("examine", "ledger") || said("show", "bottle") || said("show", "ledger")) {
+  print(m20);
 }
-if (said("examine", "forms") || said("read", "forms")) {
-  print(m25);
+if (said("west") || said("enter", "records")) {
+  new.room(2);
 }
-if (said("photo") || said("photo", "...")) {
-  print(m26);
-}
-if (said("help")) {
-  print(m27);
+if (said("east") || said("enter", "street")) {
+  new.room(3);
 }
 if (equaln(v2, 4)) {
   new.room(2);
@@ -366,8 +325,8 @@ if (equaln(v2, 2)) {
   new.room(3);
 }
 if (isset(f2) && !isset(f4)) {
-  print(m27);
   set(f4);
+  print(m18);
 }
 return;
 

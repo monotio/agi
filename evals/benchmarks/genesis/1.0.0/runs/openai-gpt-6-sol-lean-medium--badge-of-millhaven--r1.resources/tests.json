@@ -2,92 +2,7 @@
   "format": "monotio.agi.tests.v1",
   "tests": [
     {
-      "name": "Precinct assignment and lead",
-      "room": 1,
-      "spawnX": null,
-      "spawnY": null,
-      "steps": [
-        {
-          "action": "command",
-          "command": "read board",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "talk prakash",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "talk prakash",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        },
-        {
-          "action": "command",
-          "command": "read file",
-          "direction": null,
-          "key": null,
-          "x": null,
-          "y": null,
-          "answer": null,
-          "until": null,
-          "waypoints": null,
-          "target": null,
-          "ticks": null,
-          "captureTicks": null
-        }
-      ],
-      "expect": {
-        "room": 1,
-        "carriedItems": [
-          0,
-          1,
-          2
-        ],
-        "flags": [
-          {
-            "id": 40,
-            "value": true
-          }
-        ],
-        "vars": null,
-        "printed": "The file contains Hale's initial call",
-        "text": null,
-        "score": 10,
-        "object": null,
-        "reachable": null
-      },
-      "cycleBudget": 250
-    },
-    {
-      "name": "Precinct desk is a barrier",
+      "name": "Prakash assigns Dana the case once",
       "room": 1,
       "spawnX": null,
       "spawnY": null,
@@ -107,9 +22,9 @@
           "captureTicks": null
         },
         {
-          "action": "move",
-          "command": null,
-          "direction": "up",
+          "action": "command",
+          "command": "talk prakash",
+          "direction": null,
           "key": null,
           "x": null,
           "y": null,
@@ -117,30 +32,134 @@
           "until": null,
           "waypoints": null,
           "target": null,
-          "ticks": 50,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "talk sergeant",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
           "captureTicks": null
         }
       ],
       "expect": {
         "room": 1,
-        "carriedItems": null,
-        "flags": null,
-        "vars": null,
-        "printed": null,
+        "carriedItems": [
+          0,
+          1
+        ],
+        "flags": [
+          {
+            "id": 40,
+            "value": true
+          }
+        ],
+        "vars": [
+          {
+            "id": 3,
+            "value": 10,
+            "min": null,
+            "max": null
+          },
+          {
+            "id": 7,
+            "value": 215,
+            "min": null,
+            "max": null
+          }
+        ],
+        "printed": "compare his route",
         "text": null,
-        "score": null,
-        "object": {
-          "num": 0,
-          "view": 1,
-          "x0": 75,
-          "y0": 133,
-          "x1": 85,
-          "y1": 152,
-          "active": true
-        },
+        "score": 10,
+        "object": null,
         "reachable": null
       },
-      "cycleBudget": 150
+      "cycleBudget": 300
+    },
+    {
+      "name": "Incomplete report stays at precinct",
+      "room": 1,
+      "spawnX": null,
+      "spawnY": null,
+      "steps": [
+        {
+          "action": "enter",
+          "command": null,
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        },
+        {
+          "action": "command",
+          "command": "file report",
+          "direction": null,
+          "key": null,
+          "x": null,
+          "y": null,
+          "answer": null,
+          "until": null,
+          "waypoints": null,
+          "target": null,
+          "ticks": null,
+          "captureTicks": null
+        }
+      ],
+      "expect": {
+        "room": 1,
+        "carriedItems": [
+          0,
+          1
+        ],
+        "flags": [
+          {
+            "id": 45,
+            "value": false
+          }
+        ],
+        "vars": [
+          {
+            "id": 3,
+            "value": 0,
+            "min": null,
+            "max": null
+          }
+        ],
+        "printed": "not ready",
+        "text": null,
+        "score": 0,
+        "object": null,
+        "reachable": null
+      },
+      "cycleBudget": 300
     }
   ]
 }
