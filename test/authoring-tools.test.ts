@@ -316,15 +316,19 @@ test("a source revision covers what its text depends on, not unrelated vocabular
   );
   const written = executeAgentTool(state, "write_logic_source", {
     room: 1,
-    source: 'if (said("look")) { set(gate_open); } return;',
+    // Message text is not vocabulary: registering "save" later must not
+    // stale this source, which only prints it (as the template's menu does).
+    source: 'if (said("look")) { set(gate_open); print("Save"); } return;',
   });
   assert.equal(written.success, true, written.error ?? "");
   const revision = logicRevision(state, 1);
 
   // Words and bindings the source does not use leave the revision alone.
   assert.equal(
-    executeAgentTool(state, "write_words", { words: ["look", "lantern", "moat"], groups: null })
-      .success,
+    executeAgentTool(state, "write_words", {
+      words: ["look", "lantern", "moat", "read", "save", "notice"],
+      groups: null,
+    }).success,
     true,
   );
   assert.equal(
@@ -365,18 +369,25 @@ test("assembler errors point at the line the agent wrote, with or without named 
   assert.match(bound.error ?? "", /AssemblerError: 2:\d+: byte value out of range/);
 });
 
-test("a guessed field name is answered with the fields the tool accepts", () => {
-  // Opus named plan rooms `name` four times in the Genesis benchmark.
+test("a room's name is its title, and other unknown fields list the ones accepted", () => {
+  // Opus named plan rooms `name` in every Genesis benchmark run.
   const state = createAgentSessionState();
-  const result = executeAgentTool(state, "update_world", {
-    rooms: [{ num: 2, name: "Hall", description: "", exits: [] }],
+  const named = executeAgentTool(state, "update_world", {
+    rooms: [{ num: 2, name: "Hall", description: "The great hall.", exits: [] }],
     facts: [],
     quests: [],
   });
-  assert.equal(result.success, false);
+  assert.equal(named.success, true, named.error ?? "");
+  assert.equal(state.authoring.world.rooms["2"]?.title, "Hall");
+  const labelled = executeAgentTool(state, "update_world", {
+    rooms: [{ num: 3, title: "Moat", label: "moat", description: "", exits: [] }],
+    facts: [],
+    quests: [],
+  });
+  assert.equal(labelled.success, false);
   assert.match(
-    result.error ?? "",
-    /rooms\[0\]\.name is not a known field \(fields: [^)]*\btitle\b/,
+    labelled.error ?? "",
+    /rooms\[0\]\.label is not a known field \(fields: [^)]*\btitle\b/,
   );
 });
 

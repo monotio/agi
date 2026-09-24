@@ -23,6 +23,17 @@ export function normalizeToolArguments<T>(schema: unknown, value: T): T {
   // Spread copies a JSON "__proto__" key as an own data property; assigning
   // it onto {} would instead hit the prototype setter and hide the key.
   const out: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  // A room's `name` where the schema calls it `title` is the same field:
+  // Opus names plan rooms that way every time, and the rename is unambiguous.
+  if (
+    Object.hasOwn(props, "title") &&
+    !Object.hasOwn(props, "name") &&
+    Object.hasOwn(out, "name") &&
+    !Object.hasOwn(out, "title")
+  ) {
+    out["title"] = out["name"];
+    delete out["name"];
+  }
   for (const [key, item] of Object.entries(out))
     if (Object.hasOwn(props, key)) out[key] = normalizeToolArguments(props[key], item);
   for (const key of Array.isArray(s["required"]) ? s["required"] : [])

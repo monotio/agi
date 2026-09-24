@@ -35,8 +35,8 @@ export function editableSource(
 
 /**
  * Revision of the editable snapshot: shown text plus the context it compiles
- * in. That context is what the text depends on — the words it quotes, with
- * their ids, and the bindings it names. Vocabulary or bindings it does not use
+ * in. That context is what the text depends on — the words its said() calls
+ * quote, with their ids, and the bindings it names. Vocabulary or bindings it does not use
  * cannot change how it compiles, so registering them does not stale a read.
  */
 export function sourceContextRevision(
@@ -47,8 +47,12 @@ export function sourceContextRevision(
 ): string {
   const byCodePoint = ([a]: [string, unknown], [b]: [string, unknown]) =>
     a < b ? -1 : a > b ? 1 : 0;
+  // Only said() quotes vocabulary; message and menu text that happens to be a
+  // word ("Save") is not a dependency.
   const quoted = new Set(
-    [...source.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1]!.toLowerCase()),
+    [...source.matchAll(/\bsaid\s*\(([^)]*)\)/g)].flatMap((call) =>
+      [...call[1]!.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1]!.toLowerCase()),
+    ),
   );
   const names = new Set(source.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
   return sourceRevision(state.container.getResource(kind, num), source, {
