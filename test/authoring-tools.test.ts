@@ -379,6 +379,19 @@ test("a room's name is its title, and other unknown fields list the ones accepte
   });
   assert.equal(named.success, true, named.error ?? "");
   assert.equal(state.authoring.world.rooms["2"]?.title, "Hall");
+  // It also left a stray `name` ("", "x", "unused" or a shorter title) beside
+  // a room's real title in every run; the title stands.
+  const stray = executeAgentTool(state, "update_world", {
+    rooms: [
+      { num: 4, title: "The Great Hall", name: "x", description: "", exits: [] },
+      { name: "", num: 5, title: "Main Street", description: "", exits: [] },
+    ],
+    facts: [],
+    quests: [],
+  });
+  assert.equal(stray.success, true, stray.error ?? "");
+  assert.equal(state.authoring.world.rooms["4"]?.title, "The Great Hall");
+  assert.equal(state.authoring.world.rooms["5"]?.title, "Main Street");
   const labelled = executeAgentTool(state, "update_world", {
     rooms: [{ num: 3, title: "Moat", label: "moat", description: "", exits: [] }],
     facts: [],
