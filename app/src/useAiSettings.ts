@@ -14,6 +14,7 @@ import {
   type ProviderType,
 } from "./agent/llmClient.ts";
 import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
+import { DEFAULT_TASK_BUDGET_USD } from "./agent/agentRun.ts";
 
 export type AiSettingsContext = "header" | "create" | "assistant";
 
@@ -32,8 +33,12 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
   const { state, pauseEngine, resumeEngine, updateAiConfig, openPowerUp } = engine;
   const testMode = import.meta.env.MODE === "test";
 
-  const savedBudget = Number(localStorage.getItem("monotio_agi.taskBudget") ?? 5);
-  const taskBudget = ref(Number.isFinite(savedBudget) && savedBudget > 0 ? savedBudget : 5);
+  const savedBudget = Number(
+    localStorage.getItem("monotio_agi.taskBudget") ?? DEFAULT_TASK_BUDGET_USD,
+  );
+  const taskBudget = ref(
+    Number.isFinite(savedBudget) && savedBudget > 0 ? savedBudget : DEFAULT_TASK_BUDGET_USD,
+  );
   watch(taskBudget, (value) => {
     if (Number.isFinite(value) && value > 0)
       localStorage.setItem("monotio_agi.taskBudget", String(value));

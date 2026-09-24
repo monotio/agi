@@ -23,6 +23,9 @@ export interface AgentProgress {
 }
 
 /** A pause suspends the existing async task, including its staged resource container. */
+/** A task's spending allowance until the player chooses another; evals start from it too. */
+export const DEFAULT_TASK_BUDGET_USD = 5;
+
 export class AgentRun {
   private state: AgentRunState;
   private readonly model: string;
@@ -32,7 +35,6 @@ export class AgentRun {
   private controller: AbortController | undefined;
   private stopped = false;
   private cancelled = false;
-  private since = 0;
   private signatures: string[] = [];
   private lastInputCost = 0;
   /** Projected input cost of the next request: last cost grown by the observed ratio. */
@@ -40,7 +42,11 @@ export class AgentRun {
   private outputRate = 0;
   private progressTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(model: string, changed: (state: AgentRunState) => void, budget = 5) {
+  constructor(
+    model: string,
+    changed: (state: AgentRunState) => void,
+    budget = DEFAULT_TASK_BUDGET_USD,
+  ) {
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("Task budget must be positive.");
     this.model = model;
     this.changed = changed;
@@ -99,7 +105,6 @@ export class AgentRun {
     this.cancelled = false;
     this.signatures = [];
     this.expectedInputCost = this.lastInputCost;
-    this.since = Date.now();
     this.publish();
     try {
       return await work();
@@ -131,7 +136,6 @@ export class AgentRun {
     this.stopped = false;
     this.state.reason = "";
     this.signatures = [];
-    this.since = Date.now();
     this.wake?.();
   }
   recordUsage(usage: LlmUsage): void {
@@ -178,10 +182,6 @@ export class AgentRun {
       this.stopped = true;
       this.state.reason = "Budget reached. Work is kept; continuing adds another task allowance.";
     }
-    if (Date.now() - this.since >= 15 * 60_000 && !this.stopped) {
-      this.stopped = true;
-      this.state.reason = "The agent has been working for 15 minutes. Continue when ready.";
-    }
     if (!this.stopped) return;
     this.state.status = "paused";
     const waiting = new Promise<void>((resolve) => {
@@ -197,13 +197,11 @@ export class AgentRun {
   async request<T>(send: (signal: AbortSignal, maxTokens: number) => Promise<T>): Promise<T> {
     for (;;) {
       await this.checkpoint();
+      // No wall-clock cut: a long turn at high effort is normal, and the SDKs
+      // swallow keep-alive pings, so silence cannot be told from a stall.
+      // The budget and Stop (which aborts here) are the controls.
       const controller = new AbortController();
       this.controller = controller;
-      const timer = setTimeout(() => {
-        this.stopped = true;
-        this.state.reason = "The provider did not finish within 10 minutes. Continue to retry.";
-        controller.abort();
-      }, 10 * 60_000);
       const remaining = Math.max(0, this.state.budget - this.state.spent - this.expectedInputCost);
       const maxTokens = this.outputRate
         ? Math.max(1, Math.min(128000, Math.floor((remaining * 1e6) / this.outputRate)))
@@ -226,7 +224,6 @@ export class AgentRun {
         this.state.usageIncomplete = true;
         continue;
       } finally {
-        clearTimeout(timer);
         clearTimeout(this.progressTimer);
         this.progressTimer = undefined;
         this.state.progress = null;

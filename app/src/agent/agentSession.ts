@@ -486,27 +486,28 @@ Answer the player's question using evidence from inspection when needed. For hin
       // declared plan exit checked against this exact staged candidate —
       // passes. The genesis leg of handover is skipped here: the running
       // game already proves it boots, and imported games have no genesis
-      // to re-litigate. A failing verdict goes back to the model once for
-      // repair; a second plain-text reply discards the candidate rather
-      // than adopting it.
+      // to re-litigate. A failing verdict goes back to the model for repair
+      // up to three times — a text reply can be a progress note, not a
+      // final answer — and a further plain-text reply discards the
+      // candidate rather than adopting it.
       let stagedChanges = false;
-      let verdictSent = false;
+      let verdictsSent = 0;
       for (;;) {
         if (turn.toolCalls.length === 0) {
           if (!stagedChanges) break;
           const verdict = remixVerdict(staged);
           if (verdict === null) break;
-          if (verdictSent) {
+          if (verdictsSent === 3) {
             const text = `${turn.text ?? "Done."} The staged changes were not applied: ${verdict}`;
             this.messages.push({ role: "assistant", text });
             this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, { text, patched: [] });
             return { text, patched: [], files: {} };
           }
-          verdictSent = true;
+          verdictsSent++;
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
               `The staged changes cannot be committed: ${verdict} ` +
-                "Repair them and call handover, or reply once more to abandon them.",
+                "Repair them and call handover. If something blocks the repair, say what blocks it.",
             ),
             "remix",
           );

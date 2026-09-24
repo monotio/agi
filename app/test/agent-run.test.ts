@@ -81,3 +81,39 @@ test("cache reads use the per-model rate, and 10% of input where none is listed"
   });
   assert.equal(sol.snapshot().spent, 0.02);
 });
+
+test("a long task and a long request run on without a wall-clock stop", async (t) => {
+  // A 15-minute pause and a 10-minute request abort used to stop unattended
+  // work that was still progressing; Opus 5.5 at high effort already takes
+  // five minutes for one response. The budget and Stop remain the controls.
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  const run = new AgentRun("gpt-6-sol", () => {});
+  let aborted = false;
+  let pausedAfter16Minutes = false;
+  const result = run.run(async () => {
+    t.mock.timers.tick(16 * 60_000);
+    const checked = run.checkpoint();
+    pausedAfter16Minutes = run.snapshot().status === "paused";
+    run.resume();
+    await checked;
+    return run.request(async (signal) => {
+      signal.addEventListener("abort", () => (aborted = true));
+      t.mock.timers.tick(11 * 60_000);
+      return "streamed";
+    });
+  });
+  // Resume any later pause so the old behaviour fails instead of hanging.
+  let pausedLater = false;
+  for (let turn = 0; turn < 100; turn++) {
+    await Promise.resolve();
+    if (run.snapshot().status === "paused") {
+      pausedLater = true;
+      run.resume();
+    }
+  }
+  const answer = await result;
+  assert.equal(pausedAfter16Minutes, false, "no pause at 15 minutes");
+  assert.equal(pausedLater, false, "no pause after a long request");
+  assert.equal(aborted, false, "no abort at 10 minutes");
+  assert.equal(answer, "streamed");
+});

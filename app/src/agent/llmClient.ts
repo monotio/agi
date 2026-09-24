@@ -244,7 +244,9 @@ export function createAnthropicConversation(
     apiKey: config.apiKey,
     baseURL: getDevBaseUrl("/api/anthropic"),
     dangerouslyAllowBrowser: true,
-    maxRetries: 0,
+    // The SDK's own retries (twice, with backoff and retry-after) absorb a
+    // transient 429, 5xx or overload before the turn and its staged work fail.
+    maxRetries: 2,
     timeout: 600000,
   });
 
@@ -471,7 +473,9 @@ export function createOpenAiConversation(
     apiKey: config.apiKey,
     baseURL: getDevBaseUrl("/api/openai/v1"),
     dangerouslyAllowBrowser: true,
-    maxRetries: 0,
+    // The SDK's own retries (twice, with backoff and retry-after) absorb a
+    // transient 429, 5xx or overload before the turn and its staged work fail.
+    maxRetries: 2,
     timeout: 600000,
   });
 
