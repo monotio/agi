@@ -146,6 +146,19 @@ describe("view source", () => {
       assert.throws(() => compileViewSource(source), message, source);
   });
 
+  it("accepts the description before view as well as inside it", () => {
+    // GPT-6 Luna opened both of its first views with the description line.
+    const inside = compileViewSource(CHEST);
+    const before = compileViewSource(
+      `description "An iron-bound chest"\n${CHEST.replace('description "An iron-bound chest"\n', "")}`,
+    );
+    assert.deepEqual(before, inside);
+    assert.throws(
+      () => compileViewSource(`description "a"\n${CHEST}`),
+      /line 3: a view has one description/,
+    );
+  });
+
   it("treats a transparent digit and a dot alike, and reads blank lines and CRLF", () => {
     const input = compileViewSource(
       "view\r\n\r\ncel a 3 1 5\r\n.5A\r\nendcel\r\nloop 0 a\r\nendview\r\n",

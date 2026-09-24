@@ -85,7 +85,25 @@ export function compileViewSource(source: string): BuildViewInput {
     return null;
   };
 
-  const first = next();
+  const readDescription = (text: string, line: number) => {
+    if (description !== undefined) fail(line, "a view has one description.");
+    let value: unknown;
+    try {
+      value = JSON.parse(text.slice("description".length).trim());
+    } catch {
+      // Reported below with the expected form.
+    }
+    if (typeof value !== "string")
+      fail(line, 'description must be a JSON string, as in description "A small boat".');
+    description = value;
+  };
+
+  let first = next();
+  // The description may also come before "view".
+  if (first?.text.split(/\s+/)[0] === "description") {
+    readDescription(first.text, first.line);
+    first = next();
+  }
   if (first?.text !== "view") fail(first?.line ?? 1, 'source must start with "view".');
   for (;;) {
     const current = next();
@@ -99,15 +117,7 @@ export function compileViewSource(source: string): BuildViewInput {
       break;
     }
     if (command === "description") {
-      if (description !== undefined) fail(line, "a view has one description.");
-      const literal = text.slice("description".length).trim();
-      try {
-        description = JSON.parse(literal) as string;
-      } catch {
-        fail(line, 'description must be a JSON string, as in description "A small boat".');
-      }
-      if (typeof description !== "string")
-        fail(line, 'description must be a JSON string, as in description "A small boat".');
+      readDescription(text, line);
       continue;
     }
     if (command === "cel") {
