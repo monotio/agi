@@ -66,6 +66,8 @@ export interface GenesisOptions {
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 /** A hang guard for one paid run, well past the longest recorded Genesis (about twelve minutes). */
 const DEFAULT_TIMEOUT_MS = 40 * 60_000;
+/** Characters of each provider stream kept for a failed run's diagnosis. */
+const STREAM_TAIL_CHARS = 16_000;
 let fetchQueue = Promise.resolve();
 
 function safeName(value: unknown) {
@@ -202,6 +204,11 @@ export async function runGenesisSession(options: GenesisOptions) {
     const eventsPath = resolve(directory, `${stem}.events.json`);
     const projectPath = resolve(directory, `${stem}.project.zip`);
     const resourcesPath = resolve(directory, `${stem}.resources`);
+    const streamsPath = resolve(directory, `${stem}.stream-tails.json`);
+    // The last characters each provider stream delivered: when a run fails
+    // (a runaway response, an interrupted turn), this shows what the model
+    // was writing, which the parsed result no longer holds.
+    const streamTails: string[] = [];
     const delegate = options.fetchImpl ?? globalThis.fetch;
     const originalFetch = globalThis.fetch;
     const firstRequest: { text?: string; body?: ProviderBody } = {};
@@ -244,7 +251,29 @@ export async function runGenesisSession(options: GenesisOptions) {
       const [requestInput, requestInit] = requestWithBody(input, init, text);
       const response = await delegate(requestInput, requestInit);
       requestLatenciesMs.push(performance.now() - requestedAt);
-      return response;
+      if (!response.body) return response;
+      const [forModel, forTail] = response.body.tee();
+      const slot = streamTails.push("") - 1;
+      void (async () => {
+        const decoder = new TextDecoder();
+        const reader = forTail.getReader();
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            streamTails[slot] = (streamTails[slot] + decoder.decode(value, { stream: true })).slice(
+              -STREAM_TAIL_CHARS,
+            );
+          }
+        } catch {
+          // The model side was cancelled; keep what arrived.
+        }
+      })();
+      return new Response(forModel, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
     };
 
     let monitor: ReturnType<typeof setInterval> | undefined;
@@ -444,6 +473,8 @@ export async function runGenesisSession(options: GenesisOptions) {
         events: eventsPath,
       },
     };
+    if (!completion)
+      writeFileSync(streamsPath, `${JSON.stringify(streamTails, null, 2)}\n`, "utf8");
     writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
     return report;
   });
