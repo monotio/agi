@@ -146,6 +146,8 @@ export function compileViewSource(source: string): BuildViewInput {
         cels.set(celName, { ...base, pixels });
         continue;
       }
+      if (words.length === 3 && cels.has(words[2]!))
+        fail(line, `to copy ${words[2]}, write "cel ${celName} copy ${words[2]}".`);
       if (words.length !== 5)
         fail(line, "write cel NAME WIDTH HEIGHT T, or cel NAME copy EARLIER.");
       const width = uint(words[2], line, `cel ${celName} width`, 1, 160);
@@ -156,9 +158,14 @@ export function compileViewSource(source: string): BuildViewInput {
       const pixels: number[] = [];
       for (let y = 0; y < height; y++) {
         const raster = next();
-        if (!raster || raster.text === "endcel")
+        if (!raster)
           fail(
-            raster?.line ?? lines.length,
+            lines.length,
+            `the source ends inside cel ${celName} after ${y} of ${height} rows: send all ${height} rows, then endcel, the loops and endview in one source.`,
+          );
+        if (raster.text === "endcel")
+          fail(
+            raster.line,
             `cel ${celName} has ${y} rows; its height is ${height}. Send exactly ${height}.`,
           );
         pixels.push(...row(raster.text, celName, y, width, transparentColor, raster.line));

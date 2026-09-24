@@ -141,6 +141,13 @@ describe("view source", () => {
       [`${cel("123\n123")}\nloop 1 a`, /nothing may follow "endview"/],
       ["cel a 1 1 0\n1\nendcel\nendview", /must start with "view"/],
       ["view\nendview", /at least one loop/],
+      // Luna left out "copy" once, and four times sent a source that ended
+      // after one row; both messages now name the whole fix.
+      [cel("123\n123", "cel b a\nendcel\nloop 0 b"), /line 6: to copy a, write "cel b copy a"/],
+      [
+        "view\ncel a 3 2 0\n123",
+        /the source ends inside cel a after 1 of 2 rows: send all 2 rows, then endcel, the loops and endview/,
+      ],
     ];
     for (const [source, message] of cases)
       assert.throws(() => compileViewSource(source), message, source);
