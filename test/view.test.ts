@@ -287,6 +287,22 @@ describe("buildView", () => {
       RangeError,
     );
   });
+
+  it("validates every pixel and dimension, not only those after the last opaque pixel", () => {
+    // The row scan stopped at the rightmost opaque pixel and the encoder then
+    // masked the rest, so colour 16 left of it was written as colour 0.
+    const cel = (fields: Record<string, unknown>) => () =>
+      buildView({
+        loops: [
+          { cels: [{ width: 2, height: 1, transparentColor: 15, pixels: [16, 1], ...fields }] },
+        ],
+      });
+    assert.throws(cel({}), /invalid color 16/);
+    assert.throws(cel({ pixels: [-1, 1] }), /invalid color -1/);
+    assert.throws(cel({ pixels: [1.5, 1] }), /invalid color 1.5/);
+    assert.throws(cel({ width: 1.5, pixels: [1, 1] }), /width/);
+    assert.throws(cel({ transparentColor: 2.5, pixels: [1, 1] }), /transparentColor/);
+  });
 });
 
 describe("drawCel", () => {
