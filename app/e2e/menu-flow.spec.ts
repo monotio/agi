@@ -40,6 +40,27 @@ test("first visit has one route per action and aligned sections", async ({ page 
   }
 });
 
+test("the featured opening image does not move the controls below it", async ({ page }) => {
+  for (const width of [390, 700]) {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/games/adventure-department/game.ts*", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.setViewportSize({ width, height: 844 });
+    await page.reload();
+    const card = page.getByTestId("catalog-adventure-department");
+    await expect(card.locator(".thumbnail-placeholder")).toBeVisible();
+    const before = await page.getByTestId("catalog-play-adventure-department").boundingBox();
+    release();
+    await expect(card.locator(".catalog-art img")).toBeVisible();
+    const after = await page.getByTestId("catalog-play-adventure-department").boundingBox();
+    expect(after!.y - before!.y, `${width}px`).toBe(0);
+    await page.unrouteAll();
+  }
+});
+
 test("one Settings menu owns AI and budget while Remix stays compact", async ({ page }) => {
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);

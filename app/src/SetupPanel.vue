@@ -366,6 +366,13 @@ const {
   .catalog-card {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* Stacked, the opening image sets the card's height: reserve it before it
+     renders so the controls below do not move under a tap. */
+  .catalog-art,
+  .thumbnail-placeholder {
+    min-height: 0;
+    aspect-ratio: 8 / 5;
+  }
 }
 
 .error-banner {
@@ -437,10 +444,6 @@ const {
   }
   .catalog-shelf {
     padding: 18px;
-  }
-  .catalog-art,
-  .thumbnail-placeholder {
-    min-height: 0;
   }
   .catalog-copy {
     padding: 18px;
