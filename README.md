@@ -1,42 +1,44 @@
 # AGI IS HERE
 
-Remember typing LOOK AT CASTLE? AGI IS HERE brings back Sierra's adventure
-engine the way it ran in the eighties, and lets an AI co-author new rooms while
-you play.
+AGI is here, and it runs in your browser. It understands commands like LOOK AT
+CASTLE, it draws in sixteen colours, and if you ask, it will put an alligator
+in the moat while you are standing next to it.
 
-Play the AGI classics in your browser from your own copies, or describe a new
-adventure and play it while an agent builds the rooms around you. Ask for
-changes mid-game: give the guard a different personality, add a puzzle, or turn
-the courtyard into a swamp. Everything the agent makes is a real
-[Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter)
-game that you can inspect, download and play again.
+This AGI is Sierra's
+[Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter),
+the engine behind King's Quest, Space Quest and Leisure Suit Larry, rebuilt
+from scratch and paired with an AI co-author. Play the classics from your own
+copies, or describe a new adventure and play it while an agent builds the world
+around you. Ask for changes mid-game: give the guard a different personality,
+add a puzzle, or turn the courtyard into a swamp. Everything the agent makes is
+a real AGI game that you can inspect, download and play again.
 
 ![Adventure Department: paint a mural while playing in the browser](docs/media/tutorial-gallery.png)
 
-## Play
+## Try it
 
 Open [agi.monotio.com](https://agi.monotio.com/) and click **Play now** on
-**Adventure Department**, an original three-room tutorial that teaches how AGI
-adventures work: repair a picture, wake a sprite and fix a clerk's priority. No
-account, API key or original Sierra files needed.
+**Adventure Department**, a three-room tutorial about how these games are made:
+you repair a picture, wake up a sprite and sort out a clerk's priority. You need
+no account, no API key and no Sierra files.
 
-- **Your own Sierra games.** **Add game** takes a ZIP or a game folder. The files
-  are read into your browser's storage; nothing is uploaded. The app identifies
-  the edition, picks the matching interpreter profile and checks that the game
-  opens.
+- **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
+  The files stay in your browser's storage and are never uploaded. The app
+  recognises the edition, picks the matching interpreter and checks that the
+  game opens.
 - **Watch a playthrough.** Verified releases come with a recorded completion
-  that replays on the real interpreter, keystroke by keystroke, on the game's own
-  clock. Pause it, scrub the timeline, or **Take control** at any moment.
-- **Rewind.** Every session records itself. Scrub back to any earlier moment
-  and resume from there.
-- **Help** in the app is a short guide to playing, creating and managing your
-  games, reachable from every screen. Each topic can open the control it
-  describes: the game's controls, the map, a hint, Remix, Create or Add game.
+  that replays on the real interpreter, keystroke by keystroke, on the game's
+  own clock. Pause it, scrub the timeline, or **Take control** whenever you
+  like.
+- **Rewind.** Every session records itself, so you can go back to any earlier
+  moment and carry on from there.
+- **Get help.** **Help** is a short guide to playing, creating and managing your
+  games, open from every screen. Each topic can open the control it describes.
 
-### Supported games
+## The games it plays
 
-These editions are verified in this interpreter. PC editions are checked with
-full recorded walkthroughs; the Amiga and Apple IIgs editions boot into their
+These editions are verified in this interpreter. The PC editions are checked
+with recorded walkthroughs; the Amiga and Apple IIgs editions boot into their
 first room under their own interpreters.
 
 | Game                       | PC (DOS) | Amiga | Apple IIgs | Recorded walkthrough |
@@ -57,24 +59,29 @@ first room under their own interpreters.
 | Manhunter 2: San Francisco |   Yes    |  Yes  |            | Full game            |
 | Sierra AGI demo pack 4     |   Yes    |       |            |                      |
 
-Walkthroughs are recorded on the PC editions and bound to the exact release
-they were captured on; the
-[KQ1 completion proof](docs/testing.md#kq1-completion-proof) shows how one is
-made and checked. The Amiga editions play their music through emulated Amiga Paula,
-and the IIgs edition through its own Ensoniq wavetable instruments, read from
-the game's files. On both, a mouse click walks the hero there, as it did on the
-originals. PC editions choose between the Tandy sound chip and the PC
-speaker under **Settings → Advanced… → Sound chip**.
-The screen fills a 4:3 frame, as a monitor of the day stretched the 320 × 200
-picture; **Settings → Original 4:3** turns that off for square pixels. Text
-uses this project's own 8 × 8 font in the original character grid, not each
-machine's built-in font. It draws English text and the box drawing the Sierra
-games print; other characters show blank.
-Fan-made AGI games run too; if the app cannot identify the interpreter, it asks
-which profile to use. [Testing](docs/testing.md#testing-compatibility) lists
-the exact editions and builds.
+A few things worth knowing:
 
-Commercial games are not included. Bring your own copies; they stay in your
+- **Walkthroughs** are recorded on the PC editions and tied to the exact release
+  they were captured on. The
+  [KQ1 completion proof](docs/testing.md#kq1-completion-proof) shows how one is
+  made and checked.
+- **Sound** follows the machine. Amiga editions play through emulated Paula,
+  the IIgs edition through its own Ensoniq wavetable instruments read from the
+  game's files, and PC editions through the Tandy sound chip or the PC speaker,
+  under **Settings → Advanced… → Sound chip**.
+- **Mouse** clicks walk the hero on the Amiga and IIgs editions, as they did on
+  the originals.
+- **The picture** fills a 4:3 frame, the way a monitor of the day stretched the
+  320 × 200 screen. **Settings → Original 4:3** turns that off for square
+  pixels.
+- **Text** uses this project's own 8 × 8 font in the original character grid,
+  not each machine's built-in font. It covers English text and the box drawing
+  the Sierra games print; other characters show blank.
+- **Fan-made games** run too. If the app cannot tell which interpreter a game
+  needs, it asks. [Testing](docs/testing.md#testing-compatibility) lists the
+  exact editions and builds.
+
+Commercial games are not included: bring your own copies, and they stay in your
 browser. No copies? Fans have made over a hundred free AGI games since the late
 nineties, collected on the
 [AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List)
@@ -82,11 +89,10 @@ and in the
 [SCI Programming community's game list](https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads).
 Their content varies, as fan works do.
 
-## Create
+## Make your own adventure
 
-Pick one of the adventure templates or describe your own hero, setting and
-trouble, connect an OpenAI or Anthropic API key, and click **Create
-adventure**.
+Pick a template or describe your own hero, setting and trouble, connect an
+OpenAI or Anthropic API key, and click **Create adventure**.
 
 | Template                                                | Your predicament                                                     |
 | ------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -96,8 +102,8 @@ adventure**.
 | [Polyester Nights](games/polyester-nights/SKILL.md)     | A middle-aged lounge lizard tries his luck for one more night.       |
 
 The agent plans the world and builds the opening room: artwork, characters and
-game logic. When you walk into a room that does not exist yet, play pauses while
-the agent writes it. Along the way you can:
+game logic. When you walk into a room that does not exist yet, play pauses
+while the agent writes it. Along the way you can:
 
 - plan on the world map: rename rooms, edit their briefs and pin notes the agent
   reads when it builds that part of the world;
@@ -106,25 +112,26 @@ the agent writes it. Along the way you can:
 - attach reference images for rooms and character sprites;
 - preview the game's sounds as WAV clips.
 
-The agent writes logic, vector pictures, animated views, vocabulary, inventory
-and sound as standard AGI resources. It checks its own work with rendered
-previews, compiler diagnostics and isolated playtests. It can still get art,
-puzzles or writing wrong, so expect to playtest and ask for revisions.
+Everything the agent writes is a standard AGI resource: logic, vector pictures,
+animated sprites, vocabulary, inventory and sound. It checks its own work with
+rendered previews, compiler messages and playtests of its own. It can still get
+art, puzzles or writing wrong, so play it, and ask for revisions when something
+is off.
 
-**Bring your own key, no server.** The app talks to your provider directly from
-the browser. Your key is saved in browser storage and sent with each request to
-the provider you choose, and only to it, along with the relevant game content.
-Requests are billed to your account. Each task starts with a $5 estimated
-budget that you can change. What the agent writes comes from your provider's
-model and is not reviewed by the app, so play a game through before you share
-it, especially with children. See [Security](SECURITY.md) for storage
-and data flow, and [adventure briefs](games/README.md) for writing your own.
+**Your key, your provider, no server.** The app talks to your provider directly
+from the browser. Your key is saved in browser storage and sent only to the
+provider you choose, along with the game content each request needs. Requests
+are billed to your account; each task starts with an estimated $5 budget that
+you can change. What the agent writes comes from your provider's model and is
+not reviewed by the app, so play a game through before you share it, especially
+with children. [Security](SECURITY.md) covers storage and data flow, and
+[adventure briefs](games/README.md) covers writing your own templates.
 
 ## Save and share
 
 Games, saves and history live in your browser. The game's own Save and Restore
 use the authentic AGI save format, with twelve named slots per game, and the
-app autosaves so **Resume** picks up where you left off.
+app saves as you play, so **Resume** picks up where you left off.
 
 | Game menu          | What you get                                                                                                                                               |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -135,24 +142,56 @@ Either ZIP opens again with **Add game**, in any browser. A game without a
 declared license keeps an unknown license: exports never inherit this
 repository's MIT license.
 
+## Thirty years later
+
+Around 1996, **Lance Ewing, Peter Kelly, Martin Tillenius** and I worked on
+**MEKA**, an early fan-made AGI interpreter. I was **Joakim Möller** then. We
+traded discoveries about how Sierra's adventures worked.
+
+On 3 September 2026, Greg Brockman closed an OpenAI briefing with
+[“Welcome to the AGI era.”](https://www.axios.com/2026/09/03/openai-astra-gpt-6-agi-brockman)
+I took him at his word. With OpenAI's
+[GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) in
+Codex, I went back to AGI to rebuild the engine, and to let an agent change the
+game while I was playing it. Now I can ask for an alligator in the moat, and the
+agent rewrites the game's own bytecode to put it there. Thirty years on, that is
+still a very cool thing to be able to do.
+
+**Peter Kelly's [agi-re behavioral specification](https://peterkelly.github.io/agi-re/spec/)
+is the foundation of this independent implementation.** It documents the
+formats, observable behavior and interpreter versions, and is published under
+[CC0](https://github.com/peterkelly/agi-re/blob/main/LICENSE). Thank you, Peter.
+
 ## How it works
 
-The engine is a framework-free TypeScript AGI interpreter with zero runtime
-dependencies. It reads AGI v2 and v3 game files (including the Amiga and Apple
-IIgs layouts) and selects build-specific behavior through interpreter profiles.
-Games created in the app are standard AGI 2.936 bytecode with no custom opcodes.
-The engine runs in a Web Worker; the Vue shell adds a GPU-rendered CRT display
-and an in-game command line, while game text stays on the original 40×25
-character screen.
+The engine is a TypeScript AGI interpreter with no framework and no runtime
+dependencies. It reads AGI v2 and v3 game files, including the Amiga and Apple
+IIgs layouts, and follows each interpreter build's own behavior through
+interpreter profiles. Games made in the app are standard AGI 2.936 bytecode
+with no custom opcodes. The engine runs in a Web Worker; the Vue shell adds a
+GPU-rendered CRT display and an in-game command line, while game text stays on
+the original 40 × 25 character screen.
 
-The engine is an independent implementation of Peter Kelly's CC0
-[agi-re behavioral specification](https://peterkelly.github.io/agi-re/spec/).
-Where games need more than the specification says, the original Sierra
-interpreters are the reference. [Interpreter compatibility](docs/fidelity.md)
-walks through what they do, from the random-number generator to the Amiga sound
-driver, with the evidence and regression tests behind each finding.
+The engine follows Peter Kelly's CC0
+[agi-re specification](https://peterkelly.github.io/agi-re/spec/). Where games
+need more than the specification says, the original Sierra interpreters are the
+reference. [Interpreter compatibility](docs/fidelity.md) walks through what they
+do, from the random-number generator to the Amiga sound driver, with the
+evidence and regression tests behind each finding.
 
-## Documentation
+## Run it yourself
+
+Install Node.js 22.22 or newer, then:
+
+```bash
+npm ci
+npm --prefix app ci
+npm run dev
+```
+
+Open `http://localhost:5199/`. The site needs a connection to load; it is not
+an installable offline app yet. Exported games play offline in any compatible
+interpreter.
 
 | Document                                                | For                                                             |
 | ------------------------------------------------------- | --------------------------------------------------------------- |
@@ -163,39 +202,6 @@ driver, with the evidence and regression tests behind each finding.
 | [Evals](evals/README.md)                                | Measuring authoring quality                                     |
 | [Media gallery](docs/media/README.md)                   | Screenshots of the agent's tools and the tutorial               |
 | [Security](SECURITY.md)                                 | Keys, storage and data flow                                     |
-
-To run it locally, install Node.js 22.22 or newer and run:
-
-```bash
-npm ci
-npm --prefix app ci
-npm run dev
-```
-
-Then open `http://localhost:5199/`. The website needs a connection to load; it
-is not yet an installable offline app. Exported games play offline in any
-compatible interpreter.
-
-## Back to AGI, thirty years later
-
-Around 1996, **Lance Ewing, Peter Kelly, Martin Tillenius** and I worked on
-**MEKA**, an early fan-made AGI interpreter. I was **Joakim Möller** then.
-We shared discoveries about how Sierra's adventures worked.
-
-Roughly thirty years later, I returned to AGI with OpenAI's
-[GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) in Codex.
-On 3 September 2026, Greg Brockman closed an OpenAI briefing with
-[“Welcome to the AGI era.”](https://www.axios.com/2026/09/03/openai-astra-gpt-6-agi-brockman)
-
-I wanted to recreate the engine and let an agent change the game while I was
-playing it. Now I can ask for an alligator in the moat and the agent changes the
-game's binary instructions to put it there. That is still a very cool thing to
-be able to do.
-
-**Peter Kelly's [agi-re behavioral specification](https://peterkelly.github.io/agi-re/spec/)
-is the foundation of this independent implementation.** It documents the formats,
-observable behavior and interpreter versions, and is published under
-[CC0](https://github.com/peterkelly/agi-re/blob/main/LICENSE). Thank you, Peter.
 
 ## License
 
