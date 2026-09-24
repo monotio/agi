@@ -41,12 +41,7 @@ for (const version of ["2.936", "2.230"]) {
     );
     const result = executeAgentTool(session, "write_view", {
       num: 0,
-      spec: {
-        loops: [
-          { cels: [{ width: 3, height: 2, transparentColor: 0, pixels: [4, 0, 1, 2, 0, 3] }] },
-          { mirrorLoop: 0 },
-        ],
-      },
+      source: "view\ncel a 3 2 0\n4.1\n2.3\nendcel\nloop 0 a\nloop 1 mirror 0\nendview",
     });
     assert.equal(result.success, true);
     assert.equal(result.images?.length, 1);
@@ -72,15 +67,14 @@ for (const version of ["2.936", "2.230"]) {
 test("large views return one bounded, explicitly sampled contact sheet", () => {
   const result = executeAgentTool(createAgentSessionState(), "write_view", {
     num: 1,
-    spec: {
-      loops: Array.from({ length: 10 }, () => ({
-        cels: Array.from({ length: 10 }, () => ({
-          width: 1,
-          height: 1,
-          pixels: [15],
-        })),
-      })),
-    },
+    source: [
+      "view",
+      "cel dot 1 1 0",
+      "F",
+      "endcel",
+      ...Array.from({ length: 10 }, (_, loop) => `loop ${loop} ${"dot ".repeat(10).trim()}`),
+      "endview",
+    ].join("\n"),
   });
   assert.equal(result.images?.length, 1);
   const image = result.images![0]!;
@@ -95,11 +89,12 @@ test("four-direction preview states AGI loop order and preserves authored pixels
   const session = createAgentSessionState();
   const result = executeAgentTool(session, "write_view", {
     num: 0,
-    spec: {
-      loops: [1, 2, 3, 4].map((color) => ({
-        cels: [{ width: 2, height: 1, transparentColor: 0, pixels: [color, 0] }],
-      })),
-    },
+    source: [
+      "view",
+      ...[1, 2, 3, 4].flatMap((colour) => [`cel c${colour} 2 1 0`, `${colour}.`, "endcel"]),
+      ...[1, 2, 3, 4].map((colour, loop) => `loop ${loop} c${colour}`),
+      "endview",
+    ].join("\n"),
   });
   assert.equal(result.success, true);
   const view = parseView(session.container.getResource("view", 0)!);

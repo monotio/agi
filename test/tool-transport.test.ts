@@ -326,44 +326,8 @@ test("every catalog tool produces bounded binary-free transport on real success 
     },
     write_words: { words: ["look", "east"] },
     write_view: {
-      good: {
-        num: 3,
-        spec: {
-          description: null,
-          facings: null,
-          loops: [
-            {
-              mirrorLoop: null,
-              cels: [
-                {
-                  width: 1,
-                  height: 1,
-                  transparentColor: 0,
-                  mirror: null,
-                  pixels: [5],
-                },
-              ],
-            },
-          ],
-        },
-      },
-      bad: {
-        num: -1,
-        spec: {
-          description: null,
-          loops: null,
-          facings: {
-            description: null,
-            transparentColor: 0,
-            mirrorLeftFromRight: true,
-            mirrorUpFromDown: null,
-            right: [["20"]],
-            left: null,
-            down: [["30"]],
-            up: [["40"]],
-          },
-        },
-      },
+      good: { num: 3, source: "view\ncel dot 1 1 0\n5\nendcel\nloop 0 dot\nendview" },
+      bad: { num: 3, source: "view\ncel dot 2 1 0\n5\nendcel\nloop 0 dot\nendview" },
     },
     write_logic_source: { room: 3, source: "return;" },
     write_picture: { room: 4, source: "vis 1\nfill 0,0\nend" },

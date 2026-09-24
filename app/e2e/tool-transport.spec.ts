@@ -45,12 +45,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         });
         const sprite = tools.executeAgentTool(state, "write_view", {
           num: 0,
-          spec: {
-            loops: [
-              { cels: [{ width: 3, height: 2, pixels: [4, 0, 1, 2, 0, 3] }] },
-              { mirrorLoop: 0 },
-            ],
-          },
+          source: "view\ncel a 3 2 0\n4.1\n2.3\nendcel\nloop 0 a\nloop 1 mirror 0\nendview",
         });
         conversation.setAvailableTools(["read_view", "read_picture"]);
         await conversation.sendUserMessage("Inspect a room.");

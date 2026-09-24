@@ -1,6 +1,7 @@
 /** Schemas for core resource editing and runtime inspection tools. */
 import type { ToolDefinition } from "./tools.ts";
 import { MAX_FRAMES } from "./frames.ts";
+import { VIEW_SOURCE_DOC } from "../view/viewSource.ts";
 
 /** A variable check: exact `value`, or an inclusive `min`/`max` range. */
 const VAR_ASSERTION_SCHEMA = {
@@ -430,102 +431,16 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   },
   {
     name: "write_view",
-    description:
-      "Compile and replace view `num` from `spec`. Provide exactly one of `loops` (each has cels or mirrors a preceding loop) or `facings` (four-facing actor shorthand: right/left/down/up hex-row cels, a shared transparentColor, mirror flags; omitted directions are filled from available facings and reported in warnings). Pixels are row-major EGA indices; facings rows are hex strings. Pixel-count corrections appear in `adjustments`. Returns a compiled contact sheet; large views sample 32 cels. Failure stores nothing.",
+    description: `Compile and replace view \`num\` from \`source\`. ${VIEW_SOURCE_DOC}
+Returns the compiled contact sheet (a large view shows 32 sampled cels). To change rows or colours of an existing view, use patch_view_cels. Failure stores nothing.`,
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        num: {
-          type: "integer",
-        },
-        spec: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            description: {
-              type: ["string", "null"],
-            },
-            facings: {
-              type: ["object", "null"],
-              additionalProperties: false,
-              properties: {
-                description: { type: ["string", "null"], maxLength: 512 },
-                transparentColor: { type: "integer", minimum: 0, maximum: 15 },
-                mirrorLeftFromRight: { type: ["boolean", "null"] },
-                mirrorUpFromDown: { type: ["boolean", "null"] },
-                right: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-                left: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-                down: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-                up: {
-                  type: ["array", "null"],
-                  items: { type: "array", items: { type: "string" } },
-                },
-              },
-              required: [
-                "description",
-                "transparentColor",
-                "mirrorLeftFromRight",
-                "mirrorUpFromDown",
-                "right",
-                "left",
-                "down",
-                "up",
-              ],
-            },
-            loops: {
-              type: ["array", "null"],
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  mirrorLoop: {
-                    type: ["integer", "null"],
-                  },
-                  cels: {
-                    type: ["array", "null"],
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        width: {
-                          type: "integer",
-                        },
-                        height: {
-                          type: "integer",
-                        },
-                        transparentColor: {
-                          type: ["integer", "null"],
-                        },
-                        mirror: {
-                          type: ["boolean", "null"],
-                        },
-                        pixels: {
-                          type: "array",
-                          items: { type: "integer" },
-                        },
-                      },
-                      required: ["width", "height", "transparentColor", "mirror", "pixels"],
-                    },
-                  },
-                },
-                required: ["mirrorLoop", "cels"],
-              },
-            },
-          },
-          required: ["description", "loops", "facings"],
-        },
+        num: { type: "integer", minimum: 0, maximum: 255 },
+        source: { type: "string" },
       },
-      required: ["num", "spec"],
+      required: ["num", "source"],
     },
   },
   {

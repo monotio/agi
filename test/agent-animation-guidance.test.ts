@@ -13,17 +13,12 @@ test("animated sprite feedback explains timing and baseline without silently cha
   const logic = state.container.getResource("logic", 1)!.slice();
   const result = executeAgentTool(state, "write_view", {
     num: 1,
-    spec: {
-      loops: [
-        {
-          cels: [
-            { width: 1, height: 1, pixels: [1] },
-            { width: 1, height: 1, pixels: [2] },
-            { width: 1, height: 1, pixels: [3] },
-          ],
-        },
-      ],
-    },
+    source: [
+      "view",
+      ...["1", "2", "3"].flatMap((colour, cel) => [`cel c${cel} 1 1 0`, colour, "endcel"]),
+      "loop 0 c0 c1 c2",
+      "endview",
+    ].join("\n"),
   });
   assert.equal(result.success, true);
   const captions = result.images!.map((image) => image.caption).join("\n");

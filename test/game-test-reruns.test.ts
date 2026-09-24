@@ -187,27 +187,25 @@ test("a write to a transitively called logic reruns the starting room's tests", 
   );
 });
 
-test("write_view facings, write_music and patch_view_cels rerun the tests they can affect", () => {
+test("write_view, write_music and patch_view_cels rerun the tests they can affect", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
   const verdict = /^Game tests: 0 game tests pass, 1 fail: "needs the key" Expected flag 30=true/;
   const coverage = { ran: 1, stored: 1, notRun: 0 };
   const actor = executeAgentTool(state, "write_view", {
     num: 1,
-    spec: {
-      description: null,
-      loops: null,
-      facings: {
-        description: null,
-        transparentColor: 0,
-        mirrorLeftFromRight: true,
-        mirrorUpFromDown: null,
-        right: [["120", "340"]],
-        left: null,
-        down: [["506", "780"]],
-        up: [["90A", "BC0"]],
-      },
-    },
+    source: [
+      "view",
+      ...["right 120 340", "down 506 780", "up 90A BC0"].flatMap((cel) => {
+        const [name, ...rows] = cel.split(" ");
+        return [`cel ${name} 3 2 0`, ...rows, "endcel"];
+      }),
+      "loop 0 right",
+      "loop 1 mirror 0",
+      "loop 2 down",
+      "loop 3 up",
+      "endview",
+    ].join("\n"),
   });
   assert.equal(actor.success, true, actor.error ?? "");
   assert.match(actor.message ?? "", verdict);

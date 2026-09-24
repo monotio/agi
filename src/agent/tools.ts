@@ -44,7 +44,8 @@ import {
   executeAuthoringTool,
   sourceContextRevision,
 } from "./authoringTools.ts";
-import { SPRITE_TOOLS, actorSpecFromFacings, executeSpriteTool } from "./spriteTools.ts";
+import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import { compileViewSource } from "../view/viewSource.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
 import {
@@ -66,13 +67,7 @@ import {
 import { playtestRoom, validateGenesis } from "./playtest.ts";
 import { serializeAgentLog } from "./toolTransport.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
-import {
-  buildView,
-  parseView,
-  type BuildCelInput,
-  type BuildLoopInput,
-  type BuildViewInput,
-} from "../view/view.ts";
+import { buildView, parseView, type BuildViewInput } from "../view/view.ts";
 import {
   createPictureSurface,
   RESOURCE_KINDS,
@@ -1230,113 +1225,27 @@ function executeLegacyTool(
       if (!Number.isInteger(num) || num < 0 || num > 255) {
         return { success: false, error: `Invalid view resource number: ${num}. Must be 0..255.` };
       }
-      const rawSpec = args["spec"] as Record<string, unknown> | undefined;
-      const hasLoops = Array.isArray(rawSpec?.["loops"]);
-      const hasFacings = rawSpec?.["facings"] !== null && rawSpec?.["facings"] !== undefined;
-      if (!rawSpec || hasLoops === hasFacings) {
+      if (typeof args["source"] !== "string")
+        return { success: false, error: "write_view needs `source`, the view as text." };
+      let spec: BuildViewInput;
+      try {
+        spec = compileViewSource(args["source"]);
+      } catch (err) {
         return {
           success: false,
-          error:
-            "Missing or invalid view specification: exactly one of 'spec.loops' or 'spec.facings' is required.",
+          error: `View ${num} was not written: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
-
-      const sanitizedLoops: BuildLoopInput[] = [];
-      const adjustments: string[] = [];
-      let specDescription: string | undefined;
-
-      if (hasFacings) {
-        // Four-facing actor shorthand: {right,left,down,up} hex-row cels,
-        // mirror flags and a shared transparentColor expand to four loops.
-        try {
-          const built = actorSpecFromFacings(rawSpec["facings"] as Record<string, unknown>);
-          sanitizedLoops.push(...built.spec.loops);
-          adjustments.push(...built.adjustments);
-          specDescription = built.spec.description ?? undefined;
-        } catch (err) {
-          return { success: false, error: `Invalid facings spec: ${String(err)}` };
-        }
-      }
-
-      const rawLoops = hasFacings ? [] : (rawSpec["loops"] as unknown[]);
-
-      for (let i = 0; i < rawLoops.length; i++) {
-        const rawLoop = rawLoops[i];
-        if (!rawLoop || typeof rawLoop !== "object") continue;
-        const loopObj = rawLoop as Record<string, unknown>;
-
-        const rawCels = Array.isArray(loopObj["cels"]) ? (loopObj["cels"] as unknown[]) : [];
-        const mirrorVal =
-          typeof loopObj["mirrorLoop"] === "number" ? loopObj["mirrorLoop"] : undefined;
-
-        if (rawCels.length > 0) {
-          if (mirrorVal !== undefined) {
-            adjustments.push(
-              `Loop ${i}: both cels and mirrorLoop were specified. Explicit cels took precedence.`,
-            );
-          }
-          const cels: BuildCelInput[] = [];
-          for (let celIdx = 0; celIdx < rawCels.length; celIdx++) {
-            const item = rawCels[celIdx];
-            if (!item || typeof item !== "object") continue;
-            const celObj = item as Record<string, unknown>;
-            const width = Number(celObj["width"]) || 0;
-            const height = Number(celObj["height"]) || 0;
-            const transparentColor =
-              typeof celObj["transparentColor"] === "number" ? celObj["transparentColor"] : 0;
-            const mirror = Boolean(celObj["mirror"]);
-            const rawPixels = Array.isArray(celObj["pixels"]) ? (celObj["pixels"] as number[]) : [];
-            const targetLen = width * height;
-            let pixels = rawPixels.map((p) => Number(p) & 0x0f);
-            if (targetLen > 0) {
-              if (pixels.length > targetLen) {
-                const excess = pixels.length - targetLen;
-                pixels = pixels.slice(0, targetLen);
-                adjustments.push(
-                  `Loop ${i} cel ${celIdx}: pixel count was ${rawPixels.length}, expected ${width}x${height} = ${targetLen}. Auto-truncated ${excess} excess pixels. The compiled sprite retains ${width}x${height} logical dimensions. You may submit an updated write_view if you wish to adjust the cel pixels.`,
-                );
-              } else if (pixels.length < targetLen) {
-                const missing = targetLen - pixels.length;
-                pixels = pixels.concat(new Array(missing).fill(transparentColor));
-                adjustments.push(
-                  `Loop ${i} cel ${celIdx}: pixel count was ${rawPixels.length}, expected ${width}x${height} = ${targetLen}. Auto-padded ${missing} missing pixels with transparentColor (${transparentColor}).`,
-                );
-              }
-            }
-            cels.push({ width, height, transparentColor, mirror, pixels });
-          }
-          sanitizedLoops.push({ cels });
-        } else if (mirrorVal !== undefined) {
-          sanitizedLoops.push({ mirrorLoop: mirrorVal });
-        } else {
-          sanitizedLoops.push({ cels: [] });
-        }
-      }
-
-      const cleanSpec: BuildViewInput = {
-        loops: sanitizedLoops,
-        description:
-          specDescription ??
-          (typeof rawSpec["description"] === "string" ? rawSpec["description"] : undefined),
-      };
-
       try {
-        const payload = buildView(cleanSpec, session.profile);
+        const payload = buildView(spec, session.profile);
         const { png, caption, ...preview } = viewFeedback(payload, session.profile, num);
         session.container.putResource("view", num, payload);
-        session.sources.views.set(num, cleanSpec);
+        session.sources.views.set(num, spec);
         return {
           success: true,
-          message: `View ${num} compiled successfully (${cleanSpec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.`,
+          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.`,
           images: [{ png, caption }],
-          ...(adjustments.length > 0 ? { adjustments } : {}),
-          details: {
-            view: num,
-            bytes: payload.length,
-            loops: cleanSpec.loops.length,
-            preview,
-            adjustments: adjustments.length > 0 ? adjustments : undefined,
-          },
+          details: { view: num, bytes: payload.length, loops: spec.loops.length, preview },
         };
       } catch (err) {
         return { success: false, error: `View compilation error for view ${num}: ${String(err)}` };

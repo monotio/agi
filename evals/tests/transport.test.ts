@@ -18,7 +18,7 @@ const finish = [
     name: "write_view",
     args: {
       num: 0,
-      spec: { loops: [{ cels: [{ width: 1, height: 1, transparentColor: 0, pixels: [5] }] }] },
+      source: "view\ncel ego 1 1 0\n5\nendcel\nloop 0 ego\nendview",
     },
   },
   {

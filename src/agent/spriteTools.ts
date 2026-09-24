@@ -123,27 +123,6 @@ function celFromRows(
   return { width, height: rows.length, transparentColor, mirror: false, pixels };
 }
 
-function direction(
-  value: unknown,
-  label: string,
-  transparentColor: number,
-  adjustments: string[],
-): BuildCelInput[] {
-  // A cel count is one byte; buildView applies the profile's own limit
-  // (15 where the interpreter packs loop headers, 255 otherwise).
-  if (!Array.isArray(value) || value.length < 1 || value.length > 255) {
-    throw new Error(`${label} must contain 1..255 cels.`);
-  }
-  const cels = value.map((rows, index) =>
-    celFromRows(rows, `${label} cel ${index}`, transparentColor, adjustments),
-  );
-  if (cels.length > 2 && cels.every((cel) => cel.height === 1))
-    throw new Error(
-      `${label}: ${cels.length} cels of one row each. A cel is an array of row strings, top to bottom; send one cel's rows together in one array.`,
-    );
-  return cels;
-}
-
 function u16le(payload: Uint8Array, offset: number): number {
   return payload[offset]! | (payload[offset + 1]! << 8);
 }
@@ -204,22 +183,12 @@ function aliasGroups(payload: Uint8Array, view: AgiView, packed: boolean): Alias
   return groups;
 }
 
-function reverseRows(cel: BuildCelInput): BuildCelInput {
+/** The cel flipped left to right, as a mirrored loop displays it. */
+function flipHorizontal(cel: BuildCelInput): BuildCelInput {
   const pixels = new Uint8Array(cel.width * cel.height);
   for (let y = 0; y < cel.height; y++) {
     for (let x = 0; x < cel.width; x++) {
       pixels[y * cel.width + x] = cel.pixels[y * cel.width + cel.width - 1 - x]!;
-    }
-  }
-  return { ...cel, pixels };
-}
-
-function reverseColumns(cel: BuildCelInput): BuildCelInput {
-  const pixels = new Uint8Array(cel.width * cel.height);
-  for (let y = 0; y < cel.height; y++) {
-    const srcY = cel.height - 1 - y;
-    for (let x = 0; x < cel.width; x++) {
-      pixels[y * cel.width + x] = cel.pixels[srcY * cel.width + x]!;
     }
   }
   return { ...cel, pixels };
@@ -266,7 +235,7 @@ function patchedView(
       if (targeted.length === 1) {
         for (const [celIndex, replacement] of targets.get(first)!) {
           const displayed = view.loops[first]!.cels[celIndex]!;
-          cels[celIndex] = displayed.mirrored ? reverseRows(replacement) : replacement;
+          cels[celIndex] = displayed.mirrored ? flipHorizontal(replacement) : replacement;
         }
       }
       loops[first] = { cels };
@@ -308,98 +277,6 @@ function patchedView(
   applyMetadata(payload, state.profile.packedViewLoopHeader, plans);
   parseView(payload, state.profile);
   return { payload, spec };
-}
-
-/** Four-facing actor shorthand -> BuildViewInput (right, left, down, up order). */
-export function actorSpecFromFacings(facings: Record<string, unknown>): {
-  spec: BuildViewInput;
-  adjustments: string[];
-} {
-  const transparentColor = integer(facings["transparentColor"], "Transparent color", 0, 15);
-  const mirrorLeftFromRight = facings["mirrorLeftFromRight"];
-  if (mirrorLeftFromRight != null && typeof mirrorLeftFromRight !== "boolean") {
-    throw new Error("mirrorLeftFromRight must be a boolean or null.");
-  }
-  const mirrorUpFromDown = facings["mirrorUpFromDown"];
-  if (mirrorUpFromDown != null && typeof mirrorUpFromDown !== "boolean") {
-    throw new Error("mirrorUpFromDown must be a boolean or null.");
-  }
-  const description = facings["description"];
-  if (description !== null && (typeof description !== "string" || description.length > 512)) {
-    throw new Error("facings.description must be null or at most 512 characters.");
-  }
-  const adjustments: string[] = [];
-
-  const rawRight = facings["right"];
-  const rawLeft = facings["left"];
-  const rawDown = facings["down"];
-  const rawUp = facings["up"];
-
-  if (rawRight == null && rawLeft == null && rawDown == null && rawUp == null) {
-    throw new Error("At least one direction (right, left, down, or up) must be provided.");
-  }
-
-  let rightCels: BuildCelInput[] | null =
-    rawRight != null ? direction(rawRight, "right", transparentColor, adjustments) : null;
-  const leftCels: BuildCelInput[] | null =
-    rawLeft != null ? direction(rawLeft, "left", transparentColor, adjustments) : null;
-  let downCels: BuildCelInput[] | null =
-    rawDown != null ? direction(rawDown, "down", transparentColor, adjustments) : null;
-  let upCels: BuildCelInput[] | null =
-    rawUp != null ? direction(rawUp, "up", transparentColor, adjustments) : null;
-
-  const primary = rightCels ?? downCels ?? leftCels ?? upCels!;
-  const primaryName = rightCels ? "right" : downCels ? "down" : leftCels ? "left" : "up";
-
-  if (!rightCels) {
-    rightCels = primary.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
-    adjustments.push(`Warning: 'right' was omitted; reused '${primaryName}' cels.`);
-  }
-
-  let left: BuildLoopInput;
-  if (
-    mirrorLeftFromRight === true ||
-    (rawLeft == null && leftCels == null && mirrorLeftFromRight !== false)
-  ) {
-    if (rawLeft != null) throw new Error("left must be null when mirrorLeftFromRight is true.");
-    left = { mirrorLoop: 0 };
-    if (mirrorLeftFromRight !== true) {
-      adjustments.push("'left' was omitted; mirrored from 'right' (loop 0).");
-    }
-  } else if (leftCels) {
-    left = { cels: leftCels };
-  } else {
-    left = { cels: rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) })) };
-    adjustments.push("Warning: 'left' was omitted; reused 'right' cels unmirrored.");
-  }
-
-  if (!downCels) {
-    downCels = rightCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
-    adjustments.push(
-      "Warning: 'down' was omitted; reused 'right' cels. The actor will use this facing when moving down.",
-    );
-  }
-
-  if (mirrorUpFromDown === true) {
-    if (rawUp != null) throw new Error("up must be null when mirrorUpFromDown is true.");
-    upCels = downCels.map(reverseColumns);
-    adjustments.push("Flipped 'up' vertically from 'down'.");
-  } else if (!upCels) {
-    const sourceName = rawDown != null ? "down" : "right";
-    const sourceCels = rawDown != null ? downCels : rightCels;
-    upCels = sourceCels.map((cel) => ({ ...cel, pixels: Uint8Array.from(cel.pixels) }));
-    adjustments.push(
-      `Warning: 'up' was omitted; reused '${sourceName}' cels. The actor will use this facing when moving up.`,
-    );
-  }
-
-  return {
-    spec: {
-      loops: [{ cels: rightCels }, left, { cels: downCels }, { cels: upCels }],
-      ...(description === null ? {} : { description }),
-    },
-    adjustments,
-  };
 }
 
 /** Execute one sprite helper, or return undefined when the name belongs to another registry. */
@@ -489,8 +366,8 @@ export function executeSpriteTool(
       }
       const { payload, spec } = patchedView(original, state, targets, adjustments);
       const after = parseView(payload, state.profile);
-      state.container.putResource("view", num, payload);
-      state.sources.views.set(num, spec);
+      // Everything that can fail runs before the commit, so "not patched"
+      // is true whenever it is reported.
       const revision = resourceCacheHint(payload);
       const geometry = [...targets.entries()].flatMap(([loop, cels]) =>
         [...cels.keys()].map((cel) => {
@@ -505,6 +382,8 @@ export function executeSpriteTool(
         }),
       );
       const preview = viewFeedback(payload, state.profile, num);
+      state.container.putResource("view", num, payload);
+      state.sources.views.set(num, spec);
       return {
         success: true,
         message: `View ${num}: patched ${geometry.length} cel${geometry.length === 1 ? "" : "s"} in one commit; revision ${revision}.`,

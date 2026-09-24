@@ -226,23 +226,16 @@ async function runCliGenesis(): Promise<void> {
     // Write ego view
     executeAgentTool(session, "write_view", {
       num: 0,
-      spec: {
-        description: "Ego sprite",
-        loops: [
-          {
-            cels: [
-              {
-                width: 4,
-                height: 4,
-                transparentColor: 0,
-                mirror: false,
-                pixels: new Array(16).fill(1),
-              },
-            ],
-          },
-          { mirrorLoop: 0 },
-        ],
-      },
+      source: [
+        "view",
+        'description "Ego sprite"',
+        "cel ego 4 4 0",
+        ...new Array(4).fill("1111"),
+        "endcel",
+        "loop 0 ego",
+        "loop 1 mirror 0",
+        "endview",
+      ].join("\n"),
     });
     // Write room 1 picture
     executeAgentTool(session, "write_picture", {

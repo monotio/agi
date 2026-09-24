@@ -117,19 +117,6 @@ describe("validateToolArguments", () => {
 
   it("handlers that compare against null accept omitted optional fields at execution", () => {
     const session = createAgentSessionState();
-    const actor = executeAgentTool(session, "write_view", {
-      num: 0,
-      spec: {
-        facings: {
-          transparentColor: 0,
-          mirrorLeftFromRight: true,
-          right: [["120", "340"]],
-          down: [["506", "780"]],
-          up: [["90A", "BC0"]],
-        },
-      },
-    });
-    assert.equal(actor.success, true, actor.error ?? "");
     const music = executeAgentTool(session, "write_music", {
       num: 8,
       tempo: 90,

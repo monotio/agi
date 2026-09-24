@@ -15,7 +15,7 @@ test("remixing 2.230 writes packed sprite loops that mirror when selected", () =
   const state = session("2.230");
   const result = executeAgentTool(state, "write_view", {
     num: 5,
-    spec: { loops: [{ cels: [{ width: 3, height: 1, pixels: [1, 2, 0] }] }, { mirrorLoop: 0 }] },
+    source: "view\ncel a 3 1 0\n12.\nendcel\nloop 0 a\nloop 1 mirror 0\nendview",
   });
   assert.equal(result.success, true, result.error ?? "tool failed");
   const payload = state.container.getResource("view", 5)!;
