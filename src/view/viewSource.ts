@@ -9,14 +9,14 @@
  * an unknown reference is an error naming the line and the fix.
  */
 
-import type { BuildLoopInput, BuildViewInput } from "./view.ts";
+import type { BuildCelInput, BuildLoopInput, BuildViewInput } from "./view.ts";
 
 export const VIEW_SOURCE_DOC = `View source: one command per line, between \`view\` and \`endview\`.
 - \`cel NAME WIDTH HEIGHT T\` then exactly HEIGHT rows of exactly WIDTH symbols, then \`endcel\`. Symbols \`0\`-\`F\` are EGA colours; \`.\` is the cel's transparent colour T (one hex digit). WIDTH 1-160, HEIGHT 1-168 logical pixels.
 - \`cel NAME copy EARLIER\` copies an earlier cel (size and transparency included); \`row Y SYMBOLS\` lines replace whole rows (Y counts from 0), then \`endcel\`. Draw a frame once and copy it for the next.
 - \`loop N NAME NAME...\` lists a loop's cels in order; loops are numbered from 0 without gaps, and a cel may appear more than once. \`loop N mirror M\` shows loop M flipped left to right.
 - Optional \`description "TEXT"\` (a JSON string).
-For a walking actor, loops are 0 right, 1 left, 2 front, 3 back; mirror left from right unless the design is asymmetric, and draw front and back.
+For a walking actor, loops are 0 right, 1 left, 2 front, 3 back: draw right as a profile facing right and mirror left from it unless the design is asymmetric; draw front and back as their own cels; give each walk frame changed leg rows.
 Example, a flag waving in two frames that also faces left:
 view
 cel flag0 4 3 0
@@ -150,6 +150,13 @@ export function compileViewSource(source: string): BuildViewInput {
           if (!edit) fail(lines.length, `cel ${celName} is missing "endcel".`);
           if (edit.text === "endcel") break;
           const parts = edit.text.split(/\s+/);
+          if (parts[0] === "row" && parts.length > 3) {
+            const symbols = parts.slice(2).join(" ");
+            fail(
+              edit.line,
+              `cel ${celName} row ${parts[1]} "${symbols}" has a space; send its ${base.width} symbols as one run.`,
+            );
+          }
           if (parts[0] !== "row" || parts.length !== 3)
             fail(edit.line, `inside a copied cel, write "row Y SYMBOLS" or "endcel".`);
           const y = uint(parts[1], edit.line, `cel ${celName} row`, 0, base.height - 1);
@@ -223,4 +230,49 @@ export function compileViewSource(source: string): BuildViewInput {
   }
   if (!loops.length) fail(lines.length, "a view needs at least one loop.");
   return { loops, ...(description === undefined ? {} : { description }) };
+}
+
+/** Share of a cel's opaque pixels that match their left-right mirror, 0..1. */
+function symmetry(cel: BuildCelInput): number {
+  const t = cel.transparentColor ?? 0;
+  let same = 0;
+  let opaque = 0;
+  for (let y = 0; y < cel.height; y++)
+    for (let x = 0; x < cel.width; x++) {
+      const a = cel.pixels[y * cel.width + x]!;
+      const b = cel.pixels[y * cel.width + cel.width - 1 - x]!;
+      if (a === t && b === t) continue;
+      opaque++;
+      if (a === b) same++;
+    }
+  return opaque ? same / opaque : 1;
+}
+
+/**
+ * Advice for a compiled view, never a refusal: repeated frames and symmetric
+ * designs can be deliberate. In the 1.0.0 Genesis benchmark, right-facing
+ * profiles were 28-83% symmetric and front views 84-100%; the two side loops
+ * drawn as front views were 100%, so 95% separates them.
+ */
+export function viewSourceWarnings(input: BuildViewInput): string[] {
+  const warnings: string[] = [];
+  input.loops.forEach((loop, index) => {
+    const cels = loop.cels ?? [];
+    for (let cel = 0; cel + 1 < cels.length; cel++) {
+      const a = cels[cel]!.pixels;
+      const b = cels[cel + 1]!.pixels;
+      if (a.length === b.length && Array.prototype.every.call(a, (value, i) => value === b[i])) {
+        warnings.push(
+          `Loop ${index}: cels ${cel} and ${cel + 1} are identical, so that step shows no motion; change the rows that move (for a walk, the legs).`,
+        );
+        break;
+      }
+    }
+  });
+  const right = input.loops[0]?.cels?.[0];
+  if (input.loops.length === 4 && right && symmetry(right) >= 0.95)
+    warnings.push(
+      "Loop 0 faces right but its first cel is symmetric like a front view; draw the figure in profile, facing right (loop 2 is the front).",
+    );
+  return warnings;
 }

@@ -45,7 +45,7 @@ import {
   sourceContextRevision,
 } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
-import { compileViewSource } from "../view/viewSource.ts";
+import { compileViewSource, viewSourceWarnings } from "../view/viewSource.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
 import {
@@ -1241,11 +1241,18 @@ function executeLegacyTool(
         const { png, caption, ...preview } = viewFeedback(payload, session.profile, num);
         session.container.putResource("view", num, payload);
         session.sources.views.set(num, spec);
+        const warnings = viewSourceWarnings(spec);
         return {
           success: true,
-          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.`,
+          message: `View ${num} compiled successfully (${spec.loops.length} loops, ${payload.length} bytes). Inspect the sprite preview.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
           images: [{ png, caption }],
-          details: { view: num, bytes: payload.length, loops: spec.loops.length, preview },
+          details: {
+            view: num,
+            bytes: payload.length,
+            loops: spec.loops.length,
+            preview,
+            ...(warnings.length ? { warnings } : {}),
+          },
         };
       } catch (err) {
         return { success: false, error: `View compilation error for view ${num}: ${String(err)}` };

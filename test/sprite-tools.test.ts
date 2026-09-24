@@ -76,6 +76,19 @@ describe("sprite authoring tools", () => {
     );
   });
 
+  it("writes a view whose walk does not move, and tells the model why", () => {
+    const state = createAgentSessionState();
+    const result = writeView(
+      state,
+      "view\ncel a 3 1 0\n120\nendcel\ncel b copy a\nendcel\nloop 0 a b\nendview",
+    );
+    assert.equal(result?.success, true, result?.error ?? "");
+    assert.match(result?.message ?? "", /Loop 0: cels 0 and 1 are identical/);
+    assert.deepEqual(result?.details?.["warnings"], [
+      "Loop 0: cels 0 and 1 are identical, so that step shows no motion; change the rows that move (for a walk, the legs).",
+    ]);
+  });
+
   it("rejects a malformed row before writing, naming the cel, row and fix", () => {
     const state = createAgentSessionState();
     const uneven = writeView(state, ACTOR.replace("340", "34"));

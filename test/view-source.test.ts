@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compileViewSource, VIEW_SOURCE_DOC } from "../src/view/viewSource.ts";
+import { compileViewSource, VIEW_SOURCE_DOC, viewSourceWarnings } from "../src/view/viewSource.ts";
 import { buildView, parseView, selectViewCel } from "../src/view/view.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 
@@ -144,6 +144,11 @@ describe("view source", () => {
       // Luna left out "copy" once, and four times sent a source that ended
       // after one row; both messages now name the whole fix.
       [cel("123\n123", "cel b a\nendcel\nloop 0 b"), /line 6: to copy a, write "cel b copy a"/],
+      // Sol typed a replaced row with a space in it.
+      [
+        cel("123\n123", "cel b copy a\nrow 0 1 3\nendcel\nloop 0 b"),
+        /line 7: cel b row 0 "1 3" has a space; send its 3 symbols as one run/,
+      ],
       [
         "view\ncel a 3 2 0\n123",
         /the source ends inside cel a after 1 of 2 rows: send all 2 rows, then endcel, the loops and endview/,
@@ -181,6 +186,32 @@ describe("view source", () => {
       () => compileViewSource(`description "a"\n${CHEST}`),
       /line 3: a view has one description/,
     );
+  });
+
+  it("warns about frames that do not move and a right-facing loop drawn as a front view", () => {
+    // In the release benchmark Luna copied walk frames without changing a row,
+    // and Sol drew its right-facing loop as the symmetric front view.
+    assert.deepEqual(viewSourceWarnings(compileViewSource(ACTOR)), []);
+    const still = ACTOR.replace("row 6 .74C4C7.\nrow 22 ..77....\nrow 25 ..88....\n", "");
+    assert.deepEqual(viewSourceWarnings(compileViewSource(still)), [
+      "Loop 0: cels 0 and 1 are identical, so that step shows no motion; change the rows that move (for a walk, the legs).",
+    ]);
+    const facing = (right: string) =>
+      [
+        "view",
+        "cel front 6 3 0\n.4444.\n444444\n.4..4.\nendcel",
+        "cel back 6 3 0\n.6666.\n444444\n.4..4.\nendcel",
+        `cel right 6 3 0\n${right}\nendcel`,
+        "cel right2 copy right\nrow 2 ..44..\nendcel",
+        "loop 0 right right2\nloop 1 mirror 0\nloop 2 front\nloop 3 back\nendview",
+      ].join("\n");
+    assert.match(
+      viewSourceWarnings(compileViewSource(facing(".4444.\n444444\n.4..4."))).join(" "),
+      /Loop 0 faces right but its first cel is symmetric like a front view; draw the figure in profile/,
+    );
+    assert.deepEqual(viewSourceWarnings(compileViewSource(facing("..444.\n.44444\n..4.4."))), []);
+    // A prop or a one-loop view gets no facing advice.
+    assert.deepEqual(viewSourceWarnings(compileViewSource(CHEST)), []);
   });
 
   it("treats a transparent digit and a dot alike, and reads blank lines and CRLF", () => {
