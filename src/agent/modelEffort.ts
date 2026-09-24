@@ -33,6 +33,12 @@ export interface ModelCapability {
   caching: "breakpoint" | "implicit" | "none";
   /** Whether tool schemas may be sent under the provider's strict-grammar mode. */
   strictSchema: boolean;
+  /**
+   * Anthropic adaptive thinking whose notes between tool calls come back
+   * empty unless a display is requested (Opus 5.5, Fable 5.1).
+   * https://platform.claude.com/docs/en/models/opus-5-5/migration-guide#text-between-tool-calls
+   */
+  summarizedThinking?: true;
   price?: ModelPrice;
 }
 
@@ -54,6 +60,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "medium",
     caching: "breakpoint",
     strictSchema: false,
+    summarizedThinking: true,
     price: { input: 4, output: 20, longContext: false, cacheRead: 0.2 },
   },
   "claude-fable-5-1": {
@@ -62,6 +69,7 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     defaultEffort: "high",
     caching: "breakpoint",
     strictSchema: false,
+    summarizedThinking: true,
     price: { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
   },
   "gpt-6-astra": {

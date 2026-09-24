@@ -20,6 +20,7 @@ import {
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
 import {
+  modelCapability,
   resolveModelEffort,
   type ModelEffort,
   DEFAULT_MODELS,
@@ -305,6 +306,12 @@ export function createAnthropicConversation(
             ) as Exclude<ModelEffort, "none">,
           },
           max_tokens: maxTokens,
+          // The notes Opus 5.5 writes between tool calls arrive as thinking
+          // blocks, empty without a display; the agent panel shows them.
+          ...(modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
+            .summarizedThinking
+            ? { thinking: { type: "adaptive" as const, display: "summarized" as const } }
+            : {}),
           system: [
             {
               type: "text",
@@ -332,6 +339,8 @@ export function createAnthropicConversation(
           }
           if (event.type === "content_block_delta" && event.delta.type === "text_delta")
             run?.updateProgress("text", event.delta.text);
+          if (event.type === "content_block_delta" && event.delta.type === "thinking_delta")
+            run?.updateProgress("thinking", event.delta.thinking);
         }
         const response = await stream.finalMessage();
         responseMs = performance.now() - startedAt;
