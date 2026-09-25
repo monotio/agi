@@ -85,7 +85,7 @@ function onStartLocalGameOver(game: InstalledGameDescriptor): void {
         <ActionMenu
           v-if="localAutosave(game) || hasWalkthrough(game.revision ?? '')"
           label="Game actions"
-          icon="more"
+          icon="ellipsis"
           icon-only
           :test-id="`game-actions-${game.folder || game.alias || game.hash}`"
         >

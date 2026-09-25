@@ -1,0 +1,139 @@
+/*
+ * Design tokens: the only place app chrome declares raw colours, type sizes,
+ * radii, shadows and motion. Components use these custom properties;
+ * scripts/check-design-tokens.mjs keeps raw values from creeping back.
+ * Game pixels are not chrome: the AGI palette below exists for UI that shows
+ * game colours (swatches, priority legends), never for app surfaces.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, darkest to lightest. Panels sit on surface-1, raised controls on 2-3. */
+  --surface-sunken: #050809;
+  --surface-0: #070b0d;
+  --surface-1: #0d1417;
+  --surface-2: #121c20;
+  --surface-3: #18252b;
+  --surface-overlay: rgb(13 20 23 / 0.94);
+  --scrim: rgb(0 0 0 / 0.6);
+  --hairline: #1f2e35;
+  --hairline-strong: #2b3f48;
+
+  /* Ink. ink-3 is for secondary labels only; body text uses ink or ink-2. */
+  --ink: #e6f1f2;
+  --ink-2: #a9bcc0;
+  --ink-3: #7d949a;
+  --ink-disabled: #52666c;
+
+  /* One action colour. Primary buttons fill with it; everything else tints. */
+  --action: #79e5e6;
+  --action-hover: #9aedef;
+  --action-ink: #071112;
+  --action-soft: rgb(121 229 230 / 0.12);
+  --action-soft-hover: rgb(121 229 230 / 0.2);
+  --action-line: rgb(121 229 230 / 0.4);
+  --focus: #b6f5f6;
+
+  /* Status. Each has a readable foreground on surface-1 and a soft fill. */
+  --ok: #7fd89a;
+  --ok-soft: rgb(127 216 154 / 0.12);
+  --ok-line: rgb(127 216 154 / 0.35);
+  --warn: #f2c76b;
+  --warn-soft: rgb(242 199 107 / 0.12);
+  --warn-line: rgb(242 199 107 / 0.35);
+  --danger: #e3868d;
+  --danger-hover: #f0a0a6;
+  --danger-soft: rgb(227 134 141 / 0.12);
+  --danger-line: rgb(227 134 141 / 0.45);
+
+  /* The 16 AGI (EGA) colours, for UI that depicts game colours. */
+  --agi-0: #000000;
+  --agi-1: #0000aa;
+  --agi-2: #00aa00;
+  --agi-3: #00aaaa;
+  --agi-4: #aa0000;
+  --agi-5: #aa00aa;
+  --agi-6: #aa5500;
+  --agi-7: #aaaaaa;
+  --agi-8: #555555;
+  --agi-9: #5555ff;
+  --agi-10: #55ff55;
+  --agi-11: #55ffff;
+  --agi-12: #ff5555;
+  --agi-13: #ff55ff;
+  --agi-14: #ffff55;
+  --agi-15: #ffffff;
+
+  /* Type. Sans for UI, mono for numbers, coordinates, code and the wordmark. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, monospace;
+  --text-2xs: 0.6875rem; /* 11px: badges, kbd, meta */
+  --text-xs: 0.75rem; /* 12px: secondary labels */
+  --text-sm: 0.8125rem; /* 13px: dense UI (panels, inspectors) */
+  --text-md: 0.875rem; /* 14px: default body */
+  --text-lg: 1rem; /* 16px: section titles, phone body */
+  --text-xl: 1.25rem; /* 20px: panel and dialog titles */
+  --text-2xl: 1.75rem; /* 28px: page headings */
+  --text-display: clamp(2.5rem, 6vw, 4rem); /* the wordmark */
+  --leading-tight: 1.25;
+  --leading: 1.5;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --tracking-caps: 0.08em;
+
+  /* Space: a 4px grid with a few half steps for dense controls. */
+  --space-0: 2px;
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 24px;
+  --space-8: 32px;
+  --space-9: 48px;
+
+  /* Shape. */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+  --control-h-sm: 32px;
+  --control-h: 40px;
+  --control-h-touch: 44px;
+
+  /* Depth. */
+  --shadow-pop: 0 8px 24px rgb(0 0 0 / 0.4);
+  --shadow-dialog: 0 24px 64px rgb(0 0 0 / 0.6);
+  --shadow-stage: 0 0 0 1px var(--hairline-strong), 0 20px 60px rgb(0 0 0 / 0.55);
+
+  /* Motion. Durations collapse to zero under reduced motion. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration: 180ms;
+  --duration-slow: 280ms;
+
+  /* Stacking for in-flow layers; dialogs use the top layer instead. */
+  --z-dock: 10;
+  --z-popover: 30;
+  --z-toast: 40;
+
+  /* 1.0 names, kept while components migrate to the tokens above. */
+  --ui-action: var(--action);
+  --ui-action-hover: var(--action-hover);
+  --ui-action-ink: var(--action-ink);
+  --ui-action-surface: var(--surface-2);
+  --ui-action-surface-hover: var(--surface-3);
+  --ui-danger: var(--danger);
+  --ui-danger-hover: var(--danger-hover);
+  --ui-focus: var(--focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration: 0ms;
+    --duration-slow: 0ms;
+  }
+}

@@ -1,14 +1,3 @@
-:root {
-  --ui-action: #79e5e6;
-  --ui-action-hover: #9aedef;
-  --ui-action-ink: #071112;
-  --ui-action-surface: #132426;
-  --ui-action-surface-hover: #1b3335;
-  --ui-danger: #d98b91;
-  --ui-danger-hover: #f0a0a6;
-  --ui-focus: #b6f5f6;
-}
-
 .ui-button {
   display: inline-flex;
   align-items: center;
