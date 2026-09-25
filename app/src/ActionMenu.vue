@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
-import UiIcon from "./UiIcon.vue";
+import UiIcon from "./ui/UiIcon.vue";
 
 const {
   testId = undefined,
   iconOnly = false,
-  icon = "chevron",
+  icon = "chevron-down",
   disabled = false,
 } = defineProps<{
   label: string;
   testId?: string | undefined;
   iconOnly?: boolean;
-  icon?: "more" | "chevron";
+  icon?: "ellipsis" | "chevron-down";
   disabled?: boolean;
 }>();
 

@@ -10,7 +10,7 @@
 import ActionMenu from "./ActionMenu.vue";
 import CatalogPanel from "./CatalogPanel.vue";
 import ProfileChoiceDialog from "./ProfileChoiceDialog.vue";
-import UiIcon from "./UiIcon.vue";
+import UiIcon from "./ui/UiIcon.vue";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { hasWalkthrough } from "./walkthrough.ts";
@@ -266,7 +266,7 @@ const pendingAutosaveTitle = computed(
             </button>
             <ActionMenu
               label="Game actions"
-              icon="more"
+              icon="ellipsis"
               icon-only
               :test-id="`game-actions-${game.projectId}`"
             >
@@ -426,7 +426,7 @@ const pendingAutosaveTitle = computed(
         >
           Resume
         </button>
-        <ActionMenu label="Game actions" icon="more" icon-only>
+        <ActionMenu label="Game actions" icon="ellipsis" icon-only>
           <button
             type="button"
             role="menuitem"
