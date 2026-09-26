@@ -1,8 +1,9 @@
 /**
- * Room Studio undo/redo over picture source snapshots. Pure: every function
- * returns a new history. A `begin`/`commit` gesture (a whole drag) becomes
- * one step; undo and redo refuse, rather than overwrite, a document whose
- * text is no longer the snapshot the history expects.
+ * Studio undo/redo over string snapshots: picture source text in the Room
+ * Studio, encoded VIEW payloads in the Sprite Studio (spriteHistory.ts). Pure:
+ * every function returns a new history. A `begin`/`commit` gesture (a whole
+ * drag) becomes one step; undo and redo refuse, rather than overwrite, a
+ * document whose snapshot is no longer the one the history expects.
  */
 
 /** A snapshot to return to, named by the edit that left it. */
@@ -22,6 +23,8 @@ export interface EditHistory {
   readonly gesture?: HistoryStep;
   /** The most steps `past` keeps; older ones are dropped. */
   readonly depth: number;
+  /** What the snapshots are, as refusals name it ("picture", "sprite"). */
+  readonly subject: string;
 }
 
 export type HistoryResult =
@@ -30,14 +33,18 @@ export type HistoryResult =
 
 export const DEFAULT_HISTORY_DEPTH = 200;
 
-export function createHistory(source: string, depth = DEFAULT_HISTORY_DEPTH): EditHistory {
+export function createHistory(
+  source: string,
+  depth = DEFAULT_HISTORY_DEPTH,
+  subject = "picture",
+): EditHistory {
   if (!Number.isInteger(depth) || depth < 1) throw new RangeError(`depth must be >= 1`);
-  return { past: [], future: [], current: source, depth };
+  return { past: [], future: [], current: source, depth, subject };
 }
 
 function push(history: EditHistory, step: HistoryStep, current: string): EditHistory {
   const past = [...history.past, step].slice(-history.depth);
-  return { past, future: [], current, depth: history.depth };
+  return { past, future: [], current, depth: history.depth, subject: history.subject };
 }
 
 const stale = (history: EditHistory, actual: string, action: string): HistoryResult | null =>
@@ -45,7 +52,7 @@ const stale = (history: EditHistory, actual: string, action: string): HistoryRes
     ? null
     : {
         ok: false,
-        reason: `the picture changed outside the edit history; ${action} would overwrite that change`,
+        reason: `the ${history.subject} changed outside the edit history; ${action} would overwrite that change`,
       };
 
 /**
@@ -82,6 +89,7 @@ export function commit(history: EditHistory): EditHistory {
       future: history.future,
       current: history.current,
       depth: history.depth,
+      subject: history.subject,
     };
   }
   return push(history, gesture, history.current);
@@ -101,6 +109,7 @@ export function undo(history: EditHistory, actual: string): HistoryResult {
       future: [{ label: step.label, source: history.current }, ...history.future],
       current: step.source,
       depth: history.depth,
+      subject: history.subject,
     },
     source: step.source,
   };
@@ -120,6 +129,7 @@ export function redo(history: EditHistory, actual: string): HistoryResult {
       future,
       current: step.source,
       depth: history.depth,
+      subject: history.subject,
     },
     source: step.source,
   };
@@ -131,10 +141,10 @@ export function cancel(history: EditHistory, actual: string): HistoryResult {
   if (!gesture) return { ok: false, reason: "no edit is in progress" };
   const refusal = stale(history, actual, "cancelling");
   if (refusal) return refusal;
-  const { past, future, depth } = history;
+  const { past, future, depth, subject } = history;
   return {
     ok: true,
-    history: { past, future, current: gesture.source, depth },
+    history: { past, future, current: gesture.source, depth, subject },
     source: gesture.source,
   };
 }
