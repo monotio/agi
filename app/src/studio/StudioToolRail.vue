@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { IconName } from "../ui/icons.ts";
 import StudioCurrentValues from "./StudioCurrentValues.vue";
@@ -8,8 +9,9 @@ import type { StudioLens } from "./studioView.ts";
 
 /**
  * The tool rail on the canvas's left edge: select and point, the drawing
- * tools, the pipette, the actor probe and the hand, each with its key, and
- * under them the values new content draws with.
+ * tools, the pipette, in the Walk view the test walk and door tools, the
+ * actor probe and the hand, each with its key, and under them the values
+ * new content draws with.
  */
 const {
   frozen,
@@ -19,6 +21,7 @@ const {
   unlocks,
   values,
   cursorY = undefined,
+  doorsEditable = false,
 } = defineProps<{
   /** Drawing is blocked: the drawing tools are disabled. */
   frozen: boolean;
@@ -29,6 +32,8 @@ const {
   unlocks: LensUnlocks;
   values: CurrentValues;
   cursorY?: number | undefined;
+  /** The Walk view can add doors: the room's logic is editable. */
+  doorsEditable?: boolean;
 }>();
 const emit = defineEmits<{ probe: []; values: [patch: Partial<CurrentValues>] }>();
 const tool = defineModel<StudioTool>("tool", { required: true });
@@ -38,6 +43,8 @@ interface RailTool {
   readonly label: string;
   readonly key: string;
   readonly draws?: boolean;
+  /** Adds a door: needs the room's editable logic. */
+  readonly doors?: boolean;
 }
 const GROUPS: readonly (readonly RailTool[])[] = [
   [
@@ -53,11 +60,18 @@ const GROUPS: readonly (readonly RailTool[])[] = [
     { id: "pipette", icon: "pipette", label: "Pick colour and priority", key: "I" },
   ],
 ];
+/** The Walk view's own tools: a test walk the game runs, and the room's doors. */
+const WALK_GROUP: readonly RailTool[] = [
+  { id: "walk", icon: "footprints", label: "Test walk", key: "T" },
+  { id: "door", icon: "exit", label: "Door box", key: "D", doors: true },
+  { id: "edge", icon: "move", label: "Edge exit", key: "E", doors: true },
+];
+const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
 </script>
 
 <template>
   <aside class="tool-rail" role="toolbar" aria-orientation="vertical" aria-label="Tools">
-    <template v-for="(group, g) in GROUPS" :key="g">
+    <template v-for="(group, g) in groups" :key="g">
       <span v-if="g > 0" class="tool-rail__sep" aria-hidden="true"></span>
       <div v-for="entry in group" :key="entry.id" class="tool-rail__tool">
         <UiIconButton
@@ -65,7 +79,7 @@ const GROUPS: readonly (readonly RailTool[])[] = [
           :label="entry.label"
           :shortcut="entry.key"
           :pressed="tool === entry.id"
-          :disabled="entry.draws && frozen"
+          :disabled="(entry.draws && frozen) || (entry.doors && (frozen || !doorsEditable))"
           :data-tool="entry.id"
           @click="tool = entry.id"
         />

@@ -25,6 +25,7 @@ import {
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import type { ViewUsage } from "../../../src/studio/sprite/spriteUsage.ts";
+import type { StudioRoomSource } from "../world/studioSource.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import { createPanels, type DockSide } from "./createDocks.ts";
 
@@ -60,6 +61,8 @@ export interface PictureStudioRequest extends StudioRequestBase {
   readonly bytes: Uint8Array;
   /** The agent's picture text, only while it compiles to `bytes`. */
   readonly authoredSource?: string | undefined;
+  /** The Walk view's room: its logic (door rules), bindings, plan, tests and rooms. */
+  readonly walk?: StudioRoomSource | null | undefined;
 }
 
 /** A room the in-room preview can stand a sprite in: its number and the picture it draws. */

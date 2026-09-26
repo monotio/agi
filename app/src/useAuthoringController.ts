@@ -12,9 +12,11 @@ import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import {
   createResourceCommit,
   pictureEdit,
+  roomEdit,
   stagedViewEdit,
   viewEdit,
   type PictureEdit,
+  type RoomEdit,
   type ResourceCommitResult,
   type ViewEdit,
 } from "./resourceCommit.ts";
@@ -177,6 +179,11 @@ export interface AuthoringController {
    * ResourceCommitError; "unchanged" when there was nothing to write.
    */
   commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult>;
+  /**
+   * Commit Room Studio's combined Keep: the picture and the room's logic
+   * (door rules and the bindings they reserved) in one transaction.
+   */
+  commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult>;
   /** Commit Sprite Studio's VIEW edit the same way. */
   commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult>;
 }
@@ -1027,6 +1034,16 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     return result;
   }
 
+  async function commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult> {
+    const result = await commitResourceEdit(roomEdit(edit));
+    if (result.status === "committed")
+      logAgent(
+        "log",
+        `Room Studio kept room ${edit.room}${edit.picture ? ` and picture ${edit.picture.pictureNumber}` : ""}${edit.reason ? `: ${edit.reason}` : ""}.`,
+      );
+    return result;
+  }
+
   async function commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult> {
     const result = await commitResourceEdit(viewEdit(edit));
     if (result.status === "committed")
@@ -1063,6 +1080,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     detachReference,
     keepStagedView,
     commitPictureEdit,
+    commitRoomEdit,
     commitViewEdit,
   };
 }

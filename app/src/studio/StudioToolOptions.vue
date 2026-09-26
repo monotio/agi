@@ -42,6 +42,9 @@ const HELP: Record<StudioTool, string> = {
   brush: "Drag to place plot points, one per pixel.",
   pipette: "Click to pick the colour and priority under the cursor.",
   hand: "Drag to pan. Space pans with any tool.",
+  walk: "Click a start (or a door), then a goal: the game walks it for real.",
+  door: "Drag a door box on the floor: walking into it changes room.",
+  edge: "Click near an edge: walking off it changes room.",
 };
 /** What Space or Enter does at the keyboard cursor, per tool that takes one. */
 const KEY_CLICK: Partial<Record<StudioTool, string>> = {
@@ -51,6 +54,9 @@ const KEY_CLICK: Partial<Record<StudioTool, string>> = {
   fill: "places the seed",
   brush: "puts the pen down or lifts it; arrows paint while it is down",
   pipette: "picks",
+  walk: "sets the start, then the goal",
+  door: "starts the box, arrows size it, again adds the door",
+  edge: "adds an exit by the nearest edge",
 };
 const draws = computed(() => isDrawingTool(tool));
 const atEnd = computed(() => insertion.index >= commands);

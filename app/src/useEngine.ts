@@ -566,6 +566,7 @@ export function useEngine(
     detachReference: authoringController.detachReference,
     keepStagedView: authoringController.keepStagedView,
     commitPictureEdit: authoringController.commitPictureEdit,
+    commitRoomEdit: authoringController.commitRoomEdit,
     commitViewEdit: authoringController.commitViewEdit,
     isInstalledGame: lifecycle.isInstalledGame,
     currentGame: lifecycle.currentGame,
@@ -586,6 +587,8 @@ export function useEngine(
     setDebugConsumer: debug.setDebugConsumer,
     debugWrite: debug.debugWrite,
     playHere,
+    /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
+    readObjects: () => link.query("objects"),
     debugEventsSince: debug.debugEventsSince,
     debugTraceSince: debug.debugTraceSince,
     readEngineState: debug.readEngineState,

@@ -19,10 +19,29 @@ import { depthValuesLocked, lockedPlanes, type LensUnlocks } from "./studioLocks
 import { CONTROL_VALUES, type StudioLens } from "./studioView.ts";
 
 export type StudioTool =
-  "select" | "point" | "line" | "rect" | "polygon" | "fill" | "brush" | "pipette" | "hand";
+  | "select"
+  | "point"
+  | "line"
+  | "rect"
+  | "polygon"
+  | "fill"
+  | "brush"
+  | "pipette"
+  | "hand"
+  | WalkTool;
+
+/** The Walk view's tools: a test walk, a door box, an edge exit (useStudioWalk.ts). */
+export type WalkTool = "walk" | "door" | "edge";
+
+export const WALK_TOOLS: readonly StudioTool[] = ["walk", "door", "edge"];
+
+export const isWalkTool = (tool: StudioTool): tool is WalkTool => WALK_TOOLS.includes(tool);
 
 /** The rail's single-letter shortcuts; G toggles the actor probe, which is not a tool. */
 export const TOOL_KEYS: Record<string, StudioTool | "probe"> = {
+  t: "walk",
+  d: "door",
+  e: "edge",
   v: "select",
   a: "point",
   l: "line",

@@ -20,7 +20,11 @@ import {
   type AgentToolResult,
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { resourceSetHint, validateAuthoringState } from "../../../src/agent/authoringState.ts";
+import {
+  resourceSetHint,
+  validateAuthoringState,
+  type AuthoringState,
+} from "../../../src/agent/authoringState.ts";
 import {
   adoptTurnState,
   forkAgentState,
@@ -711,20 +715,20 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   /**
    * Validate a resource edit's candidate state — the edited files plus the
-   * source `stage` records for them — without changing this session before
+   * source (and bindings) `stage` records for them — without changing this session before
    * storage succeeds. `changed` is what `stage` reported: whether the
    * recorded source differs from the one this session holds.
    */
   prepareSourcePatch(
     files: Record<string, Uint8Array>,
-    stage: (sources: AgentSourceStore) => boolean,
+    stage: (sources: AgentSourceStore, authoring: AuthoringState) => boolean,
   ): {
     authoringState: Record<string, unknown>;
     changed: boolean;
     adopt: () => void;
   } {
     const candidate = forkAgentState(this.state);
-    const changed = stage(candidate.sources);
+    const changed = stage(candidate.sources, candidate.authoring);
     const snapshot = this.getAuthoringState(candidate);
     const next = stateFromAuthoredData(
       files,

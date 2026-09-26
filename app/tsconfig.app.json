@@ -9,5 +9,5 @@
     "production/**/*.ts",
     "*.config.ts"
   ],
-  "exclude": ["src/engine.worker.ts", "src/preview.worker.ts"]
+  "exclude": ["src/engine.worker.ts", "src/preview.worker.ts", "src/route.worker.ts"]
 }
