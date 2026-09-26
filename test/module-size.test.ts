@@ -124,9 +124,10 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
       "the room-graph model: journal, plan and static-scan merge, plus the sidecar contract",
   },
   "app/src/useAuthoringController.ts": {
-    lines: 1142,
+    // The Keep transaction moved to resourceCommit.ts.
+    lines: 1041,
     boundary:
-      "the authoring controller: host-request turns, patches, map-driven builds, session adoption and the reserved, conditional reference-art Keep transaction",
+      "the authoring controller: host-request turns, patches, map-driven builds, session adoption and reference art",
   },
   "app/src/ReferenceUpload.vue": {
     lines: 649,

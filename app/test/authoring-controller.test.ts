@@ -20,6 +20,7 @@ import { gameRevision } from "../src/gameMetadata.ts";
 import type { DecodedImage } from "../src/referenceArt.ts";
 import { base64ToBytes } from "../src/bytes.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
+import type { AwaitPatchedFn } from "../src/workerQueries.ts";
 
 const records = installIndexedDbFixture();
 
@@ -36,6 +37,9 @@ function createMockPowerUp(): PowerUpUiState {
     error: "",
   };
 }
+
+/** The worker's install ack, answered at once for the bytes sent. */
+const ackPatch: AwaitPatchedFn = async (kind, num, hint) => ({ kind, num, hint, patchGen: 1 });
 
 const mockConfig: LlmConfig = {
   provider: "stub",
@@ -71,6 +75,7 @@ test("closePowerUp closes the bubble and resumes the engine", () => {
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
   });
 
   controller.closePowerUp();
@@ -110,6 +115,7 @@ test("openPowerUp enters remix mode, pauses engine, and queries room", async () 
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
   });
 
   await controller.openPowerUp(mockConfig);
@@ -142,6 +148,7 @@ test("remixNeedsSave flag transitions cleanly and resetSession cancels active ta
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
   });
 
   assert.equal(controller.isRemixNeedsSave(), false);
@@ -244,6 +251,7 @@ test("handleRoomAuthoring establishes on-demand session for imported authorable 
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
     configForGame: (_p, config) => config,
     getLlmConfig: () => activeConfig,
   });
@@ -323,6 +331,7 @@ test("handleRoomAuthoring rejects and sets needsConfig when credentials are miss
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
     configForGame: (_p, config) => config,
     getLlmConfig: () => activeConfig,
   });
@@ -394,6 +403,7 @@ test("handleRoomAuthoring rejects when roomGeneration is false", async (t) => {
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
     configForGame: (_p, config) => config,
     getLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
   });
@@ -455,6 +465,7 @@ test("reference capacity refuses room and character attachments without discardi
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
   });
   const decoded = {
     width: 1,
@@ -516,9 +527,9 @@ test("keepStagedView refuses a busy turn and a moved durable base, then commits 
     words: [],
   };
   const powerUp = createMockPowerUp();
-  const patches: { kind?: string; num?: number }[] = [];
+  const patches: { type: string; kind?: string; num?: number }[] = [];
   const worker = {
-    postMessage: (message: { kind?: string; num?: number }) => patches.push(message),
+    postMessage: (message: { type: string; kind?: string; num?: number }) => patches.push(message),
   } as unknown as Worker;
   const controller = useAuthoringController({
     state: {
@@ -544,6 +555,7 @@ test("keepStagedView refuses a busy turn and a moved durable base, then commits 
     flushAutosave: async () => {},
     getAutosaveWrite: async () => true,
     clearAutosave: () => {},
+    awaitPatched: ackPatch,
   });
 
   const reference = await controller.attachCharacterReference(
@@ -583,7 +595,11 @@ test("keepStagedView refuses a busy turn and a moved durable base, then commits 
   const storedContainer = openContainer(new Map(Object.entries(stored!.files)));
   assert.deepEqual(storedContainer.getResource("view", 0), stagedPayload);
   assert.equal(stored!.references?.[0]?.staged, undefined);
-  assert.equal(patches.length, 1);
+  // The patch, then the tape's authoring checkpoint naming the kept source.
+  assert.deepEqual(
+    patches.map((p) => p.type),
+    ["patch", "authoring"],
+  );
   assert.equal(patches[0]?.kind, "view");
   assert.equal(patches[0]?.num, 0);
   await clearCachedGame(projectId);
@@ -644,6 +660,7 @@ for (const withSession of [false, true]) {
       flushAutosave: async () => {},
       getAutosaveWrite: async () => true,
       clearAutosave: () => {},
+      awaitPatched: ackPatch,
     });
     if (withSession) controller.setSession(author);
     const reference = await controller.attachCharacterReference(
@@ -734,7 +751,7 @@ for (const withSession of [false, true]) {
     assert.deepEqual(reopened.state.sources.views.get(0), reference.staged!.input);
     assert.deepEqual(
       posts.map((post) => post.type),
-      withSession ? ["patch", "authoring"] : ["patch"],
+      ["patch", "authoring"],
     );
     if (withSession) {
       assert.deepEqual(

@@ -7,6 +7,7 @@
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
+import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
 import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
 import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
 import { resetSession, type WorkerContext } from "./context.ts";
@@ -301,15 +302,42 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "patch") {
-      if (!ctx.engine) return;
+      const { kind, num } = msg;
+      const payload = new Uint8Array(msg.payload);
+      if (!ctx.engine) {
+        control({
+          type: "patched",
+          kind,
+          num,
+          patchGen: 0,
+          hint: null,
+          error: "No game is running.",
+        });
+        return;
+      }
       if (ctx.recording.recording)
         ctx.recording.recording.tainted = "Game resources changed during recording.";
-      ctx.engine.patchResource(msg.kind, msg.num, new Uint8Array(msg.payload));
+      try {
+        ctx.engine.patchResource(kind, num, payload);
+      } catch (e) {
+        // The ack names the refusal for a caller awaiting it; the rethrow
+        // keeps the session error every patch sender has always raised.
+        const patchGen = ctx.engine.patchGeneration;
+        control({ type: "patched", kind, num, patchGen, hint: null, error: String(e) });
+        throw e;
+      }
       ctx.fns.historyRecord({
         kind: "patch",
-        resource: msg.kind,
-        num: msg.num,
-        data: bytesToBase64(msg.payload),
+        resource: kind,
+        num,
+        data: bytesToBase64(payload),
+      });
+      control({
+        type: "patched",
+        kind,
+        num,
+        patchGen: ctx.engine.patchGeneration,
+        hint: resourceCacheHint(payload),
       });
       return;
     }
