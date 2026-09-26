@@ -80,6 +80,7 @@ test("hovering a scene row highlights exactly that item's pixels", async ({ page
   expect(await highlightCells(page)).toEqual(expected);
 
   await open(page, "1");
+  await page.getByTestId("scene-toggle-groups").click();
   for (const id of ["el-1", "el-20"]) {
     await page.locator(`[data-row="${id}"]`).hover();
     const cells = await highlightCells(page);
@@ -141,10 +142,161 @@ for (const deviceScaleFactor of [1, 2]) {
   });
 }
 
+test("a group row highlights the union of its members, and a canvas click opens its group", async ({
+  page,
+}) => {
+  await open(page, "1");
+  const groups = page.locator('[role="treeitem"][aria-expanded]');
+  // More than 40 items: every group starts closed, and no member row is shown.
+  expect(await groups.count()).toBeGreaterThan(0);
+  for (const expanded of await groups.evaluateAll((rows) =>
+    rows.map((row) => row.getAttribute("aria-expanded")),
+  ))
+    expect(expanded).toBe("false");
+  await expect(page.locator('[role="treeitem"][aria-level="2"]')).toHaveCount(0);
+
+  // Open the largest group and read its members from the list.
+  const header = page.locator(
+    await groups.evaluateAll((rows) => {
+      const size = (row: Element): number =>
+        Number(/· (\d+)$/.exec(row.querySelector(".scene-list__label")?.textContent ?? "")?.[1]);
+      const best = rows.reduce((a, b) => (size(b) > size(a) ? b : a));
+      return `[data-row="${best.getAttribute("data-row")}"]`;
+    }),
+  );
+  await header.locator('[data-role="twisty"]').click();
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  const members = await header.evaluate((row) => {
+    const ids: string[] = [];
+    let next = row.nextElementSibling;
+    while (next?.getAttribute("aria-level") === "2") {
+      ids.push(next.getAttribute("data-row")!);
+      next = next.nextElementSibling;
+    }
+    return ids;
+  });
+  expect(members.length).toBeGreaterThan(1);
+
+  await header.hover();
+  const union = new Set<number>();
+  for (const id of members)
+    for (const cell of await kernelMaskCells(page, id, "visual")) union.add(cell);
+  expect(await highlightCells(page)).toEqual([...union].sort((a, b) => a - b));
+
+  // Close it again; a click on a member's pixel selects that item and reopens the group.
+  await header.locator('[data-role="twisty"]').click();
+  await expect(header).toHaveAttribute("aria-expanded", "false");
+  const cell = (await kernelMaskCells(page, members[0]!, "visual"))[0]!;
+  await hoverCell(page, cell % 160, Math.floor(cell / 160));
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(`[data-row="${members[0]}"]`)).toHaveAttribute("aria-selected", "true");
+});
+
+test("a long list folds into draw-order sections, and a canvas click opens one", async ({
+  page,
+}) => {
+  // 70 one-line items alternating blue and green: 70 rows, more than 60.
+  const source = `${Array.from({ length: 70 }, (_, k) =>
+    [
+      `# @item i${k} "Item ${k}" art`,
+      `vis ${1 + (k % 2)}`,
+      `line ${2 * k},0 ${2 * k},5`,
+      "# @end",
+    ].join("\n"),
+  ).join("\n")}\nend\n`;
+  await page.addInitScript((text) => {
+    (window as unknown as { studioHarnessInput: { source: string } }).studioHarnessInput = {
+      source: text,
+    };
+  }, source);
+  await open(page, "injected");
+  const sections = page.locator('[role="treeitem"][aria-level="1"][aria-expanded]');
+  await expect(sections).toHaveCount(36);
+  expect(
+    new Set(
+      await sections.evaluateAll((rows) => rows.map((row) => row.getAttribute("aria-expanded"))),
+    ),
+  ).toEqual(new Set(["false"]));
+  await expect(page.locator('[role="treeitem"][aria-level="2"]')).toHaveCount(0);
+
+  // The first section holds items 0 and 1 (commands 1-4): lines at x 0 and 2, y 0-5.
+  const first = page.locator('[data-row="(section)i0"]');
+  await expect(first.locator(".scene-list__label")).toHaveText("Steps 1–4");
+  await expect(first.locator('[data-role="section-swatches"] i')).toHaveCount(2);
+  await first.hover();
+  const expected: number[] = [];
+  for (let y = 0; y <= 5; y++) expected.push(y * 160, y * 160 + 2);
+  expect(await highlightCells(page)).toEqual(expected);
+
+  // Item 40's line is at x 80: clicking it selects the item and opens its section only.
+  await hoverCell(page, 80, 3);
+  await page.mouse.down();
+  await page.mouse.up();
+  const item = page.locator('[data-row="i40"]');
+  await expect(item).toHaveAttribute("aria-selected", "true");
+  await expect(item).toHaveAttribute("aria-level", "2");
+  await expect(page.locator('[role="treeitem"][aria-level="1"][aria-expanded="true"]')).toHaveCount(
+    1,
+  );
+});
+
+test("arrow keys on the canvas step through items and Tab leaves it", async ({ page }) => {
+  await open(page, "demo");
+  const canvas = page.getByRole("group", { name: /^Canvas/ });
+  await canvas.focus();
+  const selected = page.locator('[role="treeitem"][aria-selected="true"]');
+  await page.keyboard.press("ArrowDown");
+  await expect(selected).toHaveAttribute("data-row", "floor");
+  await page.keyboard.press("ArrowRight");
+  await expect(selected).toHaveAttribute("data-row", "wall");
+  await page.keyboard.press("ArrowUp");
+  await expect(selected).toHaveAttribute("data-row", "floor");
+  await page.keyboard.press("ArrowLeft");
+  await expect(selected).toHaveAttribute("data-row", "floor");
+  // Tab is never taken by the canvas: one press moves focus on.
+  await page.keyboard.press("Tab");
+  await expect(canvas).not.toBeFocused();
+  await expect(selected).toHaveAttribute("data-row", "floor");
+  await page.keyboard.press("Shift+Tab");
+  await expect(canvas).toBeFocused();
+});
+
+test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {
+  await open(page, "demo");
+  const lens = (name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
+  await lens("Walk").click();
+  await page.keyboard.press("2");
+  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  // Bands shows only under Depth and Walk: after "1" hides it, keys still land in the studio.
+  await page.getByRole("button", { name: "Bands" }).click();
+  await page.keyboard.press("1");
+  await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("2");
+  await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await page.keyboard.press("0");
+  await expect(page.getByRole("button", { name: "Zoom to fit" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
 test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({ page }) => {
   await open(page, "1");
   const slider = page.getByRole("slider", { name: "Draw order playhead" });
   const total = Number(await slider.getAttribute("aria-valuemax"));
+  // The playhead counts drawing commands: every compiled span but the closing end.
+  expect(total).toBe(
+    await page.evaluate(() => {
+      const { kernel, source, profile } = (window as unknown as HarnessWindow).studioHarness;
+      const { document } = kernel.parsePictureDocument(
+        kernel.inferNativeItems(source, { profile }),
+      );
+      return kernel.compileDocument(document, profile).spans.length - 1;
+    }),
+  );
   const k = 38;
   const box = (await slider.boundingBox())!;
   await page.mouse.move(box.x + 2, box.y + box.height / 2);

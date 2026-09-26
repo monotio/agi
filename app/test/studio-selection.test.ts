@@ -11,6 +11,7 @@ const row = (id: string, label: string, kind: SceneRow["kind"], commands: number
   locked: false,
   entries: Array.from({ length: commands }, (_, k) => k),
   swatch: null,
+  value: null,
   tag: kind,
 });
 const ROWS = [
@@ -74,6 +75,19 @@ test("stepping walks the visible rows and stops at either end", () => {
   assert.equal(selection.step(1), true);
   assert.equal(selection.selectedId.value, "bench");
   assert.equal(selection.step(1), false);
+});
+
+test("from a selected group, next is its first member and previous the item before it", () => {
+  const rows = [...ROWS, row("pond", "Pond", "mixed", 1)];
+  // "(group)bench" stands for bench and exit.
+  const membersOf = (id: string) => (id === "(group)bench" ? ["bench", "exit"] : undefined);
+  const selection = useStudioSelection({ rows, allRows: rows, rowAt: () => undefined, membersOf });
+  selection.selectedId.value = "(group)bench";
+  assert.equal(selection.step(1), true);
+  assert.equal(selection.selectedId.value, "bench");
+  selection.selectedId.value = "(group)bench";
+  assert.equal(selection.step(-1), true);
+  assert.equal(selection.selectedId.value, "wall");
 });
 
 test("selection is announced as label, kind and command count", () => {
