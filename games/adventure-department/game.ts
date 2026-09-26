@@ -433,46 +433,82 @@ function horizontalStrokes(color: number, x1: number, x2: number, y1: number, y2
   ].join("\n");
 }
 
+/** One Room Studio item: `lines` between `# @item` and `# @end` (comments; no bytes). */
+function item(id: string, label: string, kind: "art" | "depth" | "walk", ...lines: string[]) {
+  return [`# @item ${id} "${label}" ${kind}`, ...lines, "# @end"].join("\n");
+}
+
 /** Shared scene contract: flat floor, visible side passages, separate collision/depth. */
 function roomPicture(room: number): string {
   const west = room !== 1;
   const east = room !== 3;
   const [westBase, eastBase] = room === 1 ? [132, 128] : room === 2 ? [119, 119] : [124, 128];
   const detail = [ORIGINAL_SCENE_PICTURES[room]!.replace(/\nend\s*$/, "")];
-  for (const [x0, x1, open, base] of [
-    [0, 7, west, westBase],
-    [152, 159, east, eastBase],
-  ] as const) {
+  const sides = [
+    ["west", "West", 0, 7, west, westBase],
+    ["east", "East", 152, 159, east, eastBase],
+  ] as const;
+  for (const [id, name, x0, x1, open, base] of sides) {
     // Carry each native side wall to its visible base. At exits the blue floor
     // then runs cleanly through the screen edge; terminal walls continue down.
-    detail.push(horizontalStrokes(6, x0, x1, 94, open ? base : 167));
+    detail.push(
+      item(
+        `${id}-wall`,
+        `${name} wall`,
+        "art",
+        horizontalStrokes(6, x0, x1, 94, open ? base : 167),
+      ),
+    );
     if (open) {
-      detail.push(horizontalStrokes(1, x0, x1, base + 1, 167));
+      detail.push(
+        item(
+          `${id}-exit`,
+          `${name} exit floor`,
+          "art",
+          horizontalStrokes(1, x0, x1, base + 1, 167),
+        ),
+      );
     }
   }
-  detail.push("vis off", "pri 0", "line 0,112 159,112");
   // Side walls recede in perspective: their visible base is lower than the
   // rear-wall horizon. Trace those contacts, not just one horizontal line.
-  if (room === 1) detail.push("line 8,132 35,112", "line 140,112 151,128");
-  if (room === 2) detail.push("line 8,119 26,112", "line 134,112 151,119");
-  if (room === 3) detail.push("line 8,124 25,112", "line 134,112 151,128");
-  for (const [x0, x1, open, base] of [
-    [0, 7, west, westBase],
-    [152, 159, east, eastBase],
-  ] as const) {
+  const contacts: Record<number, readonly string[]> = {
+    1: ["line 8,132 35,112", "line 140,112 151,128"],
+    2: ["line 8,119 26,112", "line 134,112 151,119"],
+    3: ["line 8,124 25,112", "line 134,112 151,128"],
+  };
+  detail.push(
+    item(
+      "wall-base",
+      "Wall base barrier",
+      "walk",
+      "vis off",
+      "pri 0",
+      "line 0,112 159,112",
+      ...contacts[room]!,
+    ),
+  );
+  for (const [id, name, x0, x1, open, base] of sides) {
+    const rows: string[] = [];
     for (let y = 113; y <= (open ? base : 167); y++) {
-      detail.push(`line ${x0},${y} ${x1},${y}`);
+      rows.push(`line ${x0},${y} ${x1},${y}`);
     }
+    detail.push(item(`${id}-barrier`, `${name} wall barrier`, "walk", ...rows));
   }
   if (room === 3) {
     // Depth follows the actual visible counter. No horizontal floor bands:
     // an ego in front at baseline123 has priority11 and is fully visible.
+    // The exhibit's fault is Felix's own priority (15 until FIX PRIORITY, set
+    // in LOGIC 3); the counter's 11 is the part that already works.
     detail.push(
-      "pri 11",
-      "rect 56,85 118,121",
-      "fill 57,86",
-      "pri 0",
-      "line 56,112 56,122 118,122 118,112",
+      item("counter-depth", "Counter depth", "depth", "pri 11", "rect 56,85 118,121", "fill 57,86"),
+      item(
+        "counter-barrier",
+        "Counter barrier",
+        "walk",
+        "pri 0",
+        "line 56,112 56,122 118,122 118,112",
+      ),
     );
   }
   detail.push("end");
@@ -485,30 +521,54 @@ export const TUTORIAL_PICTURE_SOURCES: Readonly<Record<number, string>> = {
   3: roomPicture(3),
   4: `
 # A small hand-authored vector landscape replaces only the blank canvas.
+# @item primer "Canvas primer" art
 pri off
 ${horizontalStrokes(15, 57, 98, 35, 72)}
+# @end
+# @item edge "Painting edge" art
 vis 9
 rect 57,35 98,72
+# @end
+# @item sun "Sun" art
 vis 14
 polygon 64,39 66,37 68,39 68,42 66,44 64,42
+# @end
+# @item hills "Hills" art
 vis 2
 polygon 57,60 67,47 77,59 86,46 98,61 98,72 57,72
+# @end
+# @item snow "Snowcaps" art
 vis 7
 polygon 64,51 67,47 70,51 67,50
 polygon 83,50 86,46 89,50 86,49
+# @end
+# @item river "River" art
 vis 11
 polygon 82,58 85,58 83,64 91,72 80,72 77,66
+# @end
+# @item trunk "Tree trunk" art
 vis 6
 line 60,68 60,57
+# @end
+# @item tree "Tree" art
 vis 2
 polygon 57,61 60,53 63,61
+# @end
+# @item greens "Hills & tree fill" art
 fill 66,61 94,66 59,60 61,60
+# @end
+# @item river-fill "River fill" art
 vis 11
 fill 81,67
+# @end
+# @item sun-fill "Sun fill" art
 vis 14
 fill 66,40
+# @end
+# @item sky "Sky" art
 vis 9
 fill 58,36
+# @end
 end
 `,
 };

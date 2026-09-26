@@ -20,7 +20,8 @@ import WorldRoomList from "./WorldRoomList.vue";
 
 defineProps<{ readOnly: boolean }>();
 
-const map = useEngineApi().roomMap;
+const engine = useEngineApi();
+const map = engine.roomMap;
 const workspace = useCreateWorkspace();
 const viewOnly = workspace.viewOnly;
 const graphView = useTemplateRef("graphView");
@@ -71,8 +72,15 @@ function addStandaloneRoom(): void {
   if (result.room !== undefined) pickRoom(result.room);
 }
 
+const RELOADED = "Loaded the latest saved version of this game.";
+
 /** Studio's request for one room's picture, read from the running game each time it is asked. */
-function studioRequest(room: number, title: string, picture: number): StudioRequest | null {
+function studioRequest(
+  room: number,
+  title: string,
+  picture: number,
+  notice?: string,
+): StudioRequest | null {
   const source = map.studioSource(picture);
   if (!source) return null;
   return {
@@ -82,7 +90,12 @@ function studioRequest(room: number, title: string, picture: number): StudioRequ
     // A picture can serve several rooms: an untitled room is named by what Studio edits.
     title: title || `PIC ${picture}`,
     subtitle: `Room ${room} · PIC ${picture}`,
+    notice,
     reload: () => studioRequest(room, title, picture),
+    reloadFromStorage: async () =>
+      (await engine.reloadFromStorage()) && engine.state.phase !== "error"
+        ? studioRequest(room, title, picture, RELOADED)
+        : null,
   };
 }
 

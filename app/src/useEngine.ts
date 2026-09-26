@@ -562,6 +562,8 @@ export function useEngine(
     resumeLastGame: autosaveController.resumeLastGame,
     resumeFromRecord: autosaveController.resumeFromRecord,
     startOver: autosaveController.startOver,
+    /** Boot the running project again from storage under its own AI settings. */
+    reloadFromStorage: () => autosaveController.reloadFromStorage(activeLlmConfig),
     flushAutosave: autosaveController.flushAutosave,
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,

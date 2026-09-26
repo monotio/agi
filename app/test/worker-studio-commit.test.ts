@@ -7,6 +7,7 @@
  * and history record, and a failed install after the durable save.
  */
 import { test, type TestContext } from "node:test";
+import { ref } from "vue";
 import assert from "node:assert/strict";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -37,6 +38,9 @@ import type {
   WorkerPresentation,
 } from "../src/workerProtocol.ts";
 import { studioCommitFailure, useStudioCommit } from "../src/studio/useStudioCommit.ts";
+import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
+import type { StudioDraft } from "../src/studio/useStudioDraft.ts";
+import type { AwaitPatchedFn } from "../src/workerQueries.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
 import { authoredPictureSource } from "../../src/agent/tools.ts";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
@@ -127,7 +131,17 @@ interface Rig {
  * posts dispatch synchronously, worker → host control replies arrive on a
  * later microtask, as they would across the thread boundary.
  */
-function rig(t: TestContext, files: Record<string, Uint8Array>, booted: BootedGame): Rig {
+function rig(
+  t: TestContext,
+  files: Record<string, Uint8Array>,
+  booted: BootedGame,
+  hooks: {
+    /** A message the worker never receives (an interrupted install). */
+    drop?: (msg: WorkerInbound) => boolean;
+    /** Wraps the link's patch waiter the commit uses. */
+    awaitPatched?: (link: AwaitPatchedFn) => AwaitPatchedFn;
+  } = {},
+): Rig {
   const posted: WorkerInbound[] = [];
   const control: WorkerControl[] = [];
   const presentation: WorkerPresentation[] = [];
@@ -136,7 +150,7 @@ function rig(t: TestContext, files: Record<string, Uint8Array>, booted: BootedGa
     onmessage: null as ((ev: { data: unknown }) => void) | null,
     postMessage(msg: WorkerInbound) {
       posted.push(msg);
-      onWorkerMessage(ctx, msg);
+      if (!hooks.drop?.(msg)) onWorkerMessage(ctx, msg);
     },
     terminate() {},
   };
@@ -217,7 +231,7 @@ function rig(t: TestContext, files: Record<string, Uint8Array>, booted: BootedGa
     },
     getWorker: link.getWorker,
     query: link.query,
-    awaitPatched: link.awaitPatched,
+    awaitPatched: hooks.awaitPatched?.(link.awaitPatched) ?? link.awaitPatched,
     logAgent: () => {},
     readFrames: async () => [],
     pauseEngine: (owner) => {
@@ -623,6 +637,123 @@ test("a failed install after the save keeps storage as the source of truth", asy
     words: stored.words,
   });
   assert.equal(reloaded.picturePixel(), 4);
+});
+
+/** Studio's Keep over the real commit: a draft of `source` made on `revision`. */
+function keeper(r: Rig, source: string, revision: ResourceRevision) {
+  const draft = {
+    dirty: ref(true),
+    gesturing: ref(false),
+    kept: ref({ revision }),
+    changes: ref(1),
+    compiled: ref({ bytes: compile(source) }),
+    source: ref(source),
+    markKept: () => {},
+  } as unknown as StudioDraft;
+  return useStudioKeep({ draft, pictureNumber: () => 1, keep: r.controller.commitPictureEdit });
+}
+
+test("a Keep behind a project kept elsewhere reopens by reloading from storage", async (t) => {
+  const { projectId, revision, files, r } = await authoredRig(t, "studio-kept-elsewhere");
+  // Studio opened on another revision of the running game: reopening on the
+  // running game is enough, and nothing needs a reload.
+  const behindGame = keeper(r, RED, testRevision("before"));
+  assert.equal(await behindGame.keep(), false);
+  assert.equal(behindGame.banner.value?.recovery, "reopen");
+  assert.equal(behindGame.banner.value?.fromStorage, false);
+
+  // Another tab kept an edit: the stored project moved past the running game.
+  const elsewhere = openContainer(new Map(Object.entries(files)));
+  elsewhere.putResource("picture", 1, compile(RED));
+  assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(elsewhere.files)), true);
+  const behindStorage = keeper(r, RED_RENAMED, revision);
+  assert.equal(await behindStorage.keep(), false);
+  assert.deepEqual(behindStorage.banner.value, {
+    message: "The game changed since you opened Studio. Reopen to continue.",
+    recovery: "reopen",
+    fromStorage: true,
+  });
+  // Nothing was written and nothing reached the worker: the other tab's edit stands.
+  assert.equal(patches(r).length, 0);
+  assert.deepEqual(storedPicture((await loadAuthoredGame(projectId))!.files), compile(RED));
+
+  // A project removed and stored again (a new lifetime) is behind storage too.
+  await clearCachedGame(projectId);
+  await saveAuthoredGame(projectId, {
+    title: "Studio room",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  await assert.rejects(
+    r.controller.commitPictureEdit({
+      pictureNumber: 1,
+      bytes: compile(RED),
+      source: RED,
+      baseRevision: revision,
+    }),
+    (e) => e instanceof ResourceCommitError && e.code === "stale" && e.behindStorage,
+  );
+});
+
+test("a worker that never acks the patch fails the Keep as an install, after a bounded wait", async (t) => {
+  const timeouts: (number | undefined)[] = [];
+  const projectId = testProjectId("studio-never-acks");
+  const files = gameFiles();
+  const revision = await gameRevision(files);
+  await saveAuthoredGame(projectId, {
+    title: "Studio room",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  t.after(() => clearCachedGame(projectId));
+  const r = rig(
+    t,
+    files,
+    {
+      installed: false,
+      projectId,
+      title: "Studio room",
+      revision,
+      files,
+      words: [],
+      historyLifetime: await readHistoryLifetime(projectId),
+    },
+    {
+      drop: (msg) => msg.type === "patch",
+      // Record the wait the commit asks for, and let it lapse at once.
+      awaitPatched: (link) => (kind, num, hint, timeoutMs) => {
+        timeouts.push(timeoutMs);
+        return link(kind, num, hint, 1);
+      },
+    },
+  );
+  const keep = keeper(r, RED, revision);
+  const kept = keep.keep();
+  assert.equal(keep.status.value, "keeping");
+  assert.equal(await kept, false);
+  assert.equal(timeouts.length, 1);
+  assert.ok(
+    timeouts[0] !== undefined && timeouts[0] >= 1000 && timeouts[0] <= 15_000,
+    `a sensible ack timeout, got ${timeouts[0]}`,
+  );
+  // The edit is saved; the live game never took it, so Studio stops editing
+  // and offers the reload from storage.
+  assert.equal(keep.status.value, "reload");
+  assert.equal(keep.needsReload.value, true);
+  assert.equal(keep.banner.value?.recovery, "reload");
+  assert.equal(keep.banner.value?.fromStorage, true);
+  assert.match(keep.banner.value!.message, /saved.*did not acknowledge picture 1.*Reload/);
+  assert.deepEqual(storedPicture((await loadAuthoredGame(projectId))!.files), compile(RED));
+  assert.equal(r.game().revision, revision, "the live side stays on the old revision");
+  assert.equal(patches(r).length, 1);
+  assert.deepEqual(
+    openContainer(new Map(r.ctx.engine!.containerFiles)).getResource("picture", 1),
+    compile(BLUE),
+  );
 });
 
 /** The one live segment's events, deduped by batch as the host commits them. */

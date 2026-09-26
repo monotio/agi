@@ -50,13 +50,31 @@ export class ResourceCommitError extends Error {
   readonly code: ResourceCommitErrorCode;
   /** The project the edit was saved to — set on `install` failures. */
   readonly projectId: ProjectId | undefined;
-  constructor(code: ResourceCommitErrorCode, message: string, savedTo?: ProjectId) {
+  /**
+   * The stored project moved past the running game (another tab kept an
+   * edit): reopening on the running game would edit bytes storage no longer
+   * holds, so only reloading the game from storage continues.
+   */
+  readonly behindStorage: boolean;
+  constructor(
+    code: ResourceCommitErrorCode,
+    message: string,
+    detail: { savedTo?: ProjectId | undefined; behindStorage?: boolean } = {},
+  ) {
     super(message);
     this.name = "ResourceCommitError";
     this.code = code;
-    this.projectId = savedTo;
+    this.projectId = detail.savedTo;
+    this.behindStorage = detail.behindStorage === true;
   }
 }
+
+/**
+ * How long a Keep waits for the running game to acknowledge the installed
+ * bytes. The edit is already saved by then; a missing ack becomes the
+ * `install` failure and its reload, never an endless "Keeping…".
+ */
+export const PATCH_ACK_TIMEOUT_MS = 10_000;
 
 export interface ResourceCommitResult {
   /** "unchanged": the bytes and source already matched — nothing was written. */
@@ -180,10 +198,14 @@ export function createResourceCommit(
    *   edit names the old revision, so the resume offer refuses it instead of
    *   restoring state onto new bytes. A fork's remix sits in the library
    *   while the reload reopens the untouched catalog entry or edition.
-   * - A failed install (step 5) throws `install` and leaves the live game,
+   * - A failed install (step 5) — a refusal, or no ack within
+   *   PATCH_ACK_TIMEOUT_MS — throws `install` and leaves the live game,
    *   session and booted identity on the old revision, so the next commit
    *   refuses as stale; the worker's refusal also raises its session error.
    *   Reloading the game from storage picks the saved edit up.
+   * - A stored project that moved past the running game (step 2: another
+   *   tab kept an edit) refuses as `stale` with `behindStorage`: the only
+   *   way on is the same reload from storage.
    */
   async function commitResourceEdit(edit: ResourceEdit): Promise<ResourceCommitResult> {
     const game = getBootedGame();
@@ -231,11 +253,13 @@ export function createResourceCommit(
           throw new ResourceCommitError(
             "stale",
             `The project was removed or changed elsewhere — reload it before keeping ${what}.`,
+            { behindStorage: true },
           );
         if ((await gameRevision(stored.files)) !== baseRevision)
           throw new ResourceCommitError(
             "stale",
             `The project changed elsewhere since this game booted — reload it before keeping ${what}.`,
+            { behindStorage: true },
           );
       }
       const resolved = edit.resolve(stored);
@@ -395,7 +419,7 @@ export function createResourceCommit(
       if (moved()) return result;
       if (bytesChanged) {
         const transfer = new Uint8Array(payload);
-        const acked = awaitPatched(kind, num, resourceCacheHint(payload));
+        const acked = awaitPatched(kind, num, resourceCacheHint(payload), PATCH_ACK_TIMEOUT_MS);
         worker.postMessage(
           { type: "patch", kind, num, payload: transfer } satisfies WorkerInbound,
           [transfer.buffer],
@@ -406,7 +430,7 @@ export function createResourceCommit(
           throw new ResourceCommitError(
             "install",
             `${what[0]!.toUpperCase()}${what.slice(1)} was saved, but the running game could not load it (${error instanceof Error ? error.message : String(error)}). Reload the game to continue from the saved project.`,
-            targetId ?? undefined,
+            { savedTo: targetId ?? undefined },
           );
         }
         if (moved()) return result;

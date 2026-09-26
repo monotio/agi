@@ -57,18 +57,20 @@ const input =
     ? (window as Window & { studioHarnessInput?: StudioHarnessInput }).studioHarnessInput
     : undefined;
 const profile = DEFAULT_V2_PROFILE;
-const source =
+const written =
   pic === "demo"
     ? DEMO_PICTURE_SOURCE
     : pic === "injected"
       ? (input?.source ?? disassemblePicture(new Uint8Array(input?.bytes ?? []), { profile }))
       : ORIGINAL_SCENE_PICTURES[Number(pic)];
-if (source === undefined) throw new Error(`studio harness: unknown ?pic=${pic}`);
+if (written === undefined) throw new Error(`studio harness: unknown ?pic=${pic}`);
 const bytes = input?.bytes
   ? new Uint8Array(input.bytes)
-  : compilePictureSource(source, { profile }).bytes;
+  : compilePictureSource(written, { profile }).bytes;
 const authored =
   params.get("authored") !== "0" && (pic !== "injected" || input?.source !== undefined);
+/** What Studio models: the written text, or with `&authored=0` the bytes as an import disassembles them. */
+const source = authored ? written : disassemblePicture(bytes, { profile });
 const pictureNumber =
   pic === "demo" ? 0 : pic === "injected" ? (input?.pictureNumber ?? 0) : Number(pic);
 const closes = ref(0);

@@ -3,6 +3,7 @@ import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import { readGameZip } from "../src/gameZip.ts";
+import { parseGameHash } from "../src/shell/shellRoute.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -102,13 +103,13 @@ async function bootStudioGame(page: Page): Promise<void> {
   await resumeInRoom(page);
 }
 
-/** Resume the stored game, unless the page's route already reopened it. */
+/**
+ * Resume the stored game and wait until it runs in room 1. A `#play/` or
+ * `#create/` route resumes on its own — its Resume card can detach mid-click
+ * — so only a page without one takes the card.
+ */
 async function resumeInRoom(page: Page): Promise<void> {
-  const resume = page.getByTestId("btn-resume-cached");
-  await expect
-    .poll(async () => (await resume.isVisible()) || (await textHook(page)).room === 1)
-    .toBe(true);
-  if (await resume.isVisible()) await resume.click();
+  if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 2);
 }
@@ -136,6 +137,10 @@ const at = (x: number, y: number) => y * 160 + x;
 /** The latest presented frame's priority value at x,y (the engine's own plane). */
 const framePriority = (page: Page, x: number, y: number): Promise<number | undefined> =>
   page.evaluate(([cx, cy]) => window.__AGI_FRAME__?.()?.priority[cy! * 160 + cx!], [x, y]);
+
+/** Focus is inside Studio: its keys (Esc among them) reach it again. */
+const studioFocused = (studio: Locator): Promise<boolean> =>
+  studio.evaluate((root) => root.contains(document.activeElement));
 
 async function storedFiles(page: Page): Promise<Map<string, Uint8Array>> {
   const files = await page.evaluate(async (id) => {
@@ -304,22 +309,55 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("studio-dialog-keep")).toBeHidden();
   await expect(studio).toBeVisible();
+  // The closed dialog hands focus back to Studio; only then does Esc reach it.
+  await expect.poll(() => studioFocused(studio)).toBe(true);
   await page.keyboard.press("Escape");
+  await expect(page.getByTestId("studio-dialog-keep")).toBeVisible();
   await page.getByTestId("studio-dialog-discard").click();
   await expect(studio).toHaveCount(0);
   await expect(page.getByTestId("input-line")).toHaveValue("");
   expect(await storedPicture(page, 5)).toEqual(original);
 });
 
-test("Keep refuses as stale when the game changed underneath, and Reopen starts over", async ({
+/** Nudge the occluder one row down in the Depth lens: one change. */
+async function nudgeOccluder(page: Page, studio: Locator, key = "ArrowDown"): Promise<void> {
+  await page.keyboard.press("2");
+  await studio.locator('[data-row="occluder"]').click();
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press(key);
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+}
+
+/** Reopen after a Keep refused because the game was changed elsewhere: the draft goes, the game reloads. */
+async function reopenFromStorage(page: Page, studio: Locator): Promise<void> {
+  const banner = studio.getByTestId("studio-keep-error");
+  await expect(banner).toContainText(
+    "The game changed since you opened Studio. Reopen to continue.",
+  );
+  await studio.getByTestId("studio-recover").click();
+  // The unkept draft cannot follow the reload: Studio says so, and Cancel stays.
+  const dialog = page.getByRole("dialog", { name: "Reload the saved game?" });
+  await expect(dialog).toContainText(
+    "Your unkept changes in this picture will be discarded because the game was changed elsewhere.",
+  );
+  await page.getByTestId("studio-dialog-cancel").click();
+  await expect(dialog).toBeHidden();
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await studio.getByTestId("studio-recover").click();
+  await page.getByTestId("studio-dialog-reload").click();
+  await expect(page.getByTestId("studio-notice")).toHaveText(
+    "Loaded the latest saved version of this game.",
+  );
+  await expect(page.getByTestId("studio-keep-error")).toHaveCount(0);
+  await expect(page.getByTestId("studio-draft-status")).toHaveText("No changes");
+}
+
+test("Keep refuses as stale when the project changed elsewhere; Reopen reloads it and Keep works again", async ({
   page,
 }) => {
   await bootStudioGame(page);
   const studio = await openStudio(page);
-  await page.keyboard.press("2");
-  await studio.locator('[data-row="occluder"]').click();
-  await studio.getByRole("group", { name: /^Canvas/ }).focus();
-  await page.keyboard.press("ArrowDown");
+  await nudgeOccluder(page, studio);
   // Another tab keeps an edit to the same project: a new PIC 9.
   const elsewhere = openContainer(await storedFiles(page));
   elsewhere.putResource("picture", 9, PIC_5);
@@ -336,15 +374,87 @@ test("Keep refuses as stale when the game changed underneath, and Reopen starts 
   );
   expect(moved).toBe(true);
   await studio.getByTestId("studio-keep").click();
-  const banner = studio.getByTestId("studio-keep-error");
-  await expect(banner).toContainText(
-    "The game changed since you opened Studio. Reopen to continue.",
-  );
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  await studio.getByTestId("studio-recover").click();
-  await expect(banner).toHaveCount(0);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  await reopenFromStorage(page, studio);
+  const reloaded = page.getByTestId("room-studio");
   expect(await draftBytes(page)).toEqual(PIC_5);
+  // No dead end: the next Keep lands on the stored project, beside the other edit.
+  await nudgeOccluder(page, reloaded);
+  const kept = await draftBytes(page);
+  await reloaded.getByTestId("studio-keep").click();
+  await expect(reloaded.getByTestId("studio-draft-status")).toHaveText("Kept");
+  expect(await storedPicture(page, 5)).toEqual(kept);
+  expect(await storedPicture(page, 9)).toEqual(PIC_5);
+});
+
+test("two tabs: a Keep in one makes the other's Keep reload the saved game, then keep on it", async ({
+  page,
+  context,
+}) => {
+  await bootStudioGame(page);
+  const studioA = await openStudio(page);
+  await nudgeOccluder(page, studioA);
+
+  // Tab B opens the same project and keeps its own edit first.
+  const tabB = await context.newPage();
+  await tabB.goto("/");
+  await resumeInRoom(tabB);
+  const studioB = await openStudio(tabB);
+  await nudgeOccluder(tabB, studioB, "ArrowUp");
+  const keptB = await draftBytes(tabB);
+  await studioB.getByTestId("studio-keep").click();
+  await expect(studioB.getByTestId("studio-draft-status")).toHaveText("Kept");
+  expect(await storedPicture(tabB, 5)).toEqual(keptB);
+
+  // Tab A's Keep refuses; its Reopen brings the game up to B's saved edit.
+  await studioA.getByTestId("studio-keep").click();
+  await reopenFromStorage(page, studioA);
+  expect(await draftBytes(page)).toEqual(keptB);
+  expect(await storedPicture(page, 5)).toEqual(keptB);
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+
+  // Edited on the saved bytes, A's next Keep lands.
+  const reloaded = page.getByTestId("room-studio");
+  await nudgeOccluder(page, reloaded);
+  const keptA = await draftBytes(page);
+  await reloaded.getByTestId("studio-keep").click();
+  await expect(reloaded.getByTestId("studio-draft-status")).toHaveText("Kept");
+  expect(await storedPicture(page, 5)).toEqual(keptA);
+  expect(keptA).not.toEqual(keptB);
+  await tabB.close();
+});
+
+test("a Keep the running game never acknowledges is saved, and Reload game brings it in", async ({
+  page,
+}) => {
+  await bootStudioGame(page);
+  const studio = await openStudio(page);
+  await nudgeOccluder(page, studio);
+  const kept = await draftBytes(page);
+  // The install message never reaches the worker.
+  await page.evaluate(() => {
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: never[]) {
+      if ((message as { type?: string } | null)?.type === "patch") return;
+      return post.call(this, message, ...rest);
+    } as typeof post;
+  });
+  await studio.getByTestId("studio-keep").click();
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Keeping…");
+  // A bounded wait, then the install failure and its one recovery.
+  await expect(studio.getByTestId("studio-keep-error")).toContainText(
+    "did not acknowledge picture 5",
+    { timeout: 20_000 },
+  );
+  expect(await storedPicture(page, 5)).toEqual(kept);
+  await expect(studio.getByTestId("studio-recover")).toHaveText("Reload game");
+  await studio.getByTestId("studio-recover").click();
+  await expect(page.getByTestId("studio-notice")).toHaveText(
+    "Loaded the latest saved version of this game.",
+  );
+  expect(await draftBytes(page)).toEqual(kept);
+  await page.getByTestId("studio-close").click();
+  await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
 });
 
 test("the first Keep on a catalog game forks a remix", async ({ page }) => {
@@ -359,6 +469,24 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   const studio = page.getByTestId("room-studio");
   // An untitled room's Studio is named by the picture it edits.
   await expect(studio).toHaveAttribute("aria-label", "Room Studio: PIC 1");
+  // The tutorial's own picture text: named objects, not disassembled elements.
+  const galleryRows = [
+    "Walls & floor outline",
+    "Ceiling beam & wall posts",
+    "Mural frame",
+    "Sconces",
+    "Restoration bench",
+    "Restoration kit",
+    "Oak woodwork",
+    "Plaster walls",
+    "Blank mural canvas",
+    "Floor",
+  ];
+  const rowLabels = () =>
+    studio.locator('[role="treeitem"][data-row] .scene-list__label').allTextContents();
+  await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
+  expect((await rowLabels()).filter((label) => /^Element \d/.test(label))).toEqual([]);
+  await expect(studio.locator(".studio__status")).toContainText("authored source");
   // A barrier nudged up one row: a Walk-kind edit the Depth lens allows.
   await page.keyboard.press("2");
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
@@ -373,4 +501,8 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   await studio.getByTestId("studio-close").click();
   await expect(page).toHaveURL(new RegExp(`#create/${remix}$`));
   expect(new URL(page.url()).hash).not.toBe(catalog);
+  // The remix keeps the named objects with the kept edit.
+  await panel.getByTestId("world-open-studio").click();
+  await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
+  await expect(studio.locator(".studio__status")).toContainText("authored source");
 });
