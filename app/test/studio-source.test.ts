@@ -45,3 +45,12 @@ test("Studio trusts the agent's picture text only while it compiles to the boote
   assert.equal(other?.authoredSource, undefined);
   assert.ok(other?.profile, "a profile is detected when the scan had none");
 });
+
+test("Studio gets the booted snapshot's container files, for the actor probe's VIEWs", () => {
+  const { game, session } = fixture();
+  game.putResource("view", 2, Uint8Array.of(1, 1, 1, 0, 0));
+  const files = Object.fromEntries(game.files);
+  const source = studioPictureSource({ files, profile: session.profile }, 4, session);
+  assert.deepEqual([...(source?.files.keys() ?? [])].sort(), Object.keys(files).sort());
+  for (const [name, bytes] of source?.files ?? []) assert.equal(bytes, files[name]);
+});

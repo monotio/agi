@@ -357,6 +357,52 @@ describe("applyEdit inserts", () => {
     );
   });
 
+  it("refuses a self-intersecting or degenerate polygon, filled or not", () => {
+    const document = doc("vis 1", "line 0,0 3,0", "end");
+    const bowtie = [
+      { x: 10, y: 10 },
+      { x: 40, y: 30 },
+      { x: 40, y: 10 },
+      { x: 10, y: 20 },
+    ];
+    for (const filled of [false, true]) {
+      refused(
+        document,
+        {
+          type: "insertShape",
+          atLine: 3,
+          shape: { kind: "polygon", color: 2, priority: null, filled, points: bowtie },
+          id: "bow",
+          label: "Bow",
+          kind: "art",
+        },
+        /the shape cannot be drawn: the polygon self-intersects between edges 0 and 2/,
+      );
+    }
+    refused(
+      document,
+      {
+        type: "insertShape",
+        atLine: 3,
+        shape: {
+          kind: "polygon",
+          color: 2,
+          priority: null,
+          filled: false,
+          points: [
+            { x: 1, y: 1 },
+            { x: 5, y: 5 },
+            { x: 9, y: 9 },
+          ],
+        },
+        id: "flat",
+        label: "Flat",
+        kind: "art",
+      },
+      /the polygon has zero area/,
+    );
+  });
+
   it("inserts a fill as an item whose kind follows its planes", () => {
     const document = doc("vis 0", "rect 0,0 10,10", "end");
     assert.deepEqual(

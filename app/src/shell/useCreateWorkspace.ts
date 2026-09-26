@@ -39,8 +39,17 @@ export interface StudioRequest {
   readonly subtitle?: string | undefined;
   /** The booted game's resource revision the bytes were read at. */
   readonly baseRevision: ResourceRevision;
+  /** The booted game's container files, read at the same revision (the actor probe's VIEWs). */
+  readonly files: ReadonlyMap<string, Uint8Array>;
   /** The same picture read again from the running game, or null when it is gone. */
   readonly reload: () => StudioRequest | null;
+}
+
+/** What an open Studio guards on the way out: its unkept changes, and the question that settles them. */
+export interface StudioLeaveGuard {
+  unkept(): boolean;
+  /** Ask Keep / Discard / Cancel when changes are unkept; resolves whether to go on. */
+  confirm(): Promise<boolean>;
 }
 
 export interface CreateCenter {
@@ -52,6 +61,12 @@ export interface CreateCenter {
   closeStudio(): void;
   /** Studio again on the same picture, read from the running game (after a stale Keep). */
   reopenStudio(): void;
+  /** An open Studio guards leaving while it is mounted; returns the release. */
+  guardStudio(guard: StudioLeaveGuard): () => void;
+  /** Leaving now would lose unkept Studio changes. */
+  studioUnkept(): boolean;
+  /** Settle unkept Studio changes before the game or Create is left; resolves whether to go on. */
+  confirmStudioLeave(): Promise<boolean>;
 }
 
 export interface CreateWorkspace extends CreateCenter {
@@ -143,6 +158,17 @@ export function createCreateWorkspace(deps: {
     else closeStudio();
   }
 
+  let guard: StudioLeaveGuard | null = null;
+  function guardStudio(next: StudioLeaveGuard): () => void {
+    guard = next;
+    return () => {
+      if (guard === next) guard = null;
+    };
+  }
+  const studioUnkept = (): boolean => studio.value !== null && guard?.unkept() === true;
+  const confirmStudioLeave = (): Promise<boolean> =>
+    studioUnkept() ? guard!.confirm() : Promise.resolve(true);
+
   return {
     active,
     collapsed,
@@ -155,6 +181,9 @@ export function createCreateWorkspace(deps: {
     openStudio,
     closeStudio,
     reopenStudio,
+    guardStudio,
+    studioUnkept,
+    confirmStudioLeave,
   };
 }
 
@@ -172,6 +201,27 @@ export function useCreateWorkspace(): CreateWorkspace {
 
 /** The centre seam: open Room Studio on a picture, or return to the live stage. */
 export function useCreateCenter(): CreateCenter {
-  const { studio, openStudio, closeStudio, reopenStudio } = useCreateWorkspace();
-  return { studio, openStudio, closeStudio, reopenStudio };
+  const {
+    studio,
+    openStudio,
+    closeStudio,
+    reopenStudio,
+    guardStudio,
+    studioUnkept,
+    confirmStudioLeave,
+  } = useCreateWorkspace();
+  return {
+    studio,
+    openStudio,
+    closeStudio,
+    reopenStudio,
+    guardStudio,
+    studioUnkept,
+    confirmStudioLeave,
+  };
+}
+
+/** The centre seam where one is provided; Studio's harness runs without a workspace. */
+export function useOptionalCreateCenter(): CreateCenter | null {
+  return inject(workspaceKey, null);
 }

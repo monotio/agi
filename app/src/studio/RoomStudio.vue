@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } from "vue";
-import UiIconButton from "../ui/UiIconButton.vue";
+import { computed, onScopeDispose, ref, useTemplateRef } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { itemHandles } from "../../../src/studio/editPoints.ts";
 import { footprintMask } from "../../../src/studio/editValidation.ts";
+import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
+import GhostProbe from "./GhostProbe.vue";
 import PixelInspector from "./PixelInspector.vue";
 import SceneList from "./SceneList.vue";
 import StudioCanvas, { type MaskPaths } from "./StudioCanvas.vue";
@@ -14,28 +15,37 @@ import StudioItemEditor from "./StudioItemEditor.vue";
 import StudioKeepDialog from "./StudioKeepDialog.vue";
 import StudioLockNote from "./StudioLockNote.vue";
 import StudioStageNotes from "./StudioStageNotes.vue";
-import StudioTopBar, { type DraftStatus } from "./StudioTopBar.vue";
+import StudioToolOptions from "./StudioToolOptions.vue";
+import StudioToolOverlay from "./StudioToolOverlay.vue";
+import StudioToolRail from "./StudioToolRail.vue";
+import StudioTopBar from "./StudioTopBar.vue";
 import StudioViewBar from "./StudioViewBar.vue";
+import StudioZoom from "./StudioZoom.vue";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
-import { depthValuesLocked, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
+import { lensItemLocks, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
 import {
   bandGuides,
   controlLabels,
   maskBox,
   maskFillPath,
   maskOutlinePath,
+  PANE_LABELS,
   panesFor,
-  type PaneLayer,
+  subtitleExtra,
   type StudioLens,
   type StudioViewMode,
 } from "./studioView.ts";
+import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
 import { filterScene, resolveStudioSource, useStudioDocument } from "./useStudioDocument.ts";
-import { useStudioDraft } from "./useStudioDraft.ts";
+import { exposeStudioDraft, useStudioDraft } from "./useStudioDraft.ts";
+import { useStudioFocus } from "./useStudioFocus.ts";
 import { useStudioDrag } from "./useStudioDrag.ts";
 import { useStudioEditing } from "./useStudioEditing.ts";
 import { useStudioKeep, type KeepFn, type KeepRecovery } from "./useStudioKeep.ts";
+import { useStudioLeave } from "./useStudioLeave.ts";
 import { useStudioReadout } from "./useStudioReadout.ts";
 import { useStudioSelection } from "./useStudioSelection.ts";
+import { useStudioTools } from "./useStudioTools.ts";
 import { useStudioViewport } from "./useStudioViewport.ts";
 
 /**
@@ -44,7 +54,10 @@ import { useStudioViewport } from "./useStudioViewport.ts";
  * It takes the picture bytes (and authored text, trusted only while it
  * compiles to those bytes) and the revision they were read at. Keys are
  * handled at the root and stopped (studioKeys.ts), so none reach the game,
- * and focus never falls out of the studio while it is open.
+ * and focus never falls out of the studio while it is open. The tool rail
+ * (useStudioTools) inserts new items at the playhead; the actor probe
+ * stands a VIEW from the game's `files` on the draft; every way out settles
+ * unkept changes first (useStudioLeave).
  */
 const {
   pictureNumber,
@@ -55,6 +68,7 @@ const {
   subtitle = undefined,
   baseRevision = undefined,
   keep: keepFn = undefined,
+  files = undefined,
 } = defineProps<{
   pictureNumber: number;
   bytes: Uint8Array;
@@ -66,6 +80,8 @@ const {
   baseRevision?: ResourceRevision | undefined;
   /** The Keep transaction; the engine's when omitted. */
   keep?: KeepFn | undefined;
+  /** The game's container files, read at the same revision: the actor probe's VIEWs. */
+  files?: ReadonlyMap<string, Uint8Array> | undefined;
 }>();
 const emit = defineEmits<{ close: []; reopen: [] }>();
 
@@ -76,13 +92,6 @@ const filter = ref("");
 const unlocks = ref<LensUnlocks>(NO_UNLOCKS);
 /** More points than this and the item shows no handles (the inspector still lists them). */
 const MAX_HANDLES = 160;
-const PANE_LABELS: Record<PaneLayer, string> = {
-  art: "Picture, visual plane",
-  depth: "Picture with the priority plane blended over it",
-  "depth-only": "Priority plane",
-  walk: "Picture dimmed, with control lines",
-  "walk-only": "Control lines on the priority plane",
-};
 
 const resolved = computed(() => resolveStudioSource({ bytes, authoredSource, profile }));
 const draft = useStudioDraft({
@@ -108,11 +117,9 @@ const { hoveredId, selectedId, selectedRow, pinnedCell, announcement } = selecti
 const readout = useStudioReadout({ doc, selection, lens });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
 const keeper = useStudioKeep({ draft, pictureNumber: () => pictureNumber, keep: keepFn });
-const editing = useStudioEditing({
-  draft,
-  selectedId,
-  frozen: () => draft.kept.value.revision === undefined || keeper.needsReload.value,
-});
+/** Editing is blocked: view only, or a Keep that needs a reload first. */
+const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
+const editing = useStudioEditing({ draft, selectedId, frozen });
 
 const stage = useTemplateRef("stage");
 const panes = computed(() => panesFor(lens.value, mode.value));
@@ -140,7 +147,28 @@ const drag = useStudioDrag({
   onSelection: ({ x, y }) => selectionMask.value?.[y * 160 + x] === 1,
   labelOf: (id) => editing.item.value?.label ?? id,
   report: editing.report,
+  movesItems: () => tools.tool.value !== "point",
 });
+const tools = useStudioTools({
+  draft,
+  doc,
+  lens,
+  unlocks,
+  selectedId,
+  surface: () => shown.value,
+  report: editing.report,
+  say: editing.say,
+  frozen,
+  stage: () => stage.value,
+  probe: () => views.value.length > 0 && ghost.toggle(),
+});
+const views = computed(() => (files ? listGameViews(files, profile) : []));
+const ghost = useGhostProbe({ views, picture: () => shown.value, profile: () => profile });
+/** The priority-plane item under a cell, named for the probe's verdict. */
+const describeCell = (x: number, y: number): string | undefined => {
+  const id = doc.rowAt(x, y, "priority");
+  return id === undefined ? undefined : labelOf(id);
+};
 const hoverPaths = computed(() =>
   drag.dragging.value || hoveredId.value === undefined
     ? null
@@ -164,7 +192,9 @@ const labels = computed(() => (lens.value === "walk" ? controlLabels(shown.value
 const ctxOpen = ref(false);
 const ctxAt = computed(() => {
   const mask = selectionMask.value;
-  const box = editableId.value === undefined || drag.dragging.value || !mask ? null : maskBox(mask);
+  const hidden =
+    editableId.value === undefined || drag.dragging.value || !mask || tools.drawing.value;
+  const box = hidden ? null : maskBox(mask);
   if (!box) return null;
   const { zoom: z, pixelAspect } = viewport.value;
   const above = box.y * z - 44;
@@ -174,55 +204,40 @@ const ctxAt = computed(() => {
   };
 });
 
-/** The subtitle's parts that add something beyond the title and the PIC chip. */
-const subtitleExtra = computed(() => {
-  const known = [title.toLowerCase(), `pic ${pictureNumber}`];
-  const parts = (subtitle ?? "")
-    .split("·")
-    .map((part) => part.trim())
-    .filter((part) => part !== "" && !known.includes(part.toLowerCase()));
-  return parts.join(" · ");
-});
-const draftStatus = computed<DraftStatus>(() => {
-  if (draft.kept.value.revision === undefined) return "view-only";
-  if (keeper.needsReload.value) return "reload";
-  if (keeper.busy.value) return "keeping";
-  if (draft.dirty.value) return "changed";
-  return keeper.kept.value ? "kept" : "clean";
-});
-const lensLock = (plane: "visual" | "priority"): string | null =>
-  lockedPlanes(lens.value, unlocks.value).includes(plane)
-    ? `locked in the ${lens.value} lens`
-    : null;
-const itemLocks = computed(() => ({
-  visual: lensLock("visual"),
-  priority: lensLock("priority"),
-  depthValues: depthValuesLocked(lens.value, unlocks.value),
-}));
+const itemLocks = computed(() => lensItemLocks(lens.value, unlocks.value));
 
 function seek(k: number): void {
   playhead.value = Math.min(total.value, Math.max(0, k));
 }
 
-const dialog = ref<"close" | "discard">();
-function requestClose(): void {
-  if (draft.dirty.value && !keeper.needsReload.value) dialog.value = "close";
-  else emit("close");
+/** Keep / Discard / Cancel before any way out of Studio, here or in the shell. */
+const leave = useStudioLeave({
+  unkept: () => draft.dirty.value && !keeper.needsReload.value,
+  keep: () => keepChanges(),
+  discard: () => draft.discard(),
+});
+const center = useOptionalCreateCenter();
+if (center) onScopeDispose(center.guardStudio(leave));
+const dialog = leave.ask;
+async function requestClose(): Promise<void> {
+  if (await leave.confirm()) emit("close");
 }
-function discardChanges(close: boolean): void {
-  dialog.value = undefined;
+function discardChanges(): void {
+  leave.discarding.value = false;
   draft.discard();
-  if (close) emit("close");
-  else editing.say({ tone: "ok", text: "Changes discarded." });
+  editing.say({ tone: "ok", text: "Changes discarded." });
 }
-async function keepChanges(close: boolean): Promise<void> {
-  dialog.value = undefined;
-  if (!(await keeper.keep())) return;
-  if (close) emit("close");
-  else editing.say({ tone: "ok", text: `Kept PIC ${pictureNumber}. The game shows the edit now.` });
+/** Keep the draft and say so; resolves whether it was kept. */
+async function keepChanges(): Promise<boolean> {
+  const kept = await keeper.keep();
+  // Keep disables itself once the draft is kept: the keys must not fall out of Studio.
+  keepFocus();
+  if (!kept) return false;
+  editing.say({ tone: "ok", text: `Kept PIC ${pictureNumber}. The game shows the edit now.` });
+  return true;
 }
 function recover(recovery: KeepRecovery): void {
-  if (recovery === "retry") void keepChanges(false);
+  if (recovery === "retry") void keepChanges();
   else if (recovery === "reload") location.reload();
   else {
     // The draft was made on a game that moved on: start over from the running game.
@@ -232,60 +247,45 @@ function recover(recovery: KeepRecovery): void {
   }
 }
 
-const root = useTemplateRef("root");
-onMounted(() => root.value?.focus({ preventScroll: true }));
-if (import.meta.env?.DEV) {
-  const hook = {
-    bytes: () => draft.compiled.value.bytes.slice(),
-    source: () => draft.source.value,
-  };
-  window.__AGI_STUDIO__ = hook;
-  onBeforeUnmount(() => {
-    if (window.__AGI_STUDIO__ === hook) delete window.__AGI_STUDIO__;
-  });
-}
-
-/**
- * After a key or click inside the studio has taken effect, a focused control
- * may have gone (a lens change hides Planes and Bands) or never taken focus
- * (Safari leaves clicked buttons unfocused). Focus then returns to the root,
- * so the studio shortcuts keep working instead of the keys landing on the page.
- */
-function keepFocus(): void {
-  void nextTick(() => {
-    const element = root.value;
-    const active = document.activeElement;
-    if (element?.isConnected && (active === null || active === document.body))
-      element.focus({ preventScroll: true });
-  });
-}
+const keepFocus = useStudioFocus(useTemplateRef("root"));
+exposeStudioDraft(draft);
 
 const keys: StudioKeyActions = {
   onCanvas: (target) => target === stage.value,
   dismiss: () => {
-    if (ctxOpen.value) ctxOpen.value = false;
+    if (tools.cancel()) return true;
+    if (tools.tool.value !== "select") tools.setTool("select");
+    else if (ctxOpen.value) ctxOpen.value = false;
     else if (!drag.abort()) return false;
     return true;
   },
-  close: requestClose,
+  close: () => void requestClose(),
   lens: (next) => (lens.value = next),
   seek: (to) => seek(to === "first" ? 0 : to === "last" ? total.value : playhead.value + to),
   zoom: (step) => (step === "fit" ? zoomToFit() : zoomBy(step)),
   step: (direction) => selection.step(direction),
   nudge: editing.nudge,
-  remove: editing.remove,
+  remove: () => tools.backspace() || editing.remove(),
   duplicate: editing.duplicate,
   reorder: editing.reorder,
   undo: editing.undo,
   redo: editing.redo,
+  tool: tools.shortcut,
+  finish: tools.finish,
 };
+/** Canvas pointer input: the active tool takes it first, then selection and dragging. */
+const pointer = tools.pointer(drag, (cell) => (selection.canvasCell.value = cell));
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
   event.stopPropagation();
   // An open confirmation takes the keys it needs (Esc cancels it) and nothing else runs.
   if (dialog.value !== undefined) return;
-  if (studioKey(event, keys)) event.preventDefault();
+  if (tools.spaceKey(event, true) || studioKey(event, keys)) event.preventDefault();
   keepFocus();
+}
+function onKeyup(event: KeyboardEvent): void {
+  event.stopPropagation();
+  tools.spaceKey(event, false);
 }
 </script>
 
@@ -298,7 +298,7 @@ function onKeydown(event: KeyboardEvent): void {
     role="region"
     :aria-label="`Room Studio: ${title}`"
     @keydown="onKeydown"
-    @keyup.stop
+    @keyup="onKeyup"
     @keypress.stop
     @click="keepFocus"
   >
@@ -307,21 +307,21 @@ function onKeydown(event: KeyboardEvent): void {
       class="studio__top"
       :title
       :picture-number="pictureNumber"
-      :subtitle="subtitleExtra"
+      :subtitle="subtitleExtra(title, pictureNumber, subtitle)"
       :diagnostics="model.diagnostics.length"
       :bytes="draft.compiled.value.bytes.length"
       :commands="total"
-      :status="draftStatus"
+      :status="keeper.status.value"
       :changes="draft.changes.value"
-      :can-undo="draft.canUndo.value && draftStatus !== 'reload'"
-      :can-redo="draft.canRedo.value && draftStatus !== 'reload'"
+      :can-undo="draft.canUndo.value && !keeper.needsReload.value"
+      :can-redo="draft.canRedo.value && !keeper.needsReload.value"
       :can-keep="keeper.canKeep.value"
       @back="requestClose"
       @close="requestClose"
       @undo="editing.undo"
       @redo="editing.redo"
-      @keep="keepChanges(false)"
-      @discard="dialog = 'discard'"
+      @keep="keepChanges()"
+      @discard="leave.discarding.value = true"
     />
 
     <SceneList
@@ -339,10 +339,25 @@ function onKeydown(event: KeyboardEvent): void {
       <template #notice><StudioLockNote v-model:unlocks="unlocks" :lens /></template>
     </SceneList>
 
+    <StudioToolRail
+      :tool="tools.tool.value"
+      class="studio__rail"
+      :frozen="frozen()"
+      :probe-active="ghost.active.value"
+      :probe-available="views.length > 0"
+      :lens
+      :unlocks
+      :values="tools.current.value"
+      :cursor-y="tools.cursor.value?.y"
+      @update:tool="tools.setTool"
+      @probe="ghost.toggle()"
+      @values="tools.setValues"
+    />
     <main class="studio__frame">
       <div
         ref="stage"
         class="studio__stage"
+        :class="{ 'is-panning': tools.panning.value, 'is-drawing': tools.tool.value !== 'select' }"
         tabindex="0"
         role="group"
         aria-label="Canvas. Click an item to select it; drag it or its handles to edit. Arrow keys nudge the selection 1 pixel (Shift: 8); Alt+arrows step through items in draw order."
@@ -363,19 +378,30 @@ function onKeydown(event: KeyboardEvent): void {
             :labels="layer === 'art' ? null : labels"
             :handles
             :flash="flashPaths"
-            :movable="editableId !== undefined"
-            @hover="selection.canvasCell.value = $event"
-            @press="drag.press"
-            @drag="drag.drag"
-            @release="drag.release"
-            @abort="drag.abort"
+            :movable="editableId !== undefined && tools.tool.value === 'select'"
+            @hover="pointer.hover"
+            @press="pointer.press"
+            @drag="pointer.drag"
+            @release="pointer.release"
+            @abort="pointer.abort"
+            @dblclick="tools.finish()"
           >
+            <StudioToolOverlay v-if="tools.tool.value !== 'select'" v-bind="tools.overlay.value" />
+            <!-- The probe's own presses never reach the pane below. -->
+            <GhostProbe
+              v-if="index === 0"
+              :probe="ghost"
+              :viewport
+              :describe-cell="describeCell"
+              @pointerdown.stop
+              @pointermove.stop
+            />
             <StudioContextBar
               v-if="ctxAt && index === panes.length - 1"
               v-model:open="ctxOpen"
               :style="ctxAt"
               :priority="single('priority')"
-              :priority-locked="lensLock('priority')"
+              :priority-locked="itemLocks.priority"
               :depth-values-locked="itemLocks.depthValues"
               :edit="editing"
             />
@@ -386,22 +412,23 @@ function onKeydown(event: KeyboardEvent): void {
       <StudioStageNotes
         :banner="keeper.banner.value"
         :notice="editing.notice.value"
-        :editing="editableId !== undefined"
+        :editing="editableId !== undefined && tools.tool.value === 'select'"
         @recover="recover"
       />
-      <div class="studio__zoom" role="group" aria-label="Zoom">
-        <UiIconButton icon="zoom-out" label="Zoom out" shortcut="-" size="sm" @click="zoomBy(-1)" />
-        <span class="studio__zoom-level">{{ zoom * 100 }}% · 2:1 px</span>
-        <UiIconButton icon="zoom-in" label="Zoom in" shortcut="+" size="sm" @click="zoomBy(1)" />
-        <UiIconButton
-          icon="fit"
-          label="Zoom to fit"
-          shortcut="0"
-          size="sm"
-          :pressed="fitted"
-          @click="zoomToFit"
-        />
-      </div>
+      <StudioToolOptions
+        v-if="tools.tool.value !== 'select'"
+        v-model:filled="tools.filled.value"
+        v-model:radius="tools.radius.value"
+        v-model:stipple="tools.stipple.value"
+        v-model:seed="tools.seed.value"
+        :tool="tools.tool.value"
+        :insertion="tools.insertion.value"
+        :commands="total"
+        :fill-why="tools.fillWhy.value"
+        :points="tools.path.value?.points.length ?? 0"
+        @end="seek(total)"
+      />
+      <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
     </main>
 
     <DrawOrderScrubber
@@ -454,8 +481,8 @@ function onKeydown(event: KeyboardEvent): void {
       :picture-number="pictureNumber"
       :changes="draft.changes.value"
       :can-keep="keeper.canKeep.value"
-      @keep="keepChanges(true)"
-      @discard="discardChanges"
+      @keep="leave.answer('keep')"
+      @discard="(closing) => (closing ? leave.answer('discard') : discardChanges())"
     />
   </div>
 </template>
@@ -465,7 +492,9 @@ function onKeydown(event: KeyboardEvent): void {
   position: relative;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr) 92px 28px;
-  grid-template-columns: 256px minmax(0, 1fr) 300px;
+  /* The Scene list gives up a little width on smaller screens, so the rail
+     leaves the canvas its 200% zoom at 1280 wide. */
+  grid-template-columns: clamp(208px, 18vw, 256px) 48px minmax(0, 1fr) 300px;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -482,10 +511,15 @@ function onKeydown(event: KeyboardEvent): void {
   grid-column: 1;
   border-right: 1px solid var(--hairline);
 }
+/* The rail stops above the scrubber, which keeps the full width under it. */
+.studio__rail {
+  grid-row: 2;
+  grid-column: 2;
+}
 .studio__frame {
   position: relative;
   grid-row: 2;
-  grid-column: 2;
+  grid-column: 3;
   min-width: 0;
   min-height: 0;
   background-color: var(--surface-sunken);
@@ -502,6 +536,12 @@ function onKeydown(event: KeyboardEvent): void {
 .studio__stage:focus-visible {
   box-shadow: inset 0 0 0 2px var(--focus);
 }
+.studio__stage.is-drawing :deep(.studio-pane) {
+  cursor: crosshair;
+}
+.studio__stage.is-panning :deep(.studio-pane) {
+  cursor: grab;
+}
 /* Gap and inset match PANE_GAP and STAGE_INSET in useStudioViewport.ts. */
 .studio__panes {
   display: flex;
@@ -509,31 +549,13 @@ function onKeydown(event: KeyboardEvent): void {
   margin: auto;
   padding: var(--space-7);
 }
-.studio__zoom {
-  position: absolute;
-  right: var(--space-4);
-  bottom: var(--space-4);
-  display: flex;
-  align-items: center;
-  gap: var(--space-0);
-  padding: var(--space-0);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  background: var(--surface-overlay);
-}
-.studio__zoom-level {
-  padding: 0 var(--space-2);
-  white-space: nowrap;
-  color: var(--ink-3);
-  font: var(--text-2xs) var(--font-mono);
-}
 .studio__scrubber {
   grid-row: 3;
-  grid-column: 2;
+  grid-column: 2 / 4;
 }
 .studio__inspector {
   grid-row: 2 / 4;
-  grid-column: 3;
+  grid-column: 4;
 }
 .studio__status {
   grid-column: 1 / -1;

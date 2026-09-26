@@ -5,10 +5,10 @@
  * (applyEdit), then the lens locks (studioLocks.ts); a refused edit changes
  * nothing and says why. A drag is one gesture: `move` previews each frame's
  * candidate from the text the gesture started on, and `end` records one undo
- * step or snaps back.
+ * step or snaps back. Keep rebases the draft but keeps its history.
  */
 
-import { computed, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
+import { computed, onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import {
@@ -118,8 +118,12 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const document = computed(() => parsePictureDocument(source.value).document);
   const compiled = computed(() => compileEditDocument(document.value, profile()));
   const dirty = computed(() => source.value !== kept.value.source);
-  /** Undo steps since the last Keep that still differ from it. */
-  const changes = computed(() => (dirty.value ? Math.max(1, history.value.past.length) : 0));
+  /** How many undo steps the history held when the draft was last kept (or opened). */
+  const keptDepth = shallowRef(0);
+  /** Undo or redo steps between the draft and the last Keep, while they differ. */
+  const changes = computed(() =>
+    dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptDepth.value)) : 0,
+  );
   const gesturing = computed(() => history.value.gesture !== undefined);
   const canUndo = computed(() => !gesturing.value && history.value.past.length > 0);
   const canRedo = computed(() => !gesturing.value && history.value.future.length > 0);
@@ -127,6 +131,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
   function reset(base: DraftBase): void {
     kept.value = base;
     history.value = createHistory(base.source);
+    keptDepth.value = 0;
     preview.value = null;
     refusal.value = null;
     validation.value = null;
@@ -235,9 +240,14 @@ export function useStudioDraft(options: StudioDraftOptions) {
     return true;
   }
 
-  /** The game now holds the draft at `revision`: it is the new base, with a fresh history. */
+  /**
+   * The game now holds the draft at `revision`: it is the new base. The undo
+   * history stays, so undoing past a Keep is an unkept change like any other.
+   */
   function markKept(revision: ResourceRevision): void {
-    reset({ source: source.value, revision });
+    kept.value = { source: source.value, revision };
+    keptDepth.value = history.value.past.length;
+    refusal.value = null;
   }
 
   /** Throw the changes away: back to the last kept text. */
@@ -274,3 +284,16 @@ export function useStudioDraft(options: StudioDraftOptions) {
 }
 
 export type StudioDraft = ReturnType<typeof useStudioDraft>;
+
+/** Development and test builds: the draft's bytes and text on `window.__AGI_STUDIO__` for browser tests. */
+export function exposeStudioDraft(draft: StudioDraft): void {
+  if (!import.meta.env?.DEV) return;
+  const hook = {
+    bytes: () => draft.compiled.value.bytes.slice(),
+    source: () => draft.source.value,
+  };
+  window.__AGI_STUDIO__ = hook;
+  onScopeDispose(() => {
+    if (window.__AGI_STUDIO__ === hook) delete window.__AGI_STUDIO__;
+  });
+}

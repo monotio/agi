@@ -5,7 +5,8 @@
 // are generated or held privately); `&authored=0` withholds the source so the
 // studio falls back to disassembling the bytes. `&probe=1` mounts the ghost
 // actor probe alone over the picture's art pane, with the tutorial's
-// character VIEWs as its game. The kernel is exposed on
+// character VIEWs as its game (the full studio gets the same VIEWs for its
+// probe). The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
 // Keep succeeds in memory (each kept edit lands in `studioHarness.kept`);
 // `&keep=stale|install|storage` makes it refuse with that code instead.
@@ -180,6 +181,7 @@ createApp({
             pic === "demo" ? "demo · shapes" : pic === "injected" ? "" : `room ${pic} · PIC ${pic}`,
           baseRevision: revision(1),
           keep,
+          files: ghostFiles,
           onClose: () => closes.value++,
           onReopen: () => reopens.value++,
         }),

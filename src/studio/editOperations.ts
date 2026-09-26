@@ -26,7 +26,7 @@ import {
   type PictureItemKind,
 } from "./pictureDocument.ts";
 import type { PicturePlane } from "./pictureQuery.ts";
-import { shapeSource, type Point, type SceneShape } from "./shapes.ts";
+import { shapeSource, validateSimplePolygon, type Point, type SceneShape } from "./shapes.ts";
 import { commandHead, registerLine, registersRead } from "./editState.ts";
 import {
   commandTokens,
@@ -343,6 +343,9 @@ function insertShape(
 ): EditResult {
   let body: string[];
   try {
+    // An outline that crosses itself has no inside: AGI draws it, but a fill
+    // or a later edit of it cannot mean anything, so it is refused here.
+    if (op.shape.kind === "polygon") validateSimplePolygon(op.shape.points, "the polygon");
     body = shapeSource(op.shape);
   } catch (error) {
     throw new EditRefusal(`the shape cannot be drawn: ${(error as Error).message}`);
