@@ -84,7 +84,7 @@ const WORD_GROUPS: readonly (readonly [number, readonly string[]])[] = [
   [139, ["wake", "activate", "start", "turn"]],
   [140, ["console", "computer", "screen", "monitor", "terminal", "editor"]],
   [141, ["film", "strip", "flipbook", "poster", "reel"]],
-  [142, ["ledger", "stand", "lectern"]],
+  [142, ["ledger", "stand", "lectern", "tag"]],
   [143, ["bell"]],
   [144, ["ring"]],
   [
@@ -478,7 +478,7 @@ return;
 #message 18 "You see nothing special about that."
 #message 19 "Felix would rather you didn't. Everything here is filed exactly where it belongs."
 #message 20 "Felix, busy behind his counter. Priority 10: one step behind the counter's 11."
-#message 21 "A tall ledger stand. It has no depth number of its own, so if you walk behind it you float in front! Fixing that is a job for the Room Studio."
+#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. It has no depth number of its own yet, so if you walk behind it you float in front! Fixing that is a job for the Room Studio."
 #message 22 "The depth chart: every priority from 4 (far away, at the top) to 15 (right in front). SHOW PRIORITY paints the room in these colours."
 #message 23 "A globe of a world where every adventure is still waiting to be written."
 #message 24 "A map of the Adventure Department: the red gallery, the blue lab and the green archive. You are here."
@@ -494,6 +494,7 @@ return;
 #message 34 "${GRADUATED_HINT}"
 #message 35 "Felix's priority is fixed already. He's exactly where he belongs."
 #message 36 "A thick red carpet. It muffles footsteps, and Felix likes it quiet."
+#message 37 "Wait: you're BEHIND the ledger stand, yet you float in front of it! The tag on it says DEPTH PENDING. Nobody has given the stand a depth number yet."
 
 if (isset(f5)) {
   assignn(v50, 3); load.pic(v50); draw.pic(v50); show.pic();
@@ -524,6 +525,8 @@ if (!isset(f5)) {
     if (equaln(v59, 0)) { set.cel(o1, 1); set(f35); random(2, 4, v59); }
   }
 }
+// The ledger stand has no depth yet (the Room Studio lesson): say so the first time the apprentice walks behind it.
+if (!isset(f38) && posn(o0, 33, 112, 49, 120)) { set(f38); print(37); }
 display(1, 1, 1);
 if (!isset(f32)) { display(2, 1, 8); set.string(s1, m30); }
 if (isset(f32) && !isset(f33)) { display(2, 1, 33); set.string(s1, m31); }
@@ -623,6 +626,7 @@ export function buildTutorial(): TutorialGame {
     tutorial_complete: { kind: "flag", num: 33 },
     intro_played: { kind: "flag", num: 36 },
     sound_finished: { kind: "flag", num: 37 },
+    stand_tag_seen: { kind: "flag", num: 38 },
     walking_speed: { kind: "variable", num: 60 },
     intro_sound: { kind: "sound", num: TUTORIAL_SOUND_IDS.intro },
     point_sound: { kind: "sound", num: TUTORIAL_SOUND_IDS.point },

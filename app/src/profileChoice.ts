@@ -35,13 +35,19 @@ function platformLabel(id: ProfileId): string {
 export const PROFILE_GROUPS: readonly ProfileOptionGroup[] = (() => {
   const groups = new Map<string, ProfileOption[]>();
   for (const id of Object.keys(PROFILES) as ProfileId[]) {
-    const titles = KNOWN_GAMES.filter(
-      (game) =>
-        game.alias !== "synthetic" &&
-        (game.profile === id || EQUIVALENT_BUILDS[game.profile] === id),
-    ).map((game) => game.title.split(":")[0]!);
+    // Two releases of one game (the tutorial's 1.0 and 1.1) name it once.
+    const titles = new Set(
+      KNOWN_GAMES.filter(
+        (game) =>
+          game.alias !== "synthetic" &&
+          (game.profile === id || EQUIVALENT_BUILDS[game.profile] === id),
+      ).map((game) => game.title.split(":")[0]!),
+    );
     const platform = platformLabel(id);
-    groups.set(platform, [...(groups.get(platform) ?? []), { id, releases: titles.join(", ") }]);
+    groups.set(platform, [
+      ...(groups.get(platform) ?? []),
+      { id, releases: [...titles].join(", ") },
+    ]);
   }
   return [...groups].map(([label, options]) => ({ label, options }));
 })();

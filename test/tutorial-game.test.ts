@@ -269,7 +269,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "30bb98812428dcfae13e516d6e6182bc30e3b9a1677d34ee4f762c4446af0dd7",
+    "f987dcbaec399c2f96f81ae8ef33c0f78688189f372d6fe30b777749db0451a5",
     "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
   );
 });
@@ -282,7 +282,7 @@ test("the tutorial pictures are named Studio items without moving a byte", () =>
   const pinned: Record<string, string> = {
     1: "80913e1c0e69cfc9fd953d52a046de1634494a1a3d0c2451c9068b602a10fed0",
     2: "2f34a21875ce5f91e4135600055790ee9b05a6b12941d1ef6c30b09a81fdfe40",
-    3: "7e66394bc0f7d648c717131229101758cc2a4f55826cbafc5cef82c050a4eb7c",
+    3: "21eb04f69bab01ef077f8529aa1921deb06dc0e0cb73bb74a4b636b65f84d9e3",
     4: "0091ae20430495ddba236529e00878e2d0881d383aa23e14ebbd91f743cf638f",
   };
   const shipped = buildTutorial();
@@ -856,6 +856,57 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
     "room re-entry rebuilds the repaired lamp from the repair flag",
   );
   assert.equal(engine.getFrame().visual[72 * SCREEN_WIDTH + 112], 10);
+});
+
+test("the ledger stand's missing depth explains itself the first time ego walks behind it", () => {
+  const { engine, host } = startTutorial();
+  enter(engine, host, "east");
+  enter(engine, host, "east");
+  assert.equal(engine.vars[0], 3);
+  // The stand's barrier blocks its front, so the way behind it is up the west side.
+  walkUntilX(engine, host, 0x4d00, (x) => x >= 29);
+  host.keys.push(0x4800);
+  for (let cycle = 0; cycle < 120 && engine.readObjects()[0]!.y > 113; cycle++) engine.tick();
+  assert.equal(engine.readObjects()[0]!.y, 113, "ego reaches the horizon beside the bookcase");
+  const before = host.prints.length;
+  host.keys.push(0x4d00);
+  for (let cycle = 0; cycle < 80 && engine.readObjects()[0]!.x < 52; cycle++) engine.tick();
+  const told = host.prints.slice(before).filter((text) => /BEHIND the ledger stand/.test(text));
+  assert.equal(told.length, 1, "the tag's note prints once as ego passes behind the stand");
+  assert.match(told[0]!, /DEPTH PENDING/);
+  // Priority 4 everywhere on the stand is the lesson's hook: ego still draws over it.
+  assert.equal(engine.surface.priority[100 * SCREEN_WIDTH + 45], 4, "the stand has no depth");
+
+  host.keys.push(0x4b00);
+  for (let cycle = 0; cycle < 80 && engine.readObjects()[0]!.x > 30; cycle++) engine.tick();
+  enter(engine, host, "look tag");
+  assert.match(host.prints.at(-1) ?? "", /paper tag.*DEPTH PENDING/);
+  assert.equal(
+    host.prints.filter((text) => /BEHIND the ledger stand/.test(text)).length,
+    1,
+    "walking back behind the stand does not repeat it",
+  );
+});
+
+test("the archive globe stands fully inside the picture", () => {
+  const surface = createPictureSurface();
+  renderPicture(compilePictureSource(TUTORIAL_PICTURE_SOURCES[3]!).bytes, surface);
+  const shipped = parsePictureDocument(TUTORIAL_PICTURE_SOURCES[3]!).document;
+  const globe = shipped.items.find((item) => item.id === "globe")!;
+  const points = globe.commandLines.flatMap((line) =>
+    [...pictureCommandText(shipped.lines[line - 1]!).matchAll(/(\d+),(\d+)/g)].map(
+      ([, x, y]) => [Number(x), Number(y)] as const,
+    ),
+  );
+  assert.ok(points.length > 20);
+  for (const [x, y] of points) {
+    assert.ok(x >= 2 && x <= 157 && y <= 160, `globe point ${x},${y} keeps a margin from the edge`);
+  }
+  // Its depth covers it; the walk barrier keeps the apprentice out from behind it.
+  assert.equal(surface.priority[130 * SCREEN_WIDTH + 147], 14);
+  assert.equal(surface.priority[150 * SCREEN_WIDTH + 143], 0);
+  assert.equal(surface.priority[157 * SCREEN_WIDTH + 150], 0);
+  assert.ok(surface.priority[162 * SCREEN_WIDTH + 150]! >= 4, "the floor in front of it is open");
 });
 
 test("Felix rests with open eyes and only closes them for a brief native cel blink", () => {

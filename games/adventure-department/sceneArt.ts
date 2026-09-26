@@ -825,40 +825,47 @@ function spans(colour: number, list: readonly (readonly [number, number, number]
   return [`vis ${colour}`, ...list.map(([y, a, b]) => `line ${a},${y} ${b},${y}`)];
 }
 
-/** The globe in the east corner: an ocean sphere lit from the left, on a wooden stand. */
+/**
+ * The globe in the east corner: an ocean sphere lit from the left in a brass
+ * meridian, on a wooden tripod whose feet stand on the carpet well inside the
+ * frame.
+ */
 function globe(): string[] {
-  const cx = 151;
-  const cy = 136;
+  const cx = 147;
+  const cy = 129;
   const sphere: [number, number, number][] = [];
-  for (let dy = -12; dy <= 12; dy++) {
-    const half = Math.round(7.4 * Math.sqrt(1 - (dy / 12.6) ** 2));
+  for (let dy = -9; dy <= 9; dy++) {
+    const half = Math.round(5.6 * Math.sqrt(1 - (dy / 9.6) ** 2));
     sphere.push([cy + dy, cx - half, cx + half]);
   }
   return [
     "vis 6",
-    ...rows(149, 153, 149, 158),
-    ...rows(145, 157, 159, 160),
-    "line 146,161 144,167",
-    "line 156,161 158,167",
-    "line 151,161 151,167",
+    "line 147,139 147,147",
+    "line 148,139 148,147",
+    ...rows(144, 151, 148, 149),
+    "line 144,150 142,155",
+    "line 151,150 153,155",
+    "line 147,150 147,154",
     ...spans(1, sphere),
     ...spans(
       9,
-      sphere.map(([y, a, b]) => [y, a, Math.round((a + b) / 2) - 2] as const),
+      sphere.map(([y, a, b]) => [y, a, Math.round((a + b) / 2) - 1] as const),
     ),
     "vis 10",
-    "line 146,130 149,128 151,129 150,133 147,135",
-    "line 147,131 149,131",
-    "line 153,138 156,137 155,141 153,143",
-    "line 154,139 155,139",
+    "line 143,125 145,122 148,123 147,127 144,129",
+    "line 144,126 146,126",
+    "line 149,132 151,131 151,135 149,136",
+    "line 150,133 150,134",
     "vis 2",
-    "line 150,127 152,129",
-    "line 156,138 156,141",
+    "line 146,123 148,124",
+    "line 151,132 151,134",
     "vis 14",
-    "line 158,127 159,133 159,139 158,145 155,149",
-    "line 151,123 151,124",
+    "line 147,118 150,119 152,121 153,124 154,129 153,134 152,137 150,139 147,140",
+    "line 147,117 147,118",
     "vis 15",
-    "line 146,128 147,127",
+    "line 143,123 144,122",
+    "vis 0",
+    "line 143,156 155,156",
   ];
 }
 
@@ -1108,6 +1115,22 @@ const ARCHIVE_PICTURE = [
     "line 43,96 48,96",
     "line 43,96 43,116",
   ),
+  "# Felix's tag on the stand: its depth is still to come (LOOK TAG).",
+  item(
+    "ledger-tag",
+    "Depth pending tag",
+    "art",
+    "vis 0",
+    "line 46,93 46,97",
+    "vis 15",
+    ...rows(44, 48, 98, 102),
+    "vis 12",
+    "line 45,99 47,99",
+    "line 45,101 46,101",
+    "vis 7",
+    "line 48,98 48,102",
+    "line 44,102 47,102",
+  ),
   item(
     "counter",
     "Counter",
@@ -1210,18 +1233,11 @@ const ARCHIVE_PICTURE = [
     "rect 56,85 118,121",
     "fill 57,86",
   ),
-  item(
-    "globe-depth",
-    "Globe depth",
-    "depth",
-    "pri 14",
-    "polygon 144,122 159,122 159,167 144,167",
-    "fill 150,150",
-  ),
+  item("globe-depth", "Globe depth", "depth", "pri 14", "rect 141,117 155,156", "fill 147,130"),
   wallBase({ west: "door", east: "wall" }),
   item("counter-barrier", "Counter barrier", "walk", "pri 0", "line 56,112 56,122 118,122 118,112"),
   item("stand-barrier", "Ledger stand barrier", "walk", "line 40,121 51,121"),
-  item("globe-barrier", "Globe barrier", "walk", "line 143,123 143,167"),
+  item("globe-barrier", "Globe barrier", "walk", "line 143,123 143,157 159,157"),
 ].join("\n");
 
 // ---------------------------------------------------------------------------

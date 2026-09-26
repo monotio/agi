@@ -287,9 +287,9 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
     "aria-checked",
     "true",
   );
-  // Loop 0's cels hold 48, 44, 48 and 42 cyan pixels.
+  // Loop 0's cels hold 39, 33, 39 and 33 cyan pixels.
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
-    "182 pixels in 4 cels will change to colour 1, blue.",
+    "144 pixels in 4 cels will change to colour 1, blue.",
   );
   await expect(recolor.getByTestId("sprite-recolor-copies")).toHaveText(
     "Loop 0 will become a separate copy; the loops linked to it keep their pixels.",

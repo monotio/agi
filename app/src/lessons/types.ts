@@ -1,9 +1,9 @@
 /**
  * Studio lessons: Help guide topics that open a Studio on one resource of the
  * current game, with a "Try this" card and an optional challenge the app
- * checks after a Keep. A lesson set belongs to one catalog game; its content
- * lives beside the game, and the app registers it by catalog id
- * (registry.ts). A challenge's badge is per-viewer app state, never game
+ * checks after a Keep. A lesson set belongs to one catalog release; its
+ * content lives beside the game, and the app registers it by catalog id and
+ * version (registry.ts). A challenge's badge is per-viewer app state, never game
  * score (lessonStorage.ts).
  */
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
@@ -44,6 +44,11 @@ export interface StudioLesson {
 export interface LessonSet {
   /** The catalog entry the lessons belong to, e.g. "adventure-department". */
   readonly catalogId: string;
+  /**
+   * The catalog release whose resources the checks verify, e.g. "1.1.0":
+   * another release of the same entry (or its remixes) gets no lessons.
+   */
+  readonly version: string;
   /** The Help guide section title, e.g. "Adventure Department: under the hood". */
   readonly title: string;
   readonly lessons: readonly StudioLesson[];
