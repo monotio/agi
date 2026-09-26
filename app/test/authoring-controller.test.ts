@@ -791,3 +791,273 @@ for (const withSession of [false, true]) {
     await clearCachedGame(projectId);
   });
 }
+
+const STALE_TURN_MESSAGE =
+  "The game was changed elsewhere while the assistant worked, so nothing was applied. Reload the game, then ask again.";
+
+type WorkerPost = {
+  type: string;
+  kind?: "logic" | "picture" | "view" | "sound";
+  num?: number;
+  payload?: Uint8Array;
+  files?: Record<string, Uint8Array>;
+};
+
+/** A fake worker that applies patch traffic to a live container, as dispatch does. */
+function remixHarness(files: Record<string, Uint8Array>) {
+  const posts: WorkerPost[] = [];
+  const liveContainer = openContainer(new Map(Object.entries(files)));
+  const liveFiles = { ...files };
+  const worker = {
+    postMessage(message: WorkerPost) {
+      posts.push(message);
+      if (message.type === "patch" && message.kind !== undefined && message.num !== undefined)
+        liveContainer.putResource(message.kind, message.num, message.payload!);
+      if (message.type === "patchMetadata" && message.files)
+        Object.assign(liveFiles, message.files);
+    },
+  } as unknown as Worker;
+  const query = async <T>(type: string): Promise<T> => {
+    if (type === "exportFiles")
+      return { ...liveFiles, ...Object.fromEntries(liveContainer.files) } as T;
+    if (type === "state") return { room: 1, profile: "2.936" } as T;
+    return null as T;
+  };
+  return { posts, liveContainer, worker, query };
+}
+
+test("a remix turn is refused when the stored project moved mid-turn", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("remix-stale");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Remix stale",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  const baseRevision = await gameRevision(files);
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Remix stale",
+    revision: baseRevision,
+    files,
+    words: [],
+  };
+  const powerUp = createMockPowerUp();
+  const { posts, worker, query } = remixHarness(files);
+  // A Keep's bytes land while the remix turn is in flight — the running game
+  // still holds the pre-Keep revision, so the turn's result is stale.
+  const moved = openContainer(new Map(Object.entries(files)));
+  moved.putResource("logic", 2, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const movedFiles = Object.fromEntries(moved.files);
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp,
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => worker,
+    query,
+    logAgent: () => {},
+    readFrames: async () => {
+      assert.equal(await updateAuthoredGameFiles(projectId, movedFiles), true);
+      return [];
+    },
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  await controller.openPowerUp(mockConfig);
+  const session = controller.getSession()!;
+  const postsBefore = posts.length;
+  await controller.submitPowerUp("add a sign");
+
+  assert.equal(powerUp.error, STALE_TURN_MESSAGE);
+  assert.equal(powerUp.offerReload, true);
+  assert.equal(powerUp.busy, false);
+  assert.equal(posts.length, postsBefore, "a refused remix posts nothing to the worker");
+  assert.equal(controller.isRemixNeedsSave(), false);
+  assert.equal(
+    session.state.container.getResource("logic", 1),
+    null,
+    "the refused turn's patch never reaches the session's resources",
+  );
+  assert.equal(game.revision, baseRevision);
+  assert.equal(game.files, files);
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.equal(await gameRevision(stored.files), await gameRevision(movedFiles));
+  assert.ok(openContainer(new Map(Object.entries(stored.files))).getResource("logic", 2));
+  await clearCachedGame(projectId);
+});
+
+test("an ordinary remix installs and persists when storage holds its base", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("remix-ordinary");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Remix ok",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Remix ok",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+  };
+  const powerUp = createMockPowerUp();
+  const { posts, liveContainer, worker, query } = remixHarness(files);
+  let resumed = false;
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp,
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => worker,
+    query,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {
+      resumed = true;
+    },
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  await controller.openPowerUp(mockConfig);
+  const session = controller.getSession()!;
+  const postsBefore = posts.length;
+  await controller.submitPowerUp("add a sign");
+
+  assert.equal(powerUp.error, "");
+  assert.equal(powerUp.open, false);
+  assert.equal(powerUp.busy, false);
+  assert.equal(resumed, true);
+  assert.equal(powerUp.messages.at(-1)?.text, "A weathered sign now stands in room 1.");
+  // The stored bytes are exactly what the worker and the session installed.
+  const stored = (await loadAuthoredGame(projectId))!;
+  const remixed = openContainer(new Map(Object.entries(stored.files))).getResource("logic", 1);
+  assert.ok(remixed);
+  assert.deepEqual(liveContainer.getResource("logic", 1), remixed);
+  assert.deepEqual(session.state.container.getResource("logic", 1), remixed);
+  assert.equal(game.revision, await gameRevision(stored.files));
+  assert.equal(controller.isRemixNeedsSave(), false);
+  assert.deepEqual(
+    posts.slice(postsBefore).map((post) => post.type),
+    ["patch", "authoring", "reenter"],
+  );
+  await clearCachedGame(projectId);
+});
+
+test("buildRoomFromMap refuses when the stored project moved mid-build", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("map-build-stale");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Map build",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+    roomGeneration: true,
+  });
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Map build",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+  };
+  const moved = openContainer(new Map(Object.entries(files)));
+  moved.putResource("logic", 3, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const movedFiles = Object.fromEntries(moved.files);
+  let wrote = false;
+  const posts: WorkerPost[] = [];
+  const worker = {
+    postMessage: (message: WorkerPost) => posts.push(message),
+  } as unknown as Worker;
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => worker,
+    // The stored project moves while the build turn is being set up.
+    query: async <T>(type: string): Promise<T> => {
+      if (type === "state") {
+        if (!wrote) {
+          wrote = true;
+          assert.equal(await updateAuthoredGameFiles(projectId, movedFiles), true);
+        }
+        return { room: 1 } as T;
+      }
+      if (type === "objects") return [] as T;
+      if (type === "exportFiles") return files as T;
+      return null as T;
+    },
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    configForGame: (_p, config) => config,
+    getLlmConfig: () => mockConfig,
+  });
+  await assert.rejects(controller.buildRoomFromMap(2, 1, []), (error) => {
+    assert.equal((error as { code?: string }).code, "stale");
+    assert.equal((error as Error).message, STALE_TURN_MESSAGE);
+    return true;
+  });
+  const session = controller.getSession()!;
+  assert.equal(
+    session.state.container.getResource("logic", 2),
+    null,
+    "the refused build never reaches the session's resources",
+  );
+  assert.equal(
+    posts.filter((post) => post.type === "patch" || post.type === "patchMetadata").length,
+    0,
+    "a refused build installs nothing",
+  );
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.equal(await gameRevision(stored.files), await gameRevision(movedFiles));
+  assert.ok(openContainer(new Map(Object.entries(stored.files))).getResource("logic", 3));
+  assert.equal(game.files, files);
+  await clearCachedGame(projectId);
+});

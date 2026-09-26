@@ -441,18 +441,23 @@ Answer the player's question using evidence from inspection when needed. For hin
    * frozen. The agent inspects the live game with the runtime tools, patches
    * resources, and finishes with a text turn; every tool call streams into
    * the bubble through onEvent. Returns what to patch into the interpreter.
+   * `beforeAdopt` is the host's commit gate, awaited once the turn's work is
+   * done but before its staged candidate is adopted — a refusal discards the
+   * turn exactly like a failed one: nothing reaches the session's resources.
    */
   runPowerUp(
     instruction: string,
     room: number,
     images?: readonly AgentToolImage[],
+    beforeAdopt?: () => Promise<void>,
   ): Promise<PowerUpResult> {
-    return this.task.run(() => this.remix(instruction, room, images));
+    return this.task.run(() => this.remix(instruction, room, images, beforeAdopt));
   }
   private async remix(
     instruction: string,
     room: number,
-    images?: readonly AgentToolImage[],
+    images: readonly AgentToolImage[] | undefined,
+    beforeAdopt: (() => Promise<void>) | undefined,
   ): Promise<PowerUpResult> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
@@ -480,6 +485,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         { images: frames.images?.map((i) => i.caption) },
       );
       const result = await this.stubFallback.powerUp(instruction, room);
+      // The commit gate runs before anything staged lands: a refusal leaves
+      // the session's resources as the turn found them.
+      await beforeAdopt?.();
       this.messages.push({ role: "assistant", text: result.text });
       for (const resource of result.patched)
         this.state.container.putResource(resource.kind, resource.num, resource.payload);
@@ -578,6 +586,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         turn = await this.observeTurn(this.conversation.complete(), "remix");
       }
 
+      // The host's commit gate: a refusal throws into the turn's failure
+      // path, which discards the staged candidate untouched.
+      await beforeAdopt?.();
       const patched = changedResources(this.state, staged);
       const files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>> = {};
       for (const name of ["WORDS.TOK", "OBJECT", "TESTS.JSON"] as const) {
@@ -1109,16 +1120,19 @@ Answer the player's question using evidence from inspection when needed. For hin
     return { files, words, transcript, sessionId };
   }
 
-  handle(req: LlmRequest): Promise<string> {
-    return this.task.run(() => this.prepareRoom(req));
+  handle(req: LlmRequest, beforeAdopt?: () => Promise<void>): Promise<string> {
+    return this.task.run(() => this.prepareRoom(req, beforeAdopt));
   }
-  private async prepareRoom(req: LlmRequest): Promise<string> {
+  private async prepareRoom(req: LlmRequest, beforeAdopt?: () => Promise<void>): Promise<string> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating the next room.");
     if (this.stubFallback) {
       const response = await this.stubFallback.handle(req);
       if (req.op === "room" && response) {
+        // Same commit gate as a remix turn: refuse before the staged room
+        // lands in the session's container.
+        await beforeAdopt?.();
         const patch = prepareRoomPatch(
           openContainer(this.state.getFiles()),
           Number(req.context["room"]),
@@ -1278,6 +1292,9 @@ Answer the player's question using evidence from inspection when needed. For hin
       }
       if (!completed) throw new Error(`Room ${room} authoring did not finish.`);
 
+      // The host's commit gate: a refusal discards the staged room through
+      // the turn's failure path.
+      await beforeAdopt?.();
       const changed = changedResources(this.state, staged).map(({ kind, num, payload }) => ({
         kind,
         num,
