@@ -12,15 +12,22 @@ import { viewFeedback } from "../../src/agent/viewFeedback.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { bytesToBase64 } from "./bytes.ts";
 import { useAiSettings } from "./useAiSettings.ts";
+import { useCreateWorkspace } from "./shell/useCreateWorkspace.ts";
+import { useShell } from "./shell/useShell.ts";
+import { useSpriteStudio } from "./world/useSpriteStudio.ts";
 
 /**
  * Reference-art upload: attach a picture the player supplies — a room plate
  * the agent hand-encodes with write_picture, or a character sheet that
- * converts to a staged VIEW the player keeps or revises. Raised from the
- * chat bubble or the world map's room detail via referenceUploadState.
+ * converts to a staged VIEW the player keeps, repairs in Sprite Studio, or
+ * revises. Raised from the chat bubble or the world map's room detail via
+ * referenceUploadState.
  */
 const engine = useEngineApi();
 const { llmConfig } = useAiSettings();
+const workspace = useCreateWorkspace();
+const shell = useShell();
+const sprites = useSpriteStudio();
 
 const FACING_LABELS: Record<SheetFacing, string> = {
   right: "Facing right",
@@ -149,6 +156,20 @@ async function onKeep(): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+/**
+ * Repair the staged candidate in Sprite Studio before keeping it: Create
+ * takes the page, and Studio's Keep spends the staged offer with the
+ * repaired bytes (resourceCommit.ts stagedViewEdit).
+ */
+async function onOpenInStudio(): Promise<void> {
+  const reference = attached.value;
+  if (!reference?.staged) return;
+  shell.setMode("create");
+  if (shell.mode.value !== "create") return;
+  referenceUpload.open = false;
+  await sprites.openStaged(reference);
 }
 
 /** Revise / send: the note plus this reference's images reach the agent. */
@@ -417,6 +438,15 @@ function onReopenStaged(reference: StoredReference): void {
             @click="onKeep"
           >
             Keep
+          </UiButton>
+          <UiButton
+            icon="pencil"
+            data-testid="reference-open-sprite"
+            :disabled="busy || sending || !workspace.studioFits.value"
+            :title="workspace.studioFits.value ? undefined : 'Sprite Studio needs a larger screen'"
+            @click="onOpenInStudio"
+          >
+            Open in Sprite Studio
           </UiButton>
           <UiButton data-testid="reference-send" :disabled="busy || sending" @click="onSendToAgent">
             {{ sending ? "Sending…" : "Use in edit" }}

@@ -370,7 +370,7 @@ these costs:
 | MH2                  |    148,362 |       27,590 |         27 |
 | Gold Rush            |    106,125 |       42,082 |         29 |
 | KQ4                  |    151,260 |       70,672 |         23 |
-| Adventure Department |      1,367 |           82 |          4 |
+| Adventure Department |      1,421 |          102 |          4 |
 
 The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)
 guards poll, cycle and action ceilings, duplicate/debug markers, and long gaps

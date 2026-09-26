@@ -1,20 +1,21 @@
 <script setup lang="ts">
-import { computed, nextTick, useTemplateRef, watch } from "vue";
+import { computed, nextTick, useTemplateRef, watch, type Ref } from "vue";
 import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import UiButton from "../ui/UiButton.vue";
-import type { StudioDraft } from "./useStudioDraft.ts";
 import type { useStudioKeep } from "./useStudioKeep.ts";
 
 /**
- * Room Studio on a layout too small for it (a phone-width window, a rotated
+ * A Studio on a layout too small for it (a phone-width window, a rotated
  * phone) while it holds unkept changes: Studio stays mounted with its draft
  * and history, and this full-screen modal covers it. Widening the window or
  * rotating back closes the notice and editing continues; Keep or Discard
  * settles the changes here and leaves Studio. Esc does not dismiss it, and
  * no key reaches the studio or the game behind it.
  */
-const { draft, keeper } = defineProps<{
-  draft: StudioDraft;
+const { name, draft, keeper } = defineProps<{
+  /** The studio's name: "Room Studio", "Sprite Studio". */
+  name: string;
+  draft: { readonly changes: Readonly<Ref<number>>; discard(): void };
   keeper: ReturnType<typeof useStudioKeep>;
 }>();
 const emit = defineEmits<{ close: [] }>();
@@ -58,7 +59,7 @@ watch(
   >
     <div class="small-screen__card">
       <h2 id="studio-small-screen-title" class="small-screen__title">
-        Room Studio needs a larger screen
+        {{ name }} needs a larger screen
       </h2>
       <p class="small-screen__text">
         Your unkept changes are safe — widen the window or rotate back to continue.

@@ -100,6 +100,7 @@ provideInspector(createInspector(engine, presentation));
 // The map's graph code loads only when the player opens it — never on boot.
 const WorldMap = defineAsyncComponent(() => import("./WorldMap.vue"));
 const RoomStudio = defineAsyncComponent(() => import("./studio/RoomStudio.vue"));
+const SpriteStudio = defineAsyncComponent(() => import("./studio/sprite/SpriteStudio.vue"));
 const mapOpen = engine.roomMap.open;
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
@@ -622,7 +623,7 @@ watch(
           </template>
         </PlayArea>
         <RoomStudio
-          v-if="studioOpen && studio"
+          v-if="studioOpen && studio?.kind === 'picture'"
           class="shell-center"
           :picture-number="studio.pictureNumber"
           :bytes="studio.bytes"
@@ -632,6 +633,24 @@ watch(
           :subtitle="studio.subtitle"
           :base-revision="studio.baseRevision"
           :files="studio.files"
+          @close="workspace.closeStudio()"
+          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
+        />
+        <SpriteStudio
+          v-else-if="studioOpen && studio?.kind === 'sprite'"
+          :key="`${studio.viewNumber}:${studio.baseRevision}:${studio.stagedReference ?? ''}`"
+          class="shell-center"
+          :view-number="studio.viewNumber"
+          :bytes="studio.bytes"
+          :profile="studio.profile"
+          :title="studio.title"
+          :base-revision="studio.baseRevision"
+          :files="studio.files"
+          :usage="studio.usage"
+          :rooms="studio.rooms"
+          :speed="studio.speed"
+          :priority-base="studio.priorityBase"
+          :staged-reference="studio.stagedReference"
           @close="workspace.closeStudio()"
           @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
         />

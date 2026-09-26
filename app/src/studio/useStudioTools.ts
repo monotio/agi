@@ -42,7 +42,7 @@ import {
 import { maskFillPath, type StudioLens } from "./studioView.ts";
 import type { StudioDocument } from "./useStudioDocument.ts";
 import type { DraftOutcome, StudioDraft } from "./useStudioDraft.ts";
-import type { StudioNotice } from "./useStudioEditing.ts";
+import type { StudioNotice } from "./useStudioNotice.ts";
 
 export interface StudioToolsOptions {
   readonly draft: StudioDraft;

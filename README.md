@@ -130,6 +130,13 @@ where a character would stand behind or in front of the scene. Each lens locks
 the planes it is not about, **Keep** saves the edited picture into the game, and
 leaving with unkept changes asks first.
 
+**Sprite Studio** edits a view's loops and cels the same way: open it from a
+room's views, the Resources tab or a staged character sheet, draw with the pixel
+tools, reorder, duplicate and flip cels on a loops × cels timeline, and watch the
+loop at the game's speed and standing in a room at its real depth. A loop that
+mirrors another becomes a separate copy when you edit it, so fixing one facing
+never changes the other unless you ask.
+
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
 animated sprites, vocabulary, inventory and sound. The heroes above walk because
 the agent drew each frame of each direction, then compiled them into the same

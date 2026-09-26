@@ -10,133 +10,184 @@ import { compilePictureSource } from "../../src/picture/source.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { CHARACTER_VIEWS } from "./characterViews.ts";
 import { LEVER_VIEW } from "./leverView.ts";
-import { ORIGINAL_SCENE_PICTURES } from "./sceneArt.ts";
+import { TUTORIAL_PICTURES } from "./sceneArt.ts";
 import { SIGNAL_VIEW } from "./signalView.ts";
 import { TUTORIAL_SOUND_IDS, TUTORIAL_SOUND_SOURCES } from "./sounds.ts";
 
-export const TUTORIAL_WORDS: [string, number][] = [
-  // Group 0 is the ignored group: GO EAST, PLEASE LOOK and THE LEVER all parse.
-  ["go", 0],
-  ["walk", 0],
-  ["run", 0],
-  ["the", 0],
-  ["a", 0],
-  ["an", 0],
-  ["to", 0],
-  ["at", 0],
-  ["please", 0],
-  ["now", 0],
-  ["look", 100],
-  ["examine", 100],
-  ["inspect", 100],
-  ["read", 100],
-  ["x", 100],
-  ["help", 101],
-  ["instructions", 101],
-  ["hint", 101],
-  ["commands", 101],
-  ["east", 102],
-  ["e", 102],
-  ["west", 103],
-  ["w", 103],
-  ["paint", 104],
-  ["color", 104],
-  ["colour", 104],
-  ["draw", 104],
-  ["mural", 105],
-  ["picture", 105],
-  ["art", 105],
-  ["frame", 105],
-  ["painting", 105],
-  ["scene", 105],
-  ["pull", 106],
-  ["flip", 106],
-  ["use", 106],
-  ["push", 106],
-  ["press", 106],
-  ["lever", 107],
-  ["switch", 107],
-  ["handle", 107],
-  ["show", 108],
-  ["view", 108],
-  ["priority", 109],
-  ["priorities", 109],
-  ["depth", 109],
-  ["fix", 110],
-  ["adjust", 110],
-  ["repair", 110],
-  ["robot", 111],
-  ["machine", 111],
-  ["clerk", 112],
-  ["ferret", 112],
-  ["felix", 112],
-  ["room", 113],
-  ["here", 113],
-  ["place", 113],
-  ["logic", 114],
-  ["rule", 114],
-  ["rules", 114],
-  ["condition", 114],
-  ["sprite", 115],
-  ["object", 115],
-  ["gallery", 116],
-  ["lab", 117],
-  ["laboratory", 117],
-  ["archive", 118],
-  ["fast", 119],
-  ["normal", 120],
-  ["slow", 121],
-  ["speed", 122],
-  ["talk", 123],
-  ["speak", 123],
-  ["ask", 123],
-  ["hello", 123],
-  ["hi", 123],
-  ["say", 123],
-  ["counter", 124],
-  ["desk", 124],
-  ["shelf", 124],
-  ["north", 125],
-  ["n", 125],
-  ["south", 125],
-  ["s", 125],
-  ["up", 125],
-  ["down", 125],
-  ["door", 126],
-  ["exit", 126],
-  ["wall", 126],
-  ["take", 127],
-  ["get", 127],
-  ["open", 127],
-  ["close", 127],
-  ["kick", 127],
-  ["hit", 127],
-  ["jump", 127],
-  ["dance", 127],
-  ["sing", 127],
-  ["eat", 127],
-  ["climb", 127],
-  ["lamp", 128],
-  ["light", 128],
-  ["signal", 128],
-  ["bench", 129],
-  ["tools", 129],
-  ["kit", 129],
-  ["cabinet", 129],
-  ["code", 130],
+/** Word groups: synonyms share a number. Group 0 is ignored: GO EAST, LOOK AT THE ROBOT. */
+const WORD_GROUPS: readonly (readonly [number, readonly string[]])[] = [
+  [
+    0,
+    [
+      "go",
+      "walk",
+      "run",
+      "the",
+      "a",
+      "an",
+      "to",
+      "at",
+      "please",
+      "now",
+      "on",
+      "in",
+      "into",
+      "with",
+      "around",
+      "my",
+      "your",
+      "this",
+      "that",
+      "some",
+      "of",
+      "how",
+      "do",
+    ],
+  ],
+  [100, ["look", "examine", "inspect", "read", "x", "see", "check", "study"]],
+  [101, ["help", "instructions", "hint", "commands"]],
+  [102, ["east", "e", "right"]],
+  [103, ["west", "w", "left"]],
+  [104, ["paint", "color", "colour", "draw"]],
+  [
+    105,
+    [
+      "mural",
+      "picture",
+      "art",
+      "frame",
+      "painting",
+      "scene",
+      "canvas",
+      "landscape",
+      "sketch",
+      "sun",
+    ],
+  ],
+  [106, ["pull", "flip", "use", "push", "press", "yank", "tug", "move", "shift"]],
+  [107, ["lever", "switch", "handle"]],
+  [108, ["show", "view", "display"]],
+  [109, ["priority", "priorities", "depth", "layer", "layers"]],
+  [110, ["fix", "adjust", "repair", "mend", "give", "set"]],
+  [111, ["robot", "machine", "bot"]],
+  [112, ["clerk", "ferret", "felix"]],
+  [113, ["room", "here", "place"]],
+  [114, ["logic", "rule", "rules", "condition"]],
+  [115, ["sprite", "sprites", "object"]],
+  [116, ["gallery"]],
+  [117, ["lab", "laboratory"]],
+  [118, ["archive", "archives"]],
+  [119, ["fast"]],
+  [120, ["normal"]],
+  [121, ["slow"]],
+  [122, ["speed"]],
+  [123, ["talk", "speak", "ask", "hello", "hi", "say", "chat", "greet"]],
+  [124, ["counter", "desk"]],
+  [125, ["north", "n", "south", "s", "up", "down"]],
+  [126, ["door", "doorway", "exit", "wall", "walls"]],
+  [127, ["take", "get", "grab", "steal"]],
+  [128, ["lamp", "light", "lights", "signal", "spotlight"]],
+  [129, ["bench", "tools", "kit", "cart", "cabinet", "brushes", "brush", "pots"]],
+  [130, ["code"]],
+  [131, ["open", "close"]],
+  [132, ["kick", "hit", "punch", "break", "smash"]],
+  [133, ["jump", "dance", "sing"]],
+  [134, ["eat", "drink", "lick"]],
+  [135, ["climb"]],
+  [136, ["bust", "statue", "sculpture", "head", "marble", "plinth"]],
+  [137, ["plaque", "label", "sign"]],
+  [138, ["wave", "waving"]],
+  [139, ["wake", "activate", "start", "turn"]],
+  [140, ["console", "computer", "screen", "monitor", "terminal", "editor", "bay"]],
+  [141, ["film", "strip", "flipbook", "poster", "reel"]],
+  [142, ["ledger", "stand", "lectern", "tag"]],
+  [143, ["bell"]],
+  [144, ["ring"]],
+  [
+    145,
+    [
+      "shelves",
+      "shelf",
+      "bookcase",
+      "books",
+      "book",
+      "drawers",
+      "catalog",
+      "files",
+      "records",
+      "cards",
+    ],
+  ],
+  [146, ["inventory", "i", "items", "pockets"]],
+  [147, ["score", "points"]],
+  [148, ["me", "self", "myself", "apprentice"]],
+  [149, ["wait", "sleep", "rest", "sit"]],
+  [150, ["smell", "sniff"]],
+  [151, ["touch", "feel"]],
+  [152, ["thank", "thanks"]],
+  [153, ["rope", "velvet"]],
+  [154, ["paintings", "portrait", "seascape", "boat", "flower"]],
+  [155, ["chart"]],
+  [156, ["globe", "world"]],
+  [157, ["map", "plan"]],
+  [158, ["clock", "time"]],
+  [159, ["floor", "ground", "carpet", "tiles", "rug"]],
+  [160, ["hug", "cuddle", "pat", "pet"]],
 ];
 
+export const TUTORIAL_WORDS: [string, number][] = WORD_GROUPS.flatMap(([id, words]) =>
+  words.map((word): [string, number] => [word, id]),
+);
+
 const WORD_MAP = new Map(TUTORIAL_WORDS);
+
+/** A hint-row message, padded so a shorter one fully covers a longer one. */
+function hint(text: string): string {
+  if (text.length > 39) throw new Error(`hint row too long: ${text}`);
+  return text.padEnd(39);
+}
+
+/** The line each repair ends with: where to see how it works. */
+const STUDIO_LINE: Readonly<Record<number, string>> = {
+  1: "Curious how it works? Switch to CREATE and open this room in Studio.",
+  2: "Curious how it works? Switch to CREATE and open the robot in Sprite Studio.",
+  3: "Curious how it works? Switch to CREATE, open this room in Studio and try the Depth lens.",
+};
 
 /**
  * Printed by whichever room completes the third repair. It names no app
  * controls, so the tutorial stays true as the interface around it evolves.
  */
 const GRADUATION_MESSAGE =
-  "All three exhibits work. You have graduated! Felix has his counter back. You now know the three secrets of every AGI game: PICTURE recipes, VIEW flipbooks and PRIORITY numbers, all run by LOGIC rules. The AI writes the very same things. Make your own adventure from the main menu!";
+  "All three exhibits work. You have graduated! You now know the three secrets of every AGI game: PICTURE recipes, VIEW flipbooks and PRIORITY numbers, all run by LOGIC rules. The AI writes the very same things. Make your own adventure from the main menu!";
+
+const GRADUATED_HINT = hint("All fixed! Now make your own adventure.");
 
 export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
   0: String.raw`
+#message 1 "Only EAST and WEST lead anywhere in this building."
+#message 2 "No need to open anything: the doorways are always open. Walk through them, or type EAST or WEST."
+#message 3 "You're the new apprentice at the Adventure Department. Your job: fix all three exhibits."
+#message 4 "You carry a pencil stub, a museum badge and a lot of curiosity. This adventure needs no items."
+#message 5 "Score: %v3 of 30. Each repaired exhibit is worth 10 points."
+#message 6 "Violence never fixed an exhibit. Well, almost never."
+#message 7 "You do a little dance. Nobody is watching. Probably."
+#message 8 "Rule one of every museum: no snacks near the exhibits."
+#message 9 "Climbing the exhibits is frowned upon. Also, you would fall off."
+#message 10 "Nothing happens. %s1"
+#message 11 "I don't know the word \"%w1\". %s1"
+#message 12 "I don't know the word \"%w2\". %s1"
+#message 13 "I don't know the word \"%w3\". %s1"
+#message 14 "I don't know one of those words. %s1"
+#message 15 "You rest a moment. Sadly, the exhibits don't fix themselves."
+#message 16 "It smells of old paint and new ideas."
+#message 17 "You're welcome! Now, back to work."
+#message 18 "Ow. The robot is solid tin. Your toe is not."
+#message 19 "Just type what to do, in a word or two. %s1"
+#message 20 "You hug the sleeping robot. Cold tin. The WAKE lever might help."
+#message 21 "You hug the robot. He beeps happily and keeps waving."
+#message 22 "A hug never fixed an exhibit, but it's a kind thought."
+
 // Boot once, then dispatch the current room every interpreter cycle.
 if (!isset(f200)) {
   set(f200);
@@ -158,13 +209,35 @@ if (said("normal") || said("normal", "speed")) {
 if (said("slow") || said("slow", "speed")) {
   assignn(v60, 2); assignn(v51, 2); step.time(o0, v51); assignn(v63, 0);
 }
-if (said("north") || said("south")) {
-  print("Only EAST and WEST lead anywhere in this building.");
+if (said("north") || said("south")) { print(1); }
+if (said("door") || said("exit") || said("open", "door") || said("open", "exit") || said("open")) { print(2); }
+if (said("look", "me")) { print(3); }
+if (said("inventory") || said("look", "inventory")) { print(4); }
+if (said("score") || said("look", "score")) { print(5); }
+if (equaln(v0, 2) && said("kick", "robot")) { print(18); }
+if (equaln(v0, 2) && said("hug", "robot")) {
+  if (isset(f31)) { print(21); } else { print(20); }
 }
-if (said("door") || said("exit") || said("open", "door") || said("open", "exit")) {
-  print("There is no door here. The exhibits connect EAST and WEST.");
-}
+if (said("hug") || (equaln(v9, 0) && said("hug", "*"))) { print(22); }
+if (said("kick") || (equaln(v9, 0) && said("kick", "*"))) { print(6); }
+if (said("jump") || (equaln(v9, 0) && said("jump", "*"))) { print(7); }
+if (said("eat") || (equaln(v9, 0) && said("eat", "*"))) { print(8); }
+if (said("climb") || (equaln(v9, 0) && said("climb", "*"))) { print(9); }
+if (said("wait") || (equaln(v9, 0) && said("wait", "*"))) { print(15); }
+if (said("smell") || (equaln(v9, 0) && said("smell", "*"))) { print(16); }
+if (said("thank") || (equaln(v9, 0) && said("thank", "*"))) { print(17); }
+// HOW DO I PAINT: how and do are ignored, and I is INVENTORY's word.
+if (equaln(v9, 0) && said("inventory", "...")) { print(19); }
 call.v(v0);
+// Whatever the room did not handle gets a Sierra-style reply naming the
+// unknown word and the room's next step (s1, which each room keeps current).
+if (isset(f2) && !isset(f4)) {
+  if (equaln(v9, 0)) { print(10); }
+  if (equaln(v9, 1)) { print(11); }
+  if (equaln(v9, 2)) { print(12); }
+  if (equaln(v9, 3)) { print(13); }
+  if (greatern(v9, 3)) { print(14); }
+}
 if (isset(f5)) {
   assignn(v61, 0); assignn(v63, 0);
   if (equaln(v60, 2)) { assignn(v51, 2); } else { assignn(v51, 1); }
@@ -195,22 +268,38 @@ return;
 `,
   1: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: PICTURE GALLERY"
-#message 2 "An empty frame hangs on the gallery wall. The scene is missing! Walk in front of the frame and type PAINT MURAL. The Sprite Lab is EAST."
-#message 3 "Useful commands here: LOOK, LOOK MURAL, PAINT MURAL, LOOK CODE, EAST. Arrows walk. FAST or SLOW changes your speed."
-#message 4 "You paint a sun, mountains and a river. The computer keeps no photo, only a recipe: draw a line here, pour colour there. That recipe is a PICTURE, stored as tiny vector commands. Exhibit one repaired!"
-#message 5 "The mural shows the finished landscape. Type LOOK CODE to see the rule that painted it."
-#message 6 "Nothing happens. In the gallery, try PAINT MURAL or HELP."
-#message 7 "Fix 3 exhibits. HELP. Try PAINT MURAL."
+#message 2 "The Picture Gallery. A golden frame hangs behind a velvet rope, but its painting is gone: only a pencil sketch is left. Walk up to the rope and type PAINT MURAL."
+#message 3 "Useful commands here: LOOK, LOOK MURAL, PAINT MURAL, LOOK CODE, EAST. Arrow keys walk. FAST and SLOW change your speed."
+#message 4 "You paint a sun, mountains and a river. The computer keeps no photo of it, only a recipe: draw a line here, pour paint there. That recipe is a PICTURE, made of vector commands. Exhibit one repaired!\n\n${STUDIO_LINE[1]}"
+#message 5 "The mural glows with its new landscape. Every line and every splash of colour came from the recipe. Type LOOK CODE to see the rule that painted it."
+#message 6 "${hint("Fix 3 exhibits. HELP. Try PAINT MURAL.")}"
+#message 7 "${hint("Mural fixed! Next exhibit: go EAST.")}"
 #message 8 "${GRADUATION_MESSAGE}"
-#message 9 "A ROOM is one numbered place. Its PICTURE paints the backdrop and its LOGIC holds the rules. Going EAST is just new.room(2). A flag remembers your repair when you return."
-#message 10 "The west wall is solid oak. The Sprite Lab is east."
-#message 11 "The rule behind PAINT MURAL, in real AGI logic:  if (said(\"paint\", \"mural\")) { overlay.pic(4); set(f30); }  When you say this, do that. Every puzzle in every AGI game is a rule like it."
-#message 12 "You are too far away. Walk in front of the frame, then PAINT MURAL."
-#message 13 "You clear your throat. The frame says nothing. Felix the clerk works two rooms EAST."
-#message 14 "I do not know that word. In the gallery, try PAINT MURAL or HELP."
-#message 15 "A sturdy restoration bench with three cabinets. The tools are for painting, not for taking."
-#message 16 "That is not how a museum works. Try PAINT MURAL, LOOK or HELP."
-#message 17 "You see nothing special about that."
+#message 9 "This is ROOM 1. A room is one numbered place: its PICTURE paints the backdrop, and its LOGIC holds the rules. Walking EAST just runs new.room(2)."
+#message 10 "Only a marble bust lives that way, and it isn't moving. The Sprite Lab is EAST."
+#message 11 "The rule behind PAINT MURAL, in real AGI logic:\n\nif (said(\"paint\",\"mural\")) {\noverlay.pic(4);\nset(f30);\n}\n\nWhen you say this, do that. Every AGI puzzle is a rule like this one."
+#message 12 "You're too far away. Walk up to the frame, then PAINT MURAL."
+#message 13 "You clear your throat. The paintings say nothing, which is typical of paintings. Felix the clerk works two rooms EAST."
+#message 14 "A restoration cart with three pots of paint: red, yellow and blue. Painters here work from recipes, not from photos."
+#message 15 "Art stays on the walls. Stealing it is a very different kind of game."
+#message 16 "You see nothing special about that."
+#message 17 "Try PAINT MURAL or HELP."
+#message 18 "The next exhibit is EAST."
+#message 19 "HELP lists what works here."
+#message 20 "${GRADUATED_HINT}"
+#message 21 "A marble bust of the Department's first adventurer. The nose fell off years ago. Nobody knows where it went."
+#message 22 "The plaque reads: LANDSCAPE. Painting missing, recipe included."
+#message 23 "The plaque reads: LANDSCAPE. Painted by you, one command at a time."
+#message 24 "A velvet rope keeps visitors from touching the art. You may still paint it: you're staff."
+#message 25 "Three small paintings: a portrait, a flower and a boat. Each one is a recipe of lines and fills, like every AGI picture."
+#message 26 "A brass picture light, so every brushstroke shows."
+#message 27 "The doorway EAST leads to the Sprite Lab. You can see its blue walls from here."
+#message 28 "Paintings are fixed with paint around here. Try PAINT MURAL."
+#message 29 "The mural is already finished. Stand back and admire it."
+#message 30 "The canvas is blank and a little dusty."
+#message 31 "The paint is already dry. Recipes dry fast."
+#message 32 "Only the mural needs paint. Try PAINT MURAL."
+#message 33 "Cool grey stone. It hums faintly with vector commands."
 
 if (isset(f5)) {
   assignn(v50, 1);
@@ -227,17 +316,35 @@ if (isset(f5)) {
   if (!isset(f36)) { set(f36); sound(1, f37); }
   if (isset(f30)) { assignn(v50, 4); load.pic(v50); overlay.pic(v50); show.pic(); }
 }
-display(1, 1, 1); display(2, 1, 7);
+display(1, 1, 1);
+if (!isset(f30)) { display(2, 1, 6); set.string(s1, m17); }
+if (isset(f30) && !isset(f33)) { display(2, 1, 7); set.string(s1, m18); }
+if (isset(f33)) { display(2, 1, 20); set.string(s1, m19); }
 if (said("help")) { print(3); }
 if (said("look", "room") || said("look", "logic")) { print(9); }
 if (said("look", "code")) { print(11); }
-if (said("look", "bench")) { print(15); }
+if (said("look", "bench")) { print(14); }
+if (said("look", "bust")) { print(21); }
+if (said("look", "plaque")) {
+  if (isset(f30)) { print(23); } else { print(22); }
+}
+if (said("look", "rope")) { print(24); }
+if (said("look", "paintings")) { print(25); }
+if (said("look", "lamp")) { print(26); }
+if (said("look", "door")) { print(27); }
+if (said("look", "floor")) { print(33); }
 if (said("look") || said("look", "gallery") || said("look", "mural")) {
   if (isset(f30)) { print(5); } else { print(2); }
 }
-if (said("look", "*")) { print(17); }
-if (said("talk") || said("talk", "*")) { print(13); }
-if (said("take") || said("take", "*")) { print(16); }
+if ((equaln(v9, 0) && said("look", "*"))) { print(16); }
+if (said("touch", "mural")) {
+  if (isset(f30)) { print(31); } else { print(30); }
+}
+if (said("fix", "mural")) {
+  if (isset(f30)) { print(29); } else { print(28); }
+}
+if (said("talk") || (equaln(v9, 0) && said("talk", "*"))) { print(13); }
+if (said("take") || (equaln(v9, 0) && said("take", "*"))) { print(15); }
 if (said("paint", "mural") || said("paint")) {
   if (posn(o0, 45, 112, 110, 167)) {
     if (!isset(f30)) {
@@ -246,36 +353,52 @@ if (said("paint", "mural") || said("paint")) {
       sound(2, f37);
       print(4);
       if (isset(f31) && isset(f32)) { set(f33); print(8); }
-    } else { print(5); }
+    } else { print(29); }
   } else { print(12); }
 }
+if ((equaln(v9, 0) && said("paint", "*"))) { print(32); }
 if (said("west")) { print(10); }
 if (said("east")) { new.room(2); }
 if (equaln(v2, 2)) { new.room(2); }
-if (isset(f2) && !isset(f4)) {
-  if (equaln(v9, 0)) { print(6); } else { print(14); }
-}
 return;
 `,
   2: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: SPRITE LAB"
-#message 2 "A tin robot stands beside a big lever. The robot is a flipbook: a few tiny drawings shown one after another. That flipbook is a VIEW. Logic selects the view, loop and cel to show. Walk to the lever and try PULL LEVER."
-#message 3 "The lever clunks down and the robot waves! Both are VIEWS: the lever plays its drawings once, the robot repeats his. A condition checks the repair flag, so the lever stays down when you come back. Exhibit two repaired!"
-#message 4 "The robot is already awake. It waves again."
-#message 5 "Nothing happens. In the lab, try PULL LEVER, LOOK ROBOT or HELP."
-#message 6 "Useful commands here: LOOK ROBOT, LOOK LEVER, TALK ROBOT, PULL LEVER, WEST, EAST. Arrows walk."
-#message 7 "Exhibit two: HELP. Try PULL LEVER."
+#message 2 "The Sprite Lab. A tin robot sleeps in its charging bay. The robot is a flipbook: a few small drawings shown one after another. That flipbook is a VIEW. Walk to the WAKE lever and try PULL LEVER."
+#message 3 "The lever swings over with a CLUNK, and the robot wakes up waving! Both are VIEWS: the lever plays its drawings once, the robot loops his. A condition checks the repair flag, so the lever stays put when you come back. Exhibit two repaired!\n\n${STUDIO_LINE[2]}"
+#message 4 "The lever is already down. The robot waves anyway."
+#message 5 "LOGIC selects the view, the loop and the cel to show. A loop is one row of drawings, and a cel is one drawing in it."
+#message 6 "Useful commands here: LOOK ROBOT, LOOK LEVER, TALK ROBOT, PULL LEVER, LOOK CODE, WEST, EAST. Arrow keys walk."
+#message 7 "${hint("Exhibit 2 of 3. HELP. Try PULL LEVER.")}"
 #message 8 "${GRADUATION_MESSAGE}"
-#message 9 "A friendly tin robot. Its arm is frozen mid-wave. The lever beside it is labelled WAKE."
-#message 10 "The robot waves and waves. Its drawings play in a loop, like a flipbook that never ends."
-#message 11 "A big red lever, pointing up. Try PULL LEVER."
-#message 12 "The lever points down. A flag keeps it there, even if you leave and come back."
-#message 13 "The robot is not responding."
-#message 14 "BEEP. The robot says thank you, in robot."
-#message 15 "You are too far away. Walk over to the lever, then PULL LEVER."
-#message 16 "I do not know that word. In the lab, try PULL LEVER or HELP."
+#message 9 "A tin robot, fast asleep in its charging bay. Zzz. The lever on the wall says WAKE."
+#message 10 "The robot waves at you. Walk past him and he turns: his left-facing loop is a MIRROR of his right-facing one, so it costs no extra drawings."
+#message 11 "A big red lever on a steel plate. The label says WAKE. Try PULL LEVER."
+#message 12 "The lever points the other way now. A flag keeps it there, even if you leave and come back."
+#message 13 "The robot snores in little beeps. It's switched off."
+#message 14 "BEEP BOOP. The robot says thank you, in robot."
+#message 15 "You're too far away. Walk over to the lever, then PULL LEVER."
+#message 16 "The rule behind PULL LEVER, in real AGI logic:\n\nif (said(\"pull\",\"lever\")) {\nset.view(o1, 2);\nend.of.loop(o2, f34);\n}\n\nset.view gives the robot a new flipbook; end.of.loop plays the lever's once."
 #message 17 "You see nothing special about that."
-#message 18 "The lab is for looking and pulling, not for that. Try PULL LEVER or HELP."
+#message 18 "The lab equipment is bolted down, mostly because of apprentices."
+#message 19 "Try PULL LEVER or HELP."
+#message 20 "The next exhibit is EAST."
+#message 21 "The mural still waits WEST."
+#message 22 "HELP lists what works here."
+#message 23 "${hint("Robot awake! Next exhibit: go EAST.")}"
+#message 24 "${hint("Robot awake! The mural waits WEST.")}"
+#message 25 "${GRADUATED_HINT}"
+#message 26 "The charging bay's sprite editor. Its screen shows the robot drawn big, one square pixel at a time."
+#message 27 "A film strip of the robot's wave: four drawings in a row. Show them fast and he moves. That's all animation is."
+#message 28 "You wave. The robot doesn't wave back. It's switched off."
+#message 29 "You wave. The robot waves back! Same four drawings, over and over."
+#message 30 "There's no button on the robot. The lever that says WAKE looks promising. Try PULL LEVER."
+#message 31 "It's awake. Very awake."
+#message 32 "The robot doesn't want to be pulled. The lever does."
+#message 33 "The robot isn't broken, just asleep. Try PULL LEVER."
+#message 34 "Nothing to fix: the robot works beautifully."
+#message 35 "Doorways lead WEST to the red gallery and EAST to the green archive."
+#message 36 "Black and white tiles, like a giant sheet of graph paper."
 
 if (isset(f5)) {
   assignn(v50, 2);
@@ -302,22 +425,48 @@ if (isset(f5)) {
   draw(o2); stop.cycling(o2);
   accept.input();
 }
-display(1, 1, 1); display(2, 1, 7);
+// Awake, the robot turns to face the apprentice: loop 1 is loop 0 mirrored.
+if (isset(f31)) {
+  if (lessn(v54, 100)) { set.loop(o1, 1); } else { set.loop(o1, 0); }
+}
+display(1, 1, 1);
+if (!isset(f31)) { display(2, 1, 7); set.string(s1, m19); }
+if (isset(f31) && !isset(f33)) {
+  if (!isset(f32)) { display(2, 1, 23); set.string(s1, m20); }
+  if (isset(f32)) { display(2, 1, 24); set.string(s1, m21); }
+}
+if (isset(f33)) { display(2, 1, 25); set.string(s1, m22); }
 if (said("help")) { print(6); }
 if (said("look", "robot")) {
   if (isset(f31)) { print(10); } else { print(9); }
 }
-if (said("look", "lever")) {
+if (said("look", "lever") || said("look", "plaque")) {
   if (isset(f31)) { print(12); } else { print(11); }
 }
-if (said("look") || said("look", "room") || said("look", "lab") || said("look", "sprite") || said("look", "logic") || said("look", "code")) { print(2); }
-if (said("look", "*")) { print(17); }
-if (said("talk") || said("talk", "*")) {
+if (said("look", "code")) { print(16); }
+if (said("look", "logic") || said("look", "sprite")) { print(5); }
+if (said("look", "console")) { print(26); }
+if (said("look", "film")) { print(27); }
+if (said("look", "door")) { print(35); }
+if (said("look", "floor")) { print(36); }
+if (said("look") || said("look", "room") || said("look", "lab")) { print(2); }
+if ((equaln(v9, 0) && said("look", "*"))) { print(17); }
+if (said("talk") || (equaln(v9, 0) && said("talk", "*"))) {
   if (isset(f31)) { print(14); } else { print(13); }
 }
-if (said("take") || said("take", "*")) { print(18); }
+if (said("wave") || (equaln(v9, 0) && said("wave", "*"))) {
+  if (isset(f31)) { print(29); } else { print(28); }
+}
+if (said("wake") || said("wake", "robot")) {
+  if (isset(f31)) { print(31); } else { print(30); }
+}
+if (said("fix", "robot")) {
+  if (isset(f31)) { print(34); } else { print(33); }
+}
+if (said("take") || (equaln(v9, 0) && said("take", "*"))) { print(18); }
+if (said("pull", "robot")) { print(32); }
 if (said("pull", "lever") || said("pull")) {
-  if (posn(o0, 8, 112, 52, 167)) {
+  if (posn(o0, 26, 112, 56, 167)) {
     if (!isset(f31)) {
       set(f31); addn(v3, 10); set.view(o1, 2); start.cycling(o1);
       sound(3, f37);
@@ -333,31 +482,47 @@ if (said("west")) { new.room(1); }
 if (said("east")) { new.room(3); }
 if (equaln(v2, 4)) { new.room(1); }
 if (equaln(v2, 2)) { new.room(3); }
-if (isset(f2) && !isset(f4)) {
-  if (equaln(v9, 0)) { print(5); } else { print(16); }
-}
 return;
 `,
   3: String.raw`
 #message 1 "ADVENTURE DEPARTMENT: PRIORITY ARCHIVE"
-#message 2 "Felix the ferret clerk floats in front of his counter. Every spot on the floor has a secret number that says how far away it is. That number is PRIORITY. Type SHOW PRIORITY to see them all."
+#message 2 "The Priority Archive. Felix the ferret clerk floats in FRONT of his counter. That's wrong! Every spot on the screen has a secret depth number, called PRIORITY. Type SHOW PRIORITY to see them."
 #message 3 "Counter:11. Felix:15. Higher is closer."
-#message 4 "You change Felix from priority 15 to 10. The counter keeps 11, so it is closer now: it hides his tummy while his head shows above it. Exhibit three repaired!"
-#message 5 "Felix stands behind his counter at last. Counter 11 is closer than Felix 10, so the counter covers him."
-#message 6 "Useful commands here: LOOK FELIX, TALK FELIX, LOOK COUNTER, SHOW PRIORITY, FIX PRIORITY, WEST."
+#message 4 "You change Felix from priority 15 to 10. The counter keeps 11, so now it is closer: it hides his tummy, and his head peeks over the top. Exhibit three repaired!\n\n${STUDIO_LINE[3]}"
+#message 5 "Felix stands behind his counter at last. The counter's 11 is closer than Felix's 10, so the counter covers him."
+#message 6 "Useful commands here: LOOK FELIX, TALK FELIX, LOOK COUNTER, SHOW PRIORITY, FIX PRIORITY, LOOK CODE, WEST."
 #message 7 "${GRADUATION_MESSAGE}"
-#message 8 "Exhibit three: HELP. Try SHOW PRIORITY."
+#message 8 "${hint("Exhibit 3 of 3. HELP. SHOW PRIORITY.")}"
 #message 9 "Counter:11. Felix:10. Lower is farther."
-#message 10 "The east wall ends the archive. Return west to the Sprite Lab."
-#message 11 "Felix squeaks: I keep floating in front of my counter! Please FIX PRIORITY."
-#message 12 "Felix squeaks: Perfect! Now I can sort the archive again. Thank you!"
-#message 13 "A long oak counter. Its floor pixels carry priority 11. The lamp above it turns green when the archive is repaired."
-#message 14 "Nothing happens. In the archive, try SHOW PRIORITY, FIX PRIORITY or HELP."
-#message 15 "I do not know that word. In the archive, try SHOW PRIORITY or HELP."
-#message 16 "A small lamp above the counter. Red means the archive is still broken."
+#message 10 "The east wall ends the archive. Only the globe lives over there. Go WEST for the Sprite Lab."
+#message 11 "Felix squeaks: \"I'm floating in front of my own counter! My priority is wrong. Please FIX PRIORITY.\""
+#message 12 "Felix squeaks: \"Perfect! Now I can sort the archive again. Thank you!\""
+#message 13 "A long oak counter. On the hidden depth screen its pixels say 11. Anything with a lower number goes behind it."
+#message 14 "The rule behind FIX PRIORITY, in real AGI logic:\n\nif (said(\"fix\",\"priority\")) {\nset.priority(o1, 10);\n}\n\nNumbers decide who is in front. Bigger is closer."
+#message 15 "Felix the clerk, a ferret in a green eyeshade. His priority is 15, the closest there is, so he floats in front of everything."
+#message 16 "A little lamp on the counter. Red means the archive is still broken."
 #message 17 "The lamp glows green. The archive is repaired."
 #message 18 "You see nothing special about that."
-#message 19 "Felix would rather you did not. Try SHOW PRIORITY or HELP."
+#message 19 "Felix would rather you didn't. Everything here is filed exactly where it belongs."
+#message 20 "Felix, busy behind his counter. Priority 10: one step behind the counter's 11."
+#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. It has no depth number of its own yet, so if you walk behind it you float in front! Fixing that is a job for the Room Studio."
+#message 22 "The depth chart: every priority from 4 (far away, at the top) to 15 (right in front). SHOW PRIORITY paints the room in these colours."
+#message 23 "A globe of a world where every adventure is still waiting to be written."
+#message 24 "A map of the Adventure Department: the red gallery, the blue lab and the green archive. You are here."
+#message 25 "The clock says it's time to fix some priorities."
+#message 26 "Shelves of ledgers and drawers of index cards. Felix knows where every one of them is filed."
+#message 27 "DING! Felix jumps. \"I'm right here, you know.\""
+#message 28 "Felix isn't heavy, just in the wrong layer. Try FIX PRIORITY."
+#message 29 "The doorway WEST leads back to the Sprite Lab."
+#message 30 "Try SHOW PRIORITY or HELP."
+#message 31 "The other exhibits are WEST."
+#message 32 "HELP lists what works here."
+#message 33 "${hint("Felix fixed! The others wait WEST.")}"
+#message 34 "${GRADUATED_HINT}"
+#message 35 "Felix's priority is fixed already. He's exactly where he belongs."
+#message 36 "A thick red carpet. It muffles footsteps, and Felix likes it quiet."
+#message 37 "Wait: you're BEHIND the ledger stand, yet you float in front of it! The tag on it says DEPTH PENDING. Nobody has given the stand a depth number yet."
+#message 38 "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains."
 
 if (isset(f5)) {
   assignn(v50, 3); load.pic(v50); draw.pic(v50); show.pic();
@@ -388,190 +553,64 @@ if (!isset(f5)) {
     if (equaln(v59, 0)) { set.cel(o1, 1); set(f35); random(2, 4, v59); }
   }
 }
-display(1, 1, 1); display(2, 1, 8);
+// The ledger stand has no depth yet (the Room Studio lesson): say so the first time the apprentice walks behind it.
+if (!isset(f38) && posn(o0, 33, 112, 49, 120)) { set(f38); print(37); }
+display(1, 1, 1);
+if (!isset(f32)) { display(2, 1, 8); set.string(s1, m30); }
+if (isset(f32) && !isset(f33)) { display(2, 1, 33); set.string(s1, m31); }
+if (isset(f33)) { display(2, 1, 34); set.string(s1, m32); }
 if (said("help")) { print(6); }
+if (said("look", "code")) { print(14); }
 if (said("look", "counter")) { print(13); }
+if (said("look", "clerk")) {
+  if (isset(f32)) { print(20); } else { print(15); }
+}
 if (said("look", "lamp")) {
   if (isset(f32)) { print(17); } else { print(16); }
 }
-if (said("look") || said("look", "room") || said("look", "archive") || said("look", "priority") || said("look", "clerk")) {
+if (said("look", "ledger")) { print(21); }
+if (said("look", "chart")) { print(22); }
+if (said("look", "globe")) { print(23); }
+if (said("look", "map")) { print(24); }
+if (said("look", "clock")) { print(25); }
+if (said("look", "shelves")) { print(26); }
+if (said("look", "door")) { print(29); }
+if (said("look", "floor")) { print(36); }
+if (said("look") || said("look", "room") || said("look", "archive") || said("look", "priority")) {
   if (isset(f32)) { print(5); } else { print(2); }
 }
-if (said("look", "*")) { print(18); }
-if (said("talk") || said("talk", "*")) {
+if ((equaln(v9, 0) && said("look", "*"))) { print(18); }
+if (said("talk") || (equaln(v9, 0) && said("talk", "*"))) {
   if (isset(f32)) { print(12); } else { print(11); }
 }
-if (said("take") || said("take", "*")) { print(19); }
+if (said("ring", "bell") || said("ring") || said("use", "bell")) { print(27); }
+if (said("fix", "ledger") || said("fix", "ledger", "priority")) { print(38); }
+if (said("fix", "clerk") || said("pull", "clerk")) {
+  if (isset(f32)) { print(35); } else { print(28); }
+}
+if (said("take") || (equaln(v9, 0) && said("take", "*"))) { print(19); }
 if (said("show", "priority")) {
   if (isset(f32)) { display(23, 0, 9); } else { display(23, 0, 3); }
   show.pri.screen();
   clear.lines(23, 23, 0);
 }
-if (said("fix", "priority")) {
+if (said("fix", "priority") || said("fix", "clerk", "priority")) {
   if (!isset(f32)) {
     set(f32); addn(v3, 10); set.priority(o1, 10); set.cel(o2, 1);
     sound(2, f37);
     print(4);
     if (isset(f30) && isset(f31)) { set(f33); print(7); }
-  } else { print(5); }
+  } else { print(35); }
 }
 if (said("west")) { new.room(2); }
 if (said("east")) { print(10); }
 if (equaln(v2, 4)) { new.room(2); }
-if (isset(f2) && !isset(f4)) {
-  if (equaln(v9, 0)) { print(14); } else { print(15); }
-}
 return;
 `,
 };
 
-/** Emit explicit native AGI vector rows; useful for solid regions over existing colors. */
-function horizontalStrokes(color: number, x1: number, x2: number, y1: number, y2: number): string {
-  return [
-    `vis ${color}`,
-    ...Array.from({ length: y2 - y1 + 1 }, (_, row) => `line ${x1},${y1 + row} ${x2},${y1 + row}`),
-  ].join("\n");
-}
-
-/** One Room Studio item: `lines` between `# @item` and `# @end` (comments; no bytes). */
-function item(id: string, label: string, kind: "art" | "depth" | "walk", ...lines: string[]) {
-  return [`# @item ${id} "${label}" ${kind}`, ...lines, "# @end"].join("\n");
-}
-
-/** Shared scene contract: flat floor, visible side passages, separate collision/depth. */
-function roomPicture(room: number): string {
-  const west = room !== 1;
-  const east = room !== 3;
-  const [westBase, eastBase] = room === 1 ? [132, 128] : room === 2 ? [119, 119] : [124, 128];
-  const detail = [ORIGINAL_SCENE_PICTURES[room]!.replace(/\nend\s*$/, "")];
-  const sides = [
-    ["west", "West", 0, 7, west, westBase],
-    ["east", "East", 152, 159, east, eastBase],
-  ] as const;
-  for (const [id, name, x0, x1, open, base] of sides) {
-    // Carry each native side wall to its visible base. At exits the blue floor
-    // then runs cleanly through the screen edge; terminal walls continue down.
-    detail.push(
-      item(
-        `${id}-wall`,
-        `${name} wall`,
-        "art",
-        horizontalStrokes(6, x0, x1, 94, open ? base : 167),
-      ),
-    );
-    if (open) {
-      detail.push(
-        item(
-          `${id}-exit`,
-          `${name} exit floor`,
-          "art",
-          horizontalStrokes(1, x0, x1, base + 1, 167),
-        ),
-      );
-    }
-  }
-  // Side walls recede in perspective: their visible base is lower than the
-  // rear-wall horizon. Trace those contacts, not just one horizontal line.
-  const contacts: Record<number, readonly string[]> = {
-    1: ["line 8,132 35,112", "line 140,112 151,128"],
-    2: ["line 8,119 26,112", "line 134,112 151,119"],
-    3: ["line 8,124 25,112", "line 134,112 151,128"],
-  };
-  detail.push(
-    item(
-      "wall-base",
-      "Wall base barrier",
-      "walk",
-      "vis off",
-      "pri 0",
-      "line 0,112 159,112",
-      ...contacts[room]!,
-    ),
-  );
-  for (const [id, name, x0, x1, open, base] of sides) {
-    const rows: string[] = [];
-    for (let y = 113; y <= (open ? base : 167); y++) {
-      rows.push(`line ${x0},${y} ${x1},${y}`);
-    }
-    detail.push(item(`${id}-barrier`, `${name} wall barrier`, "walk", ...rows));
-  }
-  if (room === 3) {
-    // Depth follows the actual visible counter. No horizontal floor bands:
-    // an ego in front at baseline123 has priority11 and is fully visible.
-    // The exhibit's fault is Felix's own priority (15 until FIX PRIORITY, set
-    // in LOGIC 3); the counter's 11 is the part that already works.
-    detail.push(
-      item("counter-depth", "Counter depth", "depth", "pri 11", "rect 56,85 118,121", "fill 57,86"),
-      item(
-        "counter-barrier",
-        "Counter barrier",
-        "walk",
-        "pri 0",
-        "line 56,112 56,122 118,122 118,112",
-      ),
-    );
-  }
-  detail.push("end");
-  return detail.join("\n");
-}
-
-export const TUTORIAL_PICTURE_SOURCES: Readonly<Record<number, string>> = {
-  1: roomPicture(1),
-  2: roomPicture(2),
-  3: roomPicture(3),
-  4: `
-# A small hand-authored vector landscape replaces only the blank canvas.
-# @item primer "Canvas primer" art
-pri off
-${horizontalStrokes(15, 57, 98, 35, 72)}
-# @end
-# @item edge "Painting edge" art
-vis 9
-rect 57,35 98,72
-# @end
-# @item sun "Sun" art
-vis 14
-polygon 64,39 66,37 68,39 68,42 66,44 64,42
-# @end
-# @item hills "Hills" art
-vis 2
-polygon 57,60 67,47 77,59 86,46 98,61 98,72 57,72
-# @end
-# @item snow "Snowcaps" art
-vis 7
-polygon 64,51 67,47 70,51 67,50
-polygon 83,50 86,46 89,50 86,49
-# @end
-# @item river "River" art
-vis 11
-polygon 82,58 85,58 83,64 91,72 80,72 77,66
-# @end
-# @item trunk "Tree trunk" art
-vis 6
-line 60,68 60,57
-# @end
-# @item tree "Tree" art
-vis 2
-polygon 57,61 60,53 63,61
-# @end
-# @item greens "Hills & tree fill" art
-fill 66,61 94,66 59,60 61,60
-# @end
-# @item river-fill "River fill" art
-vis 11
-fill 81,67
-# @end
-# @item sun-fill "Sun fill" art
-vis 14
-fill 66,40
-# @end
-# @item sky "Sky" art
-vis 9
-fill 58,36
-# @end
-end
-`,
-};
+/** The three rooms and the mural overlay, as annotated Room Studio sources. */
+export const TUTORIAL_PICTURE_SOURCES: Readonly<Record<number, string>> = TUTORIAL_PICTURES;
 
 export const TUTORIAL_VIEW_SOURCES: Readonly<Record<number, BuildViewInput>> = {
   ...CHARACTER_VIEWS,
@@ -616,6 +655,7 @@ export function buildTutorial(): TutorialGame {
     tutorial_complete: { kind: "flag", num: 33 },
     intro_played: { kind: "flag", num: 36 },
     sound_finished: { kind: "flag", num: 37 },
+    stand_tag_seen: { kind: "flag", num: 38 },
     walking_speed: { kind: "variable", num: 60 },
     intro_sound: { kind: "sound", num: TUTORIAL_SOUND_IDS.intro },
     point_sound: { kind: "sound", num: TUTORIAL_SOUND_IDS.point },

@@ -1,6 +1,6 @@
 /**
  * Create mode's wiring in the shell root: the real panels behind the dock
- * placeholders, the inspector and the assistant following their tabs, Room
+ * placeholders and the Resources tab, the inspector and the assistant following their tabs, Room
  * Studio closing whenever the live stage has to come back, and the `[` / `]`
  * dock keys. App.vue calls it once, beside the workspace it provides.
  */
@@ -48,6 +48,14 @@ export function useCreateMode(deps: {
   } as const;
   let offWorld = registerCreatePanel(world);
   const offs = [
+    registerCreatePanel({
+      id: "resources",
+      dock: "left",
+      title: "Resources",
+      icon: "image",
+      order: 1,
+      component: defineAsyncComponent(() => import("../world/ResourcesPanel.vue")),
+    }),
     registerCreatePanel({
       id: "inspect",
       dock: "right",

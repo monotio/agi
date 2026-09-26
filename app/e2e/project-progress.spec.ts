@@ -19,7 +19,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
 
 test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
   const container = createContainer();

@@ -12,7 +12,7 @@ import {
 } from "./engineProbe.ts";
 
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
 
 test("forking the tutorial moves its checkpoint to the remix card", async ({ page }) => {
   const original = TUTORIAL_LOGIC_SOURCES[1]!;

@@ -13,6 +13,7 @@
 import { computed, onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import type { PictureEdit } from "../resourceCommit.ts";
 import {
   begin,
   cancel,
@@ -321,6 +322,21 @@ export function useStudioDraft(options: StudioDraftOptions) {
 }
 
 export type StudioDraft = ReturnType<typeof useStudioDraft>;
+
+/** The Keep request for the draft as it stands: its bytes and the text that compiles to them. */
+export function draftPictureEdit(
+  draft: StudioDraft,
+  pictureNumber: number,
+  baseRevision: ResourceRevision,
+): PictureEdit {
+  return {
+    pictureNumber,
+    bytes: draft.compiled.value.bytes,
+    source: draft.source.value,
+    baseRevision,
+    reason: changeCount(draft.changes.value, draft.notesOnly.value),
+  };
+}
 
 /** Development and test builds: the draft's bytes and text on `window.__AGI_STUDIO__` for browser tests. */
 export function exposeStudioDraft(draft: StudioDraft): void {

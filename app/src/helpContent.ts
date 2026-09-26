@@ -8,12 +8,21 @@
 export type HelpAction =
   "controls" | "map" | "hint" | "remix" | "ai-settings" | "create" | "add-game";
 
+/** Open a Studio on one resource of the current game, switching to Create first. */
+export type HelpStudioAction =
+  | { readonly kind: "openRoomStudio"; readonly picture: number }
+  | { readonly kind: "openSpriteStudio"; readonly view: number };
+
+/** What a topic's "Show me" asks for: a control, or a Studio on a resource. */
+export type HelpRequest = { readonly kind: HelpAction } | HelpStudioAction;
+export type HelpActionKind = HelpRequest["kind"];
+
 export interface HelpTopic {
   readonly id: string;
   readonly title: string;
   /** Paragraphs of plain text. */
   readonly body: readonly string[];
-  readonly action?: { readonly kind: HelpAction; readonly label: string };
+  readonly action?: HelpRequest & { readonly label: string };
 }
 
 export interface HelpSection {
@@ -135,6 +144,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "The scrubber replays the draw order command by command, the scene list names each thing the picture draws, and clicking a pixel shows which command put it there — or why a fill stopped.",
           "Select an item to edit it: drag it or its points, nudge it with the arrow keys (Shift for 8 pixels), or change its colour, priority and draw order in the inspector. Each lens locks what it is not about (the Depth lens keeps the art as it is) until you unlock it, and every change can be undone, even after Keep. Keep saves the picture into the game; leaving Studio, switching to Play or exiting the game with unkept changes asks first.",
           "The tool rail on the left draws new items: Line (L), Rectangle (R), Polygon (P), Fill (F) and Brush (B), with the colour and priority under the tools. New content goes where the scrubber stands in the draw order. The pipette (I) picks values from the picture, H or Space pans, and G stands a ghost actor from the game's views on the picture to show whether it would be drawn in front or behind. Every tool works from the keyboard too: on the focused canvas the arrow keys move a crosshair (Shift for 8 pixels) and Space or Enter clicks where it stands.",
+        ],
+      },
+      {
+        id: "sprites",
+        title: "Sprite Studio",
+        body: [
+          "Open in Sprite Studio, on a view in a room's card in the World panel or in the Resources tab, edits a character's or object's cels: one loop per facing, each a row of animation frames in the timeline under the canvas. A character-sheet candidate from reference art opens here too, to repair before you keep it.",
+          "Draw with the Pencil (B), Eraser (E), Fill (G), Line (L) and Rectangle (R) in any colour of the fixed palette; the cel's transparent colour, marked ∅, is only ever written by the eraser. Select (M) moves, copies (Alt), flips (H) or deletes a region; the pipette (I) picks a colour. Recolour (C) swaps one colour for another in a cel, a loop or the whole view. On the focused canvas the arrow keys move a cursor and Space or Enter clicks where it stands. The Contact sheet shows every cel at once, and a cel's menu copies or moves it to another loop.",
+          "A loop that mirrors another shares its pixels. Editing it makes it a separate copy and leaves the other facing as it is; choose Edit loop N instead to change both. The previews play the loop at the game's speed beside its partner, and stand the cel in a room that uses the view with the room's real depth. Keep saves the view into the game; every change can be undone.",
         ],
       },
       {

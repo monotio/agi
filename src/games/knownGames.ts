@@ -49,7 +49,8 @@ export const KNOWN_GAME_HASH = {
   MUMG: "a718ca71030b946726a197e891998ab44ad3fe363e346810fa2d720151aa1d3e",
   DEMOPAC4: "6c7456ae306ad62ed6be4d3442f03d853e66c773661dcad79ae4b2f0152ccdec",
   SYNTHETIC: "d00cc5981820a66d3a56c802f8d747a73fe153d394a80463accf313947623fa1",
-  ADVENTURE_DEPARTMENT: "c9085eb86d115abce91442186553a4b4a39cf30a2729fc8faaf259d74c07175d",
+  ADVENTURE_DEPARTMENT: "2945ab64fe54e79b21c16e234d43ba8d3ebf074da07ecbd4c12155253c0e1199",
+  ADVENTURE_DEPARTMENT_1_0: "c9085eb86d115abce91442186553a4b4a39cf30a2729fc8faaf259d74c07175d",
 } as const;
 
 export const KNOWN_GAMES: readonly KnownAgiGame[] = [
@@ -79,11 +80,26 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     // TESTS.JSON is not part of the canonical playable set, so the fixture
     // server's public file set and the full project boot to one revision.
     targetRevision: requireResourceRevision(
-      "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
+      "e21e5c7870890fa413cd592c3c59536aecb349dc6b78bd4a7acf1e178e779796",
     ),
     walkthroughLabel: "Complete route (30 pts)",
     walkthroughCoverage: "complete-game",
     builtin: true,
+  },
+  // The released 1.0.0 tutorial, which players may still have stored: it stays
+  // recognised as Adventure Department. Its sources were replaced by 1.1.0, so
+  // it is neither built nor walked through; app/test/formats/ holds its bytes.
+  {
+    alias: "adventure-department-1.0",
+    title: "Adventure Department",
+    author: "Monotio",
+    era: "v2-split",
+    profile: "2.936",
+    wordsSha256: KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT_1_0,
+    objectSha256: "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
+    targetRevision: requireResourceRevision(
+      "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
+    ),
   },
   {
     alias: "kq1",

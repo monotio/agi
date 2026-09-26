@@ -474,16 +474,16 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   await expect(studio).toHaveAttribute("aria-label", "Room Studio: PIC 1");
   // The tutorial's own picture text: named objects, not disassembled elements.
   const galleryRows = [
-    "Walls & floor outline",
-    "Ceiling beam & wall posts",
+    "Corners & floor line",
     "Mural frame",
-    "Sconces",
-    "Restoration bench",
-    "Restoration kit",
-    "Oak woodwork",
-    "Plaster walls",
-    "Blank mural canvas",
+    "Blank canvas",
+    "Pencil sketch",
+    "Picture light",
+    "Restoration cart",
+    "Upper walls",
     "Floor",
+    "Marble bust",
+    "Velvet rope",
   ];
   const rowLabels = () =>
     studio.locator('[role="treeitem"][data-row] .scene-list__label').allTextContents();

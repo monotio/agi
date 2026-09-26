@@ -1,12 +1,12 @@
 /**
- * Room Studio's Keep: commits one picture edit — the new PIC bytes and the
- * annotated source that compiles to them — through the engine's resource
- * transaction (useAuthoringController's commitPictureEdit), and exposes the
- * state the Keep button needs. The transaction itself is all-or-nothing up
- * to the durable save; see commitResourceEdit for the steps and recovery.
+ * A Studio's Keep: commits one edit — Room Studio's PIC bytes and the
+ * annotated source that compiles to them, Sprite Studio's VIEW bytes —
+ * through the engine's resource transaction (useAuthoringController's
+ * commitPictureEdit, commitViewEdit, keepStagedView), and exposes the state
+ * the Keep button needs. The transaction itself is all-or-nothing up to the
+ * durable save; see commitResourceEdit for the steps and recovery.
  */
 import { readonly, ref, shallowRef } from "vue";
-import { useEngineApi } from "../engineContext.ts";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
 import {
   ResourceCommitError,
@@ -45,19 +45,16 @@ export function studioCommitFailure(error: unknown): StudioCommitFailure {
  * `commit` resolves to the transaction's result, or null when it refused or
  * failed (`lastError` says why) or another Keep is still running.
  */
-export function useStudioCommit(
-  commitPictureEdit: (edit: PictureEdit) => Promise<ResourceCommitResult> = useEngineApi()
-    .commitPictureEdit,
-) {
+export function useStudioCommit<E>(commitEdit: (edit: E) => Promise<ResourceCommitResult>) {
   const busy = ref(false);
   const lastError = shallowRef<StudioCommitFailure | null>(null);
 
-  async function commit(edit: PictureEdit): Promise<ResourceCommitResult | null> {
+  async function commit(edit: E): Promise<ResourceCommitResult | null> {
     if (busy.value) return null;
     busy.value = true;
     lastError.value = null;
     try {
-      return await commitPictureEdit(edit);
+      return await commitEdit(edit);
     } catch (error) {
       lastError.value = studioCommitFailure(error);
       return null;

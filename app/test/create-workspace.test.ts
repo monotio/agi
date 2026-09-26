@@ -5,6 +5,7 @@ import { registerCreatePanel } from "../src/shell/createDocks.ts";
 import {
   createCreateWorkspace,
   DOCKS_STORAGE_KEY,
+  type PictureStudioRequest,
   type StudioRequest,
 } from "../src/shell/useCreateWorkspace.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
@@ -77,8 +78,9 @@ function studioRequest(
   room: number,
   reload: () => StudioRequest | null = () => null,
   reloadFromStorage: () => Promise<StudioRequest | null> = async () => null,
-): StudioRequest {
+): PictureStudioRequest {
   return {
+    kind: "picture",
     room,
     pictureNumber: 5,
     bytes: Uint8Array.of(0xff),
@@ -96,7 +98,8 @@ test("Studio holds its own pause and hands the keyboard back on close", () => {
   const request = studioRequest(2);
   ws.openStudio(request);
   ws.openStudio({ ...request, pictureNumber: 6 });
-  assert.equal(ws.studio.value?.pictureNumber, 6);
+  const open = ws.studio.value;
+  assert.equal(open?.kind === "picture" && open.pictureNumber, 6);
   ws.closeStudio();
   ws.closeStudio();
   assert.equal(ws.studio.value, null);

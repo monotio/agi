@@ -4,6 +4,9 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { itemHandles } from "../../../src/studio/editPoints.ts";
 import { footprintMask } from "../../../src/studio/editValidation.ts";
+import { useEngineApi } from "../engineContext.ts";
+import LessonCard from "../lessons/LessonCard.vue";
+import { useStudioLesson } from "../lessons/useStudioLesson.ts";
 import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
@@ -38,7 +41,7 @@ import {
 } from "./studioView.ts";
 import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
 import { filterScene, resolveStudioSource, useStudioDocument } from "./useStudioDocument.ts";
-import { exposeStudioDraft, useStudioDraft } from "./useStudioDraft.ts";
+import { draftPictureEdit, exposeStudioDraft, useStudioDraft } from "./useStudioDraft.ts";
 import { useStudioFocus } from "./useStudioFocus.ts";
 import { useStudioInput } from "./useStudioInput.ts";
 import { useStudioDrag } from "./useStudioDrag.ts";
@@ -119,7 +122,24 @@ const selection = useStudioSelection({
 const { hoveredId, selectedId, selectedRow, pinnedCell } = selection;
 const readout = useStudioReadout({ doc, selection, lens });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
-const keeper = useStudioKeep({ draft, pictureNumber: () => pictureNumber, keep: keepFn });
+const commitPicture = keepFn ?? useEngineApi().commitPictureEdit;
+/** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
+const lesson = useStudioLesson();
+const keeper = useStudioKeep({
+  draft,
+  keep: async (baseRevision) => {
+    const edit = draftPictureEdit(draft, pictureNumber, baseRevision);
+    const result = await commitPicture(edit);
+    lesson.check({
+      kind: "picture",
+      num: pictureNumber,
+      after: edit.bytes,
+      afterSource: edit.source,
+      profile,
+    });
+    return result;
+  },
+});
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
 const editing = useStudioEditing({ draft, selectedId, frozen });
@@ -245,7 +265,7 @@ async function keepChanges(): Promise<boolean> {
   // Keep disables itself once the draft is kept: the keys must not fall out of Studio.
   keepFocus();
   if (!kept) return false;
-  editing.say({ tone: "ok", text: `Kept PIC ${pictureNumber}. The game shows the edit now.` });
+  editing.say(lesson.keptNotice(`PIC ${pictureNumber}`));
   return true;
 }
 async function recover(recovery: KeepRecovery): Promise<void> {
@@ -446,6 +466,11 @@ function onKeyup(event: KeyboardEvent): void {
         @end="seek(total)"
       />
       <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
+      <LessonCard
+        v-if="lesson.session.value"
+        :session="lesson.session.value"
+        :outcome="lesson.outcome.value"
+      />
     </main>
 
     <DrawOrderScrubber
@@ -495,14 +520,15 @@ function onKeyup(event: KeyboardEvent): void {
 
     <StudioKeepDialog
       v-model:ask="dialog"
-      :picture-number="pictureNumber"
+      :subject="`PIC ${pictureNumber}`"
+      noun="picture"
       :changes="draft.changes.value"
       :notes-only="draft.notesOnly.value"
       :can-keep="keeper.canKeep.value"
       @keep="leave.answer('keep')"
       @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
     />
-    <StudioSmallScreen :draft :keeper @close="emit('close')" />
+    <StudioSmallScreen name="Room Studio" :draft :keeper @close="emit('close')" />
   </div>
 </template>
 

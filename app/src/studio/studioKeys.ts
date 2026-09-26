@@ -4,7 +4,8 @@
  * Widgets keep the keys they use (the Scene list, the lens switch, the
  * scrubber, text fields); the rest are studio shortcuts:
  *
- * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc back to Create
+ * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc back to Create (in a
+ *   text field, Esc leaves the field instead)
  * - on the focused canvas: arrows nudge the selected item 1 px (Shift: 8),
  *   Alt+arrows step through items (Up/Left previous, Down/Right next); with a
  *   drawing tool or the pipette the arrows move the keyboard cursor instead
@@ -67,11 +68,16 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   if (event.defaultPrevented) return false;
   const { key } = event;
   const command = event.metaKey || event.ctrlKey;
+  if (typing(event.target)) {
+    // Esc in a text field leaves the field, never Studio.
+    if (key !== "Escape") return false;
+    (event.target as HTMLElement).blur();
+    return true;
+  }
   if (key === "Escape") {
     if (!act.dismiss()) act.close();
     return true;
   }
-  if (typing(event.target)) return false;
   const plain = !command && !event.altKey;
   if ((key === " " || key === "Enter") && plain && act.onCanvas(event.target)) {
     // A held key repeats: one press is one click.

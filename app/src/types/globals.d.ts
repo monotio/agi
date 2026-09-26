@@ -26,5 +26,7 @@ declare global {
     __AGI_FRAME__?: () => Frame | null;
     /** The open Room Studio draft: its compiled PIC bytes and annotated source. */
     __AGI_STUDIO__?: { bytes(): Uint8Array; source(): string };
+    /** The open Sprite Studio draft: its encoded VIEW bytes. */
+    __AGI_SPRITE__?: { bytes(): Uint8Array };
   }
 }

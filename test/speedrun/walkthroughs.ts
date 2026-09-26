@@ -49,9 +49,10 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
       run.command("paint mural");
       run.checkpoint("Mural painted", { room: 1, score: 10 });
       run.command("east");
-      // Sprite Lab: the doorway drops ego inside the lever's box (x 8–52).
+      // Sprite Lab: the lever's posn() box is x 26–56; the doorway (x 18) is outside it.
       assert.equal(run.state().room, 2);
       assert.equal(run.state().score, 10);
+      run.walkTo(30, 151);
       run.command("pull lever");
       // The lever's end.of.loop runs ~16 cycles, then f34 prints the result.
       run.advance(24);
