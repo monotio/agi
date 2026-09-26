@@ -76,6 +76,7 @@ test("showing a panel selects its tab and unfolds its dock", () => {
 function studioRequest(
   room: number,
   reload: () => StudioRequest | null = () => null,
+  reloadFromStorage: () => Promise<StudioRequest | null> = async () => null,
 ): StudioRequest {
   return {
     room,
@@ -86,6 +87,7 @@ function studioRequest(
     baseRevision: testRevision("studio"),
     files: new Map(),
     reload,
+    reloadFromStorage,
   };
 }
 
@@ -101,16 +103,40 @@ test("Studio holds its own pause and hands the keyboard back on close", () => {
   assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
 });
 
-test("reopening Studio reads its picture again under the same pause, or closes when it is gone", () => {
+test("reopening Studio reads its picture again under the same pause, or closes when it is gone", async () => {
   const { ws, calls } = workspace(memoryStorage());
   const fresh = { ...studioRequest(2), baseRevision: testRevision("after") };
   ws.openStudio(studioRequest(2, () => fresh));
-  ws.reopenStudio();
+  await ws.reopenStudio();
   assert.equal(ws.studio.value, fresh);
   assert.deepEqual(calls, ["pause:studio"]);
-  ws.reopenStudio();
+  await ws.reopenStudio();
   assert.equal(ws.studio.value, null, "the fresh request's reload finds nothing");
   assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
+});
+
+test("reopening from storage keeps the old game paused until the reload is done", async () => {
+  const { ws, calls } = workspace(memoryStorage());
+  const reloaded = { ...studioRequest(2), baseRevision: testRevision("stored"), notice: "Loaded" };
+  let finish!: (request: StudioRequest | null) => void;
+  const pending = new Promise<StudioRequest | null>((resolve) => (finish = resolve));
+  ws.openStudio(studioRequest(2, undefined, () => pending));
+  const reopening = ws.reopenStudio(true);
+  // Studio leaves at once, but the old game's pause holds through the reload.
+  assert.equal(ws.studio.value, null);
+  assert.deepEqual(calls, ["pause:studio"]);
+  finish(reloaded);
+  await reopening;
+  // The reloaded game gets its own pause, and Studio opens on the stored bytes.
+  assert.equal(ws.studio.value, reloaded);
+  assert.deepEqual(calls, ["pause:studio", "resume:studio", "pause:studio"]);
+
+  // A reload that finds nothing leaves the game running with the keyboard.
+  const lost = workspace(memoryStorage());
+  lost.ws.openStudio(studioRequest(2));
+  await lost.ws.reopenStudio(true);
+  assert.equal(lost.ws.studio.value, null);
+  assert.deepEqual(lost.calls, ["pause:studio", "resume:studio", "focus"]);
 });
 
 test("Studio never opens where it does not fit, and holds no pause there", () => {

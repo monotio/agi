@@ -328,6 +328,72 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
   }
 });
 
+test("reloading from storage resumes only a checkpoint of the stored bytes, else starts from the top", async (t) => {
+  const id = testProjectId("reload-from-storage");
+  // Hooks run in order: the record goes while the store is still installed.
+  t.after(() => clearCachedGame(id));
+  installLocalStorageMock(t);
+  const before = { "WORDS.TOK": Uint8Array.of(0, 0) };
+  const after = { "WORDS.TOK": Uint8Array.of(0, 0), OBJECT: Uint8Array.of(1) };
+  // Another tab kept an edit: storage holds `after` while this tab runs `before`.
+  await saveAuthoredGame(id, {
+    title: "Kept elsewhere",
+    provider: "stub",
+    model: "offline-stub",
+    files: after,
+    words: [],
+  });
+  let running: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Kept elsewhere",
+    revision: await gameRevision(before),
+    files: before,
+    words: [],
+  };
+  const boots: { restoreImage: string }[] = [];
+  const controller: ReturnType<typeof useAutosaveController> = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => running,
+    getWorker: () => null,
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => assert.fail("an authored project never boots as an edition"),
+    bootAuthoredGame: async (_prompt, _config, options) => {
+      assert.deepEqual(options, { projectId: id, useCached: true });
+      boots.push(await controller.takeResumeState(after));
+    },
+    configForGame: (_project, config) => config,
+  });
+  const config = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
+  const checkpoint = async (files: Record<string, Uint8Array>, image: string) =>
+    writeAutosave(localStorage, {
+      format: "monotio.agi.autosave",
+      version: 1,
+      image,
+      cycle: 7,
+      room: 1,
+      savedAt: Date.now(),
+      game: { installed: false, identity: { project: id, revision: await gameRevision(files) } },
+    });
+
+  // This tab's own checkpoint names the bytes it runs, not the stored ones:
+  // the stored game starts from the top instead of refusing the mismatch.
+  await checkpoint(before, "this-tab");
+  assert.equal(await controller.reloadFromStorage(config), true);
+  // The other tab's Keep took a checkpoint of the stored bytes: that one resumes.
+  await checkpoint(after, "other-tab");
+  assert.equal(await controller.reloadFromStorage(config), true);
+  assert.deepEqual(
+    boots.map((boot) => boot.restoreImage),
+    ["", "other-tab"],
+  );
+  // An installed edition is no stored project to reload.
+  running = { ...running, installed: true, projectId: undefined, hash: "edition" };
+  assert.equal(await controller.reloadFromStorage(config), false);
+  assert.equal(boots.length, 2);
+});
+
 test("useAutosaveController flushAutosave and drainFlushWaiters interact properly", async () => {
   const postedMessages: unknown[] = [];
   const fakeWorker = {

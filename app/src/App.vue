@@ -632,7 +632,7 @@ watch(
           :base-revision="studio.baseRevision"
           :files="studio.files"
           @close="workspace.closeStudio()"
-          @reopen="workspace.reopenStudio()"
+          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
         />
         <aside
           v-show="!studioOpen"

@@ -5,7 +5,10 @@
  * the text). A kept draft rebases on the new revision.
  * Each refusal maps to the one next step it allows: a stale game reopens
  * Studio from the running game, a failed install reloads the game from
- * storage (editing stops until then), anything else can be retried.
+ * storage (editing stops until then), anything else can be retried. When the
+ * stored project moved past the running game (another tab kept an edit),
+ * Reopen reloads the game from storage first: reopening on the running game
+ * would only refuse again.
  */
 
 import { computed, shallowRef } from "vue";
@@ -22,6 +25,8 @@ export type KeepRecovery = "reopen" | "reload" | "retry";
 export interface KeepBanner {
   readonly message: string;
   readonly recovery: KeepRecovery;
+  /** The recovery reloads the game from storage before Studio reopens. */
+  readonly fromStorage: boolean;
 }
 
 export function useStudioKeep(options: {
@@ -42,7 +47,8 @@ export function useStudioKeep(options: {
     if (!failure || dismissed.value === failure) return null;
     const recovery: KeepRecovery =
       failure.code === "stale" ? "reopen" : failure.code === "install" ? "reload" : "retry";
-    return { message: failure.message, recovery };
+    const fromStorage = recovery === "reload" || failure.behindStorage === true;
+    return { message: failure.message, recovery, fromStorage };
   });
   const canKeep = computed(
     () =>

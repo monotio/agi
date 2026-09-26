@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, useTemplateRef } from "vue";
+import { computed, onScopeDispose, ref, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { itemHandles } from "../../../src/studio/editPoints.ts";
@@ -85,7 +85,8 @@ const {
   /** The game's container files, read at the same revision: the actor probe's VIEWs. */
   files?: ReadonlyMap<string, Uint8Array> | undefined;
 }>();
-const emit = defineEmits<{ close: []; reopen: [] }>();
+/** `reopen` asks for Studio again; `fromStorage` reloads the game from storage first. */
+const emit = defineEmits<{ close: []; reopen: [fromStorage: boolean] }>();
 
 const lens = ref<StudioLens>("art");
 const mode = ref<StudioViewMode>("blend");
@@ -226,6 +227,9 @@ const leave = useStudioLeave({
 });
 const center = useOptionalCreateCenter();
 if (center) onScopeDispose(center.guardStudio(leave));
+// The line the centre opened Studio with (the game was just reloaded from storage).
+const opening = () => center?.studio.value?.notice;
+watch(opening, (text) => text && editing.say({ tone: "ok", text }), { immediate: true });
 const dialog = leave.ask;
 async function requestClose(): Promise<void> {
   if (await leave.confirm()) emit("close");
@@ -244,15 +248,16 @@ async function keepChanges(): Promise<boolean> {
   editing.say({ tone: "ok", text: `Kept PIC ${pictureNumber}. The game shows the edit now.` });
   return true;
 }
-function recover(recovery: KeepRecovery): void {
-  if (recovery === "retry") void keepChanges();
-  else if (recovery === "reload") location.reload();
-  else {
-    // The draft was made on a game that moved on: start over from the running game.
-    keeper.dismiss();
-    draft.discard();
-    emit("reopen");
-  }
+async function recover(recovery: KeepRecovery): Promise<void> {
+  if (recovery === "retry") return void keepChanges();
+  // The draft was made on a game that moved on. Storage moved past the
+  // running game (a Keep elsewhere, or a saved edit the game never loaded):
+  // the game reloads from storage first, and the draft cannot come along.
+  const fromStorage = keeper.banner.value?.fromStorage === true;
+  if (fromStorage && !(await leave.confirmReload())) return;
+  keeper.dismiss();
+  draft.discard();
+  emit("reopen", fromStorage);
 }
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
@@ -495,7 +500,7 @@ function onKeyup(event: KeyboardEvent): void {
       :notes-only="draft.notesOnly.value"
       :can-keep="keeper.canKeep.value"
       @keep="leave.answer('keep')"
-      @discard="(closing) => (closing ? leave.answer('discard') : discardChanges())"
+      @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
     />
     <StudioSmallScreen :draft :keeper @close="emit('close')" />
   </div>

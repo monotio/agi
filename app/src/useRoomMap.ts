@@ -1342,7 +1342,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       const game = deps.getBootedGame();
       const scanned = scanResources();
       if (!game || scanned.files !== game.files) return null;
-      const source = studioPictureSource(scanned, picture, deps.getSession()?.state);
+      const source = studioPictureSource(
+        scanned,
+        picture,
+        deps.getSession()?.state,
+        game.authoredGame?.authoringState,
+      );
       return source && { ...source, baseRevision: game.revision };
     },
     observeFrame,

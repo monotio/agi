@@ -13,7 +13,7 @@ import {
   type AutosaveGame,
   type AutosaveRecord,
 } from "./gameProgress.ts";
-import { getCachedGameMeta, updateAuthoredGameFiles } from "./gameStorage.ts";
+import { getCachedGameMeta, loadAuthoredGame, updateAuthoredGameFiles } from "./gameStorage.ts";
 import {
   findInstalledFolder,
   gameStorageKey,
@@ -147,6 +147,7 @@ export interface AutosaveController {
   resumeLastGame(config: LlmConfig): Promise<boolean>;
   resumeFromRecord(record: AutosaveRecord, config: LlmConfig): Promise<boolean>;
   startOver(targetKey: string, config: LlmConfig): Promise<void>;
+  reloadFromStorage(config: LlmConfig): Promise<boolean>;
   drainFlushWaiters(): void;
   reset(): void;
   resetScreen(): void;
@@ -436,6 +437,33 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     }
   }
 
+  /**
+   * Boot the running project again from browser storage, when storage moved
+   * past the running game: another tab kept an edit, or a kept edit never
+   * reached the live game. Nothing is flushed first — the running game's
+   * checkpoint would name bytes storage no longer holds. The stored
+   * checkpoint resumes only when it names the stored revision (another tab's
+   * Keep takes a fresh one); otherwise the game starts from the top rather
+   * than refusing the mismatch. False when the running game is no stored
+   * project.
+   */
+  async function reloadFromStorage(config: LlmConfig): Promise<boolean> {
+    const game = ctx.getBootedGame();
+    const id = game && !game.installed ? game.projectId : undefined;
+    if (!id || !getCachedGameMeta(id)) return false;
+    const stored = await loadAuthoredGame(id);
+    if (!stored) return false;
+    const record = readAutosave(id);
+    if (record && record.game.identity.revision === (await gameRevision(stored.files)))
+      return resumeFromRecord(record, config);
+    pendingResumeRecord = null;
+    await ctx.bootAuthoredGame("", ctx.configForGame(id, config), {
+      projectId: id,
+      useCached: true,
+    });
+    return true;
+  }
+
   function drainFlushWaiters(): void {
     for (const done of flushWaiters.values()) done(false);
     for (const done of flushDetailedWaiters.values()) done({ status: "timeout" });
@@ -471,6 +499,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     resumeLastGame,
     resumeFromRecord,
     startOver,
+    reloadFromStorage,
     drainFlushWaiters,
     reset,
     resetScreen,

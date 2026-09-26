@@ -1,8 +1,10 @@
 /**
  * Leaving Room Studio with unkept changes: every way out (Back, switching to
  * Play, Exit, Start over, Back/Forward) asks one question — Keep, Discard or
- * Cancel — through StudioKeepDialog, and waits for the answer. A page unload
- * cannot wait, so while changes are unkept the browser's own prompt guards it.
+ * Cancel — through StudioKeepDialog, and waits for the answer. Reloading the
+ * game from storage after it changed elsewhere cannot keep the draft, so it
+ * asks Reload or Cancel instead. A page unload cannot wait, so while changes
+ * are unkept the browser's own prompt guards it.
  */
 
 import { computed, onScopeDispose, shallowRef, watch } from "vue";
@@ -20,13 +22,16 @@ export interface StudioLeaveOptions {
 }
 
 export function useStudioLeave(options: StudioLeaveOptions) {
-  /** The question is open. */
-  const asking = shallowRef(false);
+  /** The open question a caller waits on: a way out, or a reload from storage. */
+  const asking = shallowRef<"close" | "reload" | null>(null);
   /** The top bar's Discard asks on its own. */
   const discarding = shallowRef(false);
-  /** StudioKeepDialog's question: "close" while a way out waits on it, "discard" for Discard. */
-  const ask = computed<"close" | "discard" | undefined>({
-    get: () => (asking.value ? "close" : discarding.value ? "discard" : undefined),
+  /**
+   * StudioKeepDialog's question: "close" while a way out waits on it,
+   * "reload" while a reload from storage does, "discard" for Discard.
+   */
+  const ask = computed<"close" | "reload" | "discard" | undefined>({
+    get: () => asking.value ?? (discarding.value ? "discard" : undefined),
     set: (next) => {
       if (next !== undefined) return;
       discarding.value = false;
@@ -35,18 +40,21 @@ export function useStudioLeave(options: StudioLeaveOptions) {
   });
   let settle: ((leave: boolean) => void) | null = null;
 
-  /** Resolves true when the way is clear: nothing unkept, or kept or discarded on request. */
-  function confirm(): Promise<boolean> {
+  function question(kind: "close" | "reload"): Promise<boolean> {
     if (!options.unkept()) return Promise.resolve(true);
     settle?.(false);
-    asking.value = true;
+    asking.value = kind;
     return new Promise((resolve) => (settle = resolve));
   }
+  /** Resolves true when the way is clear: nothing unkept, or kept or discarded on request. */
+  const confirm = (): Promise<boolean> => question("close");
+  /** Resolves true when nothing is unkept or the changes may go (answered "discard"). */
+  const confirmReload = (): Promise<boolean> => question("reload");
 
   async function answer(choice: LeaveAnswer): Promise<void> {
     const done = settle;
     settle = null;
-    asking.value = false;
+    asking.value = null;
     if (!done) return;
     if (choice === "cancel") return done(false);
     if (choice === "discard") {
@@ -78,7 +86,7 @@ export function useStudioLeave(options: StudioLeaveOptions) {
     settle = null;
   });
 
-  return { asking, discarding, ask, confirm, answer, unkept: options.unkept };
+  return { asking, discarding, ask, confirm, confirmReload, answer, unkept: options.unkept };
 }
 
 export type StudioLeave = ReturnType<typeof useStudioLeave>;

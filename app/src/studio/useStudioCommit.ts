@@ -24,6 +24,8 @@ export interface StudioCommitFailure {
   readonly message: string;
   /** Where the edit was saved when only the live install failed. */
   readonly projectId?: ProjectId | undefined;
+  /** A stale refusal because the stored project moved past the running game. */
+  readonly behindStorage?: boolean | undefined;
 }
 
 /** The Studio's wording for a refusal; the transaction's own text otherwise. */
@@ -34,6 +36,7 @@ export function studioCommitFailure(error: unknown): StudioCommitFailure {
     return {
       code: "stale",
       message: "The game changed since you opened Studio. Reopen to continue.",
+      behindStorage: error.behindStorage,
     };
   return { code: error.code, message: error.message, projectId: error.projectId };
 }

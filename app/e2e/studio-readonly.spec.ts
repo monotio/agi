@@ -79,7 +79,8 @@ test("hovering a scene row highlights exactly that item's pixels", async ({ page
   for (let y = 90; y <= 105; y++) for (let x = 40; x <= 119; x++) expected.push(y * 160 + x);
   expect(await highlightCells(page)).toEqual(expected);
 
-  await open(page, "1");
+  // The gallery picture as an import sees it: bytes only, one item per element.
+  await open(page, "1&authored=0");
   await page.getByTestId("scene-toggle-groups").click();
   for (const id of ["el-1", "el-20"]) {
     await page.locator(`[data-row="${id}"]`).hover();
@@ -145,7 +146,7 @@ for (const deviceScaleFactor of [1, 2]) {
 test("a group row highlights the union of its members, and a canvas click opens its group", async ({
   page,
 }) => {
-  await open(page, "1");
+  await open(page, "1&authored=0");
   const groups = page.locator('[role="treeitem"][aria-expanded]');
   // More than 40 items: every group starts closed, and no member row is shown.
   expect(await groups.count()).toBeGreaterThan(0);

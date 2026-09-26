@@ -54,3 +54,28 @@ test("Studio gets the booted snapshot's container files, for the actor probe's V
   assert.deepEqual([...(source?.files.keys() ?? [])].sort(), Object.keys(files).sort());
   for (const [name, bytes] of source?.files ?? []) assert.equal(bytes, files[name]);
 });
+
+test("without a live session, Studio trusts the stored project's picture text by the same rule", () => {
+  const { game, bytes } = fixture();
+  const files = Object.fromEntries(game.files);
+  const stored = (text: string) => ({ sources: { pictures: [[4, text]] } });
+  // A catalog game plays without a session: its stored sources describe the bytes.
+  assert.equal(
+    studioPictureSource({ files, profile: null }, 4, undefined, stored(SOURCE))?.authoredSource,
+    SOURCE,
+  );
+  // Text that compiles to other bytes, a picture it does not name, or no
+  // sources at all leave Studio disassembling.
+  const other = ["vis 2", "rect 0,0 5,5", "end"].join("\n");
+  for (const state of [stored(other), { sources: { pictures: [[5, SOURCE]] } }, {}, undefined]) {
+    const source = studioPictureSource({ files, profile: null }, 4, undefined, state);
+    assert.deepEqual([...(source?.bytes ?? [])], [...bytes]);
+    assert.equal(source?.authoredSource, undefined);
+  }
+  // A live session speaks for the game: its missing text is not filled from storage.
+  const session = createAgentSessionState(game);
+  assert.equal(
+    studioPictureSource({ files, profile: null }, 4, session, stored(SOURCE))?.authoredSource,
+    undefined,
+  );
+});
