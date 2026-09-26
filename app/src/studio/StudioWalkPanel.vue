@@ -5,7 +5,7 @@ import UiChip from "../ui/UiChip.vue";
 import type { Point } from "../../../src/studio/shapes.ts";
 import type { StudioTool } from "./studioTools.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
-import { doorStatus, EDGE_NAMES, outcomeTone, type WalkDoor } from "./walkView.ts";
+import { doorStatus, EDGE_NAMES, outcomeTone, resultPlace, type WalkDoor } from "./walkView.ts";
 
 /**
  * The Walk view's side panel: the walkable estimate's legend, the test walk
@@ -32,6 +32,9 @@ const emit = defineEmits<{
 const tint = defineModel<boolean>("tint", { default: true });
 
 const result = computed(() => walk.result.value);
+const place = computed(() =>
+  result.value ? resultPlace(result.value.from, result.value.result, walk.room.value) : null,
+);
 const selected = computed(() => walk.selectedDoor.value);
 const status = computed(() =>
   selected.value ? doorStatus(selected.value, walk.walked.value) : null,
@@ -170,13 +173,8 @@ const roomChoices = computed(() => {
         <dl>
           <dt>Cycles</dt>
           <dd>{{ result.result.cycles }}</dd>
-          <dt>Ended at</dt>
-          <dd data-testid="walk-result-end">
-            {{ result.result.end.x }},{{ result.result.end.y }}
-            <template v-if="result.result.room !== walk.room.value">
-              in room {{ result.result.room }}</template
-            >
-          </dd>
+          <dt data-testid="walk-result-place">{{ place?.term }}</dt>
+          <dd data-testid="walk-result-end">{{ place?.text }}</dd>
         </dl>
         <details>
           <summary>What the engine said</summary>

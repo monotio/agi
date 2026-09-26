@@ -12,6 +12,8 @@ export interface CanvasMenuItem {
   readonly id: string;
   readonly label: string;
   readonly disabled?: boolean;
+  /** Why it is disabled, as its tooltip. */
+  readonly title?: string;
 }
 const { at, cell, items } = defineProps<{
   /** Where it opens, in viewport pixels. */
@@ -65,6 +67,7 @@ function onKeydown(event: KeyboardEvent): void {
       role="menuitem"
       class="canvas-menu__item"
       :disabled="item.disabled"
+      :title="item.title"
       :data-item="item.id"
       @click="emit('pick', item.id)"
     >
