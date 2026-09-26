@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { compilePictureSource, disassemblePicture } from "../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
-import { inferNativeItems } from "../src/studio/nativeItems.ts";
+import { inferNativeItems, isInferredItemId } from "../src/studio/nativeItems.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
 import { ORIGINAL_SCENE_PICTURES } from "../games/adventure-department/sceneArt.ts";
 import { TUTORIAL_PICTURE_SOURCES } from "../games/adventure-department/game.ts";
@@ -165,5 +165,12 @@ describe("inferNativeItems", () => {
       items += document.items.length;
     }
     assert.ok(items > corpus.length, `${items} items`);
+  });
+
+  it("marks its own ids, and only those: el-N and el-N-M", () => {
+    for (const id of ["el-1", "el-20", "el-1-2", "el-3-10"])
+      assert.equal(isInferredItemId(id), true, id);
+    for (const id of ["bench", "el", "el-", "el-x", "element-1", "el-1a", "(unassigned)"])
+      assert.equal(isInferredItemId(id), false, id);
   });
 });
