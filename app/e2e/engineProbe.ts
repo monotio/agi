@@ -249,16 +249,25 @@ export function savedGameCard(page: Page, title: string | RegExp): Locator {
     typeof title === "string"
       ? new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
       : title;
+  // A stored game's card carries its project id; the tutorial's stored copy is
+  // the tutorial's own card, so it is found here too.
   return page
     .getByTestId("saved-game-gallery")
-    .locator("[data-testid^='saved-game-card-']")
+    .locator("[data-project-id]")
     .filter({ has: page.getByTestId("saved-game-title").filter({ hasText: titlePattern }) });
 }
 
-/** Open a saved game's native Details disclosure without toggling it closed. */
-export async function openSavedGameDetails(card: Locator): Promise<void> {
-  const details = card.locator("details[data-testid^='game-details-']");
-  if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+/** Open a saved game's Details dialog from its ⋯ menu; returns the open dialog. */
+export async function openSavedGameDetails(card: Locator): Promise<Locator> {
+  const page = card.page();
+  await openLibraryActions(page, card);
+  await page
+    .getByRole("menu", { name: "Game actions", exact: true })
+    .getByTestId("game-details-item")
+    .click();
+  const dialog = page.locator("dialog[data-testid^='game-details-']");
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
 
 /** Open the native Create an adventure disclosure without toggling it closed. */
@@ -333,6 +342,18 @@ export async function openCardMenu(page: Page, testId: string): Promise<void> {
   await trigger.scrollIntoViewIfNeeded();
   await settleScroll(page);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+}
+
+/**
+ * The Home shelf shows one card per game: an installed development copy of
+ * the tutorial folds into the tutorial's card, and its boot control (with the
+ * usual data-hash, data-alias and boot-* hooks) is an item in that card's ⋯
+ * menu. Open the menu before looking for the control; other games keep theirs
+ * on their own cards.
+ */
+export async function revealFoldedBoot(page: Page, alias: string): Promise<void> {
+  if (alias === "adventure-department")
+    await openCardMenu(page, "game-actions-adventure-department");
 }
 
 /**

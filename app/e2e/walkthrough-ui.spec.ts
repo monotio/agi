@@ -386,8 +386,9 @@ test.describe("Walkthrough UI", () => {
 
     // The tutorial's opening beats are back-to-back print windows: the first
     // regression let a resume skip straight past the second one.
+    // The tutorial's one card runs its walkthrough through the catalog release.
     await openCardMenu(page, "game-actions-adventure-department");
-    const runBtn = page.getByTestId("run-walkthrough");
+    const runBtn = page.getByTestId("catalog-run-walkthrough");
     await expect(runBtn).toBeVisible();
     await runBtn.click();
     await expect(page.getByTestId("walkthrough-transport")).toBeVisible();
@@ -760,13 +761,7 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    // The tutorial disclosure opens by default for a fresh library; expand it
-    // explicitly so the test does not depend on the stored preference.
-    const disclosure = page.getByTestId("tutorial-disclosure");
-    if (!(await disclosure.evaluate((el) => (el as HTMLDetailsElement).open))) {
-      await page.getByTestId("tutorial-toggle").click();
-    }
-
+    await openCardMenu(page, "game-actions-adventure-department");
     const watch = page.getByTestId("catalog-run-walkthrough");
     await expect(watch).toBeVisible({ timeout: 15_000 });
     await watch.click();
@@ -861,9 +856,11 @@ test.describe("Walkthrough UI", () => {
     await isolateStorage(page);
     await page.goto("/");
 
-    // Same vocabulary and fingerprint alias, different bundle → no offer, and
-    // with no autosave the card has no actions menu at all.
-    await expect(page.getByTestId("game-actions-kq1-remix")).toHaveCount(0);
+    // Same vocabulary and fingerprint alias, different bundle → its menu makes no offer.
+    await openCardMenu(page, "game-actions-kq1-remix");
+    await expect(page.getByRole("menu", { name: "Game actions" })).toContainText("Details");
+    await expect(page.getByTestId("run-walkthrough")).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     // The untouched edition still gets the offer under its own menu.
     await openCardMenu(page, "game-actions-synthetic-copy");

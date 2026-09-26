@@ -1,138 +1,47 @@
 <script setup lang="ts">
 /**
- * The pre-game menu screen: the welcome block, the tutorial disclosure with
- * the featured catalog card, the setup panel (create + library + error
- * banner), and the authoring splash shown while a new game is generated.
+ * The Home screen and the authoring splash. Home is the hero with its
+ * Continue card, the error banner, the create panel and the "Your games"
+ * shelf; dropping a ZIP or folder anywhere on it imports a game. The splash
+ * shows while a new game is generated or a plain boot runs long.
  */
+import { ref } from "vue";
 import AgentTaskControls from "./AgentTaskControls.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
-import UiButton from "./ui/UiButton.vue";
+import HomeHero from "./home/HomeHero.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
-import { hasWalkthrough } from "./walkthrough.ts";
 
 const { state, stopAgent, continueAgent, discardAgent } = useEngineApi();
-const {
-  tutorialOpen,
-  setTutorialOpen,
-  featuredCatalog,
-  catalogOpenings,
-  catalogErrors,
-  catalogBusy,
-  libraryActionBusy,
-  libraryActionError,
-  cachedMeta,
-  catalogHasProgress,
-  loadCatalogOpening,
-  playCatalogGame,
-  playCatalogWalkthrough,
-  activeTemplate,
-} = useGameLibrary();
+const { activeTemplate, onGameDrop } = useGameLibrary();
+const createOpen = ref(false);
+
+/** Nested dragenter/dragleave pairs: the outline stays while anything is over Home. */
+const dragDepth = ref(0);
+function onDrop(event: DragEvent): void {
+  dragDepth.value = 0;
+  void onGameDrop(event.dataTransfer ?? undefined);
+}
 </script>
 <template>
-  <section
+  <div
     v-if="state.phase === 'idle' || state.phase === 'error'"
-    class="welcome"
-    aria-labelledby="welcome-title"
+    class="setup-panel"
+    :class="{ dragging: dragDepth > 0 }"
+    data-testid="game-zip-drop"
+    @dragenter.prevent="dragDepth++"
+    @dragleave="dragDepth = Math.max(0, dragDepth - 1)"
+    @dragover.prevent
+    @drop.prevent="onDrop"
   >
-    <p class="welcome-kicker">
-      <a
-        href="https://en.wikipedia.org/wiki/Adventure_Game_Interpreter"
-        target="_blank"
-        rel="noopener noreferrer"
-        >Adventure Game Interpreter</a
-      >
-    </p>
-    <h1 id="welcome-title">AGI IS HERE<span>.</span></h1>
-    <p class="welcome-line">Play. Create. Remix.</p>
-  </section>
-
-  <details
-    id="tutorial"
-    v-if="state.phase === 'idle' || state.phase === 'error'"
-    class="catalog-shelf"
-    data-testid="tutorial-disclosure"
-    :open="tutorialOpen"
-    aria-labelledby="catalog-title"
-  >
-    <summary
-      class="section-summary"
-      data-testid="tutorial-toggle"
-      @click.prevent="setTutorialOpen(!tutorialOpen)"
-    >
-      <h2 id="catalog-title">Play the tutorial</h2>
-    </summary>
-    <article
-      v-for="entry in [featuredCatalog]"
-      :key="`${entry.id}-${entry.version}`"
-      class="catalog-card"
-      :data-testid="`catalog-${entry.id}`"
-    >
-      <div class="catalog-art">
-        <img
-          v-if="catalogOpenings[entry.id]?.preview"
-          :src="catalogOpenings[entry.id]?.preview"
-          :alt="`${entry.title} opening scene`"
-        />
-        <div v-else class="thumbnail-placeholder" aria-hidden="true">
-          {{ catalogBusy[entry.id] ? "CHECKING OPENING…" : "16 COLOR ADVENTURE" }}
-        </div>
-      </div>
-      <div class="catalog-copy">
-        <h3>{{ entry.title }}</h3>
-        <p>{{ entry.description }}</p>
-        <p class="catalog-byline">{{ entry.author }} · {{ entry.license }}</p>
-        <p v-if="catalogErrors[entry.id]" role="alert" class="library-error">
-          {{ catalogErrors[entry.id] }}
-        </p>
-        <p v-if="libraryActionError && !cachedMeta" role="alert" class="library-error">
-          {{ libraryActionError }}
-        </p>
-        <UiButton
-          v-if="catalogErrors[entry.id]"
-          :disabled="catalogBusy[entry.id]"
-          @click="loadCatalogOpening(entry.id)"
-        >
-          Retry preview
-        </UiButton>
-        <div v-else class="catalog-actions">
-          <UiButton
-            variant="primary"
-            :data-testid="`catalog-play-${entry.id}`"
-            :disabled="catalogBusy[entry.id] || libraryActionBusy"
-            @click="playCatalogGame(entry.id)"
-          >
-            {{
-              catalogBusy[entry.id]
-                ? "Checking opening…"
-                : catalogHasProgress(entry)
-                  ? "Resume"
-                  : "Play now"
-            }}
-          </UiButton>
-          <UiButton
-            v-if="hasWalkthrough(entry.id)"
-            data-testid="catalog-run-walkthrough"
-            :disabled="catalogBusy[entry.id] || libraryActionBusy"
-            @click="playCatalogWalkthrough(entry.id)"
-          >
-            Watch a playthrough
-          </UiButton>
-        </div>
-      </div>
-    </article>
-  </details>
-
-  <!-- Pre-game setup panel -->
-  <div v-if="state.phase === 'idle' || state.phase === 'error'" class="setup-panel">
-    <CreatePanel />
-    <LibraryPanel />
-    <!-- Prominent Error Display inside Setup Panel -->
+    <HomeHero :create-open="createOpen" />
     <div v-if="state.phase === 'error'" class="error-banner" data-testid="error-panel" role="alert">
       <span class="error-badge">ERROR</span>
       <span class="error-msg">{{ state.error }}</span>
     </div>
+    <CreatePanel v-model:open="createOpen" />
+    <LibraryPanel />
   </div>
 
   <!-- Interstitial Splash / Loading Screen during Genesis -->
@@ -180,116 +89,21 @@ const {
 
 <style scoped>
 .setup-panel {
-  width: var(--shell-width);
-  box-sizing: border-box;
-  margin-bottom: 0.75rem;
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 32px;
-  padding: 0;
-}
-
-.welcome {
   width: var(--shell-width);
-  padding: 20px 0 36px;
-}
-.welcome-kicker {
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  margin: 0 0 16px;
-}
-.welcome-kicker a {
-  color: inherit;
-  text-decoration: none;
-}
-.welcome-kicker a:hover,
-.welcome-kicker a:focus-visible {
-  text-decoration: underline;
-  color: var(--action-hover);
-}
-.welcome h1 {
-  font: 900 var(--text-display) / 1.1 var(--font-mono);
-  letter-spacing: -0.065em;
-  color: var(--ink);
-  text-shadow: 0 0 32px var(--action-soft);
-}
-.welcome h1 span {
-  color: var(--action);
-}
-.welcome-line {
-  margin: 18px 0 8px;
-  color: var(--ink);
-  font: var(--weight-medium) var(--text-xl) / 1.4 var(--font-sans);
-}
-.catalog-shelf {
-  width: var(--shell-width);
-  margin: 0 auto 28px;
-  padding: 22px;
   box-sizing: border-box;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--surface-3), var(--surface-1) 68%);
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-bottom: var(--space-4);
   font-family: var(--font-sans);
-}
-.catalog-card {
-  display: grid;
-  grid-template-columns: minmax(280px, 1.35fr) minmax(240px, 1fr);
-  overflow: hidden;
-  border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
-  background: var(--surface-1);
+  outline: 2px dashed transparent;
+  outline-offset: var(--space-4);
+  transition: outline-color var(--duration-fast) var(--ease-out);
 }
-.catalog-art {
-  min-height: 225px;
-  background: var(--surface-sunken);
-}
-.thumbnail-placeholder {
-  display: grid;
-  height: 100%;
-  min-height: 225px;
-  place-items: center;
-  color: var(--ink-3);
-  font: var(--text-xs) / 1.4 var(--font-mono);
-  letter-spacing: 0.12em;
-}
-.catalog-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 24px;
-}
-.catalog-copy h3 {
-  margin: 7px 0;
-  color: var(--ink);
-  font-size: var(--text-xl);
-}
-.catalog-copy > p:not(.saved-world-badge) {
-  margin: 0 0 14px;
-  color: var(--ink-2);
-  line-height: 1.5;
-}
-.catalog-copy .catalog-byline {
-  color: var(--ink-3);
-  font-size: var(--text-xs);
-}
-.catalog-copy .ui-btn {
-  width: auto;
-  min-width: 150px;
-}
-.catalog-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.catalog-actions .ui-btn {
-  flex: 1 1 auto;
-}
-
-.setup-panel > .error-banner {
-  grid-column: 1 / -1;
+.setup-panel.dragging {
+  outline-color: var(--action-line);
 }
 
 .splash-card {
@@ -351,21 +165,7 @@ const {
   margin: 0;
 }
 
-@media (max-width: 850px) {
-  .catalog-card {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  /* Stacked, the opening image sets the card's height: reserve it before it
-     renders so the controls below do not move under a tap. */
-  .catalog-art,
-  .thumbnail-placeholder {
-    min-height: 0;
-    aspect-ratio: 8 / 5;
-  }
-}
-
 .error-banner {
-  margin-top: 0.75rem;
   background: var(--danger-soft);
   border: 1px solid var(--danger-line);
   padding: 0.6rem 0.8rem;
@@ -422,20 +222,7 @@ const {
 }
 @media (max-width: 600px) {
   .setup-panel {
-    padding: 0;
-  }
-  .welcome {
-    padding: 12px 0 28px;
-  }
-  .welcome-kicker {
-    font-size: var(--text-2xs);
-    letter-spacing: 0.1em;
-  }
-  .catalog-shelf {
-    padding: 18px;
-  }
-  .catalog-copy {
-    padding: 18px;
+    gap: var(--space-7);
   }
 }
 </style>

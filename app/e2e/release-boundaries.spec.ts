@@ -21,8 +21,9 @@ test("malformed play hashes recover to the picker without a startup exception", 
   await isolateStorage(page);
   await page.goto("/#play/%");
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeVisible();
+  // The picker clears the hash once startup finishes discovering games.
+  await expect.poll(() => new URL(page.url()).hash).toBe("");
   expect(errors).toEqual([]);
-  expect(new URL(page.url()).hash).toBe("");
 });
 
 for (const failure of ["unsafe", "timeout", "storage"] as const) {

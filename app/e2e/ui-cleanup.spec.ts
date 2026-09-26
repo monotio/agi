@@ -12,15 +12,20 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the start page uses concise tutorial copy and readable primary actions", async ({ page }) => {
-  await expect(page.getByText("Play. Create. Remix.")).toBeVisible();
-  await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Play the tutorial" })).toBeVisible();
   await expect(
-    page.getByText("Learn pictures, sprites and priority in a three-room tutorial."),
+    page.getByText("Play Sierra-style adventures, build your own with AI", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Play the tutorial" })).toBeVisible();
+  await expect(
+    page
+      .getByTestId("catalog-adventure-department")
+      .getByText("Learn pictures, sprites and priority in a three-room tutorial."),
   ).toBeVisible();
 
-  await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("create-adventure-disclosure")).not.toHaveAttribute("open");
   await openCreateAdventure(page);
+  await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
   await page.getByTestId("template-custom").click();
   await page.getByTestId("custom-adventure-input").fill("A concise test adventure.");
   await openAiSettings(page);

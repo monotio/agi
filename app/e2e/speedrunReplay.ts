@@ -3,7 +3,7 @@ import { expect, type Page } from "@playwright/test";
 import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
 import type { ReplayObservation, ReplayBatchResult } from "../src/replay.ts";
-import { isolateStorage } from "./engineProbe.ts";
+import { isolateStorage, revealFoldedBoot } from "./engineProbe.ts";
 
 const KEYS: Record<number, string> = {
   [AGI_KEY.BACKSPACE]: "Backspace",
@@ -50,6 +50,7 @@ export class BrowserReplay {
     // A catalog alias names one edition; a hash can also match a project
     // export of the same game, so the alias is tried first.
     const alias = getKnownGameByHash(target)?.alias ?? target;
+    await revealFoldedBoot(this.page, alias);
     const byAlias = this.page.locator(`[data-alias="${alias}"]`);
     const boot = (
       (await byAlias.count()) > 0

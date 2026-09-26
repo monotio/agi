@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
-  openCreateAdventure,
   openLibraryActions,
   isolateStorage,
   openSavedGameDetails,
@@ -31,16 +30,22 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeVisible();
+  await expect(page.getByTestId("hero-primary")).toHaveText("Play the tutorial");
   await expect(page.getByTestId("create-adventure-toggle")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Your games", exact: true })).toHaveCount(0);
+  // One shelf holds the tutorial and the ways to create; nothing is saved yet.
+  await expect(page.getByRole("heading", { name: "Your games", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Your games", exact: true })).toHaveCount(0);
-  await expect(page.getByTestId("saved-game-gallery")).toHaveCount(0);
+  const gallery = page.getByTestId("saved-game-gallery");
+  await expect(gallery.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
+  await expect(gallery.getByTestId("catalog-adventure-department")).toBeVisible();
   const create = page.getByTestId("create-adventure-disclosure");
+  await expect(create).not.toHaveAttribute("open");
+  await gallery.getByTestId("shelf-template-custom").click();
   await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("template-custom")).toBeVisible();
+  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-pressed", "true");
   expect(
     await create.evaluate((element) => {
-      const importer = document.querySelector('[data-testid="game-zip-drop"]')!;
+      const importer = document.getElementById("open-game")!;
       return Boolean(element.compareDocumentPosition(importer) & Node.DOCUMENT_POSITION_FOLLOWING);
     }),
   ).toBe(true);
@@ -61,32 +66,36 @@ test("a first visit leads with tutorial and creation while keeping import availa
   }
 });
 
-test("Create remembers explicit expanded and collapsed choices across reloads", async ({
+test("Create is a focused panel that its hash reopens and Close, Escape or Back dismiss", async ({
   page,
 }) => {
   await isolateStorage(page);
   await page.goto("/");
   const create = page.getByTestId("create-adventure-disclosure");
   const toggle = page.getByTestId("create-adventure-toggle");
-  await openCreateAdventure(page);
-  await expect(create).toHaveAttribute("open");
-  await page.evaluate(() => history.replaceState(null, "", location.pathname));
-  await page.reload();
-  await expect(create).toHaveAttribute("open");
+  await expect(create).not.toHaveAttribute("open");
   await toggle.focus();
   await page.keyboard.press("Enter");
+  await expect(create).toHaveAttribute("open");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("heading", { name: "Create an adventure" })).toBeFocused();
+  await expect(page).toHaveURL(/#create-adventure$/);
+  await page.reload();
+  await expect(create).toHaveAttribute("open");
+  await page.getByTestId("create-adventure-close").click();
   await expect(create).not.toHaveAttribute("open");
+  expect(new URL(page.url()).hash).toBe("");
   await page.reload();
   await expect(create).not.toHaveAttribute("open");
   await toggle.focus();
-  await page.keyboard.press("Space");
+  await page.keyboard.press("Enter");
   await expect(create).toHaveAttribute("open");
-  await page.reload();
-  await expect(create).toHaveAttribute("open");
-  await openCreateAdventure(page);
-  await toggle.click();
+  await page.keyboard.press("Escape");
   await expect(create).not.toHaveAttribute("open");
-  await page.reload();
+  await expect(toggle).toBeFocused();
+  await toggle.click();
+  await expect(create).toHaveAttribute("open");
+  await page.goBack();
   await expect(create).not.toHaveAttribute("open");
 });
 
@@ -180,7 +189,10 @@ test("Resume shows the same saved scene and position, including after reopening 
   expect(saved.matchingSave).toBe(true);
   expect([saved.width, saved.height]).toEqual([320, 200]);
   expect(saved.differences, "preview must match the composed frame of its own save").toBe(0);
-  const card = page.getByTestId(`saved-game-card-${saved.projectId}`);
+  // The tutorial's stored copy is the tutorial's own card.
+  expect(saved.projectId).toBe("catalog-adventure-department-1.0.0");
+  const card = page.getByTestId("catalog-adventure-department");
+  await expect(card).toHaveAttribute("data-project-id", saved.projectId);
   expect(
     (await card.boundingBox())!.width,
     "a single game keeps a readable card size",
@@ -252,7 +264,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     const style = getComputedStyle(element);
     return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
   };
-  expect(await cards.first().getByTestId("btn-resume-cached").evaluate(typography)).toEqual(
+  expect(await cards.nth(1).getByTestId("btn-resume-cached").evaluate(typography)).toEqual(
     await page.getByTestId("connect-create-ai").evaluate(typography),
   );
 
@@ -272,14 +284,16 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     expect(panel.width).toBeGreaterThan(Math.min(960, width - 60));
     expect(Math.abs(bounds!.width - panel.contentWidth)).toBeLessThan(2);
     expect(Math.abs(bounds!.x - (width - bounds!.x - bounds!.width))).toBeLessThan(4);
-    const boxes = await cards.evaluateAll((elements) =>
+    // About five across on a desktop, two on a phone.
+    const boxes = await gallery.locator(":scope > *").evaluateAll((elements) =>
       elements.map((element) => {
         const rect = element.getBoundingClientRect();
         return { x: rect.x, y: rect.y, width: rect.width };
       }),
     );
-    expect(boxes.every((box) => box.width >= Math.min(280, width - 48))).toBe(true);
-    if (width === 390) expect(new Set(boxes.map((box) => Math.round(box.x))).size).toBe(1);
+    const columns = { 1440: 5, 1024: 5, 768: 3, 390: 2 }[width];
+    expect(new Set(boxes.map((box) => Math.round(box.x))).size, `${width}px columns`).toBe(columns);
+    expect(boxes.every((box) => box.width >= 150)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
@@ -287,12 +301,12 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   }
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await openCreateAdventure(page);
-  await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("template-custom")).toBeVisible();
   const toggle = page.getByTestId("create-adventure-toggle");
   await toggle.focus();
   await page.keyboard.press("Enter");
+  await expect(create).toHaveAttribute("open");
+  await expect(page.getByTestId("template-custom")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(create).not.toHaveAttribute("open");
   await expect(toggle).toBeFocused();
   await page.keyboard.press("Enter");
@@ -320,10 +334,10 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   // The reload happened from the menu, so the app stays on the menu; resume the original.
   await page.reload();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  await page
-    .getByTestId(`saved-game-card-${originalProjectId}`)
-    .getByRole("button", { name: "Resume", exact: true })
-    .click();
+  // The original is the tutorial's stored copy, shown on the tutorial's card.
+  const tutorial = page.getByTestId("catalog-adventure-department");
+  await expect(tutorial).toHaveAttribute("data-project-id", originalProjectId);
+  await tutorial.getByRole("button", { name: "Resume", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
@@ -385,26 +399,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });
 
-test("tutorial disclosure remembers keyboard choices across reloads", async ({ page }) => {
-  await isolateStorage(page);
-  await page.goto("/");
-  const tutorial = page.getByTestId("tutorial-disclosure");
-  const toggle = page.getByTestId("tutorial-toggle");
-  await expect(tutorial).toHaveAttribute("open");
-  await toggle.focus();
-  await page.keyboard.press("Enter");
-  await expect(tutorial).not.toHaveAttribute("open");
-  await page.reload();
-  await expect(tutorial).not.toHaveAttribute("open");
-  expect((await tutorial.boundingBox())!.height).toBeLessThan(100);
-  await toggle.focus();
-  await page.keyboard.press("Space");
-  await expect(tutorial).toHaveAttribute("open");
-  await page.reload();
-  await expect(tutorial).toHaveAttribute("open");
-});
-
-test("own games collapse the tutorial by default while an explicit choice takes precedence", async ({
+test("the tutorial is one card that carries its progress, ahead of equal-height copies", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -412,20 +407,35 @@ test("own games collapse the tutorial by default while an explicit choice takes 
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-exit").click();
+  // One card per game: the tutorial's stored copy is the tutorial card, with its progress.
   const original = savedGameCard(page, "Adventure Department");
-  await openSavedGameDetails(original);
+  await expect(original).toHaveAttribute("data-testid", "catalog-adventure-department");
+  await expect(
+    page.getByTestId("saved-game-title").filter({ hasText: /^Adventure Department$/ }),
+  ).toHaveCount(1);
+  await expect(original.getByTestId("library-thumbnail")).toHaveAttribute(
+    "data-preview-kind",
+    "progress",
+  );
+  await expect(original).toContainText(/Room 1 · played/);
+  await expect(original.getByTestId("catalog-play-adventure-department")).toHaveText("Resume");
   await openLibraryActions(page, original);
   await page.getByTestId("copy-library-game").click();
-  await expect(savedGameCard(page, "Adventure Department Remix")).toBeVisible();
-  await openSavedGameDetails(original);
-  await expect(
-    savedGameCard(page, "Adventure Department Remix").locator("details"),
-  ).not.toHaveAttribute("open");
-  expect(
-    (await savedGameCard(page, "Adventure Department Remix").boundingBox())!.height,
-  ).toBeLessThan((await original.boundingBox())!.height - 100);
-  const tutorial = page.getByTestId("tutorial-disclosure");
-  await expect(tutorial).not.toHaveAttribute("open");
+  const remix = savedGameCard(page, "Adventure Department Remix");
+  await expect(remix).toBeVisible();
+  await expect(remix).toHaveAttribute("data-testid", /^saved-game-card-/);
+  // Cards in a row share one height, and reading details never changes it.
+  const height = (await original.boundingBox())!.height;
+  expect((await remix.boundingBox())!.height).toBe(height);
+  const details = await openSavedGameDetails(original);
+  await expect(details).toContainText("Learn pictures, sprites and priority");
+  await page.keyboard.press("Escape");
+  expect((await original.boundingBox())!.height).toBe(height);
+  expect((await remix.boundingBox())!.height).toBe(height);
+  const shelf = page.getByTestId("saved-game-gallery").locator(":scope > *");
+  await expect(shelf.first()).toHaveAttribute("data-testid", "catalog-adventure-department");
+  await expect(shelf.first()).toContainText("Tutorial");
+  await expect(shelf.last().getByTestId("shelf-template-custom")).toBeVisible();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.screenshot({
@@ -433,12 +443,10 @@ test("own games collapse the tutorial by default while an explicit choice takes 
       fullPage: true,
     });
   }
-  await page.getByTestId("tutorial-toggle").click();
-  await expect(tutorial).toHaveAttribute("open");
-  // The reload happened from the menu, so the app stays on the menu; the explicit choice survives.
+  // The reload happened from the menu, so the app stays on the menu with the same shelf.
   await page.reload();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  await expect(tutorial).toHaveAttribute("open");
+  await expect(shelf.first()).toHaveAttribute("data-testid", "catalog-adventure-department");
 });
 
 test("local folders and saved projects share one gallery and local progress resumes on its card", async ({

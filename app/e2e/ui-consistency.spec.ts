@@ -26,15 +26,25 @@ const appearance = (element: Element) => {
   };
 };
 
-test("Play, Resume and Save settings share one primary action style", async ({ page }) => {
+test("the hero and Save settings share the one filled primary; card actions stay quiet", async ({
+  page,
+}) => {
   // Controls animate colours on enable; the capture must see the settled
   // style, not a mid-transition frame.
   await page.addStyleTag({
     content: "*, ::before, ::after { transition-duration: 0s !important }",
   });
+  const hero = page.getByTestId("hero-primary");
+  await expect(hero).toBeEnabled();
+  const primary = await hero.evaluate(appearance);
   const play = page.getByTestId("catalog-play-adventure-department");
   await expect(play).toBeEnabled();
-  const primary = await play.evaluate(appearance);
+  const cardAction = await play.evaluate(appearance);
+  // A card's Play is the shared secondary action, never a second filled primary.
+  expect(cardAction).toEqual(
+    await page.getByRole("button", { name: "Add game", exact: true }).evaluate(appearance),
+  );
+  expect(cardAction.background).not.toEqual(primary.background);
   await play.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const secondary = await page.getByTestId("settings-menu").evaluate(appearance);
@@ -56,7 +66,7 @@ test("Play, Resume and Save settings share one primary action style", async ({ p
   const card = savedGameCard(page, "Adventure Department");
   const resume = card.getByRole("button", { name: "Resume", exact: true });
   await expect(resume).toBeVisible();
-  expect(await resume.evaluate(appearance)).toEqual(primary);
+  expect(await resume.evaluate(appearance)).toEqual(cardAction);
   await openAiSettings(page);
   expect(await page.getByTestId("ai-settings-save").evaluate(appearance)).toEqual(primary);
   await page.screenshot({
@@ -83,46 +93,36 @@ test("Play, Resume and Save settings share one primary action style", async ({ p
   await page.screenshot({ animations: "disabled", path: test.info().outputPath("assistant.png") });
 });
 
-test("tutorial and creation use matching disclosure controls with remembered state", async ({
+test("the hero's two calls to action match and open creation from the keyboard", async ({
   page,
 }) => {
-  const tutorial = page.getByTestId("tutorial-toggle");
+  const play = page.getByTestId("hero-primary");
   const create = page.getByTestId("create-adventure-toggle");
   const control = (element: Element) => {
     const style = getComputedStyle(element);
-    return {
-      before: getComputedStyle(element, "::before").content,
-      after: getComputedStyle(element, "::after").content,
-      font: style.font,
-      padding: style.padding,
-      display: style.display,
-      marker: style.listStyleType,
-    };
+    return { font: style.font, padding: style.padding, radius: style.borderRadius };
   };
-  expect(await tutorial.evaluate(control)).toEqual(await create.evaluate(control));
-  await tutorial.click();
-  await create.click();
-  await page.reload();
-  await expect(page.getByTestId("tutorial-disclosure")).not.toHaveAttribute("open");
-  await expect(page.getByTestId("create-adventure-disclosure")).not.toHaveAttribute("open");
-  expect(await tutorial.evaluate(control)).toEqual(await create.evaluate(control));
+  expect(await play.evaluate(control)).toEqual(await create.evaluate(control));
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 950 });
     expect(
-      Math.abs((await tutorial.boundingBox())!.height - (await create.boundingBox())!.height),
+      Math.abs((await play.boundingBox())!.height - (await create.boundingBox())!.height),
     ).toBeLessThan(2);
     await page.screenshot({
       animations: "disabled",
-      path: test.info().outputPath(`disclosures-${width}.png`),
+      path: test.info().outputPath(`hero-${width}.png`),
       fullPage: true,
     });
   }
-  await tutorial.focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByTestId("tutorial-disclosure")).toHaveAttribute("open");
+  const panel = page.getByTestId("create-adventure-disclosure");
   await create.focus();
+  await page.keyboard.press("Enter");
+  await expect(panel).toHaveAttribute("open");
+  await page.keyboard.press("Escape");
+  await expect(panel).not.toHaveAttribute("open");
+  await expect(create).toBeFocused();
   await page.keyboard.press("Space");
-  await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open");
+  await expect(panel).toHaveAttribute("open");
 });
 
 test("library details stay concise and Add game is a secondary action", async ({ page }) => {
@@ -158,10 +158,15 @@ test("library details stay concise and Add game is a secondary action", async ({
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
-  await openSavedGameDetails(card);
-  await expect(card).not.toContainText(
+  const height = (await card.boundingBox())!.height;
+  const details = await openSavedGameDetails(card);
+  await expect(details).toContainText("Monotio");
+  await expect(details).not.toContainText(
     /Later rooms|Opening checked|Interpreter|Project keeps|Ready to play/,
   );
+  await page.keyboard.press("Escape");
+  await expect(details).toBeHidden();
+  expect((await card.boundingBox())!.height, "details never resize the card").toBe(height);
   // UiButton's fine-pointer height is --control-h (40px); touch gets 44px via
   // the pointer:coarse media query.
   for (const action of await card.locator("button").all()) {
@@ -209,14 +214,16 @@ test("keyboard focus draws one ring on page buttons and dialog buttons alike", a
   const expected = { focusVisible: true, width: "3px", style: "solid", color: focusColor };
   const play = page.getByTestId("catalog-play-adventure-department");
   await expect(play).toBeEnabled();
-  await page.getByTestId("tutorial-toggle").focus();
+  await play.focus();
+  await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Tab");
   await expect(play).toBeFocused();
   expect(await play.evaluate(ring), "a page button").toEqual(expected);
-  await page.getByTestId("tutorial-toggle").focus();
-  expect(await page.getByTestId("tutorial-toggle").evaluate(ring), "a section summary").toEqual(
-    expected,
-  );
+  const create = page.getByTestId("create-adventure-toggle");
+  await page.getByTestId("hero-primary").focus();
+  await page.keyboard.press("Tab");
+  await expect(create).toBeFocused();
+  expect(await create.evaluate(ring), "a hero button").toEqual(expected);
   await openAiSettings(page);
   await page.getByTestId("task-budget").focus();
   await page.keyboard.press("Tab");

@@ -57,7 +57,7 @@ async function bootClickGame(page: Page, name: string, profile: string): Promise
   await page.getByTestId("profile-picker-confirm").click();
   await expect(picker).toBeHidden();
   await page
-    .locator(".saved-game-card", { hasText: name })
+    .locator("[data-testid^='saved-game-card-']", { hasText: name })
     .getByTestId("btn-resume-cached")
     .click();
   await expect.poll(async () => (await textHook(page)).profile).toBe(profile);

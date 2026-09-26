@@ -84,12 +84,12 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await page.getByTestId("btn-exit").click();
   await expect.poll(() => new URL(page.url()).hash).toBe("");
   const tutorialCard = savedGameCard(page, "Adventure Department");
-  await expect(tutorialCard.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(tutorialCard.getByRole("button", { name: "Play now", exact: true })).toBeVisible();
   await expect(tutorialCard.getByRole("button", { name: "Resume", exact: true })).toHaveCount(0);
   const remixCard = savedGameCard(page, "Adventure Department Remix");
   await expect(remixCard.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
 
-  await tutorialCard.getByRole("button", { name: "Play", exact: true }).click();
+  await tutorialCard.getByRole("button", { name: "Play now", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
   expect(new URL(page.url()).hash, "the replayed tutorial must be named in the URL").toBe(

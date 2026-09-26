@@ -22,7 +22,7 @@ function syntheticGame(): Buffer {
 }
 
 function savedGameCard(page: Parameters<typeof textHook>[0], name: string) {
-  return page.locator(".saved-game-card", { hasText: name });
+  return page.locator("[data-testid^='saved-game-card-']", { hasText: name });
 }
 
 async function importSynthetic(page: Parameters<typeof textHook>[0], name: string) {

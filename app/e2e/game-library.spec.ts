@@ -9,7 +9,6 @@ import { buildZip } from "../src/zip.ts";
 import {
   configureAi,
   isolateStorage,
-  openSavedGameDetails,
   openLibraryActions,
   savedGameCard,
   storedAutosave,
@@ -107,7 +106,6 @@ test("a selected folder is checked, deduplicated with its ZIP, and can be copied
       buffer: zip,
     });
     await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
-    await openSavedGameDetails(original);
     await openLibraryActions(page, original);
     await page.getByTestId("copy-library-game").click();
     await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(2);

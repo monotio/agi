@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage, savedGameCard, textHook, enterCreateMode } from "./engineProbe.ts";
+import {
+  enterCreateMode,
+  isolateStorage,
+  openLibraryActions,
+  savedGameCard,
+  textHook,
+} from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
@@ -8,12 +14,14 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("first visit has one route per action and aligned sections", async ({ page }) => {
-  await expect(page.locator(".welcome button")).toHaveCount(0);
-  await expect(page.locator(".welcome a")).toHaveCount(1);
-  await expect(page.locator(".welcome a")).toHaveAttribute(
+  const hero = page.locator(".hero");
+  await expect(hero.getByRole("button")).toHaveText(["Play the tutorial", "Create an adventure"]);
+  await expect(hero.getByRole("link")).toHaveCount(1);
+  await expect(hero.getByRole("link")).toHaveAttribute(
     "href",
     "https://en.wikipedia.org/wiki/Adventure_Game_Interpreter",
   );
+  await page.getByTestId("create-adventure-toggle").click();
   await expect(page.getByTestId("create-adventure-disclosure")).toContainText(
     "Connect your AI provider to generate a game.",
   );
@@ -24,14 +32,14 @@ test("first visit has one route per action and aligned sections", async ({ page 
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const sections = await Promise.all(
-      ["#tutorial", "#create-adventure", "#your-games"].map((selector) =>
+      ["#welcome-title", "#create-adventure", "#your-games"].map((selector) =>
         page.locator(selector).boundingBox(),
       ),
     );
     for (const section of sections.slice(1)) {
       expect(Math.abs(section!.x - sections[0]!.x)).toBeLessThan(1);
-      expect(Math.abs(section!.width - sections[0]!.width)).toBeLessThan(1);
     }
+    expect(Math.abs(sections[2]!.width - sections[1]!.width)).toBeLessThan(1);
     await page.screenshot({
       path: test.info().outputPath(`first-visit-${width}.png`),
       fullPage: true,
@@ -51,10 +59,10 @@ test("the featured opening image does not move the controls below it", async ({ 
     await page.setViewportSize({ width, height: 844 });
     await page.reload();
     const card = page.getByTestId("catalog-adventure-department");
-    await expect(card.locator(".thumbnail-placeholder")).toBeVisible();
+    await expect(card.getByTestId("thumbnail-placeholder")).toBeVisible();
     const before = await page.getByTestId("catalog-play-adventure-department").boundingBox();
     release();
-    await expect(card.locator(".catalog-art img")).toBeVisible();
+    await expect(card.getByRole("img")).toBeVisible();
     const after = await page.getByTestId("catalog-play-adventure-department").boundingBox();
     expect(after!.y - before!.y, `${width}px`).toBe(0);
     await page.unrouteAll();
@@ -97,15 +105,13 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-exit").click();
   const card = savedGameCard(page, "Adventure Department");
-  const rename = card.getByTestId("rename-game");
-  await expect(rename).toBeVisible();
-  const titleBox = (await card.getByTestId("saved-game-title").boundingBox())!;
-  const renameBox = (await rename.boundingBox())!;
-  expect(
-    Math.abs(titleBox.y + titleBox.height / 2 - renameBox.y - renameBox.height / 2),
-  ).toBeLessThan(2);
-  await rename.click();
-  await card.getByRole("textbox", { name: "Game name" }).fill("My tutorial");
+  // Rename lives in the ⋯ menu and edits the title in place on the card.
+  await openLibraryActions(page, card);
+  await page.getByTestId("rename-game").click();
+  const nameInput = card.getByRole("textbox", { name: "Game name" });
+  await expect(nameInput).toBeFocused();
+  await expect(card.getByTestId("saved-game-title")).toBeHidden();
+  await nameInput.fill("My tutorial");
   await card.getByRole("button", { name: "Save name" }).click();
   const renamed = savedGameCard(page, "My tutorial");
   await expect(renamed).toBeVisible();
