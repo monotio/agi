@@ -225,6 +225,7 @@ export function useEngine(
     window.__AGI_REPLAY__ = replayDriver;
     (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
     (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
+    window.__AGI_FRAME__ = link.getLatestFrame;
   }
 
   const autosaveController = useAutosaveController({

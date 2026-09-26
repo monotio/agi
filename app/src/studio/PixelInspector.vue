@@ -18,21 +18,35 @@ export interface InspectorCommand {
  * The inspector: the selected item (its commands, colours and priorities)
  * and the hovered or clicked pixel on both planes, with the command that
  * last wrote it. With a fill command at the playhead, a clicked pixel also
- * explains whether that fill reaches it.
+ * explains whether that fill reaches it. An editable item's editor goes in
+ * the `editor` slot and replaces the read-only colour and priority lists.
  */
-const { row, commands, colours, priorities, pixel, pinned, fill, trusted, playhead, labelOf } =
-  defineProps<{
-    row: SceneRow | undefined;
-    commands: readonly InspectorCommand[];
-    colours: readonly number[];
-    priorities: readonly number[];
-    pixel: PixelInfo | null;
-    pinned: boolean;
-    fill: FillExplanation | undefined;
-    trusted: boolean;
-    playhead: number;
-    labelOf: (id: string) => string;
-  }>();
+const {
+  row,
+  commands,
+  colours,
+  priorities,
+  pixel,
+  pinned,
+  fill,
+  trusted,
+  editing = false,
+  playhead,
+  labelOf,
+} = defineProps<{
+  row: SceneRow | undefined;
+  commands: readonly InspectorCommand[];
+  colours: readonly number[];
+  priorities: readonly number[];
+  pixel: PixelInfo | null;
+  pinned: boolean;
+  fill: FillExplanation | undefined;
+  trusted: boolean;
+  /** The selected item is being edited in the `editor` slot. */
+  editing?: boolean;
+  playhead: number;
+  labelOf: (id: string) => string;
+}>();
 const emit = defineEmits<{ seek: [count: number]; select: [id: string] }>();
 
 const KIND_NAMES: Record<SceneRow["kind"], string> = {
@@ -69,6 +83,7 @@ const writer = (plane: PlanePixel): string =>
       <h2>{{ row ? row.label : "Nothing selected" }}</h2>
       <p>{{ row ? summary : "Click an item in the Scene list or a pixel on the canvas." }}</p>
     </header>
+    <slot name="editor" />
 
     <section v-if="pixel" class="inspector__sec" data-role="pixel">
       <h3>
@@ -112,7 +127,7 @@ const writer = (plane: PlanePixel): string =>
     </section>
 
     <template v-if="row">
-      <section v-if="priorities.length > 0" class="inspector__sec">
+      <section v-if="!editing && priorities.length > 0" class="inspector__sec">
         <h3>Priority <em>values this item draws</em></h3>
         <div class="inspector__prio" role="list" aria-label="Priority values">
           <i
@@ -129,7 +144,7 @@ const writer = (plane: PlanePixel): string =>
           labels them.
         </p>
       </section>
-      <section v-if="colours.length > 0" class="inspector__sec">
+      <section v-if="!editing && colours.length > 0" class="inspector__sec">
         <h3>Colours <em>visual</em></h3>
         <div class="inspector__pal">
           <i
@@ -161,7 +176,8 @@ const writer = (plane: PlanePixel): string =>
     <section class="inspector__sec inspector__evidence">
       <UiChip v-if="trusted" tone="ok" dot>Authored source · compiles exactly</UiChip>
       <UiChip v-else dot>Disassembled from the stored bytes</UiChip>
-      <UiChip><UiIcon name="lock" :size="12" />Read-only</UiChip>
+      <UiChip v-if="editing" tone="ok" dot>Edits checked on the decoded planes</UiChip>
+      <UiChip v-else><UiIcon name="lock" :size="12" />Read-only</UiChip>
     </section>
   </aside>
 </template>

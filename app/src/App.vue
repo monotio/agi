@@ -625,7 +625,9 @@ watch(
           :profile="studio.profile"
           :title="studio.title"
           :subtitle="studio.subtitle"
+          :base-revision="studio.baseRevision"
           @close="workspace.closeStudio()"
+          @reopen="workspace.reopenStudio()"
         />
         <aside
           v-show="!studioOpen"

@@ -12,6 +12,8 @@ import { openContainer } from "../../src/container/container.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
 import type { AgentSourceStore } from "../../src/agent/tools.ts";
 import { sourceCompilesTo } from "../../src/picture/source.ts";
+import { roomDrawsPicture } from "../../src/agent/roomPictures.ts";
+import type { AgiProfile } from "../../src/runtime/profile.ts";
 import {
   loadAuthoredGameWithHistoryLifetime,
   loadGameConversation,
@@ -85,8 +87,13 @@ export interface ResourceEdit {
   readonly owner: string;
   /** The revision the edit was made against; defaults to the booted one. */
   readonly baseRevision?: ResourceRevision | undefined;
-  /** Re-enter this room after the install when the game is standing in it. */
-  readonly reenterRoom?: number | undefined;
+  /**
+   * Re-enter the room the game stands in after the install when this says
+   * the room shows the edit, judged on the edited files.
+   */
+  readonly reenter?:
+    | ((room: number, files: ReadonlyMap<string, Uint8Array>, profile: AgiProfile) => boolean)
+    | undefined;
   /** Read the edit against the freshly loaded project record; throw to refuse. */
   resolve(stored: CachedGameData | null): {
     kind: PatchKind;
@@ -238,7 +245,7 @@ export function createResourceCommit(
       const moved = () =>
         getBootedGame() !== game || getSession() !== author || getWorker() !== worker;
       const exported = await query("exportFiles");
-      const room = edit.reenterRoom === undefined ? undefined : (await query("state"))?.room;
+      const room = edit.reenter === undefined ? undefined : (await query("state"))?.room;
       if (!exported || moved())
         throw new ResourceCommitError("stale", `The game changed while ${what} was being kept.`);
       if ((await gameRevision(exported)) !== baseRevision)
@@ -438,7 +445,11 @@ export function createResourceCommit(
         setBootedGame(adoptedGame);
         onRemixCreated?.(targetId!);
       }
-      if (bytesChanged && room !== undefined && room === edit.reenterRoom)
+      if (
+        bytesChanged &&
+        room !== undefined &&
+        edit.reenter?.(room, container.files, sourceSession.state.profile)
+      )
         worker.postMessage({ type: "reenter", room } satisfies WorkerInbound);
       postSessionSnapshot(sourceSession);
       onCommitted(author);
@@ -490,7 +501,8 @@ export function stagedViewEdit(game: BootedGame, id: string): ResourceEdit {
 
 /**
  * Keep a Room Studio picture: the edited PIC bytes and the annotated source
- * that compiles to exactly them. The room showing the picture re-enters.
+ * that compiles to exactly them. The live room re-enters when its own logic
+ * provably draws the picture (its static scan), whatever its number.
  */
 export function pictureEdit(edit: PictureEdit): ResourceEdit {
   const { pictureNumber: num, source, baseRevision } = edit;
@@ -499,7 +511,7 @@ export function pictureEdit(edit: PictureEdit): ResourceEdit {
     what: "the picture edit",
     owner: "studioCommit",
     baseRevision,
-    reenterRoom: num,
+    reenter: (room, files, profile) => roomDrawsPicture(files, room, num, profile),
     resolve: () => {
       if (!Number.isInteger(num) || num < 0 || num > 255)
         throw new ResourceCommitError("invalid", `Picture ${num} is not a resource number.`);

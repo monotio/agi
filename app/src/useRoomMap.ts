@@ -45,6 +45,7 @@ import { getOrExtractCheckpoints, loadWalkthrough, resolveWalkthrough } from "./
 import type { AgentSession } from "./agent/agentSession.ts";
 import type { AuthoringState } from "../../src/agent/authoringState.ts";
 import { gameStorageKey, type BootedGame, type Frame } from "./gameTypes.ts";
+import type { ResourceRevision } from "../../src/gameIdentity.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
 import { studioPictureSource, type StudioPictureSource } from "./world/studioSource.ts";
@@ -199,7 +200,10 @@ export interface RoomMap {
   /** The static scan of the booted resources (files, logic scans, pictures, stored tests). */
   readonly resources: ComputedRef<ScannedResources>;
   /** Room Studio's input for one picture of the booted game, or null without it. */
-  studioSource(picture: number): StudioPictureSource | null;
+  /** One picture's Studio input and the booted revision it was read at. */
+  studioSource(
+    picture: number,
+  ): (StudioPictureSource & { readonly baseRevision: ResourceRevision }) | null;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
@@ -1333,8 +1337,14 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     noteIntentFor,
     thumbnailFor,
     resources,
-    studioSource: (picture) =>
-      studioPictureSource(resources.value, picture, deps.getSession()?.state),
+    studioSource: (picture) => {
+      // The scan and the revision must describe the same booted files.
+      const game = deps.getBootedGame();
+      const scanned = scanResources();
+      if (!game || scanned.files !== game.files) return null;
+      const source = studioPictureSource(scanned, picture, deps.getSession()?.state);
+      return source && { ...source, baseRevision: game.revision };
+    },
     observeFrame,
     exportSidecar,
     retrySave,

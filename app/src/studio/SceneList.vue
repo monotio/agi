@@ -311,8 +311,8 @@ function onFilterKeydown(event: KeyboardEvent): void {
             in {{ branches.length }} rows</template
           ></template
         >
-        · read-only
       </span>
+      <slot name="notice" />
     </template>
   </UiPanel>
 </template>

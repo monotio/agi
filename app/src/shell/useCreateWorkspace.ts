@@ -21,12 +21,13 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
+import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { createPanels, type DockSide } from "./createDocks.ts";
 
 export const DOCKS_STORAGE_KEY = "monotio_agi.createDocks";
 
-/** What Room Studio opens on. The placeholder shows it; RoomStudio edits it. */
+/** What Room Studio opens on; RoomStudio edits it and keeps it against `baseRevision`. */
 export interface StudioRequest {
   readonly room: number;
   readonly pictureNumber: number;
@@ -36,6 +37,10 @@ export interface StudioRequest {
   readonly profile: AgiProfile;
   readonly title: string;
   readonly subtitle?: string | undefined;
+  /** The booted game's resource revision the bytes were read at. */
+  readonly baseRevision: ResourceRevision;
+  /** The same picture read again from the running game, or null when it is gone. */
+  readonly reload: () => StudioRequest | null;
 }
 
 export interface CreateCenter {
@@ -45,6 +50,8 @@ export interface CreateCenter {
   openStudio(request: StudioRequest): void;
   /** Back to the live stage: the game resumes and takes the keyboard. */
   closeStudio(): void;
+  /** Studio again on the same picture, read from the running game (after a stale Keep). */
+  reopenStudio(): void;
 }
 
 export interface CreateWorkspace extends CreateCenter {
@@ -130,6 +137,12 @@ export function createCreateWorkspace(deps: {
     deps.focusGame();
   }
 
+  function reopenStudio(): void {
+    const next = studio.value?.reload();
+    if (next) openStudio(next);
+    else closeStudio();
+  }
+
   return {
     active,
     collapsed,
@@ -141,6 +154,7 @@ export function createCreateWorkspace(deps: {
     studio,
     openStudio,
     closeStudio,
+    reopenStudio,
   };
 }
 
@@ -158,6 +172,6 @@ export function useCreateWorkspace(): CreateWorkspace {
 
 /** The centre seam: open Room Studio on a picture, or return to the live stage. */
 export function useCreateCenter(): CreateCenter {
-  const { studio, openStudio, closeStudio } = useCreateWorkspace();
-  return { studio, openStudio, closeStudio };
+  const { studio, openStudio, closeStudio, reopenStudio } = useCreateWorkspace();
+  return { studio, openStudio, closeStudio, reopenStudio };
 }

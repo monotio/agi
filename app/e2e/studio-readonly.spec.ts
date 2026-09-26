@@ -242,18 +242,18 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
   );
 });
 
-test("arrow keys on the canvas step through items and Tab leaves it", async ({ page }) => {
+test("Alt+arrow keys on the canvas step through items and Tab leaves it", async ({ page }) => {
   await open(page, "demo");
   const canvas = page.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
   const selected = page.locator('[role="treeitem"][aria-selected="true"]');
-  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Alt+ArrowDown");
   await expect(selected).toHaveAttribute("data-row", "floor");
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Alt+ArrowRight");
   await expect(selected).toHaveAttribute("data-row", "wall");
-  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Alt+ArrowUp");
   await expect(selected).toHaveAttribute("data-row", "floor");
-  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Alt+ArrowLeft");
   await expect(selected).toHaveAttribute("data-row", "floor");
   // Tab is never taken by the canvas: one press moves focus on.
   await page.keyboard.press("Tab");

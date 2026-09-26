@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ref } from "vue";
 import { registerCreatePanel } from "../src/shell/createDocks.ts";
-import { createCreateWorkspace, DOCKS_STORAGE_KEY } from "../src/shell/useCreateWorkspace.ts";
+import {
+  createCreateWorkspace,
+  DOCKS_STORAGE_KEY,
+  type StudioRequest,
+} from "../src/shell/useCreateWorkspace.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import { testRevision } from "./identity.ts";
 
 function memoryStorage(seed: Record<string, string> = {}) {
   const data = new Map(Object.entries(seed));
@@ -68,21 +73,42 @@ test("showing a panel selects its tab and unfolds its dock", () => {
   }
 });
 
-test("Studio holds its own pause and hands the keyboard back on close", () => {
-  const { ws, calls } = workspace(memoryStorage());
-  const request = {
-    room: 2,
+function studioRequest(
+  room: number,
+  reload: () => StudioRequest | null = () => null,
+): StudioRequest {
+  return {
+    room,
     pictureNumber: 5,
     bytes: Uint8Array.of(0xff),
     profile: Object.values(PROFILES)[0]!,
-    title: "Room 2",
+    title: `Room ${room}`,
+    baseRevision: testRevision("studio"),
+    reload,
   };
+}
+
+test("Studio holds its own pause and hands the keyboard back on close", () => {
+  const { ws, calls } = workspace(memoryStorage());
+  const request = studioRequest(2);
   ws.openStudio(request);
   ws.openStudio({ ...request, pictureNumber: 6 });
   assert.equal(ws.studio.value?.pictureNumber, 6);
   ws.closeStudio();
   ws.closeStudio();
   assert.equal(ws.studio.value, null);
+  assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
+});
+
+test("reopening Studio reads its picture again under the same pause, or closes when it is gone", () => {
+  const { ws, calls } = workspace(memoryStorage());
+  const fresh = { ...studioRequest(2), baseRevision: testRevision("after") };
+  ws.openStudio(studioRequest(2, () => fresh));
+  ws.reopenStudio();
+  assert.equal(ws.studio.value, fresh);
+  assert.deepEqual(calls, ["pause:studio"]);
+  ws.reopenStudio();
+  assert.equal(ws.studio.value, null, "the fresh request's reload finds nothing");
   assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
 });
 
@@ -96,13 +122,7 @@ test("Studio never opens where it does not fit, and holds no pause there", () =>
     studioFits: () => fits.value,
     storage: memoryStorage(),
   });
-  const request = {
-    room: 1,
-    pictureNumber: 5,
-    bytes: Uint8Array.of(0xff),
-    profile: Object.values(PROFILES)[0]!,
-    title: "Room 1",
-  };
+  const request = studioRequest(1);
   assert.equal(ws.studioFits.value, false);
   ws.openStudio(request);
   assert.equal(ws.studio.value, null);
