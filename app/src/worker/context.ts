@@ -31,6 +31,7 @@ import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.t
 import { createJournal } from "./journal.ts";
 import { createHistory } from "./history.ts";
 import { createHistoryView } from "./historyView.ts";
+import { createPlayHere } from "./playHere.ts";
 import type { HistoryDrive } from "./replay.ts";
 import type {
   HistoryAnchor,
@@ -412,6 +413,8 @@ export interface WorkerFns {
   ): HostAnswerOutcome | undefined;
   onHostAnswer(msg: Inbound<"hostAnswer">, committed?: HistoryCommittedPatch | null): void;
   onReenter(msg: Inbound<"reenter">): void;
+  // playHere.ts
+  onPlayHere(msg: Inbound<"playHere">): void;
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
   onReplayAdvance(msg: Inbound<"replayAdvance">): void;
@@ -673,6 +676,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createJournal(ctx));
   Object.assign(ctx.fns, createHistory(ctx));
   Object.assign(ctx.fns, createHistoryView(ctx));
+  Object.assign(ctx.fns, createPlayHere(ctx));
   return ctx;
 }
 
