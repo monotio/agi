@@ -69,6 +69,27 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
   await page.screenshot({ path: "test-results/plan-map-created.png" });
 });
 
+test("Attach reference art opens the upload over the open world plan", async ({ page }) => {
+  await createAdventure(page);
+  await openMap(page);
+  await page.getByTestId("map-room-1").click();
+
+  // The map is a native modal on the top layer; a plain positioned overlay
+  // would land behind it. The upload must be a top-layer dialog itself.
+  await page.getByTestId("map-attach-reference").click();
+  const upload = page.getByTestId("reference-upload");
+  await expect(upload).toBeVisible();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  expect(await upload.evaluate((element) => element.matches(":modal"))).toBe(true);
+  // Its first control holds focus while the map stays open beneath.
+  const uploadClose = upload.getByRole("button", { name: "Close", exact: true });
+  await expect(uploadClose).toBeFocused();
+
+  await uploadClose.click();
+  await expect(upload).toBeHidden();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+});
+
 test("the player's world map shows walked rooms only — no plan, no controls", async ({ page }) => {
   await createAdventure(page);
   await expect(page.getByTestId("agent-panel")).toContainText("planned a three-room world", {

@@ -24,7 +24,7 @@ defineProps<{
       <a
         :href="preview.url"
         :download="`agi-sound-preview-${index + 1}.wav`"
-        class="ui-button ui-button--secondary"
+        class="sound-preview__download"
         data-testid="sound-preview-download"
       >
         Download WAV
@@ -39,13 +39,11 @@ defineProps<{
   gap: 8px;
   margin: 10px 0;
   padding: 10px;
-  border: 1px solid #35535b;
-  border-radius: 6px;
-  background: #071216;
-  color: #dce9eb;
-  font:
-    12px/1.45 system-ui,
-    sans-serif;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+  color: var(--ink);
+  font: var(--text-xs) / 1.45 var(--font-sans);
 }
 
 .sound-preview {
@@ -67,8 +65,31 @@ defineProps<{
   height: 34px;
 }
 
-.sound-preview a {
+/* A download needs an anchor, so the shared secondary look is restated here. */
+.sound-preview__download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  box-sizing: border-box;
+  padding: 0 var(--space-5);
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius);
+  color: var(--action);
+  background: transparent;
+  font: var(--weight-semibold) var(--text-md) / var(--leading-tight) var(--font-sans);
   white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.sound-preview__download:hover {
+  border-color: var(--action);
+  background: var(--action-soft);
+}
+@media (pointer: coarse) {
+  .sound-preview__download {
+    min-height: var(--control-h-touch);
+  }
 }
 
 @media (max-width: 520px) {

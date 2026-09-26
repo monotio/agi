@@ -84,7 +84,9 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
     await page.getByTestId("agent-bubble-input").fill("Add sparkle to the vocabulary");
     await page.getByTestId("agent-bubble-send").click();
     await expect.poll(() => requests).toBe(2);
-    expect((await page.getByTestId("agent-stop").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // UiButton's fine-pointer height is --control-h (40px); touch gets 44px via
+    // the pointer:coarse media query.
+    expect((await page.getByTestId("agent-stop").boundingBox())!.height).toBeGreaterThanOrEqual(40);
     await page.getByTestId("agent-stop").click();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Stopped");
     expect((await textHook(page)).paused).toBe(true);

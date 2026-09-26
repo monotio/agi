@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import SoundPreview from "./SoundPreview.vue";
+import UiButton from "./ui/UiButton.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useAiSettings } from "./useAiSettings.ts";
@@ -97,9 +98,8 @@ async function copyDebugBundle(): Promise<void> {
         <span v-if="copyFeedback" class="copy-feedback">{{ copyFeedback }}</span>
       </div>
     </div>
-    <button
+    <UiButton
       v-if="testMode && (state.phase === 'idle' || state.phase === 'error')"
-      class="ui-button ui-button--secondary"
       data-testid="boot-agent"
       @click="
         resumeAudio();
@@ -107,7 +107,7 @@ async function copyDebugBundle(): Promise<void> {
       "
     >
       Run test game
-    </button>
+    </UiButton>
     <div class="agent-entries">
       <div
         v-for="entry in state.agentLog.slice(-50)"
@@ -134,25 +134,25 @@ async function copyDebugBundle(): Promise<void> {
 
 <style scoped>
 .backend-tag {
-  font-size: 0.7rem;
-  color: #555;
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
   letter-spacing: 0.15em;
 }
 
 .agent-panel {
   width: var(--shell-width);
   margin-top: 1rem;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--hairline);
   max-height: 280px;
   overflow-y: auto;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
 }
 
 .agent-panel summary {
   cursor: pointer;
   padding: 12px 0;
-  color: #aaa;
-  font-size: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
 }
 
 .agent-panel-header {
@@ -171,37 +171,37 @@ async function copyDebugBundle(): Promise<void> {
 }
 
 .telemetry-btn {
-  font-size: 0.65rem;
+  font-size: var(--text-2xs);
   padding: 0.2rem 0.5rem;
-  background: #1c2838;
-  border: 1px solid #3a5578;
-  color: #7bb5f5;
-  border-radius: 3px;
+  background: var(--surface-3);
+  border: 1px solid var(--action-line);
+  color: var(--action);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-family: inherit;
 }
 
 .telemetry-btn:hover {
-  background: #253952;
-  border-color: #5b87bf;
-  color: #fff;
+  background: var(--action-soft);
+  border-color: var(--action);
+  color: var(--ink);
 }
 
 .telemetry-btn.secondary {
-  background: #222;
-  border-color: #444;
-  color: #888;
+  background: var(--surface-2);
+  border-color: var(--hairline-strong);
+  color: var(--ink-3);
 }
 
 .telemetry-btn.secondary:hover {
-  background: #333;
-  border-color: #666;
-  color: #ccc;
+  background: var(--surface-3);
+  border-color: var(--hairline-strong);
+  color: var(--ink);
 }
 
 .copy-feedback {
-  font-size: 0.7rem;
-  color: #5f5;
+  font-size: var(--text-2xs);
+  color: var(--ok);
   font-weight: bold;
 }
 
@@ -213,8 +213,8 @@ async function copyDebugBundle(): Promise<void> {
 
 .agent-entry {
   padding: 3px 0;
-  color: #999;
-  font-family: monospace;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
 }
 
 .agent-entry.expandable {
@@ -228,28 +228,29 @@ async function copyDebugBundle(): Promise<void> {
 }
 
 .agent-entry .agent-kind {
-  color: #5af;
+  color: var(--action);
   font-weight: bold;
 }
 
 .agent-entry.response .agent-kind {
-  color: #7d7;
+  color: var(--ok);
 }
 
 .agent-entry.error .agent-kind {
-  color: #f66;
+  color: var(--danger);
 }
 
 .agent-entry.log .agent-kind {
-  color: #fa0;
+  color: var(--warn);
 }
 
 .agent-entry.telemetry .agent-kind {
+  /* Telemetry category purple: no matching token. */
   color: #b8f;
 }
 
 .agent-entry.input .agent-kind {
-  color: #5ce1e6;
+  color: var(--action);
 }
 
 .agent-detail {
@@ -260,8 +261,8 @@ async function copyDebugBundle(): Promise<void> {
 }
 
 .agent-expand-toggle {
-  font-size: 0.65rem;
-  color: #5af;
+  font-size: var(--text-2xs);
+  color: var(--action);
   opacity: 0.8;
   padding: 0 4px;
 }
@@ -269,11 +270,11 @@ async function copyDebugBundle(): Promise<void> {
 .agent-data-preview {
   margin: 0.3rem 0 0.5rem 1rem;
   padding: 0.4rem 0.6rem;
-  background: #111;
-  border: 1px solid #333;
-  border-radius: 3px;
-  color: #bbb;
-  font-size: 0.7rem;
+  background: var(--surface-0);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-size: var(--text-2xs);
   max-height: 180px;
   overflow-y: auto;
   white-space: pre-wrap;

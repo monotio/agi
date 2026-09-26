@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import UiButton from "./ui/UiButton.vue";
+import UiDialog from "./ui/UiDialog.vue";
+import UiIconButton from "./ui/UiIconButton.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { referenceUpload } from "./referenceUploadState.ts";
 import { decodeReferenceFile } from "./referenceDecode.ts";
@@ -223,35 +226,17 @@ function onReopenStaged(reference: StoredReference): void {
   target.value = reference.kind === "room" ? reference.target : target.value;
   error.value = "";
 }
-
-function close(): void {
-  referenceUpload.open = false;
-}
 </script>
 
 <template>
-  <div
-    v-if="referenceUpload.open"
+  <UiDialog
+    v-model:open="referenceUpload.open"
+    title="Reference art"
     class="reference-upload"
     data-testid="reference-upload"
-    role="dialog"
-    aria-label="Attach reference art"
     @click.stop
     @pointerdown.stop
   >
-    <header class="reference-upload-head">
-      <h2>Reference art</h2>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary ui-button--icon dialog-close"
-        aria-label="Close reference upload"
-        data-testid="reference-upload-close"
-        @click="close"
-      >
-        ×
-      </button>
-    </header>
-
     <div v-if="!attached" class="reference-upload-body">
       <div class="reference-kind" role="group" aria-label="Reference kind">
         <button
@@ -355,15 +340,14 @@ function close(): void {
       </label>
 
       <footer class="reference-upload-foot">
-        <button
-          type="button"
-          class="ui-button ui-button--primary"
+        <UiButton
+          variant="primary"
           data-testid="reference-attach"
           :disabled="busy"
           @click="onAttach"
         >
           {{ busy ? "Converting…" : kind === "character" ? "Convert & stage" : "Attach" }}
-        </button>
+        </UiButton>
       </footer>
 
       <section v-if="existing.length" class="reference-existing" data-testid="reference-existing">
@@ -381,33 +365,26 @@ function close(): void {
               }}
               <template v-if="reference.brief"> — {{ reference.brief }}</template>
             </span>
-            <button
+            <UiButton
               v-if="reference.staged"
-              type="button"
-              class="ui-button ui-button--secondary"
               :data-testid="`reference-staged-${reference.id}`"
               @click="onReopenStaged(reference)"
             >
               Staged — inspect
-            </button>
-            <button
-              type="button"
-              class="ui-button ui-button--secondary"
+            </UiButton>
+            <UiButton
               :data-testid="`reference-send-${reference.id}`"
               :disabled="sendingId !== ''"
               @click="onSendExisting(reference)"
             >
               {{ sendingId === reference.id ? "Sending…" : "Use in edit" }}
-            </button>
-            <button
-              type="button"
-              class="ui-button ui-button--secondary ui-button--icon"
-              :aria-label="`Remove reference ${reference.id}`"
+            </UiButton>
+            <UiIconButton
+              icon="x"
+              :label="`Remove reference ${reference.id}`"
               :data-testid="`reference-remove-${reference.id}`"
               @click="onDetachExisting(reference)"
-            >
-              ×
-            </button>
+            />
           </li>
         </ul>
       </section>
@@ -433,24 +410,17 @@ function close(): void {
           <li v-for="(note, i) in attached.staged.warnings" :key="`w${i}`">{{ note }}</li>
         </ul>
         <footer class="reference-upload-foot">
-          <button
-            type="button"
-            class="ui-button ui-button--primary"
+          <UiButton
+            variant="primary"
             data-testid="reference-keep"
             :disabled="busy || sending"
             @click="onKeep"
           >
             Keep
-          </button>
-          <button
-            type="button"
-            class="ui-button ui-button--secondary"
-            data-testid="reference-send"
-            :disabled="busy || sending"
-            @click="onSendToAgent"
-          >
+          </UiButton>
+          <UiButton data-testid="reference-send" :disabled="busy || sending" @click="onSendToAgent">
             {{ sending ? "Sending…" : "Use in edit" }}
-          </button>
+          </UiButton>
         </footer>
       </template>
       <template v-else>
@@ -459,15 +429,14 @@ function close(): void {
           note.
         </p>
         <footer class="reference-upload-foot">
-          <button
-            type="button"
-            class="ui-button ui-button--primary"
+          <UiButton
+            variant="primary"
             data-testid="reference-send"
             :disabled="sending"
             @click="onSendToAgent"
           >
             {{ sending ? "Sending…" : "Use in edit" }}
-          </button>
+          </UiButton>
         </footer>
       </template>
     </div>
@@ -475,46 +444,17 @@ function close(): void {
     <p v-if="error" class="dialog-error" role="alert" data-testid="reference-error">
       {{ error }}
     </p>
-  </div>
+  </UiDialog>
 </template>
 
 <style scoped>
+/* The dialog chrome (backdrop, border, shadow, font) comes from UiDialog;
+   only the panel's geometry is kept. */
 .reference-upload {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
   width: min(520px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  overflow-y: auto;
   box-sizing: border-box;
-  background: rgba(6, 12, 20, 0.97);
-  border: 1px solid #55ffff;
-  border-radius: 10px;
-  padding: 16px;
-  z-index: 5;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
-  font:
-    14px/1.5 system-ui,
-    sans-serif;
-  color: #e3ecee;
   text-align: left;
-}
-
-.reference-upload-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #55ffff;
-  border-bottom: 1px solid #1d3a46;
-  padding-bottom: 8px;
-  margin-bottom: 12px;
-}
-
-.reference-upload-head h2 {
-  font-size: 14px;
-  margin: 0;
-  letter-spacing: 0.02em;
 }
 
 .reference-upload-body {
@@ -526,31 +466,31 @@ function close(): void {
 .reference-kind {
   display: flex;
   padding: 3px;
-  background: #081217;
-  border: 1px solid #38515b;
-  border-radius: 8px;
+  background: var(--surface-0);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
   align-self: flex-start;
 }
 
 .reference-kind button {
-  min-height: 44px;
+  min-height: var(--control-h-touch);
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--radius);
   background: transparent;
-  color: #a9bac0;
+  color: var(--ink-2);
   padding: 7px 14px;
   font: inherit;
   cursor: pointer;
 }
 
 .reference-kind button[aria-pressed="true"] {
-  background: #20454e;
-  color: #a5ffff;
+  background: var(--action-soft);
+  color: var(--action);
 }
 
 .reference-hint {
-  color: #9db4bb;
-  font-size: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
   margin: 0;
 }
 
@@ -558,23 +498,23 @@ function close(): void {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
-  color: #a9bac0;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
 }
 
 .reference-upload input[type="number"],
 .reference-upload textarea {
-  background: #04080c;
-  border: 1px solid #2a4a55;
-  color: #e8e8e8;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink);
   padding: 8px 10px;
   font: inherit;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .reference-upload input[type="file"] {
-  font-size: 12px;
-  color: #9db4bb;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
 }
 
 .reference-manifest {
@@ -602,22 +542,22 @@ function close(): void {
   align-self: center;
   max-width: 100%;
   image-rendering: pixelated;
-  border: 1px solid #294047;
-  border-radius: 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
 }
 
 .reference-notes {
   margin: 0;
   padding-left: 18px;
-  color: #9db4bb;
-  font-size: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
 }
 
 .reference-warnings {
   margin: 0;
   padding-left: 18px;
-  color: #ffcf87;
-  font-size: 12px;
+  color: var(--warn);
+  font-size: var(--text-xs);
 }
 
 .reference-upload-foot {
@@ -628,13 +568,13 @@ function close(): void {
 }
 
 .reference-existing {
-  border-top: 1px solid #1d3a46;
+  border-top: 1px solid var(--hairline);
   padding-top: 10px;
 }
 
 .reference-existing h3 {
-  font-size: 12px;
-  color: #55ffff;
+  font-size: var(--text-xs);
+  color: var(--action);
   margin: 0 0 8px;
 }
 
@@ -657,24 +597,24 @@ function close(): void {
   width: 40px;
   height: 28px;
   object-fit: contain;
-  background: #04080c;
-  border: 1px solid #294047;
-  border-radius: 3px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
   image-rendering: pixelated;
 }
 
 .reference-existing-label {
   flex: 1;
-  font-size: 12px;
-  color: #a9bac0;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dialog-error {
-  color: #ff8f8f;
-  font-size: 12px;
+  color: var(--danger);
+  font-size: var(--text-xs);
   margin: 8px 0 0;
 }
 </style>

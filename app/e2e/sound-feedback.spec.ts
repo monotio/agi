@@ -185,10 +185,12 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   const download = preview.getByTestId("sound-preview-download");
   await expect(download).toHaveAttribute("download", /\.wav$/);
+  // The shared control height is --control-h (40px); touch gets 44px via the
+  // pointer:coarse media query.
   expect(
     (await download.boundingBox())!.height,
-    "Download WAV is a shared 44px control, not an inline link",
-  ).toBeGreaterThanOrEqual(44);
+    "Download WAV is a shared control, not an inline link",
+  ).toBeGreaterThanOrEqual(40);
   const wav = await download.evaluate(async (link: HTMLAnchorElement) => {
     const response = await fetch(link.href);
     const bytes = new Uint8Array(await response.arrayBuffer());

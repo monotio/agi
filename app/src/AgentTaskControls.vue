@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import UiButton from "./ui/UiButton.vue";
 import type { AgentRunState } from "./agent/agentRun.ts";
 const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
 defineEmits<{ stop: []; resume: []; discard: [] }>();
@@ -74,19 +75,12 @@ const quiet = computed(() =>
         }}
         <span v-if="task.usageIncomplete"> · partial usage</span>
       </span>
-      <button
-        v-if="task.status === 'running'"
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="agent-stop"
-        @click="$emit('stop')"
-      >
+      <UiButton v-if="task.status === 'running'" data-testid="agent-stop" @click="$emit('stop')">
         Stop
-      </button>
-      <button
+      </UiButton>
+      <UiButton
         v-else-if="task.status === 'paused'"
-        type="button"
-        class="ui-button ui-button--primary"
+        variant="primary"
         data-testid="agent-continue"
         @click="$emit('resume')"
       >
@@ -95,18 +89,13 @@ const quiet = computed(() =>
             ? `Add $${task.allowance.toFixed(2)} & continue`
             : "Continue"
         }}
-      </button>
+      </UiButton>
     </div>
     <template v-if="task.status === 'paused'">
       <p role="status" data-testid="agent-pause-reason">{{ task.reason }}</p>
-      <button
-        type="button"
-        class="ui-button ui-button--danger"
-        data-testid="agent-discard"
-        @click="$emit('discard')"
-      >
+      <UiButton variant="danger" data-testid="agent-discard" @click="$emit('discard')">
         Discard this attempt
-      </button>
+      </UiButton>
     </template>
   </div>
 </template>
@@ -114,10 +103,8 @@ const quiet = computed(() =>
 <style scoped>
 .task-controls {
   padding: 10px 0;
-  color: #afc6ce;
-  font:
-    12px/1.5 system-ui,
-    sans-serif;
+  color: var(--ink-2);
+  font: var(--text-xs) / var(--leading) var(--font-sans);
 }
 .task-row {
   display: flex;
@@ -129,7 +116,7 @@ const quiet = computed(() =>
   margin-bottom: 10px;
 }
 .stream-time {
-  color: #8ca6af;
+  color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
 .stream-text {
