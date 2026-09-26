@@ -5,6 +5,7 @@ import type { TimelineEntry } from "../../src/studio/pictureQuery.ts";
 import {
   bandGuides,
   controlLabels,
+  labelParts,
   maskBox,
   maskFillPath,
   maskOutlinePath,
@@ -139,4 +140,30 @@ test("the fit zoom is the largest integer zoom at which every pane fits the stag
   assert.equal(paneFitZoom(1328, 728, 2), 1);
   assert.equal(paneFitZoom(1968, 1100, 1), 6);
   assert.equal(paneFitZoom(0, 0, 1), 1);
+});
+
+test("a Scene label ellipsizes before the numbers that tell rows apart, never inside them", () => {
+  assert.deepEqual(labelParts("Element 5 part 2"), {
+    full: "Element 5 part 2",
+    head: "Element",
+    tail: " 5 part 2",
+  });
+  assert.deepEqual(labelParts("Black art · 23"), {
+    full: "Black art · 23",
+    head: "Black art ·",
+    tail: " 23",
+  });
+  // No number, or one first: the ordinary end ellipsis.
+  assert.deepEqual(labelParts("Loose lines"), {
+    full: "Loose lines",
+    head: "Loose lines",
+    tail: "",
+  });
+  assert.equal(labelParts("3 doors").tail, "");
+  // A long tail keeps its last words, so the head still shows.
+  assert.deepEqual(labelParts("Window 12 left pane part 3"), {
+    full: "Window 12 left pane part 3",
+    head: "Window 12 left",
+    tail: " pane part 3",
+  });
 });

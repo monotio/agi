@@ -67,6 +67,12 @@ export interface CreateCenter {
   studioUnkept(): boolean;
   /** Settle unkept Studio changes before the game or Create is left; resolves whether to go on. */
   confirmStudioLeave(): Promise<boolean>;
+  /**
+   * The screen is large enough for Room Studio; phone layouts are not. An
+   * open Studio with unkept changes stays mounted where it does not fit,
+   * covered by a notice, so a rotation or resize never loses its draft.
+   */
+  readonly studioFits: ComputedRef<boolean>;
 }
 
 export interface CreateWorkspace extends CreateCenter {
@@ -78,8 +84,6 @@ export interface CreateWorkspace extends CreateCenter {
   readonly sheetOpen: Ref<boolean>;
   /** A phone's Create: the panels show, nothing edits. */
   readonly viewOnly: ComputedRef<boolean>;
-  /** The screen is large enough for Room Studio; phone layouts are not. */
-  readonly studioFits: ComputedRef<boolean>;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
   showPanel(id: string): void;
@@ -209,6 +213,7 @@ export function useCreateCenter(): CreateCenter {
     guardStudio,
     studioUnkept,
     confirmStudioLeave,
+    studioFits,
   } = useCreateWorkspace();
   return {
     studio,
@@ -218,6 +223,7 @@ export function useCreateCenter(): CreateCenter {
     guardStudio,
     studioUnkept,
     confirmStudioLeave,
+    studioFits,
   };
 }
 

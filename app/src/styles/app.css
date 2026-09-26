@@ -80,9 +80,20 @@
   --dock-right: 56px;
 }
 /* Room Studio takes the whole workspace while the live stage and the docks
-   wait hidden, still mounted, so closing it restores them as they were. */
+   wait hidden, still mounted, so closing it restores them as they were. The
+   page holds still at the screen's height, and what sits below the fold
+   (developer activity, sound previews) waits hidden too, out of Tab's reach. */
 .in-game .shell-body--studio {
   grid-template-columns: minmax(0, 1fr);
+}
+:root:has(.shell-body--studio) {
+  overflow: hidden;
+}
+.app-container.in-game .shell:has(.shell-body--studio) {
+  height: var(--layout-height, 100dvh);
+}
+.app-container:has(.shell-body--studio) > :is(.agent-panel, .sound-previews) {
+  display: none;
 }
 .shell-center {
   min-width: 0;

@@ -7,7 +7,8 @@
  * compiles at most once per animation frame. The fill tool checks the AGI
  * fill rule at the insertion point before it inserts, and previews the
  * flooded cells with a trial edit. The pipette picks values; the hand, or
- * Space held with any tool, pans.
+ * Space held with any tool, pans. `pressAt`, `dragTo` and `settleDrag` are
+ * the same gestures without a pointer (useStudioInput.ts's keyboard cursor).
  */
 
 import { computed, reactive, shallowRef, watch, type Ref } from "vue";
@@ -15,7 +16,6 @@ import type { EditOperation } from "../../../src/studio/editOperations.ts";
 import { whyNotFilled, type FillExplanation } from "../../../src/studio/pictureQuery.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { SCREEN_WIDTH } from "../../../src/types.ts";
-import type { ViewportPoint } from "../../../src/studio/viewport.ts";
 import type { PanePress } from "./StudioCanvas.vue";
 import type { LensUnlocks } from "./studioLocks.ts";
 import {
@@ -31,7 +31,6 @@ import {
   rectFrom,
   resolvePriority,
   startStroke,
-  TOOL_KEYS,
   TOOL_NOUNS,
   type BrushStroke,
   type CurrentValues,
@@ -59,18 +58,8 @@ export interface StudioToolsOptions {
   readonly frozen: () => boolean;
   /** The scrolling stage the hand pans. */
   readonly stage: () => HTMLElement | null;
-  /** G: show or hide the actor probe. */
-  readonly probe?: () => void;
   readonly frame?: (callback: () => void) => number;
   readonly cancelFrame?: (handle: number) => void;
-}
-
-/** What the canvas does with a press when no tool takes it: select and drag. */
-export interface PointerFallback {
-  press(press: PanePress): void;
-  drag(press: PanePress): void;
-  release(press: PanePress): void;
-  abort(): void;
 }
 
 /** A shape's noun for the draw tools that make one. */
@@ -398,12 +387,15 @@ export function useStudioTools(options: StudioToolsOptions) {
 
   /** A press the tools take; false leaves it to selection and dragging. */
   function press({ event, cell }: PanePress): boolean {
-    if (panning.value) {
-      const stage = options.stage();
-      if (stage)
-        pan = { x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop };
-      return true;
-    }
+    if (!panning.value) return pressAt(cell, event.shiftKey);
+    const stage = options.stage();
+    if (stage)
+      pan = { x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop };
+    return true;
+  }
+
+  /** The active tool's press at `cell` (a rect from it is `square`); false for Select and Point. */
+  function pressAt(cell: Point, square: boolean): boolean {
     switch (tool.value) {
       case "select":
       case "point":
@@ -416,7 +408,7 @@ export function useStudioTools(options: StudioToolsOptions) {
         return true;
       case "rect":
         if (!begin(TOOL_NOUNS.rect)) return true;
-        rect.value = { start: cell, end: cell, square: event.shiftKey, moved: false };
+        rect.value = { start: cell, end: cell, square, moved: false };
         return true;
       case "brush":
         if (!begin(TOOL_NOUNS.brush)) return true;
@@ -451,10 +443,15 @@ export function useStudioTools(options: StudioToolsOptions) {
       stage.scrollTop = pan.top - (event.clientY - pan.y);
       return;
     }
+    dragTo(cell, event.shiftKey);
+  }
+
+  /** A rect's corner or the brush's pen moves to `cell`. */
+  function dragTo(cell: Point, square: boolean): void {
     const r = rect.value;
     if (r) {
       const moved = r.moved || cell.x !== r.start.x || cell.y !== r.start.y;
-      rect.value = { ...r, end: cell, square: event.shiftKey, moved };
+      rect.value = { ...r, end: cell, square, moved };
       if (moved) preview(rectOp);
       return;
     }
@@ -470,8 +467,13 @@ export function useStudioTools(options: StudioToolsOptions) {
       pan = null;
       return;
     }
+    if (rect.value) drag(pressed);
+    settleDrag();
+  }
+
+  /** The rect or brush stroke in progress is done: insert it. */
+  function settleDrag(): void {
     if (rect.value) {
-      drag(pressed);
       const op = rectOp();
       rect.value = null;
       end(op, TOOL_NOUNS.rect);
@@ -515,47 +517,6 @@ export function useStudioTools(options: StudioToolsOptions) {
     };
   });
 
-  /** A rail letter (lower-cased): pick its tool, or toggle the probe; false for other keys. */
-  function shortcut(key: string): boolean {
-    const next = TOOL_KEYS[key];
-    if (next === "probe") options.probe?.();
-    else if (next) setTool(next);
-    return next !== undefined;
-  }
-
-  /** Space held on the studio (not on a control it would press) pans with any tool. */
-  function spaceKey(event: KeyboardEvent, down: boolean): boolean {
-    if (event.key !== " " || event.metaKey || event.ctrlKey || event.altKey) return false;
-    const target = event.target as Element | null;
-    if (down && target?.closest("button, input, select, textarea, [role=radio], [role=treeitem]"))
-      return false;
-    spaceHeld.value = down;
-    return true;
-  }
-
-  /** The canvas's pointer input: the active tool first, then `fallback` (selection and drags). */
-  function pointer(fallback: PointerFallback, hovered: (cell: ViewportPoint | undefined) => void) {
-    return {
-      press: (pressed: PanePress) => void (press(pressed) || fallback.press(pressed)),
-      drag: (pressed: PanePress) => {
-        drag(pressed);
-        fallback.drag(pressed);
-      },
-      release: (pressed: PanePress) => {
-        release(pressed);
-        fallback.release(pressed);
-      },
-      abort: () => {
-        abort();
-        fallback.abort();
-      },
-      hover: (cell: ViewportPoint | undefined) => {
-        hovered(cell);
-        hover(cell);
-      },
-    };
-  }
-
   return {
     tool,
     setTool,
@@ -576,15 +537,15 @@ export function useStudioTools(options: StudioToolsOptions) {
     fillWhy,
     fillPreview,
     overlay,
-    shortcut,
-    spaceKey,
-    pointer,
     insertion,
     drawing,
     busy,
     press,
+    pressAt,
     drag,
+    dragTo,
     release,
+    settleDrag,
     abort,
     hover,
     finish,

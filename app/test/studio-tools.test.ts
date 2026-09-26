@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { nextTick, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
@@ -24,6 +24,7 @@ import {
 import type { StudioLens } from "../src/studio/studioView.ts";
 import { useStudioDocument } from "../src/studio/useStudioDocument.ts";
 import { useStudioDraft, type DraftOutcome } from "../src/studio/useStudioDraft.ts";
+import { useStudioInput } from "../src/studio/useStudioInput.ts";
 import { useStudioTools } from "../src/studio/useStudioTools.ts";
 
 const p = (x: number, y: number) => ({ x, y });
@@ -385,5 +386,172 @@ describe("useStudioTools", () => {
     const plot = draft.source.value.split("\n").find((line) => line.startsWith("plot"));
     assert.equal(plot, "plot 10,150 11,150 12,150 13,150 14,150");
     assert.equal(draft.history.value.past.length, 1);
+  });
+});
+
+describe("the keyboard cursor (useStudioInput)", () => {
+  /** A focusable canvas: Space there is the keyboard's click while the keys drive. */
+  const stage = { closest: () => null, matches: () => true } as unknown as HTMLElement;
+  /** The pointer last over `x`,`y` (unless null), then the canvas focused by keyboard. */
+  function keys(lens: StudioLens, x: number | null, y = 0) {
+    const context = setup(lens);
+    const canvasCell = ref<{ x: number; y: number }>();
+    const fallback = {
+      presses: 0,
+      press: () => fallback.presses++,
+      drag() {},
+      release() {},
+      abort() {},
+    };
+    const input = useStudioInput({
+      tools: context.tools,
+      selection: { canvasCell, announcement: computed(() => "") },
+      fallback,
+      stage: () => stage,
+    });
+    if (x !== null) {
+      input.pointer.hover(p(x, y));
+      input.pointer.hover(undefined);
+    }
+    input.focus({ target: stage } as unknown as FocusEvent);
+    const move = (dx: number, dy: number, times = 1) => {
+      for (let k = 0; k < times; k++) assert.equal(input.move(dx, dy), true);
+    };
+    return { ...context, input, move, canvasCell, fallback };
+  }
+
+  it("starts at the centre, or where the pointer last was, and stays on the surface", () => {
+    const fresh = keys("art", null);
+    fresh.tools.setTool("rect");
+    assert.deepEqual(fresh.input.overlay.value.crosshair, p(80, 84));
+    const { tools, input, move, canvasCell } = keys("art", 3, 2);
+    tools.setTool("line");
+    assert.deepEqual(input.overlay.value.crosshair, p(3, 2));
+    move(-8, -8);
+    assert.deepEqual(input.cell.value, p(0, 0));
+    assert.deepEqual(canvasCell.value, p(0, 0), "the inspector reads the cursor's pixel");
+    assert.equal(input.spoken.value, "x 0 y 0");
+    move(8, 8, 30);
+    assert.deepEqual(input.cell.value, p(159, 167));
+    input.blur();
+    assert.equal(input.overlay.value.crosshair, null);
+    assert.equal(canvasCell.value, undefined);
+  });
+
+  it("leaves the arrows to Select, and hides once the pointer presses", () => {
+    const { tools, input, press, fallback } = keys("art", 40, 40);
+    assert.equal(input.move(1, 0), false, "Select nudges instead");
+    assert.equal(input.click(false), false);
+    assert.equal(input.overlay.value.crosshair, null);
+    tools.setTool("fill");
+    assert.deepEqual(input.overlay.value.crosshair, p(40, 40));
+    tools.setTool("select");
+    input.pointer.press(press(10, 10));
+    assert.equal(fallback.presses, 1, "Select's press goes on to selection");
+    tools.setTool("fill");
+    assert.equal(input.keyboard.value, false);
+    assert.equal(input.overlay.value.crosshair, null);
+  });
+
+  it("draws a rect: Space starts, the arrows size it, Space again finishes as one undo step", () => {
+    const { draft, tools, input, move, flush, selectedId } = keys("art", 10, 120);
+    const before = draft.compiled.value;
+    tools.setTool("rect");
+    tools.filled.value = true;
+    tools.setValues({ visual: 4 });
+    assert.equal(input.click(false), true);
+    assert.equal(input.spoken.value, "Rect from x 10 y 120");
+    move(8, 8);
+    move(1, 1, 2);
+    assert.deepEqual(tools.overlay.value.rect, { x1: 10, y1: 120, x2: 20, y2: 130 });
+    flush();
+    assert.ok(draft.preview.value, "the sized rect previews the real pixels");
+    assert.equal(input.click(false), true);
+    assert.equal(draft.history.value.past.length, 1);
+    assert.equal(selectedId.value, "rect-1");
+    const after = draft.compiled.value;
+    assert.deepEqual(after.priority, before.priority);
+    assert.equal(after.visual[at(10, 120)], 4);
+    assert.equal(after.visual[at(20, 130)], 4);
+    assert.equal(after.visual[at(21, 130)], before.visual[at(21, 130)]);
+  });
+
+  it("clicks out a barrier line: Enter adds a point, Enter on the last point finishes", () => {
+    const { draft, tools, input, move } = keys("walk", 10, 140);
+    const before = draft.compiled.value;
+    tools.setTool("line");
+    input.click(false);
+    move(8, 0, 6);
+    move(1, 0, 2);
+    input.click(true);
+    assert.equal(tools.path.value?.points.length, 2, "Enter off the last point adds one");
+    assert.equal(draft.history.value.past.length, 0);
+    input.click(true);
+    assert.equal(tools.path.value, null);
+    assert.equal(draft.history.value.past.length, 1);
+    const item = draft.document.value.items.at(-1)!;
+    assert.deepEqual([item.label, item.kind], ["Barrier line 1", "walk"]);
+    const after = draft.compiled.value;
+    assert.deepEqual(after.visual, before.visual);
+    for (let x = 10; x <= 60; x++) assert.equal(after.priority[at(x, 140)], 0);
+  });
+
+  it("closes a polygon with Enter on its last point", () => {
+    const { draft, tools, input, move } = keys("art", 10, 120);
+    tools.setTool("polygon");
+    input.click(false);
+    move(8, 0, 3);
+    input.click(false);
+    move(0, 8, 2);
+    input.click(false);
+    input.click(true);
+    assert.equal(tools.path.value, null);
+    assert.equal(draft.document.value.items.at(-1)!.label, "Polygon 1");
+    assert.match(draft.source.value, /polygon 10,120 34,120 34,136/);
+  });
+
+  it("paints with the pen down, and Esc lifts nothing into the picture", () => {
+    const { draft, tools, input, move, flush } = keys("art", 10, 150);
+    tools.setTool("brush");
+    tools.setValues({ visual: 12 });
+    input.click(false);
+    assert.equal(input.spoken.value, "Pen down at x 10 y 150");
+    move(1, 0, 4);
+    flush();
+    input.click(false);
+    assert.equal(input.spoken.value, "Pen up");
+    const plot = draft.source.value.split("\n").find((line) => line.startsWith("plot"));
+    assert.equal(plot, "plot 10,150 11,150 12,150 13,150 14,150");
+    assert.equal(draft.history.value.past.length, 1);
+    // Down again, a move, then Esc: the stroke is abandoned.
+    input.click(false);
+    move(0, -1, 3);
+    assert.equal(tools.cancel(), true);
+    assert.equal(draft.history.value.past.length, 1);
+    assert.equal(draft.gesturing.value, false);
+  });
+
+  it("seeds a fill and picks with the pipette where the cursor stands", () => {
+    const { draft, tools, input, move } = keys("art", 80, 140);
+    tools.setTool("fill");
+    tools.setValues({ visual: 2 });
+    input.click(false);
+    assert.equal(draft.compiled.value.visual[at(80, 140)], 2);
+    tools.setTool("pipette");
+    move(0, -8, 6);
+    input.click(true);
+    assert.deepEqual(tools.current.value, { visual: 6, priority: null }, "the bench at 80,92");
+  });
+
+  it("Space on the keyboard's canvas clicks; anywhere else, or after the pointer, it pans", () => {
+    const { tools, input, press } = keys("art", 40, 40);
+    tools.setTool("rect");
+    const space = (target: unknown) => ({ key: " ", target }) as unknown as KeyboardEvent;
+    assert.equal(input.spaceKey(space(stage), true), false, "left to the click");
+    assert.equal(tools.spaceHeld.value, false);
+    input.pointer.press(press(40, 40));
+    tools.cancel();
+    assert.equal(input.spaceKey(space(stage), true), true, "the pointer's Space pans");
+    assert.equal(tools.spaceHeld.value, true);
   });
 });

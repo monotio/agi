@@ -6,7 +6,9 @@
  *
  * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc back to Create
  * - on the focused canvas: arrows nudge the selected item 1 px (Shift: 8),
- *   Alt+arrows step through items (Up/Left previous, Down/Right next)
+ *   Alt+arrows step through items (Up/Left previous, Down/Right next); with a
+ *   drawing tool or the pipette the arrows move the keyboard cursor instead
+ *   (Shift: 8) and Space or Enter clicks at it (useStudioInput.ts)
  * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; `[` `]` move back/forward
  *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
  * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I G H);
@@ -38,6 +40,10 @@ export interface StudioKeyActions {
   zoom(step: 1 | -1 | "fit"): void;
   step(direction: 1 | -1): void;
   nudge(dx: number, dy: number): void;
+  /** An arrow for the drawing cursor; false when the tool takes none (the arrows nudge). */
+  cursor(dx: number, dy: number): boolean;
+  /** Space or Enter on the canvas: click at the drawing cursor; false when the tool takes none. */
+  click(enter: boolean): boolean;
   remove(): void;
   duplicate(): void;
   reorder(step: 1 | -1): void;
@@ -66,6 +72,11 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     return true;
   }
   if (typing(event.target)) return false;
+  const plain = !command && !event.altKey;
+  if ((key === " " || key === "Enter") && plain && act.onCanvas(event.target)) {
+    // A held key repeats: one press is one click.
+    if (event.repeat || act.click(key === "Enter")) return true;
+  }
   if (key === "Enter" && !command && act.finish()) return true;
   if (command && !event.altKey) {
     const lower = key.toLowerCase();
@@ -82,7 +93,7 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     if (event.altKey) act.step(arrow[0] + arrow[1] > 0 ? 1 : -1);
     else {
       const far = event.shiftKey ? NUDGE_FAR : 1;
-      act.nudge(arrow[0] * far, arrow[1] * far);
+      if (!act.cursor(arrow[0] * far, arrow[1] * far)) act.nudge(arrow[0] * far, arrow[1] * far);
     }
     return true;
   }
