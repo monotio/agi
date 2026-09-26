@@ -10,7 +10,8 @@
 import ActionMenu from "./ActionMenu.vue";
 import CatalogPanel from "./CatalogPanel.vue";
 import ProfileChoiceDialog from "./ProfileChoiceDialog.vue";
-import UiIcon from "./ui/UiIcon.vue";
+import UiButton from "./ui/UiButton.vue";
+import UiIconButton from "./ui/UiIconButton.vue";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { hasWalkthrough } from "./walkthrough.ts";
@@ -87,14 +88,9 @@ const pendingAutosaveTitle = computed(
     </p>
     <div v-if="hostedCatalogError" class="library-error" data-testid="hosted-catalog-error">
       <p role="alert">{{ hostedCatalogError }}</p>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        :disabled="hostedCatalogBusy"
-        @click="refreshHostedCatalog"
-      >
+      <UiButton :disabled="hostedCatalogBusy" @click="refreshHostedCatalog">
         Retry game list
-      </button>
+      </UiButton>
     </div>
 
     <section
@@ -218,16 +214,8 @@ const pendingAutosaveTitle = computed(
               required
               @keydown.esc="renaming = false"
             />
-            <button
-              type="submit"
-              class="ui-button ui-button--secondary"
-              :disabled="!gameTitle.trim()"
-            >
-              Save name
-            </button>
-            <button type="button" class="ui-button ui-button--secondary" @click="renaming = false">
-              Cancel
-            </button>
+            <UiButton type="submit" :disabled="!gameTitle.trim()"> Save name </UiButton>
+            <UiButton @click="renaming = false">Cancel</UiButton>
             <p v-if="renameError" role="alert">{{ renameError }}</p>
           </form>
           <div v-show="!(renaming && selectedProjectId === game.projectId)" class="saved-game-info">
@@ -235,16 +223,13 @@ const pendingAutosaveTitle = computed(
               <h3 class="saved-world-title" data-testid="saved-game-title">
                 {{ game.title }}
               </h3>
-              <button
-                type="button"
-                class="ui-button ui-button--icon rename-icon"
-                aria-label="Rename game"
-                title="Rename game"
+              <UiIconButton
+                icon="pencil"
+                label="Rename game"
+                class="rename-icon"
                 data-testid="rename-game"
                 @click="beginRename(game)"
-              >
-                <UiIcon name="pencil" />
-              </button>
+              />
             </div>
             <p v-if="libraryProvenance(game)" class="saved-world-source">
               {{ libraryProvenance(game) }}
@@ -255,15 +240,14 @@ const pendingAutosaveTitle = computed(
             </p>
           </div>
           <div class="saved-game-play-row">
-            <button
-              type="button"
-              class="ui-button ui-button--primary"
+            <UiButton
+              variant="primary"
               data-testid="btn-resume-cached"
               :disabled="libraryActionBusy || importBusy"
               @click="onPlayLibraryGame(game)"
             >
               {{ libraryAutosaves[game.projectId] ? "Resume" : "Play" }}
-            </button>
+            </UiButton>
             <ActionMenu
               label="Game actions"
               icon="ellipsis"
@@ -418,14 +402,9 @@ const pendingAutosaveTitle = computed(
         </span>
       </div>
       <div class="saved-game-play-row">
-        <button
-          type="button"
-          class="ui-button ui-button--primary"
-          data-testid="btn-resume-autosave"
-          @click="onResumeAutosave"
-        >
+        <UiButton variant="primary" data-testid="btn-resume-autosave" @click="onResumeAutosave">
           Resume
-        </button>
+        </UiButton>
         <ActionMenu label="Game actions" icon="ellipsis" icon-only>
           <button
             type="button"
@@ -453,8 +432,8 @@ const pendingAutosaveTitle = computed(
 <style scoped>
 .zip-drop-zone {
   padding: 1.25rem;
-  border: 1px dashed #777;
-  border-radius: 8px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-lg);
   text-align: center;
 }
 .zip-drop-zone p {
@@ -464,25 +443,25 @@ const pendingAutosaveTitle = computed(
   width: 100%;
   align-self: stretch;
   padding: 20px;
-  background: #0b1213;
+  background: var(--surface-1);
 }
 .library-pane.empty-library h2 {
   margin-bottom: 10px;
-  font-size: 20px;
+  font-size: var(--text-xl);
 }
 .library-pane {
   min-width: 0;
   padding: 26px;
   box-sizing: border-box;
-  border: 1px solid #294346;
-  border-radius: 12px;
-  background: linear-gradient(145deg, #102021, #0b1012 60%);
-  font-family: system-ui, sans-serif;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, var(--surface-2), var(--surface-1) 60%);
+  font-family: var(--font-sans);
 }
 .library-pane h2 {
   margin: 0 0 18px;
-  color: #e4eeee;
-  font-size: 24px;
+  color: var(--ink);
+  font-size: var(--text-xl);
 }
 .library-pane .stub-btn {
   margin-bottom: 20px;
@@ -494,8 +473,8 @@ const pendingAutosaveTitle = computed(
   flex-wrap: wrap;
   gap: 8px 16px;
   padding: 16px;
-  border-color: #405457;
-  border-radius: 8px;
+  border-color: var(--hairline-strong);
+  border-radius: var(--radius-lg);
   text-align: left;
 }
 .library-pane.empty-library .zip-drop-zone {
@@ -505,14 +484,14 @@ const pendingAutosaveTitle = computed(
 }
 .library-pane .zip-drop-zone p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .library-pane .zip-drop-zone p.verified-games-hint {
   width: 100%;
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.45;
-  color: #7d9c9e;
+  color: var(--ink-3);
 }
 .library-pane .saved-world-header {
   align-items: flex-start;
@@ -526,15 +505,9 @@ const pendingAutosaveTitle = computed(
 .autosave-fallback {
   margin-top: 20px;
 }
-/* Centre the 44px button on the first title line rather than on the whole title. */
+/* Centre the icon button on the first title line rather than on the whole title. */
 .rename-icon {
-  margin: calc((19px * 1.25 - 44px) / 2) 0;
-  color: #91b9bc;
-  background: transparent;
-}
-.rename-icon:hover {
-  color: var(--ui-action);
-  background: #14282a;
+  margin: calc((19px * 1.25 - var(--control-h)) / 2) 0;
 }
 .game-rename {
   width: 100%;
@@ -547,17 +520,17 @@ const pendingAutosaveTitle = computed(
 
 .game-rename label {
   width: 100%;
-  color: #bce3d0;
+  color: var(--ok);
 }
 
 .game-rename input {
   flex: 1 1 14rem;
   min-width: 0;
   padding: 0.6rem;
-  color: #fff;
-  background: #081910;
-  border: 1px solid #579873;
-  border-radius: 4px;
+  color: var(--ink);
+  background: var(--surface-sunken);
+  border: 1px solid var(--ok-line);
+  border-radius: var(--radius-sm);
   font: inherit;
 }
 .saved-game-gallery {
@@ -568,12 +541,18 @@ const pendingAutosaveTitle = computed(
   gap: 18px;
   margin-top: 20px;
 }
+/* The play button stretches beside the icon menu, matching the shared card
+   rule in styles/app.css that still targets the legacy class. */
+.saved-game-play-row > .ui-btn {
+  flex: 1;
+  min-width: 0;
+}
 .saved-world-card {
   margin-top: 1rem;
-  background: #102118;
-  border: 1px solid #285438;
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-line);
   padding: 0.75rem 1rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
   gap: 0.6rem;

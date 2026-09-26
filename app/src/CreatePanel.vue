@@ -6,6 +6,7 @@
  * the header and the AI settings flow can reach them.
  */
 import { computed, nextTick, ref, useTemplateRef } from "vue";
+import UiButton from "./ui/UiButton.vue";
 import { BUILTIN_TEMPLATES } from "./gameTemplates.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
@@ -62,7 +63,7 @@ async function openCreateSection(updateHash = true): Promise<void> {
   createDetails.value?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 bridge.openCreateSection = (updateHash) => void openCreateSection(updateHash);
-bridge.createButtonEl = () => createButton.value;
+bridge.createButtonEl = () => createButton.value?.$el;
 </script>
 <template>
   <details
@@ -135,43 +136,42 @@ bridge.createButtonEl = () => createButton.value;
 
     <div v-if="!aiConfigured" class="ai-connect" data-testid="create-ai-connect">
       <p>Connect your AI provider to generate a game.</p>
-      <button
-        type="button"
-        class="ui-button ui-button--primary"
+      <UiButton
+        variant="primary"
         data-testid="connect-create-ai"
         :disabled="aiSettingsUnavailable"
         @click="openAiSettings($event, 'create')"
       >
         Connect AI
-      </button>
+      </UiButton>
     </div>
 
     <!-- Launch Buttons -->
     <div v-if="aiConfigured" class="boot-row">
-      <button
+      <UiButton
         ref="createButton"
-        class="ui-button ui-button--primary"
+        variant="primary"
         data-testid="boot-game"
         :disabled="!selectedTemplateId || !adventureDraft.brief.trim()"
         @click="onBootSelectedTemplate"
       >
         Create adventure
-      </button>
+      </UiButton>
     </div>
   </details>
 </template>
 
 <style scoped>
 .create-pane {
-  font-family: system-ui, sans-serif;
+  font-family: var(--font-sans);
   min-width: 0;
   align-self: start;
   width: 100%;
   box-sizing: border-box;
   padding: 22px;
-  background: linear-gradient(135deg, #152a2c, #0b1113 68%);
-  border: 1px solid #3d6669;
-  border-radius: 12px;
+  background: linear-gradient(135deg, var(--surface-3), var(--surface-1) 68%);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
 }
 .create-pane > .section:first-of-type {
   margin-top: 0;
@@ -182,13 +182,13 @@ bridge.createButtonEl = () => createButton.value;
 
 .section-intro {
   margin: 8px 0 16px;
-  color: #aaa;
-  font-size: 13px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 .section h2 {
-  font-size: 16px;
+  font-size: var(--text-lg);
   letter-spacing: 0.02em;
-  color: #eee;
+  color: var(--ink);
   margin: 0 0 0.5rem 0;
 }
 
@@ -199,25 +199,25 @@ bridge.createButtonEl = () => createButton.value;
 }
 
 .template-card {
-  background: #1a1a1a;
-  border: 1px solid #333;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
   padding: 12px;
   text-align: left;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  border-radius: 6px;
+  border-radius: var(--radius);
   transition: all 0.15s ease;
 }
 
 .template-card:hover {
-  border-color: #555;
-  background: #222;
+  border-color: var(--hairline-strong);
+  background: var(--surface-3);
 }
 
 .template-card.selected {
-  border-color: #64dddd;
-  background: #173337;
+  border-color: var(--action);
+  background: var(--action-soft);
 }
 
 .custom-card {
@@ -225,15 +225,15 @@ bridge.createButtonEl = () => createButton.value;
 }
 
 .template-title {
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: bold;
-  color: #fff;
+  color: var(--ink);
   margin-bottom: 0.25rem;
 }
 
 .template-desc {
-  font-size: 12px;
-  color: #bbb;
+  font-size: var(--text-xs);
+  color: var(--ink-2);
   line-height: 1.5;
 }
 
@@ -242,23 +242,19 @@ bridge.createButtonEl = () => createButton.value;
 }
 .custom-editor label {
   display: block;
-  color: #cfdddd;
-  font:
-    500 14px/1.5 system-ui,
-    sans-serif;
+  color: var(--ink-2);
+  font: var(--weight-medium) var(--text-md) / var(--leading) var(--font-sans);
   margin: 16px 0 8px;
 }
 .custom-editor input,
 .custom-editor textarea {
   width: 100%;
-  background: #070d0f;
-  border: 1px solid #405457;
-  color: #eee;
-  font:
-    16px/1.65 system-ui,
-    sans-serif;
+  background: var(--surface-0);
+  border: 1px solid var(--hairline-strong);
+  color: var(--ink);
+  font: var(--text-lg) / 1.65 var(--font-sans);
   padding: 14px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   box-sizing: border-box;
 }
 .custom-editor textarea {
@@ -267,7 +263,7 @@ bridge.createButtonEl = () => createButton.value;
 }
 .custom-editor textarea::placeholder,
 .custom-editor input::placeholder {
-  color: #819799;
+  color: var(--ink-3);
   opacity: 1;
 }
 

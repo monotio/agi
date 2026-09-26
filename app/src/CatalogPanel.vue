@@ -6,6 +6,7 @@
  * shared library controller.
  */
 import ActionMenu from "./ActionMenu.vue";
+import UiButton from "./ui/UiButton.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
@@ -71,9 +72,8 @@ function onStartLocalGameOver(game: InstalledGameDescriptor): void {
         </p>
       </div>
       <div class="saved-game-play-row">
-        <button
-          type="button"
-          class="ui-button ui-button--primary"
+        <UiButton
+          variant="primary"
           :data-hash="game.hash"
           :data-alias="game.alias"
           :data-testid="`boot-${game.folder || game.alias || game.hash}`"
@@ -81,7 +81,7 @@ function onStartLocalGameOver(game: InstalledGameDescriptor): void {
           @click="onPlayLocalGame(game.folder ?? game.hash)"
         >
           {{ localAutosave(game) ? "Resume" : "Play" }}
-        </button>
+        </UiButton>
         <ActionMenu
           v-if="localAutosave(game) || hasWalkthrough(game.revision ?? '')"
           label="Game actions"
@@ -137,34 +137,29 @@ function onStartLocalGameOver(game: InstalledGameDescriptor): void {
         {{ catalogErrors[entry.id] }}
       </p>
       <div class="saved-game-play-row">
-        <button
+        <UiButton
           v-if="catalogErrors[entry.id]"
-          type="button"
-          class="ui-button ui-button--secondary"
           :disabled="catalogBusy[entry.id]"
           @click="loadCatalogOpening(entry.id)"
         >
           Retry preview
-        </button>
-        <button
+        </UiButton>
+        <UiButton
           v-else
-          type="button"
-          class="ui-button ui-button--primary"
+          variant="primary"
           :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
           @click="playCatalogGame(entry.id)"
         >
           {{ catalogBusy[entry.id] ? "Checking opening…" : "Play" }}
-        </button>
-        <button
+        </UiButton>
+        <UiButton
           v-if="hasWalkthrough(entry.id)"
-          type="button"
-          class="ui-button ui-button--secondary"
           data-testid="catalog-run-walkthrough"
           :disabled="catalogBusy[entry.id] || libraryActionBusy || importBusy"
           @click="playCatalogWalkthrough(entry.id)"
         >
           Watch
-        </button>
+        </UiButton>
       </div>
       <details class="library-details-disclosure">
         <summary>Details</summary>
@@ -184,3 +179,12 @@ function onStartLocalGameOver(game: InstalledGameDescriptor): void {
     </div>
   </article>
 </template>
+
+<style scoped>
+/* The play button stretches beside the icon menu, matching the shared card
+   rule in styles/app.css that still targets the legacy class. */
+.saved-game-play-row > .ui-btn {
+  flex: 1;
+  min-width: 0;
+}
+</style>
