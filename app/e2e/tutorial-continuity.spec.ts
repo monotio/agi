@@ -1,18 +1,29 @@
 import { expect, test } from "./test.ts";
-import { isolateStorage, observe, openCardMenu, openGameOptions, textHook } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  observe,
+  openCardMenu,
+  openGameOptions,
+  openLibraryActions,
+  openSavedGameDetails,
+  savedGameCard,
+  textHook,
+} from "./engineProbe.ts";
 import { seedTutorial10, TUTORIAL_1_0 } from "./tutorialRelease.ts";
 
 /**
- * A player who played the 1.0.0 tutorial keeps that save after 1.1.0 ships:
- * Home shows one tutorial card, for 1.1, whose ⋯ menu continues the stored
- * 1.0 copy, or removes it. A remix of the 1.0 copy keeps its own card. The
- * 1.0 copy is seeded from the released 1.0 Project download (tutorialRelease.ts).
+ * A player who played the 1.0.0 tutorial keeps it after 1.1.0 ships: the
+ * Tutorial card is the current catalog release only, and the stored 1.0 copy
+ * is an ordinary saved-game card titled with its release, "Adventure
+ * Department 1.0". A remix of the 1.0 copy keeps its own card. The 1.0 copy
+ * is seeded from the released 1.0 Project download (tutorialRelease.ts).
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 
 const REMIX = "remix-of-tutorial-1-0";
+const OLDER_TITLE = "Adventure Department 1.0";
 
-test("a stored 1.0 tutorial folds into the 1.1 card, whose menu resumes it without lessons", async ({
+test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -21,29 +32,37 @@ test("a stored 1.0 tutorial folds into the 1.1 card, whose menu resumes it witho
   await page.reload();
 
   const gallery = page.getByTestId("saved-game-gallery");
-  const card = page.getByTestId("catalog-adventure-department");
-  await expect(card).toBeVisible();
-  await expect(card.getByTestId("catalog-play-adventure-department")).toHaveText("Play now");
-  await expect(gallery.getByTestId(`saved-game-card-${TUTORIAL_1_0}`)).toHaveCount(0);
-  await expect(gallery.getByTestId(`saved-game-card-${REMIX}`)).toBeVisible();
-  await expect(gallery.getByText("Adventure Department", { exact: true })).toHaveCount(1);
+  const tutorial = page.getByTestId("catalog-adventure-department");
+  await expect(tutorial).toBeVisible();
+  await expect(tutorial.getByTestId("catalog-play-adventure-department")).toHaveText("Play now");
 
-  // The card is the 1.1 release.
+  // The 1.0 copy is an ordinary saved-game card named for its release; the
+  // remix keeps its own card.
+  const older = savedGameCard(page, OLDER_TITLE);
+  await expect(older).toBeVisible();
+  await expect(older).toHaveAttribute("data-testid", `saved-game-card-${TUTORIAL_1_0}`);
+  await expect(older.getByTestId("btn-resume-cached")).toHaveText("Resume");
+  await expect(savedGameCard(page, "Adventure Department Remix")).toBeVisible();
+  await expect(gallery.getByText("Adventure Department", { exact: true })).toHaveCount(1);
+  await page.screenshot({ path: test.info().outputPath("home-older-release.png") });
+
+  // The Tutorial card is the 1.1 release; its ⋯ menu carries no 1.0 items.
   await openCardMenu(page, "game-actions-adventure-department");
   const menu = page.getByRole("menu", { name: "Game actions", exact: true });
+  await expect(menu.getByRole("menuitem", { name: /1\.0/ })).toHaveCount(0);
   await menu.getByRole("menuitem", { name: "Details…" }).click();
   const details = page.getByTestId("card-details");
   await expect(details).toContainText("1.1.0");
   await page.keyboard.press("Escape");
   await expect(details).toBeHidden();
 
-  await openCardMenu(page, "game-actions-adventure-department");
-  const resume = menu.getByTestId("continue-release-1.0.0");
-  await expect(resume).toContainText("Continue your 1.0 save");
-  await expect(resume).toContainText(/Room 1 · played/);
-  await page.screenshot({ path: test.info().outputPath("home-continue-1-0.png") });
+  // The 1.0 card's ordinary ⋯ menu reports the stored release.
+  const olderDetails = await openSavedGameDetails(older);
+  await expect(olderDetails).toContainText("1.0.0");
+  await page.keyboard.press("Escape");
 
-  await resume.click();
+  // Resuming the 1.0 card resumes the stored copy, not the catalog release.
+  await older.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_1_0}$`));
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
@@ -59,34 +78,26 @@ test("a stored 1.0 tutorial folds into the 1.1 card, whose menu resumes it witho
   await expect(guide.getByTestId("help-section-lessons")).toHaveCount(0);
 });
 
-test("the 1.1 card's menu removes the 1.0 save after a confirmation, leaving its remix", async ({
+test("the 1.0 card removes through the normal saved-game menu, leaving remix and tutorial", async ({
   page,
 }) => {
   await isolateStorage(page);
   await page.goto("/");
   await seedTutorial10(page, REMIX);
   await page.reload();
-  const menu = page.getByRole("menu", { name: "Game actions", exact: true });
+
+  const older = savedGameCard(page, OLDER_TITLE);
   const autosave = () =>
     page.evaluate((id) => localStorage.getItem(`monotio_agi.autosave.${id}`), TUTORIAL_1_0);
   expect(await autosave()).not.toBeNull();
 
-  // Cancel keeps it.
-  await openCardMenu(page, "game-actions-adventure-department");
-  await menu.getByTestId("remove-release-1.0.0").click();
-  const dialog = page.getByTestId("remove-release-dialog");
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("Remove your 1.0 save?");
-  await expect(dialog).toContainText("Games you exported or downloaded as files are not affected.");
-  await page.screenshot({ path: test.info().outputPath("home-remove-1-0.png") });
-  await dialog.getByTestId("remove-release-cancel").click();
-  await expect(dialog).toBeHidden();
-  expect(await autosave()).not.toBeNull();
-
-  await openCardMenu(page, "game-actions-adventure-department");
-  await menu.getByTestId("remove-release-1.0.0").click();
-  await dialog.getByTestId("remove-release-confirm").click();
-  await expect(dialog).toBeHidden();
+  // The standard saved-game menu: rename, details and a single Remove item.
+  await openLibraryActions(page, older);
+  const menu = page.getByRole("menu", { name: "Game actions", exact: true });
+  await expect(menu.getByTestId("rename-game")).toBeVisible();
+  await expect(menu.getByTestId("remove-library-game")).toBeVisible();
+  await menu.getByTestId("remove-library-game").click();
+  await expect(older).toHaveCount(0);
   await expect.poll(autosave).toBeNull();
   expect(
     await page.evaluate(async (id) => {
@@ -96,14 +107,11 @@ test("the 1.1 card's menu removes the 1.0 save after a confirmation, leaving its
     }, TUTORIAL_1_0),
   ).toBe(false);
 
-  // Both 1.0 items are gone; the remix keeps its card; the 1.1 card still plays.
-  await openCardMenu(page, "game-actions-adventure-department");
-  await expect(menu).toBeVisible();
-  await expect(menu.getByTestId("continue-release-1.0.0")).toHaveCount(0);
-  await expect(menu.getByTestId("remove-release-1.0.0")).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId(`saved-game-card-${REMIX}`)).toBeVisible();
-  await page.getByTestId("catalog-play-adventure-department").click();
+  // The remix keeps its card; the Tutorial card still plays the 1.1 release.
+  await expect(savedGameCard(page, "Adventure Department Remix")).toBeVisible();
+  const tutorial = page.getByTestId("catalog-adventure-department");
+  await expect(tutorial).toBeVisible();
+  await tutorial.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await expect(page).toHaveURL(/#play\/catalog-adventure-department-1\.1\.0$/);
 });

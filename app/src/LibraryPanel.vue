@@ -17,7 +17,7 @@ import GameCard from "./home/GameCard.vue";
 import SavedGameCard from "./home/SavedGameCard.vue";
 import TemplateCard from "./home/TemplateCard.vue";
 import TutorialCard from "./home/TutorialCard.vue";
-import { catalogLibraryCopy, otherReleaseCopies } from "./home/shelfIdentity.ts";
+import { catalogLibraryCopy } from "./home/shelfIdentity.ts";
 import { formatRelativeTime } from "./home/relativeTime.ts";
 import { useNow } from "./home/useNow.ts";
 import { BUILTIN_TEMPLATES } from "./gameTemplates.ts";
@@ -52,13 +52,10 @@ const {
 const bridge = useShellBridge();
 const now = useNow();
 
-/** The tutorial's library copies, this release's and earlier ones', show on the tutorial's own card. */
+/** The tutorial's library copy shows on the tutorial's own card. */
 const shelfSavedGames = computed(() => {
-  const tutorial = [
-    catalogLibraryCopy(savedGames.value, featuredCatalog),
-    ...otherReleaseCopies(savedGames.value, featuredCatalog),
-  ];
-  return savedGames.value.filter((game) => !tutorial.includes(game));
+  const tutorial = catalogLibraryCopy(savedGames.value, featuredCatalog);
+  return savedGames.value.filter((game) => game !== tutorial);
 });
 
 /** The leftover-autosave card's name: a known game's title, else its storage key. */
