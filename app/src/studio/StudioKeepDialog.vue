@@ -10,12 +10,16 @@ import UiDialog from "../ui/UiDialog.vue";
  * draft was made on bytes storage no longer holds.
  */
 const {
-  pictureNumber,
+  subject,
+  noun,
   changes,
   notesOnly = false,
   canKeep,
 } = defineProps<{
-  pictureNumber: number;
+  /** What the draft edits, as the top bar names it: "PIC 5", "VIEW 0". */
+  subject: string;
+  /** The kind of resource: "picture", "view". */
+  noun: string;
   changes: number;
   /** The changes touch only notes (labels, kinds, locks), not the picture's bytes. */
   notesOnly?: boolean;
@@ -41,10 +45,10 @@ const TITLES = {
 const DISCARD_LABELS = { close: "Discard", reload: "Reload", discard: "Discard changes" } as const;
 const description = computed(() =>
   ask.value === "close"
-    ? `PIC ${pictureNumber} has ${changes} unkept ${notesOnly ? "note " : ""}${changes === 1 ? "change" : "changes"}.`
+    ? `${subject} has ${changes} unkept ${notesOnly ? "note " : ""}${changes === 1 ? "change" : "changes"}.`
     : ask.value === "reload"
-      ? "Your unkept changes in this picture will be discarded because the game was changed elsewhere."
-      : "The picture goes back to how it was last kept.",
+      ? `Your unkept changes in this ${noun} will be discarded because the game was changed elsewhere.`
+      : `The ${noun} goes back to how it was last kept.`,
 );
 </script>
 

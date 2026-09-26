@@ -10,21 +10,12 @@ import type { EditOperation } from "../../../src/studio/editOperations.ts";
 import type { PictureItem, PictureItemKind } from "../../../src/studio/pictureDocument.ts";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
 import { freshItemId, type DraftOutcome, type StudioDraft } from "./useStudioDraft.ts";
+import { useStudioNotice } from "./useStudioNotice.ts";
 
 /** How far Cmd/Ctrl+D offsets a copy, in logical pixels. */
 export const DUPLICATE_OFFSET = 4;
 /** How long a refusal's cells stay highlighted. */
 const FLASH_MS = 1600;
-/** How long a notice stays up. */
-const NOTICE_MS = 5000;
-
-export interface StudioNotice {
-  readonly tone: "warn" | "ok";
-  /** One short, plain sentence. */
-  readonly text: string;
-  /** The technical account, behind a Details disclosure. */
-  readonly detail?: string | undefined;
-}
 
 export interface ItemMetaPatch {
   readonly label?: string;
@@ -39,14 +30,10 @@ export function useStudioEditing(options: {
   readonly frozen: () => boolean;
 }) {
   const { draft, selectedId } = options;
-  const notice = shallowRef<StudioNotice | null>(null);
+  const { notice, say, hold } = useStudioNotice();
   const flash = shallowRef<Uint8Array | null>(null);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
-  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-  onScopeDispose(() => {
-    clearTimeout(flashTimer);
-    clearTimeout(noticeTimer);
-  });
+  onScopeDispose(() => clearTimeout(flashTimer));
 
   /** The selected item as the draft holds it, if it is an item (not a group or loose lines). */
   const item = computed<PictureItem | undefined>(() =>
@@ -54,18 +41,6 @@ export function useStudioEditing(options: {
   );
   /** The selected item, when the creator may edit it now. */
   const editable = computed(() => (options.frozen() ? undefined : item.value));
-
-  function say(next: StudioNotice | null): void {
-    clearTimeout(noticeTimer);
-    notice.value = next;
-    if (next) noticeTimer = setTimeout(() => (notice.value = null), NOTICE_MS);
-  }
-
-  /** Keep the notice up while its details are open; the countdown restarts when they close. */
-  function hold(open: boolean): void {
-    if (open) clearTimeout(noticeTimer);
-    else say(notice.value);
-  }
 
   /** Show what an edit did: a refusal's reason (and its cells), or nothing. */
   function report(outcome: DraftOutcome): void {

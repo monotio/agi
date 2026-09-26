@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import UiButton from "../ui/UiButton.vue";
 import UiKbd from "../ui/UiKbd.vue";
-import type { StudioNotice } from "./useStudioEditing.ts";
+import type { StudioNotice } from "./useStudioNotice.ts";
 import type { KeepBanner, KeepRecovery } from "./useStudioKeep.ts";
 
 /**

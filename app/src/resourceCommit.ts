@@ -1,6 +1,6 @@
 /**
  * The durable resource transaction behind every Keep — a staged reference
- * view, a Room Studio picture: the edited bytes, the source that describes
+ * view, a Room Studio picture, a Sprite Studio view: the edited bytes, the source that describes
  * them, the stored project and the live worker move together or not at all.
  * The authoring controller owns the session and wires this in; the edit
  * descriptors below say what each Keep writes.
@@ -13,6 +13,9 @@ import { resourceCacheHint } from "../../src/agent/authoringState.ts";
 import type { AgentSourceStore } from "../../src/agent/tools.ts";
 import { sourceCompilesTo } from "../../src/picture/source.ts";
 import { roomDrawsPicture } from "../../src/agent/roomPictures.ts";
+import { roomBakesView, scanViewUsage } from "../../src/studio/sprite/spriteUsage.ts";
+import { viewSpec } from "../../src/view/celEdit.ts";
+import type { BuildViewInput } from "../../src/view/view.ts";
 import type { AgiProfile } from "../../src/runtime/profile.ts";
 import {
   loadAuthoredGameWithHistoryLifetime,
@@ -92,6 +95,16 @@ export interface PictureEdit {
   /** Annotated PIC source; must compile to exactly `bytes`. */
   source: string;
   /** The booted resource revision Studio opened on. */
+  baseRevision: ResourceRevision;
+  /** A short description for the agent log. */
+  reason?: string | undefined;
+}
+
+/** Sprite Studio's Keep request: new VIEW bytes, decoded and re-encoded by the sprite kernel. */
+export interface ViewEdit {
+  viewNumber: number;
+  bytes: Uint8Array;
+  /** The booted resource revision Sprite Studio opened on. */
   baseRevision: ResourceRevision;
   /** A short description for the agent log. */
   reason?: string | undefined;
@@ -491,11 +504,23 @@ export function createResourceCommit(
   return commitResourceEdit;
 }
 
-/** Keep a staged reference VIEW: its bytes, its build input and the spent offer. */
-export function stagedViewEdit(game: BootedGame, id: string): ResourceEdit {
+/**
+ * Keep a staged reference VIEW: its bytes, its build input and the spent
+ * offer. `repaired` is the candidate as Sprite Studio left it: those bytes
+ * are kept instead, with the spec read back from them.
+ */
+export function stagedViewEdit(
+  game: BootedGame,
+  id: string,
+  repaired?: { bytes: Uint8Array; baseRevision: ResourceRevision },
+): ResourceEdit {
+  const payload = repaired && new Uint8Array(repaired.bytes);
+  /** The repaired bytes' spec, read back once `validate` has the game's profile. */
+  let spec: BuildViewInput | undefined;
   return {
     what: "a staged view",
     owner: "keepView",
+    baseRevision: repaired?.baseRevision,
     resolve: (stored) => {
       const reference = stored?.references?.find((r) => r.id === id);
       if (!reference)
@@ -512,15 +537,32 @@ export function stagedViewEdit(game: BootedGame, id: string): ResourceEdit {
       return {
         kind: "view",
         num: staged.num,
-        payload: new Uint8Array(base64ToBytes(staged.payload)),
+        payload: payload ?? new Uint8Array(base64ToBytes(staged.payload)),
         stage: (sources) => {
-          sources.views.set(staged.num, structuredClone(staged.input));
+          sources.views.set(staged.num, spec ?? structuredClone(staged.input));
           return true;
         },
         references: stored!.references!.map((r) => (r.id === id ? { ...r, staged: undefined } : r)),
       };
     },
+    ...(payload && {
+      validate: (author: AgentSession) => {
+        spec = editedViewSpec(payload, author.state.profile);
+      },
+    }),
   };
+}
+
+/** The spec of edited VIEW bytes; refused when the game's interpreter cannot decode them. */
+function editedViewSpec(payload: Uint8Array, profile: AgiProfile): BuildViewInput {
+  try {
+    return viewSpec(payload, profile);
+  } catch (error) {
+    throw new ResourceCommitError(
+      "invalid",
+      `The edited view does not decode (${error instanceof Error ? error.message : String(error)}).`,
+    );
+  }
 }
 
 /**
@@ -556,6 +598,56 @@ export function pictureEdit(edit: PictureEdit): ResourceEdit {
           "invalid",
           "The picture text does not compile to the edited picture.",
         );
+    },
+  };
+}
+
+/**
+ * Keep a Sprite Studio view: the edited VIEW bytes, with `sources.views`
+ * following them as the spec read back from the bytes. Animated objects pick
+ * the new cels up from the install itself (Engine.patchResource re-parses a
+ * loaded view in place); the live room re-enters only when entering it bakes
+ * the view into its picture with add.to.pic (spriteUsage.ts `roomBakesView`).
+ */
+export function viewEdit(edit: ViewEdit): ResourceEdit {
+  const { viewNumber: num, baseRevision } = edit;
+  const payload = new Uint8Array(edit.bytes);
+  /** The bytes' spec, read back once `validate` has the game's profile. */
+  let spec: BuildViewInput | undefined;
+  return {
+    what: "the view edit",
+    owner: "studioCommit",
+    baseRevision,
+    reenter: (room, files, profile) => {
+      const logics = new Map<number, Uint8Array>();
+      try {
+        const container = openContainer(new Map(files));
+        for (let n = 0; n < 256; n++) {
+          const logic = container.getResource("logic", n);
+          if (logic) logics.set(n, logic);
+        }
+      } catch {
+        return false;
+      }
+      return roomBakesView(scanViewUsage(logics, profile), room, num);
+    },
+    resolve: () => {
+      if (!Number.isInteger(num) || num < 0 || num > 255)
+        throw new ResourceCommitError("invalid", `View ${num} is not a resource number.`);
+      return {
+        kind: "view",
+        num,
+        payload,
+        stage: (sources) => {
+          if (!spec) return false;
+          const before = sources.views.get(num);
+          sources.views.set(num, spec);
+          return JSON.stringify(before) !== JSON.stringify(spec);
+        },
+      };
+    },
+    validate: (author) => {
+      spec = editedViewSpec(payload, author.state.profile);
     },
   };
 }

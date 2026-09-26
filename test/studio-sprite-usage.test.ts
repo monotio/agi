@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { buildTutorial } from "../games/adventure-department/game.ts";
 import { openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
-import { scanViewUsage, viewUsage } from "../src/studio/sprite/spriteUsage.ts";
+import { roomBakesView, scanViewUsage, viewUsage } from "../src/studio/sprite/spriteUsage.ts";
 
 function tutorialLogics(): Map<number, Uint8Array> {
   const container = openContainer(new Map(Object.entries(buildTutorial().files)));
@@ -42,5 +42,30 @@ describe("sprite usage", () => {
     // Logic 0 runs in every room; it is reported as a logic, not a room.
     assert.deepEqual(viewUsage(index, 9), { rooms: [], logics: [0], dynamic: true });
     assert.deepEqual(index.dynamicLogics, [2]);
+  });
+
+  it("says which rooms bake a view into their picture, so a Keep re-enters only those", () => {
+    const logic = (source: string) => assembleLogic(source, { dictionary: new Map() }).payload;
+    const index = scanViewUsage(
+      new Map([
+        [0, logic("return;")],
+        [1, logic("call(50); set.view(o1, 3); return;")],
+        [2, logic("add.to.pic.v(v1, v2, v3, v4, v5, v6, v7); return;")],
+        [3, logic("set.view(o1, 7); return;")],
+        [50, logic("add.to.pic(7, 0, 0, 50, 50, 4, 4); return;")],
+      ]),
+    );
+    // Room 1 bakes view 7 through logic 50; its animated view 3 updates live.
+    assert.equal(roomBakesView(index, 1, 7), true);
+    assert.equal(roomBakesView(index, 1, 3), false);
+    // A variable add.to.pic may bake any view.
+    assert.equal(roomBakesView(index, 2, 3), true);
+    assert.equal(roomBakesView(index, 3, 7), false);
+    assert.deepEqual(index.dynamicBakers, [2]);
+  });
+
+  it("reads the tutorial: no room bakes the apprentice", () => {
+    const index = scanViewUsage(tutorialLogics());
+    for (const room of [1, 2, 3]) assert.equal(roomBakesView(index, room, 0), false);
   });
 });

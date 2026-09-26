@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
-import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { PAYLOAD_MAX_BYTES } from "../../../src/container/container.ts";
 import { MAX_PAYLOAD_BYTES } from "../../../src/agent/pictureTools.ts";
+import StudioDraftControls, { type DraftStatus } from "./StudioDraftControls.vue";
 import { byteMeter, type StudioLens } from "./studioView.ts";
-import { changeCount } from "./useStudioDraft.ts";
-
-/** Where the draft stands, for the status chip. */
-export type DraftStatus = "view-only" | "clean" | "changed" | "keeping" | "kept" | "reload";
 
 /**
  * Room Studio's top bar: the way back to Create and what is open, the lens
- * switch, and the draft's state: the picture's size against its limits,
- * undo and redo, the number of changes, Discard and Keep.
+ * switch, the picture's size against its limits, and the draft's controls
+ * (StudioDraftControls: undo and redo, the changes, Discard and Keep).
  */
 const {
   title,
@@ -62,22 +57,6 @@ const LENSES = [
 ] as const;
 const meter = computed(() => byteMeter(bytes, MAX_PAYLOAD_BYTES, PAYLOAD_MAX_BYTES));
 const picChip = computed(() => `PIC ${pictureNumber}`);
-const STATUS: Record<
-  DraftStatus,
-  { tone: "neutral" | "action" | "ok" | "warn" | "danger"; text: string }
-> = {
-  "view-only": { tone: "warn", text: "View only" },
-  clean: { tone: "neutral", text: "No changes" },
-  changed: { tone: "action", text: "" },
-  keeping: { tone: "action", text: "Keeping…" },
-  kept: { tone: "ok", text: "Kept" },
-  reload: { tone: "danger", text: "Reload to edit" },
-};
-const chip = computed(() =>
-  status === "changed"
-    ? { tone: "action" as const, text: changeCount(changes, notesOnly) }
-    : STATUS[status],
-);
 </script>
 
 <template>
@@ -107,52 +86,18 @@ const chip = computed(() =>
         <span>{{ bytes }} B · {{ commands }} cmds</span>
         <i :style="{ width: `${Math.max(2, meter.fraction * 100)}%` }"></i>
       </div>
-      <UiIconButton
-        icon="undo"
-        label="Undo"
-        shortcut="⌘Z"
-        size="sm"
-        :disabled="!canUndo"
-        data-testid="studio-undo"
-        @click="emit('undo')"
-      />
-      <UiIconButton
-        icon="redo"
-        label="Redo"
-        shortcut="⇧⌘Z"
-        size="sm"
-        :disabled="!canRedo"
-        data-testid="studio-redo"
-        @click="emit('redo')"
-      />
-      <UiChip :tone="chip.tone" dot data-testid="studio-draft-status" :data-status="status">
-        <UiIcon v-if="status === 'view-only'" name="lock" :size="12" />{{ chip.text }}
-      </UiChip>
-      <UiButton
-        variant="ghost"
-        size="sm"
-        :disabled="changes === 0 || status === 'keeping'"
-        data-testid="studio-discard"
-        @click="emit('discard')"
-      >
-        Discard
-      </UiButton>
-      <UiButton
-        variant="primary"
-        size="sm"
-        :disabled="!canKeep"
-        data-testid="studio-keep"
-        @click="emit('keep')"
-      >
-        Keep<span v-if="changes > 0" class="top-bar__count">{{ changes }}</span>
-      </UiButton>
-      <UiIconButton
-        icon="x"
-        label="Close studio"
-        shortcut="Esc"
-        size="sm"
-        data-testid="studio-close"
-        @click="emit('close')"
+      <StudioDraftControls
+        :status
+        :changes
+        :notes-only="notesOnly"
+        :can-undo="canUndo"
+        :can-redo="canRedo"
+        :can-keep="canKeep"
+        @undo="emit('undo')"
+        @redo="emit('redo')"
+        @keep="emit('keep')"
+        @discard="emit('discard')"
+        @close="emit('close')"
       />
     </div>
   </header>
@@ -223,13 +168,5 @@ const chip = computed(() =>
 }
 .top-bar__meter.is-danger i {
   background: var(--danger);
-}
-.top-bar__count {
-  margin-left: var(--space-2);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-pill);
-  color: var(--action);
-  background: var(--action-ink);
-  font: var(--weight-bold) var(--text-2xs) / var(--leading) var(--font-mono);
 }
 </style>

@@ -13,8 +13,10 @@ import {
   createResourceCommit,
   pictureEdit,
   stagedViewEdit,
+  viewEdit,
   type PictureEdit,
   type ResourceCommitResult,
+  type ViewEdit,
 } from "./resourceCommit.ts";
 import {
   getCachedGameMeta,
@@ -37,7 +39,12 @@ import {
 import type { CharacterSheetSpec, SheetFacing } from "../../src/view/characterSheet.ts";
 import { worldRevision } from "../../src/agent/worldPlan.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
-import { projectId, requireProjectId, type ProjectId } from "../../src/gameIdentity.ts";
+import {
+  projectId,
+  requireProjectId,
+  type ProjectId,
+  type ResourceRevision,
+} from "../../src/gameIdentity.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 import type { AwaitPatchedFn } from "./workerQueries.ts";
@@ -158,14 +165,20 @@ export interface AuthoringController {
   /**
    * Commit a staged VIEW to the running game and the project record. Refuses
    * when the game's identity moved since the reference was attached.
+   * `repaired` keeps Sprite Studio's repair of the candidate instead.
    */
-  keepStagedView(id: string): Promise<void>;
+  keepStagedView(
+    id: string,
+    repaired?: { bytes: Uint8Array; baseRevision: ResourceRevision },
+  ): Promise<ResourceCommitResult>;
   /**
    * Commit Room Studio's picture edit — bytes plus the source that compiles
    * to them — to storage and the running game as one transaction. Throws a
    * ResourceCommitError; "unchanged" when there was nothing to write.
    */
   commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult>;
+  /** Commit Sprite Studio's VIEW edit the same way. */
+  commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult>;
 }
 
 export function useAuthoringController(options: AuthoringControllerOptions): AuthoringController {
@@ -997,8 +1010,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   /** Keep resources, source and the consumed offer in one conditional durable write. */
-  async function keepStagedView(id: string): Promise<void> {
-    await commitResourceEdit(stagedViewEdit(requireAuthoredBoot(), id));
+  async function keepStagedView(
+    id: string,
+    repaired?: { bytes: Uint8Array; baseRevision: ResourceRevision },
+  ): Promise<ResourceCommitResult> {
+    return commitResourceEdit(stagedViewEdit(requireAuthoredBoot(), id, repaired));
   }
 
   async function commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult> {
@@ -1007,6 +1023,16 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       logAgent(
         "log",
         `Room Studio kept picture ${edit.pictureNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
+      );
+    return result;
+  }
+
+  async function commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult> {
+    const result = await commitResourceEdit(viewEdit(edit));
+    if (result.status === "committed")
+      logAgent(
+        "log",
+        `Sprite Studio kept view ${edit.viewNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
       );
     return result;
   }
@@ -1037,5 +1063,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     detachReference,
     keepStagedView,
     commitPictureEdit,
+    commitViewEdit,
   };
 }
