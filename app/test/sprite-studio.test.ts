@@ -15,9 +15,17 @@ import {
   type SpriteCel,
   type SpriteDocument,
 } from "../../src/studio/sprite/spriteDocument.ts";
+import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
+import { validateSpriteEdit } from "../../src/studio/sprite/spriteValidation.ts";
 import { testRevision } from "./identity.ts";
 import { spriteKey, type SpriteKeyActions } from "../src/studio/sprite/spriteKeys.ts";
 import { plainSpriteRefusal } from "../src/studio/sprite/spriteMessages.ts";
+import {
+  recolorCount,
+  recolorEdit,
+  recolorTargets,
+  type RecolorEdit,
+} from "../src/studio/sprite/spriteRecolor.ts";
 import {
   celIntervalMs,
   feetWarning,
@@ -164,6 +172,28 @@ describe("useSpriteDraft", () => {
     assert.equal(draft.canRedo.value, true, "a cancelled stroke leaves redo alone");
   });
 
+  it("moves a cel to another loop as one undo step, and a refused part changes nothing", () => {
+    const { draft } = setup();
+    const moved = celOf(draft.document.value, 2, 1);
+    const move = [
+      { op: { type: "addCel", loop: 3, at: 4, from: { loop: 2, cel: 1 } }, targets: [3] },
+      { op: { type: "deleteCel", loop: 2, cel: 1 }, targets: [2] },
+    ] as const;
+    assert.deepEqual(draft.applyAll(move, "Move cel to loop"), { ok: true, isolated: [] });
+    const after = draft.document.value;
+    assert.equal(after.loops[2]!.cels.length, 3);
+    assert.equal(after.loops[3]!.cels.length, 5);
+    assert.ok(samePixels(celOf(after, 3, 4).pixels, moved.pixels));
+    assert.equal(draft.changes.value, 1);
+    assert.equal(draft.undo(), true);
+    assert.deepEqual(draft.bytes.value, APPRENTICE);
+    // The delete claims the wrong loop: the check refuses it, and the copy before it goes too.
+    const wrong = [move[0], { ...move[1], targets: [3] }];
+    assert.equal(draft.applyAll(wrong, "Move cel to loop").ok, false);
+    assert.deepEqual(draft.bytes.value, APPRENTICE);
+    assert.equal(draft.canRedo.value, true, "a refusal leaves the history alone");
+  });
+
   it("rebases on Keep and discards back to the kept bytes", () => {
     const { draft } = setup();
     const paint = (x: number) =>
@@ -285,6 +315,96 @@ describe("useSpriteTools", () => {
     t.pressAt({ x: 5, y: 12 });
     assert.notEqual(color.value, 4);
   });
+
+  it("picks the recolour's colour from a pixel, never a transparent one, and puts the tool away", () => {
+    const { draft, t, said } = tools();
+    t.setTool("select");
+    t.setTool("recolor");
+    t.pressAt({ x: 0, y: 0 });
+    assert.equal(t.recolorFrom.value, null);
+    assert.equal(said.at(-1), "That pixel is transparent: pick a coloured pixel to recolour.");
+    t.pressAt({ x: 5, y: 12 });
+    assert.equal(t.recolorFrom.value, at(celOf(draft.document.value, 2), 5, 12));
+    assert.equal(draft.changes.value, 0, "picking changes nothing");
+    assert.equal(t.closeRecolor(), true);
+    assert.equal(t.tool.value, "select", "back to the tool it was opened from");
+    assert.equal(t.closeRecolor(), false);
+  });
+});
+
+describe("spriteRecolor", () => {
+  const document = openSprite(APPRENTICE, DEFAULT_V2_PROFILE);
+  const CYAN = 11;
+  const BLUE = 1;
+  /** The kernel's own account: the loops and pixels the edit changes, checked against `targets`. */
+  function kernel(edit: RecolorEdit, targets: readonly number[]) {
+    const result = applySpriteEdit(document, edit);
+    assert.ok(!("error" in result), "error" in result ? result.error : "");
+    const check = validateSpriteEdit(document, result.document, { targetLoops: targets });
+    return {
+      ok: check.ok,
+      loops: [...new Set(check.changedCels.map(({ loop }) => loop))],
+      pixels: check.changedCels.reduce((sum, { pixels }) => sum + pixels, 0),
+      isolated: result.isolated,
+    };
+  }
+
+  it("counts one loop's pixels and splits it from its mirror, as the kernel does", () => {
+    // Loop 0's four cels hold 48, 44, 48 and 42 cyan pixels (decoded and counted by hand).
+    const edit = recolorEdit("loop", { loop: 0, cel: 2 }, CYAN, BLUE, false);
+    assert.deepEqual(edit, { type: "recolor", from: CYAN, to: BLUE, scope: "loop", loop: 0 });
+    const targets = recolorTargets(document, edit);
+    assert.deepEqual(targets, [0]);
+    assert.deepEqual(recolorCount(document, edit), {
+      pixels: 182,
+      cels: 4,
+      clash: null,
+      copies: [0],
+    });
+    assert.deepEqual(kernel(edit, targets), { ok: true, loops: [0], pixels: 182, isolated: [0] });
+  });
+
+  it("reaches the linked group when edits propagate, and every loop over the view", () => {
+    const linked = recolorEdit("loop", { loop: 1, cel: 0 }, CYAN, BLUE, true);
+    assert.deepEqual(recolorTargets(document, linked), [0, 1]);
+    assert.deepEqual(recolorCount(document, linked), {
+      pixels: 364,
+      cels: 8,
+      clash: null,
+      copies: [],
+    });
+    assert.deepEqual(kernel(linked, [0, 1]), {
+      ok: true,
+      loops: [0, 1],
+      pixels: 364,
+      isolated: [],
+    });
+    // Loops 2 and 3 add 50, 50, 42, 50 each.
+    const view = recolorEdit("view", { loop: 3, cel: 1 }, CYAN, BLUE, false);
+    assert.deepEqual(recolorTargets(document, view), [0, 1, 2, 3]);
+    assert.equal(recolorCount(document, view).pixels, 748);
+    assert.deepEqual(recolorCount(document, view).copies, []);
+    assert.equal(kernel(view, [0, 1, 2, 3]).pixels, 748);
+    // Without the right targets the loop check refuses what the kernel did.
+    assert.equal(kernel(view, [3]).ok, false);
+  });
+
+  it("counts one cel, skips the transparent colour and flags a transparent target", () => {
+    const cel = recolorEdit("cel", { loop: 2, cel: 2 }, CYAN, BLUE, false);
+    assert.deepEqual(cel.scope, [{ loop: 2, cel: 2 }]);
+    assert.deepEqual(recolorTargets(document, cel), [2]);
+    assert.equal(recolorCount(document, cel).pixels, 42);
+    assert.equal(kernel(cel, [2]).pixels, 42);
+    // Transparent pixels are never a colour to change.
+    assert.equal(
+      recolorCount(document, recolorEdit("loop", { loop: 2, cel: 0 }, 13, 1, false)).pixels,
+      0,
+    );
+    // Colour 13 is every cel's transparent colour: cyan cannot become it, and the kernel agrees.
+    const clash = recolorEdit("loop", { loop: 3, cel: 0 }, CYAN, 13, false);
+    assert.deepEqual(recolorCount(document, clash).clash, { loop: 3, cel: 0 });
+    assert.ok("error" in applySpriteEdit(document, clash));
+  });
 });
 
 describe("spriteKeys", () => {
@@ -301,7 +421,7 @@ describe("spriteKeys", () => {
     redo: () => log.push("redo"),
     tool: (key) => (log.push(`tool ${key}`), key === "b"),
   });
-  const key = (init: KeyboardEventInit & { key: string }) =>
+  const key = (init: KeyboardEventInit & { key: string; target?: unknown }) =>
     ({ defaultPrevented: false, target: null, repeat: false, ...init }) as unknown as KeyboardEvent;
 
   it("maps the canvas keys, the cel and loop steps and the rail letters", () => {
@@ -327,6 +447,24 @@ describe("spriteKeys", () => {
       "tool q",
       "close",
     ]);
+  });
+
+  it("leaves Esc in a text field to the field: it blurs, and Studio stays open", () => {
+    const log: string[] = [];
+    const act = { ...actions(log), dismiss: () => (log.push("dismiss"), false) };
+    const field = (tagName: string) =>
+      Object.assign(Object.create(HTMLElement.prototype) as HTMLElement, {
+        tagName,
+        isContentEditable: false,
+        blur: () => log.push(`blur ${tagName}`),
+      });
+    assert.equal(spriteKey(key({ key: "Escape", target: field("INPUT") }), act), true);
+    assert.equal(spriteKey(key({ key: "Escape", target: field("SELECT") }), act), true);
+    assert.equal(spriteKey(key({ key: "b", target: field("INPUT") }), act), false);
+    assert.deepEqual(log, ["blur INPUT", "blur SELECT"]);
+    // Off the field, Esc dismisses first and then closes.
+    assert.equal(spriteKey(key({ key: "Escape" }), act), true);
+    assert.deepEqual(log.slice(2), ["dismiss", "close"]);
   });
 
   it("leaves arrows, Space and Enter to the focused control off the canvas", () => {

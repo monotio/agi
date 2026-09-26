@@ -3,8 +3,9 @@ import { computed } from "vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 
 /**
- * The fixed AGI palette with the edited cel's transparent colour marked ∅.
- * A radio group: arrows move between colours. The transparent colour cannot
+ * The fixed AGI palette with the edited cel's transparent colour marked ∅,
+ * in two short rows of eight so the previews below stay in view. A radio
+ * group: arrows move between colours. The transparent colour cannot
  * be painted; choosing it turns the eraser on instead.
  */
 const { transparent } = defineProps<{ transparent: number }>();
@@ -72,8 +73,8 @@ function onKey(event: KeyboardEvent, value: number): void {
 <style scoped>
 .sprite-palette {
   display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--hairline);
 }
 .sprite-palette__head {
@@ -100,7 +101,7 @@ function onKey(event: KeyboardEvent, value: number): void {
 }
 .sprite-palette__swatch {
   position: relative;
-  aspect-ratio: 1;
+  height: var(--space-7);
   padding: 0;
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-sm);

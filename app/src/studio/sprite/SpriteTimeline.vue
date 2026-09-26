@@ -14,8 +14,12 @@ import { aliasGroup, loopFacing } from "./spriteView.ts";
  * deleted, and loops added, duplicated, deleted, unlinked and linked, from
  * the context menu (right-click, the Menu key or Shift+F10) or keys on the
  * focused cel; dragging a cel reorders it within its loop and Alt-drag
- * copies it, with Alt+←/→ as the keyboard way. Every change goes through
- * the kernel and its dependency checks in the studio.
+ * copies it, with Alt+←/→ as the keyboard way. "Copy to loop…" and "Move to
+ * loop…" in the menu open a loop picker in its place (arrows, Enter; Esc
+ * closes it), the keyboard's way to Alt-drag across loops; a cel lands at
+ * the end of the chosen loop, and a move is its copy and the delete as one
+ * undo step. Every change goes through the kernel and its dependency checks
+ * in the studio.
  *
  * Keys on a cel: ←/→ the neighbouring cel, ↑/↓ the neighbouring loop,
  * Alt+←/→ move the cel, Delete delete it, Cmd/Ctrl+D duplicate it, + add a
@@ -30,6 +34,8 @@ const { document, loop, cel, frozen } = defineProps<{
 const emit = defineEmits<{
   select: [loop: number, cel: number];
   edit: [op: SpriteEdit, label: string];
+  /** Edits made as one undo step. */
+  edits: [ops: SpriteEdit[], label: string];
 }>();
 
 const root = useTemplateRef("root");
@@ -79,6 +85,20 @@ const moveCel = (l: number, c: number, to: number) => {
 const copyCel = (from: { loop: number; cel: number }, l: number, at: number) => {
   edit({ type: "addCel", loop: l, at, from }, "Copy cel");
   select(l, at, true);
+};
+/** Move a cel to the end of another loop: its copy there, then the delete here. */
+const moveToLoop = (l: number, c: number, target: number) => {
+  if (frozen || target === l) return;
+  const at = document.loops[target]?.cels.length ?? 0;
+  emit(
+    "edits",
+    [
+      { type: "addCel", loop: target, at, from: { loop: l, cel: c } },
+      { type: "deleteCel", loop: l, cel: c },
+    ],
+    "Move cel to loop",
+  );
+  select(target, at, true);
 };
 
 // ---- keys ----------------------------------------------------------------
@@ -180,9 +200,18 @@ interface MenuItem {
   readonly hint?: string;
   readonly disabled?: boolean;
   readonly danger?: boolean;
+  /** The item turns the menu into the loop picker instead of closing it. */
+  readonly picks?: boolean;
   readonly run: () => void;
 }
-const menu = shallowRef<{ x: number; y: number; loop: number; cel: number | null } | null>(null);
+/** `pick`: the menu is the loop picker for copying or moving its cel. */
+const menu = shallowRef<{
+  x: number;
+  y: number;
+  loop: number;
+  cel: number | null;
+  pick?: "copy" | "move";
+} | null>(null);
 const menuEl = useTemplateRef("menuEl");
 
 function openMenu(x: number, y: number, l: number, c: number | null): void {
@@ -207,6 +236,40 @@ function closeMenu(): void {
   if (open) focusCel(open.loop, open.cel ?? 0);
 }
 
+/** The menu's items are being swapped for the picker's (or back): focus stays in the menu. */
+let switching = false;
+function pickLoop(pick: "copy" | "move" | undefined): void {
+  const open = menu.value;
+  if (!open) return;
+  switching = true;
+  menu.value = { x: open.x, y: open.y, loop: open.loop, cel: open.cel, ...(pick ? { pick } : {}) };
+  void nextTick(() => {
+    switching = false;
+    menuEl.value?.querySelector<HTMLElement>("[role=menuitem]:not([disabled])")?.focus();
+  });
+}
+function onMenuFocusOut(event: FocusEvent): void {
+  if (switching || menuEl.value?.contains(event.relatedTarget as Node | null)) return;
+  menu.value = null;
+}
+
+/** The loop picker: every loop (a move skips the cel's own), then Back. */
+function loopPicker(l: number, c: number, pick: "copy" | "move"): MenuItem[][] {
+  const loops = document.loops.flatMap((_, target) => {
+    if (pick === "move" && target === l) return [];
+    const facing = loopFacing(target, document.loops.length);
+    const at = document.loops[target]!.cels.length;
+    return [
+      {
+        label: `Loop ${target}${facing ? ` · ${facing}` : ""}${target === l ? " (this loop)" : ""}`,
+        run: () =>
+          pick === "copy" ? copyCel({ loop: l, cel: c }, target, at) : moveToLoop(l, c, target),
+      },
+    ];
+  });
+  return [loops, [{ label: "Back", picks: true, run: () => pickLoop(undefined) }]];
+}
+
 const menuItems = computed<MenuItem[][]>(() => {
   const open = menu.value;
   if (!open) return [];
@@ -214,12 +277,20 @@ const menuItems = computed<MenuItem[][]>(() => {
   const entry = document.loops[l];
   if (!entry) return [];
   const count = entry.cels.length;
+  if (open.pick && open.cel !== null) return loopPicker(l, open.cel, open.pick);
   const groups: MenuItem[][] = [];
   if (open.cel !== null) {
     const c = open.cel;
     groups.push([
       { label: "Duplicate cel", hint: "⌘D", run: () => duplicateCel(l, c) },
       { label: "Add blank cel after", hint: "+", run: () => addBlank(l, c + 1) },
+      { label: "Copy to loop…", picks: true, run: () => pickLoop("copy") },
+      {
+        label: "Move to loop…",
+        picks: true,
+        disabled: count === 1 || document.loops.length === 1,
+        run: () => pickLoop("move"),
+      },
       { label: "Move cel left", hint: "⌥←", disabled: c === 0, run: () => moveCel(l, c, c - 1) },
       {
         label: "Move cel right",
@@ -286,7 +357,7 @@ const menuItems = computed<MenuItem[][]>(() => {
 
 function runItem(item: MenuItem): void {
   if (item.disabled) return;
-  menu.value = null;
+  if (!item.picks) menu.value = null;
   item.run();
 }
 function onMenuKey(event: KeyboardEvent): void {
@@ -318,8 +389,8 @@ function onMenuKey(event: KeyboardEvent): void {
     <header class="timeline__head">
       <h3 id="timeline-title">Loops × cels</h3>
       <span>
-        Drag cels to reorder · Alt-drag copies · Right-click or Menu key: duplicate, flip, delete,
-        link
+        Drag cels to reorder · Alt-drag copies · Right-click or Menu key: duplicate, copy or move to
+        a loop, flip, delete, link
       </span>
     </header>
     <div class="timeline__rows" role="grid" aria-labelledby="timeline-title">
@@ -415,15 +486,17 @@ function onMenuKey(event: KeyboardEvent): void {
       ref="menuEl"
       class="timeline__menu"
       role="menu"
-      :aria-label="menu.cel === null ? `Loop ${menu.loop}` : `Loop ${menu.loop}, cel ${menu.cel}`"
+      :aria-label="
+        menu.pick
+          ? `${menu.pick === 'copy' ? 'Copy' : 'Move'} loop ${menu.loop}, cel ${menu.cel} to loop`
+          : menu.cel === null
+            ? `Loop ${menu.loop}`
+            : `Loop ${menu.loop}, cel ${menu.cel}`
+      "
       :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
       data-testid="sprite-context-menu"
       @keydown="onMenuKey"
-      @focusout="
-        (e) => {
-          if (!menuEl?.contains(e.relatedTarget as Node | null)) menu = null;
-        }
-      "
+      @focusout="onMenuFocusOut"
     >
       <template v-for="(group, g) in menuItems" :key="g">
         <hr v-if="g > 0" />

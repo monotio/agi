@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onScopeDispose, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
@@ -21,15 +21,18 @@ import { useStudioNotice } from "../useStudioNotice.ts";
 import { useStudioViewport } from "../useStudioViewport.ts";
 import SpriteCanvas, { type OnionSkin } from "./SpriteCanvas.vue";
 import SpriteCelPanel, { type CelEdit } from "./SpriteCelPanel.vue";
+import SpriteContactSheet from "./SpriteContactSheet.vue";
 import SpriteMirrorNote from "./SpriteMirrorNote.vue";
 import SpritePalette from "./SpritePalette.vue";
 import SpritePreview from "./SpritePreview.vue";
+import SpriteRecolor from "./SpriteRecolor.vue";
 import SpriteRoomPreview from "./SpriteRoomPreview.vue";
 import SpriteTimeline from "./SpriteTimeline.vue";
 import SpriteToolRail from "./SpriteToolRail.vue";
 import SpriteTopBar from "./SpriteTopBar.vue";
 import SpriteViewBar from "./SpriteViewBar.vue";
 import { spriteKey, type SpriteKeyActions } from "./spriteKeys.ts";
+import { recolorTargets } from "./spriteRecolor.ts";
 import { aliasGroup, celCount, feetWarning, previewPartner, usageText } from "./spriteView.ts";
 import { exposeSpriteDraft, useSpriteDraft, type SpriteOutcome } from "./useSpriteDraft.ts";
 import { SPRITE_TOOL_KEYS, useSpriteTools } from "./useSpriteTools.ts";
@@ -46,10 +49,13 @@ export type SpriteKeepFn = (
  * transaction (useStudioKeep). It takes the VIEW bytes and the revision they
  * were read at. Copy-on-write is the default: editing a loop that shares its
  * data block makes it a separate copy, and every edit is validated against
- * the loops it targets, so no other loop changes by accident. Keys are
- * handled at the root and stopped (spriteKeys.ts), so none reach the game,
- * and focus never falls out of the studio while it is open; every way out
- * settles unkept changes first (useStudioLeave), as in Room Studio.
+ * the loops it targets, so no other loop changes by accident. The recolour
+ * tool swaps a colour over a cel, a loop or the view (SpriteRecolor.vue),
+ * and the contact sheet shows every cel in place of the canvas
+ * (SpriteContactSheet.vue). Keys are handled at the root and stopped
+ * (spriteKeys.ts), so none reach the game, and focus never falls out of the
+ * studio while it is open; every way out settles unkept changes first
+ * (useStudioLeave), as in Room Studio.
  */
 const {
   viewNumber,
@@ -129,7 +135,7 @@ function targetsOf(op: SpriteEdit): number[] | undefined {
     case "deleteLoop":
       return Array.from({ length: count - op.loop }, (_, k) => op.loop + k);
     case "recolor":
-      return undefined;
+      return recolorTargets(draft.document.value, op);
     default:
       return propagates(op.loop) ? aliasGroup(draft.document.value, op.loop) : [op.loop];
   }
@@ -181,12 +187,19 @@ function report(outcome: SpriteOutcome, feetFrom?: typeof currentCel.value): voi
   else if (notice.value?.tone === "warn") say(null);
 }
 
-function edit(op: SpriteEdit, label: string, feetFrom?: typeof currentCel.value): void {
+/** An edit, or edits made as one undo step (a cel moved to another loop is two). */
+function edit(
+  op: SpriteEdit | readonly SpriteEdit[],
+  label: string,
+  feetFrom?: typeof currentCel.value,
+): void {
   if (frozen()) {
     say({ tone: "warn", text: "This view is view only: nothing can be changed." });
     return;
   }
-  report(draft.apply({ op, targets: targetsOf(op) }, label), feetFrom);
+  const ops = "type" in op ? [op] : op;
+  const changes = ops.map((one) => ({ op: one, targets: targetsOf(one) }));
+  report(draft.applyAll(changes, label), feetFrom);
 }
 function celEdit(change: CelEdit): void {
   const where = { loop: loop.value, cel: cel.value, propagate: propagates(loop.value) };
@@ -239,6 +252,19 @@ const onionNext = ref(true);
 const onionDepth = ref(1);
 const showGrid = ref(true);
 const showBaseline = ref(true);
+/** The contact sheet shows in place of the canvas. */
+const sheet = ref(false);
+/** Back from the contact sheet to the canvas; false when it was not open. */
+function closeSheet(): boolean {
+  if (!sheet.value) return false;
+  sheet.value = false;
+  void nextTick(() => stage.value?.focus({ preventScroll: true }));
+  return true;
+}
+function chooseFromSheet(nextLoop: number, nextCel: number): void {
+  selectCel(nextLoop, nextCel);
+  closeSheet();
+}
 const { zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(stage, 1, {
   size: () => ({
     width: currentCel.value?.width ?? 1,
@@ -318,7 +344,7 @@ exposeSpriteDraft(draft);
 
 const keys: SpriteKeyActions = {
   onCanvas: (target) => target === stage.value,
-  dismiss: () => tools.cancel(),
+  dismiss: () => tools.cancel() || closeSheet() || tools.closeRecolor(),
   close: () => void requestClose(),
   arrow: tools.arrow,
   click: tools.click,
@@ -401,6 +427,7 @@ const status = computed(() => {
 
     <main class="sprite-studio__frame">
       <SpriteViewBar
+        v-model:sheet="sheet"
         v-model:prev="onionPrev"
         v-model:next="onionNext"
         v-model:depth="onionDepth"
@@ -413,6 +440,7 @@ const status = computed(() => {
         tabindex="0"
         role="group"
         :aria-label="CANVAS_LABEL"
+        :inert="sheet"
         data-testid="sprite-stage"
       >
         <SpriteCanvas
@@ -433,6 +461,18 @@ const status = computed(() => {
           @abort="tools.cancel()"
         />
       </div>
+      <SpriteContactSheet v-if="sheet" :document="shown" :loop :cel @select="chooseFromSheet" />
+      <SpriteRecolor
+        v-else-if="tools.tool.value === 'recolor'"
+        v-model:from="tools.recolorFrom.value"
+        :document="draft.document.value"
+        :loop
+        :cel
+        :propagate="propagates(loop)"
+        :frozen="frozen()"
+        @apply="(op) => edit(op, 'Recolour')"
+        @close="tools.closeRecolor()"
+      />
       <StudioStageNotes
         :banner="keeper.banner.value"
         :notice
@@ -456,6 +496,7 @@ const status = computed(() => {
       :frozen="frozen()"
       @select="selectCel"
       @edit="edit"
+      @edits="edit"
     />
 
     <aside class="sprite-studio__panel" aria-label="Cel, previews and linked loops">

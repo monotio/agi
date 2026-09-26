@@ -154,15 +154,31 @@ export function useSpriteDraft(options: {
 
   /** One edit, one undo step. */
   function apply(change: SpriteChange, label: string): SpriteOutcome {
+    return applyAll([change], label);
+  }
+
+  /**
+   * Edits in order as one undo step (a cel moved to another loop is a copy
+   * and a delete): each runs on the last one's result through the kernel and
+   * its own loop check, and a refusal of any changes nothing.
+   */
+  function applyAll(changes: readonly SpriteChange[], label: string): SpriteOutcome {
     if (gesturing.value) return refuse({ message: "Finish the stroke first." });
-    const candidate = evaluate(document.value, change);
-    if (refused(candidate)) return refuse(candidate);
-    if (candidate.document === document.value) return accept(candidate);
-    const recorded = recordSpriteEdit(history.value, label, document.value, candidate.document);
+    let next = document.value;
+    const split = new Set<number>();
+    for (const change of changes) {
+      const candidate = evaluate(next, change);
+      if (refused(candidate)) return refuse(candidate);
+      next = candidate.document;
+      for (const loop of candidate.isolated) split.add(loop);
+    }
+    const candidate = { document: next, isolated: [...split].sort((a, b) => a - b) };
+    if (next === document.value) return accept(candidate);
+    const recorded = recordSpriteEdit(history.value, label, document.value, next);
     if (!recorded.ok)
       return refuse({ message: "The view changed outside Studio.", detail: recorded.reason });
     history.value = recorded.history;
-    document.value = candidate.document;
+    document.value = next;
     return accept(candidate);
   }
 
@@ -250,6 +266,7 @@ export function useSpriteDraft(options: {
     canRedo,
     evaluate: (change: SpriteChange) => evaluate(document.value, change),
     apply,
+    applyAll,
     beginGesture,
     moveGesture,
     endGesture,
