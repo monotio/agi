@@ -7,6 +7,7 @@ const SIGNAL_COLORS: Record<string, number> = {
   K: 0,
   r: 4,
   g: 10,
+  W: 15,
 };
 
 function signalCel(rows: readonly string[]): BuildCelInput {
@@ -33,8 +34,8 @@ export const SIGNAL_VIEW: BuildViewInput = {
   loops: [
     {
       cels: [
-        signalCel(["KKKKKK", "KrrrrK", "KrrrrK", "KKKKKK"]),
-        signalCel(["KKKKKK", "KggggK", "KggggK", "KKKKKK"]),
+        signalCel(["KKKKKK", "KrrWrK", "KrrrrK", "KKKKKK"]),
+        signalCel(["KKKKKK", "KggWgK", "KggggK", "KKKKKK"]),
       ],
     },
   ],

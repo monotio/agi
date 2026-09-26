@@ -1,6 +1,6 @@
 /**
- * Stored game tests for the tutorial: one per exhibit and one for the walk
- * between them. They ship inside the game archive as TESTS.JSON, so the app's
+ * Stored game tests for the tutorial: one per exhibit, the walk between
+ * them, the proximity rule and a room's own HELP. They ship inside the game archive as TESTS.JSON, so the app's
  * write tools rerun them after a remix and run_game_tests replays them on
  * demand. Each is a playtest_room scenario: the spawn stands where the
  * exhibit's posn() box expects the apprentice, an Enter clears the room's
@@ -49,7 +49,8 @@ export const TUTORIAL_GAME_TESTS: readonly GameTest[] = [
     expect: expecting({
       flags: [{ id: 31, value: true }],
       vars: [{ id: 3, value: 10 }],
-      printed: "The lever clunks down and the robot waves!",
+      // The payoff window breaks before its Studio line; the match ignores line breaks.
+      printed: "Exhibit two repaired! Curious how it works?",
     }),
     cycleBudget: null,
   },
@@ -81,6 +82,30 @@ export const TUTORIAL_GAME_TESTS: readonly GameTest[] = [
       step("enter"),
     ],
     expect: expecting({ room: 2 }),
+    cycleBudget: null,
+  },
+  {
+    name: "the mural needs the painter nearby",
+    room: 1,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("enter"), step("command", "paint mural"), step("enter")],
+    expect: expecting({
+      flags: [{ id: 30, value: false }],
+      vars: [{ id: 3, value: 0 }],
+      printed: "You're too far away. Walk up to the frame, then PAINT MURAL.",
+    }),
+    cycleBudget: null,
+  },
+  {
+    name: "the archive's HELP names its own commands",
+    room: 3,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("enter"), step("command", "help"), step("enter")],
+    expect: expecting({
+      printed: "SHOW PRIORITY, FIX PRIORITY",
+    }),
     cycleBudget: null,
   },
 ];

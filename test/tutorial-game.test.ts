@@ -68,9 +68,10 @@ test("character animation preserves fixed masses and changes only the intended f
   const fixedRobot = Array.from(robotCels[0]!.pixels);
   for (let cel = 1; cel < robotCels.length; cel++) {
     const candidate = Array.from(robotCels[cel]!.pixels);
-    for (let y = 0; y < 32; y++) {
+    for (let y = 0; y < 28; y++) {
       for (let x = 0; x < 14; x++) {
-        if (x <= 2 && y >= 6 && y <= 21) continue;
+        // Only the waving arm, right of the head, moves between cels.
+        if (x >= 10 && y >= 4 && y <= 20) continue;
         const index = y * 14 + x;
         assert.equal(
           candidate[index],
@@ -80,6 +81,8 @@ test("character animation preserves fixed masses and changes only the intended f
       }
     }
   }
+  // Loop 1 is loop 0 mirrored, so the awake robot can face either way.
+  assert.deepEqual(TUTORIAL_VIEW_SOURCES[2]!.loops[1], { mirrorLoop: 0 });
 
   const felixCels = TUTORIAL_VIEW_SOURCES[3]!.loops[0]!.cels!;
   const open = Array.from(felixCels[0]!.pixels);
@@ -87,8 +90,8 @@ test("character animation preserves fixed masses and changes only the intended f
   const changed = open.flatMap((color, index) => (color === closed[index] ? [] : [index]));
   assert.deepEqual(
     changed,
-    [6 * 14 + 4, 6 * 14 + 5, 6 * 14 + 8, 6 * 14 + 9],
-    "Felix's blink changes only the two compact eye clusters",
+    [7 * 14 + 4, 7 * 14 + 9],
+    "Felix's blink changes only his two eye highlights",
   );
 });
 
@@ -220,7 +223,7 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.equal(game.project?.authoringState?.["sources"] instanceof Object, true);
 
   const catalogEntry = GAME_CATALOG.find(({ id }) => id === "adventure-department");
-  assert.equal(catalogEntry?.version, "1.0.0");
+  assert.equal(catalogEntry?.version, "1.1.0");
   assert.equal(catalogEntry?.author, "Monotio");
   const catalogGame = await catalogEntry!.load();
   assert.ok(catalogGame.project?.authoringState?.["sources"]);
@@ -261,13 +264,13 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 
 // The library keys a stored release on (projectId, revision, version): changed
 // resources at the same catalog version would appear beside a player's saved
-// release instead of replacing it. This release is unpublished, so the version
-// stays 1.0.0 and only the pin moves when the compiled bytes change.
+// release instead of replacing it. 1.1.0 is the rewritten tutorial; while it is
+// unpublished, only the pin moves when the compiled bytes change.
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
-    "tutorial resources changed: re-pin this revision (the version stays 1.0.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
+    "30bb98812428dcfae13e516d6e6182bc30e3b9a1677d34ee4f762c4446af0dd7",
+    "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
   );
 });
 
@@ -277,10 +280,10 @@ test("tutorial resources are pinned to the released catalog version", async () =
 // sources compiled to before they were annotated.
 test("the tutorial pictures are named Studio items without moving a byte", () => {
   const pinned: Record<string, string> = {
-    1: "16ff9de078b7f08fa10ad85282a5616970b82e7fb66c59d7febbffa3b637b1ff",
-    2: "f78bc18f81e831c79a1f70a375716bd8be37b0bc0e601efe90427565fc0e11cb",
-    3: "c90635c4e9be1955a94ab9ad34630bbd299e5ef28a4f879ca8a73b6efc9a8a56",
-    4: "8da793bd16f13a524f928d5e44be67e6d986bad32879bf9f5a56cf5672145270",
+    1: "80913e1c0e69cfc9fd953d52a046de1634494a1a3d0c2451c9068b602a10fed0",
+    2: "2f34a21875ce5f91e4135600055790ee9b05a6b12941d1ef6c30b09a81fdfe40",
+    3: "7e66394bc0f7d648c717131229101758cc2a4f55826cbafc5cef82c050a4eb7c",
+    4: "0091ae20430495ddba236529e00878e2d0881d383aa23e14ebbd91f743cf638f",
   };
   const shipped = buildTutorial();
   const container = openContainer(new Map(Object.entries(shipped.files)));
@@ -311,11 +314,12 @@ test("the tutorial pictures are named Studio items without moving a byte", () =>
   assert.deepEqual(
     archive.filter((item) => item.kind !== "art").map(({ id, kind }) => [id, kind]),
     [
-      ["wall-base", "walk"],
-      ["west-barrier", "walk"],
-      ["east-barrier", "walk"],
       ["counter-depth", "depth"],
+      ["globe-depth", "depth"],
+      ["wall-base", "walk"],
       ["counter-barrier", "walk"],
+      ["stand-barrier", "walk"],
+      ["globe-barrier", "walk"],
     ],
   );
 });
@@ -421,90 +425,70 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
 
 test("room geometry blocks closed walls and leaves only the intended side exits", () => {
   const { engine, host } = startTutorial();
-  assert.equal(engine.horizon, 112, "the walkable floor begins at its visible top edge");
-
-  const assertEdgeColor = (
-    x1: number,
-    x2: number,
-    y1: number,
-    y2: number,
-    color: number,
-    message: string,
-  ): void => {
-    for (let y = y1; y <= y2; y++) {
-      for (let x = x1; x <= x2; x++) {
-        assert.equal(engine.surface.visual[y * SCREEN_WIDTH + x], color, `${message} at ${x},${y}`);
-      }
-    }
-  };
+  assert.equal(engine.horizon, 112, "the walkable floor begins at the back wall's base");
+  const at = (plane: Uint8Array, x: number, y: number) => plane[y * SCREEN_WIDTH + x]!;
 
   const room1Ego = engine.readObjects()[0]!;
   assert.deepEqual(
     { x: room1Ego.x, y: room1Ego.y, width: room1Ego.width, height: room1Ego.height },
     { x: 18, y: 151, width: 10, height: 32 },
   );
-  assert.equal(engine.surface.priority[128 * SCREEN_WIDTH + 3], 0, "west wall is solid");
-  assert.equal(engine.surface.priority[140 * SCREEN_WIDTH + 3], 0, "room 1 has no west exit");
-  assert.equal(
-    engine.surface.priority[128 * SCREEN_WIDTH + 156],
-    0,
-    "east wall is solid above the exit",
-  );
-  assert.ok(
-    engine.surface.priority[140 * SCREEN_WIDTH + 156]! >= 4,
-    "room 1 east corridor is walkable",
-  );
-  assertEdgeColor(0, 7, 94, 167, 6, "room 1 closed west wall stays plain brown");
-  assertEdgeColor(152, 159, 94, 128, 6, "room 1 east wall reaches its native base");
-  assertEdgeColor(152, 159, 129, 167, 1, "room 1 east passage carries floor to the edge");
+  // Room 1: a marble bust closes the west corner; the east doorway opens on the lab.
+  assert.equal(at(engine.surface.priority, 15, 140), 0, "the bust's barrier closes the west");
+  assert.equal(at(engine.surface.priority, 5, 150), 14, "the bust stands in front, priority 14");
+  assert.equal(at(engine.surface.priority, 153, 126), 0, "the doorway's sill is a barrier");
+  assert.equal(at(engine.surface.priority, 141, 119), 0, "the east wall's base is a barrier");
+  assert.ok(at(engine.surface.priority, 156, 140)! >= 4, "the floor runs out through the doorway");
+  assert.equal(at(engine.surface.visual, 153, 100), 1, "the doorway shows the lab's blue wall");
+  assert.equal(at(engine.surface.visual, 5, 150), 7, "the plinth is painted over the corner");
 
   host.keys.push(0x4800);
   for (let cycle = 0; cycle < 55; cycle++) engine.tick();
   assert.equal(
     engine.readObjects()[0]!.y,
-    126,
-    "the angled wall base stops ego before the rear-wall horizon",
+    120,
+    "the west wall's receding base stops ego before the rear-wall horizon",
   );
   host.keys.push(0x4b00);
   for (let cycle = 0; cycle < 20; cycle++) engine.tick();
   assert.equal(engine.vars[0], 1);
-  assert.equal(
-    engine.readObjects()[0]!.x,
-    17,
-    "the apprentice stops along the visible angled wall",
-  );
+  assert.equal(engine.readObjects()[0]!.x, 18, "the angled wall base holds the apprentice");
   assert.equal(engine.readObjects()[0]!.cycling, false, "ego rests when a wall stops movement");
+
+  const corner = startTutorial();
+  corner.host.keys.push(0x4b00);
+  for (let cycle = 0; cycle < 40; cycle++) corner.engine.tick();
+  assert.deepEqual(
+    { room: corner.engine.vars[0], x: corner.engine.readObjects()[0]!.x },
+    { room: 1, x: 16 },
+    "the bust's plinth stops the apprentice: room 1 has no west exit",
+  );
 
   const fresh = startTutorial();
   walkUntilRoom(fresh.engine, fresh.host, 0x4d00, 2);
   assert.equal(fresh.engine.readObjects()[0]!.x, 18, "eastward travel enters on the left");
   fresh.engine.tick();
   assert.equal(fresh.engine.vars[0], 2, "entry placement does not immediately bounce rooms");
-  for (const x of [3, 156]) {
-    assert.equal(fresh.engine.surface.visual[119 * SCREEN_WIDTH + x], 6);
-    assert.equal(fresh.engine.surface.visual[120 * SCREEN_WIDTH + x], 1);
-    assert.equal(fresh.engine.surface.visual[167 * SCREEN_WIDTH + x], 1);
-    assert.equal(fresh.engine.surface.priority[119 * SCREEN_WIDTH + x], 0);
-    assert.ok(fresh.engine.surface.priority[120 * SCREEN_WIDTH + x]! >= 4);
-    assert.ok(fresh.engine.surface.priority[167 * SCREEN_WIDTH + x]! >= 4);
+  const lab = fresh.engine.surface;
+  assert.equal(at(lab.visual, 5, 100), 4, "the west doorway shows the gallery's red wall");
+  assert.equal(at(lab.visual, 154, 100), 2, "the east doorway shows the archive's green wall");
+  for (const x of [5, 154]) {
+    assert.equal(at(lab.priority, x, 126), 0, `the doorway sill at ${x} is a barrier`);
+    assert.ok(at(lab.priority, x, 150)! >= 4, `the floor runs out through the doorway at ${x}`);
   }
 
   walkUntilRoom(fresh.engine, fresh.host, 0x4d00, 3);
-  for (let y = 94; y <= 167; y++) {
-    for (let x = 152; x <= 159; x++) {
-      assert.equal(
-        fresh.engine.surface.visual[y * SCREEN_WIDTH + x],
-        6,
-        `room 3 closed east wall stays plain brown at ${x},${y}`,
-      );
-    }
-  }
-  assert.equal(fresh.engine.surface.visual[124 * SCREEN_WIDTH + 3], 6);
-  assert.equal(fresh.engine.surface.visual[125 * SCREEN_WIDTH + 3], 1);
-  assert.equal(fresh.engine.surface.visual[167 * SCREEN_WIDTH + 3], 1);
-  assert.equal(fresh.engine.surface.priority[124 * SCREEN_WIDTH + 3], 0);
-  assert.ok(fresh.engine.surface.priority[125 * SCREEN_WIDTH + 3]! >= 4);
-  assert.ok(fresh.engine.surface.priority[167 * SCREEN_WIDTH + 3]! >= 4);
+  const archive = fresh.engine.surface;
+  assert.equal(at(archive.visual, 5, 100), 1, "the west doorway shows the lab's blue wall");
+  assert.equal(at(archive.priority, 143, 150), 0, "the globe's barrier closes the east");
+  assert.equal(at(archive.priority, 150, 150), 14, "the globe stands in front, priority 14");
+  fresh.host.keys.push(0x4d00);
+  for (let cycle = 0; cycle < 300; cycle++) fresh.engine.tick();
+  assert.deepEqual(
+    { room: fresh.engine.vars[0], x: fresh.engine.readObjects()[0]!.x },
+    { room: 3, x: 133 },
+    "the globe stops the apprentice: room 3 has no east exit",
+  );
 });
 
 test("room transitions place ego on the correct side and closed directions explain themselves", () => {
@@ -512,7 +496,7 @@ test("room transitions place ego on the correct side and closed directions expla
 
   enter(engine, host, "west");
   assert.equal(engine.vars[0], 1);
-  assert.match(host.prints.at(-1) ?? "", /west wall.*solid.*east/i);
+  assert.match(host.prints.at(-1) ?? "", /bust.*Sprite Lab is EAST/i);
 
   enter(engine, host, "east");
   assert.deepEqual(
@@ -528,8 +512,8 @@ test("room transitions place ego on the correct side and closed directions expla
   enter(engine, host, "east");
   assert.equal(engine.vars[0], 3);
   assert.match(host.prints.at(-1) ?? "", /east wall.*west/i);
-  assert.ok(engine.surface.priority[140 * SCREEN_WIDTH + 3]! >= 4);
-  assert.equal(engine.surface.priority[140 * SCREEN_WIDTH + 156], 0);
+  assert.ok(engine.surface.priority[140 * SCREEN_WIDTH + 3]! >= 4, "the west doorway is open");
+  assert.equal(engine.surface.priority[140 * SCREEN_WIDTH + 143], 0, "the globe closes the east");
 
   enter(engine, host, "west");
   assert.deepEqual(
@@ -633,7 +617,7 @@ test("movement and sprite animation use readable pacing and ego rests on an idle
   let robot = engine.readObjects()[1]!;
   assert.deepEqual(
     { x: robot.x, y: robot.y, width: robot.width, height: robot.height },
-    { x: 98, y: 108, width: 14, height: 32 },
+    { x: 98, y: 108, width: 14, height: 28 },
   );
   assert.equal(robot.cycleTime, 10, "the robot holds each dance pose for 500ms");
   assert.equal(robot.cycling, false, "the switched-off robot is still");
@@ -950,5 +934,5 @@ test("the tutorial ships stored game tests that its game passes", () => {
   assert.equal(readStoredTests(session).length, TUTORIAL_GAME_TESTS.length);
   const verdict = runGameTests(session, null);
   assert.equal(verdict.success, true, verdict.error ?? "");
-  assert.match(verdict.message ?? "", /^4 game tests pass, 0 fail\./);
+  assert.match(verdict.message ?? "", /^6 game tests pass, 0 fail\./);
 });
