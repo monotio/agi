@@ -1,70 +1,62 @@
 <script setup lang="ts">
 /**
- * The "Your games" aside: saved-game cards with inline rename and a per-game
- * action menu, the leftover-autosave fallback card, the hosted-catalog error
- * block, and the ZIP/folder drop zone. The hosted and fixture cards inside
- * the gallery are CatalogPanel. Library state is the injected shared
- * controller — several of these elements feed App.vue's mount and hash
- * routing through it.
+ * "Your games": the Home screen's one shelf. It holds the tutorial, saved
+ * and remixed games (inline rename and a per-game action menu), installed
+ * and hosted-catalog games (CatalogPanel), a leftover autosave whose game is
+ * gone, then the creation templates and "Your own premise", which open the
+ * create panel. The header carries the Add game menu; dropping a ZIP or
+ * folder anywhere on Home imports (SetupPanel). Library state is the injected
+ * shared controller; several elements here feed App.vue's routing through it.
  */
 import ActionMenu from "./ActionMenu.vue";
 import CatalogPanel from "./CatalogPanel.vue";
 import ProfileChoiceDialog from "./ProfileChoiceDialog.vue";
 import UiButton from "./ui/UiButton.vue";
-import UiIconButton from "./ui/UiIconButton.vue";
+import CardDetailsDialog from "./home/CardDetailsDialog.vue";
+import GameCard from "./home/GameCard.vue";
+import SavedGameCard from "./home/SavedGameCard.vue";
+import TemplateCard from "./home/TemplateCard.vue";
+import TutorialCard from "./home/TutorialCard.vue";
+import { catalogLibraryCopy } from "./home/shelfIdentity.ts";
+import { formatRelativeTime } from "./home/relativeTime.ts";
+import { useNow } from "./home/useNow.ts";
+import { BUILTIN_TEMPLATES } from "./gameTemplates.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
-import { hasWalkthrough } from "./walkthrough.ts";
 import { getKnownGameByRevision } from "../../src/games/knownGames.ts";
-import { describeGameProfile } from "./profileChoice.ts";
 import { computed } from "vue";
 
 const {
   savedGames,
-  selectedProjectId,
-  renaming,
-  expandedProjectId,
-  gameTitle,
-  renameError,
-  libraryAutosaves,
   pendingAutosave,
-  hasLibraryContent,
   localGames,
-  localGameAliases,
-  availableCatalogEntries,
+  featuredCatalog,
   hostedCatalogError,
   hostedCatalogBusy,
-  libraryActionBusy,
   libraryActionError,
   importBusy,
   importError,
   importNotice,
-  exportBusy,
   zipInput,
   folderInput,
-  beginRename,
-  setTitleInput,
-  saveGameTitle,
-  onGameDetailsToggle,
-  libraryProvenance,
-  onPlayLibraryGame,
-  onStartLibraryGameOver,
-  onCheckLibraryGame,
-  onCopyLibraryGame,
-  onExportLibraryGame,
-  onRemoveLibraryGame,
+  selectedTemplateId,
   onResumeAutosave,
   onStartOver,
   onGameZip,
   onGameFolder,
-  onGameDrop,
   refreshHostedCatalog,
   profileChoiceState,
-  openLibraryProfileChoice,
   closeProfileChoice,
   applyProfileChoice,
 } = useGameLibrary();
 const bridge = useShellBridge();
+const now = useNow();
+
+/** The tutorial's library copy shows on the tutorial's own card. */
+const shelfSavedGames = computed(() => {
+  const tutorial = catalogLibraryCopy(savedGames.value, featuredCatalog);
+  return savedGames.value.filter((game) => game !== tutorial);
+});
 
 /** The leftover-autosave card's name: a known game's title, else its storage key. */
 const pendingAutosaveTitle = computed(
@@ -73,81 +65,183 @@ const pendingAutosaveTitle = computed(
     pendingAutosave.value?.game.identity.project ??
     "Saved game",
 );
+
+/** A leftover autosave from an installed or unavailable game gets a card of its own. */
+const orphanAutosave = computed(() => {
+  const record = pendingAutosave.value;
+  if (!record) return undefined;
+  const project = record.game.identity.project;
+  if (savedGames.value.some((game) => game.projectId === project)) return undefined;
+  if (localGames.value.some((game) => (game.folder ?? game.hash ?? game.alias) === project))
+    return undefined;
+  return record;
+});
+
+/** Initials stand in for a screen that cannot be shown. */
+function monogram(title: string): string {
+  const initials = title
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 4)
+    .toUpperCase();
+  return initials || "AGI";
+}
+
+function startCreating(templateId: string): void {
+  selectedTemplateId.value = templateId;
+  bridge.openCreateSection();
+}
 </script>
 <template>
-  <aside
-    id="your-games"
-    class="library-pane"
-    :class="{ 'empty-library': !hasLibraryContent }"
-    :aria-labelledby="hasLibraryContent ? 'library-title' : undefined"
-    :aria-label="hasLibraryContent ? undefined : 'Add game'"
-  >
-    <h2 v-if="hasLibraryContent" id="library-title">Your games</h2>
-    <p v-if="libraryActionError" role="alert" class="library-error">
+  <section id="your-games" class="shelf" aria-labelledby="library-title">
+    <header class="shelf-head">
+      <h2 id="library-title">Your games</h2>
+      <div id="open-game" class="shelf-add" role="group" aria-label="Add game">
+        <p class="shelf-hint">Drop a ZIP or folder anywhere to add a game</p>
+        <ActionMenu
+          :label="importBusy ? 'Adding game…' : 'Add game'"
+          test-id="open-game-menu"
+          :disabled="importBusy"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="open-game-zip"
+            @click="zipInput?.click()"
+          >
+            ZIP file
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="open-game-folder"
+            @click="folderInput?.click()"
+          >
+            Game folder
+          </button>
+        </ActionMenu>
+        <input
+          ref="zipInput"
+          type="file"
+          accept=".zip,application/zip"
+          data-testid="game-zip-input"
+          hidden
+          @change="onGameZip(($event.target as HTMLInputElement).files?.[0])"
+        />
+        <input
+          ref="folderInput"
+          type="file"
+          multiple
+          webkitdirectory
+          data-testid="game-folder-input"
+          hidden
+          @change="onGameFolder(($event.target as HTMLInputElement).files ?? undefined)"
+        />
+      </div>
+    </header>
+
+    <p v-if="libraryActionError" role="alert" class="shelf-message shelf-message--error">
       {{ libraryActionError }}
     </p>
-    <div v-if="hostedCatalogError" class="library-error" data-testid="hosted-catalog-error">
+    <div
+      v-if="hostedCatalogError"
+      class="shelf-message shelf-message--error"
+      data-testid="hosted-catalog-error"
+    >
       <p role="alert">{{ hostedCatalogError }}</p>
-      <UiButton :disabled="hostedCatalogBusy" @click="refreshHostedCatalog">
+      <UiButton size="sm" :disabled="hostedCatalogBusy" @click="refreshHostedCatalog">
         Retry game list
       </UiButton>
     </div>
-
-    <section
-      id="open-game"
-      class="zip-drop-zone"
-      aria-label="Add game"
-      @dragover.prevent
-      @drop.prevent="onGameDrop($event.dataTransfer ?? undefined)"
-      data-testid="game-zip-drop"
+    <p
+      v-if="importError"
+      role="alert"
+      class="shelf-message shelf-message--error"
+      data-testid="game-zip-error"
     >
-      <ActionMenu
-        :label="importBusy ? 'Adding game…' : 'Add game'"
-        test-id="open-game-menu"
-        :disabled="importBusy"
+      {{ importError }}
+    </p>
+    <p
+      v-if="importNotice"
+      role="status"
+      class="shelf-message shelf-message--ok"
+      data-testid="game-import-ready"
+    >
+      {{ importNotice }}
+    </p>
+
+    <div class="shelf-grid" data-testid="saved-game-gallery">
+      <TutorialCard />
+      <SavedGameCard v-for="game in shelfSavedGames" :key="game.projectId" :game />
+      <CatalogPanel />
+      <!-- Autosave left over from an installed or unavailable game. -->
+      <GameCard
+        v-if="orphanAutosave"
+        :title="pendingAutosaveTitle"
+        :monogram="monogram(pendingAutosaveTitle)"
+        :image="
+          orphanAutosave.preview
+            ? {
+                src: orphanAutosave.preview,
+                alt: `${pendingAutosaveTitle}, current progress in room ${orphanAutosave.room}`,
+                kind: 'progress',
+              }
+            : undefined
+        "
+        badge="In progress"
+        :meta="`Room ${orphanAutosave.room} · played ${formatRelativeTime(orphanAutosave.savedAt, now)}`"
+        play-label="Resume"
+        data-testid="autosave-panel"
+        @play="onResumeAutosave"
       >
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="open-game-zip"
-          @click="zipInput?.click()"
-        >
-          ZIP file
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="open-game-folder"
-          @click="folderInput?.click()"
-        >
-          Game folder
-        </button>
-      </ActionMenu>
-      <input
-        ref="zipInput"
-        type="file"
-        accept=".zip,application/zip"
-        data-testid="game-zip-input"
-        hidden
-        @change="onGameZip(($event.target as HTMLInputElement).files?.[0])"
+        <template #actions>
+          <UiButton
+            class="game-card__actions-main"
+            data-testid="btn-resume-autosave"
+            @click="onResumeAutosave"
+          >
+            Resume
+          </UiButton>
+          <ActionMenu label="Game actions" icon="ellipsis" icon-only>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="btn-start-over-picker"
+              title="Discard the autosave and play this game from the beginning"
+              @click="onStartOver"
+            >
+              Start over
+            </button>
+          </ActionMenu>
+        </template>
+      </GameCard>
+      <TemplateCard
+        v-for="tmpl in BUILTIN_TEMPLATES"
+        :key="tmpl.id"
+        :title="tmpl.title"
+        detail="Template · create with AI"
+        :test-id="`shelf-template-${tmpl.id}`"
+        @select="startCreating(tmpl.id)"
       />
-      <p class="drop-hint">Or drop a ZIP or folder</p>
-      <input
-        ref="folderInput"
-        type="file"
-        multiple
-        webkitdirectory
-        data-testid="game-folder-input"
-        hidden
-        @change="onGameFolder(($event.target as HTMLInputElement).files ?? undefined)"
+      <TemplateCard
+        title="Your own premise"
+        detail="Describe it, AI builds it"
+        blank
+        test-id="shelf-template-custom"
+        @select="startCreating('custom')"
       />
-      <p class="verified-games-hint" data-testid="verified-games-hint">
+    </div>
+
+    <footer class="shelf-notes">
+      <p data-testid="verified-games-hint">
         Verified to boot: King's Quest I–IV, Space Quest I–II, Police Quest I, Leisure Suit Larry I,
         The Black Cauldron, Mixed-Up Mother Goose, Donald Duck's Playground, Gold Rush!, Manhunter
         1–2, demopac4; the Amiga editions of King's Quest II, Space Quest I–II, Police Quest I, Gold
         Rush! and Manhunter 2; and Space Quest II for the Apple IIgs.
       </p>
-      <p class="verified-games-hint" data-testid="fan-games-hint">
+      <p data-testid="fan-games-hint">
         No Sierra copies? Fans have made over a hundred free AGI games:
         <a
           href="https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List"
@@ -163,262 +257,9 @@ const pendingAutosaveTitle = computed(
           >SCI Programming</a
         >. Their content varies, as fan works do.
       </p>
-      <p v-if="importError" role="alert" data-testid="game-zip-error">{{ importError }}</p>
-      <p v-if="importNotice" role="status" class="import-notice" data-testid="game-import-ready">
-        {{ importNotice }}
-      </p>
-    </section>
+    </footer>
 
-    <div
-      v-if="savedGames.length || localGameAliases.length || availableCatalogEntries.length"
-      class="saved-game-gallery"
-      data-testid="saved-game-gallery"
-    >
-      <article
-        v-for="game in savedGames"
-        :key="game.projectId"
-        class="saved-game-card"
-        :class="{ selected: selectedProjectId === game.projectId }"
-        :data-testid="`saved-game-card-${game.projectId}`"
-        :data-project-id="game.projectId"
-      >
-        <div class="saved-game-media">
-          <img
-            v-if="libraryAutosaves[game.projectId]?.preview || game.library?.preview"
-            class="library-thumbnail"
-            data-testid="library-thumbnail"
-            :data-preview-kind="libraryAutosaves[game.projectId]?.preview ? 'progress' : 'opening'"
-            :src="libraryAutosaves[game.projectId]?.preview ?? game.library?.preview"
-            :alt="
-              libraryAutosaves[game.projectId]?.preview
-                ? `${game.title}, current progress in room ${libraryAutosaves[game.projectId]?.room}`
-                : `${game.title} opening scene`
-            "
-          />
-          <div v-else class="saved-game-cover" aria-hidden="true">AGI</div>
-          <span v-if="libraryAutosaves[game.projectId]" class="saved-world-badge">IN PROGRESS</span>
-        </div>
-        <div class="saved-game-card-body">
-          <form
-            v-if="renaming && selectedProjectId === game.projectId"
-            class="game-rename"
-            data-testid="rename-game-form"
-            @submit.prevent="saveGameTitle"
-          >
-            <label :for="`game-title-${game.projectId}`">Game name</label>
-            <input
-              :id="`game-title-${game.projectId}`"
-              :ref="setTitleInput"
-              v-model="gameTitle"
-              maxlength="100"
-              required
-              @keydown.esc="renaming = false"
-            />
-            <UiButton type="submit" :disabled="!gameTitle.trim()"> Save name </UiButton>
-            <UiButton @click="renaming = false">Cancel</UiButton>
-            <p v-if="renameError" role="alert">{{ renameError }}</p>
-          </form>
-          <div v-show="!(renaming && selectedProjectId === game.projectId)" class="saved-game-info">
-            <div class="saved-game-heading">
-              <h3 class="saved-world-title" data-testid="saved-game-title">
-                {{ game.title }}
-              </h3>
-              <UiIconButton
-                icon="pencil"
-                label="Rename game"
-                class="rename-icon"
-                data-testid="rename-game"
-                @click="beginRename(game)"
-              />
-            </div>
-            <p v-if="libraryProvenance(game)" class="saved-world-source">
-              {{ libraryProvenance(game) }}
-            </p>
-            <p v-if="libraryAutosaves[game.projectId]" class="saved-world-time">
-              Room {{ libraryAutosaves[game.projectId]?.room }} · Saved
-              {{ new Date(libraryAutosaves[game.projectId]!.savedAt).toLocaleString() }}
-            </p>
-          </div>
-          <div class="saved-game-play-row">
-            <UiButton
-              variant="primary"
-              data-testid="btn-resume-cached"
-              :disabled="libraryActionBusy || importBusy"
-              @click="onPlayLibraryGame(game)"
-            >
-              {{ libraryAutosaves[game.projectId] ? "Resume" : "Play" }}
-            </UiButton>
-            <ActionMenu
-              label="Game actions"
-              icon="ellipsis"
-              icon-only
-              :test-id="`game-actions-${game.projectId}`"
-            >
-              <button
-                v-if="hasWalkthrough(game.library?.revision ?? '')"
-                type="button"
-                role="menuitem"
-                data-testid="run-walkthrough"
-                @click="bridge.startWalkthrough(game.library?.revision ?? game.projectId)"
-              >
-                <span>Run walkthrough<small>Watch real-time playthrough</small></span>
-              </button>
-              <button
-                v-if="libraryAutosaves[game.projectId]"
-                type="button"
-                role="menuitem"
-                data-testid="start-library-game-over"
-                @click="onStartLibraryGameOver(game)"
-              >
-                Start over
-              </button>
-              <button
-                v-if="game.library?.validation.status === 'unverified'"
-                type="button"
-                role="menuitem"
-                data-testid="check-library-game"
-                :disabled="libraryActionBusy"
-                @click="onCheckLibraryGame(game)"
-              >
-                Check opening
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="copy-library-game"
-                :disabled="libraryActionBusy"
-                @click="onCopyLibraryGame(game)"
-              >
-                Make a copy
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="interpreter-profile-menu-item"
-                @click="openLibraryProfileChoice(game)"
-              >
-                <span
-                  >Interpreter profile<small>{{ describeGameProfile(game) }}</small></span
-                >
-              </button>
-              <div role="separator"></div>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="download-library-game"
-                :disabled="exportBusy"
-                @click="onExportLibraryGame(game, true)"
-              >
-                <span
-                  >Download game…<small
-                    >For development: editing work, saved progress and history — a ZIP file</small
-                  ></span
-                >
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="export-library-game"
-                :disabled="exportBusy"
-                @click="onExportLibraryGame(game)"
-              >
-                <span
-                  >Export game…<small
-                    >For publishing: playable game without private editing work or play history — a
-                    ZIP file</small
-                  ></span
-                >
-              </button>
-              <div role="separator"></div>
-              <button
-                type="button"
-                role="menuitem"
-                class="danger"
-                data-testid="remove-library-game"
-                @click="onRemoveLibraryGame(game)"
-              >
-                Remove game
-              </button>
-            </ActionMenu>
-          </div>
-          <details
-            class="library-details-disclosure"
-            :open="expandedProjectId === game.projectId"
-            :data-testid="`game-details-${game.projectId}`"
-            @toggle="onGameDetailsToggle(game.projectId, $event)"
-          >
-            <summary>Details</summary>
-
-            <div v-if="game.library" class="library-details">
-              <p v-if="game.library.description">{{ game.library.description }}</p>
-              <dl>
-                <template v-if="game.library.author">
-                  <dt>By</dt>
-                  <dd>{{ game.library.author }}</dd>
-                </template>
-                <template v-if="game.library.license">
-                  <dt>License</dt>
-                  <dd>{{ game.library.license }}</dd>
-                </template>
-                <template v-if="game.library.catalog">
-                  <dt>Version</dt>
-                  <dd>{{ game.library.catalog.version }}</dd>
-                </template>
-              </dl>
-            </div>
-          </details>
-        </div>
-      </article>
-      <CatalogPanel />
-    </div>
-    <!-- Autosave left over from an installed or unavailable game. -->
-    <div
-      v-if="
-        pendingAutosave &&
-        !savedGames.some((game) => game.projectId === pendingAutosave?.game.identity.project) &&
-        !localGames.some(
-          (g) => (g.folder ?? g.hash ?? g.alias) === pendingAutosave?.game.identity.project,
-        )
-      "
-      class="saved-world-card autosave-fallback"
-      data-testid="autosave-panel"
-    >
-      <img
-        v-if="pendingAutosave.preview"
-        class="library-thumbnail"
-        data-testid="library-thumbnail"
-        data-preview-kind="progress"
-        :src="pendingAutosave.preview"
-        :alt="`${pendingAutosaveTitle}, current progress in room ${pendingAutosave.room}`"
-      />
-      <div class="saved-world-header">
-        <div class="saved-world-tag">
-          <span class="saved-world-badge">IN PROGRESS</span>
-          <span class="saved-world-title">{{ pendingAutosaveTitle }}</span>
-        </div>
-        <span class="saved-world-time">
-          Room {{ pendingAutosave.room }} · Saved
-          {{ new Date(pendingAutosave.savedAt).toLocaleString() }}
-        </span>
-      </div>
-      <div class="saved-game-play-row">
-        <UiButton variant="primary" data-testid="btn-resume-autosave" @click="onResumeAutosave">
-          Resume
-        </UiButton>
-        <ActionMenu label="Game actions" icon="ellipsis" icon-only>
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="btn-start-over-picker"
-            title="Discard the autosave and play this game from the beginning"
-            @click="onStartOver"
-          >
-            Start over
-          </button>
-        </ActionMenu>
-      </div>
-    </div>
-
+    <CardDetailsDialog />
     <ProfileChoiceDialog
       v-if="profileChoiceState"
       :key="`${profileChoiceState.mode}:${profileChoiceState.projectId}`"
@@ -426,154 +267,82 @@ const pendingAutosaveTitle = computed(
       @save="applyProfileChoice"
       @close="closeProfileChoice"
     />
-  </aside>
+  </section>
 </template>
 
 <style scoped>
-.zip-drop-zone {
-  padding: 1.25rem;
-  border: 1px dashed var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  text-align: center;
-}
-.zip-drop-zone p {
-  margin: 0.75rem 0 0;
-}
-.library-pane.empty-library {
-  width: 100%;
-  align-self: stretch;
-  padding: 20px;
-  background: var(--surface-1);
-}
-.library-pane.empty-library h2 {
-  margin-bottom: 10px;
-  font-size: var(--text-xl);
-}
-.library-pane {
+.shelf {
   min-width: 0;
-  padding: 26px;
-  box-sizing: border-box;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(145deg, var(--surface-2), var(--surface-1) 60%);
   font-family: var(--font-sans);
+  scroll-margin-top: var(--space-6);
 }
-.library-pane h2 {
-  margin: 0 0 18px;
-  color: var(--ink);
-  font-size: var(--text-xl);
-}
-.library-pane .stub-btn {
-  margin-bottom: 20px;
-}
-.library-pane .zip-drop-zone {
-  margin-top: 20px;
+.shelf-head {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  padding: 16px;
-  border-color: var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  text-align: left;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin: 0 0 var(--space-4);
 }
-.library-pane.empty-library .zip-drop-zone {
-  margin-top: 0;
-  padding: 0;
-  border: 0;
-}
-.library-pane .zip-drop-zone p {
+.shelf-head h2 {
   margin: 0;
+  color: var(--ink);
+  font: var(--weight-semibold) var(--text-lg) / var(--leading-tight) var(--font-sans);
+}
+.shelf-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+.shelf-hint {
+  margin: 0;
+  color: var(--ink-3);
   font-size: var(--text-sm);
 }
-.library-pane .zip-drop-zone p.verified-games-hint {
-  width: 100%;
-  margin-top: 4px;
-  font-size: var(--text-xs);
-  line-height: 1.45;
-  color: var(--ink-3);
+.shelf-message {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading);
 }
-.library-pane .saved-world-header {
-  align-items: flex-start;
+.shelf-message p {
+  margin: 0 0 var(--space-3);
 }
-.library-pane .saved-world-tag {
-  flex-wrap: wrap;
+.shelf-message--error {
+  color: var(--danger);
 }
-.library-pane .saved-world-title {
-  overflow-wrap: anywhere;
-}
-.autosave-fallback {
-  margin-top: 20px;
-}
-/* Centre the icon button on the first title line rather than on the whole title. */
-.rename-icon {
-  margin: calc((19px * 1.25 - var(--control-h)) / 2) 0;
-}
-.game-rename {
-  width: 100%;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.game-rename label {
-  width: 100%;
+.shelf-message--ok {
   color: var(--ok);
 }
-
-.game-rename input {
-  flex: 1 1 14rem;
-  min-width: 0;
-  padding: 0.6rem;
-  color: var(--ink);
-  background: var(--surface-sunken);
-  border: 1px solid var(--ok-line);
-  border-radius: var(--radius-sm);
-  font: inherit;
-}
-.saved-game-gallery {
+/* About five across on a desktop, two on a phone. Cards in a row share one
+   height; a short row keeps its cards' width, so one game never spans the shelf. */
+.shelf-grid {
   display: grid;
-  /* Top-aligned on purpose: an open Details grows its own card only. */
-  align-items: start;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
-  gap: 18px;
-  margin-top: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 184px), 1fr));
+  gap: var(--space-5);
 }
-/* The play button stretches beside the icon menu, matching the shared card
-   rule in styles/app.css that still targets the legacy class. */
-.saved-game-play-row > .ui-btn {
-  flex: 1;
-  min-width: 0;
+.shelf-notes {
+  margin-top: var(--space-7);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.5;
 }
-.saved-world-card {
-  margin-top: 1rem;
-  background: var(--ok-soft);
-  border: 1px solid var(--ok-line);
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
+.shelf-notes p {
+  max-width: 72ch;
+  margin: 0 0 var(--space-2);
 }
-
-.saved-world-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+.shelf-notes a {
+  color: var(--ink-2);
 }
-
-.saved-world-tag {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+@media (pointer: coarse) {
+  .shelf-hint {
+    display: none;
+  }
 }
-@media (max-width: 600px) {
-  .library-pane {
-    padding: 18px;
+@media (max-width: 520px) {
+  .shelf-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
   }
 }
 </style>

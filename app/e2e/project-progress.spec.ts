@@ -87,7 +87,7 @@ test("project import names each stored and refused progress entry", async ({ pag
     mimeType: "application/zip",
     buffer: Buffer.from(archive),
   });
-  const notice = page.locator(".import-notice");
+  const notice = page.getByTestId("game-import-ready");
   await expect(notice).toContainText("save slot 1 stored");
   await expect(notice).toContainText("save slot 7 could not be stored");
   await expect(notice).toContainText("autosave could not be stored");

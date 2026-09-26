@@ -12,7 +12,6 @@ import {
   isolateStorage,
   openCreateAdventure,
   openGameControls,
-  openSavedGameDetails,
   openLibraryActions,
   observe,
   probe,
@@ -745,7 +744,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   );
   expect(stored).toEqual([]);
   await expect(savedCard).toHaveCount(1);
-  await openSavedGameDetails(savedCard);
   await openLibraryActions(page, savedCard);
   await expect(page.getByTestId("export-library-game")).toBeVisible();
 });

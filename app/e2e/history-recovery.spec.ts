@@ -149,7 +149,10 @@ test("Exit keeps the game playable after history failure and succeeds after stor
   });
   await openGameOptions(page, "game-menu");
   await page.getByTestId("btn-exit").click();
-  await expect(page.getByTestId("btn-resume-cached")).toBeVisible({ timeout: 15_000 });
+  // Back on the shelf, the tutorial's card offers the checkpoint.
+  await expect(page.getByTestId("catalog-play-adventure-department")).toHaveText("Resume", {
+    timeout: 15_000,
+  });
 });
 
 test("unreadable saved slots are reported even when current checkpoint and history are available", async ({

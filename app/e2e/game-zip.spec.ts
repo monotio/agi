@@ -12,7 +12,6 @@ import {
   openDeveloperActivity,
   openGameOptions,
   openLibraryActions,
-  openSavedGameDetails,
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
@@ -313,14 +312,15 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
     return { key, data: JSON.parse(localStorage.getItem(key)!) };
   });
   const card = savedGameCard(page, "Custom Adventure");
-  await openSavedGameDetails(card);
-  await card.getByTestId("rename-game").click();
+  await openLibraryActions(page, card);
+  await page.getByTestId("rename-game").click();
   const name = card.getByRole("textbox", { name: "Game name", exact: true });
   await expect(name).toBeFocused();
   await name.fill("Discard this name");
   await card.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(card.getByTestId("saved-game-title")).toHaveText(before.data.title);
-  await card.getByTestId("rename-game").click();
+  await openLibraryActions(page, card);
+  await page.getByTestId("rename-game").click();
   await name.fill("   ");
   await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
   await name.fill("  The Midnight Appointment  ");
@@ -338,7 +338,6 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   });
   await page.reload();
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
-  await openSavedGameDetails(renamedCard);
   const downloading = page.waitForEvent("download");
   await openLibraryActions(page, renamedCard);
   await page.getByTestId("export-library-game").click();
