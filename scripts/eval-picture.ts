@@ -69,7 +69,6 @@ import {
 import { renderPicture } from "../src/picture/renderer.ts";
 import {
   analyzePictureStructure,
-  annotatePictureSource,
   comparePictureStructure,
   compilePictureSource,
   PICTURE_SOURCE_DOC,
@@ -77,6 +76,7 @@ import {
   type PictureStructure,
   type StructureComparison,
 } from "../src/picture/source.ts";
+import { annotatePictureSource } from "../src/picture/elements.ts";
 import {
   comparePictureMetrics,
   computePictureMetrics,

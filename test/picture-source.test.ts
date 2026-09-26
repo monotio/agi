@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  annotatePictureSource,
   analyzePictureStructure,
   comparePictureStructure,
   compilePictureSource,
@@ -9,6 +8,7 @@ import {
   PictureSourceSyntaxError,
   readPictureSource,
 } from "../src/picture/source.ts";
+import { annotatePictureSource } from "../src/picture/elements.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 
