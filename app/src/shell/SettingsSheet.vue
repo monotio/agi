@@ -2,9 +2,11 @@
 /**
  * The one settings sheet: sound and display, AI, this game's downloads and
  * Start over, and the advanced diagnostics. A non-modal dialog anchored to
- * the right edge — the game stays visible, and a click outside or Escape
- * closes it. Toggles keep it open; actions close it. Keys pressed inside
- * never reach the game (App.vue skips events from dialogs).
+ * the right edge — the game stays visible. It behaves as a popover: a click
+ * outside or focus moving outside (Tab past its last item) closes it, and
+ * Escape closes it from anywhere and returns focus to the Settings button.
+ * Toggles keep it open; actions close it. Keys pressed inside never reach
+ * the game (App.vue skips events from dialogs).
  */
 import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
@@ -54,10 +56,31 @@ function onOutsidePointerDown(event: PointerEvent): void {
   close("stay");
 }
 
+/** Escape anywhere while the sheet is open: the sheet, not the game, takes it. */
+function onWindowKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Escape" || event.defaultPrevented) return;
+  // Another dialog above the sheet (AI settings) closes itself first.
+  const target = event.target;
+  const other = target instanceof Element ? target.closest("dialog[open]") : null;
+  if (other && other !== sheet.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  close("trigger");
+}
+
+/** Focus moving to anything outside the sheet (Tab past its end) closes it. */
+function onFocusOut(event: FocusEvent): void {
+  const next = event.relatedTarget;
+  if (!(next instanceof Node)) return;
+  if (sheet.value?.contains(next) || trigger?.contains(next)) return;
+  close("stay");
+}
+
 async function show(from: HTMLElement | null): Promise<void> {
   trigger = from;
   open.value = true;
   window.addEventListener("pointerdown", onOutsidePointerDown, true);
+  window.addEventListener("keydown", onWindowKeydown, true);
   await nextTick();
   if (!sheet.value?.open) sheet.value?.show();
   sheet.value?.querySelector<HTMLElement>("[data-sheet-item]")?.focus({ preventScroll: true });
@@ -72,6 +95,7 @@ function close(focus: "game" | "trigger" | "stay"): void {
   if (!open.value) return;
   open.value = false;
   window.removeEventListener("pointerdown", onOutsidePointerDown, true);
+  window.removeEventListener("keydown", onWindowKeydown, true);
   sheet.value?.close();
   if (focus === "game" && state.phase === "running") bridge.focusGameInput();
   else if (focus !== "stay") trigger?.focus({ preventScroll: true });
@@ -88,7 +112,10 @@ function act(run: () => void): void {
   run();
 }
 
-onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutsidePointerDown, true));
+onBeforeUnmount(() => {
+  window.removeEventListener("pointerdown", onOutsidePointerDown, true);
+  window.removeEventListener("keydown", onWindowKeydown, true);
+});
 
 defineExpose({ toggle, close, open });
 </script>
@@ -99,7 +126,7 @@ defineExpose({ toggle, close, open });
     class="settings-sheet"
     aria-labelledby="settings-sheet-title"
     data-testid="settings-menu-menu"
-    @keydown.esc.prevent.stop="close('game')"
+    @focusout="onFocusOut"
   >
     <template v-if="open">
       <header class="settings-sheet__head">

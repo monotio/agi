@@ -161,7 +161,83 @@ test("Open in Studio shows its picture in the centre and closing resumes the gam
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(held);
 });
 
-test("a folded dock stays folded across a reload and brackets never reach the parser", async ({
+test("Room Studio takes the whole workspace and closing restores the docks as they were", async ({
+  page,
+}) => {
+  await bootWorkspaceGame(page);
+  await enterCreateMode(page);
+  const left = page.getByTestId("create-dock-left");
+  const right = page.getByTestId("create-dock-right");
+  const panel = page.getByTestId("world-panel");
+  await page.getByTestId("dock-tab-activity").click();
+  await panel.getByTestId("map-room-2").click();
+  await panel.getByTestId("world-open-studio").click();
+
+  const studio = page.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  // The docks wait hidden while Studio has the workspace.
+  await expect(left).toBeHidden();
+  await expect(right).toBeHidden();
+  const zoomPercent = async () =>
+    Number(
+      /(\d+)%/.exec((await page.getByRole("group", { name: "Zoom" }).textContent()) ?? "")?.[1],
+    );
+  const scrubber = page.getByRole("slider", { name: "Draw order playhead" });
+  for (const [width, height] of [
+    [1440, 900],
+    [1280, 720],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect.poll(async () => (await studio.boundingBox())?.width).toBe(width);
+    expect((await scrubber.boundingBox())!.width).toBeGreaterThanOrEqual(300);
+    await expect.poll(zoomPercent).toBeGreaterThanOrEqual(200);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Studio's own back control is the way back to Create: the docks return
+  // with the tab and the room they showed.
+  await studio.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(studio).toHaveCount(0);
+  await expect(left).toBeVisible();
+  await expect(right).toBeVisible();
+  await expect(page.getByTestId("dock-tab-activity")).toHaveAttribute("aria-selected", "true");
+  await expect(panel.getByTestId("map-detail")).toContainText("Great Hall");
+  await expect(page.getByTestId("input-line")).toBeFocused();
+});
+
+test("phone layouts offer Room Studio disabled, with a note saying why", async ({ browser }) => {
+  const context = await browser.newContext({
+    hasTouch: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.touchControls", "on"));
+  await bootWorkspaceGame(page);
+  await enterCreateMode(page);
+  const open = page.getByTestId("world-open-studio");
+  const note = page.getByTestId("world-studio-small");
+  // Portrait: the World tab of the one bottom sheet.
+  await page.getByTestId("dock-tab-world").click();
+  await expect(page.getByTestId("world-panel")).toBeVisible();
+  await expect(open).toBeDisabled();
+  await expect(note).toBeVisible();
+  await expect(note).toHaveText("Room Studio needs a larger screen");
+  await expect(open).toHaveAttribute("aria-describedby", "world-studio-small");
+  await expect(page.locator("[title='Room Studio needs a larger screen']")).toHaveCount(1);
+  // Short landscape keeps it disabled; the same window without the touch
+  // layout offers it again.
+  await page.setViewportSize({ width: 844, height: 390 });
+  await expect(open).toBeDisabled();
+  await expect(note).toBeVisible();
+  await page.getByTestId("settings-menu").click();
+  await page.getByTestId("toggle-touch-controls").click();
+  await page.keyboard.press("Escape");
+  await expect(open).toBeEnabled();
+  await expect(note).toHaveCount(0);
+  await context.close();
+});
+
+test("a folded dock stays folded across a reload and brackets fold only outside text", async ({
   page,
 }) => {
   await bootWorkspaceGame(page);
@@ -177,22 +253,26 @@ test("a folded dock stays folded across a reload and brackets never reach the pa
   await expect(page).toHaveURL(/#create\//);
   await expect(page.getByTestId("create-dock-left")).toHaveClass(/create-dock--rail/);
 
-  // `[` and `]` fold the docks from the game's own input line and are
-  // consumed there: the parser never sees a bracket.
+  // In the game's own input line `[` and `]` are text, as in Play: they
+  // reach the parser and fold nothing.
   const input = page.getByTestId("input-line");
   await input.focus();
-  await page.keyboard.type("lo");
+  await page.keyboard.type("a[b]");
+  await expect(input).toHaveValue("a[b]");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("a[b]");
+  await expect(page.getByTestId("create-dock-left")).toHaveClass(/create-dock--rail/);
+  await expect(page.getByTestId("create-dock-right")).not.toHaveClass(/create-dock--rail/);
+
+  // Anywhere else they fold the docks, and never reach the parser.
+  await page.getByTestId("dock-fold-right").focus();
   await page.keyboard.press("[");
   await expect(page.getByTestId("create-dock-left")).not.toHaveClass(/create-dock--rail/);
   await expect(page.getByTestId("world-panel")).toBeVisible();
-  await input.focus();
   await page.keyboard.press("]");
   await expect(page.getByTestId("create-dock-right")).toHaveClass(/create-dock--rail/);
-  await input.focus();
   await page.keyboard.press("]");
   await expect(page.getByTestId("create-dock-right")).not.toHaveClass(/create-dock--rail/);
-  await expect(input).toHaveValue("lo");
-  expect((await textHook(page)).rows.join("\n")).not.toMatch(/[[\]]/);
+  await expect(input).toHaveValue("a[b]");
 
   // Tabs are a tablist: arrow keys move the selection.
   await page.getByTestId("dock-tab-assistant").focus();

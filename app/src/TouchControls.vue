@@ -290,22 +290,24 @@ select {
   max-height: 45vh;
   overflow: auto;
 }
-/* The stable layout's orientation (App.vue), which a keyboard cannot flip. */
-:global(.layout-landscape-short) .direction-pad {
+/* The stable layout's orientation (App.vue), which a keyboard cannot flip.
+   A plain ancestor selector: scoped CSS scopes only the last compound, and a
+   `:global(.x) .y` would compile to the bare `.x`, styling the app container. */
+.layout-landscape-short .direction-pad {
   grid-template-columns: repeat(3, var(--control-h-touch));
   gap: 3px;
 }
-:global(.layout-landscape-short) .touch-main {
+.layout-landscape-short .touch-main {
   gap: 8px;
 }
-:global(.layout-landscape-short) .action-keys {
+.layout-landscape-short .action-keys {
   min-width: 64px;
   gap: 3px;
 }
-:global(.layout-landscape-short) .touch-controls {
+.layout-landscape-short .touch-controls {
   width: 220px;
 }
-:global(.layout-landscape-short) .movement-help {
+.layout-landscape-short .movement-help {
   font-size: var(--text-2xs);
 }
 </style>

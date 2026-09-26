@@ -1,8 +1,10 @@
 /**
  * The Create workspace's view state: which tab each dock shows, which docks
  * are folded to their icon rail, and what the centre shows — the live stage,
- * or Room Studio on one picture while the game waits paused. App.vue creates
- * one workspace; the docks, the panels and the centre inject it.
+ * or Room Studio on one picture while the game waits paused. Studio takes the
+ * whole workspace: the docks stay mounted but hidden, and closing it brings
+ * them back with the tabs and folds they had. App.vue creates one workspace;
+ * the docks, the panels and the centre inject it.
  *
  * Folded docks are a per-viewer convenience kept in browser storage, never a
  * format: a blocked or corrupt entry falls back to open docks.
@@ -54,6 +56,8 @@ export interface CreateWorkspace extends CreateCenter {
   readonly sheetOpen: Ref<boolean>;
   /** A phone's Create: the panels show, nothing edits. */
   readonly viewOnly: ComputedRef<boolean>;
+  /** The screen is large enough for Room Studio; phone layouts are not. */
+  readonly studioFits: ComputedRef<boolean>;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
   showPanel(id: string): void;
@@ -80,6 +84,7 @@ export function createCreateWorkspace(deps: {
   /** Hand the keyboard back to the game after Studio closes. */
   focusGame(): void;
   viewOnly?: () => boolean;
+  studioFits?: () => boolean;
   storage?: StorageLike | undefined;
 }): CreateWorkspace {
   const storage = deps.storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
@@ -87,6 +92,7 @@ export function createCreateWorkspace(deps: {
   const collapsed = reactive(readCollapsed(storage));
   const studio = shallowRef<StudioRequest | null>(null);
   const sheetOpen = ref(false);
+  const studioFits = computed(() => deps.studioFits?.() ?? true);
 
   function persist(): void {
     try {
@@ -112,6 +118,7 @@ export function createCreateWorkspace(deps: {
   }
 
   function openStudio(request: StudioRequest): void {
+    if (!studioFits.value) return;
     if (!studio.value) deps.pauseEngine("studio");
     studio.value = request;
   }
@@ -128,6 +135,7 @@ export function createCreateWorkspace(deps: {
     collapsed,
     sheetOpen,
     viewOnly: computed(() => deps.viewOnly?.() ?? false),
+    studioFits,
     toggleDock,
     showPanel,
     studio,

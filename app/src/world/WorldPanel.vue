@@ -59,6 +59,8 @@ const pictures = computed(() => {
 });
 
 const studioOpen = computed(() => workspace.studio.value !== null);
+const studioFits = workspace.studioFits;
+const STUDIO_TOO_SMALL = "Room Studio needs a larger screen";
 
 function pickRoom(room: number): void {
   graphView.value?.selectRoom(room, true);
@@ -124,18 +126,26 @@ function openInStudio(): void {
           <UiChip :tone="pictures.tone">{{ pictures.chip }}</UiChip>
           <span>{{ pictures.detail }}</span>
         </p>
-        <div v-if="!viewOnly" class="world-actions">
-          <UiButton
-            variant="primary"
-            size="sm"
-            icon="pencil"
-            data-testid="world-open-studio"
-            :disabled="pictures?.studioPicture === undefined || studioOpen"
-            :aria-describedby="pictures?.studioBlocked ? 'world-studio-blocked' : undefined"
-            @click="openInStudio"
-          >
-            Open in Studio
-          </UiButton>
+        <div class="world-actions">
+          <span :title="studioFits ? undefined : STUDIO_TOO_SMALL">
+            <UiButton
+              variant="primary"
+              size="sm"
+              icon="pencil"
+              data-testid="world-open-studio"
+              :disabled="pictures?.studioPicture === undefined || studioOpen || !studioFits"
+              :aria-describedby="
+                !studioFits
+                  ? 'world-studio-small'
+                  : pictures?.studioBlocked
+                    ? 'world-studio-blocked'
+                    : undefined
+              "
+              @click="openInStudio"
+            >
+              Open in Studio
+            </UiButton>
+          </span>
           <span title="Coming in a later update">
             <UiButton
               size="sm"
@@ -149,7 +159,15 @@ function openInStudio(): void {
           </span>
         </div>
         <p
-          v-if="!viewOnly && pictures?.studioBlocked"
+          v-if="!studioFits"
+          id="world-studio-small"
+          class="world-blocked"
+          data-testid="world-studio-small"
+        >
+          {{ STUDIO_TOO_SMALL }}
+        </p>
+        <p
+          v-else-if="!viewOnly && pictures?.studioBlocked"
           id="world-studio-blocked"
           class="world-blocked"
           data-testid="world-studio-blocked"

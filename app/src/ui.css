@@ -2,19 +2,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 44px;
+  gap: var(--space-3);
+  min-height: var(--control-h-touch);
   box-sizing: border-box;
-  padding: 10px 14px;
+  padding: var(--space-3) var(--space-4);
   border: 1px solid transparent;
   border-radius: var(--radius);
   font: var(--weight-bold) var(--text-md) / 1.4 var(--font-sans);
   cursor: pointer;
   text-decoration: none;
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 .ui-button--primary {
@@ -53,8 +53,8 @@
 }
 
 .ui-button--icon {
-  width: 44px;
-  height: 44px;
+  width: var(--control-h-touch);
+  height: var(--control-h-touch);
   flex: none;
   padding: 0;
 }

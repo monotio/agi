@@ -155,15 +155,26 @@ provideShell(shell);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
 /** A phone held upright: Create is one view-only sheet instead of two docks. */
 const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
+/**
+ * Room Studio needs a larger screen than the phone layouts give it: the touch
+ * portrait and short-landscape layouts, and any window as narrow as a phone.
+ */
+const studioFits = computed(() => {
+  const { width, height } = viewport.value;
+  return width > 600 && !(touchControls.value && (height >= width || height <= 600));
+});
 /** The Create docks' tabs and folds, and the centre's Studio (shell/useCreateWorkspace.ts). */
 const workspace = createCreateWorkspace({
   pauseEngine: engine.pauseEngine,
   resumeEngine: engine.resumeEngine,
   focusGame: () => shellBridge.focusGameInput(),
   viewOnly: () => phone.value,
+  studioFits: () => studioFits.value,
 });
 provideCreateWorkspace(workspace);
 const studio = workspace.studio;
+/** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
+const studioOpen = computed(() => creating.value && studio.value !== null);
 const sheetOpen = workspace.sheetOpen;
 const { onDockKey } = useCreateMode({
   state,
@@ -199,6 +210,28 @@ watch(shell.mode, (mode) => {
   if (mode === "play" && !state.powerUp.open && !touchControls.value)
     nextTick(() => playArea.value?.focusInput());
 });
+// A game that starts from the keyboard (Enter on a Play button) takes the
+// keyboard once its input line first accepts text: the button that had
+// focus left with the menu. Focus another control or a dialog holds (the
+// profile picker, AI settings) stays where it is.
+let claimKeyboard = false;
+watch(
+  () => [state.phase, state.inputReady] as const,
+  ([phase, ready], previous) => {
+    if (phase !== "running") {
+      claimKeyboard = false;
+      return;
+    }
+    if (previous?.[0] !== "running") claimKeyboard = !touchControls.value;
+    if (!claimKeyboard || !ready) return;
+    claimKeyboard = false;
+    void nextTick(() => {
+      const focused = document.activeElement;
+      if (state.walkthrough.active || (focused && focused !== document.body)) return;
+      playArea.value?.focusInput();
+    });
+  },
+);
 // A walkthrough owns the stage and its own #watch route: it plays in Play.
 watch(
   () => state.walkthrough.active,
@@ -531,6 +564,7 @@ watch(
         class="shell-body"
         :class="{
           'shell-body--create': creating,
+          'shell-body--studio': studioOpen,
           'shell-body--sheet': creating && phone,
           'shell-body--fold-left': creating && !phone && workspace.collapsed.left,
           'shell-body--fold-right': creating && !phone && workspace.collapsed.right,
@@ -540,6 +574,7 @@ watch(
       >
         <CreateDock
           v-if="creating && !phone"
+          v-show="!studioOpen"
           v-model:active="workspace.active.left"
           side="left"
           class="shell-dock shell-dock--left"
@@ -582,7 +617,7 @@ watch(
           </template>
         </PlayArea>
         <RoomStudio
-          v-if="creating && studio"
+          v-if="studioOpen && studio"
           class="shell-center"
           :picture-number="studio.pictureNumber"
           :bytes="studio.bytes"
@@ -593,6 +628,7 @@ watch(
           @close="workspace.closeStudio()"
         />
         <aside
+          v-show="!studioOpen"
           class="shell-side"
           :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
           :aria-label="creating ? 'Assistant panels' : 'Ask'"

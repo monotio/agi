@@ -89,7 +89,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Play and Create",
         body: [
           "A running game has two modes, switched in the top bar. Play is the game as its players see it; the Ask button opens a drawer that answers questions without changing the game.",
-          "Create docks the tools around it: the World panel on the left, the Assistant, Inspect and Activity tabs on the right. [ and ] fold the panels. A catalog game opens read-only — your first change makes a remix copy of your own.",
+          "Create docks the tools around it: the World panel on the left, the Assistant, Inspect and Activity tabs on the right. [ and ] fold the panels (in the game's command line they are just text). A catalog game opens read-only — your first change makes a remix copy of your own.",
         ],
         action: { kind: "remix", label: "Switch to Create" },
       },
@@ -131,7 +131,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio",
         title: "Room Studio",
         body: [
-          "Open in Studio, on a room in the World panel, reads that room's picture under three lenses: Art for what the player sees, Depth for how far each part of the scene sits, Walk for the control lines that steer the hero.",
+          "Open in Studio, on a room in the World panel, reads that room's picture under three lenses: Art for what the player sees, Depth for how far each part of the scene sits, Walk for the control lines that steer the hero. Studio takes the whole window while the game waits paused; its back arrow returns to Create as you left it. It needs a larger screen than a phone.",
           "The scrubber replays the draw order command by command, the scene list names each thing the picture draws, and clicking a pixel shows which command put it there — or why a fill stopped. In this release Studio only looks; it changes nothing.",
         ],
       },

@@ -3,6 +3,8 @@
 // app/src/styles/tokens.css. This counts raw values in each component's styles
 // and fails when a file gains any beyond its recorded baseline. Migrations
 // lower the baseline with `--update`; it can never go up through this script.
+// It also refuses a scoped `:global(.a) .b`: Vue compiles that selector to the
+// bare `.a`, so the rule styles the ancestor instead of `.b`.
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -30,12 +32,18 @@ function walk(dir, out = []) {
   return out;
 }
 
+/** A `:global(...)` with more selector after it, which Vue drops. */
+const GLOBAL_PREFIX = /:global\([^()]*\)(?!\s*[,{])[^,{]*/g;
+
 const counts = {};
 const details = {};
+const globalPrefixes = [];
 for (const path of walk(join(root, "app/src"))) {
   const rel = relative(root, path);
   if (rel === TOKENS_FILE) continue;
   const css = styleText(rel, readFileSync(path, "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
+  if (rel.endsWith(".vue"))
+    for (const hit of css.match(GLOBAL_PREFIX) ?? []) globalPrefixes.push(`${rel}: ${hit.trim()}`);
   let total = 0;
   for (const [label, pattern] of RULES) {
     const hits = css.match(pattern) ?? [];
@@ -57,6 +65,14 @@ if (process.argv.includes("--update")) {
   const total = Object.values(next).reduce((sum, n) => sum + n, 0);
   console.log(`design-token baseline: ${total} raw values in ${Object.keys(next).length} files`);
   process.exit(0);
+}
+
+if (globalPrefixes.length) {
+  console.error(
+    "Scoped `:global(.a) .b` compiles to the bare `.a`; write `.a .b` (scoped) or `:global(.a .b)`:",
+  );
+  for (const line of globalPrefixes) console.error(`  ${line}`);
+  process.exit(1);
 }
 
 const failures = [];

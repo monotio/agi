@@ -34,7 +34,10 @@ async function openCreateSection(updateHash = true): Promise<void> {
   if (updateHash && location.hash !== HASH) history.pushState(null, "", HASH);
   await nextTick();
   heading.value?.focus({ preventScroll: true });
-  panel.value?.scrollIntoView({ behavior: "smooth", block: "start" });
+  panel.value?.scrollIntoView({
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    block: "start",
+  });
 }
 
 function closeCreateSection(): void {
