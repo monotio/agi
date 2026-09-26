@@ -79,7 +79,11 @@
 .in-game .shell-body--fold-right {
   --dock-right: 56px;
 }
-/* Room Studio takes the stage's cell while the live stage waits, hidden. */
+/* Room Studio takes the whole workspace while the live stage and the docks
+   wait hidden, still mounted, so closing it restores them as they were. */
+.in-game .shell-body--studio {
+  grid-template-columns: minmax(0, 1fr);
+}
 .shell-center {
   min-width: 0;
   min-height: 0;
@@ -141,6 +145,10 @@
   }
   .in-game .shell-body--create {
     overflow-y: auto;
+  }
+  /* Stacked, each dock is as tall as its panel and the body scrolls. */
+  .in-game .shell-body--create :is(.shell-dock--left, .shell-side) {
+    min-height: auto;
   }
   .in-game .shell-body--create .shell-dock--left {
     order: 2;
@@ -488,10 +496,11 @@ details[open] > .section-summary {
   min-width: 0;
 }
 
+/* Important: a component's scoped animation outranks a plain descendant rule. */
 @media (prefers-reduced-motion: reduce) {
   .app-container *,
   .screen.shake {
-    animation: none;
-    transition: none;
+    animation: none !important;
+    transition: none !important;
   }
 }

@@ -5,13 +5,10 @@
  * can be added again. The marks are session memory, never stored.
  */
 import { ref } from "vue";
-import { bodyTransaction, loadAuthoredGame } from "../gameStorage.ts";
+import { bodyTransaction, loadAuthoredGame, UNREADABLE_PROJECT_MESSAGE } from "../gameStorage.ts";
 import { projectId, type ProjectId } from "../../../src/gameIdentity.ts";
 import { useEngineApi } from "../engineContext.ts";
 import { useGameLibrary } from "../useGameLibrary.ts";
-
-export const UNREADABLE_PROJECT_MESSAGE =
-  "This saved project version is not supported by this app.";
 
 const unreadable = ref<ReadonlySet<ProjectId>>(new Set());
 

@@ -164,6 +164,11 @@ function onListKeydown(ev: KeyboardEvent): void {
   color: var(--ink-3);
   font-size: var(--text-2xs);
 }
+/* On the tinted selected or hovered row ink-3 falls under 4.5:1. */
+.map-list-item.selected .map-room-badges,
+.map-list-button:hover .map-room-badges {
+  color: var(--ink-2);
+}
 /* Compact rows: name and status stacked, the picture chip at the right. */
 .compact {
   padding: var(--space-1) 0;

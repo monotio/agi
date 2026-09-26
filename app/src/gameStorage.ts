@@ -29,6 +29,9 @@ interface StoredGameBody extends CachedGameData {
 }
 
 const STORAGE_PREFIX = "monotio_agi.authored.";
+/** The refusal for a stored project this release cannot read; Home's recovery matches on it. */
+export const UNREADABLE_PROJECT_MESSAGE =
+  "This saved project version is not supported by this app.";
 /** Every recognized library field; a version-1 reader keeps anything else as an additive extension. */
 const LIBRARY_FIELDS: Record<keyof LibraryMetadata, true> = {
   version: true,
@@ -476,7 +479,7 @@ async function writeCurrentBody(
       const value = existing.result as StoredGameBody | undefined;
       // A record this release does not recognise is never overwritten.
       if (value && (value.format !== "monotio.agi.stored-project" || value.version !== 1)) {
-        contractError = new Error("This saved project version is not supported by this app.");
+        contractError = new Error(UNREADABLE_PROJECT_MESSAGE);
         transaction.abort();
         return;
       }
@@ -578,7 +581,7 @@ function storedBody(data: CachedGameData): StoredGameBody {
 }
 function readStoredBody(raw: StoredGameBody, projectId: ProjectId): CachedGameData {
   if (raw.format !== "monotio.agi.stored-project" || raw.version !== 1)
-    throw new Error("This saved project version is not supported by this app.");
+    throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const storedId = raw.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
@@ -600,7 +603,7 @@ async function readBody(
     index["version"] !== 1 ||
     index["storage"] !== "indexeddb"
   )
-    throw new Error("This saved project version is not supported by this app.");
+    throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
   const stored = snapshot.head as StoredGameBody | undefined;
   const lifetime = snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime | undefined;
@@ -675,7 +678,7 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
       index["version"] !== 1 ||
       index["storage"] !== "indexeddb"
     )
-      throw new Error("This saved project version is not supported by this app.");
+      throw new Error(UNREADABLE_PROJECT_MESSAGE);
   }
   await stampLibraryMetadata(data, true);
   let lifetime: string;

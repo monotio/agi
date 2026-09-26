@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ref } from "vue";
 import { registerCreatePanel } from "../src/shell/createDocks.ts";
 import { createCreateWorkspace, DOCKS_STORAGE_KEY } from "../src/shell/useCreateWorkspace.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
@@ -83,4 +84,31 @@ test("Studio holds its own pause and hands the keyboard back on close", () => {
   ws.closeStudio();
   assert.equal(ws.studio.value, null);
   assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
+});
+
+test("Studio never opens where it does not fit, and holds no pause there", () => {
+  const calls: string[] = [];
+  const fits = ref(false);
+  const ws = createCreateWorkspace({
+    pauseEngine: (owner) => calls.push(`pause:${owner}`),
+    resumeEngine: (owner) => calls.push(`resume:${owner}`),
+    focusGame: () => calls.push("focus"),
+    studioFits: () => fits.value,
+    storage: memoryStorage(),
+  });
+  const request = {
+    room: 1,
+    pictureNumber: 5,
+    bytes: Uint8Array.of(0xff),
+    profile: Object.values(PROFILES)[0]!,
+    title: "Room 1",
+  };
+  assert.equal(ws.studioFits.value, false);
+  ws.openStudio(request);
+  assert.equal(ws.studio.value, null);
+  assert.deepEqual(calls, []);
+  fits.value = true;
+  ws.openStudio(request);
+  assert.equal(ws.studio.value, request);
+  assert.deepEqual(calls, ["pause:studio"]);
 });

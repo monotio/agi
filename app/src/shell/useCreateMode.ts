@@ -11,9 +11,10 @@ import { registerCreatePanel } from "./createDocks.ts";
 import type { CreateWorkspace } from "./useCreateWorkspace.ts";
 import type { EngineState } from "../useEngineTypes.ts";
 
-/** Keys typed here are text, never dock shortcuts. */
+/** Keys typed here are text, never dock shortcuts: the game's input line included. */
 function isTextEntry(target: EventTarget | null, gameInput: Element | null | undefined): boolean {
-  if (!(target instanceof Element) || target === gameInput) return false;
+  if (!(target instanceof Element)) return false;
+  if (target === gameInput) return true;
   if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
   if (target instanceof HTMLInputElement)
     return !["checkbox", "radio", "button", "submit", "range"].includes(target.type);
@@ -32,16 +33,21 @@ export function useCreateMode(deps: {
 }) {
   const { state, workspace, creating, phone, debugOpen } = deps;
 
-  // The map's graph code loads only when the World panel first shows.
+  // The map's graph code never loads on boot. It is fetched once a game runs,
+  // while the browser is idle, and the World tab then holds the loaded panel
+  // itself: an async panel renders empty for a tick after Create opens, and a
+  // keyboard user's Tab would pass straight over the empty tabpanel.
+  const loadWorldPanel = () => import("../world/WorldPanel.vue");
+  const world = {
+    id: "world",
+    dock: "left",
+    title: "World",
+    icon: "map",
+    order: 0,
+    component: defineAsyncComponent(loadWorldPanel),
+  } as const;
+  let offWorld = registerCreatePanel(world);
   const offs = [
-    registerCreatePanel({
-      id: "world",
-      dock: "left",
-      title: "World",
-      icon: "map",
-      order: 0,
-      component: defineAsyncComponent(() => import("../world/WorldPanel.vue")),
-    }),
     registerCreatePanel({
       id: "inspect",
       dock: "right",
@@ -59,7 +65,31 @@ export function useCreateMode(deps: {
       component: ActivityPanel,
     }),
   ];
-  onScopeDispose(() => offs.forEach((off) => off()));
+  let disposed = false;
+  onScopeDispose(() => {
+    disposed = true;
+    offWorld();
+    offs.forEach((off) => off());
+  });
+
+  watch(
+    () => state.phase === "running",
+    () => {
+      const warm = () =>
+        void loadWorldPanel().then(
+          (panel) => {
+            // A showing panel keeps its (now resolved) async wrapper: swapping
+            // components under it would remount it.
+            if (disposed || creating.value) return;
+            offWorld = registerCreatePanel({ ...world, component: panel.default });
+          },
+          () => {},
+        );
+      if (typeof requestIdleCallback === "function") requestIdleCallback(warm, { timeout: 2000 });
+      else setTimeout(warm, 500);
+    },
+    { once: true },
+  );
 
   /** The Inspect tab is showing: its controls are docked, not floating. */
   const inspectShown = (): boolean =>
@@ -97,18 +127,21 @@ export function useCreateMode(deps: {
     },
   );
 
-  // The live stage comes back whenever Create is left or the game stops.
+  // The live stage comes back whenever Create is left, the game stops, or
+  // the window turns too small for Studio (a rotated phone).
   watch(
-    () => [creating.value, state.phase, state.walkthrough.active] as const,
-    ([inCreate, phase, watching]) => {
-      if (!inCreate || phase !== "running" || watching) workspace.closeStudio();
+    () =>
+      [creating.value, state.phase, state.walkthrough.active, workspace.studioFits.value] as const,
+    ([inCreate, phase, watching, fits]) => {
+      if (!inCreate || phase !== "running" || watching || !fits) workspace.closeStudio();
     },
   );
 
   /**
-   * `[` and `]` fold the left and right docks. They are consumed before the
-   * game sees them — Create never lets a bracket reach the parser — except
-   * where the key is text: the assistant's composer, a note, a field.
+   * `[` and `]` fold the left and right docks, but only where the key is not
+   * text: typed into the game's input line (or the assistant's composer, a
+   * note, a field) a bracket is a character, and reaches the parser in
+   * Create just as it does in Play.
    */
   function onDockKey(ev: KeyboardEvent): boolean {
     if (!creating.value || (ev.key !== "[" && ev.key !== "]")) return false;

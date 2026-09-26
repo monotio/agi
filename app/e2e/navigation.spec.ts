@@ -70,8 +70,10 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND ON");
   await expect(sound).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
-  // Closing the settings sheet hands the keyboard back to the game.
-  await expect(page.getByTestId("input-line")).toBeFocused();
+  // Escape closes the sheet back to its Settings button, as any popover does.
+  await expect(settings).toBeFocused();
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  await page.getByTestId("input-line").focus();
   await page.keyboard.press("F2");
   await settings.click();
   await expect(soundValue).toHaveText("Off");
@@ -96,12 +98,29 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(gameItems.getByRole("button")).toHaveCount(4);
   await page.keyboard.press("Escape");
   await expect(settings).toHaveAttribute("aria-expanded", "false");
+
+  // Tab past the sheet's last item leaves it, and the sheet closes behind the
+  // focus; nothing is left open for a later Escape to miss.
+  const sheet = page.getByTestId("settings-menu-menu");
+  await settings.click();
+  await sheet.getByTestId("settings-advanced").focus();
+  await page.keyboard.press("Tab");
+  await expect(sheet).toBeHidden();
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  // Escape closes it from anywhere while it is open, and returns focus to the
+  // Settings button — here with focus dropped to the page body.
+  await settings.click();
+  await expect(sheet).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(settings).toBeFocused();
   await page.screenshot({ path: test.info().outputPath("navigation-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
-  // A menu returns focus to its trigger; the sheet returns it to the game.
+  // A menu and the sheet return focus to their trigger.
   for (const [trigger, popup, focus] of [
     [help, page.getByTestId("help-menu-menu"), help],
-    [settings, page.getByTestId("settings-menu-menu"), page.getByTestId("input-line")],
+    [settings, page.getByTestId("settings-menu-menu"), settings],
   ]) {
     await trigger!.click();
     await expect(popup!).toBeInViewport();
