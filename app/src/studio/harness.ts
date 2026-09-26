@@ -3,9 +3,11 @@
 // annotated demo picture, `?pic=injected` the source or bytes a test or script
 // set on `window.studioHarnessInput` before the page loads (for pictures that
 // are generated or held privately); `&authored=0` withholds the source so the
-// studio falls back to disassembling the bytes. The kernel is exposed on
+// studio falls back to disassembling the bytes. `&probe=1` mounts the ghost
+// actor probe alone over the picture's art pane, with the tutorial's
+// character VIEWs as its game. The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
-import { createApp, h, ref } from "vue";
+import { createApp, defineComponent, h, ref } from "vue";
 import "../styles/tokens.css";
 import RoomStudio from "./RoomStudio.vue";
 import { EGA_PALETTE } from "../palette.ts";
@@ -15,7 +17,17 @@ import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
 import { inferNativeItems } from "../../../src/studio/nativeItems.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileDocument, itemAt, itemMask, renderUpTo } from "../../../src/studio/pictureQuery.ts";
-import { toScreen } from "../../../src/studio/viewport.ts";
+import { toScreen, type Viewport } from "../../../src/studio/viewport.ts";
+import { containerFromResources } from "../../../src/container/container.ts";
+import { renderPicture } from "../../../src/picture/renderer.ts";
+import { probeActor } from "../../../src/studio/probe.ts";
+import { createPictureSurface } from "../../../src/types.ts";
+import { buildView, parseView, selectViewCel } from "../../../src/view/view.ts";
+import { CHARACTER_VIEWS } from "../../../games/adventure-department/characterViews.ts";
+import UiIconButton from "../ui/UiIconButton.vue";
+import GhostProbe from "./GhostProbe.vue";
+import StudioCanvas from "./StudioCanvas.vue";
+import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
 import { DEMO_PICTURE_SOURCE } from "./demoPicture.ts";
 
 const TITLES: Readonly<Record<string, string>> = {
@@ -55,6 +67,12 @@ const authored =
 const pictureNumber =
   pic === "demo" ? 0 : pic === "injected" ? (input?.pictureNumber ?? 0) : Number(pic);
 const closes = ref(0);
+const probeMode = params.get("probe") === "1";
+/** The probe's game: the tutorial's character VIEWs, as container files. */
+const ghostViewBytes = new Map(
+  Object.entries(CHARACTER_VIEWS).map(([n, input]) => [Number(n), buildView(input)] as const),
+);
+const ghostFiles = containerFromResources({ view: ghostViewBytes }).files;
 
 const probe = {
   pic,
@@ -75,22 +93,73 @@ const probe = {
     itemMask,
     renderUpTo,
     toScreen,
+    probeActor,
+    parseView,
+    selectViewCel,
   },
+  /** The probe harness's VIEW payloads by number, for in-page expectations. */
+  ghostViews: Object.fromEntries([...ghostViewBytes].map(([n, b]) => [n, [...b]])),
   palette: EGA_PALETTE,
 };
 export type StudioHarnessProbe = typeof probe;
 (window as Window & { studioHarness?: StudioHarnessProbe }).studioHarness = probe;
 
+/** `&probe=1`: the art pane at zoom 3 with the ghost probe over it, active. */
+const ProbeHarness = defineComponent(() => {
+  const annotated = inferNativeItems(source, { profile });
+  const { document } = parsePictureDocument(annotated);
+  const compiled = compileDocument(document, profile);
+  const surface = createPictureSurface();
+  renderPicture(bytes, surface, { profile });
+  const viewport: Viewport = { zoom: 3, pixelAspect: 2, offsetX: 0, offsetY: 0 };
+  const ghost = useGhostProbe({
+    views: listGameViews(ghostFiles, profile),
+    picture: surface,
+    profile,
+  });
+  ghost.active.value = true;
+  ghost.moveTo(60, 100);
+  const describeCell = (x: number, y: number): string | undefined =>
+    itemAt(compiled, document, x, y, "priority")?.label;
+  const onKeydown = (event: KeyboardEvent): void => {
+    if (!event.defaultPrevented) ghost.handleStudioKey(event);
+  };
+  return () =>
+    h("div", { class: "probe-harness", tabindex: -1, onKeydown }, [
+      h(UiIconButton, {
+        icon: "actor",
+        label: "Ghost actor probe",
+        shortcut: "G",
+        pressed: ghost.active.value,
+        "data-testid": "ghost-probe-toggle",
+        onClick: ghost.toggle,
+      }),
+      h("div", { style: { position: "relative", width: "fit-content" } }, [
+        h(StudioCanvas, {
+          layer: "art",
+          label: "Picture, visual plane",
+          visual: surface.visual,
+          priority: surface.priority,
+          viewport,
+          dpr: globalThis.devicePixelRatio || 1,
+        }),
+        h(GhostProbe, { probe: ghost, viewport, describeCell }),
+      ]),
+    ]);
+});
+
 createApp({
   render: () =>
-    h(RoomStudio, {
-      pictureNumber,
-      bytes,
-      authoredSource: authored ? source : undefined,
-      profile,
-      title: TITLES[pic] ?? `Picture ${pic}`,
-      subtitle:
-        pic === "demo" ? "demo · shapes" : pic === "injected" ? "" : `room ${pic} · PIC ${pic}`,
-      onClose: () => closes.value++,
-    }),
+    probeMode
+      ? h(ProbeHarness)
+      : h(RoomStudio, {
+          pictureNumber,
+          bytes,
+          authoredSource: authored ? source : undefined,
+          profile,
+          title: TITLES[pic] ?? `Picture ${pic}`,
+          subtitle:
+            pic === "demo" ? "demo · shapes" : pic === "injected" ? "" : `room ${pic} · PIC ${pic}`,
+          onClose: () => closes.value++,
+        }),
 }).mount("#studio");

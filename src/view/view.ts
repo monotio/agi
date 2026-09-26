@@ -515,7 +515,7 @@ export function drawCel(
  * that paints inside `visit` reproduces drawCel exactly.
  */
 export function forEachPaintedPixel(
-  surface: PictureSurface,
+  surface: Pick<PictureSurface, "priority">,
   cel: ViewCel,
   x: number,
   yBaseline: number,
