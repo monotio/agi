@@ -88,19 +88,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
         ),
     ),
   );
-  let catalogObserver: IntersectionObserver | null = null;
-  const catalogCardIds = new WeakMap<Element, string>();
-  function observeCatalogCard(element: unknown, id: string): void {
-    if (
-      !(element instanceof Element) ||
-      catalogOpenings.value[id] ||
-      catalogBusy.value[id] ||
-      catalogErrors.value[id]
-    )
-      return;
-    catalogCardIds.set(element, id);
-    catalogObserver?.observe(element);
-  }
   const selectedTemplateId = ref("");
   const adventureDrafts = ref<
     Record<string, { title: string; brief: string; frontmatter: string }>
@@ -241,13 +228,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
    * throw it away and start the game from the beginning.
    */
   const pendingAutosave = ref<AutosaveRecord>();
-  const hasLibraryContent = computed(
-    () =>
-      savedGames.value.length > 0 ||
-      availableCatalogEntries.value.length > 0 ||
-      Boolean(state.installedGames?.length) ||
-      pendingAutosave.value !== undefined,
-  );
 
   const localGames = computed(() => {
     const list = state.installedGames ?? [];
@@ -261,46 +241,11 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     );
   });
 
-  const localGameAliases = computed(() => localGames.value.map((g) => g.alias));
-
   function localAutosave(game: InstalledGameDescriptor): AutosaveRecord | undefined {
     // Folder-keyed progress keeps same-hash editions separate; descriptors
     // without a folder (hosted installs) key by hash or alias.
     return libraryAutosaves.value[gameStorageKey({ installed: true, ...game })];
   }
-  const TUTORIAL_SECTION_KEY = "monotio_agi.tutorial";
-  const tutorialPreference = ref<"open" | "closed">();
-  try {
-    const stored = localStorage.getItem(TUTORIAL_SECTION_KEY);
-    if (stored === "open" || stored === "closed") tutorialPreference.value = stored;
-  } catch {
-    /* Use the first-visit default when storage is blocked. */
-  }
-  const hasOwnGames = computed(
-    () =>
-      savedGames.value.some((game) => game.library?.catalog?.id !== featuredCatalog.id) ||
-      pendingAutosave.value?.game.installed === true,
-  );
-  const tutorialOpen = computed(
-    () =>
-      tutorialPreference.value === "open" ||
-      (tutorialPreference.value === undefined && !hasOwnGames.value),
-  );
-  function setTutorialOpen(open: boolean): void {
-    tutorialPreference.value = open ? "open" : "closed";
-    try {
-      localStorage.setItem(TUTORIAL_SECTION_KEY, tutorialPreference.value);
-    } catch {
-      /* Keep the live choice. */
-    }
-  }
-  watch(
-    hasOwnGames,
-    (own) => {
-      if (own && tutorialPreference.value === undefined) setTutorialOpen(false);
-    },
-    { immediate: true },
-  );
 
   async function onPlayLocalGame(query: string): Promise<void> {
     await resumeAudio();
@@ -872,25 +817,14 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     }
   }
 
-  /** Observer + catalog warmup; App.vue calls it at the same onMounted point. */
+  /** Catalog warmup; App.vue calls it at the same onMounted point. */
   function mountCatalog(): void {
-    catalogObserver = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const id = catalogCardIds.get(entry.target);
-          catalogObserver?.unobserve(entry.target);
-          if (id) void loadCatalogOpening(id);
-        }
-      },
-      { rootMargin: "200px" },
-    );
     void loadCatalogOpening(featuredCatalog.id);
     void refreshHostedCatalog();
   }
 
   function unmountCatalog(): void {
-    catalogObserver?.disconnect();
+    catalogGames.clear();
   }
 
   return {
@@ -909,12 +843,8 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     libraryActionBusy,
     libraryActionError,
     pendingAutosave,
-    hasLibraryContent,
     libraryAutosaves,
     localGames,
-    localGameAliases,
-    hasOwnGames,
-    tutorialOpen,
     featuredCatalog,
     catalogEntries,
     catalogOpenings,
@@ -936,7 +866,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     saveGameTitle,
     onGameDetailsToggle,
     localAutosave,
-    setTutorialOpen,
     onPlayLocalGame,
     libraryProvenance,
     refreshPendingAutosave,
@@ -960,7 +889,6 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     loadCatalogOpening,
     playCatalogGame,
     playCatalogWalkthrough,
-    observeCatalogCard,
     profileChoiceState,
     openLibraryProfileChoice,
     closeProfileChoice,

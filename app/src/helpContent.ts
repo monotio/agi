@@ -51,6 +51,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "The map",
         body: [
           "The map draws the rooms you have visited and the exits between them, and adds the rooms the game's own logic mentions as you explore. Pin a note to any room to remember what you found there.",
+          "In Create the same map docks in the World panel, next to the room list and the picture each room draws.",
         ],
         action: { kind: "map", label: "Open the map" },
       },
@@ -84,6 +85,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     title: "Creating",
     topics: [
       {
+        id: "modes",
+        title: "Play and Create",
+        body: [
+          "A running game has two modes, switched in the top bar. Play is the game as its players see it; the Ask button opens a drawer that answers questions without changing the game.",
+          "Create docks the tools around it: the World panel on the left, the Assistant, Inspect and Activity tabs on the right. [ and ] fold the panels. A catalog game opens read-only — your first change makes a remix copy of your own.",
+        ],
+        action: { kind: "remix", label: "Switch to Create" },
+      },
+      {
         id: "start",
         title: "Start an adventure",
         body: [
@@ -104,7 +114,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "remix",
         title: "Change anything",
         body: [
-          "The ✦ button opens Ask and Remix. Ask answers questions without touching the game. Remix changes it: give the guard a new personality, add a puzzle, or turn the courtyard into a swamp. It works on any game, including the ones you imported.",
+          "In Play, the Ask button answers questions without touching the game. In Create, the Assistant panel changes it: give the guard a new personality, add a puzzle, or turn the courtyard into a swamp.",
+          "It works on any game, including the ones you imported. Catalog games open read-only, and your first change makes a remix copy of your own.",
         ],
         action: { kind: "remix", label: "Open Remix" },
       },
@@ -112,9 +123,17 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "plan",
         title: "Plan the world",
         body: [
-          "On the map you can rename rooms, edit their briefs and pin notes. The agent reads them when it builds that part of the world. You can also attach reference images for rooms and characters.",
+          "In Create's World panel you can rename rooms, edit their briefs and pin notes. The agent reads them when it builds that part of the world. You can also attach reference images for rooms and characters.",
         ],
         action: { kind: "map", label: "Open the map" },
+      },
+      {
+        id: "studio",
+        title: "Room Studio",
+        body: [
+          "Open in Studio, on a room in the World panel, reads that room's picture under three lenses: Art for what the player sees, Depth for how far each part of the scene sits, Walk for the control lines that steer the hero.",
+          "The scrubber replays the draw order command by command, the scene list names each thing the picture draws, and clicking a pixel shows which command put it there — or why a fill stopped. In this release Studio only looks; it changes nothing.",
+        ],
       },
       {
         id: "keys",

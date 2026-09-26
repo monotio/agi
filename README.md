@@ -111,12 +111,19 @@ The agent plans the world and builds the opening room: artwork, characters and
 game logic. When you walk into a room that does not exist yet, play pauses
 while the agent writes it. Along the way you can:
 
-- plan on the world map: rename rooms, edit their briefs and pin notes the agent
-  reads when it builds that part of the world;
-- use **Ask** for hints and questions that leave the game untouched, or
-  **Remix** to change it, including any game you imported;
+- plan on the world map in Create's World panel: rename rooms, edit their
+  briefs and pin notes the agent reads when it builds that part of the world;
+- use **Ask** in Play for hints and questions that leave the game untouched,
+  or **Remix** in Create to change it, including any game you imported;
 - attach reference images for rooms and character sprites;
 - preview the game's sounds as WAV clips.
+
+A running game has two modes, switched in the top bar: **Play** is the game as
+its players see it, and **Create** docks the tools around it — the world map
+and its rooms on the left, the assistant on the right. Create also opens
+**Room Studio** on a room's picture: art, depth and walk lenses, a draw-order
+scrubber and a pixel inspector that names the command behind any pixel. In
+this release Studio is view-only.
 
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
 animated sprites, vocabulary, inventory and sound. The heroes above walk because
@@ -152,10 +159,10 @@ Games, saves and history live in your browser. The game's own Save and Restore
 use the authentic AGI save format, with twelve named slots per game, and the
 app saves as you play, so **Resume** picks up where you left off.
 
-| Game menu          | What you get                                                                                                                                               |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Export game…**   | A ZIP of the playable resources and public metadata: description, author, license and remix provenance.                                                    |
-| **Download game…** | A ZIP of the game plus its authoring conversation, images, source descriptions, world notes, stored tests, map, session history, saved games and autosave. |
+| Settings → This game | What you get                                                                                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Export game…**     | A ZIP of the playable resources and public metadata: description, author, license and remix provenance.                                                    |
+| **Download game…**   | A ZIP of the game plus its authoring conversation, images, source descriptions, world notes, stored tests, map, session history, saved games and autosave. |
 
 Either ZIP opens again with **Add game**, in any browser. A game without a
 declared license keeps an unknown license: exports never inherit this
