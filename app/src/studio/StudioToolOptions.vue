@@ -3,6 +3,7 @@ import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiKbd from "../ui/UiKbd.vue";
 import type { FillExplanation } from "../../../src/studio/pictureQuery.ts";
+import { insertionText } from "./studioMessages.ts";
 import { isDrawingTool, type InsertionPoint, type StudioTool } from "./studioTools.ts";
 
 /**
@@ -116,8 +117,7 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
       </label>
     </div>
     <p v-if="draws" class="tool-options__at" data-testid="studio-insert-at">
-      <span v-if="atEnd">Inserting at the end, #{{ insertion.index + 1 }}</span>
-      <span v-else>Inserting at #{{ insertion.index + 1 }} of {{ commands + 1 }}</span>
+      <span>{{ insertionText(insertion.index, commands) }}</span>
       <UiButton
         v-if="!atEnd"
         size="sm"

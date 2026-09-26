@@ -20,7 +20,10 @@ const NOTICE_MS = 5000;
 
 export interface StudioNotice {
   readonly tone: "warn" | "ok";
+  /** One short, plain sentence. */
   readonly text: string;
+  /** The technical account, behind a Details disclosure. */
+  readonly detail?: string | undefined;
 }
 
 export interface ItemMetaPatch {
@@ -58,6 +61,12 @@ export function useStudioEditing(options: {
     if (next) noticeTimer = setTimeout(() => (notice.value = null), NOTICE_MS);
   }
 
+  /** Keep the notice up while its details are open; the countdown restarts when they close. */
+  function hold(open: boolean): void {
+    if (open) clearTimeout(noticeTimer);
+    else say(notice.value);
+  }
+
   /** Show what an edit did: a refusal's reason (and its cells), or nothing. */
   function report(outcome: DraftOutcome): void {
     if (outcome.ok) {
@@ -65,7 +74,7 @@ export function useStudioEditing(options: {
       return;
     }
     const { refusal } = outcome;
-    say({ tone: "warn", text: `Not changed: ${refusal.message}` });
+    say({ tone: "warn", text: refusal.message, detail: refusal.detail });
     if (refusal.kind !== "lock") return;
     clearTimeout(flashTimer);
     flash.value = refusal.cells;
@@ -148,6 +157,7 @@ export function useStudioEditing(options: {
     notice,
     flash,
     say,
+    hold,
     report,
     nudge,
     duplicate,

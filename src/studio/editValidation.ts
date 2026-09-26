@@ -32,11 +32,25 @@ export function compileEditDocument(
   return { ...compileDocument(document, profile), document };
 }
 
+/**
+ * Where the planes may change, 160x168 row-major with 1 = the cell may
+ * change: one mask for both planes, or one per plane. A plane the per-plane
+ * form leaves out is not restricted by it.
+ */
+export type AllowedMask =
+  Uint8Array | { readonly visual?: Uint8Array; readonly priority?: Uint8Array };
+
 export interface EditConstraints {
   /** Planes that may not change anywhere. */
   readonly lockedPlanes: readonly PicturePlane[];
-  /** 160x168, row-major; 1 = the cell may change on either plane. */
-  readonly allowedMask?: Uint8Array;
+  /**
+   * The cells that may change. An edit can change other items' output
+   * indirectly (a moved outline stops a later fill short, an inserted fill
+   * pre-empts one), so "the edited items and nothing else" is each plane's
+   * own footprints: an art item's visual footprint is no licence to change
+   * priority there.
+   */
+  readonly allowedMask?: AllowedMask;
   /** The largest compiled picture, in bytes. */
   readonly maxBytes?: number;
 }
@@ -113,10 +127,19 @@ function changedCells(
   };
 }
 
+/** `allowed`'s mask for `plane`, checked for size; undefined when the plane is unrestricted. */
+function planeMask(allowed: AllowedMask | undefined, plane: PicturePlane): Uint8Array | undefined {
+  const mask = allowed instanceof Uint8Array ? allowed : allowed?.[plane];
+  if (mask !== undefined && mask.length !== CELLS) {
+    throw new RangeError(`allowedMask has ${mask.length} cells; expected ${CELLS}`);
+  }
+  return mask;
+}
+
 /**
  * Check an edit by its decoded planes: no cell of a locked plane may change,
- * no cell outside `allowedMask` may change on either plane, and the compiled
- * picture may not exceed `maxBytes`.
+ * no cell outside `allowedMask` (that plane's, in the per-plane form) may
+ * change, and the compiled picture may not exceed `maxBytes`.
  */
 export function validateEdit(
   before: Planes,
@@ -129,15 +152,11 @@ export function validateEdit(
     const violation = changedCells(before, after, plane, "locked-plane", () => true);
     if (violation) violations.push(violation);
   }
-  const mask = constraints.allowedMask;
-  if (mask !== undefined) {
-    if (mask.length !== CELLS) {
-      throw new RangeError(`allowedMask has ${mask.length} cells; expected ${CELLS}`);
-    }
-    for (const plane of PLANES) {
-      const violation = changedCells(before, after, plane, "outside-mask", (i) => mask[i] === 0);
-      if (violation) violations.push(violation);
-    }
+  for (const plane of PLANES) {
+    const mask = planeMask(constraints.allowedMask, plane);
+    if (mask === undefined) continue;
+    const violation = changedCells(before, after, plane, "outside-mask", (i) => mask[i] === 0);
+    if (violation) violations.push(violation);
   }
   const { maxBytes } = constraints;
   if (maxBytes !== undefined && after.bytes.length > maxBytes) {
@@ -156,8 +175,8 @@ export function validateEdit(
 /**
  * 160x168 mask: 1 where item `itemId` owns the final cell on `plane` (or on
  * either plane for "both"); all zero when the document has no such item. The
- * UI builds `allowedMask` as the OR of the edited items' masks before and
- * after the edit.
+ * UI builds each plane's `allowedMask` as the OR of the edited items' masks
+ * on that plane, before and after the edit.
  */
 export function footprintMask(
   compiled: CompiledDocument,

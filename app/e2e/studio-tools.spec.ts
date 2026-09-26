@@ -173,7 +173,9 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   const studio = await openStudio(page);
   await page.keyboard.press("r");
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Inserting at the end, #13");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText(
+    "New shapes are drawn last, after step 12.",
+  );
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
   await dragCells(page, [20, 120], [40, 140]);
@@ -257,7 +259,9 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await page.keyboard.press("Home");
   for (let k = 0; k < 6; k++) await page.keyboard.press(".");
   await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-insert-at")).toContainText("Inserting at #7 of 13");
+  await expect(studio.getByTestId("studio-insert-at")).toContainText(
+    "New shapes are drawn after step 6 of 12",
+  );
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 1);
   await dragCells(page, [50, 88], [70, 100]);
@@ -269,9 +273,13 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   expect(drawn.visual[at(60, 95)]).toBe(1);
   // The playhead stays after the new item; the way back to the end is one click.
   // vis, pri off and 13 rows: 15 commands after the first 6.
-  await expect(studio.getByTestId("studio-insert-at")).toContainText("Inserting at #22 of 28");
+  await expect(studio.getByTestId("studio-insert-at")).toContainText(
+    "New shapes are drawn after step 21 of 27",
+  );
   await studio.getByTestId("studio-playhead-end").click();
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Inserting at the end, #28");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText(
+    "New shapes are drawn last, after step 27.",
+  );
 });
 
 test("G stands the ghost actor on the draft; dragged behind the occluder it reads Behind", async ({

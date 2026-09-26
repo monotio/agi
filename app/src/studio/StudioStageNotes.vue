@@ -6,8 +6,9 @@ import type { KeepBanner, KeepRecovery } from "./useStudioKeep.ts";
 
 /**
  * The stage's messages: a failed Keep with the one recovery it allows, else
- * the last edit's notice (why it was refused, or that it was kept), and the
- * editing keys while an item is selected.
+ * the last edit's notice (why it was refused, or that it was kept) with its
+ * technical detail behind a disclosure, and the editing keys while an item
+ * is selected.
  */
 const { banner, notice, editing } = defineProps<{
   banner: KeepBanner | null;
@@ -15,7 +16,11 @@ const { banner, notice, editing } = defineProps<{
   /** An editable item is selected: show the editing keys. */
   editing: boolean;
 }>();
-const emit = defineEmits<{ recover: [recovery: KeepRecovery] }>();
+const emit = defineEmits<{
+  recover: [recovery: KeepRecovery];
+  /** The notice's details opened (true) or closed: hold it up meanwhile. */
+  hold: [open: boolean];
+}>();
 
 const RECOVERY_LABELS: Record<KeepRecovery, string> = {
   reopen: "Reopen",
@@ -41,15 +46,18 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
       {{ RECOVERY_LABELS[banner.recovery] }}
     </UiButton>
   </p>
-  <p
-    v-else-if="notice"
-    class="stage-note"
-    :class="`stage-note--${notice.tone}`"
-    role="status"
-    data-testid="studio-notice"
-  >
-    {{ notice.text }}
-  </p>
+  <div v-else-if="notice" class="stage-note" :class="`stage-note--${notice.tone}`" role="status">
+    <span data-testid="studio-notice">{{ notice.text }}</span>
+    <details
+      v-if="notice.detail"
+      class="stage-note__details"
+      data-testid="studio-notice-detail"
+      @toggle="emit('hold', ($event.target as HTMLDetailsElement).open)"
+    >
+      <summary>Details</summary>
+      <p>{{ notice.detail }}</p>
+    </details>
+  </div>
   <dl v-if="editing" class="stage-hint" data-testid="studio-hint" aria-label="Editing keys">
     <dt>Drag</dt>
     <dd>move the item or a point</dd>
@@ -82,6 +90,21 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
   box-shadow: var(--shadow-pop);
   font-size: var(--text-xs);
   transform: translateX(-50%);
+}
+.stage-note:has(.stage-note__details) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.stage-note__details summary {
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.stage-note__details p {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  white-space: pre-line;
 }
 .stage-note--error {
   border-color: var(--danger-line);

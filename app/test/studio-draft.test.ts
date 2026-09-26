@@ -6,7 +6,14 @@ import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
 import { useStudioDrag } from "../src/studio/useStudioDrag.ts";
-import { editedItems, freshItemId, useStudioDraft } from "../src/studio/useStudioDraft.ts";
+import {
+  changeCount,
+  editedItems,
+  freshItemId,
+  useStudioDraft,
+} from "../src/studio/useStudioDraft.ts";
+import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
+import type { PictureEdit } from "../src/resourceCommit.ts";
 
 /**
  * A white room: an art box outline, the red paint filling it, a grey wall
@@ -80,22 +87,27 @@ describe("useStudioDraft", () => {
     assert.equal(draft.preview.value, null, "the preview snaps back to the start");
     const end = draft.endGesture(move("occ", 45, 0), "Move Occluder");
     assert.ok(!end.ok && end.refusal.kind === "kernel");
-    assert.match(end.refusal.message, /off the surface at 164,105/);
+    assert.equal(end.refusal.message, "Can't move it further right — it would leave the picture.");
+    assert.match(end.refusal.detail ?? "", /off the surface at 164,105/);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.history.value.past.length, 0);
     assert.equal(draft.gesturing.value, false);
     assert.equal(draft.canUndo.value, false);
   });
 
-  it("refuses edits on a lens-locked plane with the count and the box", () => {
+  it("refuses edits on a lens-locked plane, in plain words with the count and box as detail", () => {
     const { draft, lens, unlocks } = setup("depth");
     // Moving art in the Depth lens touches the locked visual plane: a box
     // outline one row lower changes 21 + 19 cells at each long edge.
     const art = draft.apply(move("box", 0, 1), "Move Box");
     assert.ok(!art.ok && art.refusal.kind === "lock");
-    assert.match(
+    assert.equal(
       art.refusal.message,
-      /^Art is locked in the Depth lens: 80 cells at 10,10\.\.30,31/,
+      "This would change the art, which is locked in the Depth lens.",
+    );
+    assert.equal(
+      art.refusal.detail,
+      "Art is locked in the Depth lens: 80 cells at 10,10..30,31 would change.",
     );
     assert.ok(art.refusal.cells.includes(1));
     assert.equal(draft.source.value, SOURCE);
@@ -104,8 +116,12 @@ describe("useStudioDraft", () => {
     lens.value = "art";
     const depth = draft.apply(move("occ", 0, 1), "Move Occluder");
     assert.ok(!depth.ok && depth.refusal.kind === "lock");
-    assert.match(
+    assert.equal(
       depth.refusal.message,
+      "This would change the depth, which is locked in the Art lens.",
+    );
+    assert.match(
+      depth.refusal.detail,
       /^Depth is locked in the Art lens: 316 cells at 40,90\.\.119,106/,
     );
     unlocks.value = { ...NO_UNLOCKS, priority: true };
@@ -121,10 +137,11 @@ describe("useStudioDraft", () => {
       "Priority 12",
     );
     assert.ok(!paint.ok && paint.refusal.kind === "lock");
-    assert.match(
+    assert.equal(
       paint.refusal.message,
-      /^Depth values 4–15 are locked in the Walk lens: 120 cells/,
+      "This would change depth values 4–15, which are locked in the Walk lens.",
     );
+    assert.match(paint.refusal.detail, /^Depth values 4–15 are locked in the Walk lens: 120 cells/);
     const moved = draft.apply(move("occ", 1, 0), "Move Occluder");
     assert.ok(!moved.ok);
     unlocks.value = { ...NO_UNLOCKS, depthInWalk: true };
@@ -137,7 +154,8 @@ describe("useStudioDraft", () => {
     // Opening the box lets the paint flood the whole white room.
     const result = draft.apply({ type: "deleteItem", itemId: "box" }, "Delete Box");
     assert.ok(!result.ok && result.refusal.kind === "lock");
-    assert.match(result.refusal.message, /outside the edited item/);
+    assert.equal(result.refusal.message, "This would change another object's art.");
+    assert.match(result.refusal.detail, /outside the edited item/);
     assert.equal(draft.source.value, SOURCE);
   });
 
@@ -174,6 +192,45 @@ describe("useStudioDraft", () => {
     assert.equal(draft.redo(), true);
     assert.equal(draft.dirty.value, false, "redo back to the kept text is clean again");
     assert.equal(draft.changes.value, 0);
+  });
+
+  it("counts a change only when the bytes differ; a note change keeps the same bytes", async () => {
+    const { draft } = setup("depth");
+    const original = draft.compiled.value.bytes;
+    assert.equal(
+      draft.apply({ type: "setItemMeta", itemId: "occ", label: "Table" }, "Rename").ok,
+      true,
+    );
+    assert.deepEqual([draft.changes.value, draft.notesOnly.value], [1, true]);
+    assert.equal(changeCount(draft.changes.value, draft.notesOnly.value), "1 note change");
+
+    const kept: PictureEdit[] = [];
+    const keeper = useStudioKeep({
+      draft,
+      pictureNumber: () => 5,
+      keep: async (edit) => {
+        kept.push(edit);
+        return { status: "committed", projectId: null, revision: testRevision("notes") };
+      },
+    });
+    assert.equal(await keeper.keep(), true);
+    // The kept bytes are the stored ones: the transaction saves only the text.
+    assert.deepEqual(kept[0]!.bytes, original);
+    assert.equal(kept[0]!.reason, "1 note change");
+    assert.match(kept[0]!.source, /# @item occ "Table" depth/);
+    assert.deepEqual([draft.changes.value, draft.notesOnly.value], [0, false]);
+
+    // A move changes the bytes: a change like any other, counted with the note after it.
+    assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
+    assert.equal(
+      draft.apply({ type: "setItemMeta", itemId: "occ", locked: true }, "Lock").ok,
+      true,
+    );
+    assert.deepEqual([draft.changes.value, draft.notesOnly.value], [2, false]);
+    assert.equal(changeCount(2, false), "2 changes");
+    assert.equal(draft.undo(), true);
+    assert.equal(draft.undo(), true);
+    assert.deepEqual([draft.dirty.value, draft.notesOnly.value], [false, false]);
   });
 
   it("names the items an operation edits and fresh ids for copies", () => {

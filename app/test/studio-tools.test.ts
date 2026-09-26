@@ -330,7 +330,12 @@ describe("useStudioTools", () => {
     assert.equal(tools.finish(), true);
     const refusal = reports.at(-1);
     assert.equal(refusal?.ok, false);
-    assert.match(!refusal!.ok ? refusal.refusal.message : "", /self-intersects/);
+    assert.ok(refusal && !refusal.ok);
+    assert.equal(
+      refusal.refusal.message,
+      "A polygon's edges can't cross. Remove the last point or start again.",
+    );
+    assert.match(refusal.refusal.detail ?? "", /self-intersects/);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(tools.path.value?.points.length, 4);
     // Backspace drops the crossing point; the first point closes the triangle.

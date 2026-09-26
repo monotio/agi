@@ -254,7 +254,10 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
   await expect(studio.getByTestId("studio-notice")).toHaveText(
-    "Not changed: Art is locked in the Depth lens: 288 cells at 44,91..116,104 would change.",
+    "This would change the art, which is locked in the Depth lens.",
+  );
+  await expect(studio.getByTestId("studio-notice-detail")).toContainText(
+    "Art is locked in the Depth lens: 288 cells at 44,91..116,104 would change.",
   );
   await expect(studio.locator('[data-role="refused"]')).toHaveCount(1);
   await expect(status).toHaveText("No changes");
