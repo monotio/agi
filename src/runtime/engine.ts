@@ -34,6 +34,7 @@ import {
   type ProfileId,
 } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
+import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
@@ -2820,7 +2821,7 @@ export class Engine {
     // (docs/fidelity.md, "Original add.to.pic control box").
     const covered = new Set<number>();
     drawCel(this.surface, c, x, y, {
-      priority: (priority & 0x0f) === 0 ? this.priorityForY(y) : priority,
+      priority: (priority & 0x0f) === 0 ? priorityForY(y, this.priorityBase) : priority,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
@@ -2844,9 +2845,9 @@ export class Engine {
     cel: { width: number; height: number },
     margin: number,
   ): void {
-    const band = this.priorityForY(y);
+    const band = priorityForY(y, this.priorityBase);
     let rows = 1;
-    while (rows <= y && this.priorityForY(y - rows) === band) rows++;
+    while (rows <= y && priorityForY(y - rows, this.priorityBase) === band) rows++;
     rows = Math.min(rows, cel.height);
     const left = x;
     const right = x + cel.width - 1;
@@ -3431,7 +3432,7 @@ export class Engine {
 
     obj.x = nx;
     obj.y = ny;
-    if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
+    if (!obj.fixedPriority) obj.priority = priorityForY(ny, this.priorityBase);
     if (boundary !== 0) {
       if (obj === this.objects[0]) {
         this.vars[V_EDGE] = boundary;
@@ -3523,7 +3524,7 @@ export class Engine {
    * docs/fidelity.md: footprint-class-flags
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
-    if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
+    if (!obj.fixedPriority) obj.priority = priorityForY(ny, this.priorityBase);
     if (obj.priority === 15) {
       if (obj === this.objects[0]) {
         this.flags[3] = 0;
@@ -3770,7 +3771,7 @@ export class Engine {
       const view = this.views.get(o.view);
       const cel = view && readViewCel(view, o.loop, o.cel);
       if (!cel) continue;
-      const pri = o.fixedPriority ? o.priority : this.priorityForY(o.y);
+      const pri = o.fixedPriority ? o.priority : priorityForY(o.y, this.priorityBase);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
         onPixel: (index: number) => {
@@ -3904,12 +3905,6 @@ export class Engine {
       this.ensurePresentationCurrent();
       this.flags[1] = this.cachedEgoVisible ? 0 : 1;
     }
-  }
-
-  /** Baseline priority bands (spec "Priority and horizon" and set.pri.base). */
-  private priorityForY(y: number): number {
-    if (y < this.priorityBase) return 4;
-    return Math.min(15, 5 + Math.floor(((y - this.priorityBase) * 10) / (168 - this.priorityBase)));
   }
 
   // ---------- parser ----------

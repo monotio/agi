@@ -4,6 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
+import { priorityForY } from "../src/runtime/priority.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
 import { buildView } from "../src/view/view.ts";
 
@@ -321,4 +322,23 @@ test("v3 extension dispatch consumes its profile operands and saves the menu gat
   const early = game("hide.mouse(42); assignn(v62, 17); return;", "3.002.086");
   early.tick();
   assert.equal(early.vars[62], 17);
+});
+
+// The pure band function the engine and the Room Studio's band guides share,
+// hand-computed from 5 + floor((y - base) * 10 / (168 - base)).
+test("priorityForY maps the default base 48 to bands 4..14", () => {
+  assert.equal(priorityForY(47), 4); // above the base
+  assert.equal(priorityForY(48), 5); // 5 + floor(0 / 120)
+  assert.equal(priorityForY(59), 5); // 5 + floor(110 / 120)
+  assert.equal(priorityForY(60), 6); // 5 + floor(120 / 120)
+  assert.equal(priorityForY(167), 14); // 5 + floor(1190 / 120)
+  assert.equal(priorityForY(167, 48), 14);
+});
+
+test("priorityForY follows a non-default base", () => {
+  assert.equal(priorityForY(59, 60), 4);
+  assert.equal(priorityForY(60, 60), 5);
+  assert.equal(priorityForY(113, 60), 9); // 5 + floor(530 / 108)
+  assert.equal(priorityForY(114, 60), 10); // 5 + floor(540 / 108)
+  assert.equal(priorityForY(167, 60), 14); // 5 + floor(1070 / 108)
 });
