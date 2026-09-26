@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import {
+  authoredPictureSource,
+  createAgentSessionState,
+  executeAgentTool,
+} from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
+import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
 import type { AgentSessionState } from "../src/agent/tools.ts";
@@ -232,6 +237,49 @@ test("picture edits match the authored source read_picture returns, comments and
   const after = executeAgentTool(state, "read_picture", { num: 3, include: "source" });
   assert.equal(after.details?.["source"], expected);
   assert.notEqual(after.details?.["revision"], read.details?.["revision"]);
+});
+
+test("a source edit on an annotated write_scene picture keeps its Studio items and stays trusted", () => {
+  const state = createAgentSessionState();
+  const written = executeAgentTool(state, "write_scene", {
+    room: 7,
+    backgroundColor: 1,
+    shapes: [
+      {
+        kind: "rect",
+        color: 5,
+        priority: null,
+        filled: true,
+        x1: 1,
+        y1: 2,
+        x2: 3,
+        y2: 3,
+        points: null,
+        name: "Oak tree",
+      },
+    ],
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const read = executeAgentTool(state, "read_picture", { num: 7, include: "source" });
+  assert.equal(read.success, true, read.error ?? "");
+  assert.match(String(read.details?.["source"]), /# @item oak-tree "Oak tree" art/);
+  const edit = executeAuthoringTool(state, "edit_resource_source", {
+    kind: "picture",
+    num: 7,
+    expectedRevision: read.details?.["revision"],
+    edits: [{ find: "line 1,3 3,3", replace: "line 1,3 4,3" }],
+  })!;
+  assert.equal(edit.success, true, edit.error ?? "");
+  const trusted = authoredPictureSource(state, 7);
+  assert.ok(trusted !== undefined, "the edited annotated source still compiles to its resource");
+  assert.match(trusted, /# @item oak-tree "Oak tree" art/);
+  assert.match(trusted, /line 1,3 4,3/);
+  const parsed = parsePictureDocument(trusted);
+  assert.deepEqual(parsed.diagnostics, []);
+  assert.deepEqual(
+    parsed.document.items.map((item) => item.id),
+    ["background", "oak-tree"],
+  );
 });
 
 test("a stored picture source that no longer matches its resource is not trusted", () => {
