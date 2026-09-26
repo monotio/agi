@@ -7,6 +7,13 @@ import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import PendingReferences from "./PendingReferences.vue";
+import UiIcon from "./ui/UiIcon.vue";
+
+/**
+ * Where the assistant is hosted: the Play drawer is Ask-only (remix lives in
+ * Create), the Create dock carries the full Ask / Remix surface.
+ */
+const { surface } = defineProps<{ surface: "drawer" | "dock" }>();
 
 const engine = useEngineApi();
 const { state, openPowerUp, closePowerUp, submitPowerUp, stopAgent, continueAgent, discardAgent } =
@@ -16,10 +23,9 @@ const bridge = useShellBridge();
 const { aiConfigured, aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 
 /**
- * The remix: one round button on the
- * game frame. Click it and the world freezes at the next cycle boundary while
- * the agent takes your instruction; the bubble streams its tool calls; its
- * closing sentence closes the bubble, the room re-enters if it was patched,
+ * The assistant. Opening it freezes the world at the next cycle boundary
+ * while the agent takes your instruction; the panel streams its tool calls;
+ * a remix's closing sentence closes it, the room re-enters if it was patched,
  * and the interpreter resumes on exactly the cycle it parked on.
  */
 const powerUpLine = ref("");
@@ -140,35 +146,6 @@ watch(progressFeedEl, (el) => {
   onWatcherCleanup(() => observer.disconnect());
 });
 
-/** The power-up bubble is draggable by its head and collapsible to a strip. */
-const bubblePos = ref<{ x: number; y: number }>();
-const bubbleCollapsed = ref(false);
-let bubbleDrag: { px: number; py: number; ox: number; oy: number } | null = null;
-
-function onBubbleHeadDown(ev: PointerEvent): void {
-  const t = ev.target as HTMLElement;
-  if (t.closest("button,input,textarea,select,a,summary")) return;
-  const bubble = (ev.currentTarget as HTMLElement).closest(".agent-bubble");
-  if (!(bubble instanceof HTMLElement)) return;
-  const r = bubble.getBoundingClientRect();
-  bubblePos.value = { x: r.left, y: r.top };
-  bubbleDrag = { px: ev.clientX, py: ev.clientY, ox: r.left, oy: r.top };
-  (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
-  ev.preventDefault();
-}
-
-function onBubbleHeadMove(ev: PointerEvent): void {
-  if (!bubbleDrag) return;
-  bubblePos.value = {
-    x: Math.min(Math.max(bubbleDrag.ox + ev.clientX - bubbleDrag.px, -160), window.innerWidth - 80),
-    y: Math.min(Math.max(bubbleDrag.oy + ev.clientY - bubbleDrag.py, 0), window.innerHeight - 40),
-  };
-}
-
-function onBubbleHeadUp(): void {
-  bubbleDrag = null;
-}
-
 async function onPowerUp(mode?: "ask" | "remix"): Promise<void> {
   if (state.powerUp.busy) return;
   if (state.powerUp.open) {
@@ -225,28 +202,22 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 </script>
 
 <template>
-  <div
+  <section
     v-if="state.powerUp.open"
     class="agent-bubble"
-    :class="{ floating: bubblePos !== undefined, collapsed: bubbleCollapsed }"
-    :style="bubblePos ? { left: `${bubblePos.x}px`, top: `${bubblePos.y}px` } : {}"
+    :class="[`agent-bubble--${surface}`]"
     data-testid="agent-bubble"
+    aria-label="Assistant"
     @click.stop
     @pointerdown.stop
   >
-    <div
-      class="agent-bubble-head"
-      data-testid="agent-bubble-head"
-      title="Drag to move"
-      @pointerdown="onBubbleHeadDown"
-      @pointermove="onBubbleHeadMove"
-      @pointerup="onBubbleHeadUp"
-      @pointercancel="onBubbleHeadUp"
-    >
-      <span class="agent-bubble-grip">⠿</span>
-      <span v-if="creatingRoom" class="agent-bubble-title">{{
-        state.powerUp.error ? "Could not create this room" : "Creating the next room"
-      }}</span>
+    <header class="agent-bubble-head" data-testid="agent-bubble-head">
+      <h2 v-if="creatingRoom" class="agent-bubble-title">
+        {{ state.powerUp.error ? "Could not create this room" : "Creating the next room" }}
+      </h2>
+      <h2 v-else-if="surface === 'drawer'" class="agent-bubble-title">
+        <UiIcon name="sparkles" :size="16" />Ask
+      </h2>
       <div v-else class="agent-mode-switch" role="group" aria-label="Agent mode">
         <button
           type="button"
@@ -270,6 +241,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
         </button>
       </div>
       <button
+        v-if="surface === 'dock'"
         type="button"
         class="agent-inspect"
         :class="{ on: debugOpen }"
@@ -278,7 +250,7 @@ function onPowerUpKey(ev: KeyboardEvent): void {
         title="AGI inspector: priority views, objects, vars, flags, trace"
         @click="debugOpen = !debugOpen"
       >
-        ◈ Inspect
+        <UiIcon name="inspect" :size="16" />Inspect
       </button>
       <span class="agent-bubble-right">
         <span class="agent-bubble-room" data-testid="agent-bubble-room"
@@ -286,30 +258,23 @@ function onPowerUpKey(ev: KeyboardEvent): void {
           {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
         >
         <button
-          type="button"
-          class="bubble-icon"
-          data-testid="agent-bubble-collapse"
-          :title="bubbleCollapsed ? 'Expand' : 'Collapse to the title bar'"
-          @click="bubbleCollapsed = !bubbleCollapsed"
-        >
-          {{ bubbleCollapsed ? "+" : "−" }}
-        </button>
-        <button
           v-if="!creatingRoom || !state.powerUp.busy"
           type="button"
-          class="bubble-icon bubble-close remix-close"
+          class="bubble-close remix-close"
           data-testid="agent-bubble-close"
           aria-label="Back to game"
           title="Back to game (Esc)"
           :disabled="state.powerUp.busy"
           @click="onPowerUp()"
         >
-          ×
+          <UiIcon name="x" :size="18" />
         </button>
       </span>
-    </div>
+    </header>
     <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
-      <p>Connect your AI provider to ask about or remix this game.</p>
+      <p>
+        Connect your AI provider to ask about{{ surface === "dock" ? " or remix" : "" }} this game.
+      </p>
       <button
         type="button"
         class="ui-button ui-button--primary"
@@ -471,225 +436,142 @@ function onPowerUpKey(ev: KeyboardEvent): void {
     <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
       {{ state.powerUp.error }}
     </p>
-  </div>
+  </section>
 </template>
 
 <style scoped>
-/* Inspector entry inside the power-up header: same segmented control
-   language, but a toggle (the dock outlives the bubble). */
-.agent-inspect {
-  background: #081217;
-  border: 1px solid #38515b;
-  border-radius: 8px;
-  color: var(--ui-action);
-  font: inherit;
-  font-size: 12px;
-  padding: 5px 10px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.agent-inspect:hover {
-  border-color: var(--ui-action-hover);
-  color: var(--ui-action-hover);
-  background: var(--ui-action-surface-hover);
-}
-
-.agent-inspect.on {
-  color: var(--ui-action-ink);
-  background: var(--ui-action);
-  border-color: var(--ui-action);
-}
-
+/*
+ * The assistant fills its host: the Play drawer or the Create dock. Neither
+ * floats over the game — the stage resizes beside it, or the drawer overlays
+ * on narrow screens (App.vue owns the host geometry).
+ */
 .agent-bubble {
-  font-family: system-ui, sans-serif;
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(560px, calc(100vw - 32px));
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
-  background: rgba(6, 12, 20, 0.96);
-  border: 1px solid #55ffff;
-  border-radius: 10px;
-  padding: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  color: var(--ink);
+  background: var(--surface-1);
+  font: var(--text-md) / var(--leading) var(--font-sans);
   text-align: left;
-  z-index: 4;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
-  transition:
-    opacity 160ms ease-out,
-    transform 160ms ease-out;
-}
-
-@starting-style {
-  .agent-bubble {
-    opacity: 0;
-  }
-}
-
-/* Dragged free of its centred position, or collapsed to the title strip. */
-.agent-bubble.floating {
-  transform: none;
-}
-
-.agent-bubble.collapsed {
-  width: auto;
-  max-width: calc(100vw - 32px);
-  padding-bottom: 10px;
-}
-
-.agent-bubble.collapsed > *:not(.agent-bubble-head) {
-  display: none;
-}
-
-.agent-bubble.collapsed .agent-bubble-head {
-  margin-bottom: 0;
-}
-
-.agent-bubble-grip {
-  color: #3d5a6e;
-  font-size: 10px;
-  flex: none;
-}
-
-.bubble-icon {
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: #7e9aac;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 2px 6px;
-  white-space: nowrap;
-}
-
-.bubble-icon:hover {
-  color: var(--ui-action-hover);
-}
-
-.bubble-icon.bubble-close:hover {
-  color: var(--ui-danger-hover);
-}
-
-/* The close button keeps a 44px hit area at every pointer size; negative
-   margins keep the compact header row from growing. */
-.bubble-icon.bubble-close {
-  min-width: 44px;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: -11px -7px;
-}
-
-.bubble-icon:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* Finger-sized targets on touch devices. */
-@media (any-pointer: coarse) {
-  .bubble-icon {
-    min-width: 44px;
-    min-height: 44px;
-    padding: 10px;
-    font-size: 18px;
-  }
 }
 
 .agent-bubble-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  color: #55ffff;
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #1d3a46;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.agent-bubble-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--ink);
+  font: var(--weight-semibold) var(--text-md) / var(--leading-tight) var(--font-sans);
+}
+.agent-bubble-title .ui-icon {
+  color: var(--action);
 }
 
 .agent-bubble-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-left: auto;
-  align-self: flex-start;
-}
-
-.agent-bubble-head:active {
-  cursor: grabbing;
-}
-
-.agent-bubble-head button {
-  cursor: pointer;
 }
 
 .agent-bubble-room {
-  color: #aaaaaa;
+  color: var(--ink-3);
+  white-space: nowrap;
 }
 
-.agent-bubble-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-  gap: 8px;
-  margin-top: 12px;
-}
-.agent-mode-switch {
-  display: flex;
-  padding: 3px;
-  background: #081217;
-  border: 1px solid #38515b;
-  border-radius: 8px;
-}
-.agent-mode-switch button {
-  min-height: 44px;
+/* The close button keeps a 44px hit area at every pointer size; negative
+   margins keep the compact header row from growing. */
+.bubble-close {
+  display: inline-grid;
+  place-items: center;
+  min-width: var(--control-h-touch);
+  min-height: var(--control-h-touch);
+  margin: calc(var(--space-4) * -1) calc(var(--space-3) * -1) calc(var(--space-4) * -1) 0;
+  padding: 0;
   border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #a9bac0;
-  padding: 7px 12px;
-  font:
-    700 14px/1.4 system-ui,
-    sans-serif;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  background: none;
   cursor: pointer;
 }
+.bubble-close:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--surface-3);
+}
 
-/* Desktop: the switch shares the header row with small icon buttons — keep
-   the 44px target but tighten padding and type so the head stays compact. */
-@media (any-pointer: fine) {
-  .agent-mode-switch button {
-    padding: 5px 10px;
-    font-size: 12px;
-  }
+.agent-mode-switch {
+  display: flex;
+  gap: var(--space-0);
+  padding: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-0);
+}
+.agent-mode-switch button {
+  min-height: var(--control-h-touch);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  background: transparent;
+  font: var(--weight-semibold) var(--text-sm) / 1 var(--font-sans);
+  cursor: pointer;
 }
 .agent-mode-switch button[aria-pressed="true"] {
-  background: #20454e;
-  color: #a5ffff;
+  color: var(--ink);
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
-.agent-bubble.collapsed .agent-bubble-head {
-  border-bottom: none;
-  padding-bottom: 0;
+
+/* Inspector entry beside the mode switch: a toggle (the dock outlives the panel). */
+.agent-inspect {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  background: transparent;
+  font: var(--weight-semibold) var(--text-xs) / 1 var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
 }
+.agent-inspect:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+.agent-inspect.on {
+  color: var(--action);
+  border-color: var(--action-line);
+  background: var(--action-soft);
+}
+
 .agent-conversation {
-  max-height: min(32dvh, 260px);
+  flex: 1 1 auto;
+  min-height: 96px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 12px 0;
-  font:
-    14px/1.55 system-ui,
-    sans-serif;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  font: var(--text-md) / 1.55 var(--font-sans);
 }
 .agent-message {
   white-space: pre-wrap;
@@ -698,17 +580,20 @@ function onPowerUpKey(ev: KeyboardEvent): void {
 .agent-message.user {
   align-self: flex-end;
   max-width: 90%;
-  background: #173039;
-  padding: 8px 12px;
-  border-radius: 10px 10px 2px 10px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
 }
 .agent-message.assistant {
-  color: #e3ecee;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  color: var(--ink-2);
+  background: var(--surface-2);
 }
 .agent-activity {
-  font-size: 12px;
-  color: #8da4ac;
-  margin-top: 10px;
+  margin-top: var(--space-3);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
 }
 .agent-activity summary {
   cursor: pointer;
@@ -717,24 +602,29 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   opacity: 0.5;
   cursor: default;
 }
+.agent-bubble-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-4);
+}
 .agent-bubble-form--remix textarea {
   grid-column: 1 / -1;
 }
 .agent-bubble-form textarea {
   box-sizing: border-box;
-  resize: none;
-  margin: 0;
-  flex: 1;
   min-width: 0;
-  background: #04080c;
-  border: 1px solid #2a4a55;
-  color: #e8e8e8;
-  padding: 10px 12px;
-  font: inherit;
-  font-size: 14px;
-  border-radius: 4px;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  resize: none;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-0);
+  font: var(--text-md) / var(--leading) var(--font-sans);
 }
-
 .agent-bubble-form button {
   margin: 0;
   min-width: 72px;
@@ -745,84 +635,56 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0 8px;
-  color: #a8eeee;
-  font-size: 12px;
-  border-bottom: 1px solid #294047;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--action);
+  font-size: var(--text-xs);
 }
-
 .remix-progress progress {
+  flex-shrink: 0;
   width: 48px;
   height: 4px;
-  flex-shrink: 0;
-  accent-color: #55ffff;
+  accent-color: var(--action);
 }
 
 .agent-bubble-feed {
-  margin-top: 8px;
+  margin-top: var(--space-3);
   max-height: 160px;
   min-height: 0;
   overflow-y: auto;
   overflow-anchor: none;
   overscroll-behavior: contain;
-  scrollbar-color: #48666e transparent;
+  scrollbar-color: var(--hairline-strong) transparent;
   scrollbar-width: thin;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-xs);
+  line-height: var(--leading);
 }
-
 .remix-follow-controls {
   display: flex;
   justify-content: flex-end;
-  padding-top: 6px;
+  padding-top: var(--space-2);
 }
-
 .agent-bubble-line {
-  color: #c8d6d9;
+  color: var(--ink-2);
   white-space: pre-wrap;
   word-break: break-word;
 }
-
 .agent-bubble-line.error {
-  color: #ff5555;
+  color: var(--danger);
 }
-
 .agent-bubble-line.hint {
-  color: #b4c8cc;
+  color: var(--ink-3);
 }
-
 .agent-bubble-error {
-  color: #ff5555;
-  font-size: 11px;
-  margin: 6px 0 0;
+  margin: var(--space-2) 0 0;
+  color: var(--danger);
+  font-size: var(--text-xs);
 }
-
+.agent-bubble-tools {
+  margin-top: var(--space-4);
+}
 .assistant-connect {
-  margin-top: 12px;
-}
-@media (max-width: 600px) {
-  .agent-bubble {
-    position: fixed;
-    top: auto;
-    left: auto;
-    transform: none;
-    bottom: 16px;
-    right: 16px;
-    width: calc(100% - 32px);
-    box-sizing: border-box;
-    max-height: min(70dvh, 480px);
-    overflow-y: auto;
-  }
-  .agent-bubble-head {
-    flex-wrap: wrap;
-  }
-  .agent-bubble-room {
-    font-size: 10px;
-  }
-  .agent-bubble-form textarea {
-    min-width: 0;
-    width: 100%;
-  }
+  margin-top: var(--space-4);
 }
 </style>

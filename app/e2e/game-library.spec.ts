@@ -15,6 +15,7 @@ import {
   storedAutosave,
   textHook,
   waitForCycles,
+  enterCreateMode,
 } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
@@ -298,6 +299,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
       }),
     );
   });
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("agent-bubble-input").fill("Rename the picture gallery");

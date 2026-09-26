@@ -1,4 +1,4 @@
-import { cacheGame, textHook } from "./engineProbe.ts";
+import { cacheGame, textHook, openInspector } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -50,10 +50,8 @@ test("explode screenshot", async ({ page }) => {
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
+  await openInspector(page);
   await page.getByTestId("dbg-mode-explode").click();
-  await page.keyboard.press("Escape");
   await page.getByTestId("dbg-collapse").click();
   await page.waitForTimeout(900);
   await page.getByTestId("gpu-canvas").screenshot({ path: "test-results/explode-gpu.png" });

@@ -5,6 +5,7 @@ import {
   savedGameCard,
   textHook,
   openAiSettings,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -37,8 +38,7 @@ test("Play, Resume and Save settings share one primary action style", async ({ p
   await play.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const secondary = await page.getByTestId("settings-menu").evaluate(appearance);
-  // btn-exit still uses the legacy classes until GameHeader migrates; the tint
-  // that marks it as a secondary action already matches the tokenised variant.
+  // In play the bar's back button and settings gear are the same icon button.
   const exit = await page.getByTestId("btn-exit").evaluate(appearance);
   expect({ color: exit.color, background: exit.background, radius: exit.radius }).toEqual({
     color: secondary.color,
@@ -48,7 +48,7 @@ test("Play, Resume and Save settings share one primary action style", async ({ p
   // UiButton's fine-pointer height is --control-h (40px); touch gets 44px via
   // the pointer:coarse media query.
   for (const action of await page
-    .locator(".game-nav > button, .game-nav summary, .game-nav .action-menu > button")
+    .locator("[data-testid='btn-exit'], .play-bar__actions button")
     .all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(40);
   }
@@ -67,6 +67,7 @@ test("Play, Resume and Save settings share one primary action style", async ({ p
   await page.getByTestId("ai-settings-save").click();
   await resume.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   for (const action of await page.locator(".agent-mode-switch button, .remix-close").all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -127,9 +128,32 @@ test("tutorial and creation use matching disclosure controls with remembered sta
 test("library details stay concise and Add game is a secondary action", async ({ page }) => {
   const add = page.getByRole("button", { name: "Add game", exact: true });
   await expect(add).toBeVisible();
-  expect(await add.evaluate(appearance)).toEqual(
-    await page.getByTestId("settings-menu").evaluate(appearance),
-  );
+  // The Home nav's Settings is a quiet ghost button now, so the secondary
+  // variant's tokens are the reference.
+  const secondary = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.cssText = [
+      "color: var(--action)",
+      "background: transparent",
+      "border: 1px solid var(--action-line)",
+      "border-radius: var(--radius)",
+      "font: var(--weight-semibold) var(--text-md) / var(--leading-tight) var(--font-sans)",
+      "padding: 0 var(--space-5)",
+    ].join(";");
+    document.body.append(probe);
+    const style = getComputedStyle(probe);
+    const tokens = {
+      color: style.color,
+      background: style.backgroundColor,
+      border: style.border,
+      radius: style.borderRadius,
+      font: style.font,
+      padding: style.padding,
+    };
+    probe.remove();
+    return tokens;
+  });
+  expect(await add.evaluate(appearance)).toEqual(secondary);
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-exit").click();
@@ -202,8 +226,8 @@ test("keyboard focus draws one ring on page buttons and dialog buttons alike", a
   await page.keyboard.press("Escape");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("game-menu").focus();
-  await page.keyboard.press("Tab");
+  await page.getByRole("radio", { name: "Play", exact: true }).focus();
+  await page.keyboard.press("Shift+Tab");
   const eject = page.getByTestId("btn-exit");
   await expect(eject).toBeFocused();
   expect(await eject.evaluate(ring), "a game header button").toEqual(expected);

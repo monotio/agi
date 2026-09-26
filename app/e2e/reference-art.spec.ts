@@ -8,6 +8,7 @@ import {
   openDeveloperActivity,
   settled,
   textHook,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 /**
@@ -90,6 +91,7 @@ async function bootAgentGame(page: Page): Promise<void> {
 }
 
 async function openBubbleAndUpload(page: Page): Promise<void> {
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await page.getByTestId("agent-attach-reference").click();
   await expect(page.getByTestId("reference-upload")).toBeVisible();

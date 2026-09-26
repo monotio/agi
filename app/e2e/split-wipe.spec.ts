@@ -1,4 +1,4 @@
-import { cacheGame, waitForCycles } from "./engineProbe.ts";
+import { cacheGame, waitForCycles, openInspector } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -50,10 +50,8 @@ test("split handle drag", async ({ page }) => {
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await waitForCycles(page, 4);
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
+  await openInspector(page);
   await page.getByTestId("dbg-mode-split").click();
-  await page.keyboard.press("Escape");
   const handle = page.getByTestId("split-handle");
   await expect(handle).toHaveAttribute("aria-valuenow", "50");
   const box = (await handle.boundingBox())!;

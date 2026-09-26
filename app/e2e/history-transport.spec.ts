@@ -9,6 +9,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  openInspector,
 } from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
@@ -69,11 +70,12 @@ async function bootTapeGame(page: Page): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
-/** The inspector's flag write — the same drive the world-map spec uses. */
+/**
+ * The inspector's flag write — the same drive the world-map spec uses. The
+ * inspector opens from Settings > Advanced, so the game stays in Play mode.
+ */
 async function writeFlag(page: Page, flag: number): Promise<void> {
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
-  await page.keyboard.press("Escape");
+  await openInspector(page);
   await page.getByTestId("dbg-tab-state").click();
   await page.getByTestId("dbg-flags").locator("button").nth(flag).click();
   // The flag button keeps focus; a later Space would re-click it instead of

@@ -1,8 +1,8 @@
 /*
  * Layout rules not owned by one component: the app container (which carries
- * the shared --shell-width / --game-width custom properties), the play-area
- * grid, and breakpoints whose rules span several components. Component-owned
- * rules live in each component's scoped style block.
+ * the shared --shell-width / --game-width custom properties), the in-game
+ * shell grid, and breakpoints whose rules span several components.
+ * Component-owned rules live in each component's scoped style block.
  */
 .app-container {
   /* The game screen's width over height: square pixels, or the 4:3 monitor. */
@@ -14,12 +14,17 @@
     calc(100vw - 32px),
     max(640px, calc((100dvh - 280px) * var(--game-ratio)))
   );
+  /* The in-game chrome: top bar, transport strip and the Ask drawer. */
+  --shell-bar-h: 52px;
+  --shell-strip-h: 48px;
+  --shell-drawer-w: 380px;
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   align-items: center;
-  padding: 24px 0;
-  font-size: 14px;
-  line-height: 1.5;
+  padding: 0 0 var(--space-7);
+  font-size: var(--text-md);
+  line-height: var(--leading);
 }
 
 .app-container.original-aspect {
@@ -31,11 +36,138 @@
   --shell-width: min(1120px, calc(100vw - 40px));
 }
 
+.shell {
+  display: contents;
+}
+
+/*
+ * A running game gets the screen: the bar, the stage and the strip fill the
+ * visible height (the tallest seen at this width, so a phone keyboard never
+ * shrinks it). The stage in between fits the screen to whole multiples of the
+ * frame (PlayArea.vue). Anything after the shell — developer activity, sound
+ * previews — sits below the fold.
+ */
+.app-container.in-game {
+  padding: 0;
+  background: var(--agi-0);
+}
+.in-game .shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: var(--layout-height, 100dvh);
+}
+.in-game .shell-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+.in-game .shell-body--asking {
+  grid-template-columns: minmax(0, 1fr) var(--shell-drawer-w);
+}
+.in-game .shell-body--create {
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(300px, 360px);
+  background: var(--surface-sunken);
+}
+.shell-side {
+  display: none;
+}
+.in-game :is(.shell-body--asking, .shell-body--create) .shell-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--hairline);
+  background: var(--surface-1);
+}
+.shell-dock--left {
+  border-right: 1px solid var(--hairline);
+  background: var(--surface-1);
+}
+.assistant-host {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.assistant-start {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+.dock-note {
+  margin: 0 0 var(--space-4);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.assistant-start .dock-note {
+  margin: 0;
+}
+/* The Ask button over the stage's corner, legible over black or art. On a
+   phone the screen fills the stage, so it shrinks to its icon in the corner. */
+.ask-button.ui-btn {
+  background: var(--surface-overlay);
+}
+.with-touch .ask-button.ui-btn {
+  width: var(--control-h-touch);
+  padding: 0;
+}
+.with-touch .ask-button .ui-btn__label {
+  display: none;
+}
+
+/* Narrow windows: Create stacks its docks under the stage, and an open
+   assistant (the Ask drawer, or the Create assistant) overlays the game
+   instead of taking a column. */
+@media (max-width: 900px) {
+  .in-game .shell-body--asking,
+  .in-game .shell-body--create {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .in-game .shell-body--create {
+    overflow-y: auto;
+  }
+  .in-game .shell-body--create .shell-dock--left {
+    order: 2;
+    border-right: 0;
+  }
+  .in-game .shell-body--create .play-area {
+    min-height: 60vh;
+  }
+  .in-game .shell-body--create .shell-side {
+    order: 3;
+    border-left: 0;
+  }
+  .in-game .shell-body.assistant-open .shell-side {
+    position: fixed;
+    top: var(--shell-bar-h);
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-dock);
+    width: min(var(--shell-drawer-w), 100vw);
+    border-left: 1px solid var(--hairline);
+    box-shadow: var(--shadow-dialog);
+  }
+}
+
+/*
+ * Touch layouts keep the phone rules: the screen, the strip and the pad flow
+ * down the page, sized from the stable viewport, and the page may scroll (a
+ * phone keyboard scrolls the screen into view).
+ */
+.in-game.touch-layout .shell {
+  height: auto;
+  min-height: var(--layout-height, 100dvh);
+}
 .play-area {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+}
+.play-area.with-touch {
+  gap: var(--space-5);
+  padding-top: var(--space-3);
 }
 /*
  * Orientation comes from the stable layout (App.vue, viewportLayout.ts), not
@@ -50,18 +182,13 @@
   flex-direction: row;
   align-items: flex-start;
   flex-wrap: wrap;
-  gap: 16px;
+  justify-content: center;
+  gap: var(--space-5);
 }
-/* The transport stays under the game, not a third column beside the pad. */
-.layout-landscape-short .play-area.with-touch .transport {
+/* The strip stays under the game, not a third column beside the pad. */
+.layout-landscape-short .play-area.with-touch .play-strip {
   flex-basis: 100%;
   order: 3;
-}
-.app-container.layout-landscape-short:has(.with-touch) {
-  padding: 8px 0;
-}
-.app-container.layout-landscape-short:has(.with-touch) .header {
-  margin-bottom: 8px;
 }
 .layout-portrait .play-area.with-touch {
   --game-width: min(
@@ -71,8 +198,12 @@
 }
 
 @media (max-width: 600px) {
-  .app-container {
-    padding: 16px 0;
+  /* A phone's two-row bar: the assistant takes the whole screen instead. */
+  .in-game .shell-body.assistant-open .shell-side {
+    top: 0;
+  }
+  .app-container:not(.in-game) {
+    padding: 0 0 var(--space-5);
   }
 }
 
@@ -93,15 +224,13 @@
   min-height: 44px;
   box-sizing: border-box;
   padding: 8px 0;
-  color: #e9f4f4;
+  color: var(--ink);
   cursor: pointer;
-  font:
-    700 20px/1.4 system-ui,
-    sans-serif;
+  font: var(--weight-bold) var(--text-xl) / 1.4 var(--font-sans);
 }
 .section-summary::marker {
   color: var(--ui-action);
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 .section-summary h2 {
   display: inline;
@@ -113,7 +242,7 @@ details[open] > .section-summary {
   margin-bottom: 20px;
 }
 .section-summary:focus-visible {
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 .catalog-art img,
 .library-thumbnail {
@@ -125,13 +254,13 @@ details[open] > .section-summary {
 }
 .library-thumbnail {
   margin-bottom: 14px;
-  border: 1px solid #405457;
-  border-radius: 5px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
 }
 .library-details {
   margin-top: 12px;
-  color: #9fb3b5;
-  font-size: 13px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
   line-height: 1.45;
 }
 .library-details dl {
@@ -141,28 +270,28 @@ details[open] > .section-summary {
   margin: 12px 0;
 }
 .library-details dt {
-  color: #718d90;
+  color: var(--ink-3);
 }
 .library-details dd {
   margin: 0;
 }
 .library-details strong {
-  color: #b7f3da;
+  color: var(--ok);
 }
 .library-error {
-  color: #ffc2bd !important;
+  color: var(--danger) !important;
 }
 .saved-game-card {
   display: flex;
   min-width: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid #38575a;
-  border-radius: 8px;
-  background: #091315;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
 }
 .saved-game-card.selected {
-  border-color: #5b9da0;
+  border-color: var(--action-line);
 }
 .saved-game-card .library-thumbnail,
 .saved-game-cover {
@@ -177,9 +306,9 @@ details[open] > .section-summary {
 .saved-game-cover {
   display: grid;
   place-items: center;
-  color: #6b8588;
-  background: linear-gradient(145deg, #162627, #0a0f10);
-  font: 700 28px/1 monospace;
+  color: var(--ink-3);
+  background: linear-gradient(145deg, var(--surface-2), var(--surface-0));
+  font: var(--weight-bold) var(--text-2xl) / 1 var(--font-mono);
   letter-spacing: 0.15em;
   overflow-wrap: anywhere;
   text-align: center;
@@ -205,7 +334,7 @@ details[open] > .section-summary {
    every card in a row whatever the title length or progress text. */
 .saved-game-info {
   width: 100%;
-  min-height: calc(2 * 19px * 1.25 + 4px + 13px * 1.4);
+  min-height: calc(2 * var(--text-xl) * 1.25 + 4px + var(--text-sm) * 1.4);
 }
 /* One column has nothing to line up with, so the reservation goes. */
 @media (max-width: 640px) {
@@ -223,7 +352,7 @@ details[open] > .section-summary {
     align-self: flex-start;
   }
   .saved-game-cover {
-    font-size: 16px;
+    font-size: var(--text-lg);
     padding: 8px;
   }
   .saved-game-card-body {
@@ -231,7 +360,7 @@ details[open] > .section-summary {
     padding: 10px 12px;
   }
   .saved-game-card .saved-world-title {
-    font-size: 16px;
+    font-size: var(--text-lg);
   }
   .saved-game-play-row {
     margin-top: 8px;
@@ -239,66 +368,64 @@ details[open] > .section-summary {
 }
 .saved-game-card .saved-world-title {
   margin: 0;
-  color: #f2ffff;
-  font-size: 19px;
+  color: var(--ink);
+  font-size: var(--text-xl);
   line-height: 1.25;
 }
 .saved-game-card .saved-world-time {
   margin: 0;
-  color: #90aaa9;
-  font-size: 13px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
   line-height: 1.4;
 }
 .library-details-disclosure {
   width: 100%;
   margin-top: 12px;
-  border-top: 1px solid #2d4144;
-  color: #9fb3b5;
+  border-top: 1px solid var(--hairline);
+  color: var(--ink-2);
 }
 .library-details-disclosure > summary {
   min-height: 44px;
   box-sizing: border-box;
   padding: 12px 2px;
-  color: #b9d0d2;
+  color: var(--ink-2);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .library-details-disclosure[open] > summary {
-  color: #efffff;
+  color: var(--ink);
 }
 .saved-world-badge {
-  background: #194d34;
-  border: 1px solid #339966;
-  color: #66ffaa;
-  font-size: 0.65rem;
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-line);
+  color: var(--ok);
+  font-size: var(--text-2xs);
   font-weight: bold;
   padding: 0.15rem 0.4rem;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   letter-spacing: 0.05em;
 }
 
 .saved-world-title {
-  color: #fff;
+  color: var(--ink);
   font-weight: bold;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 
 .saved-world-time {
-  color: #8bbfa3;
-  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
 }
 .saved-world-source {
-  color: #7f999b;
-  font-size: 0.72rem;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
   margin: 0 0 2px;
 }
 
 .ai-connect {
   margin-top: 24px;
-  color: #b9cdce;
-  font:
-    14px/1.5 system-ui,
-    sans-serif;
+  color: var(--ink-2);
+  font: var(--text-md) / var(--leading) var(--font-sans);
 }
 .ai-connect p {
   margin: 0 0 12px;

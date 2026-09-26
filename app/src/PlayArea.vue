@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
+import { computed, nextTick, onMounted, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import DebugDock from "./DebugDock.vue";
 import TouchControls from "./TouchControls.vue";
 import TransportBar from "./TransportBar.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
+import { stageScreenWidth } from "./viewportLayout.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "./composite.ts";
 import type { ModalKind } from "./useEngine.ts";
 import { pcKey, movementDirection } from "./gameControls.ts";
@@ -13,7 +14,11 @@ import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
 import { GLYPH_CURSOR, TEXT_COLS } from "../../src/runtime/textSurface.ts";
 
-const props = defineProps<{ touchControls: boolean; crtEnabled: boolean }>();
+const props = defineProps<{
+  touchControls: boolean;
+  crtEnabled: boolean;
+  originalAspect: boolean;
+}>();
 
 const engine = useEngineApi();
 const {
@@ -40,6 +45,29 @@ const bridge = useShellBridge();
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
 const screenEl = useTemplateRef("screenEl");
+const stageEl = useTemplateRef("stageEl");
+
+/**
+ * The desktop stage fits the screen to whole multiples of the frame
+ * (viewportLayout.ts). Touch layouts keep the phone rules in app.css, which
+ * size the screen from the viewport instead.
+ */
+const stageBox = ref<{ width: number; height: number }>();
+watch(stageEl, (el) => {
+  if (!el) return;
+  const observer = new ResizeObserver(([entry]) => {
+    if (entry)
+      stageBox.value = { width: entry.contentRect.width, height: entry.contentRect.height };
+  });
+  observer.observe(el);
+  onWatcherCleanup(() => observer.disconnect());
+});
+const stageStyle = computed(() => {
+  const box = stageBox.value;
+  if (props.touchControls || !box || box.width <= 0 || box.height <= 0) return undefined;
+  const ratio = props.originalAspect ? 4 / 3 : FRAME_WIDTH / FRAME_HEIGHT;
+  return { "--game-width": `${stageScreenWidth(box.width, box.height, ratio)}px` };
+});
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
@@ -71,7 +99,6 @@ watch(
 const hasKeyPrompt = computed(() =>
   state.rows.some((r) => r.toLowerCase().includes("press any key")),
 );
-const creatingRoom = computed(() => state.powerUp.mode === "room");
 /**
  * Name the keys that satisfy have.key for this screen. Keys the script maps
  * to controllers (set.key) are not raw keys — Enter on the demo pack selects
@@ -496,7 +523,9 @@ function onSplitUp(): void {
 
 onMounted(() => {
   void presentation.initStage(props.crtEnabled);
-  bridge.focusGameInput = focusInput;
+  // Callers close whatever held the keyboard first (the assistant, a sheet);
+  // the input re-enables on the next render, so focus lands after it.
+  bridge.focusGameInput = () => void nextTick(focusInput);
 });
 
 /** Scroll the game screen to the top of the visible viewport (keyboard up). */
@@ -521,139 +550,119 @@ defineExpose({
 </script>
 
 <template>
-  <!-- Screen Area (Hidden until game is running) -->
-  <div class="play-area" :class="{ 'with-touch': touchControls && state.phase === 'running' }">
-    <div
-      v-show="state.phase === 'running'"
-      ref="screenEl"
-      class="screen"
-      :class="{
-        active: state.phase === 'running',
-        shake: state.shake,
-        remixing: state.powerUp.open,
-      }"
-      @click="onScreenClick"
-      @pointerdown="onScreenPointerDown"
-      @pointermove="presentation.onScreenPointerMove"
-    >
-      <canvas
-        v-show="!!gpuBackend"
-        :ref="bindGpuCanvas"
-        class="game-surface"
-        width="960"
-        height="600"
-        data-testid="gpu-canvas"
-      />
-      <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
-      <canvas
-        v-show="!gpuBackend"
-        :ref="bindCanvas"
-        class="game-surface"
-        width="320"
-        height="200"
-        data-testid="game-canvas"
-      />
-
-      <!-- Native keyboard/IME capture; the engine renders the only visible command line. -->
-      <form
-        v-if="state.phase === 'running'"
-        class="input-row"
-        @click.stop
-        @submit.prevent="onVirtualKey(AGI_KEY.ENTER)"
-      >
-        <input
-          id="game-command"
-          :disabled="
-            state.powerUp.open ||
-            state.historyView.active ||
-            (!state.inputReady && !state.walkthrough.active)
-          "
-          aria-label="Game command"
-          aria-describedby="game-input-help"
-          ref="inputEl"
-          :value="state.prompt ? promptLine : inputLine"
-          :inputmode="state.prompt?.kind === 'getnum' ? 'numeric' : 'text'"
-          data-testid="input-line"
-          autocomplete="off"
-          autocapitalize="off"
-          enterkeyhint="send"
-          spellcheck="false"
-          @input="onInputEdit"
-          @compositionstart="composing = true"
-          @compositionend="onCompositionEnd"
-        />
-      </form>
-
-      <!-- The remix: freeze the world and ask the agent to change it. -->
-      <button
-        type="button"
-        class="power-up"
-        :class="{ armed: state.powerUp.open }"
-        data-testid="power-up"
-        :disabled="
-          (creatingRoom && state.powerUp.open) || state.recording.active || state.historyView.active
-        "
-        :aria-label="
-          creatingRoom && state.powerUp.open
-            ? 'Creating the next room'
-            : state.powerUp.open
-              ? 'Close assistant'
-              : 'Ask or remix this game'
-        "
-        :aria-expanded="state.powerUp.open"
-        :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask, remix, or inspect this game'"
-        @click.stop="bridge.togglePowerUp()"
-      >
-        <span class="power-up-glyph">✦</span>
-      </button>
-
-      <!-- Draggable visual/priority wipe for the dock's Split mode. -->
+  <div
+    class="play-area"
+    :class="{
+      'with-touch': touchControls && state.phase === 'running',
+      inspecting: debugOpen && state.phase === 'running',
+    }"
+    :style="stageStyle"
+  >
+    <div v-show="state.phase === 'running'" ref="stageEl" class="stage">
       <div
-        v-if="debugViewMode === 'split' && debugOpen"
-        class="split-handle"
-        :style="{ left: `${splitAt * 100}%` }"
-        data-testid="split-handle"
-        role="slider"
-        aria-label="Split position"
-        :aria-valuenow="Math.round(splitAt * 100)"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        title="Drag to move the split"
-        @pointerdown.stop="onSplitDown"
-        @pointermove="onSplitMove"
-        @pointerup="onSplitUp"
-        @pointercancel="onSplitUp"
-        @click.stop
+        ref="screenEl"
+        class="screen"
+        :class="{
+          active: state.phase === 'running',
+          shake: state.shake,
+          remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
+        }"
+        @click="onScreenClick"
+        @pointerdown="onScreenPointerDown"
+        @pointermove="presentation.onScreenPointerMove"
       >
-        <span class="split-grip">◂▸</span>
+        <canvas
+          v-show="!!gpuBackend"
+          :ref="bindGpuCanvas"
+          class="game-surface"
+          width="960"
+          height="600"
+          data-testid="gpu-canvas"
+        />
+        <!-- The composed 320x200 frame: Playwright pixel probe and no-GPU fallback. -->
+        <canvas
+          v-show="!gpuBackend"
+          :ref="bindCanvas"
+          class="game-surface"
+          width="320"
+          height="200"
+          data-testid="game-canvas"
+        />
+
+        <!-- Native keyboard/IME capture; the engine renders the only visible command line. -->
+        <form
+          v-if="state.phase === 'running'"
+          class="input-row"
+          @click.stop
+          @submit.prevent="onVirtualKey(AGI_KEY.ENTER)"
+        >
+          <input
+            id="game-command"
+            :disabled="
+              state.powerUp.open ||
+              state.historyView.active ||
+              (!state.inputReady && !state.walkthrough.active)
+            "
+            aria-label="Game command"
+            aria-describedby="game-input-help"
+            ref="inputEl"
+            :value="state.prompt ? promptLine : inputLine"
+            :inputmode="state.prompt?.kind === 'getnum' ? 'numeric' : 'text'"
+            data-testid="input-line"
+            autocomplete="off"
+            autocapitalize="off"
+            enterkeyhint="send"
+            spellcheck="false"
+            @input="onInputEdit"
+            @compositionstart="composing = true"
+            @compositionend="onCompositionEnd"
+          />
+        </form>
+
+        <!-- Draggable visual/priority wipe for the dock's Split mode. -->
+        <div
+          v-if="debugViewMode === 'split' && debugOpen"
+          class="split-handle"
+          :style="{ left: `${splitAt * 100}%` }"
+          data-testid="split-handle"
+          role="slider"
+          aria-label="Split position"
+          :aria-valuenow="Math.round(splitAt * 100)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          title="Drag to move the split"
+          @pointerdown.stop="onSplitDown"
+          @pointermove="onSplitMove"
+          @pointerup="onSplitUp"
+          @pointercancel="onSplitUp"
+          @click.stop
+        >
+          <span class="split-grip">◂▸</span>
+        </div>
+
+        <DebugDock
+          v-if="debugOpen && state.phase === 'running'"
+          :frame="debugFrame"
+          :objects="state.debugObjects"
+          :trace="state.debugTrace"
+          :trace-dropped="state.debugTraceDropped"
+          :channels="state.debugChannels"
+          :view-mode="debugViewMode"
+          :has-gpu="!!gpuBackend"
+          :read-state="readEngineState"
+          :events-since="debugEventsSince"
+          :write="debugWrite"
+          :project="presentation.debugProject"
+          :pick3d="presentation.debugPick3d"
+          @set-consumer="setDebugConsumer"
+          @set-view-mode="debugViewMode = $event"
+          @close="debugOpen = false"
+        />
       </div>
-
-      <DebugDock
-        v-if="debugOpen && state.phase === 'running'"
-        :frame="debugFrame"
-        :objects="state.debugObjects"
-        :trace="state.debugTrace"
-        :trace-dropped="state.debugTraceDropped"
-        :channels="state.debugChannels"
-        :view-mode="debugViewMode"
-        :has-gpu="!!gpuBackend"
-        :read-state="readEngineState"
-        :events-since="debugEventsSince"
-        :write="debugWrite"
-        :project="presentation.debugProject"
-        :pick3d="presentation.debugPick3d"
-        @set-consumer="setDebugConsumer"
-        @set-view-mode="debugViewMode = $event"
-        @close="debugOpen = false"
-      />
-
-      <slot />
+      <!-- Shell actions over the stage's corner (the Play mode's Ask button). -->
+      <div class="stage-actions"><slot name="stage-actions" /></div>
     </div>
 
-    <!-- The one transport: a walkthrough artifact or the live recording. -->
-    <TransportBar v-if="engine.transport" :model="engine.transport" />
-
-    <!-- Captions under the screen (never overlays: all game text is on the CRT) -->
     <TouchControls
       v-if="touchControls && state.phase === 'running'"
       :disabled="state.powerUp.open || state.paused"
@@ -663,66 +672,100 @@ defineExpose({
       @key="onVirtualKey"
       @keyboard="inputEl?.focus({ preventScroll: true })"
     />
-  </div>
-  <div v-if="state.phase === 'running'" class="screen-captions">
-    <template v-if="!state.walkthrough.seeking && !state.historyView.active">
-      <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
-        Resumed where you left off
-      </span>
-      <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
-        [ Type your answer on the screen, Enter to accept, Esc to cancel ]
-      </span>
-      <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
-        [ Use the keys requested by the game ]
-      </span>
-      <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
-        [ {{ touchControls ? `Tap screen or: ${keyPromptHint}` : keyPromptHint }} ]
-      </span>
-      <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
-        [ Arrows to navigate, Enter to select, Esc to close ]
-      </span>
-      <span v-else-if="state.modal === 'inventory'" class="caption" data-testid="inventory-hint">
-        [ Arrows to select, Enter to choose, Esc to return ]
-      </span>
-      <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
-        [ Press Enter to continue ]
-      </span>
-    </template>
-  </div>
 
-  <p v-if="state.phase === 'running'" id="game-input-help" class="input-help">
-    {{
-      touchControls
-        ? "Type to open keyboard · Enter to send · Keys for F1–F10 and more"
-        : "Click the game to type · Enter to send · Arrows or numpad to walk · Home / PgUp / End / PgDn for diagonals"
-    }}
-  </p>
+    <!-- The slim strip under the stage: the one transport, then quiet key hints.
+         Captions never overlay the game: all game text is on the CRT. -->
+    <div v-if="state.phase === 'running'" class="play-strip">
+      <TransportBar v-if="engine.transport" :model="engine.transport" />
+      <div class="play-hints">
+        <template v-if="!state.walkthrough.seeking && !state.historyView.active">
+          <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
+            Resumed where you left off
+          </span>
+          <span v-if="state.prompt" class="caption" data-testid="prompt-hint">
+            Type your answer on the screen · Enter to accept · Esc to cancel
+          </span>
+          <span v-else-if="state.textMode" class="caption" data-testid="text-mode-hint">
+            Use the keys requested by the game
+          </span>
+          <span v-else-if="hasKeyPrompt" class="caption" data-testid="title-prompt-hint">
+            {{ touchControls ? `Tap screen or: ${keyPromptHint}` : keyPromptHint }}
+          </span>
+          <span v-else-if="state.modal === 'menu'" class="caption" data-testid="menu-hint">
+            Arrows to navigate · Enter to select · Esc to close
+          </span>
+          <span
+            v-else-if="state.modal === 'inventory'"
+            class="caption"
+            data-testid="inventory-hint"
+          >
+            Arrows to select · Enter to choose · Esc to return
+          </span>
+          <span v-else-if="state.modal !== null" class="caption" data-testid="modal-hint">
+            Press Enter to continue
+          </span>
+        </template>
+        <p id="game-input-help" class="input-help">
+          <template v-if="touchControls"
+            >Type to open keyboard · Enter to send · Keys for F1–F10 and more</template
+          >
+          <template v-else
+            >Type to talk · Arrows or numpad walk · <kbd>Esc</kbd> game menu</template
+          >
+        </p>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
+/* Desktop: the stage takes every row the bar and strip leave and centres the
+   screen on black; its size is the integer fit from the script. */
+.play-area:not(.with-touch) {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.play-area:not(.with-touch) .stage {
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+}
+.stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+/* The inspector docks just outside the screen's right edge on wide windows. */
+@media (min-width: 1341px) {
+  .play-area.inspecting:not(.with-touch) .stage {
+    box-sizing: border-box;
+    padding-right: 344px;
+  }
+}
+.stage-actions {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-3);
+  z-index: 3;
+}
+.with-touch .stage-actions {
+  right: var(--space-1);
+  bottom: var(--space-1);
+}
+.stage-actions:empty {
+  display: none;
+}
+
 .screen {
   position: relative;
-  border: 2px solid #33455c;
-  background: #000;
-  box-shadow:
-    0 0 0 4px #090e17,
-    0 0 0 5px #223047,
-    0 0 56px #55ffff0d;
-  transition:
-    box-shadow 180ms ease-out,
-    border-color 180ms ease-out;
+  background: var(--agi-0);
+  box-shadow: 0 0 0 1px var(--hairline);
+  transition: box-shadow var(--duration) var(--ease-out);
 }
-
-.screen.active {
-  border-color: #567087;
-}
-
 .screen.remixing {
-  border-color: #ffff55;
-  box-shadow:
-    0 0 0 4px #090e17,
-    0 0 0 5px #6e7045,
-    0 0 64px #ffff551c;
+  box-shadow: 0 0 0 2px var(--warn-line);
 }
 
 .game-surface {
@@ -732,7 +775,7 @@ defineExpose({
   height: auto;
   image-rendering: pixelated;
   outline: none;
-  background: #000;
+  background: var(--agi-0);
 }
 
 .screen.shake {
@@ -757,39 +800,6 @@ defineExpose({
   }
 }
 
-/* ---- The remix: one round button on the game frame (.screen is relative) ---- */
-.power-up {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  border: 2px solid #55ffff;
-  background: radial-gradient(circle at 35% 30%, #1b3b4a, #06131a);
-  color: #55ffff;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 0 12px rgba(85, 255, 255, 0.35);
-  transition:
-    transform 0.12s ease,
-    box-shadow 0.12s ease;
-  z-index: 3;
-}
-
-.power-up:hover {
-  transform: scale(1.08);
-}
-
-.power-up.armed {
-  border-color: #ffff55;
-  color: #ffff55;
-  box-shadow: 0 0 18px rgba(255, 255, 85, 0.55);
-}
-
 /* Split-mode wipe: a wide invisible drag strip with a visible edge and grip. */
 .split-handle {
   position: absolute;
@@ -801,7 +811,6 @@ defineExpose({
   touch-action: none;
   z-index: 2;
 }
-
 .split-handle::before {
   content: "";
   position: absolute;
@@ -810,26 +819,24 @@ defineExpose({
   left: 50%;
   width: 2px;
   margin-left: -1px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
+  background: var(--ink);
+  box-shadow: 0 0 4px var(--scrim);
 }
-
 .split-grip {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(6, 12, 20, 0.92);
-  border: 1px solid #55ffff;
-  color: #55ffff;
-  border-radius: 6px;
   padding: 3px 5px;
-  font-size: 10px;
+  border: 1px solid var(--action);
+  border-radius: var(--radius);
+  color: var(--action);
+  background: var(--surface-overlay);
+  font-size: var(--text-2xs);
   line-height: 1;
   white-space: nowrap;
   pointer-events: none;
 }
-
 @media (any-pointer: coarse) {
   .split-handle {
     width: 44px;
@@ -837,34 +844,45 @@ defineExpose({
   }
 }
 
-.screen-captions {
-  width: var(--game-width);
-  min-height: 1.4rem;
-  margin-top: 0.35rem;
-  text-align: center;
+/* One slim strip: transport first, hints after it, both quiet. */
+.play-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  width: 100%;
+  min-height: var(--shell-strip-h);
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-6);
+  border-top: 1px solid var(--hairline);
+  background: var(--surface-0);
 }
-
+/* A fixed share of the strip: hints come and go without moving the timeline. */
+.play-hints {
+  display: flex;
+  flex: 0 0 min(36%, 440px);
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-left: auto;
+  color: var(--ink-3);
+  font: var(--text-xs) / var(--leading-tight) var(--font-sans);
+  text-align: right;
+}
 .caption {
-  display: inline-block;
-  border: 1px solid #5af;
-  color: #5af;
-  font-family: monospace;
-  font-size: 0.8rem;
-  font-weight: bold;
-  padding: 0.2rem 0.6rem;
-  border-radius: 3px;
-  white-space: normal;
+  color: var(--ink-2);
 }
-
+/* A caption asks for a key right now; the standing help steps back for it. */
+.caption ~ .input-help {
+  display: none;
+}
 /* The resume notice states a fact rather than asking for a keystroke, so it
-   sits still and fades out on its own instead of pulsing like the hints. */
+   sits still and fades out on its own. */
 .resume-caption {
-  border-color: #7d7;
-  color: #7d7;
-  margin-right: 0.4rem;
+  color: var(--ok);
   animation: resume-fade 10s ease-in forwards;
 }
-
 @keyframes resume-fade {
   0%,
   70% {
@@ -874,13 +892,34 @@ defineExpose({
     opacity: 0.25;
   }
 }
-
+/* Standing key help is for the first minute; after that it only whispers. */
 .input-help {
-  font-size: 12px;
-  color: #aaa;
-  text-align: center;
-  max-width: var(--game-width);
-  margin: 12px 0 0;
+  margin: 0;
+  animation: hint-settle 1.2s ease-in 60s forwards;
+}
+.input-help kbd {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--hairline-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  font: var(--text-2xs) var(--font-mono);
+}
+@keyframes hint-settle {
+  to {
+    opacity: 0.45;
+  }
+}
+@media (max-width: 900px) {
+  .play-strip {
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    padding: var(--space-2) var(--space-4);
+  }
+  .play-hints {
+    flex-basis: 100%;
+    justify-content: center;
+    text-align: center;
+  }
 }
 
 .input-row {
@@ -893,13 +932,11 @@ defineExpose({
   clip-path: inset(50%);
   white-space: nowrap;
 }
-
 .input-row input {
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
-
 .screen:has(.input-row input:focus-visible) {
-  outline: 2px solid #55ffff;
-  outline-offset: 4px;
+  outline: 2px solid var(--action-line);
+  outline-offset: 3px;
 }
 </style>

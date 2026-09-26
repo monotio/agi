@@ -4,7 +4,6 @@ import {
   isolateStorage,
   openCreateAdventure,
   openDeveloperActivity,
-  openGameOptions,
   textHook,
 } from "./engineProbe.ts";
 
@@ -35,7 +34,6 @@ async function createAdventure(page: Page): Promise<void> {
 }
 
 async function openMap(page: Page): Promise<void> {
-  await openGameOptions(page, "help-menu");
   // The plan surface is the creator entry — "World map" is the player's
   // discovered-rooms view and shows no plan.
   await page.getByTestId("btn-world-map").click();
@@ -99,7 +97,6 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   // The player entry is the discovered view: room 1 was walked; rooms 2 and
   // 3 exist only in the creator's plan and must not appear — nor may any
   // plan affordance.
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   const map = page.getByTestId("world-map");
   await expect(map).toBeVisible();
@@ -120,7 +117,6 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await page.getByTestId("map-close").click();
 
   // The creator entry on the same session shows the full plan.
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();

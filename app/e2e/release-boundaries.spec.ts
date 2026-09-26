@@ -96,7 +96,7 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     let downloads = 0;
     page.on("download", () => downloads++);
     const download = page.waitForEvent("download");
-    await openGameOptions(page, "game-menu");
+    await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-download-game").click();
     await expect(page.getByTestId("export-refusal")).toContainText(
       "Backup downloaded with limitations",
