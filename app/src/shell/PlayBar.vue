@@ -13,6 +13,7 @@ import { useEngineApi } from "../engineContext.ts";
 import { gameShortcuts } from "../gameControls.ts";
 import { hasWalkthrough } from "../walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
+import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 
 const { settingsOpen } = defineProps<{ settingsOpen: boolean }>();
 const emit = defineEmits<{
@@ -26,6 +27,13 @@ const emit = defineEmits<{
 
 const { state, currentGame, roomMap } = useEngineApi();
 const shell = useShell();
+const workspace = useCreateWorkspace();
+
+/** Play opens the world-map window; Create shows its docked World panel. */
+function showMap(): void {
+  if (shell.mode.value === "create") workspace.showPanel("world");
+  else roomMap.openMap({ experience: "play" });
+}
 
 const game = computed(() => {
   // A remix renames and re-identifies the running game without a phase change.
@@ -78,12 +86,7 @@ const shortcutsBlocked = computed(
       </div>
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
       <div class="play-bar__actions">
-        <UiIconButton
-          icon="map"
-          label="World map"
-          data-testid="btn-world-map"
-          @click="roomMap.openMap({ experience: 'play' })"
-        />
+        <UiIconButton icon="map" label="World map" data-testid="btn-world-map" @click="showMap" />
         <ActionMenu label="Save or restore" test-id="save-menu" icon-only icon="save">
           <button
             v-for="shortcut in saveShortcuts"

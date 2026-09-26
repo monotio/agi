@@ -47,6 +47,7 @@ import type { AuthoringState } from "../../src/agent/authoringState.ts";
 import { gameStorageKey, type BootedGame, type Frame } from "./gameTypes.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
+import { studioPictureSource, type StudioPictureSource } from "./world/studioSource.ts";
 import type { RoomTransitionNotice } from "./workerProtocol.ts";
 
 /** Durable journal cap — the sidecar contract bounds at the same number. The
@@ -95,7 +96,7 @@ export interface MapThumbnail {
   readonly kind: "observed" | "static";
 }
 
-interface ScannedResources {
+export interface ScannedResources {
   readonly key: string;
   readonly scans: Map<number, StaticRoomScan>;
   readonly shared: Set<number>;
@@ -105,7 +106,7 @@ interface ScannedResources {
   /** The interpreter the game boots under; null when nothing was scanned. */
   readonly profile: AgiProfile | null;
   /** Rooms stored game tests name — a definition reference, not a pass. */
-  readonly testCoverage: { referenced: Set<number> };
+  readonly testCoverage: { referenced: Set<number>; tests: number };
 }
 
 /**
@@ -117,13 +118,13 @@ interface ScannedResources {
 function storedTestCoverage(
   files: Record<string, Uint8Array>,
   profile: AgiProfile | undefined,
-): { referenced: Set<number> } {
+): { referenced: Set<number>; tests: number } {
   const referenced = new Set<number>();
   let doc;
   try {
     doc = parseGameTests(files["TESTS.JSON"], profile);
   } catch {
-    return { referenced };
+    return { referenced, tests: 0 };
   }
   for (const test of doc.tests) {
     referenced.add(test.room);
@@ -137,7 +138,7 @@ function storedTestCoverage(
     const expectRoom = test.expect?.["room"];
     if (typeof expectRoom === "number") referenced.add(expectRoom);
   }
-  return { referenced };
+  return { referenced, tests: doc.tests.length };
 }
 
 export interface RoomMapDeps {
@@ -195,6 +196,10 @@ export interface RoomMap {
   /** Player intent for a room — its note plus the notes on its edges. */
   noteIntentFor(room: number): string[];
   thumbnailFor(room: number): MapThumbnail | null;
+  /** The static scan of the booted resources (files, logic scans, pictures, stored tests). */
+  readonly resources: ComputedRef<ScannedResources>;
+  /** Room Studio's input for one picture of the booted game, or null without it. */
+  studioSource(picture: number): StudioPictureSource | null;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
@@ -400,7 +405,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         picture: new Set(),
         files: {},
         profile: null,
-        testCoverage: { referenced: new Set() },
+        testCoverage: { referenced: new Set(), tests: 0 },
       };
     // The player's interpreter override, if any, is part of what was scanned.
     const override = game.authoredGame?.library?.profile;
@@ -891,6 +896,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return thumbs.get(room) ?? staticThumbs.get(room) ?? null;
   }
 
+  const resources = computed(() => {
+    void state.patchTick;
+    void state.phase;
+    return scanResources();
+  });
+
   /**
    * Render the static-picture thumbs the current graph needs and does not yet
    * have — one container and profile per pass, one version bump at the end.
@@ -1321,6 +1332,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     setEdgeNote,
     noteIntentFor,
     thumbnailFor,
+    resources,
+    studioSource: (picture) =>
+      studioPictureSource(resources.value, picture, deps.getSession()?.state),
     observeFrame,
     exportSidecar,
     retrySave,

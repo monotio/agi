@@ -10,6 +10,7 @@ import {
   verifyPlanConnections,
   type RoomObservation,
 } from "../src/agent/roomMap.ts";
+import { roomPictureUse } from "../src/agent/roomPictures.ts";
 
 const dict = new Map<string, number>();
 
@@ -125,6 +126,9 @@ test("picture use is a literal var binding, not a guess", () => {
   // Without the self-room seed v0 is unbound: the scan claims nothing.
   const unbound = scanStaticExits(logic("load.pic(v0); draw.pic(v0); return;"));
   assert.deepEqual(unbound.pictures, []);
+  // …but it records that a draw happened with a number chosen at runtime.
+  assert.equal(unbound.unresolvedPicture, true);
+  assert.equal(conventional.unresolvedPicture, false);
   // A literal assigned var carries the binding to the call site.
   const literal = scanStaticExits(logic("assignn(v12, 7); draw.pic(v12); return;"));
   assert.deepEqual(literal.pictures, [7]);
@@ -133,11 +137,47 @@ test("picture use is a literal var binding, not a guess", () => {
     logic("assignn(v12, 7); random(1, 9, v12); draw.pic(v12); return;"),
   );
   assert.deepEqual(clobbered.pictures, []);
+  assert.equal(clobbered.unresolvedPicture, true);
   // assignv propagates the literal.
   const copied = scanStaticExits(
     logic("assignn(v12, 9); assignv(v13, v12); draw.pic(v13); return;"),
   );
   assert.deepEqual(copied.pictures, [9]);
+});
+
+test("room pictures come from literal draws, never the room number", () => {
+  // Room 1 and room 6 both draw PIC 5; room 2 draws its own number through
+  // the v0 convention; room 3 picks its picture at runtime; room 4 draws
+  // nothing itself but calls a helper that might; logic 9 is that helper.
+  const logics = new Map<number, Uint8Array>([
+    [1, logic("assignn(v10, 5); load.pic(v10); draw.pic(v10); return;")],
+    [2, logic("load.pic(v0); draw.pic(v0); return;")],
+    [3, logic("random(1, 3, v10); load.pic(v10); draw.pic(v10); return;")],
+    [4, logic("call(9); return;")],
+    [6, logic("assignn(v11, 5); draw.pic(v11); assignn(v11, 7); overlay.pic(v11); return;")],
+    [9, logic("assignn(v12, 5); draw.pic(v12); return;")],
+  ]);
+  const { scans, shared } = scanContainerExits(logics);
+  const input = { scans, shared, pictures: new Set([2, 5, 8]) };
+  assert.deepEqual(roomPictureUse(1, input), {
+    built: true,
+    pictures: [{ picture: 5, exists: true, sharedWith: [6] }],
+    runtime: false,
+  });
+  assert.deepEqual(roomPictureUse(2, input).pictures, [
+    { picture: 2, exists: true, sharedWith: [] },
+  ]);
+  assert.deepEqual(roomPictureUse(3, input), { built: true, pictures: [], runtime: true });
+  assert.deepEqual(roomPictureUse(4, input), { built: true, pictures: [], runtime: true });
+  // PIC 7 is drawn but missing from the resources: named, not existing.
+  assert.deepEqual(roomPictureUse(6, input).pictures, [
+    { picture: 5, exists: true, sharedWith: [1] },
+    { picture: 7, exists: false, sharedWith: [] },
+  ]);
+  // A called logic's draws belong to its caller's room: no claim, runtime.
+  assert.deepEqual(roomPictureUse(9, input), { built: true, pictures: [], runtime: true });
+  // A room without logic is not built and draws nothing.
+  assert.deepEqual(roomPictureUse(12, input), { built: false, pictures: [], runtime: false });
 });
 
 test("indirect and read-result writes clobber the var they actually write", () => {
@@ -186,6 +226,7 @@ test("observed, planned and static exits between the same pair all survive", () 
           targets: [{ to: 2 }],
           variableTarget: false,
           pictures: [],
+          unresolvedPicture: false,
           calls: [],
           unresolvedCall: false,
         },
@@ -442,6 +483,7 @@ test("the play experience shows discovered places and observed crossings only", 
           targets: [{ to: 9 }],
           variableTarget: false,
           pictures: [],
+          unresolvedPicture: false,
           calls: [],
           unresolvedCall: false,
         },

@@ -7,6 +7,13 @@ import { usePresentation } from "./usePresentation.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 
+/**
+ * Developer activity: the agent log, the debug bundle and the test game. The
+ * page keeps it in a disclosure below the game; Create docks it open in its
+ * Activity tab.
+ */
+const { docked = false } = defineProps<{ docked?: boolean }>();
+
 const engine = useEngineApi();
 const { state, clearAgentLog, resumeAudio, bootAgentGame, currentGame } = engine;
 const { gpuBackend, testMode } = usePresentation();
@@ -72,8 +79,15 @@ async function copyDebugBundle(): Promise<void> {
 
 <template>
   <!-- Live Agent Debug Activity Panel -->
-  <details v-if="state.agentLog.length || testMode" class="agent-panel" data-testid="agent-panel">
-    <summary data-testid="developer-activity-summary">Developer activity</summary>
+  <component
+    :is="docked ? 'section' : 'details'"
+    v-if="docked || state.agentLog.length || testMode"
+    class="agent-panel"
+    :class="{ 'agent-panel--docked': docked }"
+    :aria-label="docked ? 'Developer activity' : undefined"
+    data-testid="agent-panel"
+  >
+    <summary v-if="!docked" data-testid="developer-activity-summary">Developer activity</summary>
     <div class="agent-panel-header">
       <span class="backend-tag" data-testid="gpu-backend">{{ gpuBackend || "canvas2d" }}</span>
       <div class="agent-panel-actions">
@@ -128,8 +142,11 @@ async function copyDebugBundle(): Promise<void> {
         }}</pre>
         <SoundPreview v-if="entry.audio?.length" :audio="entry.audio" />
       </div>
+      <p v-if="docked && !state.agentLog.length" class="agent-empty">
+        Agent requests, tool calls and results appear here as the assistant works.
+      </p>
     </div>
-  </details>
+  </component>
 </template>
 
 <style scoped>
@@ -146,6 +163,20 @@ async function copyDebugBundle(): Promise<void> {
   max-height: 280px;
   overflow-y: auto;
   font-size: var(--text-xs);
+}
+
+.agent-panel--docked {
+  width: auto;
+  max-height: none;
+  margin: 0;
+  border-top: 0;
+  overflow: visible;
+}
+
+.agent-empty {
+  margin: 0;
+  color: var(--ink-3);
+  font-family: var(--font-sans);
 }
 
 .agent-panel summary {
@@ -245,8 +276,7 @@ async function copyDebugBundle(): Promise<void> {
 }
 
 .agent-entry.telemetry .agent-kind {
-  /* Telemetry category purple: no matching token. */
-  color: #b8f;
+  color: var(--ink-2);
 }
 
 .agent-entry.input .agent-kind {

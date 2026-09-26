@@ -67,8 +67,22 @@
   grid-template-columns: minmax(0, 1fr) var(--shell-drawer-w);
 }
 .in-game .shell-body--create {
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(300px, 360px);
+  --dock-left: minmax(240px, 300px);
+  --dock-right: minmax(300px, 360px);
+  grid-template-columns: var(--dock-left) minmax(0, 1fr) var(--dock-right);
   background: var(--surface-sunken);
+}
+/* A folded dock keeps an icon rail (CreateDock.vue). */
+.in-game .shell-body--fold-left {
+  --dock-left: 56px;
+}
+.in-game .shell-body--fold-right {
+  --dock-right: 56px;
+}
+/* Room Studio takes the stage's cell while the live stage waits, hidden. */
+.shell-center {
+  min-width: 0;
+  min-height: 0;
 }
 .shell-side {
   display: none;
@@ -132,7 +146,7 @@
     order: 2;
     border-right: 0;
   }
-  .in-game .shell-body--create .play-area {
+  .in-game .shell-body--create :is(.play-area, .shell-center) {
     min-height: 60vh;
   }
   .in-game .shell-body--create .shell-side {
@@ -159,6 +173,28 @@
 .in-game.touch-layout .shell {
   height: auto;
   min-height: var(--layout-height, 100dvh);
+}
+/*
+ * A phone's Create: World, Assistant and Inspect share one bottom sheet. It
+ * peeks as its tab strip over the page's end and opens to half the screen;
+ * the page leaves room so the peek never hides the game's own controls.
+ */
+.in-game .shell-body--sheet {
+  padding-bottom: calc(var(--control-h-touch) + var(--space-5));
+}
+.in-game .shell-body.shell-body--sheet .shell-side.shell-side--sheet {
+  position: fixed;
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  z-index: var(--z-dock);
+  max-height: 60dvh;
+  border-top: 1px solid var(--hairline-strong);
+  border-left: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-dialog);
 }
 .play-area {
   display: flex;

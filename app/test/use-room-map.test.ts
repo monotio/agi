@@ -7,6 +7,8 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createAuthoringState } from "../../src/agent/authoringState.ts";
 import { commitWorldDraft, worldRevision, type WorldDraft } from "../../src/agent/worldPlan.ts";
 import { useRoomMap } from "../src/useRoomMap.ts";
+import { roomPictureUse } from "../../src/agent/roomPictures.ts";
+import { studioPictureSource } from "../src/world/studioSource.ts";
 import type { AgentSession } from "../src/agent/agentSession.ts";
 import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
 import type { BootedGame, Frame } from "../src/gameTypes.ts";
@@ -432,6 +434,52 @@ test("a stored test references its rooms but proves no traversal", async () => {
   const edge = graph.edges.find((e) => e.from === 1 && e.to === 8);
   assert.ok(edge);
   assert.equal(Object.hasOwn(edge, "tested"), false);
+});
+
+test("rooms report the pictures they draw and Studio reads their stored bytes", async () => {
+  const game = createContainer();
+  const pic5 = Uint8Array.of(0xf0, 3, 0xf8, 0, 0, 0xff);
+  game.putResource("picture", 5, pic5);
+  const dictionary = new Map<string, number>();
+  // Rooms 1 and 2 both draw PIC 5; room 3 draws a runtime choice. No room
+  // number is a picture number here.
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic("assignn(v9,5);draw.pic(v9);return;", { dictionary }).payload,
+  );
+  game.putResource(
+    "logic",
+    2,
+    assembleLogic("assignn(v9,5);draw.pic(v9);return;", { dictionary }).payload,
+  );
+  game.putResource(
+    "logic",
+    3,
+    assembleLogic("random(1,9,v9);draw.pic(v9);return;", { dictionary }).payload,
+  );
+  const tests = new TextEncoder().encode(
+    JSON.stringify({
+      format: "monotio.agi.tests.v1",
+      tests: [{ name: "stands", room: 1, steps: [] }],
+    }),
+  );
+  const { map, boot } = makeHarness();
+  await boot({ ...Object.fromEntries(game.files), "TESTS.JSON": tests });
+  const scan = map.resources.value;
+  const pictures = { scans: scan.scans, shared: scan.shared, pictures: scan.picture };
+  assert.deepEqual(roomPictureUse(1, pictures).pictures, [
+    { picture: 5, exists: true, sharedWith: [2] },
+  ]);
+  assert.equal(roomPictureUse(3, pictures).runtime, true);
+  assert.deepEqual(roomPictureUse(3, pictures).pictures, []);
+  assert.equal(scan.testCoverage.tests, 1);
+  const source = studioPictureSource(scan, 5, undefined);
+  assert.deepEqual([...(source?.bytes ?? [])], [...pic5]);
+  // No authoring session: nothing to trust beyond the bytes.
+  assert.equal(source?.authoredSource, undefined);
+  assert.ok(source?.profile);
+  assert.equal(studioPictureSource(scan, 1, undefined), null);
 });
 
 // ---- the map as the plan surface --------------------------------------------

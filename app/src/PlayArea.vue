@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import DebugDock from "./DebugDock.vue";
+import InspectorOverlay from "./inspector/InspectorOverlay.vue";
 import TouchControls from "./TouchControls.vue";
 import TransportBar from "./TransportBar.vue";
 import { useEngineApi } from "./engineContext.ts";
@@ -18,6 +19,8 @@ const props = defineProps<{
   touchControls: boolean;
   crtEnabled: boolean;
   originalAspect: boolean;
+  /** Create's Inspect tab hosts the inspector's controls: no floating dock. */
+  inspectorDocked?: boolean;
 }>();
 
 const engine = useEngineApi();
@@ -33,13 +36,9 @@ const {
   sendKey,
   sendClick,
   submitPrompt,
-  setDebugConsumer,
-  debugWrite,
-  debugEventsSince,
-  readEngineState,
 } = engine;
 const presentation = usePresentation();
-const { gpuBackend, debugOpen, debugViewMode, splitAt, debugFrame } = presentation;
+const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
 const bridge = useShellBridge();
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
@@ -117,26 +116,6 @@ const keyPromptHint = computed(() => {
 });
 
 watch(splitAt, () => presentation.repaint());
-
-watch(debugViewMode, (mode) => {
-  presentation.setExplodedMode(mode === "explode");
-  // Exploded layers need the picture surface and ownership; registering the
-  // consumer arms them while any other consumer's needs stay unioned in.
-  setDebugConsumer("exploded", mode === "explode");
-  presentation.repaint();
-});
-
-watch(debugOpen, (open) => {
-  // The dock needs the live object table and ownership buffer; the trace
-  // consumer stays opt-in from the Timeline tab.
-  setDebugConsumer("dock", open);
-  if (!open) {
-    setDebugConsumer("trace", false);
-    debugViewMode.value = "visual";
-    presentation.setExplodedMode(false);
-    presentation.repaint();
-  }
-});
 
 /** Pointer type of the last screen press; the click event carries none. */
 let screenPointerType = "mouse";
@@ -554,7 +533,7 @@ defineExpose({
     class="play-area"
     :class="{
       'with-touch': touchControls && state.phase === 'running',
-      inspecting: debugOpen && state.phase === 'running',
+      inspecting: debugOpen && state.phase === 'running' && !inspectorDocked,
     }"
     :style="stageStyle"
   >
@@ -640,22 +619,9 @@ defineExpose({
           <span class="split-grip">◂▸</span>
         </div>
 
+        <InspectorOverlay v-if="debugOpen && state.phase === 'running'" />
         <DebugDock
-          v-if="debugOpen && state.phase === 'running'"
-          :frame="debugFrame"
-          :objects="state.debugObjects"
-          :trace="state.debugTrace"
-          :trace-dropped="state.debugTraceDropped"
-          :channels="state.debugChannels"
-          :view-mode="debugViewMode"
-          :has-gpu="!!gpuBackend"
-          :read-state="readEngineState"
-          :events-since="debugEventsSince"
-          :write="debugWrite"
-          :project="presentation.debugProject"
-          :pick3d="presentation.debugPick3d"
-          @set-consumer="setDebugConsumer"
-          @set-view-mode="debugViewMode = $event"
+          v-if="debugOpen && state.phase === 'running' && !inspectorDocked"
           @close="debugOpen = false"
         />
       </div>
