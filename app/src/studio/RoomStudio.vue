@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useTemplateRef } from "vue";
+import { computed, nextTick, onMounted, ref, useTemplateRef } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import UiIcon from "../ui/UiIcon.vue";
@@ -25,7 +25,7 @@ import {
   type StudioLens,
   type StudioViewMode,
 } from "./studioView.ts";
-import { lensPlanes, useStudioDocument } from "./useStudioDocument.ts";
+import { filterScene, lensPlanes, useStudioDocument } from "./useStudioDocument.ts";
 import { useStudioSelection } from "./useStudioSelection.ts";
 import { useStudioViewport } from "./useStudioViewport.ts";
 
@@ -33,7 +33,8 @@ import { useStudioViewport } from "./useStudioViewport.ts";
  * Room Studio (rc.1, read-only): one picture's items, draw order and planes.
  * Self-contained: it takes the picture bytes (and authored text, trusted only
  * while it compiles to those bytes) and never talks to the worker or storage.
- * Keys are handled here and stopped, so none reach the game.
+ * Keys are handled at the root and stopped, so none reach the game, and focus
+ * never falls out of the studio while it is open.
  */
 const {
   pictureNumber,
@@ -77,18 +78,14 @@ const PANE_LABELS: Record<PaneLayer, string> = {
   "walk-only": "Control lines on the priority plane",
 };
 
-const visibleRows = computed(() => {
-  const needle = filter.value.trim().toLowerCase();
-  const rows = model.value.rows;
-  if (needle === "") return rows;
-  return rows.filter((row) =>
-    [row.label, row.id, row.tag, row.kind].some((text) => text.toLowerCase().includes(needle)),
-  );
-});
+const scene = computed(() => filterScene(model.value, filter.value));
+const matches = computed(() => scene.value.matches);
+const loose = computed(() => scene.value.loose);
 const selection = useStudioSelection({
-  rows: visibleRows,
-  allRows: () => model.value.rows,
+  rows: () => scene.value.steps,
+  allRows: () => [...model.value.rows, ...model.value.folds],
   rowAt: (x, y) => doc.rowAtForLens(x, y, lens.value),
+  membersOf: (id) => model.value.folds.find((fold) => fold.id === id)?.members,
 });
 const { hoveredId, selectedId, selectedRow, inspectedCell, pinnedCell, announcement } = selection;
 
@@ -115,7 +112,8 @@ const commandText = (entry: number): string => {
   const line = model.value.timeline[entry]?.line;
   return line === undefined ? "" : pictureCommandText(model.value.document.lines[line - 1] ?? "");
 };
-const ticks = computed(() => model.value.timeline.map(tickFor));
+/** One tick per drawing command; the closing `end` draws nothing and gets none. */
+const ticks = computed(() => model.value.timeline.slice(0, total.value).map(tickFor));
 const current = computed(() => {
   const entry = model.value.timeline[playhead.value - 1];
   if (!entry) return "";
@@ -148,7 +146,17 @@ const fill = computed(() =>
     ? doc.explainFill(playhead.value - 1, pinnedCell.value.x, pinnedCell.value.y)
     : undefined,
 );
-const labelOf = (id: string): string => model.value.rows.find((row) => row.id === id)?.label ?? id;
+const labelOf = (id: string): string =>
+  [...model.value.rows, ...model.value.folds].find((row) => row.id === id)?.label ?? id;
+/** The subtitle's parts that add something beyond the title and the PIC chip. */
+const subtitleExtra = computed(() => {
+  const known = [title.toLowerCase(), `pic ${pictureNumber}`];
+  const parts = (subtitle ?? "")
+    .split("·")
+    .map((part) => part.trim())
+    .filter((part) => part !== "" && !known.includes(part.toLowerCase()));
+  return parts.join(" · ");
+});
 const status = computed(() => {
   const info = pixel.value;
   if (!info) return "Point at the picture to read a pixel";
@@ -165,6 +173,21 @@ function seek(k: number): void {
 const root = useTemplateRef("root");
 onMounted(() => root.value?.focus({ preventScroll: true }));
 
+/**
+ * After a key or click inside the studio has taken effect, a focused control
+ * may have gone (a lens change hides Planes and Bands) or never taken focus
+ * (Safari leaves clicked buttons unfocused). Focus then returns to the root,
+ * so the studio shortcuts keep working instead of the keys landing on the page.
+ */
+function keepFocus(): void {
+  void nextTick(() => {
+    const element = root.value;
+    const active = document.activeElement;
+    if (element?.isConnected && (active === null || active === document.body))
+      element.focus({ preventScroll: true });
+  });
+}
+
 function typing(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
@@ -172,9 +195,25 @@ function typing(target: EventTarget | null): boolean {
   );
 }
 
-/** Studio shortcuts. Every key stops here so the game never sees it. */
+/** Canvas arrows: Up/Left the previous item in draw order, Down/Right the next. */
+const ARROW_STEPS: Record<string, 1 | -1> = {
+  ArrowUp: -1,
+  ArrowLeft: -1,
+  ArrowDown: 1,
+  ArrowRight: 1,
+};
+
+/**
+ * Studio shortcuts, for any key pressed inside the studio (widgets such as
+ * the Scene list, the lens switch and the scrubber keep the keys they use).
+ * Every key stops here so the game never sees it.
+ */
 function onKeydown(event: KeyboardEvent): void {
   event.stopPropagation();
+  handleKey(event);
+  keepFocus();
+}
+function handleKey(event: KeyboardEvent): void {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.key === "Escape") {
     event.preventDefault();
@@ -182,10 +221,11 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
   if (typing(event.target)) return;
-  if (event.key === "Tab") {
-    // Only on the canvas, and only while there is a next item, so focus is never trapped.
-    if (event.target === stage.value && selection.step(event.shiftKey ? -1 : 1))
-      event.preventDefault();
+  const arrow = ARROW_STEPS[event.key];
+  if (arrow !== undefined) {
+    if (event.target !== stage.value) return;
+    selection.step(arrow);
+    event.preventDefault();
     return;
   }
   const lensKey = LENSES.find((option) => option.shortcut === event.key);
@@ -213,13 +253,14 @@ function onKeydown(event: KeyboardEvent): void {
     @keydown="onKeydown"
     @keyup.stop
     @keypress.stop
+    @click="keepFocus"
   >
     <header class="studio__top">
       <div class="studio__crumbs">
         <UiIconButton icon="chevron-left" label="Back" size="sm" @click="emit('close')" />
         <b class="studio__title">{{ title }}</b>
         <UiChip data-testid="studio-picture">PIC {{ pictureNumber }}</UiChip>
-        <span v-if="subtitle" class="studio__subtitle">{{ subtitle }}</span>
+        <span v-if="subtitleExtra" class="studio__subtitle">{{ subtitleExtra }}</span>
       </div>
       <UiSegmented v-model="lens" class="studio__lenses" label="Lens" :options="LENSES" />
       <div class="studio__meta">
@@ -243,8 +284,10 @@ function onKeydown(event: KeyboardEvent): void {
     <SceneList
       v-model:filter="filter"
       class="studio__scene"
-      :rows="visibleRows"
-      :total="model.rows.length"
+      :branches="model.branches"
+      :sections="model.sections"
+      :matches
+      :loose
       :hovered-id="hoveredId"
       :selected-id="selectedId"
       @hover="selection.listHover.value = $event"
@@ -257,7 +300,7 @@ function onKeydown(event: KeyboardEvent): void {
         class="studio__stage"
         tabindex="0"
         role="group"
-        aria-label="Canvas. Tab and Shift+Tab step through items; click a pixel to inspect it."
+        aria-label="Canvas. Arrow keys step through items in draw order; click a pixel to inspect it."
       >
         <div class="studio__panes">
           <StudioCanvas
@@ -369,8 +412,11 @@ function onKeydown(event: KeyboardEvent): void {
 
 <style scoped>
 .studio__subtitle {
+  overflow: hidden;
   color: var(--ink-3);
   font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .studio {
   position: relative;
@@ -510,6 +556,7 @@ function onKeydown(event: KeyboardEvent): void {
 }
 .studio__zoom-level {
   padding: 0 var(--space-2);
+  white-space: nowrap;
   color: var(--ink-3);
   font: var(--text-2xs) var(--font-mono);
 }

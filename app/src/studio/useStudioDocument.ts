@@ -19,6 +19,12 @@ import {
   type StudioDiagnostic,
 } from "../../../src/studio/pictureDocument.ts";
 import {
+  dominantValues,
+  EGA_COLOUR_NAMES,
+  groupSceneItems,
+  sectionSceneRows,
+} from "../../../src/studio/sceneGroups.ts";
+import {
   commandTimeline,
   compileDocument,
   itemAt,
@@ -31,7 +37,13 @@ import {
   type TimelineEntry,
 } from "../../../src/studio/pictureQuery.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
-import { CONTROL_VALUES, spanIndexAt, tickFor, type StudioLens } from "./studioView.ts";
+import {
+  CONTROL_VALUES,
+  priorityMeaning,
+  spanIndexAt,
+  tickFor,
+  type StudioLens,
+} from "./studioView.ts";
 
 export interface StudioSource {
   bytes: Uint8Array;
@@ -42,6 +54,9 @@ export interface StudioSource {
 
 /** Row id of the loose lines outside every item (not a valid item id). */
 export const UNASSIGNED = "(unassigned)";
+/** Prefixes of group and section row ids; item ids start with a letter, so none collides. */
+const GROUP = "(group)";
+const SECTION = "(section)";
 
 export interface SceneRow {
   id: string;
@@ -56,8 +71,34 @@ export interface SceneRow {
    * or null when it owns none.
    */
   swatch: number | null;
+  /**
+   * The value most of its own pixels hold on its plane (visual for art and
+   * mixed, priority for depth and walk), or null when it owns none there.
+   */
+  value: number | null;
   /** Short tag: the kind, or the one priority/control value a depth/walk item draws. */
   tag: string;
+}
+
+/** An automatic group of consecutive items (sceneGroups.ts), as a row of its own. */
+export interface SceneGroupRow extends SceneRow {
+  /** Member item ids, in draw order; at least two. */
+  members: readonly string[];
+}
+
+/** One entry of the Scene list above the items: a group, or a single item shown flat. */
+export type SceneBranch =
+  | { readonly group: SceneGroupRow; readonly rows: readonly SceneRow[] }
+  | { readonly group: null; readonly rows: readonly [SceneRow] };
+
+/**
+ * A draw-order section: a contiguous run of branches that a long list
+ * (sceneGroups.ts `sectionSceneRows`) folds into one row, "Steps a–b".
+ */
+export interface SceneSectionRow extends SceneGroupRow {
+  branches: readonly SceneBranch[];
+  /** Its two or three dominant colours, by command count. */
+  swatches: readonly number[];
 }
 
 export interface StudioModel {
@@ -68,8 +109,18 @@ export interface StudioModel {
   diagnostics: StudioDiagnostic[];
   compiled: CompiledPictureDocument;
   timeline: TimelineEntry[];
+  /** Drawing commands: the timeline without its closing `end`, which draws nothing. */
+  commands: number;
   /** Items in draw order, then the Unassigned group when there are loose commands. */
   rows: SceneRow[];
+  /** The items (not Unassigned) folded into automatic groups, in draw order. */
+  branches: SceneBranch[];
+  /** The multi-item groups, for lookups by id. */
+  groups: SceneGroupRow[];
+  /** Draw-order sections over the branches; empty unless there are more than 60 branches. */
+  sections: SceneSectionRow[];
+  /** Groups and sections: every row that stands for several items. */
+  folds: SceneGroupRow[];
   /** Per byte offset, the index into `rows` of the line that emitted it. */
   byteRow: Int32Array;
   profile: AgiProfile;
@@ -98,6 +149,68 @@ function tagFor(kind: SceneRow["kind"], entries: readonly TimelineEntry[]): stri
   return value < 4 ? CONTROL_VALUES[value]!.name : `pri ${value}`;
 }
 
+/** "Brown art · 12", "Band 9 depth · 4", "Barrier walk · 3"; "Covered" when no pixel is left. */
+export function groupLabel(kind: SceneRow["kind"], value: number | null, count: number): string {
+  const name =
+    value === null
+      ? "covered"
+      : kind === "depth" || kind === "walk"
+        ? priorityMeaning(value)
+        : EGA_COLOUR_NAMES[value]!;
+  return `${name[0]!.toUpperCase()}${name.slice(1)} ${kind} · ${count}`;
+}
+
+/** Fold consecutive items into automatic groups; one-item groups stay plain rows. */
+function branchesOf(items: readonly SceneRow[]): SceneBranch[] {
+  return groupSceneItems(items).map(({ start, count, kind, value }): SceneBranch => {
+    const rows = items.slice(start, start + count);
+    const first = rows[0]!;
+    if (count === 1) return { group: null, rows: [first] };
+    const tags = new Set(rows.map((row) => row.tag));
+    return {
+      group: {
+        id: `${GROUP}${first.id}`,
+        label: groupLabel(kind, value, count),
+        kind,
+        locked: rows.every((row) => row.locked),
+        entries: rows.flatMap((row) => row.entries),
+        swatch: first.swatch,
+        value,
+        tag: tags.size === 1 ? first.tag : kind,
+        members: rows.map((row) => row.id),
+      },
+      rows,
+    };
+  });
+}
+
+/** Fold a long list of branches into draw-order sections, "Steps a–b" in playhead numbers. */
+function sectionsOf(branches: readonly SceneBranch[]): SceneSectionRow[] {
+  const heads = branches.map((branch) => branch.group ?? branch.rows[0]);
+  const spans = sectionSceneRows(heads.map((row) => row.entries.length)) ?? [];
+  return spans.map(({ start, count }) => {
+    const rows = branches.slice(start, start + count).flatMap((branch) => branch.rows);
+    const entries = rows.flatMap((row) => row.entries);
+    const steps =
+      entries.length === 0 ? "" : ` ${entries[0]! + 1}–${entries[entries.length - 1]! + 1}`;
+    return {
+      id: `${SECTION}${rows[0]!.id}`,
+      label: `Steps${steps}`,
+      kind: "mixed",
+      locked: rows.every((row) => row.locked),
+      entries,
+      swatch: null,
+      value: null,
+      tag: "section",
+      members: rows.map((row) => row.id),
+      branches: branches.slice(start, start + count),
+      swatches: dominantValues(
+        rows.map((row) => ({ value: row.swatch, weight: row.entries.length })),
+      ),
+    };
+  });
+}
+
 /**
  * Resolve the source (authored when it compiles to the bytes, else the
  * disassembly), wrap an unannotated source in native items, then compile it
@@ -115,6 +228,7 @@ export function buildStudioModel({ bytes, authoredSource, profile }: StudioSourc
   const { document, diagnostics } = parsePictureDocument(source);
   const compiled = compileDocument(document, profile);
   const timeline = commandTimeline(document, profile);
+  const commands = timeline.at(-1)?.op === "end" ? timeline.length - 1 : timeline.length;
 
   const rows: SceneRow[] = document.items.map((item) => ({
     id: item.id,
@@ -123,6 +237,7 @@ export function buildStudioModel({ bytes, authoredSource, profile }: StudioSourc
     locked: item.locked,
     entries: [],
     swatch: null,
+    value: null,
     tag: item.kind,
   }));
   const rowOf = new Map(document.items.map((item, index) => [item.id, index]));
@@ -133,13 +248,15 @@ export function buildStudioModel({ bytes, authoredSource, profile }: StudioSourc
     locked: false,
     entries: [],
     swatch: null,
+    value: null,
     tag: "loose",
   };
   const byteRow = new Int32Array(compiled.bytes.length).fill(-1);
   compiled.spans.forEach((span, k) => {
     const index = rowOf.get(pictureItemAtLine(document, span.line)?.id ?? "") ?? rows.length;
     byteRow.fill(index, span.start, span.end);
-    (rows[index] ?? loose).entries.push(k);
+    // The closing `end` draws nothing, so no row lists it.
+    if (k < commands) (rows[index] ?? loose).entries.push(k);
   });
   if (loose.entries.length > 0) rows.push(loose);
 
@@ -157,6 +274,7 @@ export function buildStudioModel({ bytes, authoredSource, profile }: StudioSourc
   rows.forEach((row, r) => {
     const primary = row.kind === "depth" || row.kind === "walk" ? 1 : 0;
     const own = dominant(counts[primary]![r]!);
+    row.value = own;
     // A control value shows in its Walk lens colour, as on the canvas.
     row.swatch =
       own === null
@@ -169,7 +287,54 @@ export function buildStudioModel({ bytes, authoredSource, profile }: StudioSourc
       row.entries.map((k) => timeline[k]!),
     );
   });
-  return { source, trusted, document, diagnostics, compiled, timeline, rows, byteRow, profile };
+  const branches = branchesOf(rows.filter((row) => row.id !== UNASSIGNED));
+  const groups = branches.flatMap((branch) => (branch.group ? [branch.group] : []));
+  const sections = sectionsOf(branches);
+  return {
+    source,
+    trusted,
+    document,
+    diagnostics,
+    compiled,
+    timeline,
+    commands,
+    rows,
+    branches,
+    groups,
+    sections,
+    folds: [...groups, ...sections],
+    byteRow,
+    profile,
+  };
+}
+
+export interface SceneFilter {
+  /** Items matching the filter, flat; null while it is empty (the list shows its groups). */
+  matches: SceneRow[] | null;
+  /** The Unassigned row, when there is one and it matches. */
+  loose: SceneRow | undefined;
+  /** The rows the canvas arrows step through, in draw order. */
+  steps: SceneRow[];
+}
+
+/** Narrow the Scene list by label, id, tag, kind or group label ("brown" finds a group's members). */
+export function filterScene(
+  model: Pick<StudioModel, "rows" | "groups">,
+  filter: string,
+): SceneFilter {
+  const needle = filter.trim().toLowerCase();
+  const groupLabels = new Map<string, string>();
+  for (const group of model.groups)
+    for (const id of group.members) groupLabels.set(id, group.label);
+  const matching = (row: SceneRow): boolean =>
+    needle === "" ||
+    [row.label, row.id, row.tag, row.kind, groupLabels.get(row.id) ?? ""].some((text) =>
+      text.toLowerCase().includes(needle),
+    );
+  const items = model.rows.filter((row) => row.id !== UNASSIGNED);
+  const matches = needle === "" ? null : items.filter(matching);
+  const loose = model.rows.find((row) => row.id === UNASSIGNED && matching(row));
+  return { matches, loose, steps: [...(matches ?? items), ...(loose ? [loose] : [])] };
 }
 
 /** The plane a row's pixels are highlighted on under `lens`. */
@@ -219,8 +384,8 @@ function partialCompiled(
 
 export function useStudioDocument(source: MaybeRefOrGetter<StudioSource>) {
   const model = computed(() => buildStudioModel(toValue(source)));
-  const total = computed(() => model.value.timeline.length);
-  /** Commands drawn: 0..total; total shows the finished picture. */
+  const total = computed(() => model.value.commands);
+  /** Drawing commands drawn: 0..total; total shows the finished picture. */
   const playhead = ref(0);
   watch(total, (n) => (playhead.value = n), { immediate: true });
 
@@ -265,8 +430,18 @@ export function useStudioDocument(source: MaybeRefOrGetter<StudioSource>) {
   /**
    * The highlight mask of a row under `lens`: its own plane, or for a mixed
    * or loose row whose pixels there were all overwritten, the other plane.
+   * A group's or section's mask is the union of its members'.
    */
   function rowMask(rowId: string, lens: StudioLens): Uint8Array {
+    const group = model.value.folds.find((candidate) => candidate.id === rowId);
+    if (group) {
+      const union = new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
+      for (const member of group.members) {
+        const mask = rowMask(member, lens);
+        for (let i = 0; i < union.length; i++) if (mask[i] === 1) union[i] = 1;
+      }
+      return union;
+    }
     const row = model.value.rows.find((candidate) => candidate.id === rowId);
     if (!row) return new Uint8Array(SCREEN_WIDTH * SCREEN_HEIGHT);
     const plane = rowPlane(row, lens);
