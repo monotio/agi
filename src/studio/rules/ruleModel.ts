@@ -99,6 +99,8 @@ export interface RuleParseContext {
 }
 
 const NAME = /^[a-z][a-z0-9_]{0,63}$/;
+/** AGI writes a numbered thing as f5, v3, o1, m2, s0, i4 or w7: a sigil, never a binding name. */
+const SIGIL = /^[vfomsiw]\d+$/i;
 const EDGE_BY_CODE: Readonly<Record<number, Edge>> = {
   1: "top",
   2: "right",
@@ -118,8 +120,12 @@ function isInt(value: unknown, min: number, max: number): value is number {
 }
 
 function flagProblem(flag: unknown, label: string): string | null {
-  if (typeof flag === "string")
+  if (typeof flag === "string") {
+    // A sigil name would assemble as a raw fN/vN/… instead of the named binding.
+    if (SIGIL.test(flag))
+      return `"${flag}" is how AGI writes a numbered flag; pick a word name such as door_open.`;
     return NAME.test(flag) ? null : `${label} '${flag}' must be a lowercase binding name.`;
+  }
   return isInt(flag, 0, 255) ? null : `${label} must be a flag name or a number from 0 to 255.`;
 }
 
@@ -417,7 +423,7 @@ class Reader {
 
   flag(arg: Arg | undefined): FlagRef {
     const bindings = this.context.bindings;
-    if (arg?.type === "ident" && NAME.test(arg.text) && !/^[vfomsi]\d+$/.test(arg.text)) {
+    if (arg?.type === "ident" && NAME.test(arg.text) && !SIGIL.test(arg.text)) {
       if (bindings && bindings[arg.text]?.kind !== "flag") refuse();
       return arg.text;
     }

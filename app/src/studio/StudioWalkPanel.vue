@@ -5,7 +5,7 @@ import UiChip from "../ui/UiChip.vue";
 import type { Point } from "../../../src/studio/shapes.ts";
 import type { StudioTool } from "./studioTools.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
-import { doorStatus, EDGE_NAMES, outcomeTone, type WalkDoor } from "./walkView.ts";
+import { doorStatus, EDGE_NAMES, outcomeTone, ruleProblemText, type WalkDoor } from "./walkView.ts";
 
 /**
  * The Walk view's side panel: the walkable estimate's legend, the test walk
@@ -204,6 +204,15 @@ const roomChoices = computed(() => {
 
     <section class="walk-panel__sec" data-role="doors">
       <h3>Doors <em>D draws a door box · E adds an edge exit</em></h3>
+      <p
+        v-for="problem in walk.logicDiagnostics.value"
+        :key="`${problem.line}:${problem.code}`"
+        class="walk-panel__fail"
+        role="alert"
+        data-testid="door-rule-problem"
+      >
+        {{ ruleProblemText(problem) }}
+      </p>
       <p v-if="walk.doors.value.length === 0" class="walk-panel__note">
         This room has no exits yet.
       </p>
@@ -274,6 +283,14 @@ const roomChoices = computed(() => {
             />
             <UiButton size="sm" type="submit" :disabled="!walk.canEditDoors.value">Use</UiButton>
           </form>
+          <p
+            v-if="walk.flagError.value"
+            class="walk-panel__fail"
+            role="alert"
+            data-testid="door-flag-error"
+          >
+            {{ walk.flagError.value }}
+          </p>
           <template v-if="selected.box">
             <label class="walk-panel__field">
               <span>Follows</span>

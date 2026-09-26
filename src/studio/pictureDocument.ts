@@ -47,6 +47,8 @@ export interface StudioDiagnostic {
   readonly line: number;
   readonly code: StudioDiagnosticCode;
   readonly message: string;
+  /** The item or rule id the diagnostic names, when it names one. */
+  readonly id?: string;
 }
 
 export const PICTURE_ITEM_ID = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -132,8 +134,8 @@ export function parsePictureDocument(source: string): {
   let commandLines: number[] = [];
   /** A rejected `@item` swallows the next `@end` so one mistake gives one diagnostic. */
   let rejectedOpen = false;
-  const report = (line: number, code: StudioDiagnosticCode, message: string): void => {
-    diagnostics.push({ line, code, message });
+  const report = (line: number, code: StudioDiagnosticCode, message: string, id?: string): void => {
+    diagnostics.push(id === undefined ? { line, code, message } : { line, code, message, id });
   };
 
   for (let i = 0; i < lines.length; i++) {
@@ -142,12 +144,12 @@ export function parsePictureDocument(source: string): {
     const directive = readDirective(line);
     if (directive?.type === "item") {
       if (open !== null) {
-        report(lineNo, "nested-item", `items do not nest; '${open.id}' is still open`);
+        report(lineNo, "nested-item", `items do not nest; '${open.id}' is still open`, open.id);
       } else if ("error" in directive) {
         report(lineNo, directive.code, directive.error);
         rejectedOpen = true;
       } else if (seen.has(directive.id)) {
-        report(lineNo, "duplicate-id", `item id '${directive.id}' is already used`);
+        report(lineNo, "duplicate-id", `item id '${directive.id}' is already used`, directive.id);
         rejectedOpen = true;
       } else {
         seen.add(directive.id);
@@ -179,6 +181,7 @@ export function parsePictureDocument(source: string): {
       openLine,
       "unterminated-item",
       `item '${id}' has no @end; it closes at the end of the file`,
+      id,
     );
     items.push({ ...open, closeLine: lines.length + 1, commandLines });
   }

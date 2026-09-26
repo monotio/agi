@@ -77,7 +77,14 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   const changes = computed(() =>
     dirty.value ? Math.max(1, Math.abs(past.value.length - keptDepth.value)) : 0,
   );
-  const document = computed<LogicDocument>(() => parseLogicDocument(source.value).document);
+  const parsed = computed(() => parseLogicDocument(source.value));
+  const document = computed<LogicDocument>(() => parsed.value.document);
+  /**
+   * Annotation problems in the source as it stands (duplicated, nested or
+   * unterminated rules hide or stretch rule spans); applyRuleEdit refuses
+   * every edit while one stands.
+   */
+  const diagnostics = computed(() => parsed.value.diagnostics);
 
   /** The session edits assemble against: the game's bindings plus the ones reserved here. */
   function session(): RuleSession | null {
@@ -176,6 +183,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
     source,
     bytes,
     document,
+    diagnostics,
     rules,
     dirty,
     changes,

@@ -28,6 +28,7 @@ import { PICTURE_ITEM_ID } from "../pictureDocument.ts";
 import {
   LOGIC_RULE_ID,
   parseLogicDocument,
+  RULE_EDIT_BLOCKERS,
   ruleDirective,
   serializeLogicDocument,
   type LogicDocument,
@@ -194,6 +195,13 @@ export function applyRuleEdit(
   op: RuleEditOp,
   session: RuleSession,
 ): RuleEditResult {
+  const broken = parseLogicDocument(serializeLogicDocument(document)).diagnostics.find((entry) =>
+    RULE_EDIT_BLOCKERS.includes(entry.code),
+  );
+  if (broken)
+    return refuse(
+      `The room's rule annotations are broken: ${broken.message} (line ${broken.line}). Fix them as text before editing rules.`,
+    );
   const staged = { ...session, authoring: validateAuthoringState(session.authoring) };
   const compile = (source: string) => assembleAuthoredLogic(staged, source);
 

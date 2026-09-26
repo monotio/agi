@@ -14,6 +14,7 @@
 
 import type { EdgeSide } from "../../../src/agent/roomMap.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
+import type { StudioDiagnostic } from "../../../src/studio/pictureDocument.ts";
 import type { RouteOutcome, RouteTestResult } from "../../../src/studio/route.ts";
 import type { LogicRuleFragment } from "../../../src/studio/rules/logicDocument.ts";
 import type { FlagRef, RuleBox, RuleModel } from "../../../src/studio/rules/ruleModel.ts";
@@ -122,6 +123,25 @@ export function walkDoors(
     });
   }
   return doors;
+}
+
+/**
+ * A logic-annotation diagnostic in the Walk panel's plain words: duplicated,
+ * nested or unterminated rules stop door editing; a malformed directive is
+ * just ignored.
+ */
+export function ruleProblemText(problem: StudioDiagnostic): string {
+  const id = problem.id ?? "";
+  switch (problem.code) {
+    case "duplicate-id":
+      return `Room logic has two rules named ${id}; door editing is off until one is renamed in the logic source.`;
+    case "nested-item":
+      return `Room logic opens a rule while '${id}' is still open; door editing is off until the logic source is fixed.`;
+    case "unterminated-item":
+      return `Room logic's rule '${id}' has no @end; door editing is off until the logic source is fixed.`;
+    default:
+      return `Room logic line ${problem.line}: ${problem.message}.`;
+  }
 }
 
 /** "→ Sprite Lab", or "→ Room 3" for an untitled room. */

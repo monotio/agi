@@ -467,6 +467,44 @@ describe("the room logic draft", () => {
     assert.deepEqual(rig.logic.reserved.value, { cellar_open: { kind: "flag", num: 32 } });
     rig.stop();
   });
+
+  it("exposes broken rule annotations and refuses edits while they stand", () => {
+    // Two rules named door-1: the second is dead text the editor cannot see.
+    const duplicated = ROOM_1.replace(
+      "return;",
+      [
+        '// @rule door-1 "West door" exit',
+        "if (posn(o0, 122, 124, 133, 130)) { new.room(2); }",
+        "// @end",
+        '// @rule door-1 "West door again" exit',
+        "if (posn(o0, 10, 124, 20, 130)) { new.room(2); }",
+        "// @end",
+        "return;",
+      ].join("\n"),
+    );
+    const files = roomGame();
+    const scope = effectScope();
+    const logic = scope.run(() =>
+      useRoomLogicDraft({
+        base: () => ({
+          source: duplicated,
+          bytes: assembleLogic(duplicated, { dictionary: new Map() }).payload,
+        }),
+        session: () => createAgentSessionState(openContainer(new Map(files)), DEFAULT_V2_PROFILE),
+      }),
+    )!;
+    assert.equal(logic.diagnostics.value.length, 1);
+    assert.equal(logic.diagnostics.value[0]!.code, "duplicate-id");
+    // Removing the first rule would resurrect the second under the same id:
+    // every edit is refused and nothing changes.
+    const before = logic.source.value;
+    const refused = logic.apply({ op: "removeRule", id: "door-1" }, "Remove a door");
+    assert.equal(refused.ok, false);
+    assert.ok(!refused.ok && refused.error.includes("'door-1'"), refused.ok ? "" : refused.error);
+    assert.equal(logic.source.value, before);
+    assert.equal(logic.past.value, 0);
+    scope.stop();
+  });
 });
 
 describe("test walks", () => {
