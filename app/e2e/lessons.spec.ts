@@ -169,7 +169,8 @@ test("the robot lesson wants only the left facing repainted, and its card folds 
   await studio.locator('[data-loop="1"][data-cel="0"]').click();
   await studio.getByTestId("sprite-stage").focus();
   await page.keyboard.press("b");
-  // As in sprite-studio.spec.ts: the first Space shows the keyboard cursor, the second paints.
+  // As in sprite-studio.spec.ts: the first Space puts the pen down at the
+  // keyboard cursor (painting that cell), the second lifts it and the stroke commits.
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");

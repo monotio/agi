@@ -21,6 +21,8 @@ defineProps<{
   canUndo: boolean;
   canRedo: boolean;
   canKeep: boolean;
+  /** Why Keep is disabled right now, on its button. */
+  keepTitle?: string | undefined;
 }>();
 const emit = defineEmits<{
   back: [];
@@ -57,6 +59,7 @@ const emit = defineEmits<{
         :can-undo="canUndo"
         :can-redo="canRedo"
         :can-keep="canKeep"
+        :keep-title="keepTitle"
         @undo="emit('undo')"
         @redo="emit('redo')"
         @keep="emit('keep')"

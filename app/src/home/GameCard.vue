@@ -88,7 +88,9 @@ function onScreenClick(): void {
           class="game-card__placeholder"
           data-testid="thumbnail-placeholder"
           aria-hidden="true"
-        ></div>
+        >
+          {{ monogram }}
+        </div>
         <div v-else class="game-card__monogram" aria-hidden="true">{{ monogram }}</div>
       </slot>
       <UiChip v-if="badge" class="game-card__badge">{{ badge }}</UiChip>
@@ -142,7 +144,14 @@ function onScreenClick(): void {
   image-rendering: pixelated;
 }
 .game-card__placeholder {
+  display: grid;
   height: 100%;
+  box-sizing: border-box;
+  place-items: center;
+  padding: var(--space-4);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--ink-3);
   background: linear-gradient(
     100deg,
     var(--surface-sunken) 30%,
@@ -150,6 +159,9 @@ function onScreenClick(): void {
     var(--surface-sunken) 70%
   );
   background-size: 300% 100%;
+  font: var(--weight-bold) var(--text-xl) / 1.1 var(--font-mono);
+  letter-spacing: 0.15em;
+  text-align: center;
   animation: game-card-shimmer 1.6s linear infinite;
 }
 @keyframes game-card-shimmer {
@@ -280,7 +292,8 @@ function onScreenClick(): void {
   .game-card__body {
     padding: var(--space-3);
   }
-  .game-card__monogram {
+  .game-card__monogram,
+  .game-card__placeholder {
     font-size: var(--text-md);
   }
 }
