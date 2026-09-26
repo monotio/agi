@@ -78,6 +78,16 @@ runtime checks.
 The engine in `src/` has no runtime dependencies and runs unchanged in the
 browser, a Web Worker and Node; platform access is injected through adapters.
 
+## Design system
+
+The app styles itself from `app/src/styles/tokens.css`: colours, font sizes,
+spacing and radii are tokens, and the base controls (buttons, dialogs, chips,
+icon buttons) live in `app/src/ui/`. `npm run lint:tokens` is a ratchet that
+fails on new raw colours, font sizes and radii outside the tokens file, so
+new chrome should reach for a token or a `ui/` component first.
+`app/ui-gallery.html` and `app/studio-harness.html` are dev/test-only pages —
+run `npm run dev`, then open `/ui-gallery.html` or `/studio-harness.html`.
+
 ## Interpreter behavior
 
 The engine implements Peter Kelly's
