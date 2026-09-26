@@ -28,7 +28,10 @@ export type CelEdit =
  * The edited cel's properties: its size, transparent colour, mirror bit and
  * where its feet stand; resizing with an anchor picker (bottom-centre keeps
  * the feet on the baseline) and a warning before a resize moves the feet;
- * and shifting the pixels, which wraps around the edges.
+ * and shifting the pixels, which wraps around the edges. It is a disclosure,
+ * closed at first with the size and transparent colour on its summary, so
+ * the previews below stay in view. Esc in a size field puts back the cel's
+ * size (spriteKeys.ts then leaves the field, not Studio).
  */
 const { cel, loop, index, frozen } = defineProps<{
   cel: SpriteCel;
@@ -43,6 +46,10 @@ const height = ref(cel.height);
 const anchor = ref<ResizeAnchor>("bottom-center");
 const transparent = ref(cel.transparent);
 const remap = ref<number | undefined>();
+function revertSize(): void {
+  width.value = cel.width;
+  height.value = cel.height;
+}
 watch(
   () => cel,
   (next, old) => {
@@ -130,157 +137,181 @@ function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
 </script>
 
 <template>
-  <section class="cel-panel" aria-labelledby="cel-panel-title" data-testid="sprite-cel-panel">
-    <h3 id="cel-panel-title" class="cel-panel__title">Cel {{ index }} of loop {{ loop }}</h3>
-    <dl class="cel-panel__facts">
-      <dt>Size</dt>
-      <dd data-testid="sprite-cel-size">{{ cel.width }} × {{ cel.height }}</dd>
-      <dt>Transparent</dt>
-      <dd>{{ cel.transparent }} · {{ EGA_COLOUR_NAMES[cel.transparent] }}</dd>
-      <dt>Mirror bit</dt>
-      <dd>{{ cel.mirrorBit ? "on" : "off" }}{{ cel.mirrored ? " · shown flipped" : "" }}</dd>
-      <dt>Feet</dt>
-      <dd>{{ feet }}</dd>
-    </dl>
+  <details class="cel-panel" data-testid="sprite-cel-panel">
+    <summary class="cel-panel__summary" data-testid="sprite-cel-summary">
+      <h3 class="cel-panel__title">Cel {{ index }} of loop {{ loop }}</h3>
+      <span data-testid="sprite-cel-size">{{ cel.width }} × {{ cel.height }}</span>
+      <span>∅ {{ cel.transparent }}</span>
+    </summary>
+    <div class="cel-panel__body">
+      <dl class="cel-panel__facts">
+        <dt>Transparent</dt>
+        <dd>{{ cel.transparent }} · {{ EGA_COLOUR_NAMES[cel.transparent] }}</dd>
+        <dt>Mirror bit</dt>
+        <dd>{{ cel.mirrorBit ? "on" : "off" }}{{ cel.mirrored ? " · shown flipped" : "" }}</dd>
+        <dt>Feet</dt>
+        <dd>{{ feet }}</dd>
+      </dl>
 
-    <details class="cel-panel__group">
-      <summary>Resize</summary>
-      <div class="cel-panel__form">
-        <label>
-          W
-          <input
-            v-model.number="width"
-            type="number"
-            min="1"
-            :max="MAX_CEL_WIDTH"
-            data-testid="sprite-resize-width"
-          />
-        </label>
-        <label>
-          H
-          <input
-            v-model.number="height"
-            type="number"
-            min="1"
-            :max="MAX_CEL_HEIGHT"
-            data-testid="sprite-resize-height"
-          />
-        </label>
-        <div class="cel-panel__anchors" role="radiogroup" aria-label="Resize anchor">
-          <button
-            v-for="entry in RESIZE_ANCHORS"
-            :key="entry"
-            type="button"
-            role="radio"
-            :aria-checked="anchor === entry"
-            :aria-label="ANCHOR_LABELS[entry]"
-            :title="ANCHOR_LABELS[entry]"
-            :tabindex="anchor === entry ? 0 : -1"
-            :data-anchor="entry"
-            @click="anchor = entry"
-            @keydown="onAnchorKey($event, entry)"
-          ></button>
+      <details class="cel-panel__group">
+        <summary>Resize</summary>
+        <div class="cel-panel__form">
+          <label>
+            W
+            <input
+              v-model.number="width"
+              type="number"
+              min="1"
+              :max="MAX_CEL_WIDTH"
+              aria-label="Width in pixels"
+              data-testid="sprite-resize-width"
+              @keydown.esc="revertSize"
+            />
+          </label>
+          <label>
+            H
+            <input
+              v-model.number="height"
+              type="number"
+              min="1"
+              :max="MAX_CEL_HEIGHT"
+              aria-label="Height in pixels"
+              data-testid="sprite-resize-height"
+              @keydown.esc="revertSize"
+            />
+          </label>
+          <div class="cel-panel__anchors" role="radiogroup" aria-label="Resize anchor">
+            <button
+              v-for="entry in RESIZE_ANCHORS"
+              :key="entry"
+              type="button"
+              role="radio"
+              :aria-checked="anchor === entry"
+              :aria-label="ANCHOR_LABELS[entry]"
+              :title="ANCHOR_LABELS[entry]"
+              :tabindex="anchor === entry ? 0 : -1"
+              :data-anchor="entry"
+              @click="anchor = entry"
+              @keydown="onAnchorKey($event, entry)"
+            ></button>
+          </div>
         </div>
-      </div>
-      <p v-if="resizeWarning" class="cel-panel__warn" data-testid="sprite-resize-warning">
-        {{ resizeWarning }}
-      </p>
-      <UiButton
-        size="sm"
-        :disabled="frozen || !validSize || !resized"
-        data-testid="sprite-resize-apply"
-        @click="resize"
-      >
-        Resize to {{ width }} × {{ height }}
-      </UiButton>
-    </details>
+        <p v-if="resizeWarning" class="cel-panel__warn" data-testid="sprite-resize-warning">
+          {{ resizeWarning }}
+        </p>
+        <UiButton
+          size="sm"
+          :disabled="frozen || !validSize || !resized"
+          data-testid="sprite-resize-apply"
+          @click="resize"
+        >
+          Resize to {{ width }} × {{ height }}
+        </UiButton>
+      </details>
 
-    <details class="cel-panel__group">
-      <summary>Shift pixels</summary>
-      <p class="cel-panel__hint">
-        Pixels wrap around the edges; shifting up or down moves the feet.
-      </p>
-      <div class="cel-panel__shift" role="group" aria-label="Shift pixels">
-        <UiIconButton
-          icon="chevron-left"
-          label="Shift left"
-          size="sm"
-          :disabled="frozen"
-          data-testid="sprite-shift-left"
-          @click="emit('edit', { type: 'shiftCel', dx: -1, dy: 0 })"
-        />
-        <UiIconButton
-          icon="chevron-up"
-          label="Shift up"
-          size="sm"
-          :disabled="frozen"
-          data-testid="sprite-shift-up"
-          @click="emit('edit', { type: 'shiftCel', dx: 0, dy: -1 })"
-        />
-        <UiIconButton
-          icon="chevron-down"
-          label="Shift down"
-          size="sm"
-          :disabled="frozen"
-          data-testid="sprite-shift-down"
-          @click="emit('edit', { type: 'shiftCel', dx: 0, dy: 1 })"
-        />
-        <UiIconButton
-          icon="chevron-right"
-          label="Shift right"
-          size="sm"
-          :disabled="frozen"
-          data-testid="sprite-shift-right"
-          @click="emit('edit', { type: 'shiftCel', dx: 1, dy: 0 })"
-        />
-      </div>
-    </details>
+      <details class="cel-panel__group">
+        <summary>Shift pixels</summary>
+        <p class="cel-panel__hint">
+          Pixels wrap around the edges; shifting up or down moves the feet.
+        </p>
+        <div class="cel-panel__shift" role="group" aria-label="Shift pixels">
+          <UiIconButton
+            icon="chevron-left"
+            label="Shift left"
+            size="sm"
+            :disabled="frozen"
+            data-testid="sprite-shift-left"
+            @click="emit('edit', { type: 'shiftCel', dx: -1, dy: 0 })"
+          />
+          <UiIconButton
+            icon="chevron-up"
+            label="Shift up"
+            size="sm"
+            :disabled="frozen"
+            data-testid="sprite-shift-up"
+            @click="emit('edit', { type: 'shiftCel', dx: 0, dy: -1 })"
+          />
+          <UiIconButton
+            icon="chevron-down"
+            label="Shift down"
+            size="sm"
+            :disabled="frozen"
+            data-testid="sprite-shift-down"
+            @click="emit('edit', { type: 'shiftCel', dx: 0, dy: 1 })"
+          />
+          <UiIconButton
+            icon="chevron-right"
+            label="Shift right"
+            size="sm"
+            :disabled="frozen"
+            data-testid="sprite-shift-right"
+            @click="emit('edit', { type: 'shiftCel', dx: 1, dy: 0 })"
+          />
+        </div>
+      </details>
 
-    <details class="cel-panel__group">
-      <summary>Transparent colour</summary>
-      <div class="cel-panel__form">
-        <label>
-          Colour
-          <select v-model.number="transparent" data-testid="sprite-transparent-colour">
-            <option v-for="(name, value) in EGA_COLOUR_NAMES" :key="value" :value="value">
-              {{ value }} · {{ name }}
-            </option>
-          </select>
-        </label>
-        <label v-if="clash">
-          Pixels using it become
-          <select v-model.number="remap" data-testid="sprite-transparent-remap">
-            <option
-              v-for="(name, value) in EGA_COLOUR_NAMES"
-              :key="value"
-              :value="value"
-              :disabled="value === transparent"
-            >
-              {{ value }} · {{ name }}
-            </option>
-          </select>
-        </label>
-      </div>
-      <UiButton
-        size="sm"
-        :disabled="frozen || transparent === cel.transparent || (clash && remap === undefined)"
-        data-testid="sprite-transparent-apply"
-        @click="applyTransparent"
-      >
-        Make {{ transparent }} transparent
-      </UiButton>
-    </details>
-  </section>
+      <details class="cel-panel__group">
+        <summary>Transparent colour</summary>
+        <div class="cel-panel__form">
+          <label>
+            Colour
+            <select v-model.number="transparent" data-testid="sprite-transparent-colour">
+              <option v-for="(name, value) in EGA_COLOUR_NAMES" :key="value" :value="value">
+                {{ value }} · {{ name }}
+              </option>
+            </select>
+          </label>
+          <label v-if="clash">
+            Pixels using it become
+            <select v-model.number="remap" data-testid="sprite-transparent-remap">
+              <option
+                v-for="(name, value) in EGA_COLOUR_NAMES"
+                :key="value"
+                :value="value"
+                :disabled="value === transparent"
+              >
+                {{ value }} · {{ name }}
+              </option>
+            </select>
+          </label>
+        </div>
+        <UiButton
+          size="sm"
+          :disabled="frozen || transparent === cel.transparent || (clash && remap === undefined)"
+          data-testid="sprite-transparent-apply"
+          @click="applyTransparent"
+        >
+          Make {{ transparent }} transparent
+        </UiButton>
+      </details>
+    </div>
+  </details>
 </template>
 
 <style scoped>
 .cel-panel {
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--hairline);
 }
+.cel-panel__body {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 var(--space-1);
+}
+.cel-panel__summary {
+  color: var(--ink-3);
+  font: var(--text-2xs) var(--font-mono);
+  cursor: pointer;
+}
+.cel-panel__summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.cel-panel__summary span {
+  margin-left: var(--space-3);
+}
 .cel-panel__title {
+  display: inline;
   margin: 0;
   color: var(--ink-3);
   font: var(--weight-semibold) var(--text-2xs) / var(--leading) var(--font-sans);

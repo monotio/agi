@@ -4,8 +4,10 @@
  * they use (the timeline's cels, the palette, fields and menus prevent the
  * default of what they handle); the rest are studio shortcuts:
  *
- * - the rail's letters (useSpriteTools.ts SPRITE_TOOL_KEYS: B E G L R M I,
- *   and H to flip); Esc cancels a stroke or selection, then leaves Studio
+ * - the rail's letters (useSpriteTools.ts SPRITE_TOOL_KEYS: B E G L R M I C,
+ *   and H to flip); Esc cancels a stroke or selection, closes the contact
+ *   sheet or the recolour tool, then leaves Studio. In a text field Esc is
+ *   the field's (it reverts or leaves the field) and never leaves Studio
  * - on the focused canvas: arrows move the cursor 1 px (Shift: 8), or the
  *   selection (Alt: a copy); Space or Enter clicks at the cursor; Delete
  *   clears the selection
@@ -26,7 +28,7 @@ export const ARROW_FAR = 8;
 export interface SpriteKeyActions {
   /** Whether the canvas has focus (arrows, Space and Enter act on it only then). */
   onCanvas(target: EventTarget | null): boolean;
-  /** Esc: cancel a stroke or drop the selection first; true when it did. */
+  /** Esc: cancel a stroke, drop the selection or close a panel first; true when it did. */
   dismiss(): boolean;
   close(): void;
   /** An arrow on the canvas: (dx, dy), `alt` held. */
@@ -56,11 +58,16 @@ export function spriteKey(event: KeyboardEvent, act: SpriteKeyActions): boolean 
   if (event.defaultPrevented) return false;
   const { key } = event;
   const command = event.metaKey || event.ctrlKey;
+  if (typing(event.target)) {
+    // The field has had Esc first (a revert); it then leaves the field, not Studio.
+    if (key !== "Escape") return false;
+    (event.target as HTMLElement).blur();
+    return true;
+  }
   if (key === "Escape") {
     if (!act.dismiss()) act.close();
     return true;
   }
-  if (typing(event.target)) return false;
   if (command && !event.altKey) {
     const lower = key.toLowerCase();
     if (lower === "z") (event.shiftKey ? act.redo : act.undo)();

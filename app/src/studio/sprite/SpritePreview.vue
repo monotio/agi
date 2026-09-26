@@ -126,7 +126,7 @@ const panes = computed(() =>
   grid-template-rows: auto 1fr;
   justify-items: center;
   align-items: end;
-  min-height: 132px;
+  min-height: 120px;
   margin: 0;
   padding: var(--space-2);
   border: 1px solid var(--hairline);

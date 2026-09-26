@@ -251,6 +251,93 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
   );
 });
 
+test("a loop's cyan recoloured to blue by keys is kept, and the walking ego shows it", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await playTutorial(page);
+  const studio = await openApprentice(page);
+  const CYAN = 11;
+  const BLUE = 1;
+  const original = open(TUTORIAL_VIEW_0);
+  expect(at(original.loops[0]!.cels[0]!, CENTRE.x, CENTRE.y)).toBe(CYAN);
+
+  // At 1440×900 the panel shows the palette, the previews and the room without scrolling.
+  const panel = studio.getByRole("complementary", { name: "Cel, previews and linked loops" });
+  await expect(studio.getByTestId("sprite-mirror-note")).toBeVisible();
+  const panelBox = (await panel.boundingBox())!;
+  const roomBox = (await studio.getByTestId("sprite-room-verdict").boundingBox())!;
+  expect(roomBox.y + roomBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height);
+  expect(await panel.evaluate((element) => element.scrollHeight - element.clientHeight)).toBe(0);
+
+  // C, then Space on the canvas picks the cyan under the cursor as the colour to change.
+  await studio.locator('[data-loop="0"][data-cel="0"]').click();
+  await studio.getByTestId("sprite-stage").focus();
+  await page.keyboard.press("c");
+  const recolor = studio.getByTestId("sprite-recolor");
+  await expect(recolor).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(
+    recolor.getByTestId("sprite-recolor-from").getByRole("radio", { checked: true }),
+  ).toHaveAttribute("data-colour", String(CYAN));
+  // Tab past Close and From to To; the arrow picks blue; the scope stays "This loop".
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
+  await page.keyboard.press("ArrowRight");
+  await expect(recolor.getByRole("radio", { name: "This loop" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  // Loop 0's cels hold 48, 44, 48 and 42 cyan pixels.
+  await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
+    "182 pixels in 4 cels will change to colour 1, blue.",
+  );
+  await expect(recolor.getByTestId("sprite-recolor-copies")).toHaveText(
+    "Loop 0 will become a separate copy; the loops linked to it keep their pixels.",
+  );
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(recolor.getByTestId("sprite-recolor-apply")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
+    "No pixels of colour 11, light cyan in this loop.",
+  );
+
+  // Loop 0 is blue where it was cyan, and nothing else; loop 1 keeps its cyan as a separate copy.
+  const recoloured = open(await draftBytes(page));
+  expect(recoloured.loops[1]!.alias).toBe(null);
+  recoloured.loops.forEach((entry, loop) =>
+    entry.cels.forEach((cel, index) => {
+      const before = original.loops[loop]!.cels[index]!;
+      const expected = before.pixels.map((value) => (loop === 0 && value === CYAN ? BLUE : value));
+      expect(samePixels(cel.pixels, expected)).toBe(true);
+    }),
+  );
+  await studio.getByTestId("studio-keep").click();
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
+  await studio.getByTestId("studio-close").click();
+
+  // Walking right shows loop 0's blue cels exactly; walking left keeps the cyan.
+  await page.getByTestId("dock-tab-inspect").click();
+  const right = (await walkAndSample(page, "ArrowRight")).filter(
+    (frame) => frame.ego.view === 0 && frame.ego.loop === 0,
+  );
+  expect(right.length).toBeGreaterThan(10);
+  for (const frame of right) {
+    const cel = recoloured.loops[0]!.cels[frame.ego.cel]!;
+    expect(egoPixels(frame)).toEqual(celPixels(frame, cel));
+    expect(egoPixels(frame).some((pixel) => pixel.endsWith(`=${BLUE}`))).toBe(true);
+    expect(egoPixels(frame).some((pixel) => pixel.endsWith(`=${CYAN}`))).toBe(false);
+  }
+  const left = (await walkAndSample(page, "ArrowLeft", 20)).filter(
+    (frame) => frame.ego.view === 0 && frame.ego.loop === 1,
+  );
+  expect(left.length).toBeGreaterThan(5);
+  for (const frame of left)
+    expect(egoPixels(frame)).toEqual(celPixels(frame, original.loops[1]!.cels[frame.ego.cel]!));
+  await page.keyboard.press("ArrowLeft");
+});
+
 test("a Keep refuses as stale when the project changed elsewhere, and reopens from storage", async ({
   page,
 }) => {
@@ -343,6 +430,123 @@ test.describe("on the harness", () => {
       ).spriteHarness.kept.map(({ edit }) => [...edit.bytes]),
     );
     expect(kept).toEqual([[...redone]]);
+  });
+
+  test("the contact sheet shows every cel, is chosen from by keys, and returns to the editor", async ({
+    page,
+  }) => {
+    await page.goto("/sprite-harness.html?view=0");
+    const studio = page.getByTestId("sprite-studio");
+    await studio.getByTestId("sprite-sheet-toggle").click();
+    const sheet = studio.getByTestId("sprite-contact-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(sheet.getByRole("button", { name: /^Loop \d+, cel \d+/ })).toHaveCount(16);
+    const current = sheet.locator('[aria-current="true"]');
+    await expect(current).toHaveAttribute("data-loop", "0");
+    await expect(current).toHaveAttribute("data-cel", "0");
+    await expect(current).toBeFocused();
+    await expect(sheet.getByTestId("sprite-sheet-linked-1")).toHaveText(
+      "mirror of 0 · shown flipped",
+    );
+    await expect(sheet.getByTestId("sprite-sheet-linked-0")).toHaveText("linked to 1");
+    // Down twice to loop 2, right to its cel 1, Enter: the editor, on that cel.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await expect(sheet.locator('[data-loop="2"][data-cel="1"]')).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(sheet).toHaveCount(0);
+    await expect(studio.locator('.timeline [data-loop="2"][data-cel="1"]')).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(studio.getByTestId("sprite-cel-summary")).toContainText("Cel 1 of loop 2");
+    await expect(studio.getByTestId("sprite-stage")).toBeFocused();
+    // Esc closes the sheet, not Studio.
+    await studio.getByTestId("sprite-sheet-toggle").click();
+    await expect(sheet.locator('[aria-current="true"]')).toHaveAttribute("data-loop", "2");
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+    await expect(studio).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { spriteHarness: { closes: number } }).spriteHarness.closes,
+      ),
+    ).toBe(0);
+  });
+
+  test("Esc in the width field reverts it and leaves the field; Studio stays open", async ({
+    page,
+  }) => {
+    await page.goto("/sprite-harness.html?view=0");
+    const studio = page.getByTestId("sprite-studio");
+    const closes = () =>
+      page.evaluate(
+        () => (window as unknown as { spriteHarness: { closes: number } }).spriteHarness.closes,
+      );
+    await studio.getByTestId("sprite-cel-summary").click();
+    await studio.getByText("Resize", { exact: true }).click();
+    const width = studio.getByRole("spinbutton", { name: "Width in pixels" });
+    await expect(studio.getByRole("spinbutton", { name: "Height in pixels" })).toHaveValue("32");
+    await width.fill("6");
+    await page.keyboard.press("Escape");
+    await expect(studio).toBeVisible();
+    await expect(width).toHaveValue("10");
+    await expect(width).not.toBeFocused();
+    expect(await closes()).toBe(0);
+    // Off the field, Esc leaves Studio.
+    await page.keyboard.press("Escape");
+    await expect.poll(closes).toBe(1);
+  });
+
+  test("a cel is copied and moved to another loop from its menu by keys", async ({ page }) => {
+    await page.goto("/sprite-harness.html?view=0");
+    const studio = page.getByTestId("sprite-studio");
+    const original = open(TUTORIAL_VIEW_0);
+    const cel = studio.locator('.timeline [data-loop="2"][data-cel="1"]');
+    await cel.click();
+    await cel.focus();
+    await page.keyboard.press("Shift+F10");
+    const menu = studio.getByTestId("sprite-context-menu");
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: "Copy to loop…" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(menu).toHaveAccessibleName("Copy loop 2, cel 1 to loop");
+    await expect(menu.getByRole("menuitem", { name: "Loop 0 · Walk right" })).toBeFocused();
+    for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: "Loop 3 · Walk away" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(menu).toHaveCount(0);
+    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+    const copied = open(await draftBytes(page));
+    expect(copied.loops.map((loop) => loop.cels.length)).toEqual([4, 4, 4, 5]);
+    expect(samePixels(copied.loops[3]!.cels[4]!.pixels, original.loops[2]!.cels[1]!.pixels)).toBe(
+      true,
+    );
+    expect(copied.loops[1]!.alias).toBe(0);
+    // The copy is selected; Move to loop… takes it back to loop 2 as one undo step.
+    const copy = studio.locator('.timeline [data-loop="3"][data-cel="4"]');
+    await expect(copy).toBeFocused();
+    await page.keyboard.press("Shift+F10");
+    await menu.getByRole("menuitem", { name: "Move to loop…" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(menu.getByRole("menuitem", { name: /^Loop 3/ })).toHaveCount(0);
+    await menu.getByRole("menuitem", { name: "Loop 2 · Walk toward" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(studio.getByTestId("studio-draft-status")).toHaveText("2 changes");
+    const moved = open(await draftBytes(page));
+    expect(moved.loops.map((loop) => loop.cels.length)).toEqual([4, 4, 5, 4]);
+    expect(samePixels(moved.loops[2]!.cels[4]!.pixels, original.loops[2]!.cels[1]!.pixels)).toBe(
+      true,
+    );
+    await expect(studio.locator('.timeline [data-loop="2"][data-cel="4"]')).toBeFocused();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+    expect(open(await draftBytes(page)).loops.map((loop) => loop.cels.length)).toEqual([
+      4, 4, 4, 5,
+    ]);
   });
 
   test("keyboard only: a line drawn with the cursor and kept", async ({ page }) => {

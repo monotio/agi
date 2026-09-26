@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
- * The canvas's view toggles, over its top edge: onion skins of the previous
- * and next cels (and how many of each, 1 to 3), the grid and the baseline.
- * None of them changes the view.
+ * The canvas's view toggles, over its top edge: the contact sheet of every
+ * cel in place of the canvas, onion skins of the previous and next cels (and
+ * how many of each, 1 to 3), the grid and the baseline. None of them changes
+ * the view.
  */
+const sheet = defineModel<boolean>("sheet", { required: true });
 const prev = defineModel<boolean>("prev", { required: true });
 const next = defineModel<boolean>("next", { required: true });
 const depth = defineModel<number>("depth", { required: true });
@@ -16,47 +18,58 @@ const baseline = defineModel<boolean>("baseline", { required: true });
     <button
       type="button"
       class="sprite-view-bar__toggle"
-      :aria-pressed="prev"
-      data-testid="sprite-onion-prev"
-      @click="prev = !prev"
+      :aria-pressed="sheet"
+      data-testid="sprite-sheet-toggle"
+      @click="sheet = !sheet"
     >
-      <i class="sprite-view-bar__tint is-prev" aria-hidden="true"></i>Onion −{{ depth }}
+      Contact sheet
     </button>
-    <button
-      type="button"
-      class="sprite-view-bar__toggle"
-      :aria-pressed="next"
-      data-testid="sprite-onion-next"
-      @click="next = !next"
-    >
-      <i class="sprite-view-bar__tint is-next" aria-hidden="true"></i>+{{ depth }}
-    </button>
-    <label class="sprite-view-bar__depth">
-      <span class="sprite-view-bar__sr">Onion skin cels</span>
-      <select v-model.number="depth" data-testid="sprite-onion-depth">
-        <option :value="1">1</option>
-        <option :value="2">2</option>
-        <option :value="3">3</option>
-      </select>
-    </label>
-    <button
-      type="button"
-      class="sprite-view-bar__toggle"
-      :aria-pressed="grid"
-      data-testid="sprite-grid"
-      @click="grid = !grid"
-    >
-      Grid
-    </button>
-    <button
-      type="button"
-      class="sprite-view-bar__toggle"
-      :aria-pressed="baseline"
-      data-testid="sprite-baseline-toggle"
-      @click="baseline = !baseline"
-    >
-      Baseline
-    </button>
+    <template v-if="!sheet">
+      <button
+        type="button"
+        class="sprite-view-bar__toggle"
+        :aria-pressed="prev"
+        data-testid="sprite-onion-prev"
+        @click="prev = !prev"
+      >
+        <i class="sprite-view-bar__tint is-prev" aria-hidden="true"></i>Onion −{{ depth }}
+      </button>
+      <button
+        type="button"
+        class="sprite-view-bar__toggle"
+        :aria-pressed="next"
+        data-testid="sprite-onion-next"
+        @click="next = !next"
+      >
+        <i class="sprite-view-bar__tint is-next" aria-hidden="true"></i>+{{ depth }}
+      </button>
+      <label class="sprite-view-bar__depth">
+        <span class="sprite-view-bar__sr">Onion skin cels</span>
+        <select v-model.number="depth" data-testid="sprite-onion-depth">
+          <option :value="1">1</option>
+          <option :value="2">2</option>
+          <option :value="3">3</option>
+        </select>
+      </label>
+      <button
+        type="button"
+        class="sprite-view-bar__toggle"
+        :aria-pressed="grid"
+        data-testid="sprite-grid"
+        @click="grid = !grid"
+      >
+        Grid
+      </button>
+      <button
+        type="button"
+        class="sprite-view-bar__toggle"
+        :aria-pressed="baseline"
+        data-testid="sprite-baseline-toggle"
+        @click="baseline = !baseline"
+      >
+        Baseline
+      </button>
+    </template>
   </div>
 </template>
 

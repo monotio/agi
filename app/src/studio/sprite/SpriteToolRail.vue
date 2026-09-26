@@ -5,9 +5,9 @@ import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { SpriteTool } from "./useSpriteTools.ts";
 
 /**
- * The tool rail on the canvas's left edge: the drawing tools and the eraser,
- * the paint colour, the selection, the pipette and the flip, each with its
- * key.
+ * The tool rail on the canvas's left edge: the drawing tools, the eraser and
+ * the recolour, the paint colour, the selection, the pipette and the flip,
+ * each with its key.
  */
 const { frozen, color } = defineProps<{
   /** Drawing is blocked: the tools that change pixels are disabled. */
@@ -30,6 +30,13 @@ const DRAW: readonly RailTool[] = [
   { id: "fill", icon: "fill", label: "Fill", key: "G", draws: true },
   { id: "line", icon: "line", label: "Line", key: "L", draws: true },
   { id: "rect", icon: "rect", label: "Rectangle", key: "R", draws: true },
+  {
+    id: "recolor",
+    icon: "palette",
+    label: "Recolour: one colour to another in the cel, loop or view",
+    key: "C",
+    draws: true,
+  },
 ];
 const PICK: readonly RailTool[] = [
   { id: "select", icon: "marquee", label: "Select: move, copy, flip or delete", key: "M" },
@@ -91,6 +98,9 @@ const PICK: readonly RailTool[] = [
   flex-direction: column;
   align-items: center;
   gap: var(--space-0);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
   padding: var(--space-2) 0;
   border-right: 1px solid var(--hairline);
   background: var(--surface-1);
@@ -118,5 +128,15 @@ const PICK: readonly RailTool[] = [
   height: 1px;
   margin: var(--space-1) 0;
   background: var(--hairline);
+}
+/* A short window (1280×720) keeps every tool in view with the small buttons. */
+@media (max-height: 800px) {
+  .sprite-rail :deep(.ui-icon-btn) {
+    width: var(--control-h-sm);
+    height: var(--control-h-sm);
+  }
+  .sprite-rail__colour {
+    margin: var(--space-1) 0;
+  }
 }
 </style>

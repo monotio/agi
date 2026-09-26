@@ -13,7 +13,11 @@
  * paints), a line's, rect's or selection's first corner and then its last.
  * With a selection made, the arrows move it instead (Alt: a copy), Delete
  * clears it and H flips it. Esc cancels what is being drawn, then drops the
- * selection.
+ * selection, then puts the recolour tool away.
+ *
+ * The recolour tool (C) swaps one colour for another over the cel, the loop
+ * or the view (SpriteRecolor.vue); a click on the canvas picks the colour it
+ * changes (`recolorFrom`).
  */
 
 import { computed, shallowRef, watch, type Ref } from "vue";
@@ -35,7 +39,8 @@ import {
 } from "./spriteView.ts";
 import type { SpriteDraft, SpriteOutcome } from "./useSpriteDraft.ts";
 
-export type SpriteTool = "pencil" | "eraser" | "fill" | "line" | "rect" | "select" | "pipette";
+export type SpriteTool =
+  "pencil" | "eraser" | "fill" | "line" | "rect" | "select" | "pipette" | "recolor";
 
 /** The rail's single-letter shortcuts; H flips (the selection, else the cel) and is not a tool. */
 export const SPRITE_TOOL_KEYS: Record<string, SpriteTool | "flip"> = {
@@ -46,6 +51,7 @@ export const SPRITE_TOOL_KEYS: Record<string, SpriteTool | "flip"> = {
   r: "rect",
   m: "select",
   i: "pipette",
+  c: "recolor",
   h: "flip",
 };
 
@@ -60,6 +66,7 @@ const LABELS: Record<SpriteTool, string> = {
   rect: "Rect",
   select: "Move selection",
   pipette: "Pick colour",
+  recolor: "Recolour",
 };
 
 export interface SpriteToolsOptions {
@@ -94,6 +101,10 @@ interface Move {
 export function useSpriteTools(options: SpriteToolsOptions) {
   const { draft, loop, cel, color } = options;
   const tool = shallowRef<SpriteTool>("pencil");
+  /** The tool the recolour tool was opened from, to return to when it is put away. */
+  let beforeRecolor: SpriteTool = "pencil";
+  /** The colour the recolour tool changes; null until one is picked. */
+  const recolorFrom = shallowRef<number | null>(null);
   /** The cel cell under the pointer or the keyboard cursor. */
   const cursor = shallowRef<CelPoint | undefined>();
   /** The keys drive the canvas: the cursor shows. */
@@ -174,6 +185,19 @@ export function useSpriteTools(options: SpriteToolsOptions) {
     const base = current.value;
     if (!base) return;
     switch (tool.value) {
+      case "recolor": {
+        const onCel = point.x >= 0 && point.y >= 0 && point.x < base.width && point.y < base.height;
+        if (!onCel) return;
+        const value = base.pixels[point.y * base.width + point.x]!;
+        // The popover's live count says what was picked.
+        if (value !== base.transparent) recolorFrom.value = value;
+        else
+          options.say({
+            tone: "warn",
+            text: "That pixel is transparent: pick a coloured pixel to recolour.",
+          });
+        return;
+      }
       case "pipette": {
         const onCel = point.x >= 0 && point.y >= 0 && point.x < base.width && point.y < base.height;
         if (!onCel) return;
@@ -304,7 +328,15 @@ export function useSpriteTools(options: SpriteToolsOptions) {
     if (next === tool.value) return;
     cancel();
     if (next !== "select") selection.value = null;
+    if (next === "recolor") beforeRecolor = tool.value;
     tool.value = next;
+  }
+
+  /** Put the recolour tool away, back to the tool it was opened from; false when it was not out. */
+  function closeRecolor(): boolean {
+    if (tool.value !== "recolor") return false;
+    setTool(beforeRecolor);
+    return true;
   }
 
   /** H: flip the selection left to right, else the whole cel. */
@@ -414,6 +446,8 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   return {
     tool,
     setTool,
+    closeRecolor,
+    recolorFrom,
     cursor,
     keyboard,
     anchor,

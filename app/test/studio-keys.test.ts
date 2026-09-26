@@ -76,3 +76,16 @@ test("Enter on the canvas without a drawing cursor still finishes", () => {
   assert.equal(studioKey(key("Enter", CANVAS), act), true);
   assert.deepEqual(calls, ["finish"]);
 });
+
+test("Esc in a text field leaves the field, not Studio; elsewhere it closes", () => {
+  const { act, calls } = actions(false);
+  const field = Object.assign(Object.create(HTMLElement.prototype) as HTMLElement, {
+    tagName: "INPUT",
+    isContentEditable: false,
+    blur: () => calls.push("blur"),
+  });
+  assert.equal(studioKey(key("Escape", field), act), true);
+  assert.deepEqual(calls, ["blur"]);
+  assert.equal(studioKey(key("Escape", ELSEWHERE), act), true);
+  assert.deepEqual(calls, ["blur", "close"]);
+});
