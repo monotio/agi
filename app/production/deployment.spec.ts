@@ -27,7 +27,7 @@ test("bundled tutorial previews and plays on the production origin without a pro
   await expect.poll(async () => (await textHook(page)).rows[2] ?? "").toContain("HELP");
   await page.getByTestId("input-line").fill("help");
   await page.getByTestId("input-line").press("Enter");
-  await expect(page.getByText("[ Press Enter to continue ]", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("modal-hint")).toHaveText("Press Enter to continue");
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Useful commands");
   await page.screenshot({ path: test.info().outputPath("tutorial-production.png") });
   expect(externalRequests).toEqual([]);
