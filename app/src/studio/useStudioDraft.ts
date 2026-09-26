@@ -5,7 +5,9 @@
  * (applyEdit), then the lens locks (studioLocks.ts); a refused edit changes
  * nothing and says why. A drag is one gesture: `move` previews each frame's
  * candidate from the text the gesture started on, and `end` records one undo
- * step or snaps back. Keep rebases the draft but keeps its history.
+ * step or snaps back. Keep rebases the draft but keeps its history. A draft
+ * whose compiled bytes equal the kept ones differs only in its notes (labels,
+ * kinds, locks, annotations): Keep then saves the text without a patch.
  */
 
 import { computed, onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
@@ -30,8 +32,10 @@ import {
   serializePictureDocument,
   type PictureDocument,
 } from "../../../src/studio/pictureDocument.ts";
+import { plainKernelRefusal } from "./studioMessages.ts";
 import {
   checkStudioEdit,
+  refusalText,
   violationCells,
   type LensUnlocks,
   type StudioCheck,
@@ -52,12 +56,13 @@ export interface StudioDraftOptions {
   readonly unlocks: MaybeRefOrGetter<LensUnlocks>;
 }
 
-/** Why an edit did not happen. */
+/** Why an edit did not happen: `message` in plain words, `detail` the technical account. */
 export type DraftRefusal =
-  | { readonly kind: "kernel"; readonly message: string }
+  | { readonly kind: "kernel"; readonly message: string; readonly detail?: string }
   | {
       readonly kind: "lock";
       readonly message: string;
+      readonly detail: string;
       readonly check: StudioCheck;
       /** The cells that broke a rule, for the canvas flash. */
       readonly cells: Uint8Array;
@@ -72,6 +77,14 @@ export interface DraftCandidate {
 
 export type DraftOutcome =
   { readonly ok: true } | { readonly ok: false; readonly refusal: DraftRefusal };
+
+const sameBytes = (a: Uint8Array, b: Uint8Array): boolean =>
+  a.length === b.length && a.every((byte, i) => byte === b[i]);
+
+/** The draft's unkept changes for a label: "1 change", "2 changes", "1 note change". */
+export function changeCount(changes: number, notesOnly: boolean): string {
+  return `${changes} ${notesOnly ? "note " : ""}${changes === 1 ? "change" : "changes"}`;
+}
 
 /** An id not used in `document`, derived from `base` ("bench-copy", "bench-copy-2"). */
 export function freshItemId(document: PictureDocument, base: string): string {
@@ -124,6 +137,18 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const changes = computed(() =>
     dirty.value ? Math.max(1, Math.abs(history.value.past.length - keptDepth.value)) : 0,
   );
+  /** The kept text's compiled bytes, compiled once per kept text and profile. */
+  let keptBytes: { source: string; profile: AgiProfile; bytes: Uint8Array } | undefined;
+  function baseBytes(): Uint8Array {
+    const { source: text } = kept.value;
+    if (keptBytes?.source !== text || keptBytes.profile !== profile()) {
+      const bytes = compileEditDocument(parsePictureDocument(text).document, profile()).bytes;
+      keptBytes = { source: text, profile: profile(), bytes };
+    }
+    return keptBytes.bytes;
+  }
+  /** The draft differs from the kept text only where the picture's bytes do not show it. */
+  const notesOnly = computed(() => dirty.value && sameBytes(compiled.value.bytes, baseBytes()));
   const gesturing = computed(() => history.value.gesture !== undefined);
   const canUndo = computed(() => !gesturing.value && history.value.past.length > 0);
   const canRedo = computed(() => !gesturing.value && history.value.future.length > 0);
@@ -146,7 +171,12 @@ export function useStudioDraft(options: StudioDraftOptions) {
   /** Run `op` on the draft: the kernel, then the locks. Nothing is recorded. */
   function evaluate(op: EditOperation): DraftCandidate | DraftRefusal {
     const result = applyEdit(document.value, op, { profile: profile() });
-    if ("error" in result) return { kind: "kernel", message: result.error };
+    if ("error" in result)
+      return {
+        kind: "kernel",
+        message: plainKernelRefusal(op, result.error),
+        detail: result.error,
+      };
     const after = compileEditDocument(result.document, profile());
     const edited = [
       ...new Set([...editedItems(document.value, op), ...editedItems(result.document, op)]),
@@ -162,7 +192,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     if (!check.ok)
       return {
         kind: "lock",
-        message: check.violations.map((violation) => violation.message).join(" "),
+        ...refusalText(check),
         check,
         cells: violationCells(check),
       };
@@ -187,7 +217,12 @@ export function useStudioDraft(options: StudioDraftOptions) {
     const candidate = evaluate(op);
     if (refused(candidate)) return refuse(candidate);
     const recorded = record(history.value, label, source.value, candidate.source);
-    if (!recorded.ok) return refuse({ kind: "kernel", message: recorded.reason });
+    if (!recorded.ok)
+      return refuse({
+        kind: "kernel",
+        message: plainKernelRefusal(op, recorded.reason),
+        detail: recorded.reason,
+      });
     history.value = recorded.history;
     refusal.value = null;
     return { ok: true };
@@ -245,6 +280,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
    * history stays, so undoing past a Keep is an unkept change like any other.
    */
   function markKept(revision: ResourceRevision): void {
+    keptBytes = { source: source.value, profile: profile(), bytes: compiled.value.bytes };
     kept.value = { source: source.value, revision };
     keptDepth.value = history.value.past.length;
     refusal.value = null;
@@ -266,6 +302,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     validation,
     dirty,
     changes,
+    notesOnly,
     gesturing,
     canUndo,
     canRedo,

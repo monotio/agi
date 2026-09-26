@@ -1,7 +1,8 @@
 /**
  * Room Studio's Keep: the draft's compiled bytes and annotated source go
  * through the resource transaction (useStudioCommit) against the revision the
- * draft was opened or last kept on. A kept draft rebases on the new revision.
+ * draft was opened or last kept on (bytes equal to the kept ones save only
+ * the text). A kept draft rebases on the new revision.
  * Each refusal maps to the one next step it allows: a stale game reopens
  * Studio from the running game, a failed install reloads the game from
  * storage (editing stops until then), anything else can be retried.
@@ -11,7 +12,7 @@ import { computed, shallowRef } from "vue";
 import type { PictureEdit, ResourceCommitResult } from "../resourceCommit.ts";
 import type { DraftStatus } from "./StudioTopBar.vue";
 import { useStudioCommit } from "./useStudioCommit.ts";
-import type { StudioDraft } from "./useStudioDraft.ts";
+import { changeCount, type StudioDraft } from "./useStudioDraft.ts";
 
 export type KeepFn = (edit: PictureEdit) => Promise<ResourceCommitResult>;
 
@@ -64,13 +65,12 @@ export function useStudioKeep(options: {
   async function keep(): Promise<boolean> {
     const revision = draft.kept.value.revision;
     if (!canKeep.value || revision === undefined) return false;
-    const changes = draft.changes.value;
     const result = await commit({
       pictureNumber: options.pictureNumber(),
       bytes: draft.compiled.value.bytes,
       source: draft.source.value,
       baseRevision: revision,
-      reason: `${changes} ${changes === 1 ? "change" : "changes"}`,
+      reason: changeCount(draft.changes.value, draft.notesOnly.value),
     });
     if (!result) return false;
     draft.markKept(result.revision);

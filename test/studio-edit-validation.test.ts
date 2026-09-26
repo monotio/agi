@@ -118,6 +118,62 @@ describe("validateEdit", () => {
       () => validateEdit(before, after, { lockedPlanes: [], allowedMask: new Uint8Array(5) }),
       /allowedMask has 5 cells/,
     );
+    assert.throws(
+      () =>
+        validateEdit(before, after, {
+          lockedPlanes: [],
+          allowedMask: { priority: new Uint8Array(5) },
+        }),
+      /allowedMask has 5 cells/,
+    );
+  });
+
+  it("checks each plane against its own mask: an art footprint does not free the depth under it", () => {
+    // An art fill after a mixed fill of the same area draws nothing; moved
+    // before it, it paints the same art and leaves the mixed fill nothing
+    // to flood, so the floor's depth 9 is gone from the whole room.
+    const room = doc(
+      '# @item frame "Frame" art',
+      "vis 0",
+      "rect 10,10 60,60",
+      "# @end",
+      '# @item floor "Floor" mixed',
+      "vis 6",
+      "pri 9",
+      "fill 30,30",
+      "# @end",
+      '# @item patch "Patch" art',
+      "vis 6",
+      "pri off",
+      "fill 30,30",
+      "# @end",
+      "end",
+    );
+    const before = compile(room);
+    const after = compile(edited(room, { type: "reorderItem", itemId: "patch", toIndex: 1 }));
+    const own = (plane: "visual" | "priority"): Uint8Array =>
+      unionMask(footprintMask(before, "patch", plane), footprintMask(after, "patch", plane));
+    // The single mask is the union of both planes: the lost depth lies inside it.
+    assert.deepEqual(
+      validateEdit(before, after, { lockedPlanes: [], allowedMask: around(before, after, "patch") })
+        .violations,
+      [],
+    );
+    const perPlane = validateEdit(before, after, {
+      lockedPlanes: [],
+      allowedMask: { visual: own("visual"), priority: own("priority") },
+    });
+    assert.deepEqual(
+      perPlane.violations.map(
+        (v) => v.constraint !== "max-bytes" && [v.constraint, v.plane, v.count],
+      ),
+      [["outside-mask", "priority", 49 * 49]],
+    );
+    // A plane the per-plane form leaves out is not restricted.
+    assert.equal(
+      validateEdit(before, after, { lockedPlanes: [], allowedMask: { visual: own("visual") } }).ok,
+      true,
+    );
   });
 });
 

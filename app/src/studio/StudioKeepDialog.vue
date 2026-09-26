@@ -7,9 +7,16 @@ import UiDialog from "../ui/UiDialog.vue";
  * The draft's two confirmations: closing Studio with unkept changes offers
  * Keep, Discard or Cancel; Discard alone asks before throwing changes away.
  */
-const { pictureNumber, changes, canKeep } = defineProps<{
+const {
+  pictureNumber,
+  changes,
+  notesOnly = false,
+  canKeep,
+} = defineProps<{
   pictureNumber: number;
   changes: number;
+  /** The changes touch only notes (labels, kinds, locks), not the picture's bytes. */
+  notesOnly?: boolean;
   canKeep: boolean;
 }>();
 const emit = defineEmits<{ keep: []; discard: [close: boolean] }>();
@@ -23,7 +30,7 @@ const open = computed({
 const closing = computed(() => ask.value === "close");
 const description = computed(() =>
   closing.value
-    ? `PIC ${pictureNumber} has ${changes} unkept ${changes === 1 ? "change" : "changes"}.`
+    ? `PIC ${pictureNumber} has ${changes} unkept ${notesOnly ? "note " : ""}${changes === 1 ? "change" : "changes"}.`
     : "The picture goes back to how it was last kept.",
 );
 </script>

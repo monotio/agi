@@ -313,6 +313,7 @@ function onKeyup(event: KeyboardEvent): void {
       :commands="total"
       :status="keeper.status.value"
       :changes="draft.changes.value"
+      :notes-only="draft.notesOnly.value"
       :can-undo="draft.canUndo.value && !keeper.needsReload.value"
       :can-redo="draft.canRedo.value && !keeper.needsReload.value"
       :can-keep="keeper.canKeep.value"
@@ -414,6 +415,7 @@ function onKeyup(event: KeyboardEvent): void {
         :notice="editing.notice.value"
         :editing="editableId !== undefined && tools.tool.value === 'select'"
         @recover="recover"
+        @hold="editing.hold"
       />
       <StudioToolOptions
         v-if="tools.tool.value !== 'select'"
@@ -480,6 +482,7 @@ function onKeyup(event: KeyboardEvent): void {
       v-model:ask="dialog"
       :picture-number="pictureNumber"
       :changes="draft.changes.value"
+      :notes-only="draft.notesOnly.value"
       :can-keep="keeper.canKeep.value"
       @keep="leave.answer('keep')"
       @discard="(closing) => (closing ? leave.answer('discard') : discardChanges())"

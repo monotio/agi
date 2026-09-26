@@ -8,6 +8,7 @@ import UiSegmented from "../ui/UiSegmented.vue";
 import { PAYLOAD_MAX_BYTES } from "../../../src/container/container.ts";
 import { MAX_PAYLOAD_BYTES } from "../../../src/agent/pictureTools.ts";
 import { byteMeter, type StudioLens } from "./studioView.ts";
+import { changeCount } from "./useStudioDraft.ts";
 
 /** Where the draft stands, for the status chip. */
 export type DraftStatus = "view-only" | "clean" | "changed" | "keeping" | "kept" | "reload";
@@ -26,6 +27,7 @@ const {
   commands,
   status,
   changes,
+  notesOnly = false,
   canUndo,
   canRedo,
   canKeep,
@@ -38,6 +40,8 @@ const {
   commands: number;
   status: DraftStatus;
   changes: number;
+  /** The changes touch only notes (labels, kinds, locks), not the picture's bytes. */
+  notesOnly?: boolean;
   canUndo: boolean;
   canRedo: boolean;
   canKeep: boolean;
@@ -71,7 +75,7 @@ const STATUS: Record<
 };
 const chip = computed(() =>
   status === "changed"
-    ? { tone: "action" as const, text: `${changes} ${changes === 1 ? "change" : "changes"}` }
+    ? { tone: "action" as const, text: changeCount(changes, notesOnly) }
     : STATUS[status],
 );
 </script>
