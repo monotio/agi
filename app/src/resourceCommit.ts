@@ -9,8 +9,12 @@ import { AgentSession } from "./agent/agentSession.ts";
 import { gameRevision, type LibraryMetadata } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
-import { resourceCacheHint } from "../../src/agent/authoringState.ts";
-import type { AgentSourceStore } from "../../src/agent/tools.ts";
+import {
+  resourceCacheHint,
+  type AuthoringState,
+  type BindingKind,
+} from "../../src/agent/authoringState.ts";
+import { assembleAuthoredLogic, type AgentSourceStore } from "../../src/agent/tools.ts";
 import { sourceCompilesTo } from "../../src/picture/source.ts";
 import { roomDrawsPicture } from "../../src/agent/roomPictures.ts";
 import { roomBakesView, scanViewUsage } from "../../src/studio/sprite/spriteUsage.ts";
@@ -110,6 +114,37 @@ export interface ViewEdit {
   reason?: string | undefined;
 }
 
+/**
+ * Room Studio's combined Keep: the picture and the room's LOGIC in one
+ * transaction — a door box that follows the doorway art moves with it, or
+ * neither lands. Either part may be absent (a door edit alone, a picture
+ * edit alone); the logic source must assemble to exactly its bytes with the
+ * game's bindings plus the ones the rule edits reserved.
+ */
+export interface RoomEdit {
+  /** The room whose logic is edited (logic N is room N). */
+  room: number;
+  picture?: { pictureNumber: number; bytes: Uint8Array; source: string } | undefined;
+  logic?:
+    | {
+        bytes: Uint8Array;
+        /** Annotated logic source (`// @rule` fragments); must assemble to `bytes`. */
+        source: string;
+        /** Flag names the rule edits reserved; added to the authoring bindings. */
+        newBindings: Readonly<Record<string, { kind: BindingKind; num: number }>>;
+      }
+    | undefined;
+  baseRevision: ResourceRevision;
+  reason?: string | undefined;
+}
+
+/** One resource a commit writes and installs. */
+export interface ResourcePatch {
+  readonly kind: PatchKind;
+  readonly num: number;
+  readonly payload: Uint8Array;
+}
+
 /** One resource edit as a resource commit applies it. */
 export interface ResourceEdit {
   /** Names the edit in refusals: "a staged view", "the picture edit". */
@@ -120,18 +155,26 @@ export interface ResourceEdit {
   readonly baseRevision?: ResourceRevision | undefined;
   /**
    * Re-enter the room the game stands in after the install when this says
-   * the room shows the edit, judged on the edited files.
+   * the room shows the edit, judged on the edited files and the resources
+   * whose bytes actually changed.
    */
   readonly reenter?:
-    | ((room: number, files: ReadonlyMap<string, Uint8Array>, profile: AgiProfile) => boolean)
+    | ((
+        room: number,
+        files: ReadonlyMap<string, Uint8Array>,
+        profile: AgiProfile,
+        changed: readonly ResourcePatch[],
+      ) => boolean)
     | undefined;
   /** Read the edit against the freshly loaded project record; throw to refuse. */
   resolve(stored: CachedGameData | null): {
-    kind: PatchKind;
-    num: number;
-    payload: Uint8Array;
-    /** Record the edit's source; true when it differs from the stored one. */
-    stage: (sources: AgentSourceStore) => boolean;
+    /** The resources the edit writes, installed in this order, each acked by the worker. */
+    patches: readonly ResourcePatch[];
+    /**
+     * Record the edit's source (and any bindings it reserved) on the
+     * candidate session state; true when that differs from what it held.
+     */
+    stage: (sources: AgentSourceStore, authoring: AuthoringState) => boolean;
     /** The project's reference list after the edit (a spent staged offer). */
     references?: StoredReference[] | undefined;
   };
@@ -197,7 +240,8 @@ export function createResourceCommit(
    *    source, and validate both — nothing is written yet;
    * 4. write bytes, source and project fields in one conditional save
    *    (catalog entries and installed editions fork into a new remix);
-   * 5. install the bytes in the worker and wait for its ack naming them;
+   * 5. install each changed resource in the worker and wait for every ack
+   *    naming its bytes (a Room Studio Keep installs a picture and a logic);
    * 6. adopt the session and booted identity, re-enter the room when the
    *    edit shows there, post the tape's authoring checkpoint, and take a
    *    fresh autosave under the new revision.
@@ -291,11 +335,14 @@ export function createResourceCommit(
           `The running game changed before ${what} could be kept.`,
         );
 
-      const { kind, num, payload } = resolved;
       const container = openContainer(new Map(Object.entries(exported)));
-      const current = container.getResource(kind, num);
-      const bytesChanged = !current || !sameBytes(current, payload);
-      if (bytesChanged) container.putResource(kind, num, payload);
+      // Only the resources whose bytes differ are written and installed.
+      const changed = resolved.patches.filter(({ kind, num, payload }) => {
+        const current = container.getResource(kind, num);
+        return !current || !sameBytes(current, payload);
+      });
+      const bytesChanged = changed.length > 0;
+      for (const { kind, num, payload } of changed) container.putResource(kind, num, payload);
       const files = Object.fromEntries(container.files);
       const words = files["WORDS.TOK"]
         ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
@@ -431,14 +478,19 @@ export function createResourceCommit(
       const result: ResourceCommitResult = { status: "committed", projectId: targetId, revision };
       if (moved()) return result;
       if (bytesChanged) {
-        const transfer = new Uint8Array(payload);
-        const acked = awaitPatched(kind, num, resourceCacheHint(payload), PATCH_ACK_TIMEOUT_MS);
-        worker.postMessage(
-          { type: "patch", kind, num, payload: transfer } satisfies WorkerInbound,
-          [transfer.buffer],
-        );
+        // Every waiter is armed before its patch is posted; each resource
+        // needs its own ack naming the bytes it installed.
+        const acks = changed.map(({ kind, num, payload }) => {
+          const acked = awaitPatched(kind, num, resourceCacheHint(payload), PATCH_ACK_TIMEOUT_MS);
+          const transfer = new Uint8Array(payload);
+          worker.postMessage(
+            { type: "patch", kind, num, payload: transfer } satisfies WorkerInbound,
+            [transfer.buffer],
+          );
+          return acked;
+        });
         try {
-          await acked;
+          await Promise.all(acks);
         } catch (error) {
           throw new ResourceCommitError(
             "install",
@@ -485,7 +537,7 @@ export function createResourceCommit(
       if (
         bytesChanged &&
         room !== undefined &&
-        edit.reenter?.(room, container.files, sourceSession.state.profile)
+        edit.reenter?.(room, container.files, sourceSession.state.profile, changed)
       )
         worker.postMessage({ type: "reenter", room } satisfies WorkerInbound);
       postSessionSnapshot(sourceSession);
@@ -535,9 +587,13 @@ export function stagedViewEdit(
       if (refusal) throw new ResourceCommitError("stale", refusal);
       const staged = reference.staged!;
       return {
-        kind: "view",
-        num: staged.num,
-        payload: payload ?? new Uint8Array(base64ToBytes(staged.payload)),
+        patches: [
+          {
+            kind: "view",
+            num: staged.num,
+            payload: payload ?? new Uint8Array(base64ToBytes(staged.payload)),
+          },
+        ],
         stage: (sources) => {
           sources.views.set(staged.num, spec ?? structuredClone(staged.input));
           return true;
@@ -582,9 +638,7 @@ export function pictureEdit(edit: PictureEdit): ResourceEdit {
       if (!Number.isInteger(num) || num < 0 || num > 255)
         throw new ResourceCommitError("invalid", `Picture ${num} is not a resource number.`);
       return {
-        kind: "picture",
-        num,
-        payload,
+        patches: [{ kind: "picture", num, payload }],
         stage: (sources) => {
           const before = sources.pictures.get(num);
           sources.pictures.set(num, source);
@@ -597,6 +651,97 @@ export function pictureEdit(edit: PictureEdit): ResourceEdit {
         throw new ResourceCommitError(
           "invalid",
           "The picture text does not compile to the edited picture.",
+        );
+    },
+  };
+}
+
+/**
+ * Keep Room Studio's picture and room logic together: the edited PIC with
+ * the annotated text that compiles to it, and the room's LOGIC with the
+ * annotated source that assembles to it (door and edge exit rules), plus the
+ * flag bindings the rule edits reserved. Both install, each with its own ack,
+ * or neither is kept. The room re-enters when the picture changed and its
+ * logic draws it; rule changes are per-cycle, so a logic change alone runs
+ * from the next cycle.
+ */
+export function roomEdit(edit: RoomEdit): ResourceEdit {
+  const { room, picture, logic, baseRevision } = edit;
+  const pictureBytes = picture && new Uint8Array(picture.bytes);
+  const logicBytes = logic && new Uint8Array(logic.bytes);
+  return {
+    what: "the room edit",
+    owner: "studioCommit",
+    baseRevision,
+    reenter: (current, files, profile, changed) =>
+      picture !== undefined &&
+      changed.some((patch) => patch.kind === "picture") &&
+      roomDrawsPicture(files, current, picture.pictureNumber, profile),
+    resolve: () => {
+      if (!Number.isInteger(room) || room < 1 || room > 255)
+        throw new ResourceCommitError("invalid", `Room ${room} is not a room number.`);
+      if (!picture && !logic) throw new ResourceCommitError("invalid", "The room edit is empty.");
+      const num = picture?.pictureNumber ?? 0;
+      if (picture && (!Number.isInteger(num) || num < 0 || num > 255))
+        throw new ResourceCommitError("invalid", `Picture ${num} is not a resource number.`);
+      return {
+        patches: [
+          ...(pictureBytes ? [{ kind: "picture" as const, num, payload: pictureBytes }] : []),
+          ...(logicBytes ? [{ kind: "logic" as const, num: room, payload: logicBytes }] : []),
+        ],
+        stage: (sources, authoring) => {
+          let changed = false;
+          if (picture) {
+            changed ||= sources.pictures.get(num) !== picture.source;
+            sources.pictures.set(num, picture.source);
+          }
+          if (logic) {
+            changed ||= sources.logics.get(room) !== logic.source;
+            sources.logics.set(room, logic.source);
+            for (const [name, binding] of Object.entries(logic.newBindings)) {
+              if (authoring.bindings[name]) continue;
+              authoring.bindings[name] = { ...binding };
+              changed = true;
+            }
+          }
+          return changed;
+        },
+      };
+    },
+    validate: (author) => {
+      const { profile } = author.state;
+      if (picture && !sourceCompilesTo(picture.source, pictureBytes!, profile))
+        throw new ResourceCommitError(
+          "invalid",
+          "The picture text does not compile to the edited picture.",
+        );
+      if (!logic) return;
+      const bindings = { ...author.state.authoring.bindings };
+      for (const [name, binding] of Object.entries(logic.newBindings)) {
+        const held = bindings[name];
+        if (held && (held.kind !== binding.kind || held.num !== binding.num))
+          throw new ResourceCommitError(
+            "invalid",
+            `The name '${name}' now means ${held.kind} ${held.num}; reopen Studio and edit the door again.`,
+          );
+        bindings[name] = binding;
+      }
+      let assembled: Uint8Array;
+      try {
+        assembled = assembleAuthoredLogic(
+          { profile, authoring: { bindings }, sources: { words: author.state.sources.words } },
+          logic.source,
+        ).payload;
+      } catch (error) {
+        throw new ResourceCommitError(
+          "invalid",
+          `The room's logic does not assemble (${error instanceof Error ? error.message : String(error)}).`,
+        );
+      }
+      if (!sameBytes(assembled, logicBytes!))
+        throw new ResourceCommitError(
+          "invalid",
+          "The room's logic text does not assemble to the edited logic.",
         );
     },
   };
@@ -635,9 +780,7 @@ export function viewEdit(edit: ViewEdit): ResourceEdit {
       if (!Number.isInteger(num) || num < 0 || num > 255)
         throw new ResourceCommitError("invalid", `View ${num} is not a resource number.`);
       return {
-        kind: "view",
-        num,
-        payload,
+        patches: [{ kind: "view", num, payload }],
         stage: (sources) => {
           if (!spec) return false;
           const before = sources.views.get(num);

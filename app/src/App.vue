@@ -37,6 +37,7 @@ import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
 import { useCreateMode } from "./shell/useCreateMode.ts";
+import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 
 const testMode = import.meta.env.MODE === "test";
@@ -178,6 +179,12 @@ const studio = workspace.studio;
 /** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
 const studioOpen = computed(() => creating.value && studio.value !== null);
 const sheetOpen = workspace.sheetOpen;
+/** Room Studio's Play here: leave Studio, show Play, jump the game to the spot. */
+const playHereFromStudio = usePlayHereFromStudio({
+  closeStudio: () => workspace.closeStudio(),
+  showPlay: () => shell.setMode("play"),
+  playHere: (target) => engine.playHere(target),
+});
 const { onDockKey } = useCreateMode({
   state,
   workspace,
@@ -620,6 +627,17 @@ watch(
             >
               Ask
             </UiButton>
+            <p
+              v-if="playHereFromStudio.note.value"
+              class="play-here-note"
+              role="status"
+              data-testid="play-here-note"
+            >
+              {{ playHereFromStudio.note.value }}
+              <button type="button" aria-label="Dismiss" @click="playHereFromStudio.dismiss()">
+                ×
+              </button>
+            </p>
           </template>
         </PlayArea>
         <RoomStudio
@@ -633,8 +651,10 @@ watch(
           :subtitle="studio.subtitle"
           :base-revision="studio.baseRevision"
           :files="studio.files"
+          :walk="studio.walk"
           @close="workspace.closeStudio()"
           @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
+          @play-here="(target) => void playHereFromStudio.play(target)"
         />
         <SpriteStudio
           v-else-if="studioOpen && studio?.kind === 'sprite'"

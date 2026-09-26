@@ -339,11 +339,12 @@ export function draftPictureEdit(
 }
 
 /** Development and test builds: the draft's bytes and text on `window.__AGI_STUDIO__` for browser tests. */
-export function exposeStudioDraft(draft: StudioDraft): void {
+export function exposeStudioDraft(draft: StudioDraft, logic?: () => string): void {
   if (!import.meta.env?.DEV) return;
   const hook = {
     bytes: () => draft.compiled.value.bytes.slice(),
     source: () => draft.source.value,
+    ...(logic ? { logic } : {}),
   };
   window.__AGI_STUDIO__ = hook;
   onScopeDispose(() => {

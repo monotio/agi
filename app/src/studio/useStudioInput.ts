@@ -47,7 +47,17 @@ export interface StudioInputOptions {
 }
 
 /** Tools the keyboard cursor drives. */
-const CURSOR_TOOLS: readonly StudioTool[] = ["line", "rect", "polygon", "fill", "brush", "pipette"];
+const CURSOR_TOOLS: readonly StudioTool[] = [
+  "line",
+  "rect",
+  "polygon",
+  "fill",
+  "brush",
+  "pipette",
+  "walk",
+  "door",
+  "edge",
+];
 const CENTRE: Point = { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 };
 const onSurface = ({ x, y }: Point): Point => ({
   x: Math.min(SCREEN_WIDTH - 1, Math.max(0, x)),
@@ -96,7 +106,7 @@ export function useStudioInput(options: StudioInputOptions) {
     take();
     const at = cell.value;
     const tool = tools.tool.value;
-    if (tools.rect.value || tools.stroke.value) {
+    if (tools.settling()) {
       tools.settleDrag();
       if (tool === "brush") spoken.value = "Pen up";
       return true;
@@ -106,6 +116,8 @@ export function useStudioInput(options: StudioInputOptions) {
     else tools.pressAt(at, false);
     if (tools.stroke.value) spoken.value = `Pen down at x ${at.x} y ${at.y}`;
     else if (tools.rect.value) spoken.value = `Rect from x ${at.x} y ${at.y}`;
+    else if (tool === "door" && tools.settling())
+      spoken.value = `Door box from x ${at.x} y ${at.y}; move and press Space to finish`;
     return true;
   }
 

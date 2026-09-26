@@ -69,6 +69,8 @@ const emit = defineEmits<{
   drag: [press: PanePress];
   release: [press: PanePress];
   abort: [];
+  /** A right-click on the picture: its cell and where the menu opens (viewport pixels). */
+  menu: [cell: ViewportPoint, at: { x: number; y: number }];
 }>();
 
 const canvas = useTemplateRef("canvas");
@@ -159,6 +161,12 @@ function onLost(event: PointerEvent): void {
   captured = null;
   emit("abort");
 }
+function onMenu(event: MouseEvent): void {
+  const cell = cellAt(event);
+  if (!cell) return;
+  event.preventDefault();
+  emit("menu", cell, { x: event.clientX, y: event.clientY });
+}
 function onLeave(): void {
   last = undefined;
   emit("hover", undefined);
@@ -177,6 +185,7 @@ function onLeave(): void {
     @pointercancel="onLost"
     @lostpointercapture="onLost"
     @pointerleave="onLeave"
+    @contextmenu="onMenu"
   >
     <canvas
       ref="canvas"

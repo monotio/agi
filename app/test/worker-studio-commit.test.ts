@@ -42,12 +42,21 @@ import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
 import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
 import type { AwaitPatchedFn } from "../src/workerQueries.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
-import { authoredPictureSource } from "../../src/agent/tools.ts";
+import { authoredPictureSource, createAgentSessionState } from "../../src/agent/tools.ts";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { applyEdit } from "../../src/studio/editOperations.ts";
+import {
+  parsePictureDocument,
+  serializePictureDocument,
+} from "../../src/studio/pictureDocument.ts";
+import { placeEgo } from "../../src/studio/playHere.ts";
+import { parseLogicDocument } from "../../src/studio/rules/logicDocument.ts";
+import { followPictureEdit } from "../../src/studio/rules/ruleBinding.ts";
+import { applyRuleEdit } from "../../src/studio/rules/ruleEdit.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
 import { viewSpec } from "../../src/view/celEdit.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
@@ -946,4 +955,285 @@ test("a staged candidate repaired in Sprite Studio keeps the repaired bytes and 
   assert.equal(kept.references?.[0]?.staged, undefined);
   const views = (kept.authoringState?.["sources"] as { views: [number, BuildViewInput][] }).views;
   assert.deepEqual(views, [[3, viewSpec(repaired, DEFAULT_V2_PROFILE)]]);
+});
+
+// ---- Room Studio: the combined picture + logic Keep ---------------------
+
+/** PIC 1: a grey floor and a red doorway item Room Studio can move. */
+const ROOM_PICTURE = [
+  '# @item floor "Floor" art',
+  "vis 8",
+  "fill 80,80",
+  "# @end",
+  '# @item doorway "East doorway" art',
+  "vis 4",
+  "rect 120,100 135,130",
+  "# @end",
+  "end",
+].join("\n");
+/** Room 1: ego 1x1 enters at 40,140; the door box follows the doorway item to room 2. */
+const ROOM_LOGIC = [
+  "if (isset(f5)) {",
+  "  load.pic(v0); draw.pic(v0); show.pic(); load.view(0);",
+  "  animate.obj(o0); set.view(o0, 0); position(o0, 40, 140); draw(o0); accept.input();",
+  "}",
+  '// @rule door-east "East door" exit item=doorway',
+  "if (posn(o0, 120, 125, 135, 130)) {",
+  "  new.room(2);",
+  "}",
+  "// @end",
+  "return;",
+  "",
+].join("\n");
+const roomSession = (files: Record<string, Uint8Array>) =>
+  createAgentSessionState(openContainer(new Map(Object.entries(files))), DEFAULT_V2_PROFILE);
+
+function roomFiles(): Record<string, Uint8Array> {
+  return Object.fromEntries(
+    gameContainer(
+      [
+        "if (equaln(v0,0)) { new.room(1); } call.v(v0); return;",
+        ROOM_LOGIC,
+        "if (isset(f5)) { load.pic(v0); draw.pic(v0); show.pic(); } return;",
+      ],
+      (c) => {
+        c.putResource("picture", 1, compile(ROOM_PICTURE));
+        c.putResource("picture", 2, compile(BLUE));
+        c.putResource(
+          "view",
+          0,
+          buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [15] }] }] }),
+        );
+      },
+    ).files,
+  );
+}
+
+async function roomRig(t: TestContext, name: string) {
+  const files = roomFiles();
+  const projectId = testProjectId(name);
+  const revision = await gameRevision(files);
+  await saveAuthoredGame(projectId, {
+    title: "Door room",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+    authoringState: {
+      authoring: { version: 1, bindings: {}, world: { rooms: {}, facts: {}, quests: {} } },
+      sources: { logics: [[1, ROOM_LOGIC]], pictures: [[1, ROOM_PICTURE]] },
+    },
+  });
+  t.after(() => clearCachedGame(projectId));
+  const booted: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Door room",
+    revision,
+    files,
+    words: [],
+    historyLifetime: await readHistoryLifetime(projectId),
+  };
+  return { projectId, revision, files, r: rig(t, files, booted) };
+}
+
+/** The doorway moved 20 px west, and the door rule followed it. */
+function movedDoorway(files: Record<string, Uint8Array>) {
+  const before = parsePictureDocument(ROOM_PICTURE).document;
+  const moved = applyEdit(before, { type: "moveItem", itemId: "doorway", dx: -20, dy: 0 });
+  assert.ok(!("error" in moved), "the doorway moves");
+  const pictureSource = serializePictureDocument(moved.document);
+  const follow = followPictureEdit(
+    parseLogicDocument(ROOM_LOGIC).document,
+    before,
+    moved.document,
+    roomSession(files),
+  );
+  assert.ok(follow.ok, follow.ok ? "" : follow.error);
+  return { pictureSource, logic: follow };
+}
+
+const storedLogic = (files: Record<string, Uint8Array>) =>
+  openContainer(new Map(Object.entries(files))).getResource("logic", 1);
+const storedSources = async (projectId: ProjectId) =>
+  (await loadAuthoredGame(projectId))!.authoringState as {
+    authoring: { bindings: Record<string, { kind: string; num: number }> };
+    sources: { logics: [number, string][]; pictures: [number, string][] };
+  };
+
+test("a combined Keep installs the picture and the logic, each acked, and the door follows the art", async (t) => {
+  const { projectId, revision, files, r } = await roomRig(t, "room-combined");
+  const { pictureSource, logic } = movedDoorway(files);
+  assert.ok(logic.ok);
+  assert.match(logic.source, /posn\(o0, 100, 125, 115, 130\)/);
+  const before = r.posted.length;
+  const acks: string[] = [];
+  const result = await r.controller.commitRoomEdit({
+    room: 1,
+    picture: { pictureNumber: 1, bytes: compile(pictureSource), source: pictureSource },
+    logic: { bytes: logic.bytes, source: logic.source, newBindings: {} },
+    baseRevision: revision,
+    reason: "Move the doorway",
+  });
+  assert.equal(result.status, "committed");
+  assert.equal(result.projectId, projectId);
+  const posted = r.posted.slice(before).filter((m) => m.type === "patch" || m.type === "reenter");
+  assert.deepEqual(
+    posted.map((m) => (m.type === "patch" ? `${m.type}:${m.kind}` : m.type)),
+    ["patch:picture", "patch:logic", "reenter"],
+    "both resources install, then the room re-enters",
+  );
+  for (const kind of ["picture", "logic"] as const)
+    acks.push(
+      ...r.control
+        .filter((m) => m.type === "patched" && m.kind === kind)
+        .map((m) => (m.type === "patched" ? m.kind : "")),
+    );
+  assert.deepEqual(acks, ["picture", "logic"], "the worker acked each resource");
+
+  // Storage holds both resources and both sources.
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.deepEqual(storedPicture(stored.files), compile(pictureSource));
+  assert.deepEqual(storedLogic(stored.files), logic.bytes);
+  const sources = await storedSources(projectId);
+  assert.deepEqual(sources.sources.logics, [[1, logic.source]]);
+  assert.deepEqual(sources.sources.pictures, [[1, pictureSource]]);
+  assert.equal(r.game().revision, result.revision);
+
+  // The live game runs the new door: its old box does nothing, the new one leaves.
+  r.tick(4);
+  const engine = r.ctx.engine!;
+  assert.equal(engine.vars[0], 1);
+  assert.equal(placeEgo(engine, 125, 128), "ok");
+  r.tick(3);
+  assert.equal(engine.vars[0], 1, "the old doorway is only floor now");
+  assert.equal(placeEgo(engine, 105, 128), "ok");
+  r.tick(3);
+  assert.equal(engine.vars[0], 2, "walking into the moved door box changes room");
+});
+
+test("a logic-only Keep stores the bindings its rules reserved and installs one patch", async (t) => {
+  const { projectId, revision, files, r } = await roomRig(t, "room-logic-only");
+  const session = roomSession(files);
+  const edit = applyRuleEdit(
+    parseLogicDocument(ROOM_LOGIC).document,
+    {
+      op: "updateRule",
+      id: "door-east",
+      model: {
+        kind: "exit",
+        edge: null,
+        box: { x1: 120, y1: 125, x2: 135, y2: 130 },
+        destination: 2,
+        requiresFlag: "door_open",
+      },
+    },
+    session,
+  );
+  assert.ok(edit.ok, edit.ok ? "" : edit.error);
+  assert.deepEqual(edit.newBindings, { door_open: { kind: "flag", num: 32 } });
+  const before = r.posted.length;
+  const result = await r.controller.commitRoomEdit({
+    room: 1,
+    logic: { bytes: edit.bytes, source: edit.source, newBindings: edit.newBindings },
+    baseRevision: revision,
+  });
+  assert.equal(result.status, "committed");
+  assert.deepEqual(
+    r.posted
+      .slice(before)
+      .filter((m) => m.type === "patch" || m.type === "reenter")
+      .map((m) => (m.type === "patch" ? m.kind : m.type)),
+    ["logic"],
+    "only the logic installs, and a rule change needs no re-entry",
+  );
+  const sources = await storedSources(projectId);
+  assert.deepEqual(sources.authoring.bindings["door_open"], { kind: "flag", num: 32 });
+  assert.deepEqual(sources.sources.logics, [[1, edit.source]]);
+
+  // The door is shut until f32 is set.
+  r.tick(2);
+  const engine = r.ctx.engine!;
+  assert.equal(placeEgo(engine, 125, 128), "ok");
+  r.tick(3);
+  assert.equal(engine.vars[0], 1);
+  engine.flags[32] = 1;
+  r.tick(3);
+  assert.equal(engine.vars[0], 2);
+});
+
+test("a combined Keep is refused whole when stale or invalid, before storage or the worker", async (t) => {
+  const { projectId, revision, files, r } = await roomRig(t, "room-refused");
+  const { pictureSource, logic } = movedDoorway(files);
+  assert.ok(logic.ok);
+  const generation = (await loadAuthoredGame(projectId))!.generation;
+  const edit = {
+    room: 1,
+    picture: { pictureNumber: 1, bytes: compile(pictureSource), source: pictureSource },
+    logic: { bytes: logic.bytes, source: logic.source, newBindings: {} },
+    baseRevision: revision,
+  };
+  await assert.rejects(
+    r.controller.commitRoomEdit({ ...edit, baseRevision: testRevision("before") }),
+    (e) => e instanceof ResourceCommitError && e.code === "stale",
+  );
+  // Logic text that assembles to other bytes (the unmoved door) is not this edit.
+  await assert.rejects(
+    r.controller.commitRoomEdit({ ...edit, logic: { ...edit.logic, source: ROOM_LOGIC } }),
+    (e) => e instanceof ResourceCommitError && e.code === "invalid" && /logic/.test(e.message),
+  );
+  // A reserved name that now means something else refuses too.
+  const author = AgentSession.fromAuthoredData(
+    { provider: "stub", model: "offline-stub", apiKey: "" },
+    () => {},
+    r.game().files,
+    [],
+  );
+  author.state.authoring.bindings["door_open"] = { kind: "flag", num: 40 };
+  r.controller.setSession(author);
+  await assert.rejects(
+    r.controller.commitRoomEdit({
+      ...edit,
+      logic: { ...edit.logic, newBindings: { door_open: { kind: "flag", num: 32 } } },
+    }),
+    (e) => e instanceof ResourceCommitError && e.code === "invalid" && /door_open/.test(e.message),
+  );
+  // A picture text that does not compile to its bytes refuses the logic with it.
+  await assert.rejects(
+    r.controller.commitRoomEdit({ ...edit, picture: { ...edit.picture, source: ROOM_PICTURE } }),
+    (e) => e instanceof ResourceCommitError && e.code === "invalid",
+  );
+  assert.equal((await loadAuthoredGame(projectId))!.generation, generation);
+  assert.equal(patches(r).length, 0);
+  assert.deepEqual(storedLogic((await loadAuthoredGame(projectId))!.files), storedLogic(files));
+});
+
+test("a combined Keep whose logic fails to install leaves storage as the source of truth", async (t) => {
+  const { projectId, revision, files, r } = await roomRig(t, "room-install-fails");
+  const { pictureSource, logic } = movedDoorway(files);
+  assert.ok(logic.ok);
+  const install = r.ctx.engine!.patchResource.bind(r.ctx.engine!);
+  t.mock.method(
+    r.ctx.engine!,
+    "patchResource",
+    (kind: Parameters<typeof install>[0], num: number, payload: Uint8Array) => {
+      if (kind === "logic") throw new Error("VOL.0 is full");
+      install(kind, num, payload);
+    },
+  );
+  const { commit, lastError } = useStudioCommit(r.controller.commitRoomEdit);
+  const result = await commit({
+    room: 1,
+    picture: { pictureNumber: 1, bytes: compile(pictureSource), source: pictureSource },
+    logic: { bytes: logic.bytes, source: logic.source, newBindings: {} },
+    baseRevision: revision,
+  });
+  assert.equal(result, null);
+  assert.equal(lastError.value?.code, "install");
+  assert.match(lastError.value!.message, /room edit was saved.*VOL\.0 is full.*Reload/);
+  t.mock.restoreAll();
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.deepEqual(storedPicture(stored.files), compile(pictureSource));
+  assert.deepEqual(storedLogic(stored.files), logic.bytes);
+  assert.equal(r.game().revision, revision, "the live side stays on the old revision");
 });

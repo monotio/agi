@@ -126,7 +126,10 @@ scrubber and a pixel inspector that names the command behind any pixel. Select
 an item to drag it or its points, nudge it with the arrow keys, recolour,
 reorder, duplicate or delete it, or draw new lines, rectangles, polygons, fills
 and brush strokes at the scrubber's point in the draw order; a ghost actor shows
-where a character would stand behind or in front of the scene. Each lens locks
+where a character would stand behind or in front of the scene. The walk lens
+runs test walks in a throwaway copy of the game, plays from any spot, and wires
+door boxes and edge exits to other rooms; a door can follow its doorway art, so
+moving the art moves the door in the same Keep. Each lens locks
 the planes it is not about, **Keep** saves the edited picture into the game, and
 leaving with unkept changes asks first.
 

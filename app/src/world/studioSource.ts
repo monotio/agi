@@ -7,10 +7,25 @@
  * for a game played without one (a catalog game such as the tutorial, or its
  * remix), the stored project's authoring sources. Sprite Studio: one VIEW's
  * bytes from the same snapshot, the rooms whose logic names it
- * (spriteUsage.ts) and the pictures they draw.
+ * (spriteUsage.ts) and the pictures they draw. Room Studio's Walk view also
+ * reads the room's LOGIC: its annotated text under the same trust rule
+ * (it must assemble to the booted bytes), the bindings and plan it names,
+ * and the game's stored tests.
  */
 import { openContainer } from "../../../src/container/container.ts";
-import { authoredPictureSource, type AgentSessionState } from "../../../src/agent/tools.ts";
+import {
+  assembleAuthoredLogic,
+  authoredPictureSource,
+  type AgentSessionState,
+} from "../../../src/agent/tools.ts";
+import {
+  createAuthoringState,
+  validateAuthoringState,
+  type AuthoringState,
+} from "../../../src/agent/authoringState.ts";
+import { parseGameTests, type GameTest } from "../../../src/agent/gameTests.ts";
+import { disassembleLogic } from "../../../src/logic/disassembler.ts";
+import { parseWordsTok } from "../../../src/logic/words.ts";
 import { sourceCompilesTo } from "../../../src/picture/source.ts";
 import { detectProfile, type AgiProfile } from "../../../src/runtime/profile.ts";
 import type { ScannedResources } from "../useRoomMap.ts";
@@ -69,17 +84,138 @@ export function studioPictureSource(
   return { bytes: bytes.slice(), authoredSource, profile, files };
 }
 
-/** A stored authoring state's text for one picture (`sources.pictures`: [number, text] pairs). */
+/** A stored authoring state's text for one resource (`sources.pictures`/`logics`: [number, text] pairs). */
 function storedPictureText(
   authoringState: Record<string, unknown> | undefined,
   picture: number,
+  kind: "pictures" | "logics" = "pictures",
 ): string | undefined {
-  const sources = authoringState?.["sources"] as { pictures?: unknown } | undefined;
-  if (!Array.isArray(sources?.pictures)) return undefined;
-  for (const entry of sources.pictures as unknown[])
+  const sources = authoringState?.["sources"] as Record<string, unknown> | undefined;
+  const entries = sources?.[kind];
+  if (!Array.isArray(entries)) return undefined;
+  for (const entry of entries as unknown[])
     if (Array.isArray(entry) && entry[0] === picture && typeof entry[1] === "string")
       return entry[1];
   return undefined;
+}
+
+/** A room the Walk view can send a door to: the World map's rooms. */
+export interface StudioRoomChoice {
+  readonly room: number;
+  readonly title: string;
+}
+
+/**
+ * What Room Studio's Walk view reads about the room framing the picture:
+ * its logic, the names and plan the logic uses, and the game's tests.
+ */
+export interface StudioRoomSource {
+  readonly room: number;
+  /** The room's LOGIC bytes as booted; null when the game has no logic for it. */
+  readonly logicBytes: Uint8Array | null;
+  /**
+   * The annotated logic text, only while it assembles to exactly
+   * `logicBytes` with `authoring`'s bindings and the game's dictionary. Rule
+   * edits need it; without it the room's exits are read-only.
+   */
+  readonly logicSource?: string | undefined;
+  /** The logic as text to read ("Edit as text…"): the trusted text, else a disassembly. */
+  readonly logicText: string;
+  /** The game's bindings and world plan. */
+  readonly authoring: AuthoringState;
+  /** The game's dictionary (WORDS.TOK) for assembling the logic. */
+  readonly words: ReadonlyMap<string, number>;
+  /** Stored game tests (TESTS.JSON): an exit test covers a door. */
+  readonly tests: readonly GameTest[];
+  /** Rooms a door can lead to, by number. */
+  readonly rooms: readonly StudioRoomChoice[];
+}
+
+/**
+ * The room's Walk view input from the booted files: the logic bytes, the
+ * text trusted to describe them (the live session's, else the stored
+ * project's), bindings, plan, dictionary and tests.
+ */
+export function studioRoomSource(
+  resources: Pick<ScannedResources, "files" | "profile">,
+  room: number,
+  rooms: readonly StudioRoomChoice[],
+  session: AgentSessionState | undefined,
+  stored?: Record<string, unknown> | undefined,
+): StudioRoomSource {
+  const files = new Map(Object.entries(resources.files));
+  const profile = resources.profile ?? detectProfile(files);
+  let logicBytes: Uint8Array | null;
+  try {
+    logicBytes = openContainer(files).getResource("logic", room);
+  } catch {
+    logicBytes = null;
+  }
+  let authoring: AuthoringState;
+  try {
+    authoring = session
+      ? validateAuthoringState(session.authoring)
+      : validateAuthoringState(stored?.["authoring"]);
+  } catch {
+    authoring = createAuthoringState();
+  }
+  const dictionary = files.get("WORDS.TOK");
+  const words = new Map(
+    session
+      ? session.sources.words
+      : dictionary
+        ? parseWordsTok(dictionary).map(({ word, id }) => [word, id] as const)
+        : [],
+  );
+  const text = session
+    ? session.sources.logics.get(room)
+    : storedPictureText(stored, room, "logics");
+  let logicSource: string | undefined;
+  if (text !== undefined && logicBytes) {
+    try {
+      const compiled = assembleAuthoredLogic({ profile, authoring, sources: { words } }, text);
+      if (sameBytes(compiled.payload, logicBytes)) logicSource = text;
+    } catch {
+      logicSource = undefined;
+    }
+  }
+  let logicText = logicSource ?? "";
+  if (logicSource === undefined && logicBytes) {
+    try {
+      logicText = disassembleLogic(logicBytes, { profile, dictionary: words });
+    } catch (error) {
+      logicText = `// The logic does not disassemble: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  let tests: readonly GameTest[];
+  try {
+    tests = parseGameTests(files.get("TESTS.JSON"), profile).tests;
+  } catch {
+    tests = [];
+  }
+  // The map's rooms, titled from the plan where the map has no title, and the plan's other rooms.
+  const planned = authoring.world.rooms;
+  const choices = new Map(
+    rooms.map((choice) => [
+      choice.room,
+      { room: choice.room, title: choice.title || planned[String(choice.room)]?.title || "" },
+    ]),
+  );
+  for (const [key, plan] of Object.entries(planned)) {
+    const num = Number(key);
+    if (Number.isInteger(num) && num > 0 && num < 256 && !choices.has(num))
+      choices.set(num, { room: num, title: plan.title });
+  }
+  return {
+    room,
+    logicBytes: logicBytes && logicBytes.slice(),
+    logicSource,
+    logicText,
+    authoring,
+    words,
+    tests,
+    rooms: [...choices.values()].sort((a, b) => a.room - b.room),
+  };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

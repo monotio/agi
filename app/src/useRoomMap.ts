@@ -50,8 +50,10 @@ import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
 import {
   studioPictureSource,
+  studioRoomSource,
   studioSpriteSource,
   type StudioPictureSource,
+  type StudioRoomSource,
   type StudioSpriteSource,
 } from "./world/studioSource.ts";
 import type { RoomTransitionNotice } from "./workerProtocol.ts";
@@ -208,6 +210,8 @@ export interface RoomMap {
   studioSource(
     picture: number,
   ): (StudioPictureSource & { readonly baseRevision: ResourceRevision }) | null;
+  /** The Walk view's input for `room`: its logic, bindings, plan, tests and the rooms a door can reach. */
+  studioRoom(room: number): StudioRoomSource | null;
   /**
    * One VIEW's Sprite Studio input and the booted revision it was read at;
    * `bytes` stands in for a view not in the game yet (a staged candidate).
@@ -1361,6 +1365,22 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         game.authoredGame?.authoringState,
       );
       return source && { ...source, baseRevision: game.revision };
+    },
+    studioRoom: (room) => {
+      const game = deps.getBootedGame();
+      const scanned = scanResources();
+      if (!game || scanned.files !== game.files) return null;
+      const rooms = graph.value.nodes
+        .filter((node) => node.room > 0)
+        .map((node) => ({ room: node.room, title: node.title ?? "" }))
+        .sort((a, b) => a.room - b.room);
+      return studioRoomSource(
+        scanned,
+        room,
+        rooms,
+        deps.getSession()?.state,
+        game.authoredGame?.authoringState,
+      );
     },
     spriteSource: (view, bytes) => {
       const game = deps.getBootedGame();
