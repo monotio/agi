@@ -66,6 +66,8 @@ export interface StudioAssistOptions {
 }
 
 export const STALE_TEXT = "You changed the picture while the AI worked. Ask again.";
+/** Why the lens and the unlocks wait while a request runs or its proposal awaits a verdict. */
+export const HOLD_TEXT = "Finish or reject the AI's proposal first";
 export const STALE_VIEW_TEXT = "You changed the view while the AI worked. Ask again.";
 
 type Violation = { readonly constraint?: string; readonly plane?: string };
@@ -81,6 +83,8 @@ export function refusalWords(violations: readonly Violation[]): string {
         return [v.plane === "visual" ? "would change the art" : "would change the depth"];
       case "outside-mask":
         return locked.has(v.plane) ? [] : ["would change things outside the selection"];
+      case "fill-spill":
+        return locked.has(v.plane) ? [] : ["would spill a fill outside the selection"];
       case "outside-target":
         return ["would change things outside the selection"];
       case "walk-depth":

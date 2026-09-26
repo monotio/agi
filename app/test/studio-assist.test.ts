@@ -30,6 +30,7 @@ import {
   pictureScopeChips,
   viewChangeSummary,
   viewScopeChips,
+  walkableWords,
 } from "../src/studio/studioAssistText.ts";
 
 /** Room Studio's draft on the bridge fixture, in the Walk lens, and a host on a stub session. */
@@ -445,6 +446,40 @@ describe("the adopting drafts", () => {
     });
     scope.stop();
   });
+
+  it("Sprite Studio adopts an owner-loop candidate while its mirror stays protected", () => {
+    const scope = effectScope();
+    scope.run(() => {
+      const draft = useSpriteDraft({
+        base: { bytes: ROBOT_VIEW, revision: testRevision("robot") },
+        profile: DEFAULT_V2_PROFILE,
+      });
+      // As Sprite Studio asks about loop 0: every other loop, the mirror 1, protected.
+      const loop0 = [0, 1].map((cel) => ({ loop: 0, cel }));
+      const request = viewAssistScope({
+        num: 1,
+        document: draft.document.value,
+        targetCels: loop0,
+        protectedLoops: [1],
+      });
+      const shown1 = draft.document.value.loops[1]!.cels.map((c) => [...c.pixels]);
+      const result = applySpriteEdit(draft.document.value, {
+        type: "recolor",
+        scope: loop0,
+        from: 12,
+        to: 1,
+      });
+      assert.ok(!("error" in result));
+      const outcome = draft.adopt(result.document.payload, "AI edit", request);
+      assert.equal(outcome.ok, true, JSON.stringify(outcome));
+      assert.deepEqual(
+        draft.document.value.loops[1]!.cels.map((c) => [...c.pixels]),
+        shown1,
+        "the protected mirror shows what it showed",
+      );
+    });
+    scope.stop();
+  });
 });
 
 describe("assist words", () => {
@@ -459,6 +494,17 @@ describe("assist words", () => {
     assert.equal(
       refusalWords([{ constraint: "walk-depth" }, { constraint: "outside-target" }]),
       "would change depth values and would change things outside the selection",
+    );
+    assert.equal(
+      refusalWords([{ constraint: "fill-spill", plane: "priority" }]),
+      "would spill a fill outside the selection",
+    );
+    assert.equal(
+      refusalWords([
+        { constraint: "locked-plane", plane: "priority" },
+        { constraint: "fill-spill", plane: "priority" },
+      ]),
+      "would change the depth",
     );
     const entry = (kind: AgentLogEntry["kind"], detail: string, data?: unknown): AgentLogEntry => ({
       id: detail,
@@ -503,9 +549,50 @@ describe("assist words", () => {
     const plane = (fill: number) => new Uint8Array(160 * 168).fill(fill);
     const after = { visual: plane(1), priority: plane(4) };
     after.priority.fill(3, 0, 412);
+    const everywhere = plane(1);
     assert.equal(
-      pictureChangeSummary({ visual: plane(1), priority: plane(4) }, after, "Bench occluder"),
+      pictureChangeSummary(
+        { visual: plane(1), priority: plane(4) },
+        after,
+        "Bench occluder",
+        everywhere,
+      ),
       "412 depth cells inside Bench occluder",
+    );
+    // An area of the first 400 cells: the other 12 changed cells lie outside it.
+    const first400 = plane(0).fill(1, 0, 400);
+    assert.equal(
+      pictureChangeSummary(
+        { visual: plane(1), priority: plane(4) },
+        after,
+        "Bench occluder",
+        first400,
+      ),
+      "400 depth cells inside Bench occluder, 12 outside",
+    );
+    // Art outside, depth inside: each plane named.
+    const art = { visual: plane(1), priority: plane(4) };
+    art.visual.fill(7, 500, 503);
+    art.priority.fill(3, 0, 10);
+    assert.equal(
+      pictureChangeSummary({ visual: plane(1), priority: plane(4) }, art, "Bench", first400),
+      "10 depth cells inside Bench, 3 art cells outside",
+    );
+    assert.equal(
+      pictureChangeSummary({ visual: plane(1), priority: plane(4) }, art, "Bench", plane(0)),
+      "3 art cells and 10 depth cells outside Bench",
+    );
+    assert.deepEqual(walkableWords({ before: 880, after: 960 }), {
+      line: "Where the player can stand (estimate): 880 → 960 cells in the selection",
+      unchanged: null,
+    });
+    assert.deepEqual(walkableWords({ before: 0, after: 0 }), {
+      line: "Where the player can stand (estimate): 0 → 0 cells in the selection",
+      unchanged: "This doesn't change where the player can stand.",
+    });
+    assert.equal(
+      walkableWords({ before: 2, after: 1 }).line,
+      "Where the player can stand (estimate): 2 → 1 cell in the selection",
     );
     const robot = openSprite(ROBOT_VIEW, DEFAULT_V2_PROFILE);
     const blue = applySpriteEdit(robot, {

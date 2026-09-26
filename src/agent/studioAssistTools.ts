@@ -142,6 +142,12 @@ export type StudioCandidate =
       readonly kind: "picture";
       readonly ops: readonly EditOperation[];
       readonly draft: { readonly kind: "picture"; readonly source: string };
+      /**
+       * Walkable baseline cells in the selection before and after, as the
+       * model was told; absent where the priority plane is locked or no ego
+       * view is known.
+       */
+      readonly walkable?: { readonly before: number; readonly after: number };
     })
   | (CandidateBase & {
       readonly kind: "view";
@@ -1062,6 +1068,7 @@ const HINTS: Record<string, string> = {
   "walk-depth":
     "In the Walk lens paint only control values 0–3 (0 barrier, 1 conditional, 2 signal, 3 water) and leave depth values as they are.",
   "outside-mask": "Confine the change to the selected items' cells.",
+  "fill-spill": "Keep every fill inside a closed outline within the selection.",
   "outside-target": "Change only the selected items or cels.",
   "protected-loop": "Leave the protected loops exactly as they are.",
   "max-bytes": "Use fewer drawing commands.",
@@ -1154,6 +1161,7 @@ function proposePicture(
     draft: candidateDraft,
     previewPng,
     check,
+    ...(walk ? { walkable: walk } : {}),
   };
   return {
     success: true,

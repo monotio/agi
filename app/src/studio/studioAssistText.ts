@@ -89,25 +89,50 @@ export function changedCells(
   return mask;
 }
 
-/** "80 depth cells inside Bridge"; "12 art cells and 80 depth cells inside Bench". */
+/**
+ * What a picture candidate changes, per plane, inside `area` (the selection's
+ * cells when it was asked) and outside it, so no cell is called "inside"
+ * that is not: "80 depth cells inside Bridge"; "12 art cells and 80 depth
+ * cells inside Bench"; "80 depth cells inside Bridge, 12 outside".
+ */
 export function pictureChangeSummary(
   before: { readonly visual: Uint8Array; readonly priority: Uint8Array },
   after: { readonly visual: Uint8Array; readonly priority: Uint8Array },
   where: string,
+  area: Uint8Array,
 ): string {
-  let art = 0;
-  let depth = 0;
+  const inside = { art: 0, depth: 0 };
+  const outside = { art: 0, depth: 0 };
   for (let i = 0; i < CELLS; i++) {
-    if (before.visual[i] !== after.visual[i]) art++;
-    if (before.priority[i] !== after.priority[i]) depth++;
+    const side = area[i] === 1 ? inside : outside;
+    if (before.visual[i] !== after.visual[i]) side.art++;
+    if (before.priority[i] !== after.priority[i]) side.depth++;
   }
-  const parts = [
+  const words = ({ art, depth }: typeof inside) => [
     ...(art ? [plural(art, "art cell")] : []),
     ...(depth ? [plural(depth, "depth cell")] : []),
   ];
-  return parts.length
-    ? `${parts.join(" and ")} inside ${where}`
-    : "No pixels change (only the picture's notes)";
+  const [within, beyond] = [words(inside), words(outside)];
+  if (beyond.length === 0)
+    return within.length
+      ? `${within.join(" and ")} inside ${where}`
+      : "No pixels change (only the picture's notes)";
+  if (within.length === 0) return `${beyond.join(" and ")} outside ${where}`;
+  const samePlanes = inside.art > 0 === outside.art > 0 && within.length === 1;
+  const rest = samePlanes ? String(outside.art + outside.depth) : beyond.join(" and ");
+  return `${within.join(" and ")} inside ${where}, ${rest} outside`;
+}
+
+/** The walkable estimate on a Walk lens candidate, and a warning when it does not move. */
+export function walkableWords(walkable: { readonly before: number; readonly after: number }): {
+  readonly line: string;
+  readonly unchanged: string | null;
+} {
+  const { before, after } = walkable;
+  return {
+    line: `Where the player can stand (estimate): ${before} → ${plural(after, "cell")} in the selection`,
+    unchanged: before === after ? "This doesn't change where the player can stand." : null,
+  };
 }
 
 /** Displayed pixels of `a` and `b` that differ; null when their sizes differ. */

@@ -26,6 +26,7 @@ const {
   canUndo,
   canRedo,
   canKeep,
+  lensHeld = null,
 } = defineProps<{
   title: string;
   pictureNumber: number;
@@ -40,6 +41,8 @@ const {
   canUndo: boolean;
   canRedo: boolean;
   canKeep: boolean;
+  /** Why the lens cannot change right now; the switch is off and says so. */
+  lensHeld?: string | null;
 }>();
 const emit = defineEmits<{
   back: [];
@@ -55,6 +58,7 @@ const LENSES = [
   { value: "depth", label: "Depth", shortcut: "2" },
   { value: "walk", label: "Walk", shortcut: "3" },
 ] as const;
+const lenses = computed(() => LENSES.map((option) => ({ ...option, disabled: !!lensHeld })));
 const meter = computed(() => byteMeter(bytes, MAX_PAYLOAD_BYTES, PAYLOAD_MAX_BYTES));
 const picChip = computed(() => `PIC ${pictureNumber}`);
 </script>
@@ -67,7 +71,13 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
       <UiChip v-if="title !== picChip" data-testid="studio-picture">{{ picChip }}</UiChip>
       <span v-if="subtitle" class="top-bar__subtitle">{{ subtitle }}</span>
     </div>
-    <UiSegmented v-model="lens" label="Lens" :options="LENSES" />
+    <UiSegmented
+      v-model="lens"
+      label="Lens"
+      :options="lenses"
+      :title="lensHeld ?? undefined"
+      data-testid="studio-lens"
+    />
     <div class="top-bar__meta">
       <UiChip v-if="diagnostics > 0" tone="warn" dot>{{ diagnostics }} annotation issues</UiChip>
       <div

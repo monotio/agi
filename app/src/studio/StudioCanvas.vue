@@ -90,6 +90,31 @@ const handleBox = computed(() => {
   return { markW: 8 * x, markH: 8 * y, hitW: 24 * x, hitH: 24 * y };
 });
 
+/** Control label text size and a monospace glyph's advance, in CSS px. */
+const LABEL_PX = 11;
+const LABEL_ADVANCE = 0.6 * LABEL_PX;
+/**
+ * The control labels that read on their own at this zoom. Labels come
+ * largest run first; one whose text would overlap another's columns within
+ * two text lines of it would read as that label's second line, so it is
+ * left out (the legend still names every value).
+ */
+const readableLabels = computed(() => {
+  if (!labels) return null;
+  const { pixelAspect, zoom } = viewport;
+  const placed: { x0: number; x1: number; y: number }[] = [];
+  return labels.filter((tag) => {
+    const half = ((CONTROL_VALUES[tag.value]?.name.length ?? 0) * LABEL_ADVANCE) / 2;
+    const x = (tag.x + 0.5) * pixelAspect * zoom;
+    const box = { x0: x - half, x1: x + half, y: tag.y * zoom };
+    const stacks = placed.some(
+      (other) => box.x0 < other.x1 && other.x0 < box.x1 && Math.abs(box.y - other.y) < 2 * LABEL_PX,
+    );
+    if (!stacks) placed.push(box);
+    return !stacks;
+  });
+});
+
 let image: ImageData | undefined;
 let scratch: HTMLCanvasElement | undefined;
 
@@ -225,13 +250,13 @@ function onLeave(): void {
           {{ guide.band }}
         </text>
       </g>
-      <g v-if="labels" data-role="control-labels">
+      <g v-if="readableLabels" data-role="control-labels">
         <text
-          v-for="tag in labels"
+          v-for="tag in readableLabels"
           :key="`${tag.x},${tag.y}`"
           class="studio-pane__text studio-pane__text--control"
           text-anchor="middle"
-          :font-size="11 * unit"
+          :font-size="LABEL_PX * unit"
           :transform="`translate(${tag.x + 0.5} ${tag.y - unit * 3}) scale(0.5 1)`"
         >
           {{ CONTROL_VALUES[tag.value]?.name }}

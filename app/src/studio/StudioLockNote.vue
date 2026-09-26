@@ -8,7 +8,11 @@ import type { StudioLens } from "./studioView.ts";
  * The Scene footer's lock line: what the lens keeps from changing, with an
  * explicit Unlock (and Lock again) that lasts for this Studio session.
  */
-const { lens } = defineProps<{ lens: StudioLens }>();
+const { lens, held = null } = defineProps<{
+  lens: StudioLens;
+  /** Why the locks cannot change right now; Unlock and Allow are off and say so. */
+  held?: string | null;
+}>();
 const unlocks = defineModel<LensUnlocks>("unlocks", { required: true });
 
 const LENS_NAMES: Record<StudioLens, string> = { art: "Art", depth: "Depth", walk: "Walk" };
@@ -29,14 +33,26 @@ function toggle(which: keyof LensUnlocks): void {
         >{{ PLANE_NAMES[plane] }} is locked in the {{ LENS_NAMES[lens] }} lens.</template
       >
       <template v-else>{{ PLANE_NAMES[plane] }} is unlocked for this session.</template>
-      <button type="button" data-testid="studio-unlock" @click="toggle(plane)">
+      <button
+        type="button"
+        data-testid="studio-unlock"
+        :disabled="!!held"
+        :title="held ?? undefined"
+        @click="toggle(plane)"
+      >
         {{ locked ? "Unlock" : "Lock" }}
       </button>
     </p>
     <p v-if="lens === 'walk'">
       <UiIcon :name="unlocks.depthInWalk ? 'lock-open' : 'lock'" :size="12" />
       Depth values 4–15 {{ unlocks.depthInWalk ? "are allowed" : "are locked" }}.
-      <button type="button" data-testid="studio-allow-depth" @click="toggle('depthInWalk')">
+      <button
+        type="button"
+        data-testid="studio-allow-depth"
+        :disabled="!!held"
+        :title="held ?? undefined"
+        @click="toggle('depthInWalk')"
+      >
         {{ unlocks.depthInWalk ? "Lock" : "Allow" }}
       </button>
     </p>
@@ -65,6 +81,11 @@ function toggle(which: keyof LensUnlocks): void {
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+.lock-note button:disabled {
+  color: var(--ink-3);
+  text-decoration: none;
+  cursor: not-allowed;
 }
 .lock-note button:focus-visible {
   outline: 2px solid var(--focus);

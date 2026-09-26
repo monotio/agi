@@ -3,7 +3,7 @@ import { computed, inject, nextTick, ref, useId, useTemplateRef } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import { aiSettingsKey } from "../useAiSettings.ts";
-import type { ScopeChip } from "./studioAssistText.ts";
+import { walkableWords, type ScopeChip } from "./studioAssistText.ts";
 import { STALE_TEXT, STALE_VIEW_TEXT, type StudioAssist } from "./useStudioAssist.ts";
 
 /**
@@ -63,6 +63,17 @@ const showInput = computed(
     (phase.value !== "candidate" || refining.value),
 );
 const staleText = computed(() => (noun === "picture" ? STALE_TEXT : STALE_VIEW_TEXT));
+/** A Walk lens candidate's walkable estimate, as the model was told it. */
+const walkable = computed(() => {
+  const candidate = assist.candidate.value;
+  const scope = assist.asked.value?.scope;
+  return candidate?.kind === "picture" &&
+    candidate.walkable &&
+    scope?.kind === "picture" &&
+    scope.lens === "walk"
+    ? walkableWords(candidate.walkable)
+    : null;
+});
 const OUTCOMES: Partial<Record<string, string>> = {
   accepted: "Accepted as one undo step. Keep saves it with your other changes.",
   rejected: "Rejected. The draft is unchanged.",
@@ -211,6 +222,16 @@ defineExpose({ focus });
         <p v-if="changes" class="assist__changes" data-testid="assist-changes">
           <UiIcon name="circle-check" :size="12" />{{ changes }}
         </p>
+        <template v-if="walkable">
+          <p class="assist__walkable" data-testid="assist-walkable">{{ walkable.line }}</p>
+          <p
+            v-if="walkable.unchanged"
+            class="assist__walkable is-muted"
+            data-testid="assist-walkable-unchanged"
+          >
+            <UiIcon name="warning" :size="12" />{{ walkable.unchanged }}
+          </p>
+        </template>
         <ol class="assist__steps" data-testid="assist-steps">
           <li v-for="(step, index) in assist.steps.value" :key="index">{{ step }}</li>
         </ol>
@@ -444,6 +465,17 @@ defineExpose({ focus });
   margin: 0;
   color: var(--ok);
   font-size: var(--text-2xs);
+}
+.assist__walkable {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-2xs);
+}
+.assist__walkable.is-muted {
+  color: var(--ink-3);
 }
 .assist__warn {
   margin: 0;

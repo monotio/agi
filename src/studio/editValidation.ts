@@ -172,21 +172,50 @@ export function validateEdit(
   return { ok: violations.length === 0, violations };
 }
 
+/** The fill command's opcode: the one command whose cells no coordinate of its own bounds. */
+const FILL_OPCODE = 0xf8;
+
+/**
+ * Which of an item's commands a footprint counts: all of them, only its seed
+ * fills, or only its bounded commands (lines, corners, rectangles, plots),
+ * whose cells lie on their own coordinates.
+ */
+export type FootprintCommands = "all" | "fills" | "bounded";
+
+/** Whether the command that last wrote cell `index` on `plane` is a fill. */
+export function filledCell(
+  compiled: CompiledPictureDocument,
+  plane: PicturePlane,
+  index: number,
+): boolean {
+  const owner = compiled.owners[plane][index]!;
+  return owner >= 0 && compiled.bytes[owner] === FILL_OPCODE;
+}
+
 /**
  * 160x168 mask: 1 where item `itemId` owns the final cell on `plane` (or on
  * either plane for "both"); all zero when the document has no such item. The
  * UI builds each plane's `allowedMask` as the OR of the edited items' masks
- * on that plane, before and after the edit.
+ * on that plane, before and after the edit. `commands` keeps only the cells
+ * whose owning command is a fill ("fills") or is not ("bounded"), read from
+ * the opcode the renderer recorded as the cell's owner.
  */
 export function footprintMask(
   compiled: CompiledDocument,
   itemId: string,
   plane: PicturePlane | "both",
+  commands: FootprintCommands = "all",
 ): Uint8Array {
-  if (plane !== "both") return itemMask(compiled, compiled.document, itemId, plane);
-  const mask = itemMask(compiled, compiled.document, itemId, "visual");
-  const priority = itemMask(compiled, compiled.document, itemId, "priority");
-  for (let i = 0; i < CELLS; i++) if (priority[i] === 1) mask[i] = 1;
+  const mask = new Uint8Array(CELLS);
+  for (const each of plane === "both" ? PLANES : [plane]) {
+    const owned = itemMask(compiled, compiled.document, itemId, each);
+    for (let i = 0; i < CELLS; i++)
+      if (
+        owned[i] === 1 &&
+        (commands === "all" || filledCell(compiled, each, i) === (commands === "fills"))
+      )
+        mask[i] = 1;
+  }
   return mask;
 }
 

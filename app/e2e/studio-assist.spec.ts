@@ -170,21 +170,52 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
     "Opened the barrier under the bridge without touching its art.",
   );
   await expect(studio.getByTestId("assist-changes")).toHaveText("80 depth cells inside Bridge");
+  // The walkable estimate the model was told: the one-pixel ego stands on
+  // 880 of the bridge's 960 cells (all but the banks), then on all of them.
+  await expect(studio.getByTestId("assist-walkable")).toHaveText(
+    "Where the player can stand (estimate): 880 → 960 cells in the selection",
+  );
+  await expect(studio.getByTestId("assist-walkable-unchanged")).toBeHidden();
   await expect(studio.getByTestId("assist-live")).toContainText("Proposal ready");
   // The canvas shows the proposal with its changed cells outlined; Before shows the draft.
   const compare = studio.getByTestId("assist-compare");
   await expect(compare.getByRole("radio", { name: "After" })).toBeChecked();
   await expect(studio.locator('[data-role="changed"]').first()).toBeVisible();
+  const controlLabels = studio.locator('[data-role="control-labels"] text');
+  // After: the banks split into a left and a right barrier around the water.
+  await expect(controlLabels).toHaveText(["water", "barrier", "barrier"]);
   await shot(page, "room-candidate-after");
   await compare.getByRole("radio", { name: "Before" }).click();
+  // Before: the draft's water (79,130) and barrier (79,139) labels would
+  // stack in one column 18 px apart at 2x; the smaller run's is left out.
+  await expect(controlLabels).toHaveText(["water"]);
   await shot(page, "room-candidate-before");
   await compare.getByRole("radio", { name: "After" }).click();
+  // The lens and the unlocks wait with the proposal: controls off, keys inert.
+  const lensSwitch = studio.getByTestId("studio-lens");
+  const HELD = "Finish or reject the AI's proposal first";
+  await expect(lensSwitch).toHaveAttribute("title", HELD);
+  await expect(lensSwitch.getByRole("radio", { name: /Art/ })).toBeDisabled();
+  await expect(studio.getByTestId("studio-unlock")).toBeDisabled();
+  await expect(studio.getByTestId("studio-unlock")).toHaveAttribute("title", HELD);
+  await expect(studio.getByTestId("studio-allow-depth")).toBeDisabled();
+  await studio.locator(".studio__stage").focus();
+  await page.keyboard.press("1");
+  await expect(lensSwitch.getByRole("radio", { name: /Walk/ })).toBeChecked();
+  await expect(studio.getByTestId("assist-chip")).toHaveText([
+    "Only: Bridge",
+    "Art is locked",
+    "Depth values locked (Walk view)",
+  ]);
+  await shot(page, "room-held-lens");
   // Nothing is applied before Accept.
   expect(await draftSource(page)).toBe(source);
 
   await studio.getByTestId("assist-accept").click();
   await expect(studio.getByTestId("assist-outcome")).toContainText("Accepted as one undo step");
   await expect(compare).toBeHidden();
+  await expect(lensSwitch.getByRole("radio", { name: /Art/ })).toBeEnabled();
+  await expect(studio.getByTestId("studio-unlock")).toBeEnabled();
   const after = await draftBytes(page);
   const [was, now] = [planes(before), planes(after)];
   expect(diffCells(was.visual, now.visual)).toEqual([]);
@@ -363,8 +394,11 @@ test("Room Studio: Stop mid-run leaves the draft unchanged", async ({ page }) =>
     await expect(running).toBeVisible();
     await expect.poll(() => requests).toBe(1);
     await expect(studio.getByTestId("assist-budget")).toContainText("left");
-    // Editing waits while the AI works: the item editor steps aside.
+    // Editing waits while the AI works: the item editor steps aside, the lens stays.
     await expect(studio.getByTestId("item-editor")).toBeHidden();
+    await expect(
+      studio.getByTestId("studio-lens").getByRole("radio", { name: /Depth/ }),
+    ).toBeDisabled();
     await shot(page, "room-running");
     await studio.getByTestId("assist-stop").click();
     await expect(studio.getByTestId("assist-outcome")).toHaveText(
@@ -435,4 +469,64 @@ test("Room Studio: an edit while the AI works makes its proposal stale", async (
   } finally {
     release();
   }
+});
+
+test("Room Studio: a fill spilling out of the selection is refused in the activity", async ({
+  page,
+}) => {
+  let requests = 0;
+  // Water seeded in the floor above the river: it floods rows 0..119, of
+  // which only the bridge's rows 118 and 119 are selected.
+  const spill = Object.fromEntries(
+    pictureOpFields.map((field) => [
+      field,
+      (
+        {
+          type: "insertFill",
+          atLine: AFTER_BRIDGE,
+          x: 80,
+          y: 60,
+          priority: 3,
+          id: "puddle",
+          label: "Puddle",
+        } as Record<string, unknown>
+      )[field] ?? null,
+    ]),
+  );
+  let refusal = "";
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    const request = ++requests;
+    if (request === 1) return fulfil(route, call("r1", "read_edit_context", { images: false }));
+    const sent = JSON.stringify(route.request().postDataJSON());
+    const baseRevision = /baseRevision (picture-\d+-[0-9a-f]{8})/.exec(sent)?.[1];
+    const propose = (id: string, ops: unknown[]) =>
+      call(id, "propose_edit", {
+        baseRevision,
+        summary: "Opened the barrier under the bridge.",
+        pictureOps: ops,
+        spriteOps: null,
+      });
+    if (request === 2) return fulfil(route, propose("p1", [spill]));
+    if (request === 3) {
+      refusal = sent;
+      return fulfil(route, propose("p2", [walkwayOp]));
+    }
+    return fulfil(route, say(`s${request}`, "Opened the barrier under the bridge."));
+  });
+  await bootAssistGame(page);
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  const studio = await openRoomStudio(page);
+  await selectBridge(page, studio);
+  await ask(page, studio, "Make this bridge walkable");
+  await expect(studio.getByTestId("assist-candidate")).toBeVisible();
+  await expect(studio.getByTestId("assist-steps").locator("li")).toHaveText([
+    "Read the selection",
+    "Refused: would spill a fill outside the selection — trying again",
+    "Proposed a change",
+  ]);
+  // The model read the refusal in words it can act on.
+  expect(refusal).toContain(
+    "the Puddle fill would spill outside the selection (19,120 cells); close the outline or keep the fill seed inside it",
+  );
+  await shot(page, "room-spill-refusal");
 });
