@@ -8,12 +8,21 @@
 export type HelpAction =
   "controls" | "map" | "hint" | "remix" | "ai-settings" | "create" | "add-game";
 
+/** Open a Studio on one resource of the current game, switching to Create first. */
+export type HelpStudioAction =
+  | { readonly kind: "openRoomStudio"; readonly picture: number }
+  | { readonly kind: "openSpriteStudio"; readonly view: number };
+
+/** What a topic's "Show me" asks for: a control, or a Studio on a resource. */
+export type HelpRequest = { readonly kind: HelpAction } | HelpStudioAction;
+export type HelpActionKind = HelpRequest["kind"];
+
 export interface HelpTopic {
   readonly id: string;
   readonly title: string;
   /** Paragraphs of plain text. */
   readonly body: readonly string[];
-  readonly action?: { readonly kind: HelpAction; readonly label: string };
+  readonly action?: HelpRequest & { readonly label: string };
 }
 
 export interface HelpSection {

@@ -6,6 +6,8 @@ import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import type { ViewUsage } from "../../../../src/studio/sprite/spriteUsage.ts";
 import { useEngineApi } from "../../engineContext.ts";
+import LessonCard from "../../lessons/LessonCard.vue";
+import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
 import type { ResourceCommitResult, ViewEdit } from "../../resourceCommit.ts";
 import { useOptionalCreateCenter, type SpriteRoom } from "../../shell/useCreateWorkspace.ts";
 import StudioKeepDialog from "../StudioKeepDialog.vue";
@@ -135,6 +137,8 @@ function targetsOf(op: SpriteEdit): number[] | undefined {
 
 const keeper = useStudioKeep({ draft, keep: keepView });
 const engine = keepFn ? null : useEngineApi();
+/** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
+const lesson = useStudioLesson();
 /** The staged offer the next Keep spends; once kept, the view is the game's own. */
 let stagedPending = stagedReference;
 async function keepView(revision: ResourceRevision): Promise<ResourceCommitResult> {
@@ -150,6 +154,7 @@ async function keepView(revision: ResourceRevision): Promise<ResourceCommitResul
       ? await engine!.keepStagedView(stagedPending, { bytes: edit.bytes, baseRevision: revision })
       : await engine!.commitViewEdit(edit);
   stagedPending = undefined;
+  lesson.check({ kind: "view", num: viewNumber, after: edit.bytes, profile });
   return result;
 }
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
@@ -291,7 +296,7 @@ async function keepChanges(): Promise<boolean> {
   const kept = await keeper.keep();
   keepFocus();
   if (!kept) return false;
-  say({ tone: "ok", text: `Kept VIEW ${viewNumber}. The game shows the edit now.` });
+  say(lesson.keptNotice(`VIEW ${viewNumber}`));
   return true;
 }
 async function recover(recovery: KeepRecovery): Promise<void> {
@@ -436,6 +441,11 @@ const status = computed(() => {
         @hold="hold"
       />
       <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
+      <LessonCard
+        v-if="lesson.session.value"
+        :session="lesson.session.value"
+        :outcome="lesson.outcome.value"
+      />
     </main>
 
     <SpriteTimeline

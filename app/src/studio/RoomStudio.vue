@@ -5,6 +5,8 @@ import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { itemHandles } from "../../../src/studio/editPoints.ts";
 import { footprintMask } from "../../../src/studio/editValidation.ts";
 import { useEngineApi } from "../engineContext.ts";
+import LessonCard from "../lessons/LessonCard.vue";
+import { useStudioLesson } from "../lessons/useStudioLesson.ts";
 import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
@@ -121,9 +123,22 @@ const { hoveredId, selectedId, selectedRow, pinnedCell } = selection;
 const readout = useStudioReadout({ doc, selection, lens });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
 const commitPicture = keepFn ?? useEngineApi().commitPictureEdit;
+/** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
+const lesson = useStudioLesson();
 const keeper = useStudioKeep({
   draft,
-  keep: (baseRevision) => commitPicture(draftPictureEdit(draft, pictureNumber, baseRevision)),
+  keep: async (baseRevision) => {
+    const edit = draftPictureEdit(draft, pictureNumber, baseRevision);
+    const result = await commitPicture(edit);
+    lesson.check({
+      kind: "picture",
+      num: pictureNumber,
+      after: edit.bytes,
+      afterSource: edit.source,
+      profile,
+    });
+    return result;
+  },
 });
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
@@ -250,7 +265,7 @@ async function keepChanges(): Promise<boolean> {
   // Keep disables itself once the draft is kept: the keys must not fall out of Studio.
   keepFocus();
   if (!kept) return false;
-  editing.say({ tone: "ok", text: `Kept PIC ${pictureNumber}. The game shows the edit now.` });
+  editing.say(lesson.keptNotice(`PIC ${pictureNumber}`));
   return true;
 }
 async function recover(recovery: KeepRecovery): Promise<void> {
@@ -451,6 +466,11 @@ function onKeyup(event: KeyboardEvent): void {
         @end="seek(total)"
       />
       <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
+      <LessonCard
+        v-if="lesson.session.value"
+        :session="lesson.session.value"
+        :outcome="lesson.outcome.value"
+      />
     </main>
 
     <DrawOrderScrubber

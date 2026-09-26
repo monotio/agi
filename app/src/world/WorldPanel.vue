@@ -12,10 +12,11 @@ import { computed, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import { useEngineApi } from "../engineContext.ts";
-import { useCreateWorkspace, type StudioRequest } from "../shell/useCreateWorkspace.ts";
+import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
 import { roomPictureLabels } from "./roomPictureLabels.ts";
 import { roomViews } from "./studioSource.ts";
+import { useRoomStudio } from "./useRoomStudio.ts";
 import { useSpriteStudio } from "./useSpriteStudio.ts";
 import WorldGraph from "./WorldGraph.vue";
 import WorldRoomDetail from "./WorldRoomDetail.vue";
@@ -82,39 +83,13 @@ function addStandaloneRoom(): void {
   if (result.room !== undefined) pickRoom(result.room);
 }
 
-const RELOADED = "Loaded the latest saved version of this game.";
-
-/** Studio's request for one room's picture, read from the running game each time it is asked. */
-function studioRequest(
-  room: number,
-  title: string,
-  picture: number,
-  notice?: string,
-): StudioRequest | null {
-  const source = map.studioSource(picture);
-  if (!source) return null;
-  return {
-    kind: "picture",
-    room,
-    pictureNumber: picture,
-    ...source,
-    // A picture can serve several rooms: an untitled room is named by what Studio edits.
-    title: title || `PIC ${picture}`,
-    subtitle: `Room ${room} · PIC ${picture}`,
-    notice,
-    reload: () => studioRequest(room, title, picture),
-    reloadFromStorage: async () =>
-      (await engine.reloadFromStorage()) && engine.state.phase !== "error"
-        ? studioRequest(room, title, picture, RELOADED)
-        : null,
-  };
-}
+const rooms = useRoomStudio();
 
 function openInStudio(): void {
   const node = selectedNode.value;
   const picture = pictures.value?.studioPicture;
   if (!node || picture === undefined) return;
-  const request = studioRequest(node.room, node.title ?? "", picture);
+  const request = rooms.request(node.room, node.title ?? "", picture);
   if (request) workspace.openStudio(request);
 }
 </script>

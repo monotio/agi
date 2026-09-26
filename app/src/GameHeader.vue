@@ -11,13 +11,18 @@ import HelpGuide from "./HelpGuide.vue";
 import PlayBar from "./shell/PlayBar.vue";
 import SettingsSheet from "./shell/SettingsSheet.vue";
 import UiButton from "./ui/UiButton.vue";
-import type { HelpAction } from "./helpContent.ts";
-import { computed, ref, useTemplateRef } from "vue";
+import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
+import { computed, ref, shallowRef, useTemplateRef } from "vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useShell } from "./shell/useShell.ts";
 import { useCreateWorkspace } from "./shell/useCreateWorkspace.ts";
+import { useStudioLauncher } from "./shell/useStudioLauncher.ts";
+import { getCachedGameMeta } from "./gameStorage.ts";
+import { lessonCatalogId, lessonSetFor } from "./lessons/registry.ts";
+import type { LessonSet, StudioLesson } from "./lessons/types.ts";
+import { projectId } from "../../src/gameIdentity.ts";
 import { gameShortcuts } from "./gameControls.ts";
 import {
   suggestAssertions,
@@ -64,6 +69,7 @@ const {
   saveRecordedTest,
   roomMap,
   retryHistorySave,
+  currentGame,
 } = useEngineApi();
 const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
@@ -80,20 +86,48 @@ function toggleSettings(trigger: HTMLElement): void {
 }
 
 /** The Help guide's "Show me" actions this screen can perform right now. */
-const helpActions = computed<HelpAction[]>(() => {
+const studios = useStudioLauncher();
+const helpActions = computed<HelpActionKind[]>(() => {
   if (state.phase !== "running")
     return aiSettingsUnavailable.value
       ? ["create", "add-game"]
       : ["ai-settings", "create", "add-game"];
-  const actions: HelpAction[] = ["controls", "map"];
+  const actions: HelpActionKind[] = ["controls", "map"];
   if (!state.powerUp.busy && !state.historyView.active) actions.push("hint");
   if (!state.powerUp.busy && shell.createAvailable.value) actions.push("remix");
   if (!aiSettingsUnavailable.value) actions.push("ai-settings");
+  if (studios.available.value) actions.push("openRoomStudio", "openSpriteStudio");
   return actions;
 });
 
-function onHelpAction(kind: HelpAction): void {
-  switch (kind) {
+/** The running game's Studio lessons: its catalog entry's, or the one its remix started from. */
+const helpLessons = shallowRef<LessonSet | undefined>();
+function openHelp(): void {
+  const game = state.phase === "running" ? currentGame() : null;
+  helpLessons.value =
+    game && !game.installed
+      ? lessonSetFor(
+          lessonCatalogId(game.projectId, (id) => {
+            const project = projectId(id);
+            return project === null ? null : getCachedGameMeta(project);
+          }),
+        )
+      : undefined;
+  helpGuide.value?.open();
+}
+
+function onHelpLesson(lesson: StudioLesson): void {
+  void studios.open(lesson.open, lesson);
+}
+
+function onHelpAction(request: HelpRequest): void {
+  switch (request.kind) {
+    case "openRoomStudio":
+      void studios.open({ studio: "room", picture: request.picture });
+      return;
+    case "openSpriteStudio":
+      void studios.open({ studio: "sprite", view: request.view });
+      return;
     case "controls":
       controlsDialog.value?.showModal();
       return;
@@ -255,7 +289,7 @@ async function onRecordSave(): Promise<void> {
         icon="help"
         aria-label="Help"
         data-testid="btn-help"
-        @click="helpGuide?.open()"
+        @click="openHelp()"
       >
         Help
       </UiButton>
@@ -294,7 +328,7 @@ async function onRecordSave(): Promise<void> {
     :settings-open="settingsOpen"
     @exit="onEjectGame(false)"
     @settings="toggleSettings"
-    @help-guide="helpGuide?.open()"
+    @help-guide="openHelp()"
     @controls="controlsDialog?.showModal()"
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
@@ -390,7 +424,13 @@ async function onRecordSave(): Promise<void> {
     @export-zip="onExportAgiZip"
     @start-over="emit('start-over')"
   />
-  <HelpGuide ref="helpGuide" :available="helpActions" @action="onHelpAction" />
+  <HelpGuide
+    ref="helpGuide"
+    :available="helpActions"
+    :lessons="helpLessons"
+    @action="onHelpAction"
+    @lesson="onHelpLesson"
+  />
   <dialog
     ref="controlsDialog"
     class="controls-dialog"

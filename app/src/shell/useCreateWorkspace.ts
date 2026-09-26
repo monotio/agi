@@ -25,6 +25,7 @@ import {
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import type { ViewUsage } from "../../../src/studio/sprite/spriteUsage.ts";
+import type { LessonSession } from "../lessons/lessonCheck.ts";
 import { createPanels, type DockSide } from "./createDocks.ts";
 
 export const DOCKS_STORAGE_KEY = "monotio_agi.createDocks";
@@ -47,6 +48,8 @@ interface StudioRequestBase {
   readonly reloadFromStorage: () => Promise<StudioRequest | null>;
   /** A line Studio says as it opens on this request. */
   readonly notice?: string | undefined;
+  /** The Help guide lesson Studio was opened from: its "Try this" card and challenge. */
+  readonly lesson?: LessonSession | undefined;
 }
 
 /** Room Studio on one picture; RoomStudio edits it and keeps it against `baseRevision`. */
