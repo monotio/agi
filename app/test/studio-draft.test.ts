@@ -149,10 +149,31 @@ describe("useStudioDraft", () => {
     assert.equal(draft.kept.value.revision, testRevision("kept"));
     assert.equal(draft.dirty.value, false);
     assert.equal(draft.changes.value, 0);
-    assert.equal(draft.canUndo.value, false);
     assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
+    assert.equal(draft.changes.value, 1);
     draft.discard();
     assert.equal(draft.source.value, edited);
+  });
+
+  it("keeps the undo history across Keep: undo then reverts the kept edit as an unkept change", () => {
+    const { draft } = setup("depth");
+    assert.equal(draft.apply(move("occ", 0, 2), "Move Occluder").ok, true);
+    assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
+    const kept = draft.source.value;
+    draft.markKept(testRevision("kept"));
+    assert.equal(draft.changes.value, 0);
+    assert.equal(draft.canUndo.value, true, "the kept edits stay undoable");
+    assert.equal(draft.undo(), true);
+    assert.equal(draft.dirty.value, true, "undoing past Keep is an unkept change");
+    assert.equal(draft.changes.value, 1);
+    assert.equal(draft.kept.value.source, kept, "the kept text stays the base");
+    assert.equal(draft.undo(), true);
+    assert.equal(draft.source.value, SOURCE);
+    assert.equal(draft.changes.value, 2);
+    assert.equal(draft.redo(), true);
+    assert.equal(draft.redo(), true);
+    assert.equal(draft.dirty.value, false, "redo back to the kept text is clean again");
+    assert.equal(draft.changes.value, 0);
   });
 
   it("names the items an operation edits and fresh ids for copies", () => {

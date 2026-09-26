@@ -133,7 +133,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           "Open in Studio, on a room in the World panel, reads that room's picture under three lenses: Art for what the player sees, Depth for how far each part of the scene sits, Walk for the control lines that steer the hero. Studio takes the whole window while the game waits paused; its back arrow returns to Create as you left it. It needs a larger screen than a phone.",
           "The scrubber replays the draw order command by command, the scene list names each thing the picture draws, and clicking a pixel shows which command put it there — or why a fill stopped.",
-          "Select an item to edit it: drag it or its points, nudge it with the arrow keys (Shift for 8 pixels), or change its colour, priority and draw order in the inspector. Each lens locks what it is not about (the Depth lens keeps the art as it is) until you unlock it, and every change can be undone. Keep saves the picture into the game; closing with unkept changes asks first.",
+          "Select an item to edit it: drag it or its points, nudge it with the arrow keys (Shift for 8 pixels), or change its colour, priority and draw order in the inspector. Each lens locks what it is not about (the Depth lens keeps the art as it is) until you unlock it, and every change can be undone, even after Keep. Keep saves the picture into the game; leaving Studio, switching to Play or exiting the game with unkept changes asks first.",
+          "The tool rail on the left draws new items: Line (L), Rectangle (R), Polygon (P), Fill (F) and Brush (B), with the colour and priority under the tools. New content goes where the scrubber stands in the draw order. The pipette (I) picks values from the picture, H or Space pans, and G stands a ghost actor from the game's views on the picture to show whether it would be drawn in front or behind.",
         ],
       },
       {

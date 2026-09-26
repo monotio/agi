@@ -9,6 +9,8 @@
  *   Alt+arrows step through items (Up/Left previous, Down/Right next)
  * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; `[` `]` move back/forward
  *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
+ * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I G H);
+ *   Enter finishes a line or polygon, Backspace drops its last point
  */
 
 import type { StudioLens } from "./studioView.ts";
@@ -41,6 +43,10 @@ export interface StudioKeyActions {
   reorder(step: 1 | -1): void;
   undo(): void;
   redo(): void;
+  /** A tool rail letter, lower-cased; true when it named a tool (or the probe). */
+  tool(key: string): boolean;
+  /** Enter: finish what a tool is drawing; true when there was something. */
+  finish(): boolean;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -60,6 +66,7 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     return true;
   }
   if (typing(event.target)) return false;
+  if (key === "Enter" && !command && act.finish()) return true;
   if (command && !event.altKey) {
     const lower = key.toLowerCase();
     if (lower === "z") (event.shiftKey ? act.redo : act.undo)();
@@ -92,6 +99,6 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   else if (key === "+" || key === "=") act.zoom(1);
   else if (key === "-") act.zoom(-1);
   else if (key === "0") act.zoom("fit");
-  else return false;
+  else return key.length === 1 && act.tool(key.toLowerCase());
   return true;
 }

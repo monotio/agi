@@ -124,8 +124,11 @@ and its rooms on the left, the assistant on the right. Create also opens
 **Room Studio** on a room's picture: art, depth and walk lenses, a draw-order
 scrubber and a pixel inspector that names the command behind any pixel. Select
 an item to drag it or its points, nudge it with the arrow keys, recolour,
-reorder, duplicate or delete it; each lens locks the planes it is not about, and
-**Keep** saves the edited picture into the game.
+reorder, duplicate or delete it, or draw new lines, rectangles, polygons, fills
+and brush strokes at the scrubber's point in the draw order; a ghost actor shows
+where a character would stand behind or in front of the scene. Each lens locks
+the planes it is not about, **Keep** saves the edited picture into the game, and
+leaving with unkept changes asks first.
 
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
 animated sprites, vocabulary, inventory and sound. The heroes above walk because

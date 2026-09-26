@@ -84,6 +84,7 @@ function studioRequest(
     profile: Object.values(PROFILES)[0]!,
     title: `Room ${room}`,
     baseRevision: testRevision("studio"),
+    files: new Map(),
     reload,
   };
 }
@@ -131,4 +132,38 @@ test("Studio never opens where it does not fit, and holds no pause there", () =>
   ws.openStudio(request);
   assert.equal(ws.studio.value, request);
   assert.deepEqual(calls, ["pause:studio"]);
+});
+
+test("leaving asks an open Studio only while it holds unkept changes", async () => {
+  const { ws } = workspace(memoryStorage());
+  let unkept = true;
+  const asked: string[] = [];
+  let answer = true;
+  const guard = {
+    unkept: () => unkept,
+    confirm: () => {
+      asked.push("confirm");
+      return Promise.resolve(answer);
+    },
+  };
+  const release = ws.guardStudio(guard);
+  // No Studio open: nothing to settle, whatever the guard says.
+  assert.equal(ws.studioUnkept(), false);
+  assert.equal(await ws.confirmStudioLeave(), true);
+  ws.openStudio(studioRequest(1));
+  assert.equal(ws.studioUnkept(), true);
+  answer = false;
+  assert.equal(await ws.confirmStudioLeave(), false, "Cancel stays");
+  answer = true;
+  assert.equal(await ws.confirmStudioLeave(), true, "Keep or Discard goes on");
+  unkept = false;
+  assert.equal(await ws.confirmStudioLeave(), true);
+  assert.deepEqual(asked, ["confirm", "confirm"]);
+  // A released guard (Studio unmounted) is never asked again; a newer one stays.
+  const newer = { unkept: () => true, confirm: () => Promise.resolve(false) };
+  const releaseNewer = ws.guardStudio(newer);
+  release();
+  assert.equal(await ws.confirmStudioLeave(), false);
+  releaseNewer();
+  assert.equal(ws.studioUnkept(), false);
 });

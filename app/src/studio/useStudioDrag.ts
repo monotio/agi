@@ -27,6 +27,8 @@ export interface StudioDragOptions {
   readonly labelOf: (id: string) => string;
   /** Say what happened: a refusal, or null when the edit went through. */
   readonly report: (outcome: DraftOutcome) => void;
+  /** Whether a press on the item body drags it; false for the Point tool (handles only). */
+  readonly movesItems?: () => boolean;
   /** Wait for an animation frame; injectable for tests. */
   readonly frame?: (callback: () => void) => number;
   readonly cancelFrame?: (handle: number) => void;
@@ -86,7 +88,7 @@ export function useStudioDrag(options: StudioDragOptions) {
     options.pick(cell);
     const now = options.editableId();
     armed =
-      now !== undefined && options.onSelection(cell)
+      now !== undefined && (options.movesItems?.() ?? true) && options.onSelection(cell)
         ? { start: cell, latest: cell, itemId: now, handle: undefined, started: false }
         : null;
   }

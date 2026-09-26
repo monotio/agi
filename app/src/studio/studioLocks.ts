@@ -45,6 +45,18 @@ export function depthValuesLocked(lens: StudioLens, unlocks: LensUnlocks): boole
   return lens === "walk" && !unlocks.depthInWalk;
 }
 
+/** What the item editor shows as locked: each plane's reason, or null, and the Walk depth rule. */
+export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
+  const locked = lockedPlanes(lens, unlocks);
+  const reason = (plane: PicturePlane): string | null =>
+    locked.includes(plane) ? `locked in the ${lens} lens` : null;
+  return {
+    visual: reason("visual"),
+    priority: reason("priority"),
+    depthValues: depthValuesLocked(lens, unlocks),
+  };
+}
+
 /** The creator's name for a plane. */
 export const PLANE_NAMES: Record<PicturePlane, string> = { visual: "Art", priority: "Depth" };
 

@@ -161,6 +161,8 @@ function onExportAgiZip(project: boolean): void {
 async function onEjectGame(abandonUnsaved = false): Promise<void> {
   ejectRefusal.value = "";
   closeNavMenus();
+  // Room Studio's unkept changes are kept or thrown away before the game is left.
+  if (!(await workspace.confirmStudioLeave())) return;
   try {
     await ejectGame(abandonUnsaved ? { abandonUnsaved: true } : undefined);
     ejectRefusal.value = "";

@@ -143,16 +143,6 @@ const lib = createGameLibrary(engine, ai, shellBridge);
 provideGameLibrary(lib);
 const { exportBusy, exportRefusal } = lib;
 
-/** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
-const shell = createShell({
-  engine,
-  bridge: shellBridge,
-  librarySource: (projectId) =>
-    lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
-  initialMode: parseGameHash(location.hash)?.mode ?? "play",
-});
-provideShell(shell);
-const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
 /** A phone held upright: Create is one view-only sheet instead of two docks. */
 const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
 /**
@@ -172,6 +162,17 @@ const workspace = createCreateWorkspace({
   studioFits: () => studioFits.value,
 });
 provideCreateWorkspace(workspace);
+/** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
+const shell = createShell({
+  engine,
+  bridge: shellBridge,
+  librarySource: (projectId) =>
+    lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
+  initialMode: parseGameHash(location.hash)?.mode ?? "play",
+  createGuard: { unkept: workspace.studioUnkept, confirm: workspace.confirmStudioLeave },
+});
+provideShell(shell);
+const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
 const studio = workspace.studio;
 /** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
 const studioOpen = computed(() => creating.value && studio.value !== null);
@@ -254,6 +255,7 @@ function onPopState(): void {
 }
 
 async function onStartWalkthrough(targetGame: string): Promise<void> {
+  if (!(await workspace.confirmStudioLeave())) return;
   await resumeAudio();
   clearPlayHash();
   await startWalkthrough(targetGame);
@@ -539,7 +541,9 @@ watch(
         @update:debug-open="debugOpen = $event"
         @trigger-key="(code) => playArea?.triggerKey(code)"
         @export-zip="(project) => lib.onExportAgiZip(true, project)"
-        @start-over="lib.onStartOver"
+        @start-over="
+          workspace.confirmStudioLeave().then((go) => (go ? lib.onStartOver() : undefined))
+        "
         @start-walkthrough="onStartWalkthrough"
       >
         <WalkthroughBar
@@ -626,6 +630,7 @@ watch(
           :title="studio.title"
           :subtitle="studio.subtitle"
           :base-revision="studio.baseRevision"
+          :files="studio.files"
           @close="workspace.closeStudio()"
           @reopen="workspace.reopenStudio()"
         />

@@ -406,9 +406,25 @@ function partialCompiled(
 export function useStudioDocument(source: MaybeRefOrGetter<StudioSource | ResolvedStudioSource>) {
   const model = computed(() => buildStudioModel(toValue(source)));
   const total = computed(() => model.value.commands);
-  /** Drawing commands drawn: 0..total; total shows the finished picture. An edit shows it all. */
+  /**
+   * Drawing commands drawn: 0..total; total shows the finished picture. An
+   * edit shows it all, unless the edit asked to hold the playhead (an insert
+   * in the middle of the draw order stays where it was drawn).
+   */
   const playhead = ref(0);
-  watch(model, (next) => (playhead.value = next.commands), { immediate: true });
+  let held: number | undefined;
+  watch(
+    model,
+    (next) => {
+      playhead.value = held === undefined ? next.commands : Math.min(held, next.commands);
+      held = undefined;
+    },
+    { immediate: true },
+  );
+  /** After the next model change, stand at `k` instead of the end. */
+  function holdPlayhead(k: number): void {
+    held = k;
+  }
 
   const surface = computed(() => {
     const k = Math.min(playhead.value, total.value);
@@ -504,6 +520,14 @@ export function useStudioDocument(source: MaybeRefOrGetter<StudioSource | Resolv
     return { x, y, visual: planePixel(x, y, "visual"), priority: planePixel(x, y, "priority") };
   }
 
+  /** The picture after its first `count` commands, with ownership, as a compiled document. */
+  function compiledAt(count: number): CompiledPictureDocument {
+    if (count === playhead.value) return view.value;
+    if (count >= total.value) return model.value.compiled;
+    const { compiled, profile } = model.value;
+    return partialCompiled(model.value, count, renderUpTo(compiled, count, profile));
+  }
+
   /** whyNotFilled for x,y on the plane the fill at timeline index `entry` floods. */
   function explainFill(entry: number, x: number, y: number): FillExplanation | undefined {
     const command = model.value.timeline[entry];
@@ -516,8 +540,10 @@ export function useStudioDocument(source: MaybeRefOrGetter<StudioSource | Resolv
     model,
     total,
     playhead,
+    holdPlayhead,
     surface,
     view,
+    compiledAt,
     maskFor,
     rowMask,
     rowAt,

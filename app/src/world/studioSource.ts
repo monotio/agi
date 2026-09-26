@@ -1,8 +1,9 @@
 /**
  * What Room Studio opens on: one picture's stored bytes, the interpreter
  * profile that reads them, and the agent's picture text when it can be
- * trusted. The bytes come from the same booted-resource snapshot the world
- * map scans and renders its thumbnails from.
+ * trusted. The bytes, and the container files handed on for the actor
+ * probe's VIEWs, come from the same booted-resource snapshot the world map
+ * scans and renders its thumbnails from.
  */
 import { openContainer } from "../../../src/container/container.ts";
 import { authoredPictureSource, type AgentSessionState } from "../../../src/agent/tools.ts";
@@ -14,6 +15,8 @@ export interface StudioPictureSource {
   /** The agent's picture text, only while it compiles to exactly these bytes. */
   readonly authoredSource?: string | undefined;
   readonly profile: AgiProfile;
+  /** The booted container files the bytes were read from (the actor probe's VIEWs). */
+  readonly files: ReadonlyMap<string, Uint8Array>;
 }
 
 /** One picture's Studio input; null when the booted game has no such picture. */
@@ -41,6 +44,7 @@ export function studioPictureSource(
     bytes: bytes.slice(),
     authoredSource,
     profile: resources.profile ?? detectProfile(files),
+    files,
   };
 }
 

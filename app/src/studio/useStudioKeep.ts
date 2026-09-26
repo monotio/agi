@@ -9,6 +9,7 @@
 
 import { computed, shallowRef } from "vue";
 import type { PictureEdit, ResourceCommitResult } from "../resourceCommit.ts";
+import type { DraftStatus } from "./StudioTopBar.vue";
 import { useStudioCommit } from "./useStudioCommit.ts";
 import type { StudioDraft } from "./useStudioDraft.ts";
 
@@ -51,6 +52,14 @@ export function useStudioKeep(options: {
       !needsReload.value,
   );
   const kept = computed(() => lastKept.value !== null && !draft.dirty.value);
+  /** Where the draft stands, for the top bar's chip. */
+  const status = computed<DraftStatus>(() => {
+    if (draft.kept.value.revision === undefined) return "view-only";
+    if (needsReload.value) return "reload";
+    if (busy.value) return "keeping";
+    if (draft.dirty.value) return "changed";
+    return kept.value ? "kept" : "clean";
+  });
 
   async function keep(): Promise<boolean> {
     const revision = draft.kept.value.revision;
@@ -74,5 +83,5 @@ export function useStudioKeep(options: {
     dismissed.value = lastError.value;
   }
 
-  return { keep, busy, banner, canKeep, kept, needsReload, lastKept, dismiss };
+  return { keep, busy, banner, canKeep, kept, status, needsReload, lastKept, dismiss };
 }

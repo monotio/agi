@@ -46,6 +46,29 @@ export function patternOn(pattern: ControlValue["pattern"], x: number, y: number
   return Math.floor((x + y) / 2) % 2 === 0;
 }
 
+/** Each pane's accessible name. */
+export const PANE_LABELS: Record<PaneLayer, string> = {
+  art: "Picture, visual plane",
+  depth: "Picture with the priority plane blended over it",
+  "depth-only": "Priority plane",
+  walk: "Picture dimmed, with control lines",
+  "walk-only": "Control lines on the priority plane",
+};
+
+/** The subtitle's parts that add something beyond the title and the PIC chip. */
+export function subtitleExtra(
+  title: string,
+  pictureNumber: number,
+  subtitle: string | undefined,
+): string {
+  const known = [title.toLowerCase(), `pic ${pictureNumber}`];
+  return (subtitle ?? "")
+    .split("·")
+    .map((part) => part.trim())
+    .filter((part) => part !== "" && !known.includes(part.toLowerCase()))
+    .join(" · ");
+}
+
 /** The panes a lens and view mode put on screen, left to right. */
 export function panesFor(lens: StudioLens, mode: StudioViewMode): PaneLayer[] {
   if (lens === "art") return ["art"];
