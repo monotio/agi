@@ -10,7 +10,9 @@ import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { PictureSourceSpan } from "../../../src/picture/source.ts";
 import type { TimelineEntry } from "../../../src/studio/pictureQuery.ts";
 
-export type StudioLens = "art" | "depth" | "walk";
+import type { StudioLens } from "../../../src/studio/lensRules.ts";
+
+export type { StudioLens };
 export type StudioViewMode = "blend" | "split" | "priority";
 /** What one canvas pane shows. */
 export type PaneLayer = "art" | "depth" | "depth-only" | "walk" | "walk-only";

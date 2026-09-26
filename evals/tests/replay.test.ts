@@ -7,13 +7,74 @@ import {
   createAgentSessionState,
   executeAgentTool,
   executeAgentToolAsync,
+  STUDIO_ASSIST_TASK_TOOLS,
+  type AgentRuntimeDeps,
+  type AgentSessionState,
 } from "../../src/agent/tools.ts";
+import { createStudioAssist } from "../../src/agent/studioAssistTools.ts";
+import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
+import { compileEditDocument } from "../../src/studio/editValidation.ts";
+import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
+import type { LensUnlocks, StudioLens } from "../../src/studio/lensRules.ts";
+import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
 import {
   anthropicToolContent,
   openAiToolContent,
   projectToolResult,
   splitToolResult,
 } from "../../src/agent/toolTransport.ts";
+
+/**
+ * A case's `studio` focus: the Studio selection a Studio assist tool call
+ * runs against. A picture gives its annotated `source`, `targetIds` and
+ * `lens` with optional `unlocks` (and `draftSource` when the creator changed the draft
+ * during the request); a view gives its `payload` bytes and `targetCels`.
+ */
+interface StudioCase {
+  kind: "picture" | "view";
+  num: number;
+  source?: string;
+  draftSource?: string;
+  targetIds?: string[];
+  lens?: StudioLens;
+  unlocks?: LensUnlocks;
+  payload?: number[];
+  targetCels?: { loop: number; cel: number }[];
+}
+
+function studioDeps(session: AgentSessionState, studio: StudioCase): AgentRuntimeDeps {
+  if (studio.kind === "picture") {
+    const source = studio.source!;
+    const compiled = compileEditDocument(parsePictureDocument(source).document, session.profile);
+    const draft = studio.draftSource ?? source;
+    return {
+      allowedTools: STUDIO_ASSIST_TASK_TOOLS,
+      studio: createStudioAssist({
+        scope: pictureAssistScope({
+          num: studio.num,
+          compiled,
+          targetIds: studio.targetIds ?? [],
+          lens: studio.lens ?? "art",
+          ...(studio.unlocks ? { unlocks: studio.unlocks } : {}),
+        }),
+        draft: () => ({ kind: "picture", source: draft }),
+        lens: studio.lens,
+      }),
+    };
+  }
+  const payload = Uint8Array.from(studio.payload ?? []);
+  return {
+    allowedTools: STUDIO_ASSIST_TASK_TOOLS,
+    studio: createStudioAssist({
+      scope: viewAssistScope({
+        num: studio.num,
+        document: openSprite(payload, session.profile),
+        targetCels: studio.targetCels ?? [],
+      }),
+      draft: () => ({ kind: "view", payload }),
+    }),
+  };
+}
 
 describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
   const badCasesDir = resolve("evals/fixtures/bad-cases");
@@ -32,11 +93,18 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
       // A literal `result` replays a transport-level failure (no tool call).
       const res =
         content.result ??
-        (await (content.async ? executeAgentToolAsync : executeAgentTool)(
-          session,
-          content.tool,
-          content.args,
-        ));
+        (content.studio
+          ? await executeAgentToolAsync(
+              session,
+              content.tool,
+              content.args,
+              studioDeps(session, content.studio),
+            )
+          : await (content.async ? executeAgentToolAsync : executeAgentTool)(
+              session,
+              content.tool,
+              content.args,
+            ));
 
       for (const [path, expected] of Object.entries(content.expectedFields ?? {})) {
         let actual: unknown = res;
