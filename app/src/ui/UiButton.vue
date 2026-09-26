@@ -51,7 +51,7 @@ const {
   padding: 0 var(--space-5);
   border: 1px solid transparent;
   border-radius: var(--radius);
-  font: var(--weight-semibold) var(--text-md) / var(--leading-tight) var(--font-sans);
+  font: var(--weight-bold) var(--text-md) / var(--leading-tight) var(--font-sans);
   white-space: nowrap;
   cursor: pointer;
   transition:
