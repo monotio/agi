@@ -30,10 +30,6 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 1373,
     boundary: "the playtest loop: plan, run, judge",
   },
-  "app/src/DebugDock.vue": {
-    lines: 1246,
-    boundary: "the inspector surface: resource controls, runtime state and visual diagnostics",
-  },
   "src/runtime/persistence.ts": {
     // The Amiga/IIgs layouts are verified against the shipped Save/ images:
     // big-endian state-hunk block 1, 0x48-byte runtime object records with
@@ -58,10 +54,6 @@ const BASELINE: Record<string, { lines: number; boundary: string }> = {
     lines: 1027,
     boundary:
       "the history recording contract incl. the recorded clock, RNG-reseed and semantic-fingerprint lanes; the release contract pins its structure",
-  },
-  "app/src/WorldMap.vue": {
-    lines: 1458,
-    boundary: "the world-map overlay: graph, room list, room details and plan editing",
   },
   "app/src/TransportBar.vue": {
     lines: 748,

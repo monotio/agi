@@ -183,10 +183,10 @@ test("the map records a live transition and matches it against plan and logic", 
   await page.getByTestId("dbg-flags").locator("button").nth(6).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
+  // Create docks the plan view as its World panel; the map button shows it.
   await page.getByTestId("btn-world-map").click();
-  await expect(page.getByTestId("world-map")).toBeVisible();
-  await page.getByTestId("btn-world-plan").click();
-  await expect(page.getByTestId("world-map")).toBeVisible();
+  await expect(page.getByTestId("world-panel")).toBeVisible();
+  await expect(page.getByTestId("world-map")).toHaveCount(0);
   await expect(page.getByTestId("map-room-2")).toContainText("visited");
   await expect(page.getByTestId("map-room-2")).toHaveClass(/current/);
   await expect(page.getByTestId("map-node-2")).toBeInViewport();
@@ -330,9 +330,9 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
 
 test("closing the map restores only the pause it owns", async ({ page }) => {
   await bootMapGame(page);
-  // Remix (the power-up bubble) holds a pause the map must not release.
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  // The Ask drawer holds a pause the map must not release. (Create shows the
+  // map as a docked panel that never pauses; the window is Play's.)
+  await page.getByTestId("menu-assistant").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await page.getByTestId("btn-world-map").click();

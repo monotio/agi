@@ -17,6 +17,7 @@ import { useEngineApi } from "./engineContext.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useShell } from "./shell/useShell.ts";
+import { useCreateWorkspace } from "./shell/useCreateWorkspace.ts";
 import { gameShortcuts } from "./gameControls.ts";
 import {
   suggestAssertions,
@@ -67,6 +68,7 @@ const {
 const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
+const workspace = useCreateWorkspace();
 
 const controlsDialog = useTemplateRef("controlsDialog");
 const helpGuide = useTemplateRef("helpGuide");
@@ -96,7 +98,8 @@ function onHelpAction(kind: HelpAction): void {
       controlsDialog.value?.showModal();
       return;
     case "map":
-      roomMap.openMap({ experience: "play" });
+      if (shell.mode.value === "create") workspace.showPanel("world");
+      else roomMap.openMap({ experience: "play" });
       return;
     case "hint":
       if (!state.powerUp.open) bridge.togglePowerUp("ask");

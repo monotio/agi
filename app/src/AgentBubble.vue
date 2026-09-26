@@ -7,6 +7,7 @@ import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import PendingReferences from "./PendingReferences.vue";
+import UiChip from "./ui/UiChip.vue";
 import UiIcon from "./ui/UiIcon.vue";
 
 /**
@@ -20,7 +21,16 @@ const { state, openPowerUp, closePowerUp, submitPowerUp, stopAgent, continueAgen
   engine;
 const { debugOpen } = usePresentation();
 const bridge = useShellBridge();
-const { aiConfigured, aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
+const { aiConfigured, aiSettingsUnavailable, openAiSettings, llmConfig, taskBudget } =
+  useAiSettings();
+
+/**
+ * The dock's standing context: what the next request is about (the room the
+ * game paused in; Studio narrows it later), the task budget, and the game's
+ * stored tests — definitions the assistant runs before it finishes an edit,
+ * not results.
+ */
+const storedTests = computed(() => engine.roomMap.resources.value.testCoverage.tests);
 
 /**
  * The assistant. Opening it freezes the world at the next cycle boundary
@@ -387,6 +397,20 @@ function onPowerUpKey(ev: KeyboardEvent): void {
       :class="{ 'agent-bubble-form--remix': !asking }"
       @submit.prevent="onPowerUpSubmit"
     >
+      <div v-if="surface === 'dock'" class="agent-scope" data-testid="agent-scope">
+        <UiChip>{{
+          state.powerUp.room > 0 ? `Scope: room ${state.powerUp.room}` : "Scope: this game"
+        }}</UiChip>
+        <UiChip
+          v-if="storedTests > 0"
+          tone="ok"
+          dot
+          title="Stored game tests: the assistant runs them before it finishes an edit"
+          data-testid="agent-tests"
+          >{{ storedTests }} game test{{ storedTests === 1 ? "" : "s" }}</UiChip
+        >
+        <UiChip v-else data-testid="agent-tests">No stored tests</UiChip>
+      </div>
       <textarea
         rows="2"
         ref="powerUpEl"
@@ -418,6 +442,9 @@ function onPowerUpKey(ev: KeyboardEvent): void {
       >
         {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
       </button>
+      <p v-if="surface === 'dock'" class="agent-budget" data-testid="agent-budget">
+        {{ asking ? "Ask" : "Remix" }} · budget ${{ taskBudget.toFixed(2) }} per task
+      </p>
     </form>
     <!-- Playtest recording is editing tooling but needs no AI connection —
          it stays reachable while the provider prompt is all the bubble shows. -->
@@ -610,8 +637,25 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   margin-top: auto;
   padding-top: var(--space-4);
 }
-.agent-bubble-form--remix textarea {
+.agent-bubble-form--remix textarea,
+.agent-scope,
+.agent-budget {
   grid-column: 1 / -1;
+}
+.agent-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.agent-budget {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+/* Docked, the conversation takes the spare height and scrolls; the composer
+   stays at the bottom. */
+.agent-bubble--dock .agent-conversation {
+  flex: 1 1 0;
 }
 .agent-bubble-form textarea {
   box-sizing: border-box;
