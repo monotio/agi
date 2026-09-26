@@ -393,7 +393,7 @@ export interface ConnectionReport {
 
 /** Direction words a plan exit name can pin to a screen edge. Only exact
  * words canonicalize — "east door" is a name, not a direction claim. */
-const DIRECTION_NAMES: Readonly<Record<string, EdgeSide>> = {
+export const DIRECTION_NAMES: Readonly<Record<string, EdgeSide>> = {
   top: "top",
   up: "top",
   north: "top",

@@ -115,7 +115,7 @@ function operandText(kind: OperandKind, value: number): string {
  * Everything outside printable ASCII goes out as an escape, so the source
  * stays plain ASCII whatever code page the original text was written in.
  */
-function quote(text: string): string {
+export function quoteLogicString(text: string): string {
   let out = "";
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
@@ -305,7 +305,7 @@ class Disassembler {
     if (id === SAID_ANY_WORD) return '"*"';
     if (id === SAID_REST) return '"..."';
     const word = this.words.get(id);
-    if (word !== undefined) return quote(word);
+    if (word !== undefined) return quoteLogicString(word);
     if (id <= 0xff) return String(id);
     this.warn(
       `offset ${at}: said() word id ${id} is not in the supplied dictionary and is too large to write as a number`,
@@ -482,7 +482,9 @@ class Disassembler {
       const text = this.messages[i] ?? null;
       // A bare `#message N` is how the source spells an absent (zero-offset)
       // slot, which is not the same thing as an empty message.
-      lines.push(text === null ? `#message ${i + 1}` : `#message ${i + 1} ${quote(text)}`);
+      lines.push(
+        text === null ? `#message ${i + 1}` : `#message ${i + 1} ${quoteLogicString(text)}`,
+      );
     }
     if (lines.length > 0) lines.push("");
 

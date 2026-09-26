@@ -1648,7 +1648,13 @@ export function authoredPictureSource(session: AgentSessionState, num: number): 
  * source does not define itself are prepended as #define lines; an error
  * position is mapped back to the agent's own line, which is what it reads.
  */
-function assembleAuthoredLogic(session: AgentSessionState, source: string) {
+export function assembleAuthoredLogic(
+  session: Pick<AgentSessionState, "profile"> & {
+    readonly authoring: Pick<AuthoringState, "bindings">;
+    readonly sources: Pick<AgentSourceStore, "words">;
+  },
+  source: string,
+) {
   const defined = new Set([...source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]));
   const prelude = Object.entries(session.authoring.bindings)
     .filter(([name]) => !defined.has(name))
