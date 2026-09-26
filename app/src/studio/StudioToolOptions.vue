@@ -7,7 +7,7 @@ import { isDrawingTool, type InsertionPoint, type StudioTool } from "./studioToo
 
 /**
  * The active tool's options and help, at the stage's lower left: how the
- * tool is used, Filled for rect and polygon, the brush pen, where in the
+ * tool is used by pointer and by keyboard, Filled for rect and polygon, the brush pen, where in the
  * draw order new content goes (with a way to the end), and, for a fill that
  * would flood nothing, the AGI rule that says why.
  */
@@ -42,6 +42,15 @@ const HELP: Record<StudioTool, string> = {
   pipette: "Click to pick the colour and priority under the cursor.",
   hand: "Drag to pan. Space pans with any tool.",
 };
+/** What Space or Enter does at the keyboard cursor, per tool that takes one. */
+const KEY_CLICK: Partial<Record<StudioTool, string>> = {
+  line: "adds a point; Enter on the last point finishes",
+  polygon: "adds a point; Enter on the last point closes",
+  rect: "starts, arrows size it, again finishes",
+  fill: "places the seed",
+  brush: "puts the pen down or lifts it; arrows paint while it is down",
+  pipette: "picks",
+};
 const draws = computed(() => isDrawingTool(tool));
 const atEnd = computed(() => insertion.index >= commands);
 const whyText = computed(() => {
@@ -65,6 +74,11 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
       <template v-if="(tool === 'line' || tool === 'polygon') && points > 0">
         <UiKbd>Backspace</UiKbd> removes a point, <UiKbd>Esc</UiKbd> cancels.
       </template>
+    </p>
+    <p v-if="KEY_CLICK[tool]" class="tool-options__keys" data-testid="studio-tool-keys">
+      Keys on the canvas: <UiKbd>←↑→↓</UiKbd> move the cursor (<UiKbd>Shift</UiKbd> 8 px);
+      <UiKbd>Space</UiKbd> or <UiKbd>Enter</UiKbd> {{ KEY_CLICK[tool] }};
+      <UiKbd>Esc</UiKbd> cancels.
     </p>
     <div v-if="tool === 'rect' || tool === 'polygon'" class="tool-options__row">
       <label class="tool-options__check">
@@ -140,6 +154,9 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
 }
 .tool-options__help {
   color: var(--ink-2);
+}
+.tool-options__keys {
+  color: var(--ink-3);
 }
 .tool-options__row {
   display: flex;

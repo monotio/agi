@@ -14,6 +14,7 @@ import StudioContextBar from "./StudioContextBar.vue";
 import StudioItemEditor from "./StudioItemEditor.vue";
 import StudioKeepDialog from "./StudioKeepDialog.vue";
 import StudioLockNote from "./StudioLockNote.vue";
+import StudioSmallScreen from "./StudioSmallScreen.vue";
 import StudioStageNotes from "./StudioStageNotes.vue";
 import StudioToolOptions from "./StudioToolOptions.vue";
 import StudioToolOverlay from "./StudioToolOverlay.vue";
@@ -39,6 +40,7 @@ import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
 import { filterScene, resolveStudioSource, useStudioDocument } from "./useStudioDocument.ts";
 import { exposeStudioDraft, useStudioDraft } from "./useStudioDraft.ts";
 import { useStudioFocus } from "./useStudioFocus.ts";
+import { useStudioInput } from "./useStudioInput.ts";
 import { useStudioDrag } from "./useStudioDrag.ts";
 import { useStudioEditing } from "./useStudioEditing.ts";
 import { useStudioKeep, type KeepFn, type KeepRecovery } from "./useStudioKeep.ts";
@@ -55,9 +57,9 @@ import { useStudioViewport } from "./useStudioViewport.ts";
  * compiles to those bytes) and the revision they were read at. Keys are
  * handled at the root and stopped (studioKeys.ts), so none reach the game,
  * and focus never falls out of the studio while it is open. The tool rail
- * (useStudioTools) inserts new items at the playhead; the actor probe
- * stands a VIEW from the game's `files` on the draft; every way out settles
- * unkept changes first (useStudioLeave).
+ * (useStudioTools, by pointer or keys: useStudioInput) inserts new items at
+ * the playhead; the actor probe stands a VIEW from the game's `files` on the
+ * draft; every way out settles unkept changes first (useStudioLeave).
  */
 const {
   pictureNumber,
@@ -113,7 +115,7 @@ const selection = useStudioSelection({
   rowAt: (x, y) => doc.rowAtForLens(x, y, lens.value),
   membersOf: (id) => model.value.folds.find((fold) => fold.id === id)?.members,
 });
-const { hoveredId, selectedId, selectedRow, pinnedCell, announcement } = selection;
+const { hoveredId, selectedId, selectedRow, pinnedCell } = selection;
 const readout = useStudioReadout({ doc, selection, lens });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
 const keeper = useStudioKeep({ draft, pictureNumber: () => pictureNumber, keep: keepFn });
@@ -159,6 +161,12 @@ const tools = useStudioTools({
   report: editing.report,
   say: editing.say,
   frozen,
+  stage: () => stage.value,
+});
+const input = useStudioInput({
+  tools,
+  selection,
+  fallback: drag,
   stage: () => stage.value,
   probe: () => views.value.length > 0 && ghost.toggle(),
 });
@@ -265,27 +273,27 @@ const keys: StudioKeyActions = {
   zoom: (step) => (step === "fit" ? zoomToFit() : zoomBy(step)),
   step: (direction) => selection.step(direction),
   nudge: editing.nudge,
+  cursor: input.move,
+  click: input.click,
   remove: () => tools.backspace() || editing.remove(),
   duplicate: editing.duplicate,
   reorder: editing.reorder,
   undo: editing.undo,
   redo: editing.redo,
-  tool: tools.shortcut,
+  tool: input.shortcut,
   finish: tools.finish,
 };
-/** Canvas pointer input: the active tool takes it first, then selection and dragging. */
-const pointer = tools.pointer(drag, (cell) => (selection.canvasCell.value = cell));
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
   event.stopPropagation();
   // An open confirmation takes the keys it needs (Esc cancels it) and nothing else runs.
   if (dialog.value !== undefined) return;
-  if (tools.spaceKey(event, true) || studioKey(event, keys)) event.preventDefault();
+  if (input.spaceKey(event, true) || studioKey(event, keys)) event.preventDefault();
   keepFocus();
 }
 function onKeyup(event: KeyboardEvent): void {
   event.stopPropagation();
-  tools.spaceKey(event, false);
+  input.spaceKey(event, false);
 }
 </script>
 
@@ -360,7 +368,9 @@ function onKeyup(event: KeyboardEvent): void {
         :class="{ 'is-panning': tools.panning.value, 'is-drawing': tools.tool.value !== 'select' }"
         tabindex="0"
         role="group"
-        aria-label="Canvas. Click an item to select it; drag it or its handles to edit. Arrow keys nudge the selection 1 pixel (Shift: 8); Alt+arrows step through items in draw order."
+        :aria-label="input.label.value"
+        @focus="input.focus"
+        @blur="input.blur"
       >
         <div class="studio__panes">
           <StudioCanvas
@@ -379,14 +389,14 @@ function onKeyup(event: KeyboardEvent): void {
             :handles
             :flash="flashPaths"
             :movable="editableId !== undefined && tools.tool.value === 'select'"
-            @hover="pointer.hover"
-            @press="pointer.press"
-            @drag="pointer.drag"
-            @release="pointer.release"
-            @abort="pointer.abort"
+            @hover="input.pointer.hover"
+            @press="input.pointer.press"
+            @drag="input.pointer.drag"
+            @release="input.pointer.release"
+            @abort="input.pointer.abort"
             @dblclick="tools.finish()"
           >
-            <StudioToolOverlay v-if="tools.tool.value !== 'select'" v-bind="tools.overlay.value" />
+            <StudioToolOverlay v-if="tools.tool.value !== 'select'" v-bind="input.overlay.value" />
             <!-- The probe's own presses never reach the pane below. -->
             <GhostProbe
               v-if="index === 0"
@@ -474,7 +484,7 @@ function onKeyup(event: KeyboardEvent): void {
       <span>AGI {{ profile.id }} profile</span>
       <span>{{ model.trusted ? "authored source" : "disassembled" }}</span>
     </footer>
-    <p class="studio__sr" aria-live="polite" data-role="announce">{{ announcement }}</p>
+    <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
 
     <StudioKeepDialog
       v-model:ask="dialog"
@@ -484,6 +494,7 @@ function onKeyup(event: KeyboardEvent): void {
       @keep="leave.answer('keep')"
       @discard="(closing) => (closing ? leave.answer('discard') : discardChanges())"
     />
+    <StudioSmallScreen :draft :keeper @close="emit('close')" />
   </div>
 </template>
 
@@ -492,9 +503,9 @@ function onKeyup(event: KeyboardEvent): void {
   position: relative;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr) 92px 28px;
-  /* The Scene list gives up a little width on smaller screens, so the rail
-     leaves the canvas its 200% zoom at 1280 wide. */
-  grid-template-columns: clamp(208px, 18vw, 256px) 48px minmax(0, 1fr) 300px;
+  /* The Scene list takes what the canvas can spare: at 1280 wide what still
+     leaves it 200% zoom (640 + 2 × STAGE_INSET), more when wider. */
+  grid-template-columns: clamp(208px, max(18vw, 100vw - 1040px), 300px) 48px minmax(0, 1fr) 300px;
   width: 100%;
   height: 100%;
   overflow: hidden;

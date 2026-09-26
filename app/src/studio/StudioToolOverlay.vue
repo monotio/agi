@@ -8,8 +8,9 @@ import type { RectCorners } from "./studioTools.ts";
  * What a drawing tool shows over a pane before the kernel has drawn it: the
  * clicked points of a line or polygon with the segment to the cursor (the
  * first point ringed when a click there closes the polygon), the rectangle
- * being dragged, and the cells a fill under the cursor would flood. The
- * picture's own pixels come from the draft's preview underneath.
+ * being dragged, the cells a fill under the cursor would flood, and the
+ * keyboard cursor's crosshair on its pixel. The picture's own pixels come
+ * from the draft's preview underneath.
  */
 const {
   points = [],
@@ -17,6 +18,7 @@ const {
   cursor = undefined,
   rect = null,
   flood = "",
+  crosshair = null,
 } = defineProps<{
   points?: readonly Point[];
   polygon?: boolean;
@@ -24,7 +26,11 @@ const {
   rect?: RectCorners | null;
   /** maskFillPath of the cells a fill would change. */
   flood?: string;
+  /** The keyboard cursor's pixel, while the keys drive the canvas. */
+  crosshair?: Point | null;
 }>();
+/** The crosshair's arms reach this many rows past its pixel (half as many columns: pixels are 2:1). */
+const ARM = 12;
 
 const centre = (p: Point): string => `${p.x + 0.5},${p.y + 0.5}`;
 const trail = computed(() => {
@@ -79,6 +85,31 @@ const closing = computed(() => {
       height="1"
       vector-effect="non-scaling-stroke"
     />
+    <g
+      v-if="crosshair"
+      class="tool-overlay__crosshair"
+      data-role="key-cursor"
+      :data-x="crosshair.x"
+      :data-y="crosshair.y"
+    >
+      <path
+        v-for="layer in ['under', 'over']"
+        :key="layer"
+        :class="`tool-overlay__cross-${layer}`"
+        :d="`M${crosshair.x + 0.5} ${crosshair.y - ARM}V${crosshair.y}M${crosshair.x + 0.5} ${crosshair.y + 1}V${crosshair.y + 1 + ARM}M${crosshair.x - ARM / 2} ${crosshair.y + 0.5}H${crosshair.x}M${crosshair.x + 1} ${crosshair.y + 0.5}H${crosshair.x + 1 + ARM / 2}`"
+        vector-effect="non-scaling-stroke"
+      />
+      <rect
+        v-for="layer in ['under', 'over']"
+        :key="`box-${layer}`"
+        :class="`tool-overlay__cross-${layer}`"
+        :x="crosshair.x"
+        :y="crosshair.y"
+        width="1"
+        height="1"
+        vector-effect="non-scaling-stroke"
+      />
+    </g>
   </svg>
 </template>
 
@@ -112,5 +143,16 @@ const closing = computed(() => {
 .tool-overlay__point.is-closing {
   fill: var(--warn);
   stroke-width: 3px;
+}
+/* A dark casing under a light line: legible over any of the 16 colours. */
+.tool-overlay__cross-under {
+  fill: none;
+  stroke: var(--agi-0);
+  stroke-width: 3px;
+}
+.tool-overlay__cross-over {
+  fill: none;
+  stroke: var(--agi-15);
+  stroke-width: 1px;
 }
 </style>

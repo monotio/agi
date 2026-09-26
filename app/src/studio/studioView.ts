@@ -1,7 +1,7 @@
 /**
  * Pure view helpers for the Room Studio: lens painting, mask geometry for
- * the SVG overlay, priority band guides, control-line labels and the
- * draw-order tick layout. No Vue and no DOM, so tests drive them directly.
+ * the SVG overlay, priority band guides, control-line labels, the
+ * draw-order tick layout and Scene list labels. No Vue and no DOM, so tests drive them directly.
  */
 
 import { EGA_PALETTE } from "../palette.ts";
@@ -380,5 +380,32 @@ export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number
     tone: "ok",
     fraction,
     note: `${n(bytes)} of the ${n(recordLimit)} bytes a picture can hold.`,
+  };
+}
+
+/** A Scene list label split for a middle ellipsis: `head` gives way first, `tail` stays whole. */
+export interface LabelParts {
+  readonly full: string;
+  readonly head: string;
+  /** From the first word holding a digit ("5 part 2"), with its leading space; empty when none. */
+  readonly tail: string;
+}
+
+/** Longer tails keep only their last words, so the head still shows something. */
+export const LABEL_TAIL_MAX = 12;
+
+/**
+ * Split an item label where the numbers that tell rows apart begin:
+ * "Element 5 part 2" ellipsizes as "Elem… 5 part 2", never "Element 5 pa…".
+ */
+export function labelParts(full: string): LabelParts {
+  const words = full.split(" ");
+  let start = words.findIndex((word) => /\d/.test(word));
+  if (start <= 0) return { full, head: full, tail: "" };
+  while (start < words.length - 1 && words.slice(start).join(" ").length > LABEL_TAIL_MAX) start++;
+  return {
+    full,
+    head: words.slice(0, start).join(" "),
+    tail: ` ${words.slice(start).join(" ")}`,
   };
 }
