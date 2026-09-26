@@ -1,7 +1,9 @@
 /**
- * The game's whole-page keyboard (App.vue listens on window). Split from the
- * shell root so the routing reads in one place; the play area supplies the
- * input line and the key actions it owns.
+ * The game's whole-page keyboard, routed in one place: the shell's own keys
+ * first, then the Ask bubble, page controls, walkthrough and history
+ * playback, and finally the game's prompts, modals, keys and input line.
+ * App.vue listens on window; the play area supplies the input line and the
+ * key actions it owns.
  */
 import type { EngineApi } from "./engineContext.ts";
 import type { ModalKind } from "./useEngine.ts";

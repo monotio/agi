@@ -523,6 +523,7 @@ watch(
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
       'original-aspect': originalAspect,
+      'studio-open': studioOpen,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
@@ -705,13 +706,16 @@ watch(
 
     <SetupPanel />
 
+    <!-- Below the fold: while Studio holds the page still they wait hidden,
+         out of Tab's reach. -->
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"
+      v-show="!studioOpen"
       :audio="latestAgentAudio"
       data-testid="latest-sound-preview"
     />
 
-    <AgentLogPanel v-if="!activityDocked" />
+    <AgentLogPanel v-if="!activityDocked" v-show="!studioOpen" />
 
     <ReferenceUpload v-if="state.phase === 'running'" />
 

@@ -2,13 +2,14 @@
 import { computed, onScopeDispose, ref, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import { itemHandles } from "../../../src/studio/editPoints.ts";
 import { footprintMask } from "../../../src/studio/editValidation.ts";
 import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
 import PixelInspector from "./PixelInspector.vue";
 import SceneList from "./SceneList.vue";
-import StudioCanvas from "./StudioCanvas.vue";
+import StudioCanvas, { type MaskPaths } from "./StudioCanvas.vue";
 import StudioContextBar from "./StudioContextBar.vue";
 import StudioItemEditor from "./StudioItemEditor.vue";
 import StudioKeepDialog from "./StudioKeepDialog.vue";
@@ -24,6 +25,11 @@ import StudioZoom from "./StudioZoom.vue";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import { lensItemLocks, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
 import {
+  bandGuides,
+  controlLabels,
+  maskBox,
+  maskFillPath,
+  maskOutlinePath,
   PANE_LABELS,
   panesFor,
   subtitleExtra,
@@ -39,7 +45,6 @@ import { useStudioDrag } from "./useStudioDrag.ts";
 import { useStudioEditing } from "./useStudioEditing.ts";
 import { useStudioKeep, type KeepFn, type KeepRecovery } from "./useStudioKeep.ts";
 import { useStudioLeave } from "./useStudioLeave.ts";
-import { useStudioOverlay } from "./useStudioOverlay.ts";
 import { useStudioReadout } from "./useStudioReadout.ts";
 import { useStudioSelection } from "./useStudioSelection.ts";
 import { useStudioTools } from "./useStudioTools.ts";
@@ -89,6 +94,7 @@ const showBands = ref(true);
 const filter = ref("");
 const unlocks = ref<LensUnlocks>(NO_UNLOCKS);
 /** More points than this and the item shows no handles (the inspector still lists them). */
+const MAX_HANDLES = 160;
 
 const resolved = computed(() => resolveStudioSource({ bytes, authoredSource, profile }));
 const draft = useStudioDraft({
@@ -135,6 +141,8 @@ const selectionMask = computed(() => {
   if (preview && id === editableId.value) return footprintMask(preview.compiled, id, "both");
   return doc.rowMask(id, lens.value);
 });
+const pathsOf = (mask: Uint8Array | null): MaskPaths | null =>
+  mask && { fill: maskFillPath(mask), outline: maskOutlinePath(mask) };
 const drag = useStudioDrag({
   draft,
   editableId: () => editableId.value,
@@ -171,22 +179,40 @@ const describeCell = (x: number, y: number): string | undefined => {
   return id === undefined ? undefined : labelOf(id);
 };
 
+const hoverPaths = computed(() =>
+  drag.dragging.value || hoveredId.value === undefined
+    ? null
+    : pathsOf(doc.rowMask(hoveredId.value, lens.value)),
+);
+const selectionPaths = computed(() => pathsOf(selectionMask.value));
+const flashPaths = computed(() => pathsOf(editing.flash.value));
+const handleList = computed(() => {
+  const id = editableId.value;
+  return id === undefined
+    ? []
+    : itemHandles(draft.preview.value?.document ?? draft.document.value, id);
+});
+const handles = computed(() =>
+  handleList.value.length > 0 && handleList.value.length <= MAX_HANDLES ? handleList.value : null,
+);
+const guides = computed(() => (showBands.value && lens.value !== "art" ? bandGuides() : null));
+const labels = computed(() => (lens.value === "walk" ? controlLabels(shown.value.priority) : null));
+
+/** The contextual toolbar sits above the selection (below it near the top), inside the pane. */
 const ctxOpen = ref(false);
-const { hoverPaths, selectionPaths, flashPaths, handleList, handles, guides, labels, ctxAt } =
-  useStudioOverlay({
-    lens,
-    showBands,
-    viewport,
-    priority: () => shown.value.priority,
-    hoveredId,
-    hoverMask: (id) => doc.rowMask(id, lens.value),
-    selectionMask,
-    flash: editing.flash,
-    editableId,
-    document: () => draft.preview.value?.document ?? draft.document.value,
-    dragging: drag.dragging,
-    drawing: tools.drawing,
-  });
+const ctxAt = computed(() => {
+  const mask = selectionMask.value;
+  const hidden =
+    editableId.value === undefined || drag.dragging.value || !mask || tools.drawing.value;
+  const box = hidden ? null : maskBox(mask);
+  if (!box) return null;
+  const { zoom: z, pixelAspect } = viewport.value;
+  const above = box.y * z - 44;
+  return {
+    left: `${Math.max(0, Math.min(box.x * pixelAspect * z, 160 * pixelAspect * z - 360))}px`,
+    top: `${above >= 4 ? above : (box.y + box.height) * z + 8}px`,
+  };
+});
 const itemLocks = computed(() => lensItemLocks(lens.value, unlocks.value));
 
 function seek(k: number): void {
