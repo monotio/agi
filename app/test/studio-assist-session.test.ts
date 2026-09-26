@@ -15,6 +15,7 @@ import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { parseView } from "../../src/view/view.ts";
 import { BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "../../test/studioAssistFixtures.ts";
+import { STUB_DECLINE_TEXT } from "../src/agent/studioAssist.ts";
 
 function state(): AgentSessionState {
   const session = createAgentSessionState();
@@ -126,6 +127,20 @@ test("stub: a proposal that touches locked art is refused and the retry is the c
     ),
     events.join("\n"),
   );
+  untouched();
+});
+
+test("stub: an impossible request reads the selection and declines with its reason", async () => {
+  const events: string[] = [];
+  const { session, untouched } = stubSession(events);
+  const result = await session.runStudioAssist({
+    instruction: "impossible: walk onto the ceiling",
+    focus: bridgeFocus(),
+  });
+  assert.equal(result.candidate, null);
+  assert.deepEqual([result.proposals, result.refusals], [0, 0]);
+  assert.equal(result.text, STUB_DECLINE_TEXT);
+  assert.ok(events.some((line) => line.startsWith("[Studio] read_edit_context ->")));
   untouched();
 });
 

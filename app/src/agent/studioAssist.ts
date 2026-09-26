@@ -10,8 +10,9 @@
  * the eval harness's dry run: "walkable" turns the selection's barrier into
  * the walkable control value beside it (control 0–3 only, as the default
  * Walk locks allow), "eyes" recolours the selected cels' rarest colour blue,
- * and "bad" first recolours the selected art under the lens lock, reads the
- * refusal, then retries with the walkable change.
+ * "bad" first recolours the selected art under the lens lock, reads the
+ * refusal, then retries with the walkable change, and "impossible" reads the
+ * selection and declines with an explanation, proposing nothing.
  */
 import {
   STUDIO_ASSIST_TOOLS,
@@ -54,10 +55,15 @@ The creator is editing ${kind} ${num} in ${studio}${focus.lens ? ` (${focus.lens
 You may change only the selection. Call read_edit_context, then propose_edit with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses changes outside the selection, on a locked plane or protected loop, or over the byte budget: read the refusal, fix that, and propose again. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
 }
 
-type Scenario = "walkable" | "eyes" | "bad" | "none";
+type Scenario = "walkable" | "eyes" | "bad" | "impossible" | "none";
+
+/** The stub's explanation when it declines ("impossible"): nothing is proposed. */
+export const STUB_DECLINE_TEXT =
+  "I can't do that within your selection: the change would need cells outside it, so I left the draft as it is.";
 
 function scenarioOf(instruction: string): Scenario {
   const asked = instruction.toLowerCase();
+  if (asked.includes("impossible")) return "impossible";
   if (asked.includes("bad")) return "bad";
   if (asked.includes("eye")) return "eyes";
   if (asked.includes("walk")) return "walkable";
@@ -193,6 +199,7 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
     if (!context) return say("I could not read the selection.");
     const last = outcomes.at(-1);
     if (last === true) return say(`Proposed: ${instruction.trim()}.`);
+    if (scenario === "impossible") return say(STUB_DECLINE_TEXT);
     if (context.kind === "view") {
       if (scenario !== "eyes" || outcomes.length > 0)
         return say("I could not make that change within the selection.");

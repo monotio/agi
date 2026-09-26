@@ -502,6 +502,7 @@ export function useEngine(
   link.deps.handleHistoryView = historyView.applyReport;
 
   return {
+    runStudioAssist: authoringController.runStudioAssist,
     stopAgent: () => authoringController.getSession()?.task.stop(),
     continueAgent: () => authoringController.getSession()?.task.resume(),
     discardAgent: () => authoringController.getSession()?.task.cancel(),

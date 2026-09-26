@@ -85,6 +85,8 @@ export interface SpriteToolsOptions {
   readonly say: (notice: StudioNotice | null) => void;
   /** Editing is blocked: tools do nothing. */
   readonly frozen: () => boolean;
+  /** Drawing waits for an AI proposal's verdict (or its request). */
+  readonly paused?: () => boolean;
 }
 
 interface Stroke {
@@ -144,8 +146,12 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   });
 
   function blocked(): boolean {
-    if (!options.frozen()) return false;
-    options.say({ tone: "warn", text: "This view is view only: nothing can be drawn." });
+    if (options.frozen()) {
+      options.say({ tone: "warn", text: "This view is view only: nothing can be drawn." });
+      return true;
+    }
+    if (!options.paused?.()) return false;
+    options.say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
     return true;
   }
 
@@ -437,7 +443,7 @@ export function useSpriteTools(options: SpriteToolsOptions) {
     cancel();
     selection.value = null;
   });
-  watch(options.frozen, () => cancel());
+  watch([options.frozen, () => options.paused?.() ?? false], () => cancel());
 
   /** SpriteCanvas's overlay: the marquee being dragged, the selection and the cursor. */
   const overlay = computed(() => {

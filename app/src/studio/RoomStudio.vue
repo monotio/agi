@@ -14,12 +14,15 @@ import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { createAgentSessionState } from "../../../src/agent/tools.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { itemHandles } from "../../../src/studio/editPoints.ts";
-import { footprintMask } from "../../../src/studio/editValidation.ts";
+import type { StudioFocus } from "../../../src/agent/studioAssistTools.ts";
+import { pictureAssistScope } from "../../../src/studio/assistScope.ts";
+import { compileEditDocument, footprintMask } from "../../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import type { PlayHereTarget } from "../../../src/studio/playHere.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engineContext.ts";
+import { aiSettingsKey } from "../useAiSettings.ts";
 import {
   ResourceCommitError,
   type ResourceCommitResult,
@@ -33,6 +36,8 @@ import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
 import PixelInspector from "./PixelInspector.vue";
 import SceneList from "./SceneList.vue";
+import StudioAssistCompare from "./StudioAssistCompare.vue";
+import StudioAssistPanel from "./StudioAssistPanel.vue";
 import StudioCanvas, { type MaskPaths } from "./StudioCanvas.vue";
 import StudioCanvasMenu, { type CanvasMenuItem } from "./StudioCanvasMenu.vue";
 import StudioContextBar from "./StudioContextBar.vue";
@@ -53,7 +58,20 @@ import StudioZoom from "./StudioZoom.vue";
 import type { RouteRunner } from "./routeRunner.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
-import { lensItemLocks, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
+import {
+  depthValuesLocked,
+  lensItemLocks,
+  lockedPlanes,
+  NO_UNLOCKS,
+  type LensUnlocks,
+} from "./studioLocks.ts";
+import {
+  changedCells,
+  labelList,
+  pictureChangeSummary,
+  pictureScopeChips,
+} from "./studioAssistText.ts";
+import { useStudioAssist, type StudioAssistHost } from "./useStudioAssist.ts";
 import {
   bandGuides,
   controlLabels,
@@ -94,7 +112,9 @@ import { useUndoOrder } from "./useUndoOrder.ts";
  * the playhead; the actor probe stands a VIEW from the game's `files` on the
  * draft; every way out settles unkept changes first (useStudioLeave). The
  * Walk view (useStudioWalk) adds test walks, Play here and the room's doors,
- * whose logic edits keep together with the picture in one transaction.
+ * whose logic edits keep together with the picture in one transaction. "Ask
+ * about this selection" (useStudioAssist) has the game's AI propose a change
+ * to the selected items, previewed on the canvas and accepted as one undo step.
  */
 const {
   pictureNumber,
@@ -260,7 +280,66 @@ const keeper = useStudioKeep({
 });
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
-const editing = useStudioEditing({ draft, selectedId, frozen });
+
+// ---- Ask about this selection ----------------------------------------------
+const aiSettings = inject(aiSettingsKey, null);
+const assistHost: StudioAssistHost | null =
+  engineApi && aiSettings
+    ? {
+        run: (request) => engineApi.runStudioAssist(request, aiSettings.llmConfig()),
+        cancel: () => engineApi.discardAgent(),
+        resume: () => engineApi.continueAgent(),
+        task: () => engineApi.state.agentTask,
+        log: () => engineApi.state.agentLog,
+      }
+    : null;
+/** The selected items an Ask is about: the item, or a group's members. */
+const askTargets = computed<string[]>(() => {
+  const id = selectedId.value;
+  if (id === undefined) return [];
+  const items = new Set(draft.document.value.items.map((item) => item.id));
+  if (items.has(id)) return [id];
+  const members = model.value.folds.find((fold) => fold.id === id)?.members ?? [];
+  return members.filter((member) => items.has(member));
+});
+const itemLabel = (id: string): string =>
+  draft.document.value.items.find((item) => item.id === id)?.label ?? id;
+const currentPicture = () => ({ kind: "picture" as const, source: draft.source.value });
+const assist = useStudioAssist({
+  host: () => assistHost,
+  configured: () => aiSettings?.aiConfigured.value ?? false,
+  frozen,
+  selected: () => askTargets.value.length > 0,
+  focus: (): StudioFocus | null => {
+    const targetIds = askTargets.value;
+    if (targetIds.length === 0) return null;
+    return {
+      scope: pictureAssistScope({
+        num: pictureNumber,
+        compiled: draft.compiled.value,
+        targetIds,
+        lens: lens.value,
+        unlocks: unlocks.value,
+      }),
+      draft: currentPicture,
+      lens: lens.value,
+      room: walk && walk.room > 0 ? walk.room : undefined,
+      // Under ignore.horizon nothing stops ego; the estimate's 0 says the same.
+      horizon: ego.value.horizon ?? 0,
+    };
+  },
+  current: currentPicture,
+  apply: (candidate, focus) => {
+    if (candidate.kind !== "picture" || focus.scope.kind !== "picture")
+      return { ok: false, message: "That proposal is not for this picture." };
+    const outcome = draft.adopt(candidate.draft.source, "AI edit", focus.scope);
+    editing.report(outcome);
+    return outcome.ok ? outcome : { ok: false, message: outcome.refusal.message };
+  },
+});
+/** Edits wait while a request runs or its proposal awaits a verdict. */
+const editsBlocked = (): boolean => frozen() || assist.holds.value;
+const editing = useStudioEditing({ draft, selectedId, frozen, paused: () => assist.holds.value });
 /** Cmd+Z undoes the newest change of the picture or the doors. */
 const undoOrder = useUndoOrder([
   {
@@ -284,8 +363,59 @@ const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   () => panes.value.length,
 );
 
-/** The planes on screen: the drag's preview while one runs, else the scrubbed draft. */
-const shown = computed(() => draft.preview.value?.compiled ?? surface.value);
+/** An AI proposal awaiting a verdict: compiled, with the cells it changes. */
+const proposal = computed(() => {
+  const candidate = assist.candidate.value;
+  if (assist.phase.value !== "candidate" || candidate?.kind !== "picture") return null;
+  try {
+    const compiled = compileEditDocument(
+      parsePictureDocument(candidate.draft.source).document,
+      profile,
+    );
+    return { compiled, changed: changedCells(draft.compiled.value, compiled) };
+  } catch {
+    return null;
+  }
+});
+/** The canvas shows the draft (before) or the proposal applied (after). */
+const compare = ref<"before" | "after">("after");
+watch(proposal, (next, previous) => {
+  if (next && !previous) compare.value = "after";
+});
+/** The planes on screen: a proposal's side, the drag's preview while one runs, else the scrubbed draft. */
+const shown = computed(() =>
+  proposal.value
+    ? compare.value === "after"
+      ? proposal.value.compiled
+      : draft.compiled.value
+    : (draft.preview.value?.compiled ?? surface.value),
+);
+const assistChanges = computed(() => {
+  const next = proposal.value;
+  const scope = assist.asked.value?.scope;
+  if (!next || scope?.kind !== "picture") return null;
+  return pictureChangeSummary(
+    draft.compiled.value,
+    next.compiled,
+    labelList(scope.targetIds.map(itemLabel)),
+  );
+});
+/** What the request is held to: the asked scope while it is open, else the selection's. */
+const assistChips = computed(() => {
+  const scope = assist.holds.value ? assist.asked.value?.scope : undefined;
+  if (scope?.kind === "picture")
+    return pictureScopeChips({
+      labels: scope.targetIds.map(itemLabel),
+      lockedPlanes: scope.lockedPlanes,
+      depthValuesLocked: depthValuesLocked(scope.lens, scope.unlocks),
+    });
+  return pictureScopeChips({
+    labels: askTargets.value.map(itemLabel),
+    lockedPlanes: lockedPlanes(lens.value, unlocks.value),
+    depthValuesLocked: depthValuesLocked(lens.value, unlocks.value),
+  });
+});
+const assistPanel = useTemplateRef("assistPanel");
 const editableId = computed(() => editing.editable.value?.id);
 const selectionMask = computed(() => {
   const id = selectedId.value;
@@ -342,6 +472,7 @@ const walker = useStudioWalk({
   ego: () => ego.value,
   say: (notice) => editing.say(notice),
   frozen,
+  paused: () => assist.holds.value,
   runner: runRoute,
   liveState: engineApi
     ? async () => {
@@ -360,6 +491,7 @@ const tools = useStudioTools({
   report: editing.report,
   say: editing.say,
   frozen,
+  paused: () => assist.holds.value,
   stage: () => stage.value,
   walk: {
     press: (tool, cell) => walker.press(tool, cell),
@@ -390,6 +522,7 @@ const hoverPaths = computed(() =>
     : pathsOf(doc.rowMask(hoveredId.value, lens.value)),
 );
 const selectionPaths = computed(() => pathsOf(selectionMask.value));
+const changedPaths = computed(() => (proposal.value ? pathsOf(proposal.value.changed) : null));
 const flashPaths = computed(() => pathsOf(editing.flash.value));
 const handleList = computed(() => {
   const id = editableId.value;
@@ -610,6 +743,7 @@ const keys: StudioKeyActions = {
   redo: undoOrder.redo,
   tool: toolKey,
   finish: tools.finish,
+  ask: () => assistPanel.value?.focus() ?? false,
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
@@ -687,7 +821,7 @@ function onKeyup(event: KeyboardEvent): void {
     <StudioToolRail
       :tool="tools.tool.value"
       class="studio__rail"
-      :frozen="frozen()"
+      :frozen="editsBlocked()"
       :probe-active="ghost.active.value"
       :probe-available="views.length > 0"
       :lens
@@ -726,6 +860,7 @@ function onKeyup(event: KeyboardEvent): void {
             :labels="layer === 'art' ? null : labels"
             :handles
             :flash="flashPaths"
+            :changed="changedPaths"
             :movable="editableId !== undefined && tools.tool.value === 'select'"
             @hover="input.pointer.hover"
             @press="input.pointer.press"
@@ -763,10 +898,18 @@ function onKeyup(event: KeyboardEvent): void {
               :priority-locked="itemLocks.priority"
               :depth-values-locked="itemLocks.depthValues"
               :edit="editing"
+              :askable="assistHost !== null"
+              @ask="assistPanel?.focus()"
             />
           </StudioCanvas>
         </div>
       </div>
+      <StudioAssistCompare
+        v-if="proposal"
+        v-model="compare"
+        below-bar
+        :stale="assist.stale.value"
+      />
       <StudioViewBar v-model:mode="mode" v-model:bands="showBands" :lens />
       <StudioStageNotes
         :banner="keeper.banner.value"
@@ -841,6 +984,18 @@ function onKeyup(event: KeyboardEvent): void {
           :handles="handleList"
           :locks="itemLocks"
           :edit="editing"
+        />
+      </template>
+      <template #assist>
+        <StudioAssistPanel
+          v-if="assistHost"
+          ref="assistPanel"
+          :assist
+          :chips="assistChips"
+          hint="To change the scope, select another item or group, or unlock a plane in the Scene footer."
+          :changes="assistChanges"
+          noun="picture"
+          empty="Select an item on the canvas or in the Scene list to ask the AI about it."
         />
       </template>
     </PixelInspector>

@@ -57,6 +57,8 @@ export interface StudioToolsOptions {
   readonly say: (notice: StudioNotice | null) => void;
   /** Editing is blocked: drawing tools do nothing. */
   readonly frozen: () => boolean;
+  /** Drawing waits for an AI proposal's verdict (or its request). */
+  readonly paused?: () => boolean;
   /** The scrolling stage the hand pans. */
   readonly stage: () => HTMLElement | null;
   readonly frame?: (callback: () => void) => number;
@@ -217,8 +219,12 @@ export function useStudioTools(options: StudioToolsOptions) {
 
   /** Drawing is blocked (view only, or a Keep that needs a reload): say so. */
   function blocked(): boolean {
-    if (!options.frozen()) return false;
-    options.say({ tone: "warn", text: "This picture is view only: nothing can be drawn." });
+    if (options.frozen()) {
+      options.say({ tone: "warn", text: "This picture is view only: nothing can be drawn." });
+      return true;
+    }
+    if (!options.paused?.()) return false;
+    options.say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
     return true;
   }
 
@@ -367,7 +373,7 @@ export function useStudioTools(options: StudioToolsOptions) {
   let fillFrame: number | null = null;
   let fillKey = "";
   function previewFill(cell: Point | undefined): void {
-    if (tool.value !== "fill" || !cell || options.frozen()) {
+    if (tool.value !== "fill" || !cell || options.frozen() || options.paused?.()) {
       fillPreview.value = null;
       return;
     }
@@ -513,7 +519,7 @@ export function useStudioTools(options: StudioToolsOptions) {
   }
 
   // A lens change or a frozen draft ends what was being drawn with the old values.
-  watch([lens, options.frozen], () => cancel());
+  watch([lens, options.frozen, () => options.paused?.() ?? false], () => cancel());
   // The picture changed under the fill tool's explanation (undo, Keep): it no longer holds.
   watch(
     () => draft.source.value,

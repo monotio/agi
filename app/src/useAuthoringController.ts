@@ -1,6 +1,7 @@
 import { AgentSession } from "./agent/agentSession.ts";
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
+import type { StudioAssistRequest, StudioAssistResult } from "./agent/studioAssist.ts";
 import type { AgentLogEntry } from "./agent/agentLog.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../src/agent/frames.ts";
@@ -186,6 +187,11 @@ export interface AuthoringController {
   commitRoomEdit(edit: RoomEdit): Promise<ResourceCommitResult>;
   /** Commit Sprite Studio's VIEW edit the same way. */
   commitViewEdit(edit: ViewEdit): Promise<ResourceCommitResult>;
+  /**
+   * Ask the game's session about a Studio selection. Resolves with the
+   * candidate (or none) and the model's sentence; rejects when stopped.
+   */
+  runStudioAssist(request: StudioAssistRequest, config: LlmConfig): Promise<StudioAssistResult>;
 }
 
 export function useAuthoringController(options: AuthoringControllerOptions): AuthoringController {
@@ -509,6 +515,71 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   /**
+   * Save the conversation a turn that wrote no resources grew (Ask, a Studio
+   * assist request): the installed game's record, or the project's.
+   */
+  async function saveConversation(booted: BootedGame, author: AgentSession): Promise<void> {
+    if (booted.installed) {
+      const key = booted.hash ?? booted.alias ?? "installed";
+      await saveGameConversation(key, {
+        ...author.getProviderContext(),
+        transcript: author.getTranscript(),
+        sessionId: author.getSessionId(),
+        authoringState: author.getAuthoringState(),
+      });
+      return;
+    }
+    const context = author.getProviderContext();
+    const writtenRev = planRevisionOf(author);
+    if (
+      !(await updateGameConversation(
+        booted.projectId!,
+        author.getTranscript(),
+        author.getSessionId(),
+        author.getAuthoringState(),
+        context.provider,
+        context.model,
+      ))
+    )
+      throw new Error("Conversation could not be saved. Use Game → Download game… to keep it.");
+    reportPlanSaved(writtenRev);
+  }
+
+  /**
+   * One Studio assist request from Room Studio or Sprite Studio on the game's
+   * session (created on first use, as the assistant's is). The candidate it
+   * returns is data for the Studio to preview; no resource is written here.
+   * A conversation that cannot be saved is logged, never a failed request.
+   */
+  async function runStudioAssist(
+    request: StudioAssistRequest,
+    config: LlmConfig,
+  ): Promise<StudioAssistResult> {
+    if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
+    const booted = getBootedGame();
+    if (!booted) throw new Error("No game is running.");
+    if (!session) {
+      if (config.provider !== "stub" && !config.apiKey.trim())
+        throw new Error("Connect an API key in AI settings before asking the Studio assistant.");
+      const created = await createGameSession(booted, config);
+      if (getBootedGame() !== booted || session)
+        throw new Error("The game changed while connecting the AI. Try again.");
+      attachSessionRuntime(created, booted);
+      session = created;
+    }
+    const author = session;
+    const result = await author.runStudioAssist(request);
+    if (getBootedGame() === booted && session === author)
+      await saveConversation(booted, author).catch((error: unknown) =>
+        logAgent(
+          "error",
+          `Browser storage could not save the Studio conversation: ${String(error)}`,
+        ),
+      );
+    return result;
+  }
+
+  /**
    * Run one remix turn: the agent loops over its tools (streamed into the
    * bubble through logAgent), then everything it patched goes into the live
    * container, the room re-enters if the current room changed underneath the
@@ -546,33 +617,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         const text = await session.runAsk(instruction, room, images);
         state.powerUp.reply = text;
         state.powerUp.messages.push({ role: "assistant", text });
-        if (booted?.installed) {
-          const key = booted.hash ?? booted.alias ?? "installed";
-          await saveGameConversation(key, {
-            ...session.getProviderContext(),
-            transcript: session.getTranscript(),
-            sessionId: session.getSessionId(),
-            authoringState: session.getAuthoringState(),
-          });
-        }
-        if (booted && !booted.installed) {
-          const context = session.getProviderContext();
-          const writtenRev = planRevisionOf(session);
-          if (
-            !(await updateGameConversation(
-              booted.projectId!,
-              session.getTranscript(),
-              session.getSessionId(),
-              session.getAuthoringState(),
-              context.provider,
-              context.model,
-            ))
-          )
-            throw new Error(
-              "Conversation could not be saved. Use Game → Download game… to keep it.",
-            );
-          reportPlanSaved(writtenRev);
-        }
+        if (booted) await saveConversation(booted, session);
         return;
       }
       const { text, patched, files } = await session.runPowerUp(instruction, room, images);
@@ -1082,5 +1127,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     commitPictureEdit,
     commitRoomEdit,
     commitViewEdit,
+    runStudioAssist,
   };
 }

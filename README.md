@@ -131,14 +131,19 @@ runs test walks in a throwaway copy of the game, plays from any spot, and wires
 door boxes and edge exits to other rooms; a door can follow its doorway art, so
 moving the art moves the door in the same Keep. Each lens locks
 the planes it is not about, **Keep** saves the edited picture into the game, and
-leaving with unkept changes asks first.
+leaving with unkept changes asks first. **Ask about this selection** has your
+connected AI change just the selected item ("make this bridge walkable without
+changing the art"): its proposal shows on the canvas before and after, the
+app's own checks hold it to the selection and the locks, and Accept makes it one
+undo step.
 
 **Sprite Studio** edits a view's loops and cels the same way: open it from a
 room's views, the Resources tab or a staged character sheet, draw with the pixel
 tools, reorder, duplicate and flip cels on a loops × cels timeline, and watch the
 loop at the game's speed and standing in a room at its real depth. A loop that
 mirrors another becomes a separate copy when you edit it, so fixing one facing
-never changes the other unless you ask.
+never changes the other unless you ask. Ask works here too, on the selected cel
+or its whole loop, with every other loop protected.
 
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
 animated sprites, vocabulary, inventory and sound. The heroes above walk because

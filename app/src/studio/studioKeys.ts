@@ -14,6 +14,7 @@
  *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
  * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I G H);
  *   Enter finishes a line or polygon, Backspace drops its last point
+ * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue)
  */
 
 import type { StudioLens } from "./studioView.ts";
@@ -54,6 +55,8 @@ export interface StudioKeyActions {
   tool(key: string): boolean;
   /** Enter: finish what a tool is drawing; true when there was something. */
   finish(): boolean;
+  /** `/`: focus the Ask box; false when there is none. */
+  ask(): boolean;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -104,6 +107,7 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     return true;
   }
   if (event.altKey) return false;
+  if (key === "/") return act.ask();
   const lens = LENS_KEYS[key];
   if (lens) act.lens(lens);
   else if (key === "Delete" || key === "Backspace") act.remove();
