@@ -1,21 +1,24 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
-import UiIcon from "./UiIcon.vue";
+import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
+import UiButton from "./ui/UiButton.vue";
+import UiIconButton from "./ui/UiIconButton.vue";
+import type { IconName } from "./ui/icons.ts";
 
 const {
   testId = undefined,
   iconOnly = false,
-  icon = "chevron",
+  icon = "chevron-down",
   disabled = false,
 } = defineProps<{
   label: string;
   testId?: string | undefined;
   iconOnly?: boolean;
-  icon?: "more" | "chevron";
+  icon?: IconName;
   disabled?: boolean;
 }>();
 
 const trigger = useTemplateRef("trigger");
+const triggerEl = computed(() => trigger.value?.$el);
 const menu = useTemplateRef("menu");
 const open = ref(false);
 const positioned = ref(false);
@@ -50,15 +53,15 @@ function closeWithoutFocus(): void {
 
 function closeAndRestoreFocus(): void {
   closeWithoutFocus();
-  void nextTick(() => trigger.value?.focus({ preventScroll: true }));
+  void nextTick(() => triggerEl.value?.focus({ preventScroll: true }));
 }
 
 function onWindowScroll(event: Event): void {
   const target = event.target;
   if (target instanceof Node && menu.value?.contains(target)) return;
   const anchor = anchorPosition.value;
-  if (!anchor || !trigger.value) return;
-  const current = trigger.value.getBoundingClientRect();
+  if (!anchor || !triggerEl.value) return;
+  const current = triggerEl.value.getBoundingClientRect();
   if (Math.abs(current.left - anchor.left) > 0.5 || Math.abs(current.top - anchor.top) > 0.5)
     closeWithoutFocus();
 }
@@ -66,16 +69,17 @@ function onWindowScroll(event: Event): void {
 function onOutsidePointerDown(event: PointerEvent): void {
   const target = event.target;
   if (!(target instanceof Node)) return;
-  if (!trigger.value?.contains(target) && !menu.value?.contains(target)) closeWithoutFocus();
+  if (!triggerEl.value?.contains(target) && !menu.value?.contains(target)) closeWithoutFocus();
 }
 
 async function positionMenu(): Promise<void> {
   await nextTick();
-  if (!open.value || !trigger.value || !menu.value) return;
+  const triggerRectEl = triggerEl.value;
+  if (!open.value || !triggerRectEl || !menu.value) return;
 
   const gutter = 8;
   const gap = 6;
-  const triggerRect = trigger.value.getBoundingClientRect();
+  const triggerRect = triggerRectEl.getBoundingClientRect();
   const menuRect = menu.value.getBoundingClientRect();
   const width = Math.min(
     Math.max(triggerRect.width, menuRect.width),
@@ -153,7 +157,7 @@ function onFocusOut(event: FocusEvent): void {
   const relatedTarget = event.relatedTarget;
   window.setTimeout(() => {
     const active = document.activeElement;
-    if (trigger.value?.contains(active) || menu.value?.contains(active)) return;
+    if (triggerEl.value?.contains(active) || menu.value?.contains(active)) return;
     if (keyboardDeparture || (relatedTarget instanceof Node && relatedTarget !== document.body))
       closeWithoutFocus();
   });
@@ -180,7 +184,7 @@ function onMenuClick(event: MouseEvent): void {
       document.activeElement === document.body ||
       (menu.value?.contains(document.activeElement) ?? false);
     closeWithoutFocus();
-    if (focusStayedInMenu) trigger.value?.focus();
+    if (focusStayedInMenu) triggerEl.value?.focus();
   });
 }
 
@@ -189,12 +193,27 @@ onBeforeUnmount(removeWindowListeners);
 
 <template>
   <span class="action-menu" @focusout="onFocusOut" @keydown.tab="onTabKeydown">
-    <button
+    <UiIconButton
+      v-if="iconOnly"
       ref="trigger"
-      type="button"
-      class="ui-button ui-button--secondary"
-      :class="{ 'ui-button--icon': iconOnly }"
-      :aria-label="iconOnly ? label : undefined"
+      :icon="icon"
+      :label="label"
+      class="action-menu__trigger action-menu__trigger--icon"
+      aria-haspopup="menu"
+      :aria-expanded="open"
+      :aria-controls="menuId"
+      :data-testid="testId"
+      :disabled
+      @click="toggleMenu"
+      @keydown.down.stop.prevent="openMenu('first')"
+      @keydown.up.stop.prevent="openMenu('last')"
+      @keydown.esc.stop.prevent="closeAndRestoreFocus"
+    />
+    <UiButton
+      v-else
+      ref="trigger"
+      class="action-menu__trigger"
+      :trailing-icon="icon"
       aria-haspopup="menu"
       :aria-expanded="open"
       :aria-controls="menuId"
@@ -205,9 +224,8 @@ onBeforeUnmount(removeWindowListeners);
       @keydown.up.stop.prevent="openMenu('last')"
       @keydown.esc.stop.prevent="closeAndRestoreFocus"
     >
-      <span v-if="!iconOnly">{{ label }}</span>
-      <UiIcon :name="icon" />
-    </button>
+      {{ label }}
+    </UiButton>
     <Teleport to="body">
       <div
         v-if="open"
@@ -242,17 +260,17 @@ onBeforeUnmount(removeWindowListeners);
 }
 .action-menu__popup {
   position: fixed;
-  z-index: 1000;
+  z-index: var(--z-popover);
   display: grid;
   min-width: min(180px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);
   overflow-y: auto;
   box-sizing: border-box;
   padding: 5px;
-  border: 1px solid #507477;
-  border-radius: 6px;
-  background: #10191b;
-  box-shadow: 0 10px 24px #000b;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-pop);
   visibility: hidden;
 }
 .action-menu__popup--positioned {
@@ -262,7 +280,7 @@ onBeforeUnmount(removeWindowListeners);
   height: 1px;
   margin: 4px 2px;
   border: 0;
-  background: #2f4a4d;
+  background: var(--hairline-strong);
 }
 .action-menu__popup
   :deep(:is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"])) {
@@ -270,16 +288,14 @@ onBeforeUnmount(removeWindowListeners);
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
+  min-height: var(--control-h-touch);
   box-sizing: border-box;
   padding: 10px 12px;
   border: 0;
-  border-radius: 4px;
-  color: #dcecec;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
   background: transparent;
-  font:
-    700 14px/1.4 system-ui,
-    sans-serif;
+  font: var(--weight-bold) var(--text-md) / 1.4 var(--font-sans);
   text-align: left;
   cursor: pointer;
 }
@@ -289,8 +305,8 @@ onBeforeUnmount(removeWindowListeners);
   ),
 .action-menu__popup
   :deep(:is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]):focus-visible) {
-  color: #fff;
-  background: #203537;
+  color: var(--ink);
+  background: var(--surface-3);
 }
 .action-menu__popup
   :deep(:is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]).danger),
@@ -306,7 +322,7 @@ onBeforeUnmount(removeWindowListeners);
   :deep(
     :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]).ui-button--danger
   ) {
-  color: var(--ui-danger);
+  color: var(--danger);
 }
 .action-menu__popup
   :deep(:is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]):disabled),
@@ -320,8 +336,8 @@ onBeforeUnmount(removeWindowListeners);
 .action-menu__popup
   :deep(:is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) small) {
   display: block;
-  color: #8fa7a9;
-  font-size: 12px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
   font-weight: 400;
 }
 </style>

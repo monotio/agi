@@ -8,6 +8,7 @@ import {
   openDeveloperActivity,
   settled,
   textHook,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 /**
@@ -90,9 +91,18 @@ async function bootAgentGame(page: Page): Promise<void> {
 }
 
 async function openBubbleAndUpload(page: Page): Promise<void> {
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await page.getByTestId("agent-attach-reference").click();
   await expect(page.getByTestId("reference-upload")).toBeVisible();
+}
+
+/** Close the upload through the dialog's own labelled close control. */
+async function closeUpload(page: Page): Promise<void> {
+  await page
+    .getByTestId("reference-upload")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
 }
 
 /**
@@ -198,7 +208,7 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   // the stored list offers it, and selecting it brings the deterministic
   // preview, Keep and Send back without re-uploading. The bubble stays open
   // under the dialog, so the upload reopens straight from it.
-  await page.getByTestId("reference-upload-close").click();
+  await closeUpload(page);
   await page.getByTestId("agent-attach-reference").click();
   await expect(page.getByTestId("reference-upload")).toBeVisible();
   await expect(page.getByTestId("reference-attached")).toBeHidden();
@@ -218,7 +228,7 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   // moving ego forces fresh cels from the patched view onto the canvas. The
   // figure's cyan ink is absent from the stub room, so a sizeable cyan count
   // proves the kept VIEW is what ego walks in — not just a moved sprite.
-  await page.getByTestId("reference-upload-close").click();
+  await closeUpload(page);
   await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
   await walkSouth(page);
   await settled(page);
@@ -317,7 +327,7 @@ test("oversized, corrupt and unusable uploads each fail with a reason", async ({
 
   // Every refusal left the project untouched and the game still runs.
   expect((await storedProject(page)).references?.length ?? 0).toBe(0);
-  await page.getByTestId("reference-upload-close").click();
+  await closeUpload(page);
   await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
   const cycle = (await textHook(page)).cycle;
   await expect
@@ -372,7 +382,7 @@ test("JPEG and WebP attachments survive closing upload and ride only the next or
     });
     await page.getByTestId("reference-attach").click();
     await expect(page.getByTestId("reference-attached")).toBeVisible();
-    await page.getByTestId("reference-upload-close").click();
+    await closeUpload(page);
     await expect(page.getByTestId("agent-pending-references")).toContainText("Room 1");
     await page.screenshot({ path: testInfo.outputPath(`pending-${mime.split("/")[1]}.png`) });
     if (mime === "image/webp") await page.getByTestId("agent-mode-ask").click();

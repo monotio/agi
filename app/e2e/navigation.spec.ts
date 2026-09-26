@@ -38,18 +38,18 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   const nav = page.getByRole("navigation", { name: "App options" });
   const help = nav.getByTestId("help-menu");
   const settings = nav.getByTestId("settings-menu");
-  const gameMenu = nav.getByTestId("game-menu");
   const exit = nav.getByTestId("btn-exit");
   await expect(nav).toBeVisible();
   await expect(exit).toHaveAccessibleName("Exit to game selection");
 
-  // Help owns movement/input help, the map, read-only assistance and the
-  // walkthrough; the ordinary Game menu has no Look back or record toggle.
+  // The map is a top-bar button and read-only assistance the stage's Ask
+  // button; Help owns the guide, movement/input help and the walkthrough, with
+  // no Look back or record toggle.
+  await expect(nav.getByTestId("btn-world-map")).toBeVisible();
+  await expect(page.getByTestId("menu-assistant")).toBeVisible();
   await help.click();
   const helpItems = page.getByTestId("help-menu-menu");
   await expect(helpItems.getByTestId("btn-game-controls")).toBeVisible();
-  await expect(helpItems.getByTestId("btn-world-map")).toBeVisible();
-  await expect(helpItems.getByTestId("menu-assistant")).toBeVisible();
   await expect(helpItems.getByTestId("btn-look-back")).toBeHidden();
   await expect(helpItems.getByTestId("btn-record-test")).toBeHidden();
 
@@ -70,7 +70,9 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND ON");
   await expect(sound).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
+  // Escape closes the sheet back to its Settings button, as any popover does.
   await expect(settings).toBeFocused();
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("F2");
   await settings.click();
@@ -81,28 +83,44 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(page.getByTestId("resume-caption")).toBeVisible();
   await settings.click();
   await expect(soundValue).toHaveText("Off");
-  await expect(page.getByTestId("btn-start-over")).toBeHidden();
-  await page.keyboard.press("Escape");
 
-  // The Game menu is creator/export actions plus Start over — no history or
-  // recording entries.
-  await gameMenu.click();
-  const gameItems = page.getByTestId("game-menu-menu");
+  // The sheet's game section is the creator/export actions plus Start over —
+  // no history or recording entries.
+  const gameItems = page
+    .getByTestId("settings-menu-menu")
+    .getByRole("region", { name: "This game", exact: true });
   await expect(gameItems.getByTestId("btn-edit-game")).toBeVisible();
   await expect(gameItems.getByTestId("btn-download-game")).toBeVisible();
   await expect(gameItems.getByTestId("btn-export-game")).toBeVisible();
   await expect(gameItems.getByTestId("btn-start-over")).toBeVisible();
-  await expect(gameItems.getByTestId("btn-look-back")).toBeHidden();
-  await expect(gameItems.getByTestId("btn-record-test")).toBeHidden();
-  await expect(gameItems.getByRole("menuitem")).toHaveCount(4);
+  await expect(page.getByTestId("btn-look-back")).toBeHidden();
+  await expect(page.getByTestId("btn-record-test")).toBeHidden();
+  await expect(gameItems.getByRole("button")).toHaveCount(4);
   await page.keyboard.press("Escape");
   await expect(settings).toHaveAttribute("aria-expanded", "false");
+
+  // Tab past the sheet's last item leaves it, and the sheet closes behind the
+  // focus; nothing is left open for a later Escape to miss.
+  const sheet = page.getByTestId("settings-menu-menu");
+  await settings.click();
+  await sheet.getByTestId("settings-advanced").focus();
+  await page.keyboard.press("Tab");
+  await expect(sheet).toBeHidden();
+  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  // Escape closes it from anywhere while it is open, and returns focus to the
+  // Settings button — here with focus dropped to the page body.
+  await settings.click();
+  await expect(sheet).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(settings).toBeFocused();
   await page.screenshot({ path: test.info().outputPath("navigation-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const [trigger, popup] of [
-    [help, page.getByTestId("help-menu-menu")],
-    [settings, page.getByTestId("settings-menu-menu")],
-    [gameMenu, page.getByTestId("game-menu-menu")],
+  // A menu and the sheet return focus to their trigger.
+  for (const [trigger, popup, focus] of [
+    [help, page.getByTestId("help-menu-menu"), help],
+    [settings, page.getByTestId("settings-menu-menu"), settings],
   ]) {
     await trigger!.click();
     await expect(popup!).toBeInViewport();
@@ -110,7 +128,7 @@ test("top navigation groups controls and follows game sound through shortcuts, a
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(390);
     await page.keyboard.press("Escape");
-    await expect(trigger!).toBeFocused();
+    await expect(focus!).toBeFocused();
   }
   await help.click();
   await page.getByTestId("help-menu-menu").getByTestId("btn-game-controls").click();
@@ -122,8 +140,8 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(page.getByTestId("game-controls")).toBeHidden();
   await settings.click();
   await page.screenshot({ path: test.info().outputPath("navigation-mobile.png") });
-  // An outside click closes the menu. On a phone in play the brand heading is
-  // visually hidden, so the hint under the game is the neutral target.
+  // An outside click closes the sheet. The key hint in the strip under the
+  // game is a neutral target.
   await page.locator("#game-input-help").click();
   await expect(settings).toHaveAttribute("aria-expanded", "false");
 });

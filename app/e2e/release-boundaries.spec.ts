@@ -21,8 +21,9 @@ test("malformed play hashes recover to the picker without a startup exception", 
   await isolateStorage(page);
   await page.goto("/#play/%");
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeVisible();
+  // The picker clears the hash once startup finishes discovering games.
+  await expect.poll(() => new URL(page.url()).hash).toBe("");
   expect(errors).toEqual([]);
-  expect(new URL(page.url()).hash).toBe("");
 });
 
 for (const failure of ["unsafe", "timeout", "storage"] as const) {
@@ -96,7 +97,7 @@ for (const failure of ["unsafe", "timeout", "storage"] as const) {
     let downloads = 0;
     page.on("download", () => downloads++);
     const download = page.waitForEvent("download");
-    await openGameOptions(page, "game-menu");
+    await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-download-game").click();
     await expect(page.getByTestId("export-refusal")).toContainText(
       "Backup downloaded with limitations",

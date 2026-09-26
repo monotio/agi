@@ -8,6 +8,7 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
@@ -62,6 +63,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).not.toBeNull();
 
   // Author a change to trigger a remix fork
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Rename the gallery");
@@ -72,8 +74,9 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await page.screenshot({ path: test.info().outputPath("remix-after.png") });
   const remixProjectId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
   expect(remixProjectId).not.toBe(TUTORIAL_PROJECT_ID);
+  // The remix was made in Create mode, which the URL names with the project.
   expect(new URL(page.url()).hash, "the URL must follow the remix project ID").toBe(
-    `#play/${remixProjectId}`,
+    `#create/${remixProjectId}`,
   );
   // Progress now belongs to the remix: the original card must not offer a checkpoint.
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).toBeNull();
@@ -81,12 +84,12 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await page.getByTestId("btn-exit").click();
   await expect.poll(() => new URL(page.url()).hash).toBe("");
   const tutorialCard = savedGameCard(page, "Adventure Department");
-  await expect(tutorialCard.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(tutorialCard.getByRole("button", { name: "Play now", exact: true })).toBeVisible();
   await expect(tutorialCard.getByRole("button", { name: "Resume", exact: true })).toHaveCount(0);
   const remixCard = savedGameCard(page, "Adventure Department Remix");
   await expect(remixCard.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
 
-  await tutorialCard.getByRole("button", { name: "Play", exact: true }).click();
+  await tutorialCard.getByRole("button", { name: "Play now", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
   expect(new URL(page.url()).hash, "the replayed tutorial must be named in the URL").toBe(

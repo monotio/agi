@@ -208,7 +208,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .touch-controls {
   width: min(100%, 360px);
-  color: #c6d6df;
+  color: var(--ink-2);
 }
 .touch-main {
   display: flex;
@@ -225,31 +225,31 @@ select,
 summary {
   font: inherit;
   color: inherit;
-  border: 1px solid #41576a;
-  border-radius: 6px;
-  background: #111d2b;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
 }
 button {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--control-h-touch);
+  min-height: var(--control-h-touch);
   padding: 6px;
   cursor: pointer;
   touch-action: manipulation;
 }
 .direction-pad button {
-  font-size: 23px;
+  font-size: var(--text-xl);
   touch-action: none;
   user-select: none;
   -webkit-touch-callout: none;
 }
 .direction-pad .keyboard-key {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 button:active,
 button.pressed {
-  background: #284758;
-  border-color: #55ffff;
+  background: var(--action-soft);
+  border-color: var(--action);
 }
 button:disabled {
   opacity: 0.4;
@@ -261,7 +261,7 @@ button:disabled {
   min-width: 88px;
 }
 .movement-help {
-  font-size: 12px;
+  font-size: var(--text-xs);
   margin: 8px 0;
   text-align: center;
 }
@@ -283,29 +283,31 @@ summary {
   margin-top: 12px;
 }
 select {
-  min-height: 44px;
+  min-height: var(--control-h-touch);
   padding: 6px;
 }
 .extra-keys[open] {
   max-height: 45vh;
   overflow: auto;
 }
-/* The stable layout's orientation (App.vue), which a keyboard cannot flip. */
-:global(.layout-landscape-short) .direction-pad {
-  grid-template-columns: repeat(3, 44px);
+/* The stable layout's orientation (App.vue), which a keyboard cannot flip.
+   A plain ancestor selector: scoped CSS scopes only the last compound, and a
+   `:global(.x) .y` would compile to the bare `.x`, styling the app container. */
+.layout-landscape-short .direction-pad {
+  grid-template-columns: repeat(3, var(--control-h-touch));
   gap: 3px;
 }
-:global(.layout-landscape-short) .touch-main {
+.layout-landscape-short .touch-main {
   gap: 8px;
 }
-:global(.layout-landscape-short) .action-keys {
+.layout-landscape-short .action-keys {
   min-width: 64px;
   gap: 3px;
 }
-:global(.layout-landscape-short) .touch-controls {
+.layout-landscape-short .touch-controls {
   width: 220px;
 }
-:global(.layout-landscape-short) .movement-help {
-  font-size: 11px;
+.layout-landscape-short .movement-help {
+  font-size: var(--text-2xs);
 }
 </style>

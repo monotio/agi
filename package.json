@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.0.0",
+  "version": "1.1.0-rc.1",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "type": "module",
   "license": "MIT",
@@ -27,7 +27,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p evals/tsconfig.json --noEmit",
     "typecheck:app": "npm --prefix app run typecheck",
     "check:dependencies": "npm ls --depth=0 && npm --prefix app ls --depth=0",
-    "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast format:check test test:app eval:replay",
+    "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast lint:tokens format:check test test:app eval:replay",
     "eval:genesis": "node --experimental-strip-types scripts/eval-genesis.ts",
     "eval:picture": "node --experimental-strip-types scripts/eval-picture.ts",
     "eval:remix": "node --experimental-strip-types evals/remix-benchmark.ts",
@@ -39,6 +39,7 @@
     "eval": "npm --prefix evals run eval --",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
+    "lint:tokens": "node scripts/check-design-tokens.mjs",
     "lint:ast": "node scripts/check-ast-grep-suppressions.mjs && ast-grep scan -c .ast-grep/sgconfig.yml --error && ast-grep test -c .ast-grep/sgconfig.yml",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

@@ -1,27 +1,39 @@
 <script setup lang="ts">
 /**
- * The top chrome: title block, the game-nav menus (Help, Settings, Game,
- * Exit), the export/eject refusal banners, the test-recording bar
- * and its save dialog. The default slot sits where the walkthrough bar
- * renders. The engine API is injected, never passed as a prop.
+ * The top chrome. At the menu screen: the brand, Help, GitHub and Settings.
+ * While a game runs: the PlayBar, then the notices that belong above the
+ * stage (export and eject refusals, history retries, the test-recording bar,
+ * the walkthrough bar passed in the default slot). It also owns the dialogs
+ * those controls open: the settings sheet, the Help guide, Game controls and
+ * the recorded-test save dialog. The engine API is injected, never passed.
  */
-import ActionMenu from "./ActionMenu.vue";
 import HelpGuide from "./HelpGuide.vue";
+import PlayBar from "./shell/PlayBar.vue";
+import SettingsSheet from "./shell/SettingsSheet.vue";
+import UiButton from "./ui/UiButton.vue";
 import type { HelpAction } from "./helpContent.ts";
 import { computed, ref, useTemplateRef } from "vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
+import { useShell } from "./shell/useShell.ts";
+import { useCreateWorkspace } from "./shell/useCreateWorkspace.ts";
 import { gameShortcuts } from "./gameControls.ts";
-import { hasWalkthrough } from "./walkthrough.ts";
-import { nextAudioMode, soundChipLabel, soundFamily } from "./audio/useAudioController.ts";
 import {
   suggestAssertions,
   type AssertionSuggestion,
   type RecordingSnapshot,
 } from "./gameRecording.ts";
 
-defineProps<{
+const {
+  touchControls,
+  crtEnabled,
+  originalAspect,
+  gpuBackend,
+  debugOpen,
+  exportBusy,
+  exportRefusal,
+} = defineProps<{
   touchControls: boolean;
   crtEnabled: boolean;
   originalAspect: boolean;
@@ -45,9 +57,6 @@ const emit = defineEmits<{
 const {
   state,
   resumeAudio,
-  toggleMute,
-  setAudioMode,
-  currentGame,
   ejectGame,
   startTestRecording,
   stopTestRecording,
@@ -56,11 +65,19 @@ const {
   roomMap,
   retryHistorySave,
 } = useEngineApi();
-const { aiModelLabel, aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
+const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
+const shell = useShell();
+const workspace = useCreateWorkspace();
 
 const controlsDialog = useTemplateRef("controlsDialog");
 const helpGuide = useTemplateRef("helpGuide");
+const settingsSheet = useTemplateRef("settingsSheet");
+const settingsOpen = computed(() => settingsSheet.value?.open ?? false);
+
+function toggleSettings(trigger: HTMLElement): void {
+  settingsSheet.value?.toggle(trigger);
+}
 
 /** The Help guide's "Show me" actions this screen can perform right now. */
 const helpActions = computed<HelpAction[]>(() => {
@@ -69,7 +86,8 @@ const helpActions = computed<HelpAction[]>(() => {
       ? ["create", "add-game"]
       : ["ai-settings", "create", "add-game"];
   const actions: HelpAction[] = ["controls", "map"];
-  if (!state.powerUp.busy && !state.historyView.active) actions.push("hint", "remix");
+  if (!state.powerUp.busy && !state.historyView.active) actions.push("hint");
+  if (!state.powerUp.busy && shell.createAvailable.value) actions.push("remix");
   if (!aiSettingsUnavailable.value) actions.push("ai-settings");
   return actions;
 });
@@ -80,13 +98,14 @@ function onHelpAction(kind: HelpAction): void {
       controlsDialog.value?.showModal();
       return;
     case "map":
-      roomMap.openMap({ experience: "play" });
+      if (shell.mode.value === "create") workspace.showPanel("world");
+      else roomMap.openMap({ experience: "play" });
       return;
     case "hint":
-      onPowerUp("ask");
+      if (!state.powerUp.open) bridge.togglePowerUp("ask");
       return;
     case "remix":
-      onPowerUp("remix");
+      shell.openRemix();
       return;
     case "ai-settings":
       openAiSettings(null, "header");
@@ -103,15 +122,24 @@ function onHelpAction(kind: HelpAction): void {
   }
 }
 
-function closeNavMenus(restoreFocus = false): void {
-  void restoreFocus;
+function closeNavMenus(): void {
   if (controlsDialog.value?.open) controlsDialog.value.close();
+  settingsSheet.value?.close("stay");
 }
 bridge.closeNavMenus = closeNavMenus;
 
+/**
+ * Game controls closes back into the game: its keyboard, not the Help menu
+ * item that opened it. The close event arrives a task later, so focus the
+ * player already moved elsewhere stays where it is.
+ */
+function onControlsClosed(): void {
+  const active = document.activeElement;
+  if (state.phase === "running" && (active === null || active === document.body))
+    bridge.focusGameInput();
+}
+
 const shortcuts = computed(() => gameShortcuts(state.controls));
-/** Amiga and IIgs editions fix their sound hardware; only PC editions cycle chips. */
-const chipFamily = computed(() => soundFamily(state.profile));
 const shortcutsBlocked = computed(
   () => state.paused || state.modal !== null || state.prompt !== null || state.textMode,
 );
@@ -121,26 +149,18 @@ function triggerKey(code: number): void {
   emit("trigger-key", code);
 }
 
-/** The power-up toggle lives in AgentBubble; the shell bridge routes to it. */
-function onPowerUp(mode?: "ask" | "remix"): void {
-  bridge.togglePowerUp(mode);
-}
-
-function onStartOver(): void {
-  emit("start-over");
-}
-
 function onStartWalkthrough(targetGame: string): void {
   emit("start-walkthrough", targetGame);
 }
 
 /** Live exports only; the shell owns the export path and the refusal banner. */
-function onExportAgiZip(_live: boolean, project = false): void {
+function onExportAgiZip(project: boolean): void {
   emit("export-zip", project);
 }
 
 async function onEjectGame(abandonUnsaved = false): Promise<void> {
   ejectRefusal.value = "";
+  closeNavMenus();
   try {
     await ejectGame(abandonUnsaved ? { abandonUnsaved: true } : undefined);
     ejectRefusal.value = "";
@@ -149,9 +169,6 @@ async function onEjectGame(abandonUnsaved = false): Promise<void> {
   }
 }
 const ejectRefusal = ref<string>("");
-
-/** Settings' Advanced disclosure: sound-chip and diagnostics live under it. */
-const settingsAdvanced = ref(false);
 
 /** Game-test recording: the worker captures; this dialog names and saves. */
 const recordDialog = useTemplateRef("recordDialog");
@@ -217,82 +234,31 @@ async function onRecordSave(): Promise<void> {
 }
 </script>
 <template>
-  <header class="header" :class="{ playing: state.phase === 'running' }">
-    <div class="header-brand">
-      <a
-        v-if="state.phase === 'idle' || state.phase === 'error'"
-        class="publisher"
-        href="https://monotio.com"
-        >MONOTIO <span>/ AGI</span></a
-      >
-      <h1 v-else>AGI IS HERE</h1>
-      <span v-if="state.phase === 'running'" class="tagline">Play. Create. Remix.</span>
-    </div>
+  <header v-if="state.phase !== 'running'" class="header">
+    <a
+      v-if="state.phase === 'idle' || state.phase === 'error'"
+      class="publisher"
+      href="https://monotio.com"
+      >MONOTIO <span>/ AGI</span></a
+    >
+    <span v-else class="publisher">MONOTIO <span>/ AGI</span></span>
     <nav
-      v-if="['idle', 'error', 'running'].includes(state.phase)"
+      v-if="state.phase === 'idle' || state.phase === 'error'"
       class="game-nav"
       aria-label="App options"
     >
-      <button
-        v-if="state.phase !== 'running'"
-        type="button"
-        class="ui-button ui-button--secondary"
+      <UiButton
+        variant="ghost"
+        size="sm"
+        icon="help"
+        aria-label="Help"
         data-testid="btn-help"
         @click="helpGuide?.open()"
       >
         Help
-      </button>
-      <ActionMenu v-if="state.phase === 'running'" label="Help" test-id="help-menu">
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-help-guide"
-          @click="helpGuide?.open()"
-        >
-          <span>Help guide<small>Playing, creating and your games</small></span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-game-controls"
-          @click="controlsDialog?.showModal()"
-        >
-          <span>Game controls<small>Movement, input and this game's keys</small></span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-world-map"
-          @click="roomMap.openMap({ experience: 'play' })"
-        >
-          <span>Map<small>Rooms you have walked</small></span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="menu-assistant"
-          :disabled="state.powerUp.busy || state.historyView.active"
-          @click="onPowerUp('ask')"
-        >
-          <span>Ask for a hint…<small>Answers without changing the game</small></span>
-        </button>
-        <button
-          v-if="hasWalkthrough(currentGame()?.revision ?? '') && !state.walkthrough.active"
-          type="button"
-          role="menuitem"
-          data-testid="btn-run-walkthrough"
-          @click="onStartWalkthrough(currentGame()!.alias!)"
-        >
-          <span
-            >Watch walkthrough<small
-              >A recorded playthrough — it shows puzzle solutions</small
-            ></span
-          >
-        </button>
-      </ActionMenu>
+      </UiButton>
       <a
-        v-if="state.phase === 'idle' || state.phase === 'error'"
-        class="ui-button ui-button--secondary repo-link"
+        class="repo-link"
         href="https://github.com/monotio/agi"
         target="_blank"
         rel="noopener"
@@ -307,275 +273,134 @@ async function onRecordSave(): Promise<void> {
         </svg>
         <span>GitHub</span>
       </a>
-      <ActionMenu label="Settings" test-id="settings-menu">
-        <button
-          role="menuitemcheckbox"
-          data-testid="toggle-mute"
-          :aria-checked="!state.soundMuted"
-          @click="
-            resumeAudio();
-            toggleMute();
-          "
-        >
-          <span
-            >Sound<small
-              >{{ state.soundMuted ? "Off" : "On" }} — linked to the game’s sound setting</small
-            ></span
-          >
-          <span class="setting-value">{{ state.soundMuted ? "Off" : "On" }}</span>
-        </button>
-        <button
-          v-if="gpuBackend"
-          type="button"
-          role="menuitemcheckbox"
-          :aria-checked="crtEnabled"
-          data-testid="toggle-crt"
-          @click="$emit('update:crtEnabled', !crtEnabled)"
-        >
-          <span>Display<small>CRT scanlines, glow and curved glass</small></span>
-          <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          :aria-checked="originalAspect"
-          data-testid="toggle-original-aspect"
-          @click="$emit('update:originalAspect', !originalAspect)"
-        >
-          <span>Original 4:3<small>Taller pixels, as 1980s monitors showed them</small></span>
-          <span class="setting-value">{{ originalAspect ? "On" : "Off" }}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          :aria-checked="touchControls"
-          data-testid="toggle-touch-controls"
-          @click="$emit('update:touchControls', !touchControls)"
-        >
-          <span>On-screen controls<small>Directions, keyboard and game keys</small></span>
-          <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="open-ai-settings"
-          :disabled="aiSettingsUnavailable"
-          @click="openAiSettings($event, 'header')"
-        >
-          <span
-            >AI settings…<small>{{ aiModelLabel }}</small></span
-          >
-          <span class="setting-value">Change</span>
-        </button>
-        <div role="separator"></div>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="settings-advanced"
-          data-keep-open
-          :aria-expanded="settingsAdvanced"
-          @click="settingsAdvanced = !settingsAdvanced"
-        >
-          <span>Advanced…<small>Sound chip emulation and diagnostics</small></span>
-        </button>
-        <template v-if="settingsAdvanced">
-          <button
-            role="menuitem"
-            data-testid="toggle-sound-mode"
-            data-keep-open
-            :disabled="chipFamily !== 'pc'"
-            @click="
-              resumeAudio();
-              setAudioMode(nextAudioMode(state.soundMode));
-            "
-          >
-            <span
-              >Sound chip<small>{{ soundChipLabel(chipFamily, state.soundMode) }}</small></span
-            >
-            <span v-if="chipFamily === 'pc'" class="setting-value">Change</span>
-          </button>
-          <button
-            v-if="state.phase === 'running'"
-            type="button"
-            role="menuitemcheckbox"
-            :aria-checked="debugOpen"
-            data-testid="settings-inspect"
-            @click="$emit('update:debugOpen', !debugOpen)"
-          >
-            <span>Inspector<small>Priority layers, state and trace</small></span>
-            <span class="setting-value">{{ debugOpen ? "On" : "Off" }}</span>
-          </button>
-        </template>
-      </ActionMenu>
-      <ActionMenu v-if="state.phase === 'running'" label="Game" test-id="game-menu">
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-edit-game"
-          :disabled="state.powerUp.busy || state.historyView.active"
-          @click="onPowerUp('remix')"
-        >
-          <span>Edit game…<small>Rooms, art and playtests</small></span>
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-download-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="onExportAgiZip(true, true)"
-        >
-          <span
-            >Download game…<small
-              >For development: editing work, saved progress and history — a ZIP file</small
-            ></span
-          >
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          data-testid="btn-export-game"
-          :disabled="exportBusy || state.powerUp.busy"
-          @click="onExportAgiZip(true)"
-        >
-          <span v-if="currentGame()?.workInProgress"
-            >Export game…<small data-testid="export-work-in-progress"
-              >Work in progress: exits to rooms not built yet stop the game — a ZIP file</small
-            ></span
-          >
-          <span v-else
-            >Export game…<small
-              >For publishing: playable game without private editing work or play history — a ZIP
-              file</small
-            ></span
-          >
-        </button>
-        <div role="separator"></div>
-        <button type="button" role="menuitem" data-testid="btn-start-over" @click="onStartOver">
-          Start over
-        </button>
-      </ActionMenu>
-      <button
-        v-if="state.phase === 'running'"
-        class="ui-button ui-button--secondary audio-btn"
-        data-testid="btn-exit"
-        :disabled="state.powerUp.busy || state.leaving"
-        title="Exit to game selection"
-        aria-label="Exit to game selection"
-        @click="onEjectGame(false)"
+      <UiButton
+        variant="ghost"
+        size="sm"
+        icon="settings"
+        aria-label="Settings"
+        data-testid="settings-menu"
+        aria-haspopup="dialog"
+        :aria-expanded="settingsOpen"
+        @click="toggleSettings($event.currentTarget as HTMLElement)"
       >
-        {{ state.leaving ? "Saving…" : "Exit" }}
-      </button>
+        Settings
+      </UiButton>
     </nav>
   </header>
-  <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
-    <p>{{ exportRefusal }}</p>
-  </div>
-  <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
-    <p>{{ ejectRefusal }}</p>
-    <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap">
-      <button
-        type="button"
-        class="ui-button ui-button--primary"
-        data-testid="eject-retry"
-        :disabled="state.leaving"
-        @click="onEjectGame(false)"
-      >
-        Try again
-      </button>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="eject-download-project"
-        :disabled="exportBusy"
-        @click="onExportAgiZip(true, true)"
-      >
-        Download project
-      </button>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="eject-leave-anyway"
-        :disabled="state.leaving"
-        @click="onEjectGame(true)"
-      >
-        Leave anyway
-      </button>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="eject-dismiss"
-        @click="ejectRefusal = ''"
-      >
-        Back to game
-      </button>
+  <PlayBar
+    v-else
+    :settings-open="settingsOpen"
+    @exit="onEjectGame(false)"
+    @settings="toggleSettings"
+    @help-guide="helpGuide?.open()"
+    @controls="controlsDialog?.showModal()"
+    @trigger-key="triggerKey"
+    @start-walkthrough="onStartWalkthrough"
+  />
+  <div class="shell-notices">
+    <div v-if="exportRefusal" class="export-refusal" data-testid="export-refusal" role="alert">
+      <p>{{ exportRefusal }}</p>
     </div>
-  </div>
-  <div
-    v-if="state.historyUnsaved"
-    class="history-unsaved"
-    data-testid="history-unsaved"
-    role="status"
-  >
-    <p>Play keeps recording; saving is retrying in the background.</p>
-    <button
-      type="button"
-      class="ui-button ui-button--secondary"
-      data-testid="history-retry"
-      :title="`Not saved since ${new Date(state.historyUnsaved.since).toLocaleTimeString()}`"
-      @click="retryHistorySave()"
+    <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
+      <p>{{ ejectRefusal }}</p>
+      <div class="notice-actions">
+        <UiButton
+          variant="primary"
+          size="sm"
+          data-testid="eject-retry"
+          :disabled="state.leaving"
+          @click="onEjectGame(false)"
+        >
+          Try again
+        </UiButton>
+        <UiButton
+          size="sm"
+          data-testid="eject-download-project"
+          :disabled="exportBusy"
+          @click="onExportAgiZip(true)"
+        >
+          Download project
+        </UiButton>
+        <UiButton
+          size="sm"
+          data-testid="eject-leave-anyway"
+          :disabled="state.leaving"
+          @click="onEjectGame(true)"
+        >
+          Leave anyway
+        </UiButton>
+        <UiButton size="sm" data-testid="eject-dismiss" @click="ejectRefusal = ''">
+          Back to game
+        </UiButton>
+      </div>
+    </div>
+    <div
+      v-if="state.historyUnsaved"
+      class="history-unsaved"
+      data-testid="history-unsaved"
+      role="status"
     >
-      Try now
-    </button>
-  </div>
-  <div
-    v-if="state.recording.active"
-    class="recording-bar"
-    data-testid="recording-bar"
-    role="status"
-  >
-    <span class="recording-dot" aria-hidden="true"></span>
-    <span>Recording game test</span>
-    <button
-      type="button"
-      class="ui-button ui-button--primary"
-      data-testid="record-stop"
-      @click="onRecordStop"
+      <p>Play keeps recording; saving is retrying in the background.</p>
+      <UiButton
+        size="sm"
+        data-testid="history-retry"
+        :title="`Not saved since ${new Date(state.historyUnsaved.since).toLocaleTimeString()}`"
+        @click="retryHistorySave()"
+      >
+        Try now
+      </UiButton>
+    </div>
+    <div
+      v-if="state.recording.active"
+      class="recording-bar"
+      data-testid="recording-bar"
+      role="status"
     >
-      Stop and name
-    </button>
-    <button
-      type="button"
-      class="ui-button ui-button--secondary"
-      data-testid="record-cancel"
-      @click="cancelTestRecording"
-    >
-      Cancel
-    </button>
+      <span class="recording-dot" aria-hidden="true"></span>
+      <span>Recording game test</span>
+      <UiButton variant="primary" size="sm" data-testid="record-stop" @click="onRecordStop">
+        Stop and name
+      </UiButton>
+      <UiButton size="sm" data-testid="record-cancel" @click="cancelTestRecording">
+        Cancel
+      </UiButton>
+    </div>
+    <slot />
+    <p v-if="state.recording.error" class="export-refusal" data-testid="record-error" role="alert">
+      {{ state.recording.error }}
+    </p>
+    <p v-if="recordResult" class="record-result" data-testid="record-result" role="status">
+      {{ recordResult }}
+    </p>
   </div>
-  <slot />
-  <p v-if="state.recording.error" class="export-refusal" data-testid="record-error" role="alert">
-    {{ state.recording.error }}
-  </p>
-  <p v-if="recordResult" class="record-result" data-testid="record-result" role="status">
-    {{ recordResult }}
-  </p>
+  <SettingsSheet
+    ref="settingsSheet"
+    :touch-controls="touchControls"
+    :crt-enabled="crtEnabled"
+    :original-aspect="originalAspect"
+    :gpu-backend="gpuBackend"
+    :debug-open="debugOpen"
+    :export-busy="exportBusy"
+    @update:touch-controls="emit('update:touchControls', $event)"
+    @update:crt-enabled="emit('update:crtEnabled', $event)"
+    @update:original-aspect="emit('update:originalAspect', $event)"
+    @update:debug-open="emit('update:debugOpen', $event)"
+    @export-zip="onExportAgiZip"
+    @start-over="emit('start-over')"
+  />
   <HelpGuide ref="helpGuide" :available="helpActions" @action="onHelpAction" />
   <dialog
     ref="controlsDialog"
     class="controls-dialog"
     aria-labelledby="controls-dialog-title"
     data-testid="game-controls"
+    @close="onControlsClosed"
   >
     <header>
       <h2 id="controls-dialog-title">Game controls</h2>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="controls-close"
-        @click="controlsDialog?.close()"
-      >
+      <UiButton size="sm" data-testid="controls-close" @click="controlsDialog?.close()">
         Close
-      </button>
+      </UiButton>
     </header>
     <p class="controls-hint">
       Arrow keys move. Type a command and press Enter. Escape opens the game's own menu.
@@ -643,46 +468,137 @@ async function onRecordSave(): Promise<void> {
         {{ recordError }}
       </p>
       <footer>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
+        <UiButton
           data-testid="record-save-cancel"
           :disabled="recordSaving"
           @click="recordDialog?.close()"
         >
           Discard
-        </button>
-        <button
+        </UiButton>
+        <UiButton
           type="submit"
-          class="ui-button ui-button--primary"
+          variant="primary"
           data-testid="record-save"
           :disabled="recordSaving"
         >
           {{ recordSaving ? "Saving…" : "Save test" }}
-        </button>
+        </UiButton>
       </footer>
     </form>
   </dialog>
 </template>
 
 <style scoped>
+/* The Home nav: the wordmark left, quiet ghost actions right, full width. */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-self: stretch;
+  box-sizing: border-box;
+  min-height: 56px;
+  margin-bottom: var(--space-8);
+  padding: 0 var(--space-8);
+  border-bottom: 1px solid var(--hairline);
+}
+.game-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.publisher {
+  color: var(--ink);
+  font: var(--weight-bold) var(--text-md) / var(--leading) var(--font-mono);
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.publisher span {
+  color: var(--ink-3);
+}
+/* GitHub is a link, drawn as the ghost small button beside it. */
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-sm);
+  box-sizing: border-box;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  font: var(--weight-semibold) var(--text-sm) / var(--leading-tight) var(--font-sans);
+  text-decoration: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+.repo-link:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+.repo-link svg {
+  flex: none;
+}
+@media (pointer: coarse) {
+  .repo-link {
+    min-height: var(--control-h-touch);
+  }
+}
+@media (max-width: 600px) {
+  .header {
+    padding: 0 var(--space-4);
+    margin-bottom: var(--space-5);
+  }
+  .repo-link {
+    width: var(--control-h-touch);
+    justify-content: center;
+    padding: 0;
+  }
+  .repo-link span {
+    display: none;
+  }
+}
+/* The narrowest phones keep the wordmark and three icon buttons on one row. */
+@media (max-width: 420px) {
+  .game-nav :deep(.ui-btn__label) {
+    display: none;
+  }
+}
+
+/* Notices sit between the bar and the stage; the stage re-fits around them. */
+.shell-notices {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+.shell-notices:not(:empty) {
+  padding: var(--space-2) var(--space-4);
+}
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
 .recording-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 6px 0 0;
-  padding: 6px 10px;
-  border: 1px solid #7a2a2a;
-  border-radius: 8px;
-  background: #2a1515;
-  color: #ffd9d9;
-  font-size: 13px;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--danger-soft);
+  font-size: var(--text-sm);
 }
 .recording-dot {
   width: 10px;
   height: 10px;
-  border-radius: 50%;
-  background: #ff4444;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
   animation: recording-pulse 1.2s ease-in-out infinite;
 }
 @keyframes recording-pulse {
@@ -691,235 +607,119 @@ async function onRecordSave(): Promise<void> {
   }
 }
 .record-result {
-  color: #9fe6a0;
-  font-size: 12px;
-  margin: 6px 0 0;
+  margin: 0;
+  color: var(--ok);
+  font-size: var(--text-xs);
+}
+
+.record-dialog,
+.controls-dialog {
+  box-sizing: border-box;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-dialog);
+  font: var(--text-md) / var(--leading) var(--font-sans);
+}
+.record-dialog::backdrop,
+.controls-dialog::backdrop {
+  background: var(--scrim);
 }
 .record-dialog {
-  background: #101d22;
-  color: #e3ecee;
-  border: 1px solid #2a4048;
-  border-radius: 10px;
-  padding: 18px 20px;
   width: min(480px, 92vw);
+  padding: var(--space-5) var(--space-6);
 }
-.record-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
-}
-.record-dialog h2 {
-  margin: 0 0 10px;
-  font-size: 18px;
+.record-dialog h2,
+.controls-dialog h2 {
+  margin: 0 0 var(--space-3);
+  font: var(--weight-semibold) var(--text-lg) / var(--leading-tight) var(--font-sans);
 }
 .record-dialog input[id="record-name"] {
   display: block;
   width: 100%;
   box-sizing: border-box;
-  margin: 4px 0 12px;
-  padding: 6px 8px;
-  background: #0a1418;
+  margin: var(--space-1) 0 var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
   color: inherit;
-  border: 1px solid #2a4048;
-  border-radius: 6px;
+  background: var(--surface-0);
 }
 .record-assertions {
-  border: 1px solid #2a4048;
-  border-radius: 8px;
-  margin: 0 0 12px;
   max-height: 220px;
+  margin: 0 0 var(--space-4);
   overflow-y: auto;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
 }
 .record-assertion {
   display: block;
-  font-size: 13px;
-  margin: 4px 0;
+  margin: var(--space-1) 0;
+  font-size: var(--text-sm);
 }
 .dialog-error {
-  color: #ff9b9b;
-  font-size: 13px;
+  color: var(--danger);
+  font-size: var(--text-sm);
 }
 .record-dialog footer {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-}
-
-.header {
-  width: var(--shell-width);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.25rem;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.header-brand {
-  display: flex;
-  flex-direction: column;
-}
-.game-nav {
-  margin-left: auto;
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.settings-panel {
-  display: grid;
-  gap: 0.35rem;
-}
-.game-shortcut small {
-  display: block;
-  margin-top: 0.25rem;
-  color: #a7bec3;
-  font-size: 12px;
-  line-height: 1.4;
-}
-.setting-value {
-  flex: none;
-  margin-left: auto;
-  color: #88e5eb;
-  font-size: 12px;
-  white-space: nowrap;
-}
-@media (max-width: 600px) {
-  .game-nav {
-    width: 100%;
-    justify-content: space-between;
-    gap: 0.25rem;
-  }
-  .game-nav :deep(.ui-button) {
-    padding-inline: 6px;
-    gap: 4px;
-  }
-  .game-nav :deep(.ui-icon) {
-    width: 16px;
-    height: 16px;
-  }
-  .at-menu .game-nav {
-    width: auto;
-  }
-  .at-menu .repo-link {
-    width: 44px;
-    padding: 0;
-  }
-  .at-menu .repo-link span {
-    display: none;
-  }
-}
-
-h1 {
-  font-size: 1.4rem;
-  letter-spacing: 0.25em;
-  margin: 0;
-  color: #eee;
-}
-
-.tagline {
-  font-size: 12px;
-  color: #aaa;
-  letter-spacing: 0.02em;
-}
-
-.publisher {
-  color: #deeeee;
-  text-decoration: none;
-  font: 700 13px/1.5 monospace;
-  letter-spacing: 0.16em;
-}
-.publisher span {
-  color: #739193;
-}
-.repo-link svg {
-  flex: none;
+  gap: var(--space-3);
 }
 
 .controls-dialog {
-  background: #0b171d;
-  color: #e3ecee;
-  border: 1px solid #6bafb5;
-  border-radius: 10px;
-  box-shadow: 0 12px 36px #000a;
-  padding: 0.75rem 1rem;
   width: min(24rem, calc(100vw - 2rem));
   max-height: min(70vh, 32rem);
+  padding: var(--space-4) var(--space-5);
   overflow-y: auto;
-  box-sizing: border-box;
-}
-.controls-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.55);
 }
 .controls-dialog header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
+  gap: var(--space-5);
+  margin-bottom: var(--space-3);
 }
 .controls-dialog h2 {
   margin: 0;
-  font-size: 16px;
 }
 .controls-hint {
-  margin: 0.2rem 0.25rem 0.75rem;
-  font:
-    13px/1.5 system-ui,
-    sans-serif;
-  color: #a7bec3;
+  margin: var(--space-1) var(--space-1) var(--space-4);
+  color: var(--ink-2);
+  font: var(--text-sm) / var(--leading) var(--font-sans);
 }
 .shortcut-list {
   display: grid;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 .game-shortcut {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
-  min-height: 44px;
+  gap: var(--space-5);
   width: 100%;
-  padding: 0.65rem 0.75rem;
+  min-height: var(--control-h-touch);
+  padding: var(--space-3) var(--space-4);
   border: 1px solid transparent;
-  border-radius: 5px;
-  color: #e5f2f2;
-  background: #13242c;
-  cursor: pointer;
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-2);
+  font: var(--text-md) / var(--leading-tight) var(--font-sans);
   text-align: left;
-  font:
-    15px/1.3 system-ui,
-    sans-serif;
+  cursor: pointer;
 }
 .game-shortcut:hover:not(:disabled) {
-  background: #203a43;
-  border-color: #59939b;
+  border-color: var(--hairline-strong);
+  background: var(--surface-3);
 }
 .game-shortcut:disabled {
   opacity: 0.45;
   cursor: default;
 }
 .game-shortcut kbd {
-  color: #88e5eb;
-  font: 12px monospace;
+  color: var(--action);
+  font: var(--text-xs) var(--font-mono);
   white-space: nowrap;
-}
-@media (max-width: 600px) {
-  .header {
-    gap: 16px;
-  }
-  /* On a phone the game is the page: the menus stay, the brand steps aside
-     (still read out as the page heading). */
-  .header.playing {
-    margin-bottom: 0.75rem;
-  }
-  .header.playing .header-brand {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
 }
 </style>

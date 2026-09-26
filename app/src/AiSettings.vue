@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, useTemplateRef } from "vue";
+import UiButton from "./ui/UiButton.vue";
+import UiIconButton from "./ui/UiIconButton.vue";
 import { defaultModelEffort, modelEffortOptions } from "../../src/agent/modelEffort.ts";
 import { copyAiSettings, type AiSettings, type AiSettingsProvider } from "./aiSettings.ts";
 
@@ -54,15 +56,7 @@ defineExpose({ show, close });
     <form method="dialog" @submit.prevent="save">
       <header>
         <h2 id="ai-settings-title">AI settings</h2>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary ui-button--icon dialog-close"
-          aria-label="Cancel AI settings"
-          :disabled="saving"
-          @click="close"
-        >
-          ×
-        </button>
+        <UiIconButton icon="x" label="Cancel AI settings" :disabled="saving" @click="close" />
       </header>
       <label for="ai-provider">Provider</label>
       <select id="ai-provider" v-model="draft.provider" data-testid="provider-select">
@@ -141,23 +135,12 @@ defineExpose({ show, close });
       <p class="budget-note">Maximum estimated spend for each creation or remix.</p>
       <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
       <footer>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
-          data-testid="ai-settings-cancel"
-          :disabled="saving"
-          @click="close"
-        >
+        <UiButton data-testid="ai-settings-cancel" :disabled="saving" @click="close">
           Cancel
-        </button>
-        <button
-          type="submit"
-          class="ui-button ui-button--primary"
-          data-testid="ai-settings-save"
-          :disabled="saving"
-        >
+        </UiButton>
+        <UiButton type="submit" variant="primary" data-testid="ai-settings-save" :disabled="saving">
           {{ saving ? "Saving…" : "Save settings" }}
-        </button>
+        </UiButton>
       </footer>
     </form>
   </dialog>
@@ -167,15 +150,15 @@ defineExpose({ show, close });
 .ai-settings-dialog {
   width: min(520px, calc(100vw - 32px));
   padding: 0;
-  border: 1px solid #5e9b9e;
-  border-radius: 10px;
-  color: #e9f4f4;
-  background: #0b1416;
-  box-shadow: 0 24px 80px #000c;
-  font-family: system-ui, sans-serif;
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-dialog);
+  font-family: var(--font-sans);
 }
 .ai-settings-dialog::backdrop {
-  background: #000b;
+  background: var(--scrim);
 }
 form {
   display: grid;
@@ -197,45 +180,40 @@ h2,
   margin: 0;
 }
 h2 {
-  color: #fff;
-  font-size: 24px;
+  color: var(--ink);
+  font-size: var(--text-xl);
 }
 .privacy-note,
 .budget-note {
-  color: #9db0b2;
+  color: var(--ink-2);
   line-height: 1.5;
 }
 label {
   margin-top: 8px;
-  color: #c7d9da;
-  font-size: 13px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 select,
 input {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--control-h-touch);
   box-sizing: border-box;
   padding: 9px 11px;
-  border: 1px solid #496568;
-  border-radius: 4px;
-  color: #fff;
-  background: #030809;
-  font:
-    14px/1.4 system-ui,
-    sans-serif;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--surface-sunken);
+  font: var(--text-md) / 1.4 var(--font-sans);
 }
 a {
-  color: #88e8ea;
-  font-size: 12px;
+  color: var(--action);
+  font-size: var(--text-xs);
 }
 select {
-  height: 44px;
-}
-.dialog-close {
-  font-size: 25px;
+  height: var(--control-h-touch);
 }
 .dialog-error {
-  color: #ffaaa4;
+  color: var(--danger);
 }
 footer {
   justify-content: flex-end;

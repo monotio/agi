@@ -16,6 +16,7 @@ import {
   compilePictureSource,
   PictureSourceSyntaxError,
   readPictureSource,
+  sourceCompilesTo,
 } from "../picture/source.ts";
 import { computePictureMetrics, DEFAULT_HORIZON } from "../picture/metrics.ts";
 import {
@@ -1639,15 +1640,7 @@ export function authoredPictureSource(session: AgentSessionState, num: number): 
   const authored = session.sources.pictures.get(num);
   const payload = session.container.getResource("picture", num);
   if (authored === undefined || !payload) return undefined;
-  try {
-    const compiled = compilePictureSource(authored, { profile: session.profile }).bytes;
-    if (compiled.length !== payload.length) return undefined;
-    for (let index = 0; index < compiled.length; index++)
-      if (compiled[index] !== payload[index]) return undefined;
-    return authored;
-  } catch {
-    return undefined;
-  }
+  return sourceCompilesTo(authored, payload, session.profile) ? authored : undefined;
 }
 
 /**

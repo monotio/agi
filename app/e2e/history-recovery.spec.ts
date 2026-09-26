@@ -31,7 +31,7 @@ async function boot(page: Page): Promise<void> {
 
 async function download(page: Page) {
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
   const path = (await (await pending).path())!;
   const bytes = new Uint8Array(await readFile(path));
@@ -136,7 +136,7 @@ test("Exit keeps the game playable after history failure and succeeds after stor
       return key === undefined ? put.call(this, value) : put.call(this, value, key);
     };
   });
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("eject-refusal")).toContainText("Session history is not saved", {
     timeout: 15_000,
@@ -147,9 +147,12 @@ test("Exit keeps the game playable after history failure and succeeds after stor
   await page.evaluate(() => {
     (window as unknown as { refuseHistory: boolean }).refuseHistory = false;
   });
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-exit").click();
-  await expect(page.getByTestId("btn-resume-cached")).toBeVisible({ timeout: 15_000 });
+  // Back on the shelf, the tutorial's card offers the checkpoint.
+  await expect(page.getByTestId("catalog-play-adventure-department")).toHaveText("Resume", {
+    timeout: 15_000,
+  });
 });
 
 test("unreadable saved slots are reported even when current checkpoint and history are available", async ({

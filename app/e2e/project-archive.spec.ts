@@ -5,7 +5,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
 import { readGameZip } from "../src/gameZip.ts";
-import { configureAi, isolateStorage, openGameOptions } from "./engineProbe.ts";
+import { configureAi, isolateStorage, openGameOptions, enterCreateMode } from "./engineProbe.ts";
 
 test("Download project resumes private history in a fresh browser; Download game has only playable resources", async ({
   page,
@@ -54,12 +54,12 @@ test("Download project resumes private history in a fresh browser; Download game
     buffer: Buffer.from(archive),
   });
   await page.getByTestId("btn-resume-cached").click();
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await expect(page.getByTestId("btn-download-game")).toBeVisible();
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await expect(page.getByTestId("btn-download-game")).toBeEnabled();
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
   // This authoring-only fixture has no drawn room or resumable player state.
   await expect(page.getByTestId("export-refusal")).toContainText(
@@ -72,7 +72,7 @@ test("Download project resumes private history in a fresh browser; Download game
   expect(data.files["OBJECT"]).toEqual(Uint8Array.of(65, 118, 150));
   expect(data.project?.authoringState).toEqual(context.authoringState);
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-export-game").click();
   const published = await publicDownload;
   const publicBytes = new Uint8Array(await readFile((await published.path())!));
@@ -91,7 +91,7 @@ test("Download project resumes private history in a fresh browser; Download game
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles((await saved.path())!);
     await other.getByTestId("btn-resume-cached").click();
-    await openGameOptions(other, "game-menu");
+    await openGameOptions(other, "settings-menu");
     await expect(other.getByTestId("btn-download-game")).toBeVisible();
     await other.reload();
     await expect(other.getByTestId("btn-resume-cached")).toBeVisible();
@@ -132,6 +132,7 @@ test("Download project resumes private history in a fresh browser; Download game
         }),
       );
     });
+    await enterCreateMode(other);
     await other.getByTestId("power-up").click();
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
     await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
@@ -144,7 +145,7 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(JSON.stringify(requests[0])).toContain("Continue our garden.");
     expect(requests[0]?.["model"]).toBe("gpt-6-astra");
     const continuationDownload = other.waitForEvent("download");
-    await openGameOptions(other, "game-menu");
+    await openGameOptions(other, "settings-menu");
     await other.getByTestId("btn-download-game").click();
     await expect(other.getByTestId("export-refusal")).toContainText(
       "Current progress could not be captured",

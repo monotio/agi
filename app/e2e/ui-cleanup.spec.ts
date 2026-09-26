@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage, openCreateAdventure, openAiSettings } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openCreateAdventure,
+  openAiSettings,
+  enterCreateMode,
+} from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
@@ -7,15 +12,21 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the start page uses concise tutorial copy and readable primary actions", async ({ page }) => {
-  await expect(page.getByText("Play. Create. Remix.")).toBeVisible();
-  await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Play the tutorial" })).toBeVisible();
   await expect(
-    page.getByText("Learn pictures, sprites and priority in a three-room tutorial."),
+    page.getByText("Play Sierra-style adventures, build your own with AI", { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Play the tutorial" })).toBeVisible();
+  await expect(
+    page
+      // First visit: the Continue card introduces the tutorial; shelf cards keep one meta line.
+      .getByTestId("home-continue")
+      .getByText("Learn pictures, sprites and priority in a three-room tutorial."),
   ).toBeVisible();
 
-  await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
+  await expect(page.getByTestId("create-adventure-disclosure")).not.toHaveAttribute("open");
   await openCreateAdventure(page);
+  await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
   await page.getByTestId("template-custom").click();
   await page.getByTestId("custom-adventure-input").fill("A concise test adventure.");
   await openAiSettings(page);
@@ -47,11 +58,13 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     expect(type.family).toContain("system-ui");
     expect(type.size).toBeGreaterThanOrEqual(14);
     expect(type.weight).toBeGreaterThanOrEqual(700);
-    expect(type.height).toBeGreaterThanOrEqual(44);
+    // --control-h (40px) on fine pointers; UiButton grows to 44px under pointer: coarse.
+    expect(type.height).toBeGreaterThanOrEqual(40);
   }
 
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeEnabled();
   await page.getByTestId("catalog-play-adventure-department").click();
+  await enterCreateMode(page);
   await expect(page.getByTestId("power-up")).toBeVisible();
   await page.getByTestId("power-up").click();
   await page.getByTestId("connect-assistant-ai").click();

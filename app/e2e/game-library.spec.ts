@@ -9,12 +9,12 @@ import { buildZip } from "../src/zip.ts";
 import {
   configureAi,
   isolateStorage,
-  openSavedGameDetails,
   openLibraryActions,
   savedGameCard,
   storedAutosave,
   textHook,
   waitForCycles,
+  enterCreateMode,
 } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
@@ -106,7 +106,6 @@ test("a selected folder is checked, deduplicated with its ZIP, and can be copied
       buffer: zip,
     });
     await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
-    await openSavedGameDetails(original);
     await openLibraryActions(page, original);
     await page.getByTestId("copy-library-game").click();
     await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(2);
@@ -298,6 +297,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
       }),
     );
   });
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("agent-bubble-input").fill("Rename the picture gallery");

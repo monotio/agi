@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiButton from "./ui/UiButton.vue";
 import type { WalkthroughUiState } from "./useWalkthroughController.ts";
 
 defineProps<{ walkthrough: WalkthroughUiState }>();
@@ -32,15 +33,15 @@ const emit = defineEmits<{ takeControl: [] }>();
       Completed!
     </span>
     <div class="walkthrough-actions">
-      <button
-        type="button"
-        class="ui-button ui-button--primary walkthrough-btn"
+      <UiButton
+        variant="primary"
+        class="walkthrough-btn"
         data-testid="btn-walkthrough-take-control"
         title="Take control of the game right here"
         @click="emit('takeControl')"
       >
         Take control
-      </button>
+      </UiButton>
     </div>
   </div>
   <p v-if="walkthrough.error" class="export-refusal" data-testid="walkthrough-error" role="alert">
@@ -58,27 +59,27 @@ const emit = defineEmits<{ takeControl: [] }>();
   box-sizing: border-box;
   margin: 6px 0 0;
   padding: 6px 12px;
-  border: 1px solid #1a5259;
-  border-radius: 8px;
-  background: #0f2428;
-  color: #c9eff2;
-  font-size: 13px;
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius-lg);
+  background: var(--action-soft);
+  color: var(--ink);
+  font-size: var(--text-sm);
 }
 .walkthrough-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-weight: 600;
-  color: #5ce1e6;
+  color: var(--action);
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.05em;
 }
 .walkthrough-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #5ce1e6;
+  background: var(--action);
   animation: walkthrough-pulse 1.5s ease-in-out infinite;
 }
 @keyframes walkthrough-pulse {
@@ -93,16 +94,16 @@ const emit = defineEmits<{ takeControl: [] }>();
   }
 }
 .walkthrough-label {
-  color: #ffffff;
+  color: var(--ink);
   font-weight: 500;
 }
 .walkthrough-score {
-  color: #9fe6a0;
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  color: var(--ok);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 .walkthrough-completed-badge {
-  color: #ffd700;
+  color: var(--warn);
   font-weight: 600;
 }
 .walkthrough-actions {
@@ -111,8 +112,8 @@ const emit = defineEmits<{ takeControl: [] }>();
   margin-left: auto;
 }
 .walkthrough-room {
-  color: #8da4ac;
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 </style>

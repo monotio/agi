@@ -87,7 +87,7 @@ test("project import names each stored and refused progress entry", async ({ pag
     mimeType: "application/zip",
     buffer: Buffer.from(archive),
   });
-  const notice = page.locator(".import-notice");
+  const notice = page.getByTestId("game-import-ready");
   await expect(notice).toContainText("save slot 1 stored");
   await expect(notice).toContainText("save slot 7 could not be stored");
   await expect(notice).toContainText("autosave could not be stored");
@@ -135,7 +135,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
   const saved = await projectDownload;
   const savedPath = (await saved.path())!;
@@ -146,7 +146,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The game export is for publishing: no progress in it.
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-export-game").click();
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));

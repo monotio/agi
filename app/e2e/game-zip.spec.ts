@@ -12,9 +12,9 @@ import {
   openDeveloperActivity,
   openGameOptions,
   openLibraryActions,
-  openSavedGameDetails,
   savedGameCard,
   textHook,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 test("a friend opens an exported world in a fresh browser without a key", async ({
@@ -39,7 +39,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("generated room 2");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-export-game").click();
   const zip = await downloading;
   const context = await browser.newContext();
@@ -160,6 +160,7 @@ test("a friend opens an exported world in a fresh browser without a key", async 
         }),
       );
     });
+    await enterCreateMode(friend);
     await friend.getByTestId("power-up").click();
     await expect(friend.getByTestId("connect-assistant-ai")).toBeVisible();
     await friend.screenshot({ path: "test-results/power-up-connect.png" });
@@ -234,6 +235,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
       }),
     );
   });
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
@@ -243,7 +245,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A remixed v3 adventure.");
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-export-game").click();
   const download = await downloading;
   const downloaded = await readFile((await download.path())!);
@@ -313,14 +315,15 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
     return { key, data: JSON.parse(localStorage.getItem(key)!) };
   });
   const card = savedGameCard(page, "Custom Adventure");
-  await openSavedGameDetails(card);
-  await card.getByTestId("rename-game").click();
+  await openLibraryActions(page, card);
+  await page.getByTestId("rename-game").click();
   const name = card.getByRole("textbox", { name: "Game name", exact: true });
   await expect(name).toBeFocused();
   await name.fill("Discard this name");
   await card.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(card.getByTestId("saved-game-title")).toHaveText(before.data.title);
-  await card.getByTestId("rename-game").click();
+  await openLibraryActions(page, card);
+  await page.getByTestId("rename-game").click();
   await name.fill("   ");
   await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
   await name.fill("  The Midnight Appointment  ");
@@ -338,7 +341,6 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   });
   await page.reload();
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
-  await openSavedGameDetails(renamedCard);
   const downloading = page.waitForEvent("download");
   await openLibraryActions(page, renamedCard);
   await page.getByTestId("export-library-game").click();

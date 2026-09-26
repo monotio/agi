@@ -1,4 +1,4 @@
-import { openGameOptions } from "./engineProbe.ts";
+import { openGameOptions, enterCreateMode } from "./engineProbe.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
 import { readGameZip } from "../src/gameZip.ts";
@@ -12,7 +12,6 @@ import {
   isolateStorage,
   openCreateAdventure,
   openGameControls,
-  openSavedGameDetails,
   openLibraryActions,
   observe,
   probe,
@@ -444,7 +443,7 @@ test("Start over discards the autosave and boots the game from the top", async (
   await expect(page.getByTestId("resume-caption")).toBeVisible({ timeout: 20_000 });
 
   // Start over throws the snapshot away and boots KQ1 from its title screen.
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("resume-caption")).toBeHidden();
@@ -485,7 +484,7 @@ test("typing after Start over while the input is unfocused does not double the f
   await bootKq1(page);
   await advanceToCourtyard(page);
 
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-start-over").click();
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await advanceToCourtyard(page);
@@ -642,6 +641,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
 
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -706,16 +706,17 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   await advanceToCourtyard(page);
 
   // Patch a real local game through the UI, then verify the downloaded bytes.
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await expect(page.getByTestId("btn-export-game")).toBeVisible();
   const downloading = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-export-game").click();
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/^agi-remix-[a-f0-9-]+-game\.zip$/);
@@ -745,7 +746,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   );
   expect(stored).toEqual([]);
   await expect(savedCard).toHaveCount(1);
-  await openSavedGameDetails(savedCard);
   await openLibraryActions(page, savedCard);
   await expect(page.getByTestId("export-library-game")).toBeVisible();
 });

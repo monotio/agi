@@ -37,8 +37,7 @@
  * Zero dependencies; runs in browser, worker and Node.
  */
 
-import { createPictureSurface, type GameContainer } from "../types.ts";
-import { renderPicture } from "./renderer.ts";
+import { type GameContainer } from "../types.ts";
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
 
 export interface PictureSourceError {
@@ -75,6 +74,54 @@ export interface CompilePictureResult {
   commandCount: number;
   /** Non-fatal observations (e.g. missing `end`). */
   warnings: readonly string[];
+  /**
+   * Source map: one span per source line that emits bytes, in byte order.
+   * A `copy` line owns everything it expands to; an implied terminator has
+   * no span.
+   */
+  spans: readonly PictureSourceSpan[];
+}
+
+/** Bytes [start, end) of `bytes` compiled from 1-based source line `line`. */
+export interface PictureSourceSpan {
+  line: number;
+  start: number;
+  end: number;
+}
+
+/**
+ * The trust rule for authored picture text: `source` stands for `payload` only
+ * while it compiles (strictly) to exactly those bytes. Otherwise callers fall
+ * back to `disassemblePicture(payload)`.
+ */
+export function sourceCompilesTo(
+  source: string,
+  payload: Uint8Array,
+  profile: AgiProfile = DEFAULT_V2_PROFILE,
+): boolean {
+  try {
+    const compiled = compilePictureSource(source, { profile }).bytes;
+    return compiled.length === payload.length && compiled.every((b, i) => b === payload[i]);
+  } catch {
+    return false;
+  }
+}
+
+/** The span containing byte `offset`, or undefined (binary search over ordered spans). */
+export function pictureSpanAt(
+  spans: readonly PictureSourceSpan[],
+  offset: number,
+): PictureSourceSpan | undefined {
+  let lo = 0;
+  let hi = spans.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const span = spans[mid]!;
+    if (offset < span.start) hi = mid - 1;
+    else if (offset >= span.end) lo = mid + 1;
+    else return span;
+  }
+  return undefined;
 }
 
 const MAX_X = 159;
@@ -114,6 +161,7 @@ export function compilePictureSource(
   const errors: PictureSourceError[] = [];
   const warnings: string[] = [];
   const bytes: number[] = [];
+  const spans: PictureSourceSpan[] = [];
   let commandCount = 0;
   let ended = false;
   let stipple = false;
@@ -452,7 +500,9 @@ export function compilePictureSource(
   for (let i = 0; i < lines.length; i++) {
     const text = stripLine(lines[i]!);
     if (text.length === 0) continue;
+    const start = bytes.length;
     processLine(text, i + 1);
+    if (bytes.length > start) spans.push({ line: i + 1, start, end: bytes.length });
   }
 
   if (errors.length > 0) throw new PictureSourceSyntaxError(errors);
@@ -460,7 +510,7 @@ export function compilePictureSource(
     bytes.push(0xff);
     warnings.push("missing 'end'; terminator appended");
   }
-  return { bytes: new Uint8Array(bytes), commandCount, warnings };
+  return { bytes: new Uint8Array(bytes), commandCount, warnings, spans };
 }
 
 /**
@@ -886,200 +936,4 @@ export function comparePictureStructure(
     visualColourOverlap: jaccard(reference.visualColours, candidate.visualColours),
     priorityValueOverlap: jaccard(reference.priorityValues, candidate.priorityValues),
   };
-}
-
-// ---------------------------------------------------------------------------
-// Element annotation
-
-/**
- * Disassemble a picture and annotate it with drawing elements: groups of
- * commands that touch each other on the surface. A command joins the element
- * of the previous drawing command when their pixels are adjacent (an outline
- * drawn as several strokes); a fill joins the element that wrote most of the
- * pixels bounding its region (an outline and the fills seeded inside it,
- * wherever they sit in the file); state lines (vis/pri/pen) attach to the
- * next drawing command. Output is the plain disassembly plus comments:
- * a header `# element N: lines a-b, c-d  bbox x0-x1 y0-y1  colours 6,2` per
- * element (line numbers of the annotated text, usable with `copy`) and a
- * `# --- element N` marker before each range. Compiling the annotated text
- * yields the identical byte stream.
- */
-export function annotatePictureSource(bytes: Uint8Array, opts?: PictureSourceOptions): string {
-  const profile = opts?.profile ?? DEFAULT_V2_PROFILE;
-  const source = disassemblePicture(bytes, { profile });
-  const srcLines = source.split("\n");
-  if (srcLines[srcLines.length - 1] === "") srcLines.pop();
-  const n = srcLines.length;
-  const W = 160;
-  const H = 168;
-  const total = W * H;
-
-  // Incremental render: the pixels each command changes, and the last writer per pixel.
-  const render = (upTo: number): { v: Uint8Array; p: Uint8Array } => {
-    const s = createPictureSurface();
-    renderPicture(
-      compilePictureSource(srcLines.slice(0, upTo).join("\n"), { lenient: true, profile }).bytes,
-      s,
-      { profile },
-    );
-    return { v: s.visual, p: s.priority };
-  };
-  const isDrawing = (line: string): boolean =>
-    /^(line|polyline|polygon|rect|rel|xcorner|ycorner|fill|plot)\b/i.test(line);
-  const writer = new Int32Array(total).fill(-1);
-  const pixels: number[][] = new Array(n);
-  const boxes: ({ x0: number; y0: number; x1: number; y1: number } | null)[] = new Array(n).fill(
-    null,
-  );
-  const visColour: number[] = new Array(n).fill(-1);
-  let prev = render(0);
-  let colour = -1;
-  for (let k = 0; k < n; k++) {
-    const line = srcLines[k]!;
-    const m = /^vis (\d+)/i.exec(line);
-    if (m) colour = Number(m[1]) & 0x0f;
-    visColour[k] = colour;
-    pixels[k] = [];
-    if (!isDrawing(line) && !/^raw\b/i.test(line)) continue;
-    const next = render(k + 1);
-    const box = { x0: W, y0: H, x1: -1, y1: -1 };
-    for (let i = 0; i < total; i++) {
-      if (next.v[i] === prev.v[i] && next.p[i] === prev.p[i]) continue;
-      pixels[k]!.push(i);
-      writer[i] = k;
-      const x = i % W;
-      const y = (i - x) / W;
-      if (x < box.x0) box.x0 = x;
-      if (x > box.x1) box.x1 = x;
-      if (y < box.y0) box.y0 = y;
-      if (y > box.y1) box.y1 = y;
-    }
-    if (pixels[k]!.length > 0) boxes[k] = box;
-    prev = next;
-  }
-
-  // Union-find over commands.
-  const parent = new Int32Array(n);
-  for (let i = 0; i < n; i++) parent[i] = i;
-  const find = (a: number): number => {
-    while (parent[a] !== a) {
-      parent[a] = parent[parent[a]!]!;
-      a = parent[a]!;
-    }
-    return a;
-  };
-  const union = (a: number, b: number): void => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
-  };
-  const mask = new Int32Array(total).fill(-1); // command index owning the pixel, for adjacency tests
-  let prevDrawing = -1;
-  for (let k = 0; k < n; k++) {
-    const px = pixels[k]!;
-    if (px.length === 0) continue;
-    const isFill = /^fill\b/i.test(srcLines[k]!);
-    if (isFill) {
-      // Boundary writers: neighbours of the region that are not in the region.
-      const inRegion = new Uint8Array(total);
-      for (const i of px) inRegion[i] = 1;
-      const votes = new Map<number, number>();
-      for (const i of px) {
-        const x = i % W;
-        for (const nb of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i - W, i + W]) {
-          if (nb < 0 || nb >= total || inRegion[nb]) continue;
-          const w = writer[nb]!;
-          if (w >= 0 && w !== k) votes.set(w, (votes.get(w) ?? 0) + 1);
-        }
-      }
-      let bestW = -1;
-      let bestN = 0;
-      for (const [w, c] of votes) if (c > bestN) [bestW, bestN] = [w, c];
-      if (bestW >= 0) union(k, bestW);
-    } else if (prevDrawing >= 0) {
-      let touches = false;
-      for (const i of px) {
-        const x = i % W;
-        for (const nb of [i, x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i - W, i + W]) {
-          if (nb >= 0 && nb < total && mask[nb] === prevDrawing) {
-            touches = true;
-            break;
-          }
-        }
-        if (touches) break;
-      }
-      if (touches) union(k, prevDrawing);
-    }
-    for (const i of px) mask[i] = k;
-    prevDrawing = k;
-  }
-
-  // Attach state lines to the next drawing command; number elements by first appearance.
-  const elementOf = new Int32Array(n).fill(-1);
-  let pending: number[] = [];
-  for (let k = 0; k < n; k++) {
-    if (pixels[k]!.length > 0) {
-      const root = find(k);
-      for (const s of pending) elementOf[s] = root;
-      pending = [];
-      elementOf[k] = root;
-    } else if (!/^end\b/i.test(srcLines[k]!)) {
-      pending.push(k);
-    }
-  }
-  const ids = new Map<number, number>();
-  for (let k = 0; k < n; k++) {
-    const e = elementOf[k]!;
-    if (e >= 0 && !ids.has(e)) ids.set(e, ids.size + 1);
-  }
-  const elementCount = ids.size;
-
-  // Runs of consecutive lines per element -> output line numbers (headers + markers included).
-  const runs: { id: number; from: number; to: number }[] = [];
-  for (let k = 0; k < n; k++) {
-    const e = elementOf[k]!;
-    const id = e >= 0 ? ids.get(e)! : 0;
-    const last = runs[runs.length - 1];
-    if (last && last.id === id && last.to === k - 1) last.to = k;
-    else runs.push({ id, from: k, to: k });
-  }
-  const body: string[] = [];
-  const ranges = new Map<number, string[]>();
-  const info = new Map<
-    number,
-    { x0: number; y0: number; x1: number; y1: number; colours: Set<number> }
-  >();
-  for (const run of runs) {
-    if (run.id > 0) body.push(`# --- element ${run.id}`);
-    const start = elementCount + body.length + 1;
-    for (let k = run.from; k <= run.to; k++) {
-      body.push(srcLines[k]!);
-      if (run.id === 0) continue;
-      const rec = info.get(run.id) ?? { x0: W, y0: H, x1: -1, y1: -1, colours: new Set<number>() };
-      const b = boxes[k];
-      if (b) {
-        rec.x0 = Math.min(rec.x0, b.x0);
-        rec.y0 = Math.min(rec.y0, b.y0);
-        rec.x1 = Math.max(rec.x1, b.x1);
-        rec.y1 = Math.max(rec.y1, b.y1);
-      }
-      if (pixels[k]!.length > 0 && visColour[k]! >= 0) rec.colours.add(visColour[k]!);
-      info.set(run.id, rec);
-    }
-    if (run.id > 0) {
-      const end = elementCount + body.length;
-      const list = ranges.get(run.id) ?? [];
-      list.push(`${start}-${end}`);
-      ranges.set(run.id, list);
-    }
-  }
-  const header: string[] = [];
-  for (let id = 1; id <= elementCount; id++) {
-    const rec = info.get(id)!;
-    const colours = [...rec.colours].sort((a, b) => a - b).join(",");
-    header.push(
-      `# element ${id}: lines ${ranges.get(id)!.join(", ")}  bbox x${rec.x0}-${rec.x1} y${rec.y0}-${rec.y1}  colours ${colours}`,
-    );
-  }
-  return [...header, ...body].join("\n") + "\n";
 }

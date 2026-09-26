@@ -7,9 +7,9 @@ import {
   cacheGame,
   observe,
   openCardMenu,
-  openGameOptions,
   textHook,
   waitForCycles,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
@@ -101,7 +101,6 @@ test("world map lists observed, planned and logic-named rooms; closing preserves
   const input = page.getByTestId("input-line");
   await input.fill("lo");
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -144,7 +143,6 @@ test("world map lists observed, planned and logic-named rooms; closing preserves
 test("phone layout puts the room list first and the graph one tap away", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await bootMapGame(page);
-  await openGameOptions(page, "help-menu");
   const openedAt = Date.now();
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
@@ -171,13 +169,13 @@ test("the map records a live transition and matches it against plan and logic", 
   await bootMapGame(page);
   // Read the live marker before the transition: reopening must update a
   // previously evaluated current-room subscription, not retain its first room.
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("map-room-1")).toHaveClass(/current/);
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("world-map")).not.toBeVisible();
   // Visit room 2 through the inspector's flag write: logic 1's literal
   // new.room(2) fires, so the journal edge joins the planned and static ones.
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await page.getByTestId("inspect-toggle").click();
   await page.keyboard.press("Escape");
@@ -185,11 +183,10 @@ test("the map records a live transition and matches it against plan and logic", 
   await page.getByTestId("dbg-flags").locator("button").nth(6).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
-  await openGameOptions(page, "help-menu");
+  // Create docks the plan view as its World panel; the map button shows it.
   await page.getByTestId("btn-world-map").click();
-  await expect(page.getByTestId("world-map")).toBeVisible();
-  await page.getByTestId("btn-world-plan").click();
-  await expect(page.getByTestId("world-map")).toBeVisible();
+  await expect(page.getByTestId("world-panel")).toBeVisible();
+  await expect(page.getByTestId("world-map")).toHaveCount(0);
   await expect(page.getByTestId("map-room-2")).toContainText("visited");
   await expect(page.getByTestId("map-room-2")).toHaveClass(/current/);
   await expect(page.getByTestId("map-node-2")).toBeInViewport();
@@ -214,7 +211,6 @@ test("an imported game shows its static graph before any visit", async ({ page }
     .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -276,7 +272,6 @@ test("opening the map during a walkthrough stops the replay ticks", async ({ pag
     })
     .toBeGreaterThan(0);
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect
@@ -307,7 +302,6 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
     .click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -336,11 +330,11 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
 
 test("closing the map restores only the pause it owns", async ({ page }) => {
   await bootMapGame(page);
-  // Remix (the power-up bubble) holds a pause the map must not release.
-  await page.getByTestId("power-up").click();
+  // The Ask drawer holds a pause the map must not release. (Create shows the
+  // map as a docked panel that never pauses; the window is Play's.)
+  await page.getByTestId("menu-assistant").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
@@ -373,7 +367,6 @@ test("opening and using the map makes no provider request", async ({ page }) => 
     );
   const before = await traceCount();
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -452,7 +445,6 @@ test("long labels and a dense planned graph stay navigable", async ({ page }) =>
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -487,7 +479,6 @@ test("an unexplored game lists only the observed room", async ({ page }) => {
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(0);
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   const items = page.locator(".map-list-item");
@@ -499,7 +490,6 @@ test("an unexplored game lists only the observed room", async ({ page }) => {
 test("reduced motion renders the same map without animation", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await bootMapGame(page);
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect(page.getByTestId("map-room-1")).toContainText("visited");
@@ -528,7 +518,6 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -685,7 +674,6 @@ test("cold open, warm open and select stay fast on the largest synthetic map", a
     return Date.now() - t0;
   };
   const openMap = async () => {
-    await openGameOptions(page, "help-menu");
     await page.getByTestId("btn-world-map").click();
     await expect(page.getByTestId("world-map")).toBeVisible();
     await page.getByTestId("btn-world-plan").click();
@@ -766,7 +754,6 @@ test("a pictured map past the old static cache stays responsive", async ({ page 
   };
   const thumbs = page.locator(".map-node .node-thumb");
   const openMap = async () => {
-    await openGameOptions(page, "help-menu");
     await page.getByTestId("btn-world-map").click();
     await expect(page.getByTestId("world-map")).toBeVisible();
     await page.getByTestId("btn-world-plan").click();

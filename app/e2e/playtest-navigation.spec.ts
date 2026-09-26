@@ -4,7 +4,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, isolateStorage, textHook } from "./engineProbe.ts";
+import { configureAi, isolateStorage, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("agent playtest reports bounded navigation through the browser without moving the live game", async ({
   page,
@@ -102,6 +102,7 @@ test("agent playtest reports bounded navigation through the browser without movi
   });
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();

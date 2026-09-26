@@ -136,6 +136,11 @@ export interface StaticRoomScan {
    * literal binding survives to the call site (see scanStaticExits).
    */
   readonly pictures: readonly number[];
+  /**
+   * A draw.pic/overlay.pic whose number has no surviving literal binding: the
+   * picture is chosen at runtime, so `pictures` may not name every one drawn.
+   */
+  readonly unresolvedPicture: boolean;
   /** Logics this logic provably calls — call literals and resolved call.v. */
   readonly calls: readonly number[];
   /** call.v without a surviving literal binding — the callee set is incomplete. */
@@ -268,6 +273,7 @@ export function scanStaticExits(
     const calls = new Set<number>();
     const bound = new Map<number, { value: number; scopeEnd: number }>();
     let variableTarget = false;
+    let unresolvedPicture = false;
     let unresolvedCall = false;
 
     if (selfRoom !== undefined)
@@ -311,6 +317,7 @@ export function scanStaticExits(
       } else if (PICTURE_DRAWS.has(name)) {
         const pic = bound.get(args[0]!);
         if (pic !== undefined) pictures.add(pic.value);
+        else unresolvedPicture = true;
       } else {
         for (const at of VAR_WRITES[name] ?? []) bound.delete(args[at]!);
       }
@@ -319,11 +326,19 @@ export function scanStaticExits(
       targets,
       variableTarget,
       pictures: [...pictures].sort((a, b) => a - b),
+      unresolvedPicture,
       calls: [...calls].sort((a, b) => a - b),
       unresolvedCall,
     };
   } catch {
-    return { targets: [], variableTarget: false, pictures: [], calls: [], unresolvedCall: false };
+    return {
+      targets: [],
+      variableTarget: false,
+      pictures: [],
+      unresolvedPicture: false,
+      calls: [],
+      unresolvedCall: false,
+    };
   }
 }
 

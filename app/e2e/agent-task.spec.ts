@@ -3,7 +3,7 @@ import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, openAiSettings, textHook } from "./engineProbe.ts";
+import { configureAi, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("Astra is the new-user default; Stop and budget pauses retain a staged remix", async ({
   page,
@@ -78,13 +78,16 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
     });
     await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await enterCreateMode(page);
     await page.getByTestId("power-up").click();
     await configureAi(page, { provider: "openai", key: "test-placeholder", budget: 1 });
     await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
     await page.getByTestId("agent-bubble-input").fill("Add sparkle to the vocabulary");
     await page.getByTestId("agent-bubble-send").click();
     await expect.poll(() => requests).toBe(2);
-    expect((await page.getByTestId("agent-stop").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // UiButton's fine-pointer height is --control-h (40px); touch gets 44px via
+    // the pointer:coarse media query.
+    expect((await page.getByTestId("agent-stop").boundingBox())!.height).toBeGreaterThanOrEqual(40);
     await page.getByTestId("agent-stop").click();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Stopped");
     expect((await textHook(page)).paused).toBe(true);

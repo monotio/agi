@@ -4,7 +4,7 @@ import {
   isolateStorage,
   openCreateAdventure,
   openDeveloperActivity,
-  openGameOptions,
+  screenText,
   textHook,
 } from "./engineProbe.ts";
 
@@ -35,7 +35,6 @@ async function createAdventure(page: Page): Promise<void> {
 }
 
 async function openMap(page: Page): Promise<void> {
-  await openGameOptions(page, "help-menu");
   // The plan surface is the creator entry — "World map" is the player's
   // discovered-rooms view and shows no plan.
   await page.getByTestId("btn-world-map").click();
@@ -43,6 +42,46 @@ async function openMap(page: Page): Promise<void> {
   await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+}
+
+/**
+ * Type a parser command once the game is idle enough to hear it. A reply
+ * can surface a pass or two late — an entry print after new.room, the
+ * parser's refusal after an unmatched line — and a window that opens while
+ * a line is being typed spends the keystrokes on itself (the submitted line
+ * then sits in the worker's input queue behind the parked pass), so a lone
+ * `modal` check before typing races it. A parked window also freezes the
+ * interpreter's cycle counter, so require it to keep ticking for a few
+ * samples with no window open; every window that does surface gets an
+ * Enter and the count restarts.
+ */
+async function say(page: Page, text: string): Promise<void> {
+  const input = page.getByTestId("input-line");
+  await input.focus();
+  let lastCycle = -1;
+  let quietTicks = 0;
+  await expect
+    .poll(
+      async () => {
+        const hook = await textHook(page);
+        if (hook.paused) return "paused";
+        if (hook.modal !== null) {
+          await page.keyboard.press("Enter");
+          lastCycle = -1;
+          quietTicks = 0;
+          return "modal";
+        }
+        if (hook.cycle !== lastCycle) {
+          lastCycle = hook.cycle;
+          quietTicks += 1;
+        }
+        return quietTicks >= 3 ? "ready" : "ticking";
+      },
+      { timeout: 30_000, intervals: [100] },
+    )
+    .toBe("ready");
+  await input.fill(text);
+  await input.press("Enter");
 }
 
 test("a fresh create yields a playable room 1 and the planned map in one turn", async ({
@@ -69,6 +108,27 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
   await page.screenshot({ path: "test-results/plan-map-created.png" });
 });
 
+test("Attach reference art opens the upload over the open world plan", async ({ page }) => {
+  await createAdventure(page);
+  await openMap(page);
+  await page.getByTestId("map-room-1").click();
+
+  // The map is a native modal on the top layer; a plain positioned overlay
+  // would land behind it. The upload must be a top-layer dialog itself.
+  await page.getByTestId("map-attach-reference").click();
+  const upload = page.getByTestId("reference-upload");
+  await expect(upload).toBeVisible();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  expect(await upload.evaluate((element) => element.matches(":modal"))).toBe(true);
+  // Its first control holds focus while the map stays open beneath.
+  const uploadClose = upload.getByRole("button", { name: "Close", exact: true });
+  await expect(uploadClose).toBeFocused();
+
+  await uploadClose.click();
+  await expect(upload).toBeHidden();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+});
+
 test("the player's world map shows walked rooms only — no plan, no controls", async ({ page }) => {
   await createAdventure(page);
   await expect(page.getByTestId("agent-panel")).toContainText("planned a three-room world", {
@@ -78,7 +138,6 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   // The player entry is the discovered view: room 1 was walked; rooms 2 and
   // 3 exist only in the creator's plan and must not appear — nor may any
   // plan affordance.
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   const map = page.getByTestId("world-map");
   await expect(map).toBeVisible();
@@ -99,7 +158,6 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await page.getByTestId("map-close").click();
 
   // The creator entry on the same session shows the full plan.
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -130,14 +188,7 @@ test("editing a planned node and walking into it builds the edited version", asy
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
   // Walk east into the unbuilt room: the just-in-time room turn authors it.
-  const input = page.getByTestId("input-line");
-  await input.focus();
-  if ((await textHook(page)).modal !== null) {
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  }
-  await input.fill("east");
-  await input.press("Enter");
+  await say(page, "east");
   await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
     timeout: 30_000,
   });
@@ -274,14 +325,7 @@ test("a running authored game extends from a planned map node", async ({ page })
   await page.getByTestId("map-close").click();
   await expect(page.getByTestId("world-map")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
-  const input = page.getByTestId("input-line");
-  await input.focus();
-  if ((await textHook(page)).modal !== null) {
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  }
-  await input.fill("east");
-  await input.press("Enter");
+  await say(page, "east");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
 });
 
@@ -297,23 +341,17 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   });
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
 
-  const input = page.getByTestId("input-line");
-  const say = async (text: string) => {
-    await input.focus();
-    if ((await textHook(page)).modal !== null) {
-      await page.keyboard.press("Enter");
-      await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-    }
-    await input.fill(text);
-    await input.press("Enter");
-  };
-
   // Walk east: room 2 authors just-in-time.
-  await say("east");
+  await say(page, "east");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(2);
 
-  // North is plan intent only — the compiled logic has no such route.
-  await say("north");
+  // North is plan intent only — the compiled logic has no such route, and
+  // the parser's refusal window is the proof the command was heard.
+  await say(page, "north");
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  expect(await screenText(page)).toContain("Try LOOK, EAST or WEST.");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
   // Building the planned node rewrites room 2's logic in the same commit.
@@ -331,10 +369,10 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
   // Ordinary input now crosses it — no teleport, no host-side rule.
-  await say("north");
+  await say(page, "north");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(3);
 
   // The return route the stub authored still works.
-  await say("west");
+  await say(page, "west");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
 });

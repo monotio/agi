@@ -3,7 +3,7 @@ import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, textHook } from "./engineProbe.ts";
+import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted options", async ({
   page,
@@ -66,6 +66,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   });
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await configureAi(page, { provider: "anthropic", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
