@@ -123,6 +123,8 @@ export interface StudioWalkOptions {
   readonly say: (notice: StudioNotice | null) => void;
   /** Door edits are blocked: view only, or a Keep that needs a reload. */
   readonly frozen: () => boolean;
+  /** Door edits wait for an AI proposal's verdict (or its request). */
+  readonly paused?: () => boolean;
   readonly runner?: RouteRunner | undefined;
   /** Reads the live game's flags and variables; absent or null when there is no live game. */
   readonly liveState?: (() => Promise<LiveGameState | null>) | undefined;
@@ -208,7 +210,9 @@ export function useStudioWalk(options: StudioWalkOptions) {
   });
   /** Rooms a test walk reached through a room change this session: their doors count as tested. */
   const walkedTo = shallowRef<ReadonlySet<number>>(new Set());
-  const canEditDoors = computed(() => logic.editable.value && !options.frozen());
+  const canEditDoors = computed(
+    () => logic.editable.value && !options.frozen() && !options.paused?.(),
+  );
   const labelOf = (door: Pick<WalkDoor, "destination">): string =>
     destinationLabel(door.destination, rooms.value);
 
@@ -225,6 +229,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   /** One rule edit on the room's logic: one undo step, refused whole with the kernel's words. */
   function edit(op: Parameters<RoomLogicDraft["apply"]>[0], label: string, done: string): boolean {
     if (options.frozen()) return refuse("This room is view only: its doors can't be changed.");
+    if (options.paused?.()) return refuse("Accept or reject the AI's proposal first.");
     if (!logic.editable.value)
       return refuse("This room's logic is native: change its exits as text, or ask the assistant.");
     const outcome = logic.apply(op, label);

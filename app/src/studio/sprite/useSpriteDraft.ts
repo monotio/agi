@@ -14,8 +14,14 @@
 import { computed, onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import {
+  assistRefusalText,
+  checkCandidate,
+  type ViewAssistScope,
+} from "../../../../src/studio/assistScope.ts";
+import {
   openSprite,
   samePixels,
+  withPayload,
   type SpriteDocument,
   type SpriteProfile,
 } from "../../../../src/studio/sprite/spriteDocument.ts";
@@ -182,6 +188,46 @@ export function useSpriteDraft(options: {
     return accept(candidate);
   }
 
+  /**
+   * Adopt an accepted AI candidate's VIEW bytes as one undo step. The
+   * candidate passed its scope (assistScope.ts) when it was proposed; it
+   * must still pass it against the draft now, and the loop check a manual
+   * edit of the targeted loops passes (validateSpriteEdit): both verdicts
+   * must agree, or nothing changes.
+   */
+  function adopt(payload: Uint8Array, label: string, scope: ViewAssistScope): SpriteOutcome {
+    if (gesturing.value) return refuse({ message: "Finish the stroke first." });
+    let next: SpriteDocument;
+    try {
+      next = withPayload(document.value, payload);
+    } catch (error) {
+      return refuse({ message: "The proposal doesn't decode any more.", detail: String(error) });
+    }
+    const scoped = checkCandidate(document.value, next, scope);
+    if (!scoped.ok)
+      return refuse({
+        message: "The proposal no longer fits its scope. Ask again.",
+        detail: assistRefusalText(scoped),
+      });
+    const targets = [...new Set(scope.targetCels.map(({ loop }) => loop))];
+    const check = validateSpriteEdit(document.value, next, { targetLoops: targets });
+    if (!check.ok)
+      return refuse({
+        message: validationRefusal(check),
+        detail: check.violations.map((violation) => violation.message).join("\n"),
+        check,
+      });
+    const recorded = recordSpriteEdit(history.value, label, document.value, next);
+    if (!recorded.ok)
+      return refuse({
+        message: "The view changed while the AI worked. Ask again.",
+        detail: recorded.reason,
+      });
+    history.value = recorded.history;
+    document.value = next;
+    return accept({ document: next, isolated: [] });
+  }
+
   /** Open a gesture (a stroke or drag); its edits undo as one step. */
   function beginGesture(label: string): void {
     history.value = begin(history.value, label);
@@ -267,6 +313,7 @@ export function useSpriteDraft(options: {
     evaluate: (change: SpriteChange) => evaluate(document.value, change),
     apply,
     applyAll,
+    adopt,
     beginGesture,
     moveGesture,
     endGesture,

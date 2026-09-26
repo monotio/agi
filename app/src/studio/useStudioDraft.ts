@@ -24,6 +24,11 @@ import {
   undo as undoStep,
   type EditHistory,
 } from "../../../src/studio/editHistory.ts";
+import {
+  assistRefusalText,
+  checkCandidate,
+  type PictureAssistScope,
+} from "../../../src/studio/assistScope.ts";
 import { applyEdit, type EditOperation } from "../../../src/studio/editOperations.ts";
 import { compileEditDocument, type CompiledDocument } from "../../../src/studio/editValidation.ts";
 import {
@@ -229,6 +234,58 @@ export function useStudioDraft(options: StudioDraftOptions) {
     return { ok: true };
   }
 
+  /**
+   * Adopt an accepted AI candidate's whole text as one undo step. The
+   * candidate passed its scope (assistScope.ts) when it was proposed; it
+   * must still pass it against the draft now, and the locks a manual edit
+   * passes under the lens and unlocks it was asked with (checkStudioEdit,
+   * with the targets and the items it creates as the edited items): both
+   * verdicts must agree, or nothing changes.
+   */
+  function adopt(next: string, label: string, scope: PictureAssistScope): DraftOutcome {
+    if (gesturing.value) return refuse({ kind: "kernel", message: "Finish the drag first." });
+    const parsed = parsePictureDocument(next);
+    let after: CompiledDocument;
+    try {
+      after = compileEditDocument(parsed.document, profile());
+    } catch (error) {
+      return refuse({
+        kind: "kernel",
+        message: "The proposal doesn't compile any more.",
+        detail: String(error),
+      });
+    }
+    const scoped = checkCandidate(compiled.value, after, scope);
+    if (!scoped.ok)
+      return refuse({
+        kind: "kernel",
+        message: "The proposal no longer fits its scope. Ask again.",
+        detail: assistRefusalText(scoped),
+      });
+    const known = new Set(document.value.items.map((item) => item.id));
+    const created = parsed.document.items.flatMap((item) => (known.has(item.id) ? [] : [item.id]));
+    const check = checkStudioEdit(
+      compiled.value,
+      after,
+      [...scope.targetIds, ...created],
+      scope.lens,
+      scope.unlocks,
+    );
+    validation.value = check;
+    if (!check.ok)
+      return refuse({ kind: "lock", ...refusalText(check), check, cells: violationCells(check) });
+    const recorded = record(history.value, label, source.value, next);
+    if (!recorded.ok)
+      return refuse({
+        kind: "kernel",
+        message: "The picture changed while the AI worked. Ask again.",
+        detail: recorded.reason,
+      });
+    history.value = recorded.history;
+    refusal.value = null;
+    return { ok: true };
+  }
+
   /** Open a gesture (a drag); its edits undo as one step. */
   function beginGesture(label: string): void {
     history.value = begin(history.value, label);
@@ -308,6 +365,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     canUndo,
     canRedo,
     apply,
+    adopt,
     evaluate,
     beginGesture,
     moveGesture,

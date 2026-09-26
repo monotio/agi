@@ -44,6 +44,7 @@ const {
   labels = null,
   handles = null,
   flash = null,
+  changed = null,
   movable = false,
 } = defineProps<{
   layer: PaneLayer;
@@ -60,6 +61,8 @@ const {
   handles?: readonly LineHandle[] | null;
   /** Cells an edit was refused for, highlighted briefly. */
   flash?: MaskPaths | null;
+  /** Cells an AI proposal changes, outlined while it awaits a verdict. */
+  changed?: MaskPaths | null;
   /** The selection can be dragged: the pointer shows it. */
   movable?: boolean;
 }>();
@@ -242,6 +245,14 @@ function onLeave(): void {
           vector-effect="non-scaling-stroke"
         />
       </g>
+      <g v-if="changed" data-role="changed">
+        <path class="studio-pane__changed-fill" :d="changed.fill" />
+        <path
+          class="studio-pane__changed-line"
+          :d="changed.outline"
+          vector-effect="non-scaling-stroke"
+        />
+      </g>
       <g v-if="flash" data-role="refused">
         <path class="studio-pane__flash-fill" :d="flash.fill" />
         <path
@@ -348,6 +359,16 @@ function onLeave(): void {
   fill: none;
   stroke: var(--action);
   stroke-width: 2px;
+}
+.studio-pane__changed-fill {
+  fill: var(--ok);
+  fill-opacity: 0.12;
+}
+.studio-pane__changed-line {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 2px;
+  stroke-dasharray: 4 2;
 }
 .studio-pane__flash-fill {
   fill: var(--warn);
