@@ -2,29 +2,49 @@
 /**
  * The Help guide: topics for playing and making games, each with an optional
  * "Show me" that opens the real control. The screen passes the actions it can
- * perform; a topic's action is hidden when it is not among them.
+ * perform; a topic's action is hidden when it is not among them. A game with
+ * Studio lessons (lessons/registry.ts) adds a section of them: each opens a
+ * Studio on the lesson's resource, and shows whether its challenge is done.
  */
 import { computed, ref, useTemplateRef } from "vue";
 import UiButton from "./ui/UiButton.vue";
-import { HELP_SECTIONS, type HelpAction } from "./helpContent.ts";
+import UiChip from "./ui/UiChip.vue";
+import { HELP_SECTIONS, type HelpActionKind, type HelpRequest } from "./helpContent.ts";
+import { useLessonBadges } from "./lessons/lessonStorage.ts";
+import type { LessonSet, StudioLesson } from "./lessons/types.ts";
 
-const props = defineProps<{ available: readonly HelpAction[] }>();
-const emit = defineEmits<{ action: [kind: HelpAction] }>();
+const props = defineProps<{
+  available: readonly HelpActionKind[];
+  /** The running game's Studio lessons, if it has any. */
+  lessons?: LessonSet | undefined;
+}>();
+const emit = defineEmits<{ action: [request: HelpRequest]; lesson: [lesson: StudioLesson] }>();
 
+const LESSONS_SECTION = "lessons";
 const dialog = useTemplateRef("dialog");
 const sectionId = ref(HELP_SECTIONS[0]!.id);
+const lessonSection = computed(() => sectionId.value === LESSONS_SECTION && props.lessons);
 const section = computed(
   () => HELP_SECTIONS.find((entry) => entry.id === sectionId.value) ?? HELP_SECTIONS[0]!,
 );
+const completed = useLessonBadges().completed;
 
 function open(section?: string): void {
   if (section) sectionId.value = section;
   dialog.value?.showModal();
 }
 
-function run(kind: HelpAction): void {
+function run(request: HelpRequest): void {
   dialog.value?.close();
-  emit("action", kind);
+  emit("action", request);
+}
+
+const studioKind = (lesson: StudioLesson): HelpActionKind =>
+  lesson.open.studio === "room" ? "openRoomStudio" : "openSpriteStudio";
+
+function runLesson(lesson: StudioLesson): void {
+  dialog.value?.close();
+  emit("lesson", lesson);
 }
 
 defineExpose({ open });
@@ -47,14 +67,54 @@ defineExpose({ open });
           v-for="entry in HELP_SECTIONS"
           :key="entry.id"
           type="button"
-          :aria-current="entry.id === section.id ? 'true' : undefined"
+          :aria-current="!lessonSection && entry.id === section.id ? 'true' : undefined"
           :data-testid="`help-section-${entry.id}`"
           @click="sectionId = entry.id"
         >
           {{ entry.title }}
         </button>
+        <button
+          v-if="lessons"
+          type="button"
+          :aria-current="lessonSection ? 'true' : undefined"
+          :data-testid="`help-section-${LESSONS_SECTION}`"
+          @click="sectionId = LESSONS_SECTION"
+        >
+          {{ lessons.title }}
+        </button>
       </nav>
-      <div class="help-topics" :data-testid="`help-topics-${section.id}`">
+      <div v-if="lessonSection" class="help-topics" :data-testid="`help-topics-${LESSONS_SECTION}`">
+        <section
+          v-for="lesson in lessonSection.lessons"
+          :key="lesson.id"
+          class="help-topic"
+          :data-testid="`help-lesson-${lesson.id}`"
+        >
+          <h3 class="help-lesson__title">
+            {{ lesson.title }}
+            <template v-if="lesson.challenge">
+              <UiChip v-if="completed.has(lesson.id)" tone="ok" data-testid="help-lesson-badge">
+                ✓ Done
+              </UiChip>
+              <UiChip v-else data-testid="help-lesson-badge">Not yet done</UiChip>
+            </template>
+          </h3>
+          <p>{{ lesson.teaser }}</p>
+          <p v-if="lesson.challenge" class="help-lesson__challenge">
+            Challenge: {{ lesson.challenge.prompt }}
+          </p>
+          <UiButton
+            v-if="props.available.includes(studioKind(lesson))"
+            class="help-show-me"
+            icon="pencil"
+            data-testid="help-lesson-open"
+            @click="runLesson(lesson)"
+          >
+            Open in Studio
+          </UiButton>
+        </section>
+      </div>
+      <div v-else class="help-topics" :data-testid="`help-topics-${section.id}`">
         <section v-for="topic in section.topics" :key="topic.id" class="help-topic">
           <h3>{{ topic.title }}</h3>
           <p v-for="(paragraph, index) in topic.body" :key="index">{{ paragraph }}</p>
@@ -62,7 +122,7 @@ defineExpose({ open });
             v-if="topic.action && props.available.includes(topic.action.kind)"
             class="help-show-me"
             :data-testid="`help-action-${topic.action.kind}`"
-            @click="run(topic.action.kind)"
+            @click="run(topic.action)"
           >
             {{ topic.action.label }}
           </UiButton>
@@ -154,6 +214,15 @@ h3 {
 }
 .help-show-me {
   margin-top: 0.25rem;
+}
+.help-lesson__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.help-topic .help-lesson__challenge {
+  color: var(--ink);
 }
 @media (max-width: 600px) {
   .help-body {
