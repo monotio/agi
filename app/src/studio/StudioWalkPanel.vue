@@ -5,7 +5,14 @@ import UiChip from "../ui/UiChip.vue";
 import type { Point } from "../../../src/studio/shapes.ts";
 import type { StudioTool } from "./studioTools.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
-import { doorStatus, EDGE_NAMES, outcomeTone, resultPlace, type WalkDoor } from "./walkView.ts";
+import {
+  doorStatus,
+  EDGE_NAMES,
+  outcomeTone,
+  resultPlace,
+  ruleProblemText,
+  type WalkDoor,
+} from "./walkView.ts";
 
 /**
  * The Walk view's side panel: the walkable estimate's legend, the test walk
@@ -39,8 +46,16 @@ const selected = computed(() => walk.selectedDoor.value);
 const status = computed(() =>
   selected.value ? doorStatus(selected.value, walk.walked.value) : null,
 );
-/** Play here from where the walk ended; the goal when it never moved. */
-const playSpot = computed<Point | null>(() => result.value?.result.end ?? walk.goal.value);
+/**
+ * Play here from where the walk ended; the goal when it never moved. A start
+ * the player cannot stand on offers none: the engine's end is the room's
+ * entry spot, not a place the creator chose.
+ */
+const playSpot = computed<Point | null>(() =>
+  result.value?.result.outcome === "start_blocked"
+    ? null
+    : (result.value?.result.end ?? walk.goal.value),
+);
 
 function describe(door: WalkDoor): string {
   if (door.shape === "box") return door.label;
@@ -202,6 +217,15 @@ const roomChoices = computed(() => {
 
     <section class="walk-panel__sec" data-role="doors">
       <h3>Doors <em>D draws a door box · E adds an edge exit</em></h3>
+      <p
+        v-for="problem in walk.logicDiagnostics.value"
+        :key="`${problem.line}:${problem.code}`"
+        class="walk-panel__fail"
+        role="alert"
+        data-testid="door-rule-problem"
+      >
+        {{ ruleProblemText(problem) }}
+      </p>
       <p v-if="walk.doors.value.length === 0" class="walk-panel__note">
         This room has no exits yet.
       </p>
@@ -272,6 +296,14 @@ const roomChoices = computed(() => {
             />
             <UiButton size="sm" type="submit" :disabled="!walk.canEditDoors.value">Use</UiButton>
           </form>
+          <p
+            v-if="walk.flagError.value"
+            class="walk-panel__fail"
+            role="alert"
+            data-testid="door-flag-error"
+          >
+            {{ walk.flagError.value }}
+          </p>
           <template v-if="selected.box">
             <label class="walk-panel__field">
               <span>Follows</span>

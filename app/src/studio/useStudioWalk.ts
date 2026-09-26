@@ -20,6 +20,7 @@ import { openContainer } from "../../../src/container/container.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import type { PictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { planRoute, type RoutePlan, type RouteTestResult } from "../../../src/studio/route.ts";
+import { RULE_EDIT_BLOCKERS } from "../../../src/studio/rules/logicDocument.ts";
 import type { FlagRef, RuleBox, RuleModel } from "../../../src/studio/rules/ruleModel.ts";
 import { roomExitContracts, type ExitContract } from "../../../src/studio/rules/ruleUsage.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
@@ -210,9 +211,20 @@ export function useStudioWalk(options: StudioWalkOptions) {
   });
   /** Rooms a test walk reached through a room change this session: their doors count as tested. */
   const walkedTo = shallowRef<ReadonlySet<number>>(new Set());
-  const canEditDoors = computed(
-    () => logic.editable.value && !options.frozen() && !options.paused?.(),
+  /** A broken rule annotation (duplicated, nested or unterminated): the kernel refuses every edit. */
+  const logicBlocked = computed(
+    () => logic.diagnostics.value.find((entry) => RULE_EDIT_BLOCKERS.includes(entry.code)) ?? null,
   );
+  const canEditDoors = computed(
+    () =>
+      logic.editable.value &&
+      !options.frozen() &&
+      !options.paused?.() &&
+      logicBlocked.value === null,
+  );
+  /** The kernel's reason a typed flag name was refused, shown under the flag field. */
+  const flagError = shallowRef<string | null>(null);
+  watch(selectedDoorId, () => (flagError.value = null));
   const labelOf = (door: Pick<WalkDoor, "destination">): string =>
     destinationLabel(door.destination, rooms.value);
 
@@ -227,13 +239,21 @@ export function useStudioWalk(options: StudioWalkOptions) {
   }
 
   /** One rule edit on the room's logic: one undo step, refused whole with the kernel's words. */
-  function edit(op: Parameters<RoomLogicDraft["apply"]>[0], label: string, done: string): boolean {
+  function edit(
+    op: Parameters<RoomLogicDraft["apply"]>[0],
+    label: string,
+    done: string,
+    onRefusal?: (error: string) => void,
+  ): boolean {
     if (options.frozen()) return refuse("This room is view only: its doors can't be changed.");
     if (options.paused?.()) return refuse("Accept or reject the AI's proposal first.");
     if (!logic.editable.value)
       return refuse("This room's logic is native: change its exits as text, or ask the assistant.");
     const outcome = logic.apply(op, label);
-    if (!outcome.ok) return refuse("The door can't be changed that way.", outcome.error);
+    if (!outcome.ok) {
+      onRefusal?.(outcome.error);
+      return refuse("The door can't be changed that way.", outcome.error);
+    }
     options.say({ tone: "ok", text: done });
     return true;
   }
@@ -316,6 +336,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     item: string | null | undefined,
     label: string,
     done: string,
+    onRefusal?: (error: string) => void,
   ): boolean {
     const door = storedDoors.value.find((candidate) => candidate.id === id);
     const model = door && modelOf(door, patch);
@@ -325,6 +346,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
       { op: "updateRule", id, model, ...(item === undefined ? {} : { item }) },
       label,
       done,
+      onRefusal,
     );
   }
 
@@ -339,12 +361,14 @@ export function useStudioWalk(options: StudioWalkOptions) {
   }
 
   function setFlag(id: string, flag: FlagRef | null): boolean {
+    flagError.value = null;
     return update(
       id,
       { requiresFlag: flag },
       undefined,
       "Change a door's condition",
       flag === null ? "The door is always open." : `The door opens only while ${flag} is set.`,
+      (error) => (flagError.value = error),
     );
   }
 
@@ -586,9 +610,11 @@ export function useStudioWalk(options: StudioWalkOptions) {
     }
     if (!canEditDoors.value) {
       refuse(
-        logic.editable.value
-          ? "This room is view only: its doors can't be changed."
-          : "This room's logic is native: its exits change as text, or through the assistant.",
+        !logic.editable.value
+          ? "This room's logic is native: its exits change as text, or through the assistant."
+          : logicBlocked.value !== null
+            ? "Fix the room's rule annotations as text first; door editing is off until then."
+            : "This room is view only: its doors can't be changed.",
       );
       return true;
     }
@@ -636,6 +662,9 @@ export function useStudioWalk(options: StudioWalkOptions) {
     selectDoor: (id: string | null) => void (selectedDoorId.value = id),
     walked: walkedTo,
     canEditDoors,
+    /** The logic source's annotation problems; broken rules stop door editing. */
+    logicDiagnostics: logic.diagnostics,
+    flagError,
     labelOf,
     addDoor,
     addEdge,

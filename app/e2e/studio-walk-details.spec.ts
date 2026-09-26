@@ -55,6 +55,8 @@ test("a start inside a wall: the card names the asked start, not the room's entr
   await expect(studio.getByTestId("walk-result-end")).toHaveText("80,60");
   await expect(card).not.toContainText("Ended at");
   await expect(card).not.toContainText("18,151");
+  // The engine's end is the room's entry spot, not a place the creator chose.
+  await expect(studio.getByTestId("walk-play-here")).toHaveCount(0);
   await shot(page, "walk-start-blocked");
 });
 

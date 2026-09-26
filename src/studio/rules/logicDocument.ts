@@ -13,7 +13,11 @@
  * A malformed directive is reported and otherwise read as a plain comment, as
  * is the `@end` of a rejected `@rule`.
  */
-import { PICTURE_ITEM_ID, type StudioDiagnostic } from "../pictureDocument.ts";
+import {
+  PICTURE_ITEM_ID,
+  type StudioDiagnostic,
+  type StudioDiagnosticCode,
+} from "../pictureDocument.ts";
 
 export type LogicRuleKind = "exit" | "region";
 
@@ -100,6 +104,18 @@ function readDirective(line: string): Directive | undefined {
   return { type: "rule", id, label, kind: kind as LogicRuleKind, item };
 }
 
+/**
+ * Diagnostics under which no rule edit is safe: the parsed rules no longer
+ * stand for the source (a duplicate id hides a rule as dead text, a nested
+ * directive is silently ignored, an unterminated rule runs to the file's
+ * end). Every other diagnostic leaves the rules' line spans exact.
+ */
+export const RULE_EDIT_BLOCKERS: readonly StudioDiagnosticCode[] = [
+  "duplicate-id",
+  "nested-item",
+  "unterminated-item",
+];
+
 /** The `@rule` directive line for a rule, at the given indentation. */
 export function ruleDirective(
   rule: Pick<LogicRuleFragment, "id" | "label" | "kind" | "item">,
@@ -121,8 +137,13 @@ export function parseLogicDocument(source: string): {
   let open: Omit<LogicRuleFragment, "closeLine" | "terminated"> | null = null;
   /** A rejected `@rule` swallows the next `@end` so one mistake gives one diagnostic. */
   let rejectedOpen = false;
-  const report = (line: number, code: StudioDiagnostic["code"], message: string): void => {
-    diagnostics.push({ line, code, message });
+  const report = (
+    line: number,
+    code: StudioDiagnostic["code"],
+    message: string,
+    id?: string,
+  ): void => {
+    diagnostics.push(id === undefined ? { line, code, message } : { line, code, message, id });
   };
 
   for (let i = 0; i < lines.length; i++) {
@@ -130,12 +151,12 @@ export function parseLogicDocument(source: string): {
     const directive = readDirective(lines[i]!);
     if (directive?.type === "rule") {
       if (open !== null) {
-        report(lineNo, "nested-item", `rules do not nest; '${open.id}' is still open`);
+        report(lineNo, "nested-item", `rules do not nest; '${open.id}' is still open`, open.id);
       } else if ("error" in directive) {
         report(lineNo, directive.code, directive.error);
         rejectedOpen = true;
       } else if (seen.has(directive.id)) {
-        report(lineNo, "duplicate-id", `rule id '${directive.id}' is already used`);
+        report(lineNo, "duplicate-id", `rule id '${directive.id}' is already used`, directive.id);
         rejectedOpen = true;
       } else {
         seen.add(directive.id);
@@ -161,6 +182,7 @@ export function parseLogicDocument(source: string): {
       open.openLine,
       "unterminated-item",
       `rule '${open.id}' has no @end; it closes at the end of the file`,
+      open.id,
     );
     rules.push({ ...open, closeLine: lines.length + 1, terminated: false });
   }

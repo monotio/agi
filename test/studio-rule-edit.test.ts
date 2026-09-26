@@ -388,6 +388,101 @@ describe("rule edits", () => {
       },
     );
   });
+
+  it("refuses a flag name that is an AGI sigil, on add and on update", () => {
+    const { session, document } = yard();
+    const door = (requiresFlag: string | null): RuleModel => ({
+      kind: "exit",
+      edge: null,
+      box: { x1: 1, y1: 2, x2: 3, y2: 4 },
+      destination: 2,
+      requiresFlag,
+    });
+    const sigil = (name: string) =>
+      `"${name}" is how AGI writes a numbered flag; pick a word name such as door_open.`;
+    for (const [i, name] of ["f5", "v3", "o1", "m2", "s0", "i4", "w7", "V12"].entries())
+      assert.deepEqual(
+        applyRuleEdit(
+          document,
+          { op: "addRule", id: `door-${i}`, label: "Door", model: door(name) },
+          session,
+        ),
+        { ok: false, error: sigil(name) },
+      );
+    const doc = commit(
+      session,
+      applyRuleEdit(
+        document,
+        { op: "addRule", id: "door", label: "Door", model: door(null) },
+        session,
+      ),
+    );
+    for (const name of ["f5", "V12"])
+      assert.deepEqual(
+        applyRuleEdit(doc, { op: "updateRule", id: "door", model: door(name) }, session),
+        { ok: false, error: sigil(name) },
+      );
+    // A word name still reserves a binding and edits fine.
+    const named = applyRuleEdit(
+      doc,
+      { op: "updateRule", id: "door", model: door("door_open") },
+      session,
+    );
+    assert.ok(named.ok);
+    assert.deepEqual(named.newBindings, { door_open: { kind: "flag", num: 33 } });
+  });
+
+  it("refuses every edit while a rule annotation is broken", () => {
+    const scenarios = [
+      {
+        name: "a duplicate rule id",
+        rules: [
+          '// @rule west-door "West" exit',
+          "if (equaln(v2, 4)) { new.room(2); }",
+          "// @end",
+          '// @rule west-door "Second west" exit',
+          "if (equaln(v2, 2)) { new.room(3); }",
+          "// @end",
+        ],
+        problem: "rule id 'west-door' is already used",
+      },
+      {
+        name: "a nested rule",
+        rules: [
+          '// @rule mat "Mat" region',
+          "if (!isset(f40) && posn(o0, 1, 2, 3, 4)) { set(f40); }",
+          '// @rule inner "Inner" exit',
+          "// @end",
+        ],
+        problem: "rules do not nest; 'mat' is still open",
+      },
+      {
+        name: "an unterminated rule",
+        rules: ['// @rule tail "Tail" exit', "if (equaln(v2, 4)) { new.room(2); }"],
+        problem: "rule 'tail' has no @end",
+      },
+    ];
+    for (const { name, rules, problem } of scenarios) {
+      const source = ROOM.replace("return;", [...rules, "return;"].join("\n"));
+      const { session, document } = yard(source);
+      const [first] = document.rules;
+      assert.ok(first, name);
+      for (const op of [
+        { op: "addRule", id: "extra", label: "Extra", model: EAST },
+        { op: "updateRule", id: first.id, model: { ...EAST, edge: "bottom" } },
+        { op: "removeRule", id: first.id },
+        { op: "moveRegionBox", id: first.id, box: { x1: 0, y1: 0, x2: 9, y2: 9 } },
+      ] as const) {
+        const result = applyRuleEdit(document, op, session);
+        assert.equal(result.ok, false, `${name}: ${op.op}`);
+        assert.ok(
+          !result.ok && result.error.includes(problem),
+          `${name}: ${op.op}: ${result.ok ? "" : result.error}`,
+        );
+      }
+      assert.equal(serializeLogicDocument(document), source, name);
+    }
+  });
 });
 
 describe("rule edits on the tutorial", () => {
