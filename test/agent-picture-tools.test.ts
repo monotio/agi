@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createAgentSessionState } from "../src/agent/tools.ts";
 import { executePictureTool, PICTURE_TOOLS } from "../src/agent/pictureTools.ts";
+import { normalizeToolArguments, validateToolArguments } from "../src/agent/schemaValidate.ts";
 import { renderPicture } from "../src/picture/renderer.ts";
 import { createPictureSurface } from "../src/types.ts";
 
@@ -171,6 +172,108 @@ describe("accessible picture authoring", () => {
     assert.equal(result?.success, false);
     assert.match(result?.error ?? "", /payload|limit/i);
     assert.equal(state.container.getResource("picture", 10), null);
+  });
+
+  it("treats shape name as required-but-nullable, so calls predating it still validate", () => {
+    const tool = PICTURE_TOOLS[0]!;
+    const shape = (tool.parameters.properties["shapes"] as { items: Record<string, unknown> })
+      .items;
+    const props = shape["properties"] as Record<string, unknown>;
+    assert.deepEqual(props["name"], { type: ["string", "null"], maxLength: 48 });
+    assert.ok((shape["required"] as readonly string[]).includes("name"));
+    const args = normalizeToolArguments(tool.parameters, {
+      room: 6,
+      backgroundColor: 1,
+      shapes: [rect],
+    });
+    assert.deepEqual(validateToolArguments(tool.parameters, args), []);
+    assert.equal((args["shapes"] as { name?: unknown }[])[0]!.name, null);
+  });
+
+  it("annotates the stored scene with Studio items and compiles the pinned bytes", () => {
+    const state = createAgentSessionState();
+    const result = executePictureTool(state, "write_scene", {
+      room: 6,
+      backgroundColor: 1,
+      shapes: [
+        {
+          kind: "rect",
+          color: 3,
+          priority: 7,
+          filled: true,
+          x1: 2,
+          y1: 2,
+          x2: 3,
+          y2: 3,
+          points: null,
+          name: "Pillar",
+        },
+        {
+          kind: "line",
+          color: 4,
+          priority: null,
+          filled: false,
+          x1: null,
+          y1: null,
+          x2: null,
+          y2: null,
+          points: [
+            { x: 2, y: 3 },
+            { x: 5, y: 3 },
+          ],
+          name: null,
+        },
+      ],
+    });
+    assert.equal(result?.success, true, result?.error ?? "");
+    const source = state.sources.pictures.get(6)!;
+    assert.equal(
+      source,
+      [
+        '# @item background "Background" art',
+        "vis 1",
+        "pri off",
+        "fill 0,0",
+        "# @end",
+        '# @item pillar "Pillar" mixed',
+        "vis 3",
+        "pri 7",
+        "line 2,2 3,2",
+        "line 2,3 3,3",
+        "# @end",
+        '# @item shape-2 "Shape 2" art',
+        "vis 4",
+        "pri off",
+        "line 2,3 5,3",
+        "# @end",
+        "end",
+        "",
+      ].join("\n"),
+    );
+    // Directives are `#` comments, so the payload is the same command stream
+    // the unannotated scene produced: vis/pri selects, two fill seed bytes,
+    // one line strip per emitted line, end.
+    assert.deepEqual(
+      [...state.container.getResource("picture", 6)!],
+      [
+        0xf0, 1, 0xf3, 0xf8, 0, 0, 0xf0, 3, 0xf2, 7, 0xf6, 2, 2, 3, 2, 0xf6, 2, 3, 3, 3, 0xf0, 4,
+        0xf3, 0xf6, 2, 3, 5, 3, 0xff,
+      ],
+    );
+  });
+
+  it("rejects an overlong or blank shape name before mutation", () => {
+    for (const name of ["x".repeat(49), "   ", 7]) {
+      const state = createAgentSessionState();
+      const result = executePictureTool(state, "write_scene", {
+        room: 8,
+        backgroundColor: 1,
+        shapes: [{ ...rect, name }],
+      });
+      assert.equal(result?.success, false);
+      assert.match(result?.error ?? "", /name/);
+      assert.equal(state.container.getResource("picture", 8), null);
+    }
   });
 
   it("returns undefined for tools outside its registry", () => {
