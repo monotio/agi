@@ -75,6 +75,36 @@ export interface CompilePictureResult {
   commandCount: number;
   /** Non-fatal observations (e.g. missing `end`). */
   warnings: readonly string[];
+  /**
+   * Source map: one span per source line that emits bytes, in byte order.
+   * A `copy` line owns everything it expands to; an implied terminator has
+   * no span.
+   */
+  spans: readonly PictureSourceSpan[];
+}
+
+/** Bytes [start, end) of `bytes` compiled from 1-based source line `line`. */
+export interface PictureSourceSpan {
+  line: number;
+  start: number;
+  end: number;
+}
+
+/** The span containing byte `offset`, or undefined (binary search over ordered spans). */
+export function pictureSpanAt(
+  spans: readonly PictureSourceSpan[],
+  offset: number,
+): PictureSourceSpan | undefined {
+  let lo = 0;
+  let hi = spans.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const span = spans[mid]!;
+    if (offset < span.start) hi = mid - 1;
+    else if (offset >= span.end) lo = mid + 1;
+    else return span;
+  }
+  return undefined;
 }
 
 const MAX_X = 159;
@@ -114,6 +144,7 @@ export function compilePictureSource(
   const errors: PictureSourceError[] = [];
   const warnings: string[] = [];
   const bytes: number[] = [];
+  const spans: PictureSourceSpan[] = [];
   let commandCount = 0;
   let ended = false;
   let stipple = false;
@@ -452,7 +483,9 @@ export function compilePictureSource(
   for (let i = 0; i < lines.length; i++) {
     const text = stripLine(lines[i]!);
     if (text.length === 0) continue;
+    const start = bytes.length;
     processLine(text, i + 1);
+    if (bytes.length > start) spans.push({ line: i + 1, start, end: bytes.length });
   }
 
   if (errors.length > 0) throw new PictureSourceSyntaxError(errors);
@@ -460,7 +493,7 @@ export function compilePictureSource(
     bytes.push(0xff);
     warnings.push("missing 'end'; terminator appended");
   }
-  return { bytes: new Uint8Array(bytes), commandCount, warnings };
+  return { bytes: new Uint8Array(bytes), commandCount, warnings, spans };
 }
 
 /**
@@ -914,39 +947,36 @@ export function annotatePictureSource(bytes: Uint8Array, opts?: PictureSourceOpt
   const H = 168;
   const total = W * H;
 
-  // Incremental render: the pixels each command changes, and the last writer per pixel.
-  const render = (upTo: number): { v: Uint8Array; p: Uint8Array } => {
-    const s = createPictureSurface();
-    renderPicture(
-      compilePictureSource(srcLines.slice(0, upTo).join("\n"), { lenient: true, profile }).bytes,
-      s,
-      { profile },
-    );
-    return { v: s.visual, p: s.priority };
-  };
-  const isDrawing = (line: string): boolean =>
-    /^(line|polyline|polygon|rect|rel|xcorner|ycorner|fill|plot)\b/i.test(line);
+  // The pixels each line changes, and the last writer per pixel, from one
+  // traced render. A write belongs to the line holding the last byte consumed
+  // before it: exactly what re-rendering each line prefix yielded, since a
+  // truncated stream writes nothing after reading its terminator.
+  const compiled = compilePictureSource(source, { lenient: true, profile });
+  const lineOfByte = new Int32Array(compiled.bytes.length).fill(-1);
+  for (const span of compiled.spans) lineOfByte.fill(span.line - 1, span.start, span.end);
+  const surface = createPictureSurface();
   const writer = new Int32Array(total).fill(-1);
-  const pixels: number[][] = new Array(n);
+  const pixels: number[][] = Array.from({ length: n }, (): number[] => []);
   const boxes: ({ x0: number; y0: number; x1: number; y1: number } | null)[] = new Array(n).fill(
     null,
   );
-  const visColour: number[] = new Array(n).fill(-1);
-  let prev = render(0);
-  let colour = -1;
-  for (let k = 0; k < n; k++) {
-    const line = srcLines[k]!;
-    const m = /^vis (\d+)/i.exec(line);
-    if (m) colour = Number(m[1]) & 0x0f;
-    visColour[k] = colour;
-    pixels[k] = [];
-    if (!isDrawing(line) && !/^raw\b/i.test(line)) continue;
-    const next = render(k + 1);
+  // Cells the current line wrote, with their packed value before the line.
+  const touched: number[] = [];
+  const touchedBy = new Int32Array(total).fill(-1);
+  const before = new Uint16Array(total);
+  let current = -1;
+  const closeLine = (): void => {
+    if (current < 0) return;
+    const px = pixels[current]!;
+    for (const i of touched) {
+      if (((surface.visual[i]! << 8) | surface.priority[i]!) !== before[i]) px.push(i);
+    }
+    touched.length = 0;
+    if (px.length === 0) return;
+    px.sort((a, b) => a - b); // fill votes break ties by pixel order
     const box = { x0: W, y0: H, x1: -1, y1: -1 };
-    for (let i = 0; i < total; i++) {
-      if (next.v[i] === prev.v[i] && next.p[i] === prev.p[i]) continue;
-      pixels[k]!.push(i);
-      writer[i] = k;
+    for (const i of px) {
+      writer[i] = current;
       const x = i % W;
       const y = (i - x) / W;
       if (x < box.x0) box.x0 = x;
@@ -954,9 +984,23 @@ export function annotatePictureSource(bytes: Uint8Array, opts?: PictureSourceOpt
       if (y < box.y0) box.y0 = y;
       if (y > box.y1) box.y1 = y;
     }
-    if (pixels[k]!.length > 0) boxes[k] = box;
-    prev = next;
-  }
+    boxes[current] = box;
+  };
+  renderPicture(compiled.bytes, surface, {
+    profile,
+    onCellWrite: (index, _opcode, consumed) => {
+      const k = lineOfByte[consumed - 1]!;
+      if (k !== current) {
+        closeLine();
+        current = k;
+      }
+      if (touchedBy[index] === k) return;
+      touchedBy[index] = k;
+      before[index] = (surface.visual[index]! << 8) | surface.priority[index]!;
+      touched.push(index);
+    },
+  });
+  closeLine();
 
   // Union-find over commands.
   const parent = new Int32Array(n);
@@ -1049,10 +1093,13 @@ export function annotatePictureSource(bytes: Uint8Array, opts?: PictureSourceOpt
     number,
     { x0: number; y0: number; x1: number; y1: number; colours: Set<number> }
   >();
+  let colour = -1; // runs cover every line in order
   for (const run of runs) {
     if (run.id > 0) body.push(`# --- element ${run.id}`);
     const start = elementCount + body.length + 1;
     for (let k = run.from; k <= run.to; k++) {
+      const vis = /^vis (\d+)/i.exec(srcLines[k]!);
+      if (vis) colour = Number(vis[1]) & 0x0f;
       body.push(srcLines[k]!);
       if (run.id === 0) continue;
       const rec = info.get(run.id) ?? { x0: W, y0: H, x1: -1, y1: -1, colours: new Set<number>() };
@@ -1063,7 +1110,7 @@ export function annotatePictureSource(bytes: Uint8Array, opts?: PictureSourceOpt
         rec.x1 = Math.max(rec.x1, b.x1);
         rec.y1 = Math.max(rec.y1, b.y1);
       }
-      if (pixels[k]!.length > 0 && visColour[k]! >= 0) rec.colours.add(visColour[k]!);
+      if (pixels[k]!.length > 0 && colour >= 0) rec.colours.add(colour);
       info.set(run.id, rec);
     }
     if (run.id > 0) {
