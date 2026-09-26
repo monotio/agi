@@ -288,10 +288,26 @@ export function outcomeTitle(
     modal: () => "A message stopped the walk",
     no_control: () => "The game took over the player's movement",
     budget: () => "The walk ran out of time",
-    start_blocked: () => "The player can't stand at the start",
+    start_blocked: () => "The start is not a spot the player can stand on",
     failed: () => "The walk did not run",
   };
   return words[result.outcome]();
+}
+
+/**
+ * The result card's place line: where ego ended, in which room when it left
+ * this one. A start the engine refused never ran, and the engine put ego at
+ * the room's own entry instead: the card names the start that was asked for.
+ */
+export function resultPlace(
+  from: Point,
+  result: Pick<RouteTestResult, "outcome" | "end" | "room">,
+  room: number,
+): { readonly term: string; readonly text: string } {
+  if (result.outcome === "start_blocked")
+    return { term: "Asked start", text: `${from.x},${from.y}` };
+  const elsewhere = result.room !== room ? ` in room ${result.room}` : "";
+  return { term: "Ended at", text: `${result.end.x},${result.end.y}${elsewhere}` };
 }
 
 /** A result card tone: reached is good news, a room change is news, the rest a warning. */

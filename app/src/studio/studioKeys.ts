@@ -4,16 +4,19 @@
  * Widgets keep the keys they use (the Scene list, the lens switch, the
  * scrubber, text fields); the rest are studio shortcuts:
  *
- * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc back to Create (in a
- *   text field, Esc leaves the field instead)
+ * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc lets go of one
+ *   thing per press (a menu, what a tool is drawing, a selected door, a tool
+ *   other than Select, the selection's bar, a drag), then goes back to Create
+ *   (in a text field, Esc leaves the field instead)
  * - on the focused canvas: arrows nudge the selected item 1 px (Shift: 8),
  *   Alt+arrows step through items (Up/Left previous, Down/Right next); with a
  *   drawing tool or the pipette the arrows move the keyboard cursor instead
  *   (Shift: 8) and Space or Enter clicks at it (useStudioInput.ts)
  * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; `[` `]` move back/forward
  *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
- * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I G H);
- *   Enter finishes a line or polygon, Backspace drops its last point
+ * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I, the
+ *   Walk view's T D E, which open it first, and G H); Enter finishes a line
+ *   or polygon, Backspace drops its last point
  * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue)
  */
 

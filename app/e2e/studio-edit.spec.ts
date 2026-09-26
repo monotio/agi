@@ -451,6 +451,14 @@ test("a Keep the running game never acknowledges is saved, and Reload game bring
   );
   expect(await storedPicture(page, 5)).toEqual(kept);
   await expect(studio.getByTestId("studio-recover")).toHaveText("Reload game");
+  // Until it reloads, Play here would enter a game that differs from the saved one.
+  await page.locator(".studio-pane").last().click({ button: "right" });
+  const menu = page.getByTestId("canvas-menu");
+  const playHere = menu.getByRole("menuitem", { name: "Play here" });
+  await expect(playHere).toBeDisabled();
+  await expect(playHere).toHaveAttribute("title", /^Reload game first/);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
   await studio.getByTestId("studio-recover").click();
   await expect(page.getByTestId("studio-notice")).toHaveText(
     "Loaded the latest saved version of this game.",

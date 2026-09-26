@@ -39,6 +39,7 @@ import {
   entrySpot,
   outcomeTitle,
   refusedCell,
+  resultPlace,
   walkDoors,
 } from "../src/studio/walkView.ts";
 import { studioRoomSource, type StudioRoomSource } from "../src/world/studioSource.ts";
@@ -210,7 +211,26 @@ describe("walkView: doors and words", () => {
     assert.equal(words("room_changed", 2), "Went to room 2 (Green room)");
     assert.equal(words("room_changed", 9), "Went to room 9");
     assert.equal(words("modal"), "A message stopped the walk");
-    assert.equal(words("start_blocked"), "The player can't stand at the start");
+    assert.equal(words("start_blocked"), "The start is not a spot the player can stand on");
+  });
+
+  it("places a walk where it ended, or at the start it asked for when the engine refused it", () => {
+    const from = { x: 80, y: 60 };
+    const run = (outcome: RouteTestResult["outcome"], room = 1) => ({
+      outcome,
+      end: { x: 18, y: 151 },
+      room,
+    });
+    assert.deepEqual(resultPlace(from, run("reached"), 1), { term: "Ended at", text: "18,151" });
+    assert.deepEqual(resultPlace(from, run("room_changed", 2), 1), {
+      term: "Ended at",
+      text: "18,151 in room 2",
+    });
+    // The engine put ego at the room's entry (18,151); the card names the start asked for.
+    assert.deepEqual(resultPlace(from, run("start_blocked"), 1), {
+      term: "Asked start",
+      text: "80,60",
+    });
   });
 });
 

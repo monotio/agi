@@ -606,8 +606,10 @@ const logicTextOpen = computed({
   },
 });
 
+const RELOAD_FIRST = "Reload game first: the running game isn't the one you saved.";
 /** Play here: settle unkept changes, then the shell plays from the spot. */
 async function playHere(at: Point): Promise<void> {
+  if (keeper.needsReload.value) return editing.say({ tone: "warn", text: RELOAD_FIRST });
   if (!walk || walk.room < 1) {
     editing.say({ tone: "warn", text: "This picture isn't shown by a room the game can enter." });
     return;
@@ -619,7 +621,14 @@ async function playHere(at: Point): Promise<void> {
 /** The canvas menu: at a cell, from a right-click or the Menu key. */
 const menu = shallowRef<{ at: { x: number; y: number }; cell: Point } | null>(null);
 const menuItems = computed<CanvasMenuItem[]>(() => [
-  { id: "play", label: "Play here", disabled: !walk || walk.room < 1 },
+  {
+    id: "play",
+    label: "Play here",
+    // The running game differs from the saved one until it reloads (useStudioKeep).
+    ...(keeper.needsReload.value
+      ? { disabled: true, title: RELOAD_FIRST }
+      : { disabled: !walk || walk.room < 1 }),
+  },
   ...(lens.value === "walk"
     ? [
         { id: "walk-from", label: "Start a test walk here" },
@@ -723,7 +732,9 @@ const keys: StudioKeyActions = {
       return true;
     }
     if (tools.cancel()) return true;
-    if (tools.tool.value !== "select") tools.setTool("select");
+    // A selected door lets go first, outline and panel together.
+    if (walker.selectedDoorId.value !== null) walker.selectDoor(null);
+    else if (tools.tool.value !== "select") tools.setTool("select");
     else if (ctxOpen.value) ctxOpen.value = false;
     else if (!drag.abort()) return false;
     return true;
