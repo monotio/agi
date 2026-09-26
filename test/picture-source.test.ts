@@ -330,6 +330,26 @@ test("annotatePictureSource groups outline + inner fill and separates a far line
   assert.deepEqual(Array.from(compilePictureSource(annotated).bytes), Array.from(bytes));
 });
 
+test("annotatePictureSource credits a raw rel continuation with the pixels it draws", () => {
+  // 0x08 (dx 0, dy -0) has no signed-delta spelling, so the disassembly breaks
+  // the rel there; the renderer still reads 0x08 and 0x11 (+1,+1) as deltas,
+  // and the step to 11,11 belongs to the raw line, apart from the rel's dot.
+  const bytes = new Uint8Array([0xf0, 1, 0xf7, 10, 10, 0x08, 0x11, 0xff]);
+  assert.equal(
+    annotatePictureSource(bytes),
+    [
+      "# element 1: lines 4-5  bbox x10-10 y10-10  colours 1",
+      "# element 2: lines 7-7  bbox x11-11 y11-11  colours 1",
+      "# --- element 1",
+      "vis 1",
+      "rel 10,10",
+      "# --- element 2",
+      "raw 8 17",
+      "end",
+    ].join("\n") + "\n",
+  );
+});
+
 for (const { alias, hash } of PICTURE_FIXTURES) {
   test(
     `${alias}: annotated first-room picture recompiles byte-identically`,

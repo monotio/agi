@@ -53,6 +53,25 @@ export interface RenderPictureOptions {
   profile?: AgiProfile;
   /** Optional per-seed observations for authoring diagnostics. */
   fillDiagnostics?: PictureFillDiagnostic[];
+  /**
+   * Optional per-cell ownership for authoring tools. Every cell write on an
+   * enabled channel records the byte offset of the opcode of the command
+   * performing it (lines, corners, relative lines, fills and pattern plots).
+   * Prepare semantics reset both buffers to -1; overlay keeps existing owners.
+   */
+  owner?: PictureOwnerBuffers;
+  /**
+   * Optional write trace for authoring tools, called before each in-surface
+   * cell write on an enabled channel with the cell index, the command's
+   * opcode offset and the number of payload bytes consumed so far.
+   */
+  onCellWrite?: (index: number, opcode: number, consumed: number) => void;
+}
+
+/** Row-major 160x168 owner buffers; -1 marks a cell no command wrote. */
+export interface PictureOwnerBuffers {
+  visual: Int32Array;
+  priority: Int32Array;
 }
 
 export interface PictureFillDiagnostic {
@@ -78,16 +97,44 @@ export function renderPicture(
   opts?: RenderPictureOptions,
 ): void {
   const profile = opts?.profile ?? DEFAULT_V2_PROFILE;
+  const owner = opts?.owner;
+  const onCellWrite = opts?.onCellWrite;
+  if (
+    owner &&
+    (owner.visual.length !== SCREEN_WIDTH * SCREEN_HEIGHT ||
+      owner.priority.length !== SCREEN_WIDTH * SCREEN_HEIGHT)
+  ) {
+    throw new RangeError("picture owner buffers must hold 160x168 cells each");
+  }
   if (!opts?.overlay) {
     surface.reset();
+    owner?.visual.fill(-1);
+    owner?.priority.fill(-1);
   }
 
   let pos = 0;
+  /** Offset of the opcode of the command being executed. */
+  let opcode = 0;
   let visualEnabled = false;
   let priorityEnabled = false;
   let visualColor = 0;
   let priorityValue = 0;
   let patternMode = 0;
+
+  /**
+   * Ownership and trace for authoring tools, resolved once per render; the
+   * default render skips it with one predictable branch per cell.
+   */
+  const record =
+    owner || onCellWrite
+      ? (index: number): void => {
+          if (!visualEnabled && !priorityEnabled) return;
+          onCellWrite?.(index, opcode, pos);
+          if (!owner) return;
+          if (visualEnabled) owner.visual[index] = opcode;
+          if (priorityEnabled) owner.priority[index] = opcode;
+        }
+      : undefined;
 
   /**
    * Write the cell at a linear row-major index using the channel rule:
@@ -97,6 +144,7 @@ export function renderPicture(
    */
   const writeCell = (index: number): void => {
     if (index < 0 || index >= SCREEN_WIDTH * SCREEN_HEIGHT) return;
+    if (record !== undefined) record(index);
     if (visualEnabled) surface.visual[index] = visualColor;
     if (priorityEnabled) surface.priority[index] = priorityValue;
   };
@@ -279,6 +327,7 @@ export function renderPicture(
 
   while (pos < payload.length) {
     const command = payload[pos]!;
+    opcode = pos;
     pos += 1;
     if (command === 0xff) break;
     if (command < 0xf0) continue; // ignored at command boundaries
