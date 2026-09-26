@@ -4,7 +4,13 @@ import { readFile } from "node:fs/promises";
 import { providerReply } from "../../test/provider-stream.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
 import { readGameZip } from "../src/gameZip.ts";
-import { configureAi, isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";
+import {
+  configureAi,
+  isolateStorage,
+  openGameOptions,
+  textHook,
+  enterCreateMode,
+} from "./engineProbe.ts";
 
 /**
  * Brief item 8, end to end: record a playthrough as a game test, patch the
@@ -81,6 +87,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
 
   // Record: walk to the frame, paint the mural, dismiss the payoff window.
   // Playtest recording lives in the editing tools — the remix bubble.
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await page.getByTestId("btn-record-test").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
@@ -116,6 +123,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   // Patch the game so the recorded observation no longer holds: the write
   // tool reruns every room-1 test and leads with the failure verdict.
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Change the mural lesson text");
@@ -124,6 +132,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await expect.poll(() => agentFeed(page)).toContain("Game tests: 3 game tests pass, 2 fail");
 
   // Repair: the same rerun reports the whole selection green again.
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Restore the mural lesson text");
@@ -133,7 +142,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
 
   // Export the project; the recorded test travels only in the project archive.
   const download = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
   const projectPath = await (await download).path();
   const project = await readGameZip(new Uint8Array(await readFile(projectPath!)));
@@ -170,6 +179,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     await other.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(other)).room).toBe(1);
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
+    await enterCreateMode(other);
     await other.getByTestId("power-up").click();
     await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
     await other.getByTestId("agent-bubble-input").fill("Run every stored game test");

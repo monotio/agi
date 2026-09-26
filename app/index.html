@@ -14,12 +14,15 @@
       content="Adventure Game Interpreter. Create pixel adventures with AI, play AGI classics, and remix any world. Open source by Monotio."
     />
     <style>
+      /* Tokens load with the app (styles/tokens.css); the fallbacks paint the
+         page before it. A sans root keeps 1rem at the browser's 16px, which
+         the rem-based type tokens assume (a monospace root makes it 13px). */
       html,
       body {
         margin: 0;
-        background: #000;
-        color: #aaa;
-        font-family: monospace;
+        background: var(--surface-0, #070b0d);
+        color: var(--ink, #e6f1f2);
+        font-family: var(--font-sans, system-ui, sans-serif);
       }
       #app {
         display: flex;

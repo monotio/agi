@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef } from "vue";
 import UiButton from "./ui/UiButton.vue";
 import UiIconButton from "./ui/UiIconButton.vue";
+import type { IconName } from "./ui/icons.ts";
 
 const {
   testId = undefined,
@@ -12,7 +13,7 @@ const {
   label: string;
   testId?: string | undefined;
   iconOnly?: boolean;
-  icon?: "ellipsis" | "chevron-down";
+  icon?: IconName;
   disabled?: boolean;
 }>();
 

@@ -1,11 +1,5 @@
 {
-  "app/src/AgentBubble.vue": 50,
   "app/src/AgentLogPanel.vue": 1,
   "app/src/DebugDock.vue": 66,
-  "app/src/GameHeader.vue": 50,
-  "app/src/PlayArea.vue": 37,
-  "app/src/TransportBar.vue": 67,
-  "app/src/WorldMap.vue": 85,
-  "app/src/styles/app.css": 44,
-  "app/src/ui.css": 6
+  "app/src/WorldMap.vue": 85
 }

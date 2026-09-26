@@ -3,7 +3,7 @@ import { expect, test } from "./test.ts";
 import { buildZip } from "../src/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { configureAi, textHook } from "./engineProbe.ts";
+import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("remix progress follows activity, preserves reading position and jumps to latest", async ({
   page,
@@ -86,6 +86,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await expect(page).toHaveURL(/#play\//);
+    await enterCreateMode(page);
     await page.getByTestId("power-up").click();
     await configureAi(page, { provider: "openai", key: "test-placeholder" });
     await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();

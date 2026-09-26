@@ -135,7 +135,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
   const saved = await projectDownload;
   const savedPath = (await saved.path())!;
@@ -146,7 +146,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The game export is for publishing: no progress in it.
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-export-game").click();
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));

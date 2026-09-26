@@ -57,7 +57,7 @@ for (const port of PORTS) {
     expect(await storedRevision(page)).toBe(revision);
 
     const pending = page.waitForEvent("download");
-    await openGameOptions(page, "game-menu");
+    await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-export-game").click();
     const exported = (await (await pending).path())!;
     const game = await readGameZip(new Uint8Array(await readFile(exported)));

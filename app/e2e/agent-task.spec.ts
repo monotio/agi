@@ -3,7 +3,7 @@ import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, openAiSettings, textHook } from "./engineProbe.ts";
+import { configureAi, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("Astra is the new-user default; Stop and budget pauses retain a staged remix", async ({
   page,
@@ -78,6 +78,7 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
     });
     await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    await enterCreateMode(page);
     await page.getByTestId("power-up").click();
     await configureAi(page, { provider: "openai", key: "test-placeholder", budget: 1 });
     await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();

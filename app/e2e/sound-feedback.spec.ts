@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, textHook } from "./engineProbe.ts";
+import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
 
 type ProviderItem = {
   type?: string;
@@ -130,6 +130,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   await page.goto("/");
   await importSoundGame(page);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("agent-mode-ask").click();

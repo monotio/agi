@@ -7,10 +7,8 @@
   box-sizing: border-box;
   padding: 10px 14px;
   border: 1px solid transparent;
-  border-radius: 6px;
-  font:
-    700 14px/1.4 system-ui,
-    sans-serif;
+  border-radius: var(--radius);
+  font: var(--weight-bold) var(--text-md) / 1.4 var(--font-sans);
   cursor: pointer;
   text-decoration: none;
   transition:
@@ -85,8 +83,8 @@
 
 /* Shared refusal/warning line used by App.vue and WalkthroughBar.vue. */
 .export-refusal {
-  color: #ffff55;
-  font-size: 12px;
+  color: var(--warn);
+  font-size: var(--text-xs);
   width: var(--shell-width);
   margin: 6px 0 16px;
   line-height: 1.5;
@@ -94,8 +92,8 @@
 
 /* Quiet status for background retries — a note, not an alarm. */
 .history-unsaved {
-  color: #8fa7a9;
-  font-size: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
   width: var(--shell-width);
   margin: 6px 0 16px;
   line-height: 1.5;

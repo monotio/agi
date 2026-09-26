@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage, openCreateAdventure, openAiSettings } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openCreateAdventure,
+  openAiSettings,
+  enterCreateMode,
+} from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
@@ -52,6 +57,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
 
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeEnabled();
   await page.getByTestId("catalog-play-adventure-department").click();
+  await enterCreateMode(page);
   await expect(page.getByTestId("power-up")).toBeVisible();
   await page.getByTestId("power-up").click();
   await page.getByTestId("connect-assistant-ai").click();

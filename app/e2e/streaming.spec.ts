@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { sseEvent, providerSse } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, textHook } from "./engineProbe.ts";
+import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
 
 for (const provider of ["openai", "anthropic"] as const) {
   test(`${provider}: live tool preparation, streamed Ask text, Stop and Continue`, async ({
@@ -81,6 +81,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       });
       await page.getByTestId("btn-resume-cached").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(1);
+      await enterCreateMode(page);
       await page.getByTestId("power-up").click();
       await configureAi(page, { provider, key: "test-placeholder" });
       await page.getByTestId("agent-mode-ask").click();

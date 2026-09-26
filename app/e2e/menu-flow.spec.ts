@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { isolateStorage, savedGameCard, textHook } from "./engineProbe.ts";
+import { isolateStorage, savedGameCard, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
@@ -71,6 +71,7 @@ test("one Settings menu owns AI and budget while Remix stays compact", async ({ 
   await dialog.getByTestId("provider-select").selectOption("stub");
   await dialog.getByTestId("task-budget").fill("3");
   await dialog.getByTestId("ai-settings-save").click();
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   const composer = page.getByTestId("agent-bubble");
   await expect(composer.getByTestId("agent-bubble-input")).toBeEnabled();

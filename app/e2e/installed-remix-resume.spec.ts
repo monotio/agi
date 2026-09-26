@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { configureAi, openGameOptions, savedGameCard } from "./engineProbe.ts";
+import { configureAi, openGameOptions, savedGameCard, enterCreateMode } from "./engineProbe.ts";
 import { test, expect } from "@playwright/test";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -74,6 +74,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   });
   await page.getByTestId("boot-sample").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Add an alligator");
@@ -119,7 +120,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("ALLIGATOR REMIX");
   expect(fixtureReads).toBe(reads);
   const pending = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
   const download = await pending;
   const archive = await readGameZip(new Uint8Array(await readFile((await download.path())!)));

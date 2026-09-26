@@ -348,14 +348,14 @@ export async function clickTimelineMark(page: Page, marker: Locator): Promise<vo
 }
 
 /**
- * Open a top-bar menu through its trigger without closing it on repeat calls.
- * `help-menu` holds Game controls, the map, hints and the walkthrough;
- * `game-menu` holds creator and export actions plus Start over;
- * `settings-menu` holds the AI provider, input, sound and display settings.
+ * Open a top-bar surface through its trigger without closing it on repeat calls.
+ * `help-menu` holds the Help guide, Game controls and the walkthrough;
+ * `settings-menu` opens the settings sheet: sound, display, input and AI
+ * settings, this game's edit, download and export actions, and Start over.
  */
 export async function openGameOptions(
   page: Page,
-  menu: "help-menu" | "settings-menu" | "game-menu",
+  menu: "help-menu" | "settings-menu",
 ): Promise<void> {
   const trigger = page.getByTestId(menu);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
@@ -368,15 +368,39 @@ export async function openGameControls(page: Page): Promise<void> {
   await expect(page.getByTestId("game-controls")).toBeVisible();
 }
 
-/** Open the world map through Help; pass "create" to land on the plan view. */
+/** Open the world map from the top bar; pass "create" to land on the plan view. */
 export async function openWorldMap(
   page: Page,
   experience: "play" | "create" = "play",
 ): Promise<void> {
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   if (experience === "create") await page.getByTestId("btn-world-plan").click();
+}
+
+/**
+ * Turn the inspector on through Settings > Advanced (Play mode keeps the
+ * whole stage for the game) and close the sheet again.
+ */
+export async function openInspector(page: Page): Promise<void> {
+  await openGameOptions(page, "settings-menu");
+  const advanced = page.getByTestId("settings-advanced");
+  if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
+  const inspect = page.getByTestId("settings-inspect");
+  if ((await inspect.getAttribute("aria-checked")) !== "true") await inspect.click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("debug-dock")).toBeVisible();
+}
+
+/**
+ * Show the running game in Create mode, where the assistant's Ask and Remix
+ * surface (the `power-up` entry) lives. Play mode offers the Ask drawer only.
+ */
+export async function enterCreateMode(page: Page): Promise<void> {
+  const create = page.getByRole("radio", { name: "Create", exact: true });
+  if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
+  await expect(create).toHaveAttribute("aria-checked", "true");
+  await expect(page).toHaveURL(/#create\//);
 }
 
 /** Seed through the production persistence boundary, so fixtures use the release contract. */

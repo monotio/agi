@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The one transport bar, under the CRT. Its model is a TransportModel: the
+ * The one transport, in the slim strip under the stage. Its model is a TransportModel: the
  * same timeline, thumb, marks and speed group whether the source is a
  * walkthrough artifact or the live session's recording. Pointer and key
  * events translate to lane percents and dispatch through the model — the
@@ -372,221 +372,196 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/*
+ * One row inside the play strip: play, the scrub bar and LIVE. The tape's
+ * and walkthrough's secondary controls float just above the strip's right
+ * end (the strip is their positioned ancestor), so opening the tape never
+ * moves or resizes the timeline under the pointer. Errors and pending notes
+ * wrap below the row.
+ */
 .transport {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-  width: var(--game-width);
-  box-sizing: border-box;
-  margin-top: -6px;
-  padding: 6px 12px;
-  background: #0b171b;
-  border: 1px solid #1a5259;
-  border-radius: 8px;
+  flex: 1 1 360px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
   user-select: none;
 }
 .transport-primary,
 .transport-secondary {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-4);
   min-width: 0;
 }
-.transport-secondary {
-  flex-wrap: wrap;
-  gap: 8px;
+.transport-primary {
+  flex: 1 1 240px;
 }
-.transport-secondary:empty {
+.transport-secondary {
+  position: absolute;
+  right: var(--space-6);
+  bottom: calc(100% + var(--space-2));
+  z-index: var(--z-dock);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  max-width: calc(100% - 2 * var(--space-6));
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-pop);
+}
+.transport-pos:empty,
+.transport-secondary:not(:has(> :not(:empty))) {
   display: none;
 }
-.transport-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 30px;
-  height: 30px;
-  padding: 0 6px;
-  border: 1px solid #2e717b;
-  border-radius: 6px;
-  background: #163b42;
-  color: #5ce1e6;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s,
-    transform 0.1s;
-}
-.transport-btn:hover:not(:disabled) {
-  background: #1c4d56;
-  border-color: #5ce1e6;
-  color: #ffffff;
-}
-.transport-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.transport-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
+.transport-btn,
 .transport-play-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid #2e717b;
-  border-radius: 6px;
-  background: #163b42;
-  color: #5ce1e6;
-  cursor: pointer;
   flex-shrink: 0;
+  min-width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  background: transparent;
+  cursor: pointer;
   transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s,
-    transform 0.1s;
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
+.transport-play-btn {
+  width: var(--control-h-sm);
+  padding: 0;
+}
+.transport-btn:hover:not(:disabled),
 .transport-play-btn:hover:not(:disabled) {
-  background: #1c4d56;
-  border-color: #5ce1e6;
-  color: #ffffff;
+  color: var(--ink);
+  background: var(--surface-3);
 }
+.transport-btn:disabled,
 .transport-play-btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
-.transport-play-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
+/* A fixed width: the label changes (Pause, Resume from here) but the
+   timeline beside it must not move. */
 .transport-play-btn--labeled {
+  justify-content: flex-start;
   width: 160px;
-  padding: 0 10px;
-  gap: 6px;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--action);
+  border-color: var(--action-line);
 }
 .transport-play-label {
-  font-size: 12px;
-  font-weight: 600;
+  font: var(--weight-semibold) var(--text-xs) / 1 var(--font-sans);
   white-space: nowrap;
 }
 .transport-live-tick {
   position: absolute;
   right: 0;
   top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 14px;
-  border-radius: 1px;
-  background: #5ce1e6;
   z-index: 2;
+  width: 3px;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--action);
+  transform: translateY(-50%);
   pointer-events: none;
 }
 .transport-live-btn {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
+  border-color: var(--hairline-strong);
+  border-radius: var(--radius-pill);
+  color: var(--ink-3);
+  font: var(--weight-bold) var(--text-2xs) / 1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
 }
 .transport-live-btn--here {
-  background: #1a5259;
-  border-color: #5ce1e6;
-  color: #ffffff;
+  color: var(--action);
+  border-color: var(--action-line);
+  background: var(--action-soft);
 }
 .transport-timeline {
   position: relative;
-  flex: 1;
-  min-width: 96px;
-  height: 26px;
   display: flex;
+  flex: 1;
   align-items: center;
+  min-width: 96px;
+  height: var(--control-h-sm);
   cursor: pointer;
   touch-action: none;
   outline: none;
 }
 .transport-timeline:focus-visible .transport-track {
-  box-shadow: 0 0 0 2px #5ce1e6;
+  box-shadow: 0 0 0 2px var(--focus);
 }
 .transport-track {
   position: relative;
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-  transition: height 0.15s ease;
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  transition: height var(--duration) var(--ease-out);
 }
 .transport-timeline:hover .transport-track {
-  height: 8px;
+  height: 6px;
 }
 .transport-progress-fill {
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background: linear-gradient(90deg, #1fa2a6, #5ce1e6);
-  border-radius: 3px;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--action-line), var(--action));
   pointer-events: none;
 }
 .transport-marker {
   position: absolute;
   top: 50%;
-  transform: translate(-50%, -50%);
+  z-index: 2;
   width: 4px;
   height: 10px;
   padding: 0;
-  border: 1px solid #0b171b;
-  border-radius: 1px;
-  background: #ffd700;
-  z-index: 2;
+  border: 1px solid var(--surface-0);
+  border-radius: var(--radius-sm);
+  background: var(--warn);
+  transform: translate(-50%, -50%);
   /* Dense checkpoint clusters overlap: pointer resolution happens on the
      timeline (nearest mark wins); the button stays for keyboard activation. */
   pointer-events: none;
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    background-color 0.15s ease;
 }
 .transport-marker--restart {
-  background: #ff7a7a;
+  background: var(--agi-12);
 }
 .transport-marker--remix {
-  background: #b98cff;
+  background: var(--agi-13);
 }
 .transport-marker--prompt {
-  background: #7ab8ff;
+  background: var(--agi-9);
 }
 .transport-marker--bookmark {
-  background: #7affb0;
+  background: var(--ok);
 }
 .transport-marker--passed {
-  background: #fff080;
-}
-.transport-marker--passed.transport-marker--restart {
-  background: #ff9b9b;
-}
-.transport-marker--passed.transport-marker--remix {
-  background: #cfaaff;
-}
-.transport-marker--passed.transport-marker--prompt {
-  background: #9ccaff;
-}
-.transport-marker--passed.transport-marker--bookmark {
-  background: #9fffc6;
+  opacity: 0.7;
 }
 .transport-thumb {
   position: absolute;
   top: 50%;
-  transform: translate(-50%, -50%);
+  z-index: 3;
   width: 14px;
   height: 14px;
-  border-radius: 50%;
-  background: #5ce1e6;
-  box-shadow: 0 0 6px rgba(92, 225, 230, 0.7);
-  z-index: 3;
+  border-radius: var(--radius-pill);
+  background: var(--action);
+  transform: translate(-50%, -50%);
   pointer-events: none;
-  transition: transform 0.1s ease;
+  transition: transform var(--duration-fast) var(--ease-out);
 }
 .transport-timeline:hover .transport-thumb {
   transform: translate(-50%, -50%) scale(1.2);
@@ -594,50 +569,46 @@ onUnmounted(() => {
 .transport-tooltip {
   position: absolute;
   bottom: calc(100% + 6px);
-  transform: translateX(-50%);
-  background: #0f2428;
-  border: 1px solid #2e717b;
-  border-radius: 6px;
-  padding: 3px 8px;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 10;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  z-index: var(--z-dock);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
+  padding: var(--space-0) var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-pop);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .transport-tooltip-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #ffffff;
+  color: var(--ink);
+  font: var(--weight-semibold) var(--text-2xs) / 1.4 var(--font-sans);
 }
 .transport-tooltip-details {
-  font-size: 10px;
-  color: #9fe6a0;
-  font-family: var(--font-mono, monospace);
+  color: var(--ok);
+  font: var(--text-2xs) / 1.4 var(--font-mono);
 }
 .transport-speed-group {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .transport-speed-btn {
-  padding: 2px 8px;
-  font-size: 12px;
   min-height: 24px;
+  padding: var(--space-0) var(--space-3);
+  font-size: var(--text-xs);
   line-height: 1;
 }
 .transport-speed-btn--active {
-  background: #1a5259;
-  border-color: #5ce1e6;
-  color: #ffffff;
-  font-weight: 600;
+  color: var(--action-ink);
+  background: var(--action);
 }
 .transport-story-pause {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 .transport-story-pause-icon {
   flex-shrink: 0;
@@ -645,45 +616,48 @@ onUnmounted(() => {
 .transport-pos {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: #9aa7b8;
+  gap: var(--space-1);
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
   white-space: nowrap;
 }
 .transport-readout {
   min-width: 96px;
+  font-family: var(--font-mono);
   text-align: right;
 }
 .transport-action {
-  padding: 3px 10px;
-  font-size: 12px;
   min-height: 28px;
+  padding: var(--space-0) var(--space-4);
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 .transport-note {
-  margin-left: 8px;
-  font-size: 11px;
-  color: #e0c98a;
+  margin-left: var(--space-3);
+  color: var(--warn);
+  font-size: var(--text-2xs);
   white-space: nowrap;
 }
 .transport-pending {
   display: inline-flex;
+  flex-basis: 100%;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .transport-status {
-  font-size: 12px;
-  color: #9aa7b8;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
 }
 .transport-error {
+  flex-basis: 100%;
   margin: 0;
-  font-size: 12px;
-  color: #ff9b9b;
+  color: var(--danger);
+  font-size: var(--text-xs);
 }
 .transport-error-details {
   display: inline;
-  font-size: 11px;
-  color: #9aa7b8;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
 }
 .transport-error-details summary {
   display: inline;
@@ -692,27 +666,37 @@ onUnmounted(() => {
 }
 @media (max-width: 600px) {
   .transport {
-    gap: 6px;
-    padding: 6px 8px;
+    gap: var(--space-2);
   }
   .transport-primary {
-    gap: 8px;
+    flex-basis: 100%;
+    gap: var(--space-3);
+  }
+  /* A phone has no room above the strip: the controls wrap under the row. */
+  .transport-secondary {
+    position: static;
+    justify-content: flex-start;
+    max-width: none;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
   }
   .transport-play-btn,
   .transport-btn,
   .transport-speed-btn,
   .transport-timeline {
-    min-height: 44px;
+    min-height: var(--control-h-touch);
   }
   .transport-play-btn,
   .transport-btn,
   .transport-speed-btn {
-    min-width: 44px;
+    min-width: var(--control-h-touch);
   }
   .transport-play-btn--labeled {
-    width: 88px;
-    padding: 0 6px;
     flex-shrink: 0;
+    width: 88px;
+    padding: 0 var(--space-2);
   }
   .transport-play-btn svg {
     flex-shrink: 0;

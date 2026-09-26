@@ -8,6 +8,7 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
@@ -62,6 +63,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).not.toBeNull();
 
   // Author a change to trigger a remix fork
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Rename the gallery");
@@ -72,8 +74,9 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await page.screenshot({ path: test.info().outputPath("remix-after.png") });
   const remixProjectId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
   expect(remixProjectId).not.toBe(TUTORIAL_PROJECT_ID);
+  // The remix was made in Create mode, which the URL names with the project.
   expect(new URL(page.url()).hash, "the URL must follow the remix project ID").toBe(
-    `#play/${remixProjectId}`,
+    `#create/${remixProjectId}`,
   );
   // Progress now belongs to the remix: the original card must not offer a checkpoint.
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).toBeNull();
