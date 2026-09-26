@@ -225,6 +225,7 @@ export function useEngine(
     window.__AGI_REPLAY__ = replayDriver;
     (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
     (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
+    window.__AGI_FRAME__ = link.getLatestFrame;
   }
 
   const autosaveController = useAutosaveController({
@@ -264,6 +265,7 @@ export function useEngine(
     state,
     getWorker: link.getWorker,
     query: link.query,
+    awaitPatched: link.awaitPatched,
     logAgent,
     readFrames: debug.readFrames,
     pauseEngine,
@@ -548,6 +550,7 @@ export function useEngine(
     attachCharacterReference: authoringController.attachCharacterReference,
     detachReference: authoringController.detachReference,
     keepStagedView: authoringController.keepStagedView,
+    commitPictureEdit: authoringController.commitPictureEdit,
     isInstalledGame: lifecycle.isInstalledGame,
     currentGame: lifecycle.currentGame,
     exportCurrentGame: lifecycle.exportCurrentGame,
@@ -559,6 +562,8 @@ export function useEngine(
     resumeLastGame: autosaveController.resumeLastGame,
     resumeFromRecord: autosaveController.resumeFromRecord,
     startOver: autosaveController.startOver,
+    /** Boot the running project again from storage under its own AI settings. */
+    reloadFromStorage: () => autosaveController.reloadFromStorage(activeLlmConfig),
     flushAutosave: autosaveController.flushAutosave,
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,

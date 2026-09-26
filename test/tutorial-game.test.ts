@@ -9,6 +9,8 @@ import { compilePictureSource } from "../src/picture/source.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { createPictureSurface, SCREEN_WIDTH } from "../src/types.ts";
 import { buildView, parseView } from "../src/view/view.ts";
+import { parsePictureDocument, pictureCommandText } from "../src/studio/pictureDocument.ts";
+import { createHash } from "node:crypto";
 import { GAME_CATALOG } from "../app/src/gameCatalog.ts";
 import { gameRevision } from "../app/src/gameMetadata.ts";
 import {
@@ -266,6 +268,55 @@ test("tutorial resources are pinned to the released catalog version", async () =
     await gameRevision(buildTutorial().files),
     "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
     "tutorial resources changed: re-pin this revision (the version stays 1.0.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
+  );
+});
+
+// Room Studio opens the tutorial's pictures on their authored sources, so
+// every drawing command sits in a named item. The items are comments: the
+// bytes are pinned per picture (and by the revision above) to what the
+// sources compiled to before they were annotated.
+test("the tutorial pictures are named Studio items without moving a byte", () => {
+  const pinned: Record<string, string> = {
+    1: "16ff9de078b7f08fa10ad85282a5616970b82e7fb66c59d7febbffa3b637b1ff",
+    2: "f78bc18f81e831c79a1f70a375716bd8be37b0bc0e601efe90427565fc0e11cb",
+    3: "c90635c4e9be1955a94ab9ad34630bbd299e5ef28a4f879ca8a73b6efc9a8a56",
+    4: "8da793bd16f13a524f928d5e44be67e6d986bad32879bf9f5a56cf5672145270",
+  };
+  const shipped = buildTutorial();
+  const container = openContainer(new Map(Object.entries(shipped.files)));
+  const stored = new Map(
+    (shipped.project!.authoringState!["sources"] as { pictures: [number, string][] }).pictures,
+  );
+  for (const [num, source] of Object.entries(TUTORIAL_PICTURE_SOURCES)) {
+    const bytes = compilePictureSource(source).bytes;
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), pinned[num], `PIC ${num} bytes`);
+    assert.deepEqual(container.getResource("picture", Number(num)), bytes);
+    // The catalog project carries the annotated text, which Studio trusts.
+    assert.equal(stored.get(Number(num)), source);
+    const { document, diagnostics } = parsePictureDocument(source);
+    assert.deepEqual(diagnostics, [], `PIC ${num}`);
+    const covered = new Set(document.items.flatMap((item) => item.commandLines));
+    const loose = document.lines.flatMap((line, i) =>
+      pictureCommandText(line) && pictureCommandText(line) !== "end" && !covered.has(i + 1)
+        ? [`${i + 1}: ${line}`]
+        : [],
+    );
+    assert.deepEqual(loose, [], `PIC ${num}: every drawing command is in an item`);
+    const labels = document.items.map((item) => item.label);
+    assert.ok(labels.length >= 10, `PIC ${num} has ${labels.length} items`);
+    assert.equal(new Set(labels).size, labels.length, `PIC ${num} labels are distinct`);
+  }
+  // The priority exhibit's counter is the depth item; the barrier lines are walk items.
+  const archive = parsePictureDocument(TUTORIAL_PICTURE_SOURCES[3]!).document.items;
+  assert.deepEqual(
+    archive.filter((item) => item.kind !== "art").map(({ id, kind }) => [id, kind]),
+    [
+      ["wall-base", "walk"],
+      ["west-barrier", "walk"],
+      ["east-barrier", "walk"],
+      ["counter-depth", "depth"],
+      ["counter-barrier", "walk"],
+    ],
   );
 });
 

@@ -34,6 +34,7 @@ import {
   type ProfileId,
 } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
+import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
 import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
@@ -3509,19 +3510,13 @@ export class Engine {
   }
 
   /**
-   * Footprint control acceptance: scan the priority/control cells along the
-   * baseline for exactly the cel width, left to right. Control 0 rejects;
-   * control 1 rejects unless ignore.blocks. The two class flags are:
-   *
-   * - trigger (f3): set when ANY scanned cell is control 2, never cleared by a
-   *   later cell;
-   * - water (f0): set only when EVERY scanned cell is control 3.
-   *
-   * The spec's "Footprint control acceptance" states a final-cell rule for
-   * both classes; the shipped interpreters and observed game data disagree.
-   * Priority 15 skips the scan, accepts the footprint, and for object 0
-   * clears both flags, as the same routine does.
-   * docs/fidelity.md: footprint-class-flags
+   * Footprint control acceptance (src/runtime/controlCheck.ts): an accepted
+   * scan sets ego's trigger flag (f3) when ANY cell is control 2 and its water
+   * flag (f0) only when EVERY cell is control 3. The spec's "Footprint control
+   * acceptance" states a final-cell rule for both classes; the shipped
+   * interpreters and observed game data disagree. Priority 15 skips the scan,
+   * accepts the footprint, and for object 0 clears both flags, as the same
+   * routine does. docs/fidelity.md: footprint-class-flags
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
     if (!obj.fixedPriority) obj.priority = priorityForY(ny, this.priorityBase);
@@ -3533,24 +3528,11 @@ export class Engine {
       return true;
     }
     if (ny < 0 || ny > 167) return false;
-    let flag3 = false;
-    let flag0 = true;
-    for (let i = 0; i < obj.width; i++) {
-      const cx = nx + i;
-      if (cx < 0 || cx > 159) continue;
-      const v = this.surface.priority[ny * 160 + cx] ?? 4;
-      if (v === 0) return false;
-      if (v === 3) continue;
-      flag0 = false;
-      if (v === 1 && obj.observeBlocks) return false;
-      if (v === 2) flag3 = true;
-    }
-    if (obj.waterGate === "both") return false;
-    if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: every cell is control 3
-    if (obj.waterGate === "off" && flag0) return false; // obj.on.land: not every cell is control 3
+    const controls = scanFootprint(this.surface.priority, nx, ny, obj.width);
+    if (!footprintAccepted(controls, obj.observeBlocks, obj.waterGate)) return false;
     if (obj === this.objects[0]) {
-      this.flags[3] = flag3 ? 1 : 0;
-      this.flags[0] = flag0 ? 1 : 0;
+      this.flags[3] = controls.signal ? 1 : 0;
+      this.flags[0] = controls.water ? 1 : 0;
     }
     return true;
   }

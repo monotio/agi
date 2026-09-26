@@ -81,61 +81,96 @@ test("rows: items in draw order, then loose lines as Unassigned, without the clo
 
 /**
  * Three brown lines, a black one, two more brown lines and a band-9 depth
- * pair, each its own item. Timeline: 0 vis 6, 1-3 the brown lines, 4 vis 0,
- * 5 ink, 6 vis 6, 7-8 brown, 9 vis off, 10 pri 9, 11-12 steps, 13 end.
+ * pair, each its own item, with the inferred-element ids `inferNativeItems`
+ * assigns. Timeline: 0 vis 6, 1-3 the brown lines, 4 vis 0, 5 ink, 6 vis 6,
+ * 7-8 brown, 9 vis off, 10 pri 9, 11-12 steps, 13 end.
  */
 const GROUPED = text(
-  '# @item b1 "Box 1" art',
+  '# @item el-1 "Box 1" art',
   "vis 6",
   "line 10,10 20,10",
   "# @end",
-  '# @item b2 "Box 2" art',
+  '# @item el-2 "Box 2" art',
   "line 10,20 20,20",
   "# @end",
-  '# @item b3 "Box 3" art',
+  '# @item el-3 "Box 3" art',
   "line 10,30 20,30",
   "# @end",
-  '# @item k "Ink" art',
+  '# @item el-4 "Ink" art',
   "vis 0",
   "line 30,10 30,40",
   "# @end",
-  '# @item b4 "Box 4" art',
+  '# @item el-5 "Box 4" art',
   "vis 6",
   "line 40,10 50,10",
   "# @end",
-  '# @item b5 "Box 5" art',
+  '# @item el-6 "Box 5" art',
   "line 40,20 50,20",
   "# @end",
-  '# @item p1 "Step 1" depth',
+  '# @item el-7 "Step 1" depth',
   "vis off",
   "pri 9",
   "line 60,10 70,10",
   "# @end",
-  '# @item p2 "Step 2" depth',
+  '# @item el-8 "Step 2" depth',
   "line 60,20 70,20",
   "# @end",
   "end",
 );
 
-test("branches fold consecutive items of one kind and dominant value into groups", () => {
+test("branches fold consecutive inferred items of one kind and dominant value into groups", () => {
   const model = buildStudioModel({ bytes: bytesOf(GROUPED), authoredSource: GROUPED, profile });
   assert.deepEqual(
     model.branches.map(({ group, rows }) => [group?.label ?? null, rows.map((row) => row.id)]),
     [
-      ["Brown art · 3", ["b1", "b2", "b3"]],
-      [null, ["k"]],
-      ["Brown art · 2", ["b4", "b5"]],
-      ["Band 9 depth · 2", ["p1", "p2"]],
+      ["Brown art · 3", ["el-1", "el-2", "el-3"]],
+      [null, ["el-4"]],
+      ["Brown art · 2", ["el-5", "el-6"]],
+      ["Band 9 depth · 2", ["el-7", "el-8"]],
     ],
   );
   const [first] = model.groups;
   // Box 1 is vis 6 and a line (entries 0, 1); boxes 2 and 3 a line each.
   assert.deepEqual(first!.entries, [0, 1, 2, 3]);
-  assert.deepEqual(first!.members, ["b1", "b2", "b3"]);
-  assert.equal(first!.id, "(group)b1");
+  assert.deepEqual(first!.members, ["el-1", "el-2", "el-3"]);
+  assert.equal(first!.id, "(group)el-1");
   assert.deepEqual(
     model.groups.map((group) => group.tag),
     ["art", "art", "pri 9"],
+  );
+});
+
+test("authored items always stand alone: they never join a group, but do break one", () => {
+  // The same drawing hand-itemized: authored ids where GROUPED has el-N.
+  const authored = GROUPED.replaceAll("el-", "box-");
+  const model = buildStudioModel({ bytes: bytesOf(authored), authoredSource: authored, profile });
+  assert.equal(model.groups.length, 0);
+  assert.deepEqual(
+    model.branches.map(({ group, rows }) => [group?.id ?? null, rows.map((row) => row.id)]),
+    [
+      [null, ["box-1"]],
+      [null, ["box-2"]],
+      [null, ["box-3"]],
+      [null, ["box-4"]],
+      [null, ["box-5"]],
+      [null, ["box-6"]],
+      [null, ["box-7"]],
+      [null, ["box-8"]],
+    ],
+  );
+  // One authored row inside a run of same-colour inferred elements splits it.
+  const mixed = GROUPED.replace('# @item el-2 "Box 2" art', '# @item bench "Box 2" art');
+  const split = buildStudioModel({ bytes: bytesOf(mixed), authoredSource: mixed, profile });
+  assert.deepEqual(
+    split.branches.map(({ group, rows }) => [group?.label ?? null, rows.map((row) => row.id)]),
+    [
+      [null, ["el-1"]],
+      [null, ["bench"]],
+      [null, ["el-3"]],
+      [null, ["el-4"]],
+      ["Brown art · 2", ["el-5", "el-6"]],
+      ["Band 9 depth · 2", ["el-7", "el-8"]],
+    ],
   );
 });
 
@@ -144,10 +179,25 @@ test("the filter matches an item's own text or its group's label, flat", () => {
   const ids = (rows: readonly { id: string }[] | null) => rows?.map((row) => row.id) ?? null;
   const all = filterScene(model, "  ");
   assert.equal(all.matches, null);
-  assert.deepEqual(ids(all.steps), ["b1", "b2", "b3", "k", "b4", "b5", "p1", "p2"]);
-  assert.deepEqual(ids(filterScene(model, "BROWN").matches), ["b1", "b2", "b3", "b4", "b5"]);
-  assert.deepEqual(ids(filterScene(model, "ink").matches), ["k"]);
-  assert.deepEqual(ids(filterScene(model, "band 9").steps), ["p1", "p2"]);
+  assert.deepEqual(ids(all.steps), [
+    "el-1",
+    "el-2",
+    "el-3",
+    "el-4",
+    "el-5",
+    "el-6",
+    "el-7",
+    "el-8",
+  ]);
+  assert.deepEqual(ids(filterScene(model, "BROWN").matches), [
+    "el-1",
+    "el-2",
+    "el-3",
+    "el-5",
+    "el-6",
+  ]);
+  assert.deepEqual(ids(filterScene(model, "ink").matches), ["el-4"]);
+  assert.deepEqual(ids(filterScene(model, "band 9").steps), ["el-7", "el-8"]);
 });
 
 test("a list of more than 60 rows folds into draw-order sections", () => {
@@ -197,7 +247,7 @@ test("group labels name the colour, the priority meaning or a covered run", () =
 
 test("a group's highlight is the union of its members' masks", () => {
   const doc = useStudioDocument({ bytes: bytesOf(GROUPED), authoredSource: GROUPED, profile });
-  const union = doc.rowMask("(group)b1", "art");
+  const union = doc.rowMask("(group)el-1", "art");
   const cells: number[] = [];
   union.forEach((bit, i) => bit === 1 && cells.push(i));
   const expected: number[] = [];

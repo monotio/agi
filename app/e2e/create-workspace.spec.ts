@@ -196,7 +196,7 @@ test("Room Studio takes the whole workspace and closing restores the docks as th
 
   // Studio's own back control is the way back to Create: the docks return
   // with the tab and the room they showed.
-  await studio.getByRole("button", { name: "Back", exact: true }).click();
+  await studio.getByRole("button", { name: "Back to Create", exact: true }).click();
   await expect(studio).toHaveCount(0);
   await expect(left).toBeVisible();
   await expect(right).toBeVisible();

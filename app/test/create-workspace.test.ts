@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ref } from "vue";
 import { registerCreatePanel } from "../src/shell/createDocks.ts";
-import { createCreateWorkspace, DOCKS_STORAGE_KEY } from "../src/shell/useCreateWorkspace.ts";
+import {
+  createCreateWorkspace,
+  DOCKS_STORAGE_KEY,
+  type StudioRequest,
+} from "../src/shell/useCreateWorkspace.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
+import { testRevision } from "./identity.ts";
 
 function memoryStorage(seed: Record<string, string> = {}) {
   const data = new Map(Object.entries(seed));
@@ -68,15 +73,27 @@ test("showing a panel selects its tab and unfolds its dock", () => {
   }
 });
 
-test("Studio holds its own pause and hands the keyboard back on close", () => {
-  const { ws, calls } = workspace(memoryStorage());
-  const request = {
-    room: 2,
+function studioRequest(
+  room: number,
+  reload: () => StudioRequest | null = () => null,
+  reloadFromStorage: () => Promise<StudioRequest | null> = async () => null,
+): StudioRequest {
+  return {
+    room,
     pictureNumber: 5,
     bytes: Uint8Array.of(0xff),
     profile: Object.values(PROFILES)[0]!,
-    title: "Room 2",
+    title: `Room ${room}`,
+    baseRevision: testRevision("studio"),
+    files: new Map(),
+    reload,
+    reloadFromStorage,
   };
+}
+
+test("Studio holds its own pause and hands the keyboard back on close", () => {
+  const { ws, calls } = workspace(memoryStorage());
+  const request = studioRequest(2);
   ws.openStudio(request);
   ws.openStudio({ ...request, pictureNumber: 6 });
   assert.equal(ws.studio.value?.pictureNumber, 6);
@@ -84,6 +101,42 @@ test("Studio holds its own pause and hands the keyboard back on close", () => {
   ws.closeStudio();
   assert.equal(ws.studio.value, null);
   assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
+});
+
+test("reopening Studio reads its picture again under the same pause, or closes when it is gone", async () => {
+  const { ws, calls } = workspace(memoryStorage());
+  const fresh = { ...studioRequest(2), baseRevision: testRevision("after") };
+  ws.openStudio(studioRequest(2, () => fresh));
+  await ws.reopenStudio();
+  assert.equal(ws.studio.value, fresh);
+  assert.deepEqual(calls, ["pause:studio"]);
+  await ws.reopenStudio();
+  assert.equal(ws.studio.value, null, "the fresh request's reload finds nothing");
+  assert.deepEqual(calls, ["pause:studio", "resume:studio", "focus"]);
+});
+
+test("reopening from storage keeps the old game paused until the reload is done", async () => {
+  const { ws, calls } = workspace(memoryStorage());
+  const reloaded = { ...studioRequest(2), baseRevision: testRevision("stored"), notice: "Loaded" };
+  let finish!: (request: StudioRequest | null) => void;
+  const pending = new Promise<StudioRequest | null>((resolve) => (finish = resolve));
+  ws.openStudio(studioRequest(2, undefined, () => pending));
+  const reopening = ws.reopenStudio(true);
+  // Studio leaves at once, but the old game's pause holds through the reload.
+  assert.equal(ws.studio.value, null);
+  assert.deepEqual(calls, ["pause:studio"]);
+  finish(reloaded);
+  await reopening;
+  // The reloaded game gets its own pause, and Studio opens on the stored bytes.
+  assert.equal(ws.studio.value, reloaded);
+  assert.deepEqual(calls, ["pause:studio", "resume:studio", "pause:studio"]);
+
+  // A reload that finds nothing leaves the game running with the keyboard.
+  const lost = workspace(memoryStorage());
+  lost.ws.openStudio(studioRequest(2));
+  await lost.ws.reopenStudio(true);
+  assert.equal(lost.ws.studio.value, null);
+  assert.deepEqual(lost.calls, ["pause:studio", "resume:studio", "focus"]);
 });
 
 test("Studio never opens where it does not fit, and holds no pause there", () => {
@@ -96,13 +149,7 @@ test("Studio never opens where it does not fit, and holds no pause there", () =>
     studioFits: () => fits.value,
     storage: memoryStorage(),
   });
-  const request = {
-    room: 1,
-    pictureNumber: 5,
-    bytes: Uint8Array.of(0xff),
-    profile: Object.values(PROFILES)[0]!,
-    title: "Room 1",
-  };
+  const request = studioRequest(1);
   assert.equal(ws.studioFits.value, false);
   ws.openStudio(request);
   assert.equal(ws.studio.value, null);
@@ -111,4 +158,38 @@ test("Studio never opens where it does not fit, and holds no pause there", () =>
   ws.openStudio(request);
   assert.equal(ws.studio.value, request);
   assert.deepEqual(calls, ["pause:studio"]);
+});
+
+test("leaving asks an open Studio only while it holds unkept changes", async () => {
+  const { ws } = workspace(memoryStorage());
+  let unkept = true;
+  const asked: string[] = [];
+  let answer = true;
+  const guard = {
+    unkept: () => unkept,
+    confirm: () => {
+      asked.push("confirm");
+      return Promise.resolve(answer);
+    },
+  };
+  const release = ws.guardStudio(guard);
+  // No Studio open: nothing to settle, whatever the guard says.
+  assert.equal(ws.studioUnkept(), false);
+  assert.equal(await ws.confirmStudioLeave(), true);
+  ws.openStudio(studioRequest(1));
+  assert.equal(ws.studioUnkept(), true);
+  answer = false;
+  assert.equal(await ws.confirmStudioLeave(), false, "Cancel stays");
+  answer = true;
+  assert.equal(await ws.confirmStudioLeave(), true, "Keep or Discard goes on");
+  unkept = false;
+  assert.equal(await ws.confirmStudioLeave(), true);
+  assert.deepEqual(asked, ["confirm", "confirm"]);
+  // A released guard (Studio unmounted) is never asked again; a newer one stays.
+  const newer = { unkept: () => true, confirm: () => Promise.resolve(false) };
+  const releaseNewer = ws.guardStudio(newer);
+  release();
+  assert.equal(await ws.confirmStudioLeave(), false);
+  releaseNewer();
+  assert.equal(ws.studioUnkept(), false);
 });

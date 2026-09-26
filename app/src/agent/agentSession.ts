@@ -15,6 +15,7 @@ import {
   executeAgentToolAsync,
   type AgentRuntimeDeps,
   type AgentSessionState,
+  type AgentSourceStore,
   type AgentToolImage,
   type AgentToolResult,
 } from "../../../src/agent/tools.ts";
@@ -701,24 +702,29 @@ Answer the player's question using evidence from inspection when needed. For hin
   reserveMutation(reason: string): () => void {
     this.assertAdoptable();
     if (this.task.snapshot().status !== "idle")
-      throw new Error("Wait for the current agent turn before keeping a staged view.");
+      throw new Error("Wait for the current agent turn before keeping an edit.");
     this.mutationHold = reason;
     return () => {
       this.mutationHold = null;
     };
   }
 
-  /** Validate a VIEW candidate without changing this session before storage succeeds. */
-  prepareViewPatch(
+  /**
+   * Validate a resource edit's candidate state — the edited files plus the
+   * source `stage` records for them — without changing this session before
+   * storage succeeds. `changed` is what `stage` reported: whether the
+   * recorded source differs from the one this session holds.
+   */
+  prepareSourcePatch(
     files: Record<string, Uint8Array>,
-    num: number,
-    input: BuildViewInput,
+    stage: (sources: AgentSourceStore) => boolean,
   ): {
     authoringState: Record<string, unknown>;
+    changed: boolean;
     adopt: () => void;
   } {
     const candidate = forkAgentState(this.state);
-    candidate.sources.views.set(num, structuredClone(input));
+    const changed = stage(candidate.sources);
     const snapshot = this.getAuthoringState(candidate);
     const next = stateFromAuthoredData(
       files,
@@ -729,6 +735,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     next.genesisComplete = this.state.genesisComplete;
     return {
       authoringState: snapshot,
+      changed,
       adopt: () => {
         Object.assign(this.state, next);
       },

@@ -1,7 +1,7 @@
 /**
  * Pure view helpers for the Room Studio: lens painting, mask geometry for
- * the SVG overlay, priority band guides, control-line labels and the
- * draw-order tick layout. No Vue and no DOM, so tests drive them directly.
+ * the SVG overlay, priority band guides, control-line labels, the
+ * draw-order tick layout and Scene list labels. No Vue and no DOM, so tests drive them directly.
  */
 
 import { EGA_PALETTE } from "../palette.ts";
@@ -44,6 +44,29 @@ export function patternOn(pattern: ControlValue["pattern"], x: number, y: number
   if (pattern === "dashed") return (x + y) % 2 === 0;
   if (pattern === "dotted") return (x + y) % 3 === 0;
   return Math.floor((x + y) / 2) % 2 === 0;
+}
+
+/** Each pane's accessible name. */
+export const PANE_LABELS: Record<PaneLayer, string> = {
+  art: "Picture, visual plane",
+  depth: "Picture with the priority plane blended over it",
+  "depth-only": "Priority plane",
+  walk: "Picture dimmed, with control lines",
+  "walk-only": "Control lines on the priority plane",
+};
+
+/** The subtitle's parts that add something beyond the title and the PIC chip. */
+export function subtitleExtra(
+  title: string,
+  pictureNumber: number,
+  subtitle: string | undefined,
+): string {
+  const known = [title.toLowerCase(), `pic ${pictureNumber}`];
+  return (subtitle ?? "")
+    .split("·")
+    .map((part) => part.trim())
+    .filter((part) => part !== "" && !known.includes(part.toLowerCase()))
+    .join(" · ");
 }
 
 /** The panes a lens and view mode put on screen, left to right. */
@@ -315,4 +338,74 @@ export function spanIndexAt(spans: readonly PictureSourceSpan[], offset: number)
     else return mid;
   }
   return -1;
+}
+
+/** When the byte meter starts warning: this share of write_scene's limit. */
+export const BYTES_APPROACH = 0.8;
+
+export interface ByteMeter {
+  tone: "ok" | "warn" | "danger";
+  /** Share of the resource limit used, 0..1. */
+  fraction: number;
+  note: string;
+}
+
+/**
+ * The top bar's size meter for a compiled picture: against the container's
+ * record limit (a PIC is at most `recordLimit` bytes) and, before it, the
+ * agent's write_scene limit, past which the agent cannot rewrite the picture.
+ */
+export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number): ByteMeter {
+  const fraction = Math.min(1, bytes / recordLimit);
+  const n = (value: number): string => value.toLocaleString("en-US");
+  if (bytes > recordLimit)
+    return {
+      tone: "danger",
+      fraction,
+      note: `Over the ${n(recordLimit)}-byte resource limit: this picture cannot be kept.`,
+    };
+  if (bytes > sceneLimit)
+    return {
+      tone: "warn",
+      fraction,
+      note: `Over the agent's ${n(sceneLimit)}-byte write_scene limit; the resource limit is ${n(recordLimit)} bytes.`,
+    };
+  if (bytes >= sceneLimit * BYTES_APPROACH)
+    return {
+      tone: "warn",
+      fraction,
+      note: `Approaching the agent's ${n(sceneLimit)}-byte write_scene limit (resource limit ${n(recordLimit)}).`,
+    };
+  return {
+    tone: "ok",
+    fraction,
+    note: `${n(bytes)} of the ${n(recordLimit)} bytes a picture can hold.`,
+  };
+}
+
+/** A Scene list label split for a middle ellipsis: `head` gives way first, `tail` stays whole. */
+export interface LabelParts {
+  readonly full: string;
+  readonly head: string;
+  /** From the first word holding a digit ("5 part 2"), with its leading space; empty when none. */
+  readonly tail: string;
+}
+
+/** Longer tails keep only their last words, so the head still shows something. */
+export const LABEL_TAIL_MAX = 12;
+
+/**
+ * Split an item label where the numbers that tell rows apart begin:
+ * "Element 5 part 2" ellipsizes as "Elem… 5 part 2", never "Element 5 pa…".
+ */
+export function labelParts(full: string): LabelParts {
+  const words = full.split(" ");
+  let start = words.findIndex((word) => /\d/.test(word));
+  if (start <= 0) return { full, head: full, tail: "" };
+  while (start < words.length - 1 && words.slice(start).join(" ").length > LABEL_TAIL_MAX) start++;
+  return {
+    full,
+    head: words.slice(0, start).join(" "),
+    tail: ` ${words.slice(start).join(" ")}`,
+  };
 }

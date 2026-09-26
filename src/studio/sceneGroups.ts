@@ -3,11 +3,20 @@
  * becomes one native item per drawing element (hundreds for a detailed
  * scene), so consecutive items that share their kind and their dominant value
  * (visual colour for art and mixed, priority for depth and walk) fold into one
- * group. Groups are a view over the document: nothing is written to the
- * source, so the bytes and annotations never change.
+ * group. Only inferred elements may join one (see `isInferredItemId` in
+ * nativeItems.ts): an authored item always stands alone. Groups are a view
+ * over the document: nothing is written to the source, so the bytes and
+ * annotations never change.
  */
 
+import { isInferredItemId } from "./nativeItems.ts";
+
 export interface SceneGroupMember<K extends string = string> {
+  /**
+   * The item's id. Only inferred elements (`el-N`, `el-N-M`) may join an
+   * automatic group; any other item stands alone and breaks a run.
+   */
+  readonly id: string;
   /** The item's kind (`art`, `depth`, `walk` or `mixed`). */
   readonly kind: K;
   /**
@@ -48,9 +57,10 @@ export const EGA_COLOUR_NAMES: readonly string[] = [
 ];
 
 /**
- * Split `items` (in draw order) into maximal runs of consecutive items with
- * the same kind and value. Every item lands in exactly one group, in order;
- * a group of one stands for a plain item.
+ * Split `items` (in draw order) into maximal runs of consecutive inferred
+ * elements with the same kind and value. Every item lands in exactly one
+ * group, in order; a group of one stands for a plain item. An authored item
+ * is always a group of one and breaks the run around it.
  */
 export function groupSceneItems<K extends string>(
   items: readonly SceneGroupMember<K>[],
@@ -60,7 +70,14 @@ export function groupSceneItems<K extends string>(
   for (let i = 1; i <= items.length; i++) {
     const first = items[start]!;
     const next = items[i];
-    if (next && next.kind === first.kind && next.value === first.value) continue;
+    if (
+      next &&
+      isInferredItemId(first.id) &&
+      isInferredItemId(next.id) &&
+      next.kind === first.kind &&
+      next.value === first.value
+    )
+      continue;
     if (i > start) groups.push({ start, count: i - start, kind: first.kind, value: first.value });
     start = i;
   }

@@ -21,12 +21,13 @@ import {
   type Ref,
   type ShallowRef,
 } from "vue";
+import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { createPanels, type DockSide } from "./createDocks.ts";
 
 export const DOCKS_STORAGE_KEY = "monotio_agi.createDocks";
 
-/** What Room Studio opens on. The placeholder shows it; RoomStudio edits it. */
+/** What Room Studio opens on; RoomStudio edits it and keeps it against `baseRevision`. */
 export interface StudioRequest {
   readonly room: number;
   readonly pictureNumber: number;
@@ -36,6 +37,26 @@ export interface StudioRequest {
   readonly profile: AgiProfile;
   readonly title: string;
   readonly subtitle?: string | undefined;
+  /** The booted game's resource revision the bytes were read at. */
+  readonly baseRevision: ResourceRevision;
+  /** The booted game's container files, read at the same revision (the actor probe's VIEWs). */
+  readonly files: ReadonlyMap<string, Uint8Array>;
+  /** The same picture read again from the running game, or null when it is gone. */
+  readonly reload: () => StudioRequest | null;
+  /**
+   * Reload the game from browser storage, then the same picture read from
+   * it (carrying a `notice` that says so); null when there is none.
+   */
+  readonly reloadFromStorage: () => Promise<StudioRequest | null>;
+  /** A line Studio says as it opens on this request. */
+  readonly notice?: string | undefined;
+}
+
+/** What an open Studio guards on the way out: its unkept changes, and the question that settles them. */
+export interface StudioLeaveGuard {
+  unkept(): boolean;
+  /** Ask Keep / Discard / Cancel when changes are unkept; resolves whether to go on. */
+  confirm(): Promise<boolean>;
 }
 
 export interface CreateCenter {
@@ -45,6 +66,23 @@ export interface CreateCenter {
   openStudio(request: StudioRequest): void;
   /** Back to the live stage: the game resumes and takes the keyboard. */
   closeStudio(): void;
+  /**
+   * Studio again on the same picture after a refused Keep: read from the
+   * running game, or with `fromStorage`, from the game reloaded from storage.
+   */
+  reopenStudio(fromStorage?: boolean): Promise<void>;
+  /** An open Studio guards leaving while it is mounted; returns the release. */
+  guardStudio(guard: StudioLeaveGuard): () => void;
+  /** Leaving now would lose unkept Studio changes. */
+  studioUnkept(): boolean;
+  /** Settle unkept Studio changes before the game or Create is left; resolves whether to go on. */
+  confirmStudioLeave(): Promise<boolean>;
+  /**
+   * The screen is large enough for Room Studio; phone layouts are not. An
+   * open Studio with unkept changes stays mounted where it does not fit,
+   * covered by a notice, so a rotation or resize never loses its draft.
+   */
+  readonly studioFits: ComputedRef<boolean>;
 }
 
 export interface CreateWorkspace extends CreateCenter {
@@ -56,8 +94,6 @@ export interface CreateWorkspace extends CreateCenter {
   readonly sheetOpen: Ref<boolean>;
   /** A phone's Create: the panels show, nothing edits. */
   readonly viewOnly: ComputedRef<boolean>;
-  /** The screen is large enough for Room Studio; phone layouts are not. */
-  readonly studioFits: ComputedRef<boolean>;
   toggleDock(side: DockSide): void;
   /** Select a panel's tab in whichever dock holds it, unfolding that dock. */
   showPanel(id: string): void;
@@ -130,6 +166,35 @@ export function createCreateWorkspace(deps: {
     deps.focusGame();
   }
 
+  async function reopenStudio(fromStorage = false): Promise<void> {
+    const current = studio.value;
+    if (!current) return;
+    if (!fromStorage) {
+      const next = current.reload();
+      if (next) openStudio(next);
+      else closeStudio();
+      return;
+    }
+    // Studio leaves while the game reloads, and the old game stays paused
+    // until its worker is gone: running on, it could checkpoint the bytes
+    // storage no longer holds. The new game gets its own pause on reopen.
+    studio.value = null;
+    const next = await current.reloadFromStorage().finally(() => deps.resumeEngine("studio"));
+    if (next && !studio.value) openStudio(next);
+    if (!studio.value) deps.focusGame();
+  }
+
+  let guard: StudioLeaveGuard | null = null;
+  function guardStudio(next: StudioLeaveGuard): () => void {
+    guard = next;
+    return () => {
+      if (guard === next) guard = null;
+    };
+  }
+  const studioUnkept = (): boolean => studio.value !== null && guard?.unkept() === true;
+  const confirmStudioLeave = (): Promise<boolean> =>
+    studioUnkept() ? guard!.confirm() : Promise.resolve(true);
+
   return {
     active,
     collapsed,
@@ -141,6 +206,10 @@ export function createCreateWorkspace(deps: {
     studio,
     openStudio,
     closeStudio,
+    reopenStudio,
+    guardStudio,
+    studioUnkept,
+    confirmStudioLeave,
   };
 }
 
@@ -158,6 +227,29 @@ export function useCreateWorkspace(): CreateWorkspace {
 
 /** The centre seam: open Room Studio on a picture, or return to the live stage. */
 export function useCreateCenter(): CreateCenter {
-  const { studio, openStudio, closeStudio } = useCreateWorkspace();
-  return { studio, openStudio, closeStudio };
+  const {
+    studio,
+    openStudio,
+    closeStudio,
+    reopenStudio,
+    guardStudio,
+    studioUnkept,
+    confirmStudioLeave,
+    studioFits,
+  } = useCreateWorkspace();
+  return {
+    studio,
+    openStudio,
+    closeStudio,
+    reopenStudio,
+    guardStudio,
+    studioUnkept,
+    confirmStudioLeave,
+    studioFits,
+  };
+}
+
+/** The centre seam where one is provided; Studio's harness runs without a workspace. */
+export function useOptionalCreateCenter(): CreateCenter | null {
+  return inject(workspaceKey, null);
 }

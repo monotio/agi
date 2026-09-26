@@ -80,9 +80,17 @@
   --dock-right: 56px;
 }
 /* Room Studio takes the whole workspace while the live stage and the docks
-   wait hidden, still mounted, so closing it restores them as they were. */
+   wait hidden, still mounted, so closing it restores them as they were. The
+   page holds still at the screen's height, touch layouts included; App.vue
+   hides what sits below the fold. */
 .in-game .shell-body--studio {
   grid-template-columns: minmax(0, 1fr);
+}
+.app-container.in-game.studio-open .shell {
+  height: var(--layout-height, 100dvh);
+}
+:root:has(.app-container.studio-open) {
+  overflow: hidden;
 }
 .shell-center {
   min-width: 0;

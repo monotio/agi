@@ -8,19 +8,19 @@ import {
 } from "../src/studio/sceneGroups.ts";
 
 describe("groupSceneItems", () => {
-  it("folds consecutive items that share kind and value, in draw order", () => {
+  it("folds consecutive inferred elements that share kind and value, in draw order", () => {
     const groups = groupSceneItems([
-      { kind: "art", value: 6 }, // 0 brown
-      { kind: "art", value: 6 }, // 1 brown
-      { kind: "art", value: 6 }, // 2 brown
-      { kind: "art", value: 0 }, // 3 black breaks the run
-      { kind: "art", value: 6 }, // 4 brown again: a new group, not the first one
-      { kind: "mixed", value: 6 }, // 5 same colour, other kind
-      { kind: "depth", value: 10 }, // 6
-      { kind: "depth", value: 10 }, // 7
-      { kind: "walk", value: 10 }, // 8 same value, other kind
-      { kind: "walk", value: 0 }, // 9
-      { kind: "walk", value: 0 }, // 10
+      { id: "el-1", kind: "art", value: 6 }, // 0 brown
+      { id: "el-2", kind: "art", value: 6 }, // 1 brown
+      { id: "el-3", kind: "art", value: 6 }, // 2 brown
+      { id: "el-4", kind: "art", value: 0 }, // 3 black breaks the run
+      { id: "el-5", kind: "art", value: 6 }, // 4 brown again: a new group, not the first one
+      { id: "el-6", kind: "mixed", value: 6 }, // 5 same colour, other kind
+      { id: "el-7", kind: "depth", value: 10 }, // 6
+      { id: "el-8", kind: "depth", value: 10 }, // 7
+      { id: "el-9", kind: "walk", value: 10 }, // 8 same value, other kind
+      { id: "el-10", kind: "walk", value: 0 }, // 9
+      { id: "el-11", kind: "walk", value: 0 }, // 10
     ]);
     assert.deepEqual(groups, [
       { start: 0, count: 3, kind: "art", value: 6 },
@@ -33,11 +33,41 @@ describe("groupSceneItems", () => {
     ]);
   });
 
+  it("lets only inferred elements join a group: an authored item stands alone and breaks a run", () => {
+    const groups = groupSceneItems([
+      { id: "el-1", kind: "art", value: 0 },
+      { id: "el-2", kind: "art", value: 0 },
+      { id: "bench", kind: "art", value: 0 }, // same kind and colour, but authored
+      { id: "el-3", kind: "art", value: 0 },
+      { id: "el-4-2", kind: "art", value: 0 }, // a split element's later part
+    ]);
+    assert.deepEqual(groups, [
+      { start: 0, count: 2, kind: "art", value: 0 },
+      { start: 2, count: 1, kind: "art", value: 0 },
+      { start: 3, count: 2, kind: "art", value: 0 },
+    ]);
+  });
+
+  it("never groups authored items, however alike they look", () => {
+    const groups = groupSceneItems([
+      { id: "outline", kind: "art", value: 0 },
+      { id: "beams", kind: "art", value: 0 },
+      { id: "frame", kind: "art", value: 0 },
+      { id: "bench", kind: "depth", value: 9 },
+    ]);
+    assert.deepEqual(groups, [
+      { start: 0, count: 1, kind: "art", value: 0 },
+      { start: 1, count: 1, kind: "art", value: 0 },
+      { start: 2, count: 1, kind: "art", value: 0 },
+      { start: 3, count: 1, kind: "depth", value: 9 },
+    ]);
+  });
+
   it("groups covered items (no pixels left) together and apart from colour 0", () => {
     const groups = groupSceneItems([
-      { kind: "art", value: null },
-      { kind: "art", value: null },
-      { kind: "art", value: 0 },
+      { id: "el-1", kind: "art", value: null },
+      { id: "el-2", kind: "art", value: null },
+      { id: "el-3", kind: "art", value: 0 },
     ]);
     assert.deepEqual(groups, [
       { start: 0, count: 2, kind: "art", value: null },
@@ -47,7 +77,7 @@ describe("groupSceneItems", () => {
 
   it("covers every item exactly once", () => {
     assert.deepEqual(groupSceneItems([]), []);
-    assert.deepEqual(groupSceneItems([{ kind: "walk", value: 2 }]), [
+    assert.deepEqual(groupSceneItems([{ id: "walk-1", kind: "walk", value: 2 }]), [
       { start: 0, count: 1, kind: "walk", value: 2 },
     ]);
   });

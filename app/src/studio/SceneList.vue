@@ -3,6 +3,7 @@ import { computed, nextTick, ref, useId, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiPanel from "../ui/UiPanel.vue";
+import { labelParts, type LabelParts } from "./studioView.ts";
 import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./useStudioDocument.ts";
 
 /**
@@ -11,7 +12,9 @@ import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./us
  * into draw-order sections), then the loose lines as Unassigned. Arrow keys
  * move a cursor that also hovers (so the canvas highlights it), Right and Left
  * open and close a section or group, Enter selects. The filter narrows to a
- * flat list of matching items.
+ * flat list of matching items. A label too long for the column ellipsizes in
+ * its middle, so the numbers that tell rows apart stay (studioView.ts
+ * `labelParts`); the whole label is its tooltip.
  */
 const { branches, sections, matches, loose, hoveredId, selectedId } = defineProps<{
   branches: readonly SceneBranch[];
@@ -89,7 +92,7 @@ function branchEntries(
         ],
   );
 }
-const entries = computed<Entry[]>(() => {
+const entries = computed<(Entry & { label: LabelParts })[]>(() => {
   const out: Entry[] =
     matches !== null
       ? matches.map((row) => ({ row, level: 1 }))
@@ -102,7 +105,10 @@ const entries = computed<Entry[]>(() => {
               : []),
           ]);
   if (loose) out.push({ row: loose, level: 1 });
-  return out;
+  return out.map((entry) => ({
+    ...entry,
+    label: labelParts(entry.row === loose ? "Loose lines" : entry.row.label),
+  }));
 });
 const itemEntries = computed(() => entries.value.filter((entry) => entry.row !== loose));
 const allOpen = computed(() => folds.value.every((fold) => expanded.value.has(fold.id)));
@@ -276,9 +282,10 @@ function onFilterKeydown(event: KeyboardEvent): void {
             "
             aria-hidden="true"
           ></i>
-          <span class="scene-list__label">{{
-            entry.row === loose ? "Loose lines" : entry.row.label
-          }}</span>
+          <span class="scene-list__label" :title="entry.label.full"
+            ><span class="scene-list__head">{{ entry.label.head }}</span
+            ><span class="scene-list__tail">{{ entry.label.tail }}</span></span
+          >
           <span v-if="entry.section" class="scene-list__swatches" data-role="section-swatches">
             <i
               v-for="colour in entry.section.swatches"
@@ -311,8 +318,8 @@ function onFilterKeydown(event: KeyboardEvent): void {
             in {{ branches.length }} rows</template
           ></template
         >
-        · read-only
       </span>
+      <slot name="notice" />
     </template>
   </UiPanel>
 </template>
@@ -349,6 +356,11 @@ function onFilterKeydown(event: KeyboardEvent): void {
 }
 .scene-list__filter:focus-within {
   border-color: var(--action-line);
+}
+/* The field itself draws no outline: the ring every control shows goes round the whole box. */
+.scene-list__filter:has(.scene-list__input:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }
 .scene-list__input {
   flex: 1;
@@ -457,9 +469,19 @@ function onFilterKeydown(event: KeyboardEvent): void {
 }
 .scene-list__label {
   grid-column: 3;
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.scene-list__head {
+  min-width: 1.5em;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.scene-list__tail {
+  flex: none;
+  white-space: pre;
 }
 .scene-list__tag {
   grid-column: 4;

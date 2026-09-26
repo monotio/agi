@@ -1,15 +1,26 @@
 /**
  * Scene shapes lowered to picture source text: the pure compiler behind the
  * agent `write_scene` tool and Room Studio shape authoring. A shape with
- * `color: null` draws on the priority plane only.
+ * `color: null` draws on the priority plane only. With `annotate` the
+ * background fill and each shape are wrapped in `# @item`/`# @end` comments
+ * (src/studio/pictureDocument.ts), which never change the compiled bytes.
  */
+
+import { PICTURE_ITEM_ID, type PictureItemKind } from "./pictureDocument.ts";
 
 export interface Point {
   readonly x: number;
   readonly y: number;
 }
 
-export interface RectShape {
+interface NamedShape {
+  /** Studio item id; derived from the label when omitted. */
+  readonly id?: string | undefined;
+  /** Studio item label; `Shape N` when omitted. */
+  readonly label?: string | undefined;
+}
+
+export interface RectShape extends NamedShape {
   readonly kind: "rect";
   readonly color: number | null;
   readonly priority: number | null;
@@ -20,7 +31,7 @@ export interface RectShape {
   readonly y2: number;
 }
 
-export interface PathShape {
+export interface PathShape extends NamedShape {
   readonly kind: "polygon" | "line";
   readonly color: number | null;
   readonly priority: number | null;
@@ -135,9 +146,78 @@ export function shapeSource(shape: SceneShape): string[] {
   return lines;
 }
 
-export function sceneSource(backgroundColor: number, shapes: readonly SceneShape[]): string {
-  const lines = [`vis ${backgroundColor}`, "pri off", "fill 0,0"];
-  for (const shape of shapes) lines.push(...shapeSource(shape));
+/** The Studio item kind for a shape's planes: visual only, depth marks (priority 4+), walk control (0-3), or both planes. */
+function shapeItemKind(shape: SceneShape): PictureItemKind {
+  if (shape.priority === null) return "art";
+  if (shape.color !== null) return "mixed";
+  return shape.priority < 4 ? "walk" : "depth";
+}
+
+/** A label's id slug: lowercase, runs of other characters become `-`; `shape-<slug>` when the slug would not start with a letter. */
+function slugify(label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+  if (slug.length === 0) return "";
+  return (/^[a-z]/.test(slug) ? slug : `shape-${slug}`).slice(0, 32).replace(/[-_]+$/, "");
+}
+
+/**
+ * Unique ids for the scene's shape items, in order. Explicit ids win and must
+ * be well-formed and unused; derived ids slugify the label, fall back to
+ * `shape-N`, and take a `-2`, `-3`, … suffix on collisions.
+ */
+function sceneItemIds(shapes: readonly SceneShape[]): string[] {
+  const used = new Set(["background"]);
+  return shapes.map((shape, index) => {
+    if (shape.id !== undefined) {
+      if (!PICTURE_ITEM_ID.test(shape.id)) {
+        throw new Error(`shape id '${shape.id}' must match ${PICTURE_ITEM_ID.source}`);
+      }
+      if (used.has(shape.id)) throw new Error(`duplicate shape id '${shape.id}'`);
+      used.add(shape.id);
+      return shape.id;
+    }
+    const base = (shape.label !== undefined ? slugify(shape.label) : "") || `shape-${index + 1}`;
+    let id = base;
+    for (let n = 2; used.has(id); n++) {
+      const suffix = `-${n}`;
+      id = `${base.slice(0, 32 - suffix.length).replace(/[-_]+$/, "")}${suffix}`;
+    }
+    used.add(id);
+    return id;
+  });
+}
+
+export interface SceneSourceOptions {
+  /**
+   * Wrap the background fill and each shape in `# @item`/`# @end` directives,
+   * so Room Studio opens the scene as named objects. The directives are
+   * comments: annotated source compiles to the same bytes.
+   */
+  readonly annotate?: boolean;
+}
+
+export function sceneSource(
+  backgroundColor: number,
+  shapes: readonly SceneShape[],
+  options?: SceneSourceOptions,
+): string {
+  const annotate = options?.annotate === true;
+  const ids = annotate ? sceneItemIds(shapes) : [];
+  const lines: string[] = [];
+  if (annotate) lines.push('# @item background "Background" art');
+  lines.push(`vis ${backgroundColor}`, "pri off", "fill 0,0");
+  if (annotate) lines.push("# @end");
+  for (const [index, shape] of shapes.entries()) {
+    if (annotate) {
+      const label = shape.label?.trim() || `Shape ${index + 1}`;
+      lines.push(`# @item ${ids[index]!} ${JSON.stringify(label)} ${shapeItemKind(shape)}`);
+    }
+    lines.push(...shapeSource(shape));
+    if (annotate) lines.push("# @end");
+  }
   lines.push("end");
   return `${lines.join("\n")}\n`;
 }

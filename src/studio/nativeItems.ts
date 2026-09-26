@@ -15,6 +15,14 @@ import {
 import { compilePictureSource } from "../picture/source.ts";
 import { isPictureDirective, type PictureItemKind } from "./pictureDocument.ts";
 
+/**
+ * Whether `id` is one `inferNativeItems` assigns: `el-N`, or `el-N-M` for the
+ * later parts of an element split over non-adjacent lines.
+ */
+export function isInferredItemId(id: string): boolean {
+  return /^el-\d+(?:-\d+)?$/.test(id);
+}
+
 /** The kind of an item from the planes its lines write. */
 function kindOf(planes: number): PictureItemKind {
   if (planes === PLANE_VISUAL) return "art";

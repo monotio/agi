@@ -10,9 +10,15 @@ import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import {
+  createResourceCommit,
+  pictureEdit,
+  stagedViewEdit,
+  type PictureEdit,
+  type ResourceCommitResult,
+} from "./resourceCommit.ts";
+import {
   getCachedGameMeta,
   loadAuthoredGame,
-  loadAuthoredGameWithHistoryLifetime,
   loadGameConversation,
   saveAuthoredGameWithLifetime,
   saveGameConversation,
@@ -25,7 +31,6 @@ import {
   referenceAgentImages,
   roomReference,
   stageCharacterView,
-  stagedRefusal,
   type DecodedImage,
   type StoredReference,
 } from "./referenceArt.ts";
@@ -35,6 +40,7 @@ import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import { projectId, requireProjectId, type ProjectId } from "../../src/gameIdentity.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
+import type { AwaitPatchedFn } from "./workerQueries.ts";
 import type { HistoryBoot } from "../../src/agent/history.ts";
 import { base64ToBytes } from "./bytes.ts";
 import { pendingReferences, removePendingReference } from "./referenceUploadState.ts";
@@ -72,6 +78,8 @@ export interface AuthoringControllerOptions {
   };
   readonly getWorker: () => Worker | null;
   readonly query: WorkerQueryFn;
+  /** Settles when the worker acks a patch holding the named bytes. */
+  readonly awaitPatched: AwaitPatchedFn;
   readonly logAgent: LogAgentFn;
   readonly readFrames: (req: FrameRequest) => Promise<AgentFrame[]>;
   readonly pauseEngine: (owner: string) => void;
@@ -152,6 +160,12 @@ export interface AuthoringController {
    * when the game's identity moved since the reference was attached.
    */
   keepStagedView(id: string): Promise<void>;
+  /**
+   * Commit Room Studio's picture edit — bytes plus the source that compiles
+   * to them — to storage and the running game as one transaction. Throws a
+   * ResourceCommitError; "unchanged" when there was nothing to write.
+   */
+  commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult>;
 }
 
 export function useAuthoringController(options: AuthoringControllerOptions): AuthoringController {
@@ -176,6 +190,16 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   let session: AgentSession | null = null;
   let remixNeedsSave = false;
+
+  const commitResourceEdit = createResourceCommit({
+    ...options,
+    getSession: () => session,
+    postSessionSnapshot: (author) => postSessionSnapshot(author),
+    onCommitted: (author) => {
+      remixNeedsSave = false;
+      if (author) reportPlanSaved(planRevisionOf(author));
+    },
+  });
 
   const engineSource = {
     objects: () => query("objects"),
@@ -974,163 +998,17 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /** Keep resources, source and the consumed offer in one conditional durable write. */
   async function keepStagedView(id: string): Promise<void> {
-    const game = requireAuthoredBoot();
-    if (state.powerUp.busy || state.powerUp.mode === "room")
-      throw new Error("Wait for the current agent turn before keeping a staged view.");
-    const author = session;
-    const release = author?.reserveMutation(
-      "Finish keeping a staged view before starting another operation.",
-    );
-    const powerUp = state.powerUp;
-    powerUp.busy = true;
-    pauseEngine("keepView");
-    try {
-      await getAutosaveWrite();
-      const captured = await loadAuthoredGameWithHistoryLifetime(game.projectId!);
-      if (!captured) throw new Error("The project is no longer stored in this browser.");
-      const { data: stored, lifetime } = captured;
-      if (
-        lifetime === null ||
-        (game.historyLifetime !== undefined && game.historyLifetime !== lifetime)
-      )
-        throw new Error(
-          "The project was removed or changed elsewhere — reload it before keeping staged art.",
-        );
-      if ((await gameRevision(stored.files)) !== game.revision)
-        throw new Error(
-          "The project changed elsewhere since this game booted — reload it before keeping staged art.",
-        );
-      const reference = stored.references?.find((r) => r.id === id);
-      if (!reference) throw new Error("That reference is no longer attached to this project.");
-      const refusal = stagedRefusal(reference, {
-        project: game.projectId!,
-        revision: game.revision,
-      });
-      if (refusal) throw new Error(refusal);
-      const staged = reference.staged!;
-      const payload = new Uint8Array(base64ToBytes(staged.payload));
-      const worker = getWorker();
-      if (!worker) throw new Error("The running game is no longer available.");
-      const exported = await query("exportFiles");
-      if (!exported || getBootedGame() !== game || session !== author || getWorker() !== worker)
-        throw new Error("The game changed while the staged view was being kept.");
-      if ((await gameRevision(exported)) !== game.revision)
-        throw new Error("The running game changed before the staged view could be kept.");
-      const container = openContainer(new Map(Object.entries(exported)));
-      container.putResource("view", staged.num, payload);
-      const files = Object.fromEntries(container.files);
-      const words = files["WORDS.TOK"]
-        ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
-        : game.words;
-      const revision = await gameRevision(files);
-      const sourceSession =
-        author ??
-        AgentSession.fromAuthoredData(
-          { provider: "stub", model: "offline-stub", apiKey: "" },
-          () => {},
-          exported,
-          words,
-          stored.transcript,
-          stored.sessionId,
-          stored.authoringState,
-          stored.library?.profile,
-        );
-      const candidate = sourceSession.prepareViewPatch(files, staged.num, staged.input);
-      const forkCatalog =
-        stored.library?.source === "catalog" && stored.library.revision !== revision;
-      const targetId = forkCatalog
-        ? requireProjectId(`remix-${crypto.randomUUID()}`)
-        : game.projectId!;
-      const references = stored.references!.map((r) =>
-        r.id === id ? { ...r, staged: undefined } : r,
-      );
-      const data = {
-        ...stored,
-        files,
-        words,
-        references,
-        authoringState: candidate.authoringState,
-        ...(forkCatalog
-          ? {
-              projectId: targetId,
-              title: `${stored.title} Remix`,
-              imported: true,
-              roomGeneration: false,
-              library: {
-                ...stored.library!,
-                source: "remix" as const,
-                catalog: undefined,
-                preview: undefined,
-                parent: { project: game.projectId!, revision: game.revision },
-                revision,
-                validation: {
-                  status: "unverified" as const,
-                  message: "Remixed resources. Check the opening to create a new preview.",
-                },
-              },
-              references: references.map((r) => ({
-                ...r,
-                origin: r.origin ?? r.attachedAt,
-                attachedAt: { ...r.attachedAt, project: targetId },
-              })),
-            }
-          : {}),
-        ...(author
-          ? {
-              ...author.getProviderContext(),
-              transcript: author.getTranscript(),
-              sessionId: author.getSessionId(),
-            }
-          : {}),
-      };
-      if (getBootedGame() !== game || session !== author || getWorker() !== worker)
-        throw new Error("The game changed while the staged view was being kept.");
-      // Catalog entries fork into a new project; the source remains untouched.
-      const historyLifetime = await saveAuthoredGameWithLifetime(
-        targetId,
-        data,
-        forkCatalog
-          ? { requireNew: true }
-          : { expectedGeneration: stored.generation ?? 0, expectedLifetime: lifetime },
-      );
-      if (historyLifetime === null)
-        throw new Error(
-          "Browser storage could not save the kept view. The project may have changed elsewhere; reload it before trying again.",
-        );
+    await commitResourceEdit(stagedViewEdit(requireAuthoredBoot(), id));
+  }
 
-      // Navigating away during the write keeps the durable result for the next
-      // boot; it must never patch a replacement worker or replace its game.
-      if (getBootedGame() !== game || session !== author || getWorker() !== worker) return;
-      // All validation and the conditional write finished before the live
-      // session changes. No await separates adoption, patch and checkpoint.
-      if (author) candidate.adopt();
-      const adoptedGame = forkCatalog
-        ? { ...game, projectId: targetId, title: data.title, historyLifetime }
-        : game;
-      adoptedGame.files = files;
-      adoptedGame.words = words;
-      adoptedGame.revision = revision;
-      adoptedGame.authoredGame = data;
-      if (forkCatalog) {
-        clearAutosave(gameStorageKey(game));
-        setBootedGame(adoptedGame);
-        onRemixCreated?.(targetId);
-      }
-      remixNeedsSave = false;
-      const transfer = new Uint8Array(payload);
-      worker.postMessage(
-        { type: "patch", kind: "view", num: staged.num, payload: transfer } satisfies WorkerInbound,
-        [transfer.buffer],
+  async function commitPictureEdit(edit: PictureEdit): Promise<ResourceCommitResult> {
+    const result = await commitResourceEdit(pictureEdit(edit));
+    if (result.status === "committed")
+      logAgent(
+        "log",
+        `Room Studio kept picture ${edit.pictureNumber}${edit.reason ? `: ${edit.reason}` : ""}.`,
       );
-      if (author) {
-        reportPlanSaved(planRevisionOf(author));
-        postSessionSnapshot(author);
-      }
-    } finally {
-      release?.();
-      powerUp.busy = false;
-      resumeEngine("keepView");
-    }
+    return result;
   }
 
   return {
@@ -1158,5 +1036,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     attachCharacterReference,
     detachReference,
     keepStagedView,
+    commitPictureEdit,
   };
 }

@@ -17,7 +17,9 @@ import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 const MAX_SHAPES = 128;
 const MAX_VERTICES_PER_SHAPE = 64;
 const MAX_TOTAL_VERTICES = 2048;
-const MAX_PAYLOAD_BYTES = 60_000;
+/** The largest picture write_scene compiles; Room Studio's byte meter warns against it. */
+export const MAX_PAYLOAD_BYTES = 60_000;
+const MAX_SHAPE_NAME = 48;
 
 const POINT_SCHEMA = {
   type: "object",
@@ -34,7 +36,7 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_scene",
     description:
-      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing.",
+      "Compile a complete picture `room` from ordered `shapes` (rects, polygons and lines in logical coordinates) over a full `backgroundColor` fill. Rects use x1,y1,x2,y2; other shapes use points. Unused coordinates and visual-only priority are null. Later shapes paint over earlier ones. Returns the rendered comparison, spatial metrics and revision; invalid geometry stores nothing. Name shapes so the creator can find and edit them in Room Studio.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -92,8 +94,20 @@ export const PICTURE_TOOLS: readonly ToolDefinition[] = [
                 maxItems: MAX_VERTICES_PER_SHAPE,
                 items: POINT_SCHEMA,
               },
+              name: { type: ["string", "null"], maxLength: MAX_SHAPE_NAME },
             },
-            required: ["kind", "color", "priority", "filled", "x1", "y1", "x2", "y2", "points"],
+            required: [
+              "kind",
+              "color",
+              "priority",
+              "filled",
+              "x1",
+              "y1",
+              "x2",
+              "y2",
+              "points",
+              "name",
+            ],
           },
         },
       },
@@ -140,6 +154,17 @@ function parseShape(value: unknown, index: number): SceneShape {
   const priority = nullablePriority(item["priority"], `${label} priority`);
   if (typeof item["filled"] !== "boolean") throw new Error(`${label} filled must be boolean.`);
   const filled = item["filled"];
+  // Calls predating `name` omit it; the schema's nullable normalization and
+  // this check both read that as null.
+  const name = item["name"];
+  if (name !== null && name !== undefined) {
+    if (typeof name !== "string" || name.trim().length === 0 || name.length > MAX_SHAPE_NAME) {
+      throw new Error(
+        `${label} name must be null or a non-empty string of at most ${MAX_SHAPE_NAME} characters.`,
+      );
+    }
+  }
+  const shapeLabel = typeof name === "string" ? name.trim() : undefined;
   if (kind === "rect") {
     if (item["points"] !== null) throw new Error(`${label} rect points must be null.`);
     const firstX = integer(item["x1"], `${label} x1`, 0, SCREEN_WIDTH - 1);
@@ -155,6 +180,7 @@ function parseShape(value: unknown, index: number): SceneShape {
       y1: Math.min(firstY, secondY),
       x2: Math.max(firstX, secondX),
       y2: Math.max(firstY, secondY),
+      label: shapeLabel,
     };
   }
   for (const field of ["x1", "y1", "x2", "y2"]) {
@@ -172,7 +198,7 @@ function parseShape(value: unknown, index: number): SceneShape {
   if (kind === "line" && filled) throw new Error(`${label} line cannot be filled.`);
   const points = rawPoints.map((value, pointIndex) => point(value, `${label} point ${pointIndex}`));
   if (kind === "polygon") validateSimplePolygon(points, label);
-  return { kind, color, priority, filled, points };
+  return { kind, color, priority, filled, points, label: shapeLabel };
 }
 
 /** Execute write_scene, or return undefined when another registry owns the name. */
@@ -199,7 +225,7 @@ export function executePictureTool(
     if (totalVertices > MAX_TOTAL_VERTICES) {
       throw new Error(`Scene exceeds the ${MAX_TOTAL_VERTICES}-vertex limit.`);
     }
-    const source = sceneSource(backgroundColor, shapes);
+    const source = sceneSource(backgroundColor, shapes, { annotate: true });
     const compiled = compilePictureSource(source, { profile: state.profile });
     if (compiled.bytes.length > MAX_PAYLOAD_BYTES) {
       throw new Error(

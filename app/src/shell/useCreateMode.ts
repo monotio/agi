@@ -128,12 +128,15 @@ export function useCreateMode(deps: {
   );
 
   // The live stage comes back whenever Create is left, the game stops, or
-  // the window turns too small for Studio (a rotated phone).
+  // the window turns too small for Studio (a rotated phone) while it holds
+  // nothing unkept. With unkept changes Studio stays mounted under its
+  // small-screen notice until the layout fits again or they are settled.
   watch(
     () =>
       [creating.value, state.phase, state.walkthrough.active, workspace.studioFits.value] as const,
     ([inCreate, phase, watching, fits]) => {
-      if (!inCreate || phase !== "running" || watching || !fits) workspace.closeStudio();
+      if (!inCreate || phase !== "running" || watching) workspace.closeStudio();
+      else if (!fits && !workspace.studioUnkept()) workspace.closeStudio();
     },
   );
 

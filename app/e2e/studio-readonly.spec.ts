@@ -79,7 +79,8 @@ test("hovering a scene row highlights exactly that item's pixels", async ({ page
   for (let y = 90; y <= 105; y++) for (let x = 40; x <= 119; x++) expected.push(y * 160 + x);
   expect(await highlightCells(page)).toEqual(expected);
 
-  await open(page, "1");
+  // The gallery picture as an import sees it: bytes only, one item per element.
+  await open(page, "1&authored=0");
   await page.getByTestId("scene-toggle-groups").click();
   for (const id of ["el-1", "el-20"]) {
     await page.locator(`[data-row="${id}"]`).hover();
@@ -145,7 +146,7 @@ for (const deviceScaleFactor of [1, 2]) {
 test("a group row highlights the union of its members, and a canvas click opens its group", async ({
   page,
 }) => {
-  await open(page, "1");
+  await open(page, "1&authored=0");
   const groups = page.locator('[role="treeitem"][aria-expanded]');
   // More than 40 items: every group starts closed, and no member row is shown.
   expect(await groups.count()).toBeGreaterThan(0);
@@ -242,18 +243,18 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
   );
 });
 
-test("arrow keys on the canvas step through items and Tab leaves it", async ({ page }) => {
+test("Alt+arrow keys on the canvas step through items and Tab leaves it", async ({ page }) => {
   await open(page, "demo");
   const canvas = page.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
   const selected = page.locator('[role="treeitem"][aria-selected="true"]');
-  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Alt+ArrowDown");
   await expect(selected).toHaveAttribute("data-row", "floor");
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Alt+ArrowRight");
   await expect(selected).toHaveAttribute("data-row", "wall");
-  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Alt+ArrowUp");
   await expect(selected).toHaveAttribute("data-row", "floor");
-  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Alt+ArrowLeft");
   await expect(selected).toHaveAttribute("data-row", "floor");
   // Tab is never taken by the canvas: one press moves focus on.
   await page.keyboard.press("Tab");

@@ -143,16 +143,6 @@ const lib = createGameLibrary(engine, ai, shellBridge);
 provideGameLibrary(lib);
 const { exportBusy, exportRefusal } = lib;
 
-/** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
-const shell = createShell({
-  engine,
-  bridge: shellBridge,
-  librarySource: (projectId) =>
-    lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
-  initialMode: parseGameHash(location.hash)?.mode ?? "play",
-});
-provideShell(shell);
-const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
 /** A phone held upright: Create is one view-only sheet instead of two docks. */
 const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
 /**
@@ -172,6 +162,17 @@ const workspace = createCreateWorkspace({
   studioFits: () => studioFits.value,
 });
 provideCreateWorkspace(workspace);
+/** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
+const shell = createShell({
+  engine,
+  bridge: shellBridge,
+  librarySource: (projectId) =>
+    lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
+  initialMode: parseGameHash(location.hash)?.mode ?? "play",
+  createGuard: { unkept: workspace.studioUnkept, confirm: workspace.confirmStudioLeave },
+});
+provideShell(shell);
+const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
 const studio = workspace.studio;
 /** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
 const studioOpen = computed(() => creating.value && studio.value !== null);
@@ -254,6 +255,7 @@ function onPopState(): void {
 }
 
 async function onStartWalkthrough(targetGame: string): Promise<void> {
+  if (!(await workspace.confirmStudioLeave())) return;
   await resumeAudio();
   clearPlayHash();
   await startWalkthrough(targetGame);
@@ -521,6 +523,7 @@ watch(
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
       'original-aspect': originalAspect,
+      'studio-open': studioOpen,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
@@ -539,7 +542,9 @@ watch(
         @update:debug-open="debugOpen = $event"
         @trigger-key="(code) => playArea?.triggerKey(code)"
         @export-zip="(project) => lib.onExportAgiZip(true, project)"
-        @start-over="lib.onStartOver"
+        @start-over="
+          workspace.confirmStudioLeave().then((go) => (go ? lib.onStartOver() : undefined))
+        "
         @start-walkthrough="onStartWalkthrough"
       >
         <WalkthroughBar
@@ -625,7 +630,10 @@ watch(
           :profile="studio.profile"
           :title="studio.title"
           :subtitle="studio.subtitle"
+          :base-revision="studio.baseRevision"
+          :files="studio.files"
           @close="workspace.closeStudio()"
+          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
         />
         <aside
           v-show="!studioOpen"
@@ -698,13 +706,16 @@ watch(
 
     <SetupPanel />
 
+    <!-- Below the fold: while Studio holds the page still they wait hidden,
+         out of Tab's reach. -->
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"
+      v-show="!studioOpen"
       :audio="latestAgentAudio"
       data-testid="latest-sound-preview"
     />
 
-    <AgentLogPanel v-if="!activityDocked" />
+    <AgentLogPanel v-if="!activityDocked" v-show="!studioOpen" />
 
     <ReferenceUpload v-if="state.phase === 'running'" />
 

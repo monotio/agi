@@ -18,7 +18,7 @@
  *   dismissPrint        acknowledge the engine's open modal (click path)
  *   hostAnswer          reply to a posted hostRequest
  *   reenter             re-enter the current room after a live patch
- *   patch               replace one container resource
+ *   patch               replace one container resource; acknowledged by "patched"
  *   patchMetadata       replace WORDS.TOK / OBJECT / TESTS.JSON
  *   state / objects / frames / checkpoint / exportFiles
  *                       read-only queries, answered by id
@@ -34,7 +34,7 @@
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,
  *   engineState, objects, checkpoint, exportFiles, debugWritten,
  *   debugEvents, debugTrace, recordingStarted, recordingStopped, flushed,
- *   restored, booted, metadataPatched, paused, error.
+ *   restored, booted, metadataPatched, patched, paused, error.
  *   WorkerPresentation — frame, trace, print, status, shake, showObj,
  *   autosave, controls, inputEdit, cycle, soundEnabled, sound,
  *   soundOutput, soundPaused, stopSound, waitingForKey, log, quit.
@@ -117,6 +117,9 @@ export interface BootMessage {
   rngSeed?: number;
 }
 
+/** A container resource the `patch` message replaces. */
+export type PatchKind = "logic" | "picture" | "view" | "sound";
+
 export type WorkerInbound =
   | BootMessage
   | { type: "pause"; paused: boolean }
@@ -135,7 +138,7 @@ export type WorkerInbound =
   | { type: "reenter"; room?: number }
   | {
       type: "patch";
-      kind: "logic" | "picture" | "view" | "sound";
+      kind: PatchKind;
       num: number;
       payload: Uint8Array;
     }
@@ -334,6 +337,21 @@ export type WorkerControl =
       pictureShown: boolean;
     }
   | { type: "metadataPatched" }
+  /**
+   * The acknowledgement of one `patch`, posted after the engine installed it
+   * (or refused it). `hint` is `resourceCacheHint` of the bytes the engine
+   * now holds for the resource — null with `error` when the install failed —
+   * so a caller awaiting the ack verifies it installed exactly what it sent.
+   * `patchGen` is the engine's patch generation after the message.
+   */
+  | {
+      type: "patched";
+      kind: PatchKind;
+      num: number;
+      patchGen: number;
+      hint: string | null;
+      error?: string;
+    }
   /**
    * The history-viewing session's position report: progress while a seek is
    * in flight (final:false), the terminal answer to the query that asked
