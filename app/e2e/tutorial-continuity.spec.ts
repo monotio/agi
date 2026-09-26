@@ -42,7 +42,23 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
   await expect(older).toBeVisible();
   await expect(older).toHaveAttribute("data-testid", `saved-game-card-${TUTORIAL_1_0}`);
   await expect(older.getByTestId("btn-resume-cached")).toHaveText("Resume");
-  await expect(savedGameCard(page, "Adventure Department Remix")).toBeVisible();
+  const remix = savedGameCard(page, "Adventure Department Remix");
+  await expect(remix).toBeVisible();
+
+  // The 1.0 archive predates stored previews: the cards render their opening
+  // lazily on Home. While it runs, the card shows the designed placeholder;
+  // then the opening frame. It is never blank.
+  for (const card of [older, remix]) {
+    await expect(
+      card
+        .getByTestId("library-thumbnail")
+        .or(card.getByTestId("thumbnail-placeholder"))
+        .or(card.locator(".game-card__monogram")),
+    ).toBeVisible();
+    await expect(card.getByTestId("library-thumbnail")).toHaveAttribute("src", /^data:image\/png/, {
+      timeout: 30_000,
+    });
+  }
   await expect(gallery.getByText("Adventure Department", { exact: true })).toHaveCount(1);
   await page.screenshot({ path: test.info().outputPath("home-older-release.png") });
 

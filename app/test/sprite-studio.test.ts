@@ -252,6 +252,22 @@ describe("useSpriteTools", () => {
     assert.equal(draft.gesturing.value, false);
   });
 
+  it("raises the pen-down cue while a stroke is open, from keys or pointer", () => {
+    const { t } = tools();
+    assert.equal(t.penDown.value, false);
+    t.pressAt({ x: 0, y: 0 });
+    assert.equal(t.penDown.value, true, "the pointer's pen is down");
+    t.release({ x: 0, y: 0 });
+    assert.equal(t.penDown.value, false);
+    t.click();
+    assert.equal(t.penDown.value, true, "Space put the pen down");
+    t.click();
+    assert.equal(t.penDown.value, false, "the next Space lifted it");
+    t.click();
+    t.cancel();
+    assert.equal(t.penDown.value, false, "Escape lifts it too");
+  });
+
   it("draws a line and a rect with two clicks each, and the eraser writes transparency", () => {
     const { draft, t } = tools();
     t.setTool("line");

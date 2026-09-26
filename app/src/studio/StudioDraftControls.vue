@@ -21,6 +21,7 @@ const {
   canUndo,
   canRedo,
   canKeep,
+  keepTitle = undefined,
 } = defineProps<{
   status: DraftStatus;
   changes: number;
@@ -29,6 +30,8 @@ const {
   canUndo: boolean;
   canRedo: boolean;
   canKeep: boolean;
+  /** Why Keep is disabled right now, on its button. */
+  keepTitle?: string | undefined;
 }>();
 const emit = defineEmits<{ close: []; undo: []; redo: []; keep: []; discard: [] }>();
 const STATUS: Record<
@@ -84,6 +87,7 @@ const chip = computed(() =>
     variant="primary"
     size="sm"
     :disabled="!canKeep"
+    :title="keepTitle"
     data-testid="studio-keep"
     @click="emit('keep')"
   >

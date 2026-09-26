@@ -299,6 +299,14 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
   await expect(recolor.getByTestId("sprite-recolor-apply")).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  // The edit's notice shows while the popover is still open, recentred clear of it.
+  const note = studio.locator(".stage-note");
+  await expect(note).toBeVisible();
+  const noteBox = await note.boundingBox();
+  const popBox = await recolor.boundingBox();
+  expect(noteBox).not.toBeNull();
+  expect(popBox).not.toBeNull();
+  expect(popBox!.x + popBox!.width).toBeLessThanOrEqual(noteBox!.x);
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
     "No pixels of colour 11, light cyan in this loop.",
   );
@@ -547,6 +555,28 @@ test.describe("on the harness", () => {
     expect(open(await draftBytes(page)).loops.map((loop) => loop.cels.length)).toEqual([
       4, 4, 4, 5,
     ]);
+  });
+
+  test("a held pen shows its cue on the stage and on the disabled Keep", async ({ page }) => {
+    await page.goto("/sprite-harness.html?view=0");
+    const studio = page.getByTestId("sprite-studio");
+    const keep = studio.getByTestId("studio-keep");
+    const cue = studio.getByTestId("sprite-pen-down");
+    await studio.locator(`[data-colour="${RED}"]`).click();
+    await studio.getByTestId("sprite-stage").focus();
+    await expect(cue).toHaveCount(0);
+    // The first Space puts the pen down: the cue is on the stage and in the
+    // live region, and the disabled Keep says why. The next Space lifts it.
+    await page.keyboard.press("Space");
+    await expect(cue).toHaveText("Pen down — Space to lift");
+    await expect(studio.locator(".sprite-studio__sr")).toContainText("Pen down — Space to lift");
+    await expect(keep).toBeDisabled();
+    await expect(keep).toHaveAttribute("title", /pen is down/i);
+    await page.keyboard.press("Space");
+    await expect(cue).toHaveCount(0);
+    await expect(keep).not.toHaveAttribute("title", /pen/i);
+    await expect(keep).toBeEnabled();
+    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
   });
 
   test("keyboard only: a line drawn with the cursor and kept", async ({ page }) => {

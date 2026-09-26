@@ -305,10 +305,20 @@ const onion = computed<OnionSkin[]>(() => {
 });
 const CANVAS_LABEL =
   "Canvas. Arrow keys move the cursor 1 pixel (Shift: 8), or the selection; Space or Enter clicks at the cursor; Escape cancels.";
+const PEN_DOWN = "Pen down — Space to lift";
 const spoken = computed(() => {
   const point = tools.cursor.value;
-  return tools.keyboard.value && point ? `x ${point.x} y ${point.y}` : "";
+  const at = tools.keyboard.value && point ? `x ${point.x} y ${point.y}` : "";
+  return tools.penDown.value ? (at ? `${PEN_DOWN} · ${at}` : PEN_DOWN) : at;
 });
+/** Why Keep is disabled right now, on its button: an open gesture finishes first. */
+const keepTitle = computed(() =>
+  draft.gesturing.value
+    ? tools.penDown.value
+      ? "The pen is down: Space lifts it, then the changes can be kept."
+      : "A drawing gesture is open: finish or cancel it, then the changes can be kept."
+    : undefined,
+);
 
 // ---- the way out ---------------------------------------------------------
 
@@ -422,6 +432,7 @@ const status = computed(() => {
       :can-undo="draft.canUndo.value && !keeper.needsReload.value"
       :can-redo="draft.canRedo.value && !keeper.needsReload.value"
       :can-keep="keeper.canKeep.value"
+      :keep-title="keepTitle"
       @back="requestClose"
       @close="requestClose"
       @undo="history('undo')"
@@ -439,7 +450,10 @@ const status = computed(() => {
       @flip="tools.flip()"
     />
 
-    <main class="sprite-studio__frame">
+    <main
+      class="sprite-studio__frame"
+      :class="{ 'sprite-studio__frame--recolor': tools.tool.value === 'recolor' && !sheet }"
+    >
       <SpriteViewBar
         v-model:sheet="sheet"
         v-model:prev="onionPrev"
@@ -495,6 +509,9 @@ const status = computed(() => {
         @hold="hold"
       />
       <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
+      <p v-if="tools.penDown.value" class="sprite-studio__pen" data-testid="sprite-pen-down">
+        {{ PEN_DOWN }}
+      </p>
       <LessonCard
         v-if="lesson.session.value"
         :session="lesson.session.value"
@@ -613,6 +630,26 @@ const status = computed(() => {
 }
 .sprite-studio__stage:focus-visible {
   box-shadow: inset 0 0 0 2px var(--focus);
+}
+/* The recolour popover owns the stage's left column (12px + 256px); the
+   notice recentres in what remains so the two never overlap. */
+.sprite-studio__frame--recolor :deep(.stage-note) {
+  left: calc(50% + 134px);
+}
+/* The held pen's cue, at the stage's lower left like the editing keys' hint. */
+.sprite-studio__pen {
+  position: absolute;
+  bottom: var(--space-4);
+  left: var(--space-4);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  color: var(--ink-2);
+  background: var(--surface-overlay);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  pointer-events: none;
 }
 /* The inset matches STAGE_INSET in useStudioViewport.ts; the top clears the view bar. */
 .sprite-studio__canvas {

@@ -123,6 +123,13 @@ export function useSpriteTools(options: SpriteToolsOptions) {
   const busy = computed(
     () => stroke.value !== null || anchor.value !== null || move.value !== null,
   );
+  /**
+   * The pen is down: a pencil or eraser stroke is open until the pointer's
+   * button comes up or the next Space or Enter lifts it (Escape cancels).
+   * Its only trace may be one pixel, so the stage shows a cue meanwhile —
+   * an open gesture also holds Keep (the draft's `gesturing`).
+   */
+  const penDown = computed(() => stroke.value !== null);
 
   const at = (): { loop: number; cel: number; propagate: boolean } => ({
     loop: loop.value,
@@ -455,6 +462,7 @@ export function useSpriteTools(options: SpriteToolsOptions) {
     selection,
     move,
     busy,
+    penDown,
     overlay,
     pressAt,
     dragTo,
