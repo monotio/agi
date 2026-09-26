@@ -98,8 +98,24 @@ const draft = useSpriteDraft({
   profile: () => profile,
 });
 const shown = draft.shown;
-const loop = ref(0);
-const cel = ref(0);
+/** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
+const lesson = useStudioLesson();
+// A lesson can open on the loop and cel its steps speak of.
+const opened = lesson.session.value?.lesson.open;
+const openedDocument = draft.document.value;
+const startLoop = Math.max(
+  0,
+  Math.min(opened?.studio === "sprite" ? (opened.loop ?? 0) : 0, openedDocument.loops.length - 1),
+);
+const startCel = Math.max(
+  0,
+  Math.min(
+    opened?.studio === "sprite" ? (opened.cel ?? 0) : 0,
+    (openedDocument.loops[startLoop]?.cels.length ?? 1) - 1,
+  ),
+);
+const loop = ref(startLoop);
+const cel = ref(startCel);
 /** The loop whose linked group is edited together ("Edit loop N instead"); null copies on write. */
 const linkedEdit = shallowRef<number | null>(null);
 const color = ref(11);
@@ -143,8 +159,6 @@ function targetsOf(op: SpriteEdit): number[] | undefined {
 
 const keeper = useStudioKeep({ draft, keep: keepView });
 const engine = keepFn ? null : useEngineApi();
-/** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
-const lesson = useStudioLesson();
 /** The staged offer the next Keep spends; once kept, the view is the game's own. */
 let stagedPending = stagedReference;
 async function keepView(revision: ResourceRevision): Promise<ResourceCommitResult> {

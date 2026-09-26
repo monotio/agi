@@ -116,9 +116,9 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.getByTestId("record-name").fill("recorded mural repair");
   await page.getByTestId("record-save").click();
   await expect(dialog).toBeHidden();
-  // The six tutorial tests plus the recording; saving converted the catalog
+  // The seven tutorial tests plus the recording; saving converted the catalog
   // game into its writable remix project, exactly like a remix does.
-  await expect(page.getByTestId("record-result")).toContainText("7 game tests stored");
+  await expect(page.getByTestId("record-result")).toContainText("8 game tests stored");
 
   // Patch the game so the recorded observation no longer holds: the write
   // tool reruns every room-1 test and leads with the failure verdict.
@@ -129,7 +129,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.getByTestId("agent-bubble-input").fill("Change the mural lesson text");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await expect.poll(() => agentFeed(page)).toContain("Game tests: 5 game tests pass, 2 fail");
+  await expect.poll(() => agentFeed(page)).toContain("Game tests: 6 game tests pass, 2 fail");
 
   // Repair: the same rerun reports the whole selection green again.
   await enterCreateMode(page);
@@ -138,7 +138,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.getByTestId("agent-bubble-input").fill("Restore the mural lesson text");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  await expect.poll(() => agentFeed(page)).toContain("Game tests: 7 game tests pass, 0 fail");
+  await expect.poll(() => agentFeed(page)).toContain("Game tests: 8 game tests pass, 0 fail");
 
   // Export the project; the recorded test travels only in the project archive.
   const download = page.waitForEvent("download");
@@ -187,7 +187,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     await expect(other.getByTestId("agent-bubble")).toBeHidden();
     await expect
       .poll(() => agentFeed(other), { timeout: 30_000 })
-      .toContain("7 game tests pass, 0 fail");
+      .toContain("8 game tests pass, 0 fail");
   } finally {
     await fresh.close();
   }

@@ -2,29 +2,29 @@
   "schema": "monotio.agi.walkthrough.v1",
   "identity": {
     "project": "adventure-department",
-    "revision": "f987dcbaec399c2f96f81ae8ef33c0f78688189f372d6fe30b777749db0451a5"
+    "revision": "e21e5c7870890fa413cd592c3c59536aecb349dc6b78bd4a7acf1e178e779796"
   },
   "supportedRevisions": [
-    "f987dcbaec399c2f96f81ae8ef33c0f78688189f372d6fe30b777749db0451a5"
+    "e21e5c7870890fa413cd592c3c59536aecb349dc6b78bd4a7acf1e178e779796"
   ],
   "coverage": "complete-game",
   "profile": "2.936",
   "seed": 1,
   "fixtureHashes": {
-    "LOGDIR": "bcc8507050159c67132033d65efbe5d4c121db398c6231e2f6d87293bf3f3974",
+    "LOGDIR": "4c217185d11681ceb2ff94a22b50784be427280747caccd0c9395e07ed479bc0",
     "OBJECT": "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
-    "PICDIR": "d05b21776d10397813238480ab22aa4cb9c893d208bcb33cd431423db07db5dc",
-    "SNDDIR": "b5eb2143e3b3899bb7b017b8908f995effc55070032dcfd9d3cc9b348a5faf2e",
-    "TESTS.JSON": "70a10b360d8e74d9fcf67e969484c479f5620055e48864aeee6f178e64272a89",
-    "VIEWDIR": "87e21fb136c574d006e5e4313fd1bb9468e04ca7ebf45939b7281ffa7dbd2806",
-    "VOL.0": "8f29f47a14ba1425a219c090cd580974b2ec49a9ae4dec7f7d393f8eaa151fa7",
-    "WORDS.TOK": "555b19bd6e4a84cf761c8b9c83abc02fea975a6c2643a341805f67f702ef795c"
+    "PICDIR": "088ec3492ae529608cbb420d0d2e5d958eeac0d9e6bf2a56fd08e541a8673b46",
+    "SNDDIR": "7bfd331770601cdae6de4375be9db8901c8e6e1cddb9e309083f6e80376029de",
+    "TESTS.JSON": "032745391e6d3acfc602ef91067d32d0a3cb9b7f6a0ab770192872e14505b978",
+    "VIEWDIR": "5cdbb5b4c52706ccfb5ad477799917178362fcc9346677a0d2f36cd04cc63eb3",
+    "VOL.0": "1e3595ec8d8ae77e8adb188dc047e9a7f4960ae5074515c9492052376c7988c3",
+    "WORDS.TOK": "2945ab64fe54e79b21c16e234d43ba8d3ebf074da07ecbd4c12155253c0e1199"
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 40,
-  "virtualTicks": 1361,
-  "cycles": 82,
+  "elapsedMs": 44,
+  "virtualTicks": 1421,
+  "cycles": 102,
   "actions": [
     {
       "kind": "advance",
@@ -216,6 +216,22 @@
     },
     {
       "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 57
+    },
+    {
+      "kind": "key",
+      "code": 19712
+    },
+    {
+      "kind": "advance",
+      "ticks": 3
+    },
+    {
+      "kind": "key",
       "code": 112
     },
     {
@@ -307,7 +323,7 @@
       "label": "Robot awake",
       "room": 2,
       "score": 20,
-      "x": 18,
+      "x": 30,
       "y": 151
     },
     {
@@ -618,7 +634,7 @@
       255,
       0,
       1,
-      22,
+      23,
       0,
       0,
       0,

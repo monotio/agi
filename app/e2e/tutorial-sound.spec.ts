@@ -88,6 +88,12 @@ test("tutorial plays its opening and earned cues through the real sound worker a
 
   await command("east");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  // The lever works within its plate's reach (x 26-56): step over from the doorway.
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+    .toBeGreaterThanOrEqual(28);
+  await page.keyboard.press("ArrowRight");
   await command("pull lever");
   await expect.poll(async () => (await audioState(page)).started).toEqual([1, 2, 3]);
   await dismiss();

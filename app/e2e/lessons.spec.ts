@@ -131,12 +131,9 @@ test("the Help guide lists the three lessons; the mural wants one object changed
   );
   expect(await storedBadges(page)).toEqual([MURAL]);
 
-  // The cottage too: two objects since the lesson opened, so the hint names both.
+  // The cottage too: only the sun may change since the lesson opened, so the hint names it.
   await nudge(page, studio, "cottage", 1);
-  await keep(
-    studio,
-    "Kept PIC 4. You changed 2 objects (Sun, Cottage). Change just one, like Sun.",
-  );
+  await keep(studio, "Kept PIC 4. Only the sun should change — this also changed Cottage.");
   expect(await storedBadges(page)).toEqual([MURAL]);
 
   await studio.getByTestId("studio-close").click();
@@ -160,13 +157,20 @@ test("the robot lesson wants only the left facing repainted, and its card folds 
   await expect(card).toContainText("One robot, two directions");
   await shot(page, "lessons-card-robot");
 
-  // One pencil pixel at the keyboard cursor (the cel's centre) of loop 1, cel 0.
+  // The lesson opens on the cel its steps speak of: loop 1, cel 0, the left facing.
+  const timeline = studio.getByTestId("sprite-timeline");
+  await expect(timeline.locator('[data-loop="1"][data-cel="0"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(card).toContainText("Click a cel in the Loop 1 row first.");
+
+  // One pencil pixel at the keyboard cursor (the cel's centre) of that cel.
   const original = openSprite(VIEW_2, DEFAULT_V2_PROFILE);
   const cel = original.loops[1]!.cels[0]!;
   const centre = cel.pixels[(cel.height >> 1) * cel.width + (cel.width >> 1)];
   const colour = [4, 2].find((value) => value !== centre && value !== cel.transparent)!;
   await studio.locator(`[data-colour="${colour}"]`).click();
-  await studio.locator('[data-loop="1"][data-cel="0"]').click();
   await studio.getByTestId("sprite-stage").focus();
   await page.keyboard.press("b");
   // As in sprite-studio.spec.ts: the first Space shows the keyboard cursor, the second paints.

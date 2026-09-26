@@ -522,7 +522,7 @@ describe("sprite view helpers", () => {
   it("names facings, pairs the preview and words usage", () => {
     assert.deepEqual(
       [0, 1, 2, 3].map((loop) => loopFacing(loop, 4)),
-      ["Walk right", "Walk left", "Walk toward", "Walk away"],
+      ["Right-facing", "Left-facing", "Front-facing", "Back-facing"],
     );
     assert.equal(loopFacing(2, 3), undefined);
     assert.equal(loopFacing(0, 1), undefined);

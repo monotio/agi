@@ -20,7 +20,7 @@ const limits: Record<string, { polls: number; cycles: number; actions: number }>
   mh2: { polls: 149100, cycles: 27900, actions: 5700 },
   gr1: { polls: 107000, cycles: 43400, actions: 8600 },
   kq4: { polls: 151400, cycles: 70800, actions: 8600 },
-  "adventure-department": { polls: 1400, cycles: 90, actions: 145 },
+  "adventure-department": { polls: 1460, cycles: 110, actions: 150 },
 };
 
 for (const [alias, budget] of Object.entries(limits)) {
