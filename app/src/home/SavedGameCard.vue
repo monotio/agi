@@ -12,6 +12,7 @@ import UiButton from "../ui/UiButton.vue";
 import GameCard, { type CardImage } from "./GameCard.vue";
 import StartFresh from "./StartFresh.vue";
 import { libraryDetails, showDetails } from "./cardDetails.ts";
+import { shelfTitle } from "./shelfIdentity.ts";
 import { projectThumbnail } from "./useLazyThumbnail.ts";
 import { useProjectRecovery } from "./projectRecovery.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
@@ -39,6 +40,7 @@ const {
   renaming,
   gameTitle,
   renameError,
+  catalogEntries,
   libraryAutosaves,
   libraryActionBusy,
   importBusy,
@@ -63,16 +65,19 @@ const now = useNow();
 const autosave = computed(() => libraryAutosaves.value[game.projectId]);
 const editing = computed(() => renaming.value && selectedProjectId.value === game.projectId);
 
+/** A copy of a release the catalog no longer carries is titled with its release. */
+const title = computed(() => shelfTitle(game, catalogEntries.value));
+
 const image = computed<CardImage | undefined>(() => {
   if (autosave.value?.preview)
     return {
       src: autosave.value.preview,
-      alt: `${game.title}, current progress in room ${autosave.value.room}`,
+      alt: `${title.value}, current progress in room ${autosave.value.room}`,
       kind: "progress",
     };
   const opening = game.library?.preview;
   return opening
-    ? { src: opening, alt: `${game.title} opening scene`, kind: "opening" }
+    ? { src: opening, alt: `${title.value} opening scene`, kind: "opening" }
     : undefined;
 });
 
@@ -114,12 +119,12 @@ function openDetails(): void {
 
 <template>
   <GameCard
-    :title="game.title"
+    :title
     title-test-id="saved-game-title"
     :monogram
     :image
     :lazy="projectThumbnail(game)"
-    :lazy-alt="`${game.title} opening scene`"
+    :lazy-alt="`${title} opening scene`"
     :badge
     :meta
     :heading-hidden="editing"
@@ -151,11 +156,7 @@ function openDetails(): void {
       </div>
       <p v-if="renameError" role="alert" class="game-card__alert">{{ renameError }}</p>
     </form>
-    <StartFresh
-      v-if="isUnreadable(game.projectId)"
-      :project-id="game.projectId"
-      :title="game.title"
-    />
+    <StartFresh v-if="isUnreadable(game.projectId)" :project-id="game.projectId" :title />
     <template v-if="!isUnreadable(game.projectId)" #actions>
       <UiButton
         class="game-card__actions-main"

@@ -15,6 +15,7 @@ import { useShellBridge } from "../shellBridge.ts";
 import { gameStorageKey } from "../gameTypes.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
 import { catalogProjectId, useProjectRecovery } from "./projectRecovery.ts";
+import { shelfTitle } from "./shelfIdentity.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
 import { useNow } from "./useNow.ts";
 
@@ -24,6 +25,7 @@ const {
   pendingAutosave,
   savedGames,
   featuredCatalog,
+  catalogEntries,
   catalogOpenings,
   catalogBusy,
   libraryActionBusy,
@@ -47,7 +49,7 @@ const last = computed(() => {
   return {
     record,
     title:
-      saved?.title ??
+      (saved ? shelfTitle(saved, catalogEntries.value) : undefined) ??
       installed?.title ??
       getKnownGameByRevision(record.game.identity.revision)?.title ??
       project,

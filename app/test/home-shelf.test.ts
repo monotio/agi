@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { GAME_CATALOG } from "../src/gameCatalog.ts";
 import { formatRelativeTime } from "../src/home/relativeTime.ts";
+import { releaseName, shelfTitle } from "../src/home/shelfIdentity.ts";
 import { createThumbnailQueue } from "../src/home/thumbnailQueue.ts";
+import type { CachedGameMeta } from "../src/gameStorage.ts";
+import type { LibraryMetadata } from "../src/gameMetadata.ts";
+import { testProjectId, testRevision } from "./identity.ts";
 
 const NOW = Date.UTC(2026, 8, 26, 12, 0, 0);
 const MINUTE = 60_000;
@@ -79,6 +84,50 @@ test("each key renders once per session, successes and failures alike", async ()
   await assert.rejects(queue.request("broken", render("broken")), /no picture/);
   assert.equal(queue.cached("broken"), undefined);
   assert.deepEqual(started, ["game", "broken"]);
+});
+
+/** A stored library copy; `catalog` marks it as Play-stored for that release. */
+const storedGame = (
+  library?: Pick<LibraryMetadata, "source"> & Partial<LibraryMetadata>,
+): CachedGameMeta => ({
+  projectId: testProjectId("stored-game"),
+  title: "Adventure Department",
+  authoredAt: "2026-09-26T00:00:00.000Z",
+  provider: "stub",
+  model: "offline-tutorial",
+  ...(library
+    ? {
+        library: {
+          version: 1,
+          revision: testRevision("stored-game"),
+          validation: { status: "ready", message: "Checked." },
+          ...library,
+        } as LibraryMetadata,
+      }
+    : {}),
+});
+
+test("a stored copy of an older catalog release is titled with its release", () => {
+  const older = storedGame({
+    source: "catalog",
+    catalog: { id: "adventure-department", version: "1.0.0" },
+  });
+  assert.equal(shelfTitle(older, GAME_CATALOG), "Adventure Department 1.0");
+});
+
+test("the current release and other stored games keep their stored title", () => {
+  const current = storedGame({
+    source: "catalog",
+    catalog: { id: "adventure-department", version: GAME_CATALOG[0]!.version },
+  });
+  assert.equal(shelfTitle(current, GAME_CATALOG), "Adventure Department");
+  assert.equal(shelfTitle(storedGame({ source: "remix" }), GAME_CATALOG), "Adventure Department");
+  assert.equal(shelfTitle(storedGame(), GAME_CATALOG), "Adventure Department");
+});
+
+test("releaseName shortens a release version for the shelf", () => {
+  assert.equal(releaseName("1.0.0"), "1.0");
+  assert.equal(releaseName("1.1.0"), "1.1");
 });
 
 test("a request abandoned before its turn never renders and can be asked for again", async () => {
