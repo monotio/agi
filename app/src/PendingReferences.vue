@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiButton from "./ui/UiButton.vue";
 import {
   openReferenceUpload,
   pendingReferences,
@@ -13,34 +14,31 @@ defineProps<{ busy: boolean; room: number; allowAttach: boolean }>();
     class="agent-pending-references"
     aria-label="References for next message"
   >
-    <button
+    <UiButton
       v-if="allowAttach"
-      type="button"
-      class="ui-button ui-button--secondary"
       data-testid="agent-attach-reference"
       title="Attach reference art for the agent"
       :disabled="busy"
       @click="openReferenceUpload(room || undefined)"
     >
       Art
-    </button>
+    </UiButton>
     <div
       v-if="pendingReferences.length"
       class="agent-pending-selection"
       data-testid="agent-pending-references"
     >
       <span>Next message:</span>
-      <button
+      <UiButton
         v-for="reference in pendingReferences"
         :key="reference.id"
-        type="button"
-        class="ui-button ui-button--secondary"
+        trailing-icon="x"
         :aria-label="`Remove ${reference.label} from next message`"
         :disabled="busy"
         @click="removePendingReference(reference.id)"
       >
-        {{ reference.label }} ×
-      </button>
+        {{ reference.label }}
+      </UiButton>
     </div>
   </div>
 </template>

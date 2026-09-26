@@ -8,6 +8,7 @@
  * session world); refusals surface in map.planError.
  */
 import { computed, ref, watch } from "vue";
+import UiButton from "./ui/UiButton.vue";
 import { useEngineApi } from "./engineContext.ts";
 import type { RoomGraphNode } from "../../src/agent/roomMap.ts";
 import type { PlanRoomEdit } from "./useRoomMap.ts";
@@ -111,22 +112,18 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         data-testid="plan-title-conflict"
       >
         The plan now says “{{ edit.title.conflict }}”.
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
+        <UiButton
           data-testid="plan-title-keep"
           @click="map.resolvePlanField(edit, 'title', 'mine')"
         >
           Keep mine
-        </button>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
+        </UiButton>
+        <UiButton
           data-testid="plan-title-use-plan"
           @click="map.resolvePlanField(edit, 'title', 'plan')"
         >
           Use the plan's
-        </button>
+        </UiButton>
       </div>
       <label class="plan-field">
         What happens here
@@ -144,22 +141,18 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         data-testid="plan-brief-conflict"
       >
         The plan now says “{{ edit.brief.conflict }}”.
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
+        <UiButton
           data-testid="plan-brief-keep"
           @click="map.resolvePlanField(edit, 'brief', 'mine')"
         >
           Keep mine
-        </button>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
+        </UiButton>
+        <UiButton
           data-testid="plan-brief-use-plan"
           @click="map.resolvePlanField(edit, 'brief', 'plan')"
         >
           Use the plan's
-        </button>
+        </UiButton>
       </div>
       <div class="plan-exits">
         <h4>Planned exits</h4>
@@ -191,14 +184,7 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
             placeholder="to room"
             data-testid="plan-exit-to"
           />
-          <button
-            type="button"
-            class="ui-button ui-button--secondary"
-            data-testid="plan-exit-add"
-            @click="addExit"
-          >
-            Add
-          </button>
+          <UiButton data-testid="plan-exit-add" @click="addExit">Add</UiButton>
         </div>
       </div>
     </template>
@@ -207,33 +193,25 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
     </p>
 
     <div class="plan-actions">
-      <button
+      <UiButton
         v-if="canBuild"
-        type="button"
-        class="ui-button ui-button--primary"
+        variant="primary"
         data-testid="map-build-room"
         :disabled="map.buildingRoom.value !== undefined"
         @click="map.buildPlannedRoom(node.room)"
       >
         {{ building ? "Building…" : "Build this room" }}
-      </button>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="map-add-room-toggle"
-        @click="addOpen = !addOpen"
-      >
+      </UiButton>
+      <UiButton data-testid="map-add-room-toggle" @click="addOpen = !addOpen">
         {{ addOpen ? "Cancel" : "Add a room off this one" }}
-      </button>
-      <button
+      </UiButton>
+      <UiButton
         v-if="entry"
-        type="button"
-        class="ui-button ui-button--secondary"
         data-testid="map-remove-room"
         @click="map.removePlannedRoom(node.room)"
       >
         Remove from plan
-      </button>
+      </UiButton>
     </div>
     <div v-if="addOpen" class="plan-add-room">
       <input
@@ -254,14 +232,7 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         placeholder="What happens there"
         data-testid="plan-add-brief"
       />
-      <button
-        type="button"
-        class="ui-button ui-button--primary"
-        data-testid="plan-add-room"
-        @click="addRoom"
-      >
-        Add room
-      </button>
+      <UiButton variant="primary" data-testid="plan-add-room" @click="addRoom">Add room</UiButton>
     </div>
     <p v-if="map.planError.value" class="plan-error" role="alert" data-testid="map-plan-error">
       {{ map.planError.value }}
@@ -276,39 +247,39 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
   gap: 10px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid #2a4048;
+  border-top: 1px solid var(--hairline-strong);
 }
 .plan-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
-  color: #8aa4ac;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
 }
 .plan-field input,
 .plan-field textarea,
 .plan-inline-form input,
 .plan-add-room input,
 .plan-add-room textarea {
-  background: #0b1518;
-  border: 1px solid #3a5661;
-  border-radius: 6px;
-  color: #e3ecee;
-  font-size: 13px;
+  background: var(--surface-0);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-size: var(--text-sm);
   padding: 6px 8px;
   font-family: inherit;
 }
 .plan-exits h4 {
   margin: 0 0 4px;
-  font-size: 12px;
-  color: #8aa4ac;
+  font-size: var(--text-xs);
+  color: var(--ink-3);
   font-weight: 600;
 }
 .plan-exits ul {
   list-style: none;
   margin: 0 0 6px;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .plan-exits li {
   display: flex;
@@ -319,9 +290,9 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
 .plan-remove {
   background: none;
   border: none;
-  color: #ff9b9b;
+  color: var(--danger);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-md);
   padding: 0 4px;
 }
 .plan-inline-form {
@@ -341,12 +312,12 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  border: 1px dashed #3a5661;
-  border-radius: 6px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius);
 }
 .plan-error {
-  color: #ff9b9b;
-  font-size: 12px;
+  color: var(--danger);
+  font-size: var(--text-xs);
   margin: 0;
 }
 .plan-conflict {
@@ -354,10 +325,10 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 12px;
-  color: #e8c98a;
-  border: 1px dashed #6a5a34;
-  border-radius: 6px;
+  font-size: var(--text-xs);
+  color: var(--warn);
+  border: 1px dashed var(--warn-line);
+  border-radius: var(--radius);
   padding: 6px 8px;
   margin: 0;
 }
