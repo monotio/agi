@@ -209,6 +209,12 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   closePowerUp();
   bridge.focusGameInput();
 }
+
+/** A refused turn's recovery: reboot the project at its stored revision. */
+async function onBubbleReload(): Promise<void> {
+  state.powerUp.offerReload = false;
+  await engine.reloadFromStorage();
+}
 </script>
 
 <template>
@@ -463,6 +469,15 @@ function onPowerUpKey(ev: KeyboardEvent): void {
     <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
       {{ state.powerUp.error }}
     </p>
+    <button
+      v-if="state.powerUp.offerReload"
+      type="button"
+      class="ui-button ui-button--secondary agent-bubble-reload"
+      data-testid="agent-bubble-reload"
+      @click="onBubbleReload"
+    >
+      Reload game
+    </button>
   </section>
 </template>
 
@@ -724,6 +739,10 @@ function onPowerUpKey(ev: KeyboardEvent): void {
   margin: var(--space-2) 0 0;
   color: var(--danger);
   font-size: var(--text-xs);
+}
+.agent-bubble-reload {
+  align-self: flex-start;
+  margin-top: var(--space-2);
 }
 .agent-bubble-tools {
   margin-top: var(--space-4);
