@@ -89,6 +89,24 @@ export interface PictureSourceSpan {
   end: number;
 }
 
+/**
+ * The trust rule for authored picture text: `source` stands for `payload` only
+ * while it compiles (strictly) to exactly those bytes. Otherwise callers fall
+ * back to `disassemblePicture(payload)`.
+ */
+export function sourceCompilesTo(
+  source: string,
+  payload: Uint8Array,
+  profile: AgiProfile = DEFAULT_V2_PROFILE,
+): boolean {
+  try {
+    const compiled = compilePictureSource(source, { profile }).bytes;
+    return compiled.length === payload.length && compiled.every((b, i) => b === payload[i]);
+  } catch {
+    return false;
+  }
+}
+
 /** The span containing byte `offset`, or undefined (binary search over ordered spans). */
 export function pictureSpanAt(
   spans: readonly PictureSourceSpan[],
