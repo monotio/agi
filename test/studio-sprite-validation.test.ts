@@ -29,11 +29,14 @@ describe("sprite edit validation", () => {
     const result = validateSpriteEdit(before, after, { protectMirrors: true, targetLoops: [0] });
     assert.equal(result.ok, true);
     assert.deepEqual(result.changedCels, [{ loop: 0, cel: 0, pixels: 1 }]);
-    // Loop 1 now owns the old block; loop 0's own new block carries no mirror bit.
+    // Loop 0's new block carries no mirror bit; loop 1, alone now, stores its
+    // rows as displayed under plain metadata instead of flipped behind it.
     assert.deepEqual(result.metadata, [
       { kind: "mirror-bit", loop: 0, cel: 0, before: true, after: false },
       { kind: "mirror-bit", loop: 0, cel: 1, before: true, after: false },
       { kind: "alias", loop: 1, before: 0, after: null },
+      { kind: "mirror-bit", loop: 1, cel: 0, before: true, after: false },
+      { kind: "mirror-bit", loop: 1, cel: 1, before: true, after: false },
     ]);
   });
 

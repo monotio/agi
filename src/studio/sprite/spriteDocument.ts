@@ -8,8 +8,10 @@
  * packed loop header nibble — is chosen so that every member of the block
  * displays exactly the pixels the document holds: the block's own metadata
  * first, so an unchanged block keeps its orientation bits, then the builder's
- * default, then any other value. The result is decoded again and compared; an
- * arrangement the format cannot express is refused, never approximated.
+ * default, then any other value. An unshared block is stored as displayed,
+ * never behind an orientation that flips it. The result is decoded again and
+ * compared; an arrangement the format cannot express is refused, never
+ * approximated.
  *
  * An untouched document encodes to its original payload byte for byte, and so
  * does any document whose decoded state is again the original's.
@@ -183,14 +185,39 @@ function flips(high: number, member: number, packed: boolean): boolean {
     : (high & 0x80) !== 0 && ((high >>> 4) & 7) !== (member & 7);
 }
 
-/** Stored nibbles to try for a block owned by `owner`, most preferred first. */
-function candidates(hint: number | null, mirrorBit: boolean, owner: number, packed: boolean) {
-  const out: number[] = hint === null ? [] : [hint];
+/**
+ * How loops use a block: one loop alone, several showing it alike, or several
+ * the document shows mirrored apart (a mirror link).
+ */
+type Sharing = "alone" | "alike" | "mirrored";
+
+/**
+ * Stored nibbles to try for a block owned by `owner`, most preferred first.
+ * A block alone never needs flipped rows: it takes its hint only when that
+ * does not flip it, then the builder's plain default (v2 orientation the
+ * owner, packed no flags). A mirror link keeps orientation flags even where
+ * symmetric pixels would fit without them.
+ */
+function candidates(
+  hint: number | null,
+  mirrorBit: boolean,
+  owner: number,
+  sharing: Sharing,
+  packed: boolean,
+) {
+  const flags = packed ? 0xc0 : 0x80;
+  const usable =
+    hint !== null &&
+    (sharing === "alone"
+      ? !flips(hint, owner, packed)
+      : sharing === "alike" || (hint & flags) === flags);
+  const out: number[] = usable ? [hint] : [];
+  if (sharing === "alone") out.push(packed ? 0 : (owner & 7) << 4);
   if (packed) {
     for (const o of [owner & 3, 0, 1, 2, 3]) out.push(0xc0 | (o << 4));
     out.push(0);
   } else {
-    for (const bit of [mirrorBit ? 0x80 : 0, 0x80, 0])
+    for (const bit of [mirrorBit || sharing === "mirrored" ? 0x80 : 0, 0x80, 0])
       for (const o of [owner & 7, 0, 1, 2, 3, 4, 5, 6, 7]) out.push(bit | (o << 4));
   }
   return [...new Set(out)];
@@ -215,7 +242,15 @@ function chooseEncoding(
       return flipped ? mirrorPixels(cel.pixels, cel.width, cel.height) : cel.pixels;
     });
   const orientations = [lead.mirrored, !lead.mirrored].map((flipped) => rowsFor(flipped));
-  for (const high of candidates(lead.encoding, lead.mirrorBit, owner, packed)) {
+  const sharing: Sharing =
+    members.length === 1
+      ? "alone"
+      : members.some((member) =>
+            cels.some((c) => loops[member]!.cels[c]!.mirrored !== loops[owner]!.cels[c]!.mirrored),
+          )
+        ? "mirrored"
+        : "alike";
+  for (const high of candidates(lead.encoding, lead.mirrorBit, owner, sharing, packed)) {
     for (const rows of orientations) {
       const fits = members.every((member) =>
         cels.every((c, i) => {
