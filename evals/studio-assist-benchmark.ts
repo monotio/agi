@@ -7,7 +7,7 @@
  * (`ok`), how many proposals were refused, rounds, tokens and cost.
  *
  *   npm run eval:studio -- --provider anthropic --model claude-opus-5-5 \
- *     --budget-usd 2 [--case all|plate-walkable,rope-walkable,ledger-depth,robot-eyes] \
+ *     --budget-usd 2 [--case all|plate-horizon,rope-walkable,ledger-depth,robot-eyes] \
  *     [--effort medium] [--repeats 1] [--out evals/results/studio-assist]
  *   npm run eval:studio -- --dry-run      # the deterministic stub, no key, no spend
  *
@@ -23,10 +23,10 @@
  * overshoot by at most one request's input; the report states any overshoot.
  *
  * Cases (the tutorial's own resources):
- *   plate-walkable  lab lever plate, Walk lens. The plate is on the back wall
- *                   above the room's horizon (y 112), so a candidate cannot
- *                   raise the walkable estimate; `verified` records whether
- *                   the model saw that instead of painting anyway.
+ *   plate-horizon   lab lever plate, Walk lens. The plate is on the back wall
+ *                   above the room's horizon (y 112), so no control-line
+ *                   change can make it walkable: the case passes when the
+ *                   model proposes nothing and says the horizon is why.
  *   rope-walkable   gallery rope barrier, Walk lens: walkable cells must rise.
  *   ledger-depth    archive ledger stand, Depth lens: the stand's own cells
  *                   must gain a depth value (5..15).
@@ -67,6 +67,8 @@ interface StudioCase {
   readonly focus: (session: Session) => StudioFocus;
   /** The semantic check on a candidate that passed its scope. */
   readonly verify: (session: Session, result: StudioAssistResult) => string | null;
+  /** The right answer is to propose nothing and explain why. */
+  readonly declines?: true;
 }
 
 function pictureFocus(
@@ -137,12 +139,16 @@ function walkableCase(id: string, num: number, target: string, instruction: stri
 }
 
 const CASES: Record<string, StudioCase> = {
-  "plate-walkable": walkableCase(
-    "plate-walkable",
-    2,
-    "wake-plate",
-    "Make the lever plate walkable without changing the art.",
-  ),
+  "plate-horizon": {
+    id: "plate-horizon",
+    instruction: "Make the lever plate walkable without changing the art.",
+    declines: true,
+    focus: (session) => pictureFocus(session, 2, ["wake-plate"], "walk"),
+    verify(_session, result) {
+      if (result.candidate) return "proposed a change that cannot make the plate walkable";
+      return /horizon/i.test(result.text) ? null : "declined without naming the horizon";
+    },
+  },
   "rope-walkable": walkableCase(
     "rope-walkable",
     1,
@@ -375,7 +381,9 @@ async function runCase(
   return {
     case: bench.id,
     repeat,
-    ok: result?.candidate?.check.ok === true,
+    ok: bench.declines
+      ? result !== null && !result.candidate
+      : result?.candidate?.check.ok === true,
     verified: result ? bench.verify(session, result) : "no result",
     refused: result?.refusals ?? 0,
     proposals: result?.proposals ?? 0,
@@ -422,7 +430,7 @@ async function main(): Promise<void> {
       spent += report.costUsd;
       runs.push(report);
       console.log(
-        `${report.ok ? "ok" : "no candidate"}${report.ok && report.verified === null ? ", verified" : report.verified ? ` (${report.verified})` : ""} ${id} r${repeat}: ` +
+        `${report.ok ? "ok" : CASES[id]!.declines ? "proposed" : "no candidate"}${report.ok && report.verified === null ? ", verified" : report.verified ? ` (${report.verified})` : ""} ${id} r${repeat}: ` +
           `${report.proposals} proposals, ${report.refused} refused, ${report.rounds} requests, $${report.costUsd.toFixed(4)}` +
           (report.error ? ` — ${report.error}` : ""),
       );
