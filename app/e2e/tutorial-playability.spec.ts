@@ -73,9 +73,13 @@ test("tutorial walls and three exhibits work through the real browser controls",
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("ArrowUp");
   await waitForCycles(page, 55);
-  expect((await textHook(page)).egoY).toBe(126);
+  // The west wall's receding base stops the apprentice before the back wall.
+  expect((await textHook(page)).egoY).toBe(120);
   await page.keyboard.press("ArrowUp");
-  // The mural is painted from in front of the frame, so walk over first.
+  // The mural is painted from in front of the velvet rope, so step down and over.
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(async () => (await textHook(page)).egoY).toBeGreaterThanOrEqual(130);
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowRight");
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThanOrEqual(60);
   await page.keyboard.press("ArrowRight");

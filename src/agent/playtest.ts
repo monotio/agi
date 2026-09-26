@@ -1134,8 +1134,11 @@ export function playtestRoom(
       if (assertions["printed"] != null) {
         if (typeof assertions["printed"] !== "string" || assertions["printed"].length > 200)
           throw new Error("expect.printed must be text of at most 200 characters.");
-        const wanted = assertions["printed"];
-        if (!simulation.messages.some((message) => message.includes(wanted))) {
+        // Line breaks and runs of spaces count as one space, as the recorder
+        // stores a printed message, so a window laid out with \n still matches.
+        const flat = (text: string) => text.replace(/\s+/g, " ");
+        const wanted = flat(assertions["printed"]);
+        if (!simulation.messages.some((message) => flat(message).includes(wanted))) {
           failures.push(
             `Expected a printed message containing ${JSON.stringify(wanted)}; none did.`,
           );

@@ -2,28 +2,28 @@
   "schema": "monotio.agi.walkthrough.v1",
   "identity": {
     "project": "adventure-department",
-    "revision": "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b"
+    "revision": "30bb98812428dcfae13e516d6e6182bc30e3b9a1677d34ee4f762c4446af0dd7"
   },
   "supportedRevisions": [
-    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b"
+    "30bb98812428dcfae13e516d6e6182bc30e3b9a1677d34ee4f762c4446af0dd7"
   ],
   "coverage": "complete-game",
   "profile": "2.936",
   "seed": 1,
   "fixtureHashes": {
-    "LOGDIR": "209c26100c5cb5f9c0839f12a9747a5f08be02d01d66ececc598678f69b4bf39",
+    "LOGDIR": "bcc8507050159c67132033d65efbe5d4c121db398c6231e2f6d87293bf3f3974",
     "OBJECT": "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
-    "PICDIR": "7ec9edb5a375faed6f37387efddf8f2fac52e841209266f34346d01c4943f88a",
-    "SNDDIR": "c82b80df1e89e78e0784f2ed99e0f97da1cf944878bc56c50a927b87d37cbc6a",
-    "TESTS.JSON": "6d5caff039308d3cb6bd0449be68da70bd7aac9576c2d9b2260604fdf3c23b84",
-    "VIEWDIR": "5d3a41b9d0ec67f6e6f58c35d6ebaa98f34a848f08742d413ee40df318035ce6",
-    "VOL.0": "e605df7f8346fd11bb0cf121428ca11d8fd51f2c1f01dce2f510a3d9df5d8f29",
-    "WORDS.TOK": "c9085eb86d115abce91442186553a4b4a39cf30a2729fc8faaf259d74c07175d"
+    "PICDIR": "6d3632cac01fe9422712a4480c7bfd7ec55843c4d35c788846309de1c441e45b",
+    "SNDDIR": "dd44123fd0b429e992af156d0d4b27d1c44fa5ae1dcfeab74be53afd800c6358",
+    "TESTS.JSON": "70a10b360d8e74d9fcf67e969484c479f5620055e48864aeee6f178e64272a89",
+    "VIEWDIR": "1447cd27670b5740037f6d5f3ba8d747ab3be63d15ed0acd9cabf71adfdc55a4",
+    "VOL.0": "36deecf11d22ff04d69757863b4cbf5a0141282d32b217030a1d440724f80966",
+    "WORDS.TOK": "464be045305cf73cfd59290b07a3001ab8f0a2d8e936562c8fc477106a01f1eb"
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 44,
-  "virtualTicks": 1367,
+  "elapsedMs": 41,
+  "virtualTicks": 1361,
   "cycles": 82,
   "actions": [
     {
@@ -460,7 +460,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 230
+      "ticks": 223
     },
     {
       "kind": "key",
@@ -564,7 +564,7 @@
     },
     {
       "kind": "advance",
-      "ticks": 1
+      "ticks": 2
     },
     {
       "kind": "key",
@@ -1124,7 +1124,7 @@
     ],
     "strings": [
       "",
-      "",
+      "Try SHOW PRIORITY or HELP.",
       "",
       "",
       "",

@@ -49,7 +49,7 @@ export const KNOWN_GAME_HASH = {
   MUMG: "a718ca71030b946726a197e891998ab44ad3fe363e346810fa2d720151aa1d3e",
   DEMOPAC4: "6c7456ae306ad62ed6be4d3442f03d853e66c773661dcad79ae4b2f0152ccdec",
   SYNTHETIC: "d00cc5981820a66d3a56c802f8d747a73fe153d394a80463accf313947623fa1",
-  ADVENTURE_DEPARTMENT: "c9085eb86d115abce91442186553a4b4a39cf30a2729fc8faaf259d74c07175d",
+  ADVENTURE_DEPARTMENT: "464be045305cf73cfd59290b07a3001ab8f0a2d8e936562c8fc477106a01f1eb",
 } as const;
 
 export const KNOWN_GAMES: readonly KnownAgiGame[] = [
@@ -79,7 +79,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     // TESTS.JSON is not part of the canonical playable set, so the fixture
     // server's public file set and the full project boot to one revision.
     targetRevision: requireResourceRevision(
-      "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
+      "30bb98812428dcfae13e516d6e6182bc30e3b9a1677d34ee4f762c4446af0dd7",
     ),
     walkthroughLabel: "Complete route (30 pts)",
     walkthroughCoverage: "complete-game",
