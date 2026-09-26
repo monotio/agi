@@ -14,7 +14,7 @@ import type { ReplayDriver, ReplayObservation } from "./replay.ts";
 import { LAST_GAME_KEY } from "./useAutosaveController.ts";
 import type { EngineState, ModalKind, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
-import { createWorkerQueries } from "./workerQueries.ts";
+import { createPatchWaiters, createWorkerQueries } from "./workerQueries.ts";
 import type {
   WorkerInbound,
   WorkerOutbound,
@@ -85,7 +85,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   let latestFrame: Frame | null = null;
   let shakeTimer: number | null = null;
   const workerQueries = createWorkerQueries();
-  const drainPendingQueries = (err?: Error) => workerQueries.drainPendingQueries(err);
+  const patchWaiters = createPatchWaiters();
+  // A replaced worker answers neither its queries nor its patch acks.
+  const drainPendingQueries = (err?: Error) => {
+    workerQueries.drainPendingQueries(err);
+    patchWaiters.drainPatchWaiters(err);
+  };
 
   /** Every worker's host requests follow the current idle-boundary session replacement. */
   const currentSessionAgent: AgentHandler = {
@@ -133,6 +138,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   function terminateWorker(): void {
     worker?.terminate();
     worker = null;
+    patchWaiters.drainPatchWaiters(new Error("engine worker stopped"));
   }
 
   /** Cancel a pending shake.timer effect; lifecycle's screen reset calls this. */
@@ -145,7 +151,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     worker?.terminate();
     audio.stop();
     deps.resetScreenState();
-    workerQueries.drainPendingQueries(new Error("engine worker replaced"));
+    drainPendingQueries(new Error("engine worker replaced"));
     const w = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
     wireWorker(w);
     return w;
@@ -316,6 +322,9 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       metadataPatched: () => {
         state.patchTick++;
       },
+      // A patch's install acknowledgement: settles the commit awaiting it.
+      // Fire-and-forget senders post patches with no waiter.
+      patched: (msg) => patchWaiters.settlePatched(msg),
       log: (msg) => logAgent("log", msg.text),
       quit: () => {
         deps.ejectGame();
@@ -482,6 +491,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     terminateWorker,
     wireWorker,
     query,
+    awaitPatched: patchWaiters.awaitPatched,
     drainPendingQueries,
     publishText,
     publishHook,

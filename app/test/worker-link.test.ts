@@ -34,6 +34,7 @@ const OUTBOUND_TYPES = [
   "roomTransition",
   "flushed",
   "metadataPatched",
+  "patched",
   "frame",
   "trace",
   "print",
@@ -367,6 +368,17 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "metadataPatched":
         deliver(w, { type });
         break; // deliberate no-op — the assertion is that it is handled.
+      case "patched": {
+        const acked = link.awaitPatched("picture", 3, "7-0000abcd", 200);
+        deliver(w, { type, kind: "picture", num: 3, patchGen: 4, hint: "7-0000abcd" });
+        assert.deepEqual(await acked, {
+          kind: "picture",
+          num: 3,
+          patchGen: 4,
+          hint: "7-0000abcd",
+        });
+        break;
+      }
       case "frame": {
         const visual = new Uint8Array(160 * 168);
         const priority = new Uint8Array(160 * 168);
