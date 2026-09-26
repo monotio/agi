@@ -180,3 +180,21 @@ export function patchedView(
   parseView(payload, profile);
   return { payload, spec };
 }
+
+/**
+ * The editable spec of a stored VIEW payload: each alias group's owner with
+ * its stored rows, the other members as `mirrorLoop` aliases. What a Keep
+ * records in `sources.views` for bytes edited outside a spec (Sprite Studio);
+ * the orientation nibbles `applyMetadata` writes are not part of a spec, the
+ * same as for `patchedView`. Throws RangeError when the payload does not decode.
+ */
+export function viewSpec(payload: Uint8Array, profile: AgiProfile): BuildViewInput {
+  const view = parseView(payload, profile);
+  const loops: BuildLoopInput[] = new Array(view.loops.length);
+  for (const group of aliasGroups(payload, view, profile.packedViewLoopHeader)) {
+    const first = group.members[0]!;
+    loops[first] = { cels: group.cels.map((cel) => ({ ...cel, pixels: [...cel.pixels] })) };
+    for (const member of group.members.slice(1)) loops[member] = { mirrorLoop: first };
+  }
+  return view.description === undefined ? { loops } : { loops, description: view.description };
+}

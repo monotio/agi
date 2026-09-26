@@ -1,5 +1,5 @@
 /**
- * Room Studio's Keep, end to end over fake ports: the real authoring
+ * Room Studio's and Sprite Studio's Keep, end to end over fake ports: the real authoring
  * controller commits through the real worker link into the real worker
  * dispatch and Engine, against the IndexedDB fixture. Each case checks one
  * leg of the transaction — the install ack, the refusals that must leave
@@ -39,7 +39,7 @@ import type {
 } from "../src/workerProtocol.ts";
 import { studioCommitFailure, useStudioCommit } from "../src/studio/useStudioCommit.ts";
 import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
-import type { StudioDraft } from "../src/studio/useStudioDraft.ts";
+import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
 import type { AwaitPatchedFn } from "../src/workerQueries.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
 import { authoredPictureSource } from "../../src/agent/tools.ts";
@@ -47,6 +47,11 @@ import { historySyncDigest, type HistorySegment } from "../../src/agent/history.
 import { openContainer } from "../../src/container/container.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
+import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
+import { viewSpec } from "../../src/view/celEdit.ts";
+import { buildView, type BuildViewInput } from "../../src/view/view.ts";
+import { bytesToBase64 } from "../src/bytes.ts";
 
 installIndexedDbFixture();
 
@@ -273,9 +278,14 @@ function rig(
 }
 
 /** Store an authored project and boot it; `library` makes it a catalog entry. */
-async function authoredRig(t: TestContext, name: string, catalog = false, drawn = 1) {
+async function authoredRig(
+  t: TestContext,
+  name: string,
+  catalog = false,
+  drawn = 1,
+  files = gameFiles(drawn),
+) {
   const projectId = testProjectId(name);
-  const files = gameFiles(drawn);
   const revision = await gameRevision(files);
   await saveAuthoredGame(projectId, {
     title: "Studio room",
@@ -651,7 +661,11 @@ function keeper(r: Rig, source: string, revision: ResourceRevision) {
     source: ref(source),
     markKept: () => {},
   } as unknown as StudioDraft;
-  return useStudioKeep({ draft, pictureNumber: () => 1, keep: r.controller.commitPictureEdit });
+  return useStudioKeep({
+    draft,
+    keep: (baseRevision) =>
+      r.controller.commitPictureEdit(draftPictureEdit(draft, 1, baseRevision)),
+  });
 }
 
 test("a Keep behind a project kept elsewhere reopens by reloading from storage", async (t) => {
@@ -782,3 +796,154 @@ function collectSegment(control: WorkerControl[]): HistorySegment {
   assert.ok(segment, "the session recorded a segment");
   return segment;
 }
+
+// ---- Sprite Studio: the VIEW edit ----------------------------------------
+
+/** A 2x2 VIEW: loop 0 one cel, loop 1 its mirror. */
+function spriteView(pixels: readonly number[]): Uint8Array {
+  const cel = { width: 2, height: 2, transparentColor: 13, pixels };
+  return buildView({ loops: [{ cels: [cel] }, { mirrorLoop: 0 }] }, DEFAULT_V2_PROFILE);
+}
+const VIEW_BEFORE = spriteView([1, 2, 13, 3]);
+
+/** Room 1 animates object 1 in VIEW 3; with `bake`, it also adds VIEW 3 to the picture. */
+function spriteFiles(bake: boolean): Record<string, Uint8Array> {
+  return Object.fromEntries(
+    gameContainer(
+      [
+        "if (equaln(v0,0)) { new.room(1); } call.v(v0); return;",
+        [
+          "if (isset(f5)) {",
+          "load.pic(v0); draw.pic(v0); load.view(3);",
+          bake ? "add.to.pic(3, 0, 0, 20, 100, 4, 4);" : "",
+          "animate.obj(o1); set.view(o1, 3); position(o1, 60, 100); draw(o1); show.pic();",
+          "} return;",
+        ].join(" "),
+      ],
+      (c) => {
+        c.putResource("picture", 1, compile(BLUE));
+        c.putResource("view", 3, VIEW_BEFORE);
+      },
+    ).files,
+  );
+}
+const storedView = (files: Record<string, Uint8Array>) =>
+  openContainer(new Map(Object.entries(files))).getResource("view", 3);
+
+test("a kept view installs live and keeps its spec; only a room that bakes it re-enters", async (t) => {
+  for (const bake of [false, true]) {
+    const { projectId, revision, r } = await authoredRig(
+      t,
+      `sprite-keep-${bake}`,
+      false,
+      1,
+      spriteFiles(bake),
+    );
+    const after = applySpriteEdit(openSprite(VIEW_BEFORE, DEFAULT_V2_PROFILE), {
+      type: "setPixels",
+      loop: 1,
+      cel: 0,
+      changes: [{ x: 0, y: 0, color: 4 }],
+    });
+    assert.ok("document" in after);
+    const bytes = after.document.payload;
+    const result = await r.controller.commitViewEdit({
+      viewNumber: 3,
+      bytes,
+      baseRevision: revision,
+    });
+    assert.equal(result.status, "committed");
+    assert.deepEqual(storedView((await loadAuthoredGame(projectId))!.files), bytes);
+    // The running engine re-parsed the loaded view in place (a baking room
+    // loads it again on re-entry): loop 1 is its own copy now.
+    r.tick(4);
+    const live = r.ctx.engine!.getView(3)!;
+    // Loop 1 shows [2, 1 / 3, ∅] mirrored; its top-left pixel is now colour 4.
+    assert.deepEqual([...live.loops[1]!.cels[0]!.pixels], [4, 1, 3, 13]);
+    assert.deepEqual([...live.loops[0]!.cels[0]!.pixels], [1, 2, 13, 3]);
+    assert.deepEqual(
+      r.posted.filter((m) => m.type === "reenter"),
+      bake ? [{ type: "reenter", room: 1 }] : [],
+    );
+    const views = (
+      (await loadAuthoredGame(projectId))!.authoringState?.["sources"] as {
+        views: [number, BuildViewInput][];
+      }
+    ).views;
+    assert.deepEqual(views, [[3, viewSpec(bytes, DEFAULT_V2_PROFILE)]]);
+  }
+});
+
+test("a view edit is refused as stale or invalid before storage or the worker", async (t) => {
+  const { projectId, revision, r } = await authoredRig(
+    t,
+    "sprite-refusals",
+    false,
+    1,
+    spriteFiles(false),
+  );
+  const generation = (await loadAuthoredGame(projectId))!.generation;
+  await assert.rejects(
+    r.controller.commitViewEdit({
+      viewNumber: 3,
+      bytes: spriteView([4, 4, 4, 4]),
+      baseRevision: testRevision("before"),
+    }),
+    (e) => e instanceof ResourceCommitError && e.code === "stale",
+  );
+  await assert.rejects(
+    r.controller.commitViewEdit({
+      viewNumber: 3,
+      bytes: Uint8Array.of(0, 0, 9),
+      baseRevision: revision,
+    }),
+    (e) => e instanceof ResourceCommitError && e.code === "invalid",
+  );
+  assert.equal((await loadAuthoredGame(projectId))!.generation, generation);
+  assert.equal(patches(r).length, 0);
+});
+
+test("a staged candidate repaired in Sprite Studio keeps the repaired bytes and spends the offer", async (t) => {
+  const { projectId, revision, r } = await authoredRig(
+    t,
+    "sprite-staged",
+    false,
+    1,
+    spriteFiles(false),
+  );
+  const candidate = spriteView([5, 5, 13, 5]);
+  const stored = (await loadAuthoredGame(projectId))!;
+  await saveAuthoredGame(projectId, {
+    ...stored,
+    references: [
+      {
+        id: "ref-staged",
+        kind: "character",
+        target: 3,
+        brief: "",
+        images: [{ facing: "right", png: "AA==", mime: "image/png", width: 1, height: 1 }],
+        attachedAt: { project: projectId, revision },
+        staged: {
+          num: 3,
+          payload: bytesToBase64(candidate),
+          input: viewSpec(candidate, DEFAULT_V2_PROFILE),
+          loops: [],
+          warnings: [],
+          substitutions: [],
+        },
+      },
+    ],
+  });
+  r.game().historyLifetime = await readHistoryLifetime(projectId);
+  const repaired = spriteView([5, 6, 13, 5]);
+  const result = await r.controller.keepStagedView("ref-staged", {
+    bytes: repaired,
+    baseRevision: revision,
+  });
+  assert.equal(result.status, "committed");
+  const kept = (await loadAuthoredGame(projectId))!;
+  assert.deepEqual(storedView(kept.files), repaired);
+  assert.equal(kept.references?.[0]?.staged, undefined);
+  const views = (kept.authoringState?.["sources"] as { views: [number, BuildViewInput][] }).views;
+  assert.deepEqual(views, [[3, viewSpec(repaired, DEFAULT_V2_PROFILE)]]);
+});

@@ -551,6 +551,7 @@ export function useEngine(
     detachReference: authoringController.detachReference,
     keepStagedView: authoringController.keepStagedView,
     commitPictureEdit: authoringController.commitPictureEdit,
+    commitViewEdit: authoringController.commitViewEdit,
     isInstalledGame: lifecycle.isInstalledGame,
     currentGame: lifecycle.currentGame,
     exportCurrentGame: lifecycle.exportCurrentGame,

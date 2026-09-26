@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
-import { flipHorizontal, patchedView } from "../src/view/celEdit.ts";
+import { flipHorizontal, patchedView, viewSpec } from "../src/view/celEdit.ts";
 import { buildView, parseView, readViewCel, type BuildCelInput } from "../src/view/view.ts";
 
 const replacement = (pixels: readonly number[]): BuildCelInput => ({
@@ -67,5 +67,28 @@ describe("cel edit helpers", () => {
     // mirrored (stored [1,2], displayed flipped).
     assert.deepEqual([...readViewCel(view, 1, 0)!.pixels], [1, 2]);
     assert.deepEqual([...view.loops[1]!.cels[0]!.pixels], [2, 1]);
+  });
+});
+
+describe("viewSpec", () => {
+  it("rebuilds a payload's stored blocks, aliases as mirror loops", () => {
+    const profile = DEFAULT_V2_PROFILE;
+    const cel = { width: 2, height: 1, transparentColor: 13, pixels: [1, 13] };
+    const input = {
+      description: "Pair",
+      loops: [{ cels: [cel] }, { mirrorLoop: 0 }, { cels: [{ ...cel, pixels: [4, 5] }] }],
+    };
+    const payload = buildView(input, profile);
+    const spec = viewSpec(payload, profile);
+    assert.equal(spec.description, "Pair");
+    assert.deepEqual(spec.loops[1], { mirrorLoop: 0 });
+    assert.deepEqual([...spec.loops[2]!.cels![0]!.pixels], [4, 5]);
+    // The spec builds the same display the payload shows.
+    const again = parseView(buildView(spec, profile), profile);
+    const shown = parseView(payload, profile);
+    assert.deepEqual(
+      again.loops.map((loop) => loop.cels.map((c) => [...c.pixels])),
+      shown.loops.map((loop) => loop.cels.map((c) => [...c.pixels])),
+    );
   });
 });

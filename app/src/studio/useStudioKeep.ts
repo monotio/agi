@@ -1,8 +1,9 @@
 /**
- * Room Studio's Keep: the draft's compiled bytes and annotated source go
- * through the resource transaction (useStudioCommit) against the revision the
- * draft was opened or last kept on (bytes equal to the kept ones save only
- * the text). A kept draft rebases on the new revision.
+ * A Studio's Keep: the draft goes through the resource transaction
+ * (useStudioCommit) against the revision it was opened or last kept on —
+ * Room Studio's compiled bytes and annotated source (bytes equal to the kept
+ * ones save only the text), Sprite Studio's VIEW bytes. A kept draft rebases
+ * on the new revision.
  * Each refusal maps to the one next step it allows: a stale game reopens
  * Studio from the running game, a failed install reloads the game from
  * storage (editing stops until then), anything else can be retried. When the
@@ -11,13 +12,26 @@
  * would only refuse again.
  */
 
-import { computed, shallowRef } from "vue";
+import { computed, shallowRef, type Ref } from "vue";
+import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { PictureEdit, ResourceCommitResult } from "../resourceCommit.ts";
-import type { DraftStatus } from "./StudioTopBar.vue";
+import type { DraftStatus } from "./StudioDraftControls.vue";
 import { useStudioCommit } from "./useStudioCommit.ts";
-import { changeCount, type StudioDraft } from "./useStudioDraft.ts";
 
+/** Room Studio's Keep transaction. */
 export type KeepFn = (edit: PictureEdit) => Promise<ResourceCommitResult>;
+
+/** What a Keep reads from a Studio draft and tells it back. */
+export interface KeepableDraft {
+  /** The draft differs from what the game holds. */
+  readonly dirty: Readonly<Ref<boolean>>;
+  /** A drag or stroke is open: nothing is kept mid-gesture. */
+  readonly gesturing: Readonly<Ref<boolean>>;
+  /** The revision the draft was opened or last kept on; undefined when it cannot be kept. */
+  readonly kept: Readonly<Ref<{ readonly revision: ResourceRevision | undefined }>>;
+  /** The game now holds the draft at `revision`. */
+  markKept(revision: ResourceRevision): void;
+}
 
 /** What the Keep banner offers after a failure. */
 export type KeepRecovery = "reopen" | "reload" | "retry";
@@ -30,10 +44,9 @@ export interface KeepBanner {
 }
 
 export function useStudioKeep(options: {
-  readonly draft: StudioDraft;
-  readonly pictureNumber: () => number;
-  /** The transaction; the engine's commitPictureEdit when omitted. */
-  readonly keep?: KeepFn | undefined;
+  readonly draft: KeepableDraft;
+  /** The transaction: the draft's edit, made against `baseRevision`. */
+  readonly keep: (baseRevision: ResourceRevision) => Promise<ResourceCommitResult>;
 }) {
   const { draft } = options;
   const { commit, busy, lastError } = useStudioCommit(options.keep);
@@ -71,13 +84,7 @@ export function useStudioKeep(options: {
   async function keep(): Promise<boolean> {
     const revision = draft.kept.value.revision;
     if (!canKeep.value || revision === undefined) return false;
-    const result = await commit({
-      pictureNumber: options.pictureNumber(),
-      bytes: draft.compiled.value.bytes,
-      source: draft.source.value,
-      baseRevision: revision,
-      reason: changeCount(draft.changes.value, draft.notesOnly.value),
-    });
+    const result = await commit(revision);
     if (!result) return false;
     draft.markKept(result.revision);
     lastKept.value = result;

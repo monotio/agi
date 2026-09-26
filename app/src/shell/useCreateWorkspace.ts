@@ -1,7 +1,8 @@
 /**
  * The Create workspace's view state: which tab each dock shows, which docks
  * are folded to their icon rail, and what the centre shows — the live stage,
- * or Room Studio on one picture while the game waits paused. Studio takes the
+ * or a Studio (Room Studio on one picture, Sprite Studio on one VIEW) while
+ * the game waits paused. Studio takes the
  * whole workspace: the docks stay mounted but hidden, and closing it brings
  * them back with the tabs and folds they had. App.vue creates one workspace;
  * the docks, the panels and the centre inject it.
@@ -23,34 +24,66 @@ import {
 } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import type { ViewUsage } from "../../../src/studio/sprite/spriteUsage.ts";
 import { createPanels, type DockSide } from "./createDocks.ts";
 
 export const DOCKS_STORAGE_KEY = "monotio_agi.createDocks";
 
-/** What Room Studio opens on; RoomStudio edits it and keeps it against `baseRevision`. */
-export interface StudioRequest {
-  readonly room: number;
-  readonly pictureNumber: number;
-  readonly bytes: Uint8Array;
-  /** The agent's picture text, only while it compiles to `bytes`. */
-  readonly authoredSource?: string | undefined;
+/** What every Studio opens on: resource bytes read from the booted game at `baseRevision`. */
+interface StudioRequestBase {
   readonly profile: AgiProfile;
   readonly title: string;
   readonly subtitle?: string | undefined;
   /** The booted game's resource revision the bytes were read at. */
   readonly baseRevision: ResourceRevision;
-  /** The booted game's container files, read at the same revision (the actor probe's VIEWs). */
+  /** The booted game's container files, read at the same revision (VIEWs, room pictures). */
   readonly files: ReadonlyMap<string, Uint8Array>;
-  /** The same picture read again from the running game, or null when it is gone. */
+  /** The same resource read again from the running game, or null when it is gone. */
   readonly reload: () => StudioRequest | null;
   /**
-   * Reload the game from browser storage, then the same picture read from
+   * Reload the game from browser storage, then the same resource read from
    * it (carrying a `notice` that says so); null when there is none.
    */
   readonly reloadFromStorage: () => Promise<StudioRequest | null>;
   /** A line Studio says as it opens on this request. */
   readonly notice?: string | undefined;
 }
+
+/** Room Studio on one picture; RoomStudio edits it and keeps it against `baseRevision`. */
+export interface PictureStudioRequest extends StudioRequestBase {
+  readonly kind: "picture";
+  readonly room: number;
+  readonly pictureNumber: number;
+  readonly bytes: Uint8Array;
+  /** The agent's picture text, only while it compiles to `bytes`. */
+  readonly authoredSource?: string | undefined;
+}
+
+/** A room the in-room preview can stand a sprite in: its number and the picture it draws. */
+export interface SpriteRoom {
+  readonly room: number;
+  readonly picture: number;
+  readonly title?: string | undefined;
+}
+
+/** Sprite Studio on one VIEW (studio/sprite/SpriteStudio.vue). */
+export interface SpriteStudioRequest extends StudioRequestBase {
+  readonly kind: "sprite";
+  readonly viewNumber: number;
+  readonly bytes: Uint8Array;
+  /** Rooms and logics whose bytecode names the view (spriteUsage.ts). */
+  readonly usage: ViewUsage;
+  /** Rooms with a picture to preview the sprite in, the room the game is in first. */
+  readonly rooms: readonly SpriteRoom[];
+  /** The game's cycle delay (v10) when Studio opened; the loop preview's pace. */
+  readonly speed: number;
+  /** The room's set.pri.base when known. */
+  readonly priorityBase?: number | undefined;
+  /** A staged character-sheet candidate: Keep goes through its reference's staged keep. */
+  readonly stagedReference?: string | undefined;
+}
+
+export type StudioRequest = PictureStudioRequest | SpriteStudioRequest;
 
 /** What an open Studio guards on the way out: its unkept changes, and the question that settles them. */
 export interface StudioLeaveGuard {
@@ -67,7 +100,7 @@ export interface CreateCenter {
   /** Back to the live stage: the game resumes and takes the keyboard. */
   closeStudio(): void;
   /**
-   * Studio again on the same picture after a refused Keep: read from the
+   * Studio again on the same resource after a refused Keep: read from the
    * running game, or with `fromStorage`, from the game reloaded from storage.
    */
   reopenStudio(fromStorage?: boolean): Promise<void>;
@@ -78,7 +111,7 @@ export interface CreateCenter {
   /** Settle unkept Studio changes before the game or Create is left; resolves whether to go on. */
   confirmStudioLeave(): Promise<boolean>;
   /**
-   * The screen is large enough for Room Studio; phone layouts are not. An
+   * The screen is large enough for a Studio; phone layouts are not. An
    * open Studio with unkept changes stays mounted where it does not fit,
    * covered by a notice, so a rotation or resize never loses its draft.
    */
@@ -225,7 +258,7 @@ export function useCreateWorkspace(): CreateWorkspace {
   return workspace;
 }
 
-/** The centre seam: open Room Studio on a picture, or return to the live stage. */
+/** The centre seam: open a Studio on a resource, or return to the live stage. */
 export function useCreateCenter(): CreateCenter {
   const {
     studio,

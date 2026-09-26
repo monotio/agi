@@ -138,6 +138,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         ],
       },
       {
+        id: "sprites",
+        title: "Sprite Studio",
+        body: [
+          "Open in Sprite Studio, on a view in a room's card in the World panel or in the Resources tab, edits a character's or object's cels: one loop per facing, each a row of animation frames in the timeline under the canvas. A character-sheet candidate from reference art opens here too, to repair before you keep it.",
+          "Draw with the Pencil (B), Eraser (E), Fill (G), Line (L) and Rectangle (R) in any colour of the fixed palette; the cel's transparent colour, marked ∅, is only ever written by the eraser. Select (M) moves, copies (Alt), flips (H) or deletes a region; the pipette (I) picks a colour. On the focused canvas the arrow keys move a cursor and Space or Enter clicks where it stands.",
+          "A loop that mirrors another shares its pixels. Editing it makes it a separate copy and leaves the other facing as it is; choose Edit loop N instead to change both. The previews play the loop at the game's speed beside its partner, and stand the cel in a room that uses the view with the room's real depth. Keep saves the view into the game; every change can be undone.",
+        ],
+      },
+      {
         id: "keys",
         title: "Keys and cost",
         body: [

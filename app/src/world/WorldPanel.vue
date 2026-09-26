@@ -3,7 +3,8 @@
  * Create mode's World panel: the world map docked beside the live game. A
  * small graph with real thumbnails, the rooms with their status and the
  * picture each one draws, and a card for the selected room with its plan
- * actions and the Studio entry points. Unlike the window it never pauses the
+ * actions and the Studio entry points: Room Studio on its picture, Sprite
+ * Studio on each VIEW its logic uses. Unlike the window it never pauses the
  * game; the room → picture facts come from the static scan
  * (roomPictureUse), never from the room number.
  */
@@ -14,6 +15,8 @@ import { useEngineApi } from "../engineContext.ts";
 import { useCreateWorkspace, type StudioRequest } from "../shell/useCreateWorkspace.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
 import { roomPictureLabels } from "./roomPictureLabels.ts";
+import { roomViews } from "./studioSource.ts";
+import { useSpriteStudio } from "./useSpriteStudio.ts";
 import WorldGraph from "./WorldGraph.vue";
 import WorldRoomDetail from "./WorldRoomDetail.vue";
 import WorldRoomList from "./WorldRoomList.vue";
@@ -59,6 +62,13 @@ const pictures = computed(() => {
   return roomPictureLabels(use, node.planned);
 });
 
+/** The VIEWs the selected room's logic names (spriteUsage.ts), each openable in Sprite Studio. */
+const views = computed(() => {
+  const node = selectedNode.value;
+  return node ? roomViews(map.resources.value, node.room) : [];
+});
+const sprites = useSpriteStudio();
+
 const studioOpen = computed(() => workspace.studio.value !== null);
 const studioFits = workspace.studioFits;
 const STUDIO_TOO_SMALL = "Room Studio needs a larger screen";
@@ -84,6 +94,7 @@ function studioRequest(
   const source = map.studioSource(picture);
   if (!source) return null;
   return {
+    kind: "picture",
     room,
     pictureNumber: picture,
     ...source,
@@ -179,6 +190,28 @@ function openInStudio(): void {
             </UiButton>
           </span>
         </div>
+        <section v-if="views.length" class="world-views" aria-label="Views this room uses">
+          <h4>Views</h4>
+          <ul data-testid="world-room-views">
+            <li v-for="entry in views" :key="entry.view" :data-view="entry.view">
+              <span class="world-views__name">
+                <b>VIEW {{ entry.view }}</b>
+                <span v-if="entry.description">{{ entry.description }}</span>
+              </span>
+              <UiButton
+                size="sm"
+                variant="ghost"
+                icon="pencil"
+                :data-testid="`world-open-sprite-${entry.view}`"
+                :disabled="studioOpen || !studioFits"
+                :aria-label="`Open VIEW ${entry.view} in Sprite Studio`"
+                @click="sprites.open(entry.view)"
+              >
+                Open in Sprite Studio
+              </UiButton>
+            </li>
+          </ul>
+        </section>
         <p
           v-if="!studioFits"
           id="world-studio-small"
@@ -234,6 +267,41 @@ function openInStudio(): void {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
+}
+.world-views h4 {
+  margin: 0 0 var(--space-1);
+  color: var(--ink-3);
+  font: var(--weight-semibold) var(--text-2xs) / var(--leading) var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.world-views ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.world-views li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+.world-views__name {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.world-views__name b {
+  color: var(--ink);
+  font-family: var(--font-mono);
 }
 .world-blocked {
   margin: 0;

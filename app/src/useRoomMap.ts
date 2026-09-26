@@ -48,7 +48,12 @@ import { gameStorageKey, type BootedGame, type Frame } from "./gameTypes.ts";
 import type { ResourceRevision } from "../../src/gameIdentity.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
-import { studioPictureSource, type StudioPictureSource } from "./world/studioSource.ts";
+import {
+  studioPictureSource,
+  studioSpriteSource,
+  type StudioPictureSource,
+  type StudioSpriteSource,
+} from "./world/studioSource.ts";
 import type { RoomTransitionNotice } from "./workerProtocol.ts";
 
 /** Durable journal cap — the sidecar contract bounds at the same number. The
@@ -199,11 +204,18 @@ export interface RoomMap {
   thumbnailFor(room: number): MapThumbnail | null;
   /** The static scan of the booted resources (files, logic scans, pictures, stored tests). */
   readonly resources: ComputedRef<ScannedResources>;
-  /** Room Studio's input for one picture of the booted game, or null without it. */
-  /** One picture's Studio input and the booted revision it was read at. */
+  /** One picture's Room Studio input and the booted revision it was read at. */
   studioSource(
     picture: number,
   ): (StudioPictureSource & { readonly baseRevision: ResourceRevision }) | null;
+  /**
+   * One VIEW's Sprite Studio input and the booted revision it was read at;
+   * `bytes` stands in for a view not in the game yet (a staged candidate).
+   */
+  spriteSource(
+    view: number,
+    bytes?: Uint8Array,
+  ): (StudioSpriteSource & { readonly baseRevision: ResourceRevision }) | null;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
@@ -1348,6 +1360,13 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         deps.getSession()?.state,
         game.authoredGame?.authoringState,
       );
+      return source && { ...source, baseRevision: game.revision };
+    },
+    spriteSource: (view, bytes) => {
+      const game = deps.getBootedGame();
+      const scanned = scanResources();
+      if (!game || scanned.files !== game.files) return null;
+      const source = studioSpriteSource(scanned, view, currentRoom.value ?? undefined, bytes);
       return source && { ...source, baseRevision: game.revision };
     },
     observeFrame,

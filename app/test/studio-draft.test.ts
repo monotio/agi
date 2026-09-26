@@ -8,6 +8,7 @@ import type { StudioLens } from "../src/studio/studioView.ts";
 import { useStudioDrag } from "../src/studio/useStudioDrag.ts";
 import {
   changeCount,
+  draftPictureEdit,
   editedItems,
   freshItemId,
   useStudioDraft,
@@ -207,9 +208,8 @@ describe("useStudioDraft", () => {
     const kept: PictureEdit[] = [];
     const keeper = useStudioKeep({
       draft,
-      pictureNumber: () => 5,
-      keep: async (edit) => {
-        kept.push(edit);
+      keep: async (baseRevision) => {
+        kept.push(draftPictureEdit(draft, 5, baseRevision));
         return { status: "committed", projectId: null, revision: testRevision("notes") };
       },
     });
