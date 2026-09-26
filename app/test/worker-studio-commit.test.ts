@@ -646,6 +646,7 @@ function keeper(r: Rig, source: string, revision: ResourceRevision) {
     gesturing: ref(false),
     kept: ref({ revision }),
     changes: ref(1),
+    notesOnly: ref(false),
     compiled: ref({ bytes: compile(source) }),
     source: ref(source),
     markKept: () => {},
