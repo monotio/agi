@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useTemplateRef } from "vue";
+import UiButton from "./ui/UiButton.vue";
+import UiIconButton from "./ui/UiIconButton.vue";
 import type { ProfileId } from "../../src/runtime/profile.ts";
 import {
   PROFILE_GROUPS,
@@ -64,14 +66,7 @@ function onDialogClose(): void {
           {{ choice.mode === "import" ? "Choose an interpreter for" : "Interpreter for" }}
           <q>{{ choice.title }}</q>
         </h2>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary ui-button--icon dialog-close"
-          aria-label="Close"
-          @click="dismiss"
-        >
-          ×
-        </button>
+        <UiIconButton icon="x" label="Close" @click="dismiss" />
       </header>
       <p v-if="choice.mode === 'import'" class="profile-picker-intro">
         This game has no interpreter files and is not in the game catalog, so we could not tell
@@ -98,21 +93,12 @@ function onDialogClose(): void {
       </select>
 
       <footer>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
-          data-testid="profile-picker-keep"
-          @click="dismiss"
-        >
+        <UiButton data-testid="profile-picker-keep" @click="dismiss">
           {{ choice.mode === "import" && choice.detected ? `Keep ${choice.detected}` : "Cancel" }}
-        </button>
-        <button
-          type="submit"
-          class="ui-button ui-button--primary"
-          data-testid="profile-picker-confirm"
-        >
+        </UiButton>
+        <UiButton type="submit" variant="primary" data-testid="profile-picker-confirm">
           Save profile
-        </button>
+        </UiButton>
       </footer>
     </form>
   </dialog>
@@ -122,15 +108,15 @@ function onDialogClose(): void {
 .profile-picker-dialog {
   width: min(520px, calc(100vw - 32px));
   padding: 0;
-  border: 1px solid #5e9b9e;
-  border-radius: 10px;
-  color: #e9f4f4;
-  background: #0b1416;
-  box-shadow: 0 24px 80px #000c;
-  font-family: system-ui, sans-serif;
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-dialog);
+  font-family: var(--font-sans);
 }
 .profile-picker-dialog::backdrop {
-  background: #000b;
+  background: var(--scrim);
 }
 form {
   display: grid;
@@ -145,36 +131,34 @@ header {
 }
 h2 {
   margin: 0;
-  color: #fff;
-  font-size: 20px;
+  color: var(--ink);
+  font-size: var(--text-xl);
   overflow-wrap: anywhere;
 }
 .profile-picker-intro {
   margin: 0;
-  color: #9db0b2;
-  font-size: 14px;
+  color: var(--ink-2);
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 .profile-picker-intro strong {
-  color: #e9f4f4;
+  color: var(--ink);
 }
 label {
   margin-top: 6px;
-  color: #c7d9da;
-  font-size: 13px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 select {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--control-h-touch);
   box-sizing: border-box;
   padding: 9px 11px;
-  border: 1px solid #496568;
-  border-radius: 4px;
-  color: #fff;
-  background: #030809;
-  font:
-    14px/1.4 system-ui,
-    sans-serif;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--surface-sunken);
+  font: var(--text-md) / 1.4 var(--font-sans);
 }
 footer {
   display: flex;
@@ -183,8 +167,5 @@ footer {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 8px;
-}
-.dialog-close {
-  font-size: 20px;
 }
 </style>

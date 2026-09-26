@@ -5,6 +5,7 @@
  * perform; a topic's action is hidden when it is not among them.
  */
 import { computed, ref, useTemplateRef } from "vue";
+import UiButton from "./ui/UiButton.vue";
 import { HELP_SECTIONS, type HelpAction } from "./helpContent.ts";
 
 const props = defineProps<{ available: readonly HelpAction[] }>();
@@ -38,14 +39,7 @@ defineExpose({ open });
   >
     <header>
       <h2 id="help-guide-title">Help</h2>
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
-        data-testid="help-guide-close"
-        @click="dialog?.close()"
-      >
-        Close
-      </button>
+      <UiButton data-testid="help-guide-close" @click="dialog?.close()">Close</UiButton>
     </header>
     <div class="help-body">
       <nav class="help-sections" aria-label="Help sections">
@@ -64,15 +58,14 @@ defineExpose({ open });
         <section v-for="topic in section.topics" :key="topic.id" class="help-topic">
           <h3>{{ topic.title }}</h3>
           <p v-for="(paragraph, index) in topic.body" :key="index">{{ paragraph }}</p>
-          <button
+          <UiButton
             v-if="topic.action && props.available.includes(topic.action.kind)"
-            type="button"
-            class="ui-button ui-button--secondary help-show-me"
+            class="help-show-me"
             :data-testid="`help-action-${topic.action.kind}`"
             @click="run(topic.action.kind)"
           >
             {{ topic.action.label }}
-          </button>
+          </UiButton>
         </section>
       </div>
     </div>
@@ -81,11 +74,11 @@ defineExpose({ open });
 
 <style scoped>
 .help-guide {
-  background: #0b171d;
-  color: #e3ecee;
-  border: 1px solid #6bafb5;
-  border-radius: 10px;
-  box-shadow: 0 12px 36px #000a;
+  background: var(--surface-1);
+  color: var(--ink);
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dialog);
   padding: 0.75rem 1rem 1rem;
   width: min(44rem, calc(100vw - 2rem));
   max-height: min(85dvh, 40rem);
@@ -97,7 +90,7 @@ defineExpose({ open });
   display: flex;
 }
 .help-guide::backdrop {
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--scrim);
 }
 header {
   display: flex;
@@ -108,7 +101,7 @@ header {
 }
 h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 .help-body {
   display: grid;
@@ -122,25 +115,23 @@ h2 {
   gap: 0.25rem;
 }
 .help-sections button {
-  min-height: 40px;
+  min-height: var(--control-h);
   padding: 0.5rem 0.75rem;
   border: 1px solid transparent;
-  border-radius: 5px;
-  color: #cfe3e5;
+  border-radius: var(--radius);
+  color: var(--ink);
   background: transparent;
   text-align: left;
-  font:
-    14px/1.3 system-ui,
-    sans-serif;
+  font: var(--text-md) / 1.3 var(--font-sans);
   cursor: pointer;
 }
 .help-sections button:hover {
-  background: var(--ui-action-surface);
+  background: var(--surface-2);
 }
 .help-sections button[aria-current="true"] {
-  border-color: var(--ui-action);
-  color: var(--ui-action);
-  background: var(--ui-action-surface);
+  border-color: var(--action);
+  color: var(--action);
+  background: var(--surface-2);
 }
 .help-topics {
   overflow-y: auto;
@@ -149,19 +140,17 @@ h2 {
 .help-topic + .help-topic {
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid #1d3137;
+  border-top: 1px solid var(--hairline);
 }
 h3 {
   margin: 0 0 0.35rem;
-  font-size: 15px;
-  color: #f2fbfb;
+  font-size: var(--text-lg);
+  color: var(--ink);
 }
 .help-topic p {
   margin: 0 0 0.5rem;
-  font:
-    14px/1.55 system-ui,
-    sans-serif;
-  color: #b9cdd1;
+  font: var(--text-md) / 1.55 var(--font-sans);
+  color: var(--ink-2);
 }
 .help-show-me {
   margin-top: 0.25rem;

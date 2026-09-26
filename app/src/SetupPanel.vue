@@ -7,6 +7,7 @@
 import AgentTaskControls from "./AgentTaskControls.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
+import UiButton from "./ui/UiButton.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { hasWalkthrough } from "./walkthrough.ts";
@@ -88,19 +89,16 @@ const {
         <p v-if="libraryActionError && !cachedMeta" role="alert" class="library-error">
           {{ libraryActionError }}
         </p>
-        <button
+        <UiButton
           v-if="catalogErrors[entry.id]"
-          type="button"
-          class="ui-button ui-button--secondary"
           :disabled="catalogBusy[entry.id]"
           @click="loadCatalogOpening(entry.id)"
         >
           Retry preview
-        </button>
+        </UiButton>
         <div v-else class="catalog-actions">
-          <button
-            type="button"
-            class="ui-button ui-button--primary"
+          <UiButton
+            variant="primary"
             :data-testid="`catalog-play-${entry.id}`"
             :disabled="catalogBusy[entry.id] || libraryActionBusy"
             @click="playCatalogGame(entry.id)"
@@ -112,17 +110,15 @@ const {
                   ? "Resume"
                   : "Play now"
             }}
-          </button>
-          <button
+          </UiButton>
+          <UiButton
             v-if="hasWalkthrough(entry.id)"
-            type="button"
-            class="ui-button ui-button--secondary"
             data-testid="catalog-run-walkthrough"
             :disabled="catalogBusy[entry.id] || libraryActionBusy"
             @click="playCatalogWalkthrough(entry.id)"
           >
             Watch a playthrough
-          </button>
+          </UiButton>
         </div>
       </div>
     </article>
@@ -198,8 +194,8 @@ const {
   padding: 20px 0 36px;
 }
 .welcome-kicker {
-  color: #85b8ba;
-  font-size: 12px;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   margin: 0 0 16px;
@@ -211,58 +207,51 @@ const {
 .welcome-kicker a:hover,
 .welcome-kicker a:focus-visible {
   text-decoration: underline;
-  color: #a2e8ea;
+  color: var(--action-hover);
 }
 .welcome h1 {
-  font:
-    900 clamp(38px, 6.6vw, 84px)/1.1 ui-monospace,
-    "SFMono-Regular",
-    Menlo,
-    Consolas,
-    monospace;
+  font: 900 var(--text-display) / 1.1 var(--font-mono);
   letter-spacing: -0.065em;
-  color: #e9ffff;
-  text-shadow: 0 0 32px #55ffff30;
+  color: var(--ink);
+  text-shadow: 0 0 32px var(--action-soft);
 }
 .welcome h1 span {
-  color: #55ffff;
+  color: var(--action);
 }
 .welcome-line {
   margin: 18px 0 8px;
-  color: #e3eded;
-  font:
-    500 clamp(18px, 2.5vw, 25px)/1.4 system-ui,
-    sans-serif;
+  color: var(--ink);
+  font: var(--weight-medium) var(--text-xl) / 1.4 var(--font-sans);
 }
 .catalog-shelf {
   width: var(--shell-width);
   margin: 0 auto 28px;
   padding: 22px;
   box-sizing: border-box;
-  border: 1px solid #3d6669;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #152a2c, #0b1113 68%);
-  font-family: system-ui, sans-serif;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--surface-3), var(--surface-1) 68%);
+  font-family: var(--font-sans);
 }
 .catalog-card {
   display: grid;
   grid-template-columns: minmax(280px, 1.35fr) minmax(240px, 1fr);
   overflow: hidden;
-  border: 1px solid #42676a;
-  border-radius: 9px;
-  background: #0c1517;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
 }
 .catalog-art {
   min-height: 225px;
-  background: #050707;
+  background: var(--surface-sunken);
 }
 .thumbnail-placeholder {
   display: grid;
   height: 100%;
   min-height: 225px;
   place-items: center;
-  color: #759294;
-  font: 12px/1.4 monospace;
+  color: var(--ink-3);
+  font: var(--text-xs) / 1.4 var(--font-mono);
   letter-spacing: 0.12em;
 }
 .catalog-copy {
@@ -274,19 +263,19 @@ const {
 }
 .catalog-copy h3 {
   margin: 7px 0;
-  color: #fff;
-  font-size: 24px;
+  color: var(--ink);
+  font-size: var(--text-xl);
 }
 .catalog-copy > p:not(.saved-world-badge) {
   margin: 0 0 14px;
-  color: #a9bdbf;
+  color: var(--ink-2);
   line-height: 1.5;
 }
 .catalog-copy .catalog-byline {
-  color: #7f999b;
-  font-size: 12px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
 }
-.catalog-copy .ui-button {
+.catalog-copy .ui-btn {
   width: auto;
   min-width: 150px;
 }
@@ -295,7 +284,7 @@ const {
   flex-wrap: wrap;
   gap: 10px;
 }
-.catalog-actions .ui-button {
+.catalog-actions .ui-btn {
   flex: 1 1 auto;
 }
 
@@ -309,15 +298,15 @@ const {
 }
 
 .splash-title {
-  font-size: 1.2rem;
+  font-size: var(--text-xl);
   letter-spacing: 0.15em;
-  color: #fff;
+  color: var(--ink);
   margin: 0 0 0.5rem 0;
 }
 
 .splash-desc {
-  font-size: 0.8rem;
-  color: #aaa;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
   margin: 0 0 1.2rem 0;
   line-height: 1.4;
 }
@@ -333,14 +322,14 @@ const {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.85rem;
-  color: #5af;
+  font-size: var(--text-md);
+  color: var(--action);
 }
 
 .pulsing-dot {
   width: 8px;
   height: 8px;
-  background: #5af;
+  background: var(--action);
   border-radius: 50%;
   animation: pulse 1s infinite alternate;
 }
@@ -357,8 +346,8 @@ const {
 }
 
 .splash-subtext {
-  font-size: 0.7rem;
-  color: #666;
+  font-size: var(--text-2xs);
+  color: var(--ink-3);
   margin: 0;
 }
 
@@ -377,30 +366,30 @@ const {
 
 .error-banner {
   margin-top: 0.75rem;
-  background: #2a0e0e;
-  border: 1px solid #933;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
   padding: 0.6rem 0.8rem;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
 }
 
 .error-badge {
-  background: #933;
-  color: #fff;
-  font-family: monospace;
-  font-size: 0.65rem;
+  background: var(--danger);
+  color: var(--action-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
   font-weight: bold;
   padding: 0.15rem 0.35rem;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   letter-spacing: 0.1em;
 }
 
 .error-msg {
-  font-family: monospace;
-  font-size: 0.75rem;
-  color: #fbb;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--danger);
   line-height: 1.4;
   word-break: break-word;
 }
@@ -423,8 +412,8 @@ const {
 .loading-panel {
   width: min(640px, 92vw);
   aspect-ratio: 8 / 5;
-  background: #000;
-  border: 2px solid #333;
+  background: var(--agi-0);
+  border: 2px solid var(--hairline);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -439,7 +428,7 @@ const {
     padding: 12px 0 28px;
   }
   .welcome-kicker {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
   }
   .catalog-shelf {
