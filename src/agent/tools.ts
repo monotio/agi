@@ -46,6 +46,13 @@ import {
   sourceContextRevision,
 } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import {
+  executeStudioAssistTool,
+  STUDIO_ASSIST_TOOL_NAMES,
+  STUDIO_ASSIST_TOOLS,
+  STUDIO_ONLY,
+  type StudioAssist,
+} from "./studioAssistTools.ts";
 import { compileViewSource, viewSourceWarnings } from "../view/viewSource.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
@@ -286,7 +293,17 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   AUTHORING_GUIDE_TOOL,
   ...GAME_TEST_TOOLS,
   ...CORE_AGENT_TOOLS,
+  ...STUDIO_ASSIST_TOOLS,
 ];
+
+/**
+ * Every tool except the Studio assist pair: the availability of Genesis,
+ * room authoring and Remix. The studio tools need a creator's selection and
+ * are refused wherever no StudioAssist is attached.
+ */
+export const AUTHORING_TOOL_NAMES: readonly string[] = AGENT_TOOLS.map((tool) => tool.name).filter(
+  (name) => !STUDIO_ASSIST_TOOL_NAMES.includes(name),
+);
 
 const STANDARD_NAV_WORDS = [
   "look",
@@ -560,6 +577,8 @@ function executeValidatedAgentTool(
   /** Ask-mode context: withhold creator intent. */
   readOnly = false,
 ): AgentToolResult {
+  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
+    return { success: false, error: `'${name}' ${STUDIO_ONLY}` };
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
   if (name === "read_diagnostic") return readDiagnostic(session, args);
@@ -1600,6 +1619,11 @@ export interface AgentRuntimeDeps {
    * claim.
    */
   readonly roomNotes?: ((room: number) => readonly string[]) | undefined;
+  /**
+   * A Studio assist request's selection, draft and candidate slot. Only with
+   * it do read_edit_context and propose_edit run; see studioAssistTools.ts.
+   */
+  readonly studio?: StudioAssist | undefined;
 }
 
 /**
@@ -1689,6 +1713,21 @@ export function authoredLogicSource(session: AgentSessionState, num: number): st
     return undefined;
   }
 }
+
+/**
+ * A Studio assist task: the two studio tools plus read-only inspection.
+ * Everything else is denied before dispatch.
+ */
+export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [
+  ...STUDIO_ASSIST_TOOL_NAMES,
+  "read_picture",
+  "read_view",
+  "read_logic",
+  "read_words",
+  "read_command_reference",
+  "read_authoring_guide",
+  "read_diagnostic",
+];
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
@@ -1812,6 +1851,10 @@ export async function executeAgentToolAsync(
   const call = prepareAgentToolCall(name, args);
   if (!call.success) return call;
   args = call.args;
+  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
+    return deps?.studio
+      ? executeStudioAssistTool(session, deps.studio, name, args)!
+      : { success: false, error: `'${name}' ${STUDIO_ONLY}` };
   if (name === "read_room_context") {
     const stateArg = args["state"] as Record<string, unknown> | null | undefined;
     const framesArg = args["frames"] as Record<string, unknown> | null | undefined;

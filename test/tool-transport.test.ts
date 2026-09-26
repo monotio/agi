@@ -25,6 +25,11 @@ import { buildView } from "../src/view/view.ts";
 import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { assertNoImageData } from "./modelText.ts";
+import { createStudioAssist, STUDIO_ASSIST_TOOLS } from "../src/agent/studioAssistTools.ts";
+import { draftRevision, pictureAssistScope } from "../src/studio/assistScope.ts";
+import { compileEditDocument } from "../src/studio/editValidation.ts";
+import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
+import { AFTER_BRIDGE, BRIDGE_SOURCE } from "./studioAssistFixtures.ts";
 
 const picture = { room: 1, source: "vis 1\nfill 0,0\nend" };
 
@@ -412,6 +417,59 @@ test("every catalog tool produces bounded binary-free transport on real success 
       bad: { room: 99 },
     },
   };
+  // The Studio pair runs against a creator's selection: the river-and-bridge
+  // fixture in the Walk lens, attached to the shared deps below.
+  const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
+  const studio = createStudioAssist({
+    scope: pictureAssistScope({
+      num: 1,
+      compiled: bridge,
+      targetIds: ["bridge"],
+      lens: "walk",
+    }),
+    draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
+    lens: "walk",
+  });
+  const proposeTool = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const opFields = (
+    proposeTool.parameters.properties["pictureOps"] as { items: { required: string[] } }
+  ).items.required;
+  const crossing = Object.fromEntries(
+    opFields.map((field) => [
+      field,
+      (
+        {
+          type: "insertShape",
+          atLine: AFTER_BRIDGE,
+          shape: {
+            kind: "rect",
+            color: null,
+            priority: 3,
+            filled: true,
+            x1: 60,
+            y1: 120,
+            x2: 99,
+            y2: 139,
+            points: null,
+          },
+          id: "crossing",
+          label: "Crossing",
+          kind: "walk",
+        } as Record<string, unknown>
+      )[field] ?? null,
+    ]),
+  );
+  const proposal = (baseRevision: string) => ({
+    baseRevision,
+    summary: "A walkway under the bridge.",
+    pictureOps: [crossing],
+    spriteOps: null,
+  });
+  cases["read_edit_context"] = { good: { images: true }, bad: { images: "yes" } };
+  cases["propose_edit"] = {
+    good: proposal(draftRevision({ kind: "picture", source: BRIDGE_SOURCE })),
+    bad: proposal("picture-1-00000000"),
+  };
   const directCases = cases;
   for (const [name, value] of Object.entries(directCases)) {
     if ("good" in value && "bad" in value) continue;
@@ -430,6 +488,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     directCases[name] = { good, bad };
   }
   const deps = {
+    studio,
     frames: {
       read: async () => [
         {
@@ -463,9 +522,11 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "patch_view_cels",
     "playtest_room",
     "preview_sound",
+    "propose_edit",
     "read_authoring_guide",
     "read_command_reference",
     "read_diagnostic",
+    "read_edit_context",
     "read_game_tests",
     "read_logic",
     "read_picture",
