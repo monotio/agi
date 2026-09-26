@@ -47,7 +47,8 @@ import type { TransportModel } from "./useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "./useRoomMap.ts";
-import type { WorkerInbound } from "./workerProtocol.ts";
+import type { WorkerInbound, WorkerQueryPayload } from "./workerProtocol.ts";
+import type { PlayHereTarget } from "../../src/studio/playHere.ts";
 import type { HistoryBatch } from "../../src/agent/history.ts";
 export type { PromptState };
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
@@ -405,6 +406,20 @@ export function useEngine(
     pauseOwners.clear();
   }
 
+  /**
+   * Play here: the live game jumps to a room with ego's baseline at (x, y),
+   * keeping its flags (app/src/worker/playHere.ts). The jump runs under its
+   * own pause hold; any other owner's hold keeps the game frozen after it.
+   */
+  async function playHere(target: PlayHereTarget): Promise<WorkerQueryPayload["playHere"]> {
+    pauseEngine("playHere");
+    try {
+      return await link.query("playHere", { room: target.room, x: target.x, y: target.y });
+    } finally {
+      resumeEngine("playHere");
+    }
+  }
+
   const { openPowerUp, closePowerUp, submitPowerUp } = authoringController;
 
   async function updateAiConfig(config: LlmConfig): Promise<void> {
@@ -570,6 +585,7 @@ export function useEngine(
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
     setDebugConsumer: debug.setDebugConsumer,
     debugWrite: debug.debugWrite,
+    playHere,
     debugEventsSince: debug.debugEventsSince,
     debugTraceSince: debug.debugTraceSince,
     readEngineState: debug.readEngineState,

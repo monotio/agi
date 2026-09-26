@@ -1,6 +1,8 @@
+import { scanFootprint } from "../runtime/controlCheck.ts";
 import { decodeSave } from "../runtime/persistence.ts";
 import type { Engine } from "../runtime/engine.ts";
 import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
+import { walkableBounds, walkableMask } from "../studio/walkable.ts";
 import {
   anchorClearance,
   searchAnchors,
@@ -185,42 +187,41 @@ function navigationModel(run: NavigationState, options?: PlanOptions) {
   }
   const control = engine.surface.priority.slice();
   const step = Math.max(1, ego.stepSize);
-  const minY = Math.max(ego.height - 1, ego.observeHorizon ? engine.horizon + 1 : 0);
-  const maxX = 160 - egoWidth;
+  const bypassControl = ego.fixedPriority && ego.priority === 15;
+  // The engine's placement rules, shared with Room Studio: barriers over the
+  // planning width, water classified on the current cel.
+  const walkable = {
+    priority: control,
+    egoWidth,
+    egoHeight: ego.height,
+    observeBlocks: ego.observeBlocks,
+    waterGate: ego.waterGate,
+    horizon: ego.observeHorizon ? engine.horizon : null,
+    bypassControl,
+    waterWidth: ego.width,
+  };
+  const { minY, maxX } = walkableBounds(walkable);
   const inside = (x: number, y: number) =>
     x > save.blockLeft && x < save.blockRight && y > save.blockTop && y < save.blockBottom;
-  const valid = new Uint8Array(160 * 168);
+  const valid = walkableMask(walkable);
+  // Navigation's own refusals on top: declared exclusions, trigger
+  // avoidance (the initial anchor may stand on one) and object baselines.
   for (let y = minY; y < 168; y++)
     for (let x = 0; x <= maxX; x++) {
-      if (excluded[y * 160 + x]) continue;
-      let accepted = true;
-      let water = true;
-      if (!(ego.fixedPriority && ego.priority === 15)) {
-        for (let dx = 0; dx < egoWidth; dx++) {
-          const c = control[y * 160 + x + dx]!;
-          if (c === 0 || (c === 1 && ego.observeBlocks)) {
-            accepted = false;
-            break;
-          }
-          if (options?.avoidTriggers && c === 2 && (x !== ego.x || y !== ego.y)) {
-            accepted = false;
-            break;
-          }
-          if (dx < ego.width && c !== 3) water = false;
-        }
-        if (ego.waterGate === "both") accepted = false;
-        if (ego.waterGate === "on" && !water) accepted = false;
-        if (ego.waterGate === "off" && water) accepted = false;
-      }
+      const at = y * 160 + x;
+      if (!valid[at]) continue;
       if (
-        accepted &&
-        ego.observeObjects &&
-        objects.some(
-          (other) => y === other.y && !(x + egoWidth < other.x || x > other.x + other.width),
-        )
+        excluded[at] ||
+        (options?.avoidTriggers &&
+          !bypassControl &&
+          (x !== ego.x || y !== ego.y) &&
+          scanFootprint(control, x, y, egoWidth).signal) ||
+        (ego.observeObjects &&
+          objects.some(
+            (other) => y === other.y && !(x + egoWidth < other.x || x > other.x + other.width),
+          ))
       )
-        accepted = false;
-      if (accepted) valid[y * 160 + x] = 1;
+        valid[at] = 0;
     }
   const canStep = (from: number, to: number): boolean => {
     const x = from % 160,

@@ -172,6 +172,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       checkpoint: (msg) => workerQueries.resolveQuery(msg.id, msg.image),
       exportFiles: (msg) => workerQueries.resolveQuery(msg.id, msg.files),
       debugWritten: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      playedHere: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),
       recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
