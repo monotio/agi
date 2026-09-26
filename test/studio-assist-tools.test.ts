@@ -244,6 +244,35 @@ test("propose_edit works on a detached copy and returns a before | after | diff 
     candidate.kind === "picture" ? candidate.draft.source : "",
     /# @item crossing "Crossing" walk/,
   );
+  // The creator sees the same estimate on the candidate card.
+  assert.deepEqual(candidate.kind === "picture" && candidate.walkable, { before: 880, after: 960 });
+});
+
+test("a fill spilling out of the selection is refused with what to do about it", async () => {
+  // A water fill seeded in the floor above the river floods rows 0..119
+  // (19,200 cells); the bridge's area holds 80 of them (x 60..99, rows 118
+  // and 119), so 19,120 spill.
+  const state = session();
+  const assist = bridgeAssist();
+  const refused = await propose(state, assist, [
+    op("pictureOps", {
+      type: "insertFill",
+      atLine: AFTER_BRIDGE,
+      x: 80,
+      y: 60,
+      priority: 3,
+      id: "puddle",
+      label: "Puddle",
+    }),
+  ]);
+  assert.match(
+    refused.error ?? "",
+    /^Refused; nothing was proposed: the Puddle fill would spill outside the selection \(19,120 cells\); close the outline or keep the fill seed inside it\. Keep every fill inside a closed outline within the selection\./,
+  );
+  assert.deepEqual(
+    (refused.details!["violations"] as { constraint: string }[]).map((v) => v.constraint),
+    ["fill-spill"],
+  );
 });
 
 test("art under the lock is refused in plain words, and a retry replaces nothing until it passes", async () => {

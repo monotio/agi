@@ -9,7 +9,11 @@ import {
   type PictureAssistScope,
 } from "../src/studio/assistScope.ts";
 import { applyEdit, type EditOperation } from "../src/studio/editOperations.ts";
-import { compileEditDocument, type CompiledDocument } from "../src/studio/editValidation.ts";
+import {
+  compileEditDocument,
+  footprintMask,
+  type CompiledDocument,
+} from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
 import { openSprite, type SpriteDocument } from "../src/studio/sprite/spriteDocument.ts";
 import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
@@ -196,6 +200,167 @@ test("a moved target licenses its new footprint, and only that", () => {
   assert.ok(checkCandidate(before, moved, scope).ok);
 });
 
+/** Cells set in `mask`. */
+const cells = (mask: Uint8Array) => mask.reduce((sum, bit) => sum + bit, 0);
+
+/** Priority cells that differ, and how many of them lie outside `area`. */
+function priorityChanges(before: CompiledDocument, after: CompiledDocument, area: Uint8Array) {
+  let changed = 0;
+  let outside = 0;
+  for (let i = 0; i < before.priority.length; i++) {
+    if (before.priority[i] === after.priority[i]) continue;
+    changed++;
+    if (area[i] !== 1) outside++;
+  }
+  return { changed, outside };
+}
+
+/** The river's rect line, 1-based. */
+const RIVER_RECT = BRIDGE_SOURCE.split("\n").indexOf("rect 0,120 159,139") + 1;
+/** The river's rows 120..139 across the screen: its outline and the water it fills. */
+const RIVER = { cells: 160 * 20, outline: 2 * 160 + 2 * 18, water: 158 * 18 };
+
+test("a footprint splits into the item's fills and its bounded commands", () => {
+  const before = compile(BRIDGE_SOURCE);
+  assert.equal(cells(footprintMask(before, "river", "priority")), RIVER.cells);
+  assert.equal(cells(footprintMask(before, "river", "priority", "bounded")), RIVER.outline);
+  assert.equal(cells(footprintMask(before, "river", "priority", "fills")), RIVER.water);
+  assert.equal(cells(footprintMask(before, "river", "visual", "fills")), 0, "the river has no art");
+});
+
+test("a target's fill that escapes its shrunken outline is refused, in words the model can act on", () => {
+  // QA probe: the river's rect shrinks to 0,120..3,122, leaving its fill
+  // seed 5,130 outside. The priority fill (3) floods every floor cell (4):
+  // the 23,680 cells above and below the river rows. Inside the river rows
+  // 356 cells change too (the old outline and the new corner), which the
+  // river's own cells license.
+  const before = compile(BRIDGE_SOURCE);
+  const scope = pictureAssistScope({
+    num: 1,
+    compiled: before,
+    targetIds: ["river"],
+    lens: "walk",
+  });
+  const after = edit(before, { type: "setPoint", line: RIVER_RECT, pointIndex: 1, x: 3, y: 122 });
+  const area = footprintMask(before, "river", "both");
+  assert.deepEqual(priorityChanges(before, after, area), { changed: 24036, outside: 23680 });
+  const check = checkCandidate(before, after, scope);
+  assert.deepEqual(
+    check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]),
+    [["fill-spill", "priority", 23680, { x0: 0, y0: 0, x1: 159, y1: 167 }]],
+  );
+  assert.equal(
+    assistRefusalText(check),
+    "the River fill would spill outside the selection (23,680 cells); close the outline or keep the fill seed inside it",
+  );
+});
+
+test("a reshaped line keeps its licence past the selection: bounded geometry", () => {
+  // The bridge's first row, 60,118..99,118, turned into the post 60,110..60,118:
+  // 8 cells above the bridge turn to its colour 6 and row 118 x 61..99 (39
+  // cells) back to the sky's 11. A line's cells lie on its own points.
+  const before = compile(BRIDGE_SOURCE);
+  const firstRow = BRIDGE_SOURCE.split("\n").indexOf("line 60,118 99,118") + 1;
+  const after = edit(before, { type: "setPoint", line: firstRow, pointIndex: 1, x: 60, y: 110 });
+  const area = footprintMask(before, "bridge", "both");
+  let outside = 0;
+  let changed = 0;
+  for (let i = 0; i < after.visual.length; i++) {
+    if (before.visual[i] === after.visual[i]) continue;
+    changed++;
+    if (area[i] !== 1) outside++;
+  }
+  assert.deepEqual({ changed, outside }, { changed: 47, outside: 8 });
+  const scope = pictureAssistScope({
+    num: 1,
+    compiled: before,
+    targetIds: ["bridge"],
+    lens: "art",
+  });
+  assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
+});
+
+test("a moved target's fill may land in its old area moved by the same offset", () => {
+  // The river 10 rows down: rect 0,130..159,149, seed 5,140. Rows 120..129
+  // go back to floor (1,600), rows 130 and 139 swap bank and water (158 each),
+  // and rows 140..149 (1,600) are new: 178 outline cells, licensed as the
+  // river's lines, and 1,422 water cells, licensed as the river's old area
+  // moved 10 down.
+  const before = compile(BRIDGE_SOURCE);
+  const after = edit(before, { type: "moveItem", itemId: "river", dx: 0, dy: 10 });
+  const area = footprintMask(before, "river", "both");
+  assert.deepEqual(priorityChanges(before, after, area), { changed: 3516, outside: 1600 });
+  assert.equal(cells(footprintMask(after, "river", "priority", "fills")), RIVER.water);
+  const scope = pictureAssistScope({
+    num: 1,
+    compiled: before,
+    targetIds: ["river"],
+    lens: "depth",
+  });
+  assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
+});
+
+test("a fill the proposal inserts is refused where it spills out of the selection", () => {
+  // A water fill seeded in the floor above the river floods the floor down
+  // to the river's top bank, which spans the screen: rows 0..119, 160 x 120
+  // = 19,200 cells, none of them in the river's rows.
+  const before = compile(BRIDGE_SOURCE);
+  const after = edit(before, {
+    type: "insertFill",
+    atLine: AFTER_BRIDGE,
+    x: 80,
+    y: 60,
+    visual: null,
+    priority: 3,
+    id: "puddle",
+    label: "Puddle",
+  });
+  const scope = pictureAssistScope({
+    num: 1,
+    compiled: before,
+    targetIds: ["river"],
+    lens: "walk",
+  });
+  const check = checkCandidate(before, after, scope);
+  assert.deepEqual(
+    check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]),
+    [["fill-spill", "priority", 19200, { x0: 0, y0: 0, x1: 159, y1: 119 }]],
+  );
+  assert.equal(
+    assistRefusalText(check),
+    "the Puddle fill would spill outside the selection (19,200 cells); close the outline or keep the fill seed inside it",
+  );
+});
+
+test("a new bare fill does not pass as a moved copy of a selected bare fill", () => {
+  // The sky is one fill (0,0); a floor-depth fill seeded at 45,29 is the same
+  // geometry moved, but encloses nothing. It floods the floor down to the
+  // river's top bank, rows 0..119; the sky's area misses the bridge there,
+  // x 60..99 on rows 118 and 119: 80 cells.
+  const before = compile(BRIDGE_SOURCE);
+  const after = edit(before, {
+    type: "insertFill",
+    atLine: AFTER_BRIDGE,
+    x: 45,
+    y: 29,
+    visual: null,
+    priority: 5,
+    id: "puddle",
+    label: "Puddle",
+  });
+  const scope = pictureAssistScope({
+    num: 1,
+    compiled: before,
+    targetIds: ["sky"],
+    lens: "art",
+    unlocks: { ...NO_UNLOCKS, priority: true },
+  });
+  assert.deepEqual(
+    checkCandidate(before, after, scope).violations.map((v) => [v.constraint, v.count, v.bbox]),
+    [["fill-spill", 80, { x0: 60, y0: 118, x1: 99, y1: 119 }]],
+  );
+});
+
 function sprite(): SpriteDocument {
   return openSprite(ROBOT_VIEW, profile);
 }
@@ -277,5 +442,59 @@ test("a view scope refuses a stale base and an oversized payload", () => {
   assert.deepEqual(
     checkCandidate(before, after, scope).violations.map((v) => v.constraint),
     ["stale-base", "max-bytes"],
+  );
+});
+
+test("an edit of the owner loop passes with its mirror protected, whose pixels stay", () => {
+  // Loop 0 selected, loop 1 (its mirror) protected: copy-on-write splits the
+  // pair, so loop 1 gets its own data block (alias, mirror bits) but shows
+  // the same pixels.
+  const before = sprite();
+  const loop0 = [
+    { loop: 0, cel: 0 },
+    { loop: 0, cel: 1 },
+  ];
+  const after = spriteEdit(before, { type: "recolor", scope: loop0, from: 12, to: 9 });
+  assert.equal(after.loops[1]!.alias, null, "the pair is split");
+  const scope = viewAssistScope({
+    num: 2,
+    document: before,
+    targetCels: loop0,
+    protectedLoops: [1],
+  });
+  assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
+});
+
+test("a change that reaches the protected mirror's pixels is still refused", () => {
+  const before = sprite();
+  const loop0 = [
+    { loop: 0, cel: 0 },
+    { loop: 0, cel: 1 },
+  ];
+  // Propagating keeps the pair linked: loop 1's one red eye pixel per cel turns blue too.
+  const after = spriteEdit(before, {
+    type: "recolor",
+    scope: loop0,
+    from: 12,
+    to: 9,
+    propagate: true,
+  });
+  const scope = viewAssistScope({
+    num: 2,
+    document: before,
+    targetCels: loop0,
+    protectedLoops: [1],
+  });
+  assert.deepEqual(
+    checkCandidate(before, after, scope).violations.map((v) => [
+      v.constraint,
+      v.loop,
+      v.cel,
+      v.count,
+    ]),
+    [
+      ["protected-loop", 1, 0, 1],
+      ["protected-loop", 1, 1, 1],
+    ],
   );
 });

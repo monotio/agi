@@ -15,7 +15,7 @@ import { createAgentSessionState } from "../../../src/agent/tools.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { itemHandles } from "../../../src/studio/editPoints.ts";
 import type { StudioFocus } from "../../../src/agent/studioAssistTools.ts";
-import { pictureAssistScope } from "../../../src/studio/assistScope.ts";
+import { pictureAssistScope, selectionArea } from "../../../src/studio/assistScope.ts";
 import { compileEditDocument, footprintMask } from "../../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import type { PlayHereTarget } from "../../../src/studio/playHere.ts";
@@ -71,7 +71,7 @@ import {
   pictureChangeSummary,
   pictureScopeChips,
 } from "./studioAssistText.ts";
-import { useStudioAssist, type StudioAssistHost } from "./useStudioAssist.ts";
+import { HOLD_TEXT, useStudioAssist, type StudioAssistHost } from "./useStudioAssist.ts";
 import {
   bandGuides,
   controlLabels,
@@ -398,6 +398,7 @@ const assistChanges = computed(() => {
     draft.compiled.value,
     next.compiled,
     labelList(scope.targetIds.map(itemLabel)),
+    selectionArea(draft.compiled.value, scope.targetIds),
   );
 });
 /** What the request is held to: the asked scope while it is open, else the selection's. */
@@ -571,15 +572,21 @@ watch(selectedId, (id) => {
 watch(walker.selectedDoorId, (id) => {
   if (id !== null) selectedId.value = undefined;
 });
+/** A walk tool opens the Walk view first; false while the AI holds the lens elsewhere. */
+function walkView(next: StudioTool): boolean {
+  if (!isWalkTool(next) || lens.value === "walk") return true;
+  if (assist.holds.value) return false;
+  lens.value = "walk";
+  return true;
+}
 function pickTool(next: StudioTool): void {
-  if (isWalkTool(next)) lens.value = "walk";
-  tools.setTool(next);
+  if (walkView(next)) tools.setTool(next);
   keepFocus();
 }
 /** A rail letter: T, D and E open the Walk view first. */
 function toolKey(key: string): boolean {
   const next = TOOL_KEYS[key];
-  if (next && next !== "probe" && isWalkTool(next)) lens.value = "walk";
+  if (next && next !== "probe" && !walkView(next)) return true;
   return input.shortcut(key);
 }
 const flagNames = computed(() =>
@@ -729,7 +736,10 @@ const keys: StudioKeyActions = {
     return true;
   },
   close: () => void requestClose(),
-  lens: (next) => (lens.value = next),
+  // The lens and the unlocks wait with the request: Accept applies the terms it was asked under.
+  lens: (next) => {
+    if (!assist.holds.value) lens.value = next;
+  },
   seek: (to) => seek(to === "first" ? 0 : to === "last" ? total.value : playhead.value + to),
   zoom: (step) => (step === "fit" ? zoomToFit() : zoomBy(step)),
   step: (direction) => selection.step(direction),
@@ -795,6 +805,7 @@ function onKeyup(event: KeyboardEvent): void {
       :can-undo="(draft.canUndo.value || logic.canUndo.value) && !keeper.needsReload.value"
       :can-redo="(draft.canRedo.value || logic.canRedo.value) && !keeper.needsReload.value"
       :can-keep="keeper.canKeep.value"
+      :lens-held="assist.holds.value ? HOLD_TEXT : null"
       @back="requestClose"
       @close="requestClose"
       @undo="undoOrder.undo"
@@ -815,7 +826,12 @@ function onKeyup(event: KeyboardEvent): void {
       @hover="selection.listHover.value = $event"
       @select="selectedId = $event"
     >
-      <template #notice><StudioLockNote v-model:unlocks="unlocks" :lens /></template>
+      <template #notice
+        ><StudioLockNote
+          v-model:unlocks="unlocks"
+          :lens
+          :held="assist.holds.value ? HOLD_TEXT : null"
+      /></template>
     </SceneList>
 
     <StudioToolRail
