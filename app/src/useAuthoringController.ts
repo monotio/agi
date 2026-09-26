@@ -792,6 +792,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         state.powerUp.open = false;
         if (game && getBootedGame() === game && author && game.projectId) {
           const writtenRev = planRevisionOf(author);
+          const files = Object.fromEntries(author.state.getFiles());
           const saved = await updateGameConversation(
             game.projectId,
             author.getTranscript(),
@@ -799,10 +800,14 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             author.getAuthoringState(),
             author.getProviderContext().provider,
             author.getProviderContext().model,
-            Object.fromEntries(author.state.getFiles()),
+            files,
           );
-          if (saved) reportPlanSaved(writtenRev);
-          else logAgent("error", "Browser storage could not save the room conversation.");
+          if (saved) {
+            // The booted game follows what was stored, so a later turn or
+            // Keep compares against the revision that now holds the room.
+            await updateBootedResources(game, files);
+            reportPlanSaved(writtenRev);
+          } else logAgent("error", "Browser storage could not save the room conversation.");
         }
       }
       return result;

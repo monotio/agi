@@ -272,6 +272,73 @@ test("handleRoomAuthoring establishes on-demand session for imported authorable 
   await clearCachedGame(projectId);
 });
 
+test("handleRoomAuthoring moves the booted game to the revision it saved", async (t) => {
+  // A later remix or Keep compares the booted revision with storage; a room
+  // written mid-play that left it behind made every later turn look stale.
+  installLocalStorageMock(t);
+  const projectId = testProjectId("jit-room-revision");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "JIT Room Game",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+    roomGeneration: true,
+  });
+  const bootedGame: BootedGame = {
+    installed: false,
+    projectId,
+    title: "JIT Room Game",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+  };
+  const room = assembleLogic("return;", { dictionary: new Map() }).payload;
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => null,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => bootedGame,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    configForGame: (_p, config) => config,
+    getLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
+  });
+  await controller.handleRoomAuthoring(
+    { op: "room", context: { room: 2 } },
+    {
+      handle: async () => {
+        controller.getSession()!.state.container.putResource("logic", 2, room);
+        return "Room created";
+      },
+    },
+    () => {},
+  );
+
+  const stored = await loadAuthoredGame(projectId);
+  assert.ok(stored);
+  assert.equal(bootedGame.revision, await gameRevision(stored!.files));
+  assert.notEqual(bootedGame.revision, await gameRevision(files));
+
+  await clearCachedGame(projectId);
+});
+
 test("handleRoomAuthoring rejects and sets needsConfig when credentials are missing", async (t) => {
   installLocalStorageMock(t);
   const projectId = testProjectId("imported-no-creds-proj");
