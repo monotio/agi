@@ -7,7 +7,6 @@ import SoundPreview from "./SoundPreview.vue";
 import WalkthroughBar from "./WalkthroughBar.vue";
 import PlayArea from "./PlayArea.vue";
 import CreateDock from "./shell/CreateDock.vue";
-import StudioPlaceholder from "./shell/StudioPlaceholder.vue";
 import UiButton from "./ui/UiButton.vue";
 import {
   computed,
@@ -100,6 +99,7 @@ provideInspector(createInspector(engine, presentation));
 
 // The map's graph code loads only when the player opens it — never on boot.
 const WorldMap = defineAsyncComponent(() => import("./WorldMap.vue"));
+const RoomStudio = defineAsyncComponent(() => import("./studio/RoomStudio.vue"));
 const mapOpen = engine.roomMap.open;
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
@@ -581,7 +581,7 @@ watch(
             </UiButton>
           </template>
         </PlayArea>
-        <StudioPlaceholder
+        <RoomStudio
           v-if="creating && studio"
           class="shell-center"
           :picture-number="studio.pictureNumber"

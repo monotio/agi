@@ -19,7 +19,8 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await expect(page.getByRole("button", { name: "Play the tutorial" })).toBeVisible();
   await expect(
     page
-      .getByTestId("catalog-adventure-department")
+      // First visit: the Continue card introduces the tutorial; shelf cards keep one meta line.
+      .getByTestId("home-continue")
       .getByText("Learn pictures, sprites and priority in a three-room tutorial."),
   ).toBeVisible();
 
@@ -57,7 +58,8 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     expect(type.family).toContain("system-ui");
     expect(type.size).toBeGreaterThanOrEqual(14);
     expect(type.weight).toBeGreaterThanOrEqual(700);
-    expect(type.height).toBeGreaterThanOrEqual(44);
+    // --control-h (40px) on fine pointers; UiButton grows to 44px under pointer: coarse.
+    expect(type.height).toBeGreaterThanOrEqual(40);
   }
 
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeEnabled();

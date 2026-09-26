@@ -137,7 +137,7 @@ test("library details stay concise and Add game is a secondary action", async ({
       "background: transparent",
       "border: 1px solid var(--action-line)",
       "border-radius: var(--radius)",
-      "font: var(--weight-semibold) var(--text-md) / var(--leading-tight) var(--font-sans)",
+      "font: var(--weight-bold) var(--text-md) / var(--leading-tight) var(--font-sans)",
       "padding: 0 var(--space-5)",
     ].join(";");
     document.body.append(probe);

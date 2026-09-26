@@ -206,6 +206,7 @@ function onKeydown(event: KeyboardEvent): void {
   <div
     ref="root"
     class="studio"
+    data-testid="room-studio"
     tabindex="-1"
     role="region"
     :aria-label="`Room Studio: ${title}`"
@@ -217,16 +218,25 @@ function onKeydown(event: KeyboardEvent): void {
       <div class="studio__crumbs">
         <UiIconButton icon="chevron-left" label="Back" size="sm" @click="emit('close')" />
         <b class="studio__title">{{ title }}</b>
-        <UiChip>{{ subtitle ?? `PIC ${pictureNumber}` }}</UiChip>
+        <UiChip data-testid="studio-picture">PIC {{ pictureNumber }}</UiChip>
+        <span v-if="subtitle" class="studio__subtitle">{{ subtitle }}</span>
       </div>
       <UiSegmented v-model="lens" class="studio__lenses" label="Lens" :options="LENSES" />
       <div class="studio__meta">
         <UiChip v-if="model.diagnostics.length > 0" tone="warn" dot>
           {{ model.diagnostics.length }} annotation issues
         </UiChip>
-        <UiChip data-role="size">{{ bytes.length }} B · {{ total }} cmds</UiChip>
-        <UiChip tone="warn"><UiIcon name="lock" :size="12" />Read-only in rc.1</UiChip>
-        <UiIconButton icon="x" label="Close studio" shortcut="Esc" @click="emit('close')" />
+        <UiChip data-role="size" data-testid="studio-bytes"
+          >{{ bytes.length }} B · {{ total }} cmds</UiChip
+        >
+        <UiChip tone="warn"><UiIcon name="lock" :size="12" />View only</UiChip>
+        <UiIconButton
+          icon="x"
+          label="Close studio"
+          shortcut="Esc"
+          data-testid="studio-close"
+          @click="emit('close')"
+        />
       </div>
     </header>
 
@@ -358,6 +368,10 @@ function onKeydown(event: KeyboardEvent): void {
 </template>
 
 <style scoped>
+.studio__subtitle {
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
 .studio {
   position: relative;
   display: grid;
