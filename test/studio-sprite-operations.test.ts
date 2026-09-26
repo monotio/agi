@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE, PROFILES } from "../src/runtime/profile.ts";
-import { buildView, parseView } from "../src/view/view.ts";
+import { buildView, parseView, readViewCel } from "../src/view/view.ts";
 import { openSprite, type SpriteDocument } from "../src/studio/sprite/spriteDocument.ts";
 import {
   applySpriteEdit,
@@ -296,6 +296,56 @@ describe("sprite copy-on-write", () => {
     const decoded = parseView(result.document.payload, profile);
     assert.deepEqual([...decoded.loops[0]!.cels[0]!.pixels], [7, 2]);
     assert.deepEqual([...decoded.loops[1]!.cels[0]!.pixels], [2, 7]);
+  });
+
+  it("stores an unshared loop's rows as displayed, under plain metadata", () => {
+    /** Loop header byte, first cel's control byte and stored rows of `loop`. */
+    const block = (payload: Uint8Array, loop: number, packed: boolean) => {
+      const at = payload[5 + loop * 2]! | (payload[6 + loop * 2]! << 8);
+      const cel = at + (payload[at + 1]! | (payload[at + 2]! << 8));
+      const view = parseView(payload, { packedViewLoopHeader: packed });
+      return [payload[at]!, payload[cel + 2]!, [...readViewCel(view, loop, 0)!.pixels]];
+    };
+    const packed = PROFILES["2.230"];
+    const cel12 = { width: 2, height: 1, transparentColor: 0, pixels: [1, 2] };
+    const pair = buildView({ loops: [{ cels: [cel12] }, { mirrorLoop: 0 }] }, packed);
+    // Unlinked, packed loop 1 owns [2,1] under header 0x01: one cel, no
+    // orientation flags.
+    const unlinked = applied(openSprite(pair, packed), { type: "unlinkMirror", loop: 1 });
+    assert.deepEqual(block(unlinked.payload, 1, true), [0x01, 0x00, [2, 1]]);
+    // Loop 0 alone keeps its old flags (0xc1, orientation loop 0); moved to
+    // loop 1 it is stored as displayed, not as [2,1] behind orientation 0.
+    const alone = applied(openSprite(pair, packed), { type: "deleteLoop", loop: 1 });
+    const moved = applied(alone, { type: "addLoop", at: 0 });
+    assert.deepEqual(block(moved.payload, 1, true), [0x01, 0x00, [1, 2]]);
+    // The same in v2: control 0x10 (orientation 1, not mirrorable), not 0x80.
+    const v2 = applied(applied(open(), { type: "deleteLoop", loop: 1 }), {
+      type: "addLoop",
+      at: 0,
+    });
+    assert.deepEqual(block(v2.payload, 1, false), [2, 0x10, [1, 2, 3, 0]]);
+    // Packed loop 4 cannot be mirrored: a new loop there is plain too.
+    const four = buildView(
+      { loops: [{ cels: [cel12] }, { mirrorLoop: 0 }, { cels: [cel12] }, { cels: [cel12] }] },
+      packed,
+    );
+    const fifth = applied(openSprite(four, packed), { type: "addLoop", at: 4, from: 2 });
+    assert.deepEqual(block(fifth.payload, 4, true), [0x01, 0x00, [1, 2]]);
+  });
+
+  it("marks a mirror link mirrorable even when its cels are symmetric", () => {
+    const cel11 = { width: 2, height: 1, transparentColor: 0, pixels: [1, 1] };
+    for (const [profile, flags] of [
+      [PROFILES["2.230"], [0xc1, 0x00]],
+      [V2, [0x01, 0x80]],
+    ] as const) {
+      const two = buildView({ loops: [{ cels: [cel11] }, { cels: [cel11] }] }, profile);
+      const linked = applied(openSprite(two, profile), { type: "linkMirror", loop: 1, of: 0 });
+      // Loop header, then cel control, of the block both loops now share.
+      assert.equal(linked.payload[5], linked.payload[7]);
+      const at = linked.payload[5]!;
+      assert.deepEqual([linked.payload[at], linked.payload[at + 3 + 2]], flags);
+    }
   });
 
   it("returns the same document for an edit that changes nothing", () => {

@@ -3,14 +3,15 @@ import { describe, it, test } from "node:test";
 import { TUTORIAL_VIEW_SOURCES } from "../games/adventure-department/game.ts";
 import { KNOWN_GAME_HASH, type GameHash } from "../src/games/knownGames.ts";
 import { DEFAULT_V2_PROFILE, detectProfile, PROFILES } from "../src/runtime/profile.ts";
-import { buildView, parseView } from "../src/view/view.ts";
+import { viewSpec } from "../src/view/celEdit.ts";
+import { buildView, parseView, type BuildLoopInput } from "../src/view/view.ts";
 import {
   buildSprite,
   openSprite,
   reencodeSprite,
   type SpriteProfile,
 } from "../src/studio/sprite/spriteDocument.ts";
-import { applySpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
+import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
 import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
 import { mirroredView } from "./studio-sprite-fixture.ts";
@@ -22,6 +23,23 @@ function displays(payload: Uint8Array, profile: SpriteProfile): number[][][] {
   return parseView(payload, profile).loops.map((loop) =>
     loop.cels.map((cel) => [cel.width, cel.height, cel.transparentColor, ...cel.pixels]),
   );
+}
+
+/** Whether the spec a Keep records for `payload` rebuilds the same display. */
+function assertSpecRebuilds(payload: Uint8Array, profile: SpriteProfile, label: string): void {
+  const rebuilt = buildView(viewSpec(payload, profile), profile);
+  assert.deepEqual(displays(rebuilt, profile), displays(payload, profile), `${label} spec`);
+}
+
+/** A seeded mulberry32 stream in [0, 1). */
+function random(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(state ^ (state >>> 15), state | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 describe("sprite document", () => {
@@ -121,6 +139,77 @@ describe("sprite document", () => {
   });
 });
 
+describe("sprite document specs", () => {
+  it("rebuild every tutorial and synthetic-game view as displayed", () => {
+    const synthetic = loadGame(KNOWN_GAME_HASH.SYNTHETIC).container;
+    const payloads = Object.values(TUTORIAL_VIEW_SOURCES).map((input) => buildView(input));
+    for (let num = 0; num < 256; num++) {
+      const view = synthetic.getResource("view", num);
+      if (view) payloads.push(view);
+    }
+    payloads.forEach((payload, index) => assertSpecRebuilds(payload, V2, `view ${index}`));
+  });
+
+  for (const profile of [V2, PROFILES["2.230"]]) {
+    it(`rebuild every edit of random views as displayed (${profile.id})`, () => {
+      const next = random(profile.packedViewLoopHeader ? 2230 : 2936);
+      const pick = (count: number) => Math.floor(next() * count);
+      let edits = 0;
+      for (let view = 0; view < 40; view++) {
+        // One to four loops (packed mirrors stop at loop 3), each a new
+        // block or a mirror of an earlier block.
+        const loops: BuildLoopInput[] = [];
+        const owners: number[] = [];
+        for (let loop = 1 + pick(4); loop > 0; loop--) {
+          if (owners.length && next() < 0.5) {
+            loops.push({ mirrorLoop: owners[pick(owners.length)]! });
+            continue;
+          }
+          const [width, height, transparentColor] = [1 + pick(6), 1 + pick(4), pick(16)];
+          const cel = () => ({
+            width,
+            height,
+            transparentColor,
+            pixels: Array.from({ length: width * height }, () => pick(16)),
+          });
+          owners.push(loops.length);
+          loops.push({ cels: Array.from({ length: 1 + pick(3) }, cel) });
+        }
+        let document = openSprite(buildView({ loops }, profile), profile);
+        assertSpecRebuilds(document.payload, profile, `view ${view}`);
+        for (let step = 0; step < 20; step++) {
+          const count = document.loops.length;
+          const loop = pick(count);
+          const cel = document.loops[loop]!.cels[0]!;
+          const at = pick(count + 1);
+          const ops: SpriteEdit[] = [
+            {
+              type: "setPixels",
+              loop,
+              cel: 0,
+              propagate: next() < 0.3,
+              changes: [{ x: pick(cel.width), y: pick(cel.height), color: null }],
+            },
+            { type: "flipCel", loop, cel: 0, axis: "h", propagate: next() < 0.3 },
+            { type: "addLoop", at, mirrorOf: loop },
+            { type: "addLoop", at, from: loop },
+            { type: "addLoop", at },
+            { type: "deleteLoop", loop },
+            { type: "unlinkMirror", loop },
+            { type: "linkMirror", loop, of: pick(count), force: true },
+          ];
+          const result = applySpriteEdit(document, ops[pick(ops.length)]!);
+          if ("error" in result) continue;
+          document = result.document;
+          edits++;
+          assertSpecRebuilds(document.payload, profile, `view ${view} step ${step}`);
+        }
+      }
+      assert.ok(edits > 300, `${edits} edits applied`);
+    });
+  }
+});
+
 const COMMERCIAL = Object.entries(KNOWN_GAME_HASH).filter(
   ([name]) => name !== "SYNTHETIC" && name !== "ADVENTURE_DEPARTMENT",
 ) as [string, GameHash][];
@@ -156,6 +245,7 @@ for (const [name, hash] of COMMERCIAL) {
         }
         views++;
         assert.deepEqual(buildSprite(document, profile), payload, `${name} view ${num}`);
+        assertSpecRebuilds(payload, profile, `${name} view ${num}`);
         let reencoded: Uint8Array;
         try {
           reencoded = reencodeSprite(document);

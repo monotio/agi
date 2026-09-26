@@ -171,30 +171,61 @@ export function patchedView(
       `Loop${targeted.length > 1 ? "s" : ""} ${targeted.join(", ")} ${targeted.length > 1 ? "were" : "was"} isolated from its mirrored alias before patching so the other facing${remaining.length === 1 ? "" : "s"} retained its pixels.`,
     );
   }
-  const spec: BuildViewInput = {
-    loops,
-    ...(view.description === undefined ? {} : { description: view.description }),
-  };
-  const payload = buildView(spec, profile);
+  const payload = buildView(
+    { loops, ...(view.description === undefined ? {} : { description: view.description }) },
+    profile,
+  );
   applyMetadata(payload, profile.packedViewLoopHeader, plans);
-  parseView(payload, profile);
-  return { payload, spec };
+  // The kept orientation nibbles can make a loop display otherwise than the
+  // builder input above; record the spec of the bytes themselves.
+  return { payload, spec: viewSpec(payload, profile) };
 }
 
 /**
- * The editable spec of a stored VIEW payload: each alias group's owner with
- * its stored rows, the other members as `mirrorLoop` aliases. What a Keep
- * records in `sources.views` for bytes edited outside a spec (Sprite Studio);
- * the orientation nibbles `applyMetadata` writes are not part of a spec, the
- * same as for `patchedView`. Throws RangeError when the payload does not decode.
+ * The editable spec of a stored VIEW payload: a spec `buildView` turns back
+ * into a VIEW every loop of which displays exactly what the payload's loop
+ * displays. What a Keep records in `sources.views` for bytes edited outside a
+ * spec (Sprite Studio) and what `patchedView` records.
+ *
+ * A builder spec cannot hold orientation nibbles: an owner's cels are stored
+ * as it displays them, and a `mirrorLoop` member shows them flipped unless
+ * its orientation (v2: index mod 8) equals the owner's. So each block's
+ * owner records its displayed cels, and each other member becomes a mirror
+ * of the first earlier loop of its block that it displays that way; a member
+ * the payload shows otherwise — a block shared unmirrored, or one whose
+ * nibble names no member — records its own displayed cels. Throws RangeError
+ * when the payload does not decode.
  */
-export function viewSpec(payload: Uint8Array, profile: AgiProfile): BuildViewInput {
+export function viewSpec(
+  payload: Uint8Array,
+  profile: Pick<AgiProfile, "packedViewLoopHeader">,
+): BuildViewInput {
+  const packed = profile.packedViewLoopHeader;
   const view = parseView(payload, profile);
   const loops: BuildLoopInput[] = new Array(view.loops.length);
-  for (const group of aliasGroups(payload, view, profile.packedViewLoopHeader)) {
-    const first = group.members[0]!;
-    loops[first] = { cels: group.cels.map((cel) => ({ ...cel, pixels: [...cel.pixels] })) };
-    for (const member of group.members.slice(1)) loops[member] = { mirrorLoop: first };
+  // The builder mirrors packed loops 0..3 only, always flipped; v2 members
+  // show the owner's cels flipped unless their orientations coincide.
+  const canMirror = (host: number, member: number) => !packed || (host < 4 && member < 4);
+  const flips = (host: number, member: number) => packed || (host & 7) !== (member & 7);
+  for (const group of aliasGroups(payload, view, packed)) {
+    const hosts = new Map<number, BuildCelInput[]>();
+    for (const member of group.members) {
+      const cels = view.loops[member]!.cels.map(cloneCel);
+      const host = [...hosts].find(
+        ([loop, hostCels]) =>
+          canMirror(loop, member) &&
+          hostCels.every((cel, index) => {
+            const shown = flips(loop, member) ? flipHorizontal(cel) : cel;
+            return shown.pixels.every((pixel, at) => pixel === cels[index]!.pixels[at]);
+          }),
+      );
+      if (host) {
+        loops[member] = { mirrorLoop: host[0] };
+        continue;
+      }
+      hosts.set(member, cels);
+      loops[member] = { cels: cels.map((cel) => ({ ...cel, pixels: [...cel.pixels] })) };
+    }
   }
   return view.description === undefined ? { loops } : { loops, description: view.description };
 }
