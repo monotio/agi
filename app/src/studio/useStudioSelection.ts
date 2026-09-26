@@ -93,3 +93,5 @@ export function useStudioSelection({
     step,
   };
 }
+
+export type StudioSelection = ReturnType<typeof useStudioSelection>;

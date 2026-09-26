@@ -17,7 +17,8 @@ import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 const MAX_SHAPES = 128;
 const MAX_VERTICES_PER_SHAPE = 64;
 const MAX_TOTAL_VERTICES = 2048;
-const MAX_PAYLOAD_BYTES = 60_000;
+/** The largest picture write_scene compiles; Room Studio's byte meter warns against it. */
+export const MAX_PAYLOAD_BYTES = 60_000;
 
 const POINT_SCHEMA = {
   type: "object",

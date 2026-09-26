@@ -316,3 +316,46 @@ export function spanIndexAt(spans: readonly PictureSourceSpan[], offset: number)
   }
   return -1;
 }
+
+/** When the byte meter starts warning: this share of write_scene's limit. */
+export const BYTES_APPROACH = 0.8;
+
+export interface ByteMeter {
+  tone: "ok" | "warn" | "danger";
+  /** Share of the resource limit used, 0..1. */
+  fraction: number;
+  note: string;
+}
+
+/**
+ * The top bar's size meter for a compiled picture: against the container's
+ * record limit (a PIC is at most `recordLimit` bytes) and, before it, the
+ * agent's write_scene limit, past which the agent cannot rewrite the picture.
+ */
+export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number): ByteMeter {
+  const fraction = Math.min(1, bytes / recordLimit);
+  const n = (value: number): string => value.toLocaleString("en-US");
+  if (bytes > recordLimit)
+    return {
+      tone: "danger",
+      fraction,
+      note: `Over the ${n(recordLimit)}-byte resource limit: this picture cannot be kept.`,
+    };
+  if (bytes > sceneLimit)
+    return {
+      tone: "warn",
+      fraction,
+      note: `Over the agent's ${n(sceneLimit)}-byte write_scene limit; the resource limit is ${n(recordLimit)} bytes.`,
+    };
+  if (bytes >= sceneLimit * BYTES_APPROACH)
+    return {
+      tone: "warn",
+      fraction,
+      note: `Approaching the agent's ${n(sceneLimit)}-byte write_scene limit (resource limit ${n(recordLimit)}).`,
+    };
+  return {
+    tone: "ok",
+    fraction,
+    note: `${n(bytes)} of the ${n(recordLimit)} bytes a picture can hold.`,
+  };
+}

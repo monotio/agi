@@ -211,12 +211,23 @@ function sectionsOf(branches: readonly SceneBranch[]): SceneSectionRow[] {
   });
 }
 
+/** A source ready to model: its annotated text and whether it was authored. */
+export interface ResolvedStudioSource {
+  source: string;
+  /** The authored text was used (it compiles to the exact bytes). */
+  trusted: boolean;
+  profile: AgiProfile;
+}
+
 /**
  * Resolve the source (authored when it compiles to the bytes, else the
- * disassembly), wrap an unannotated source in native items, then compile it
- * and derive the scene rows.
+ * disassembly) and wrap an unannotated source in native items.
  */
-export function buildStudioModel({ bytes, authoredSource, profile }: StudioSource): StudioModel {
+export function resolveStudioSource({
+  bytes,
+  authoredSource,
+  profile,
+}: StudioSource): ResolvedStudioSource {
   const trusted = authoredSource !== undefined && sourceCompilesTo(authoredSource, bytes, profile);
   const base = trusted ? authoredSource : disassemblePicture(bytes, { profile });
   let source = base;
@@ -225,6 +236,16 @@ export function buildStudioModel({ bytes, authoredSource, profile }: StudioSourc
   } catch {
     // An ungroupable source stays one Unassigned row.
   }
+  return { source, trusted, profile };
+}
+
+/**
+ * Compile a source and derive the scene rows. Picture bytes are resolved
+ * first (resolveStudioSource); a resolved source (Studio's draft) is modelled
+ * as it stands.
+ */
+export function buildStudioModel(input: StudioSource | ResolvedStudioSource): StudioModel {
+  const { source, trusted, profile } = "source" in input ? input : resolveStudioSource(input);
   const { document, diagnostics } = parsePictureDocument(source);
   const compiled = compileDocument(document, profile);
   const timeline = commandTimeline(document, profile);
@@ -382,12 +403,12 @@ function partialCompiled(
   return { ...compiled, owners, visual: surface.visual, priority: surface.priority };
 }
 
-export function useStudioDocument(source: MaybeRefOrGetter<StudioSource>) {
+export function useStudioDocument(source: MaybeRefOrGetter<StudioSource | ResolvedStudioSource>) {
   const model = computed(() => buildStudioModel(toValue(source)));
   const total = computed(() => model.value.commands);
-  /** Drawing commands drawn: 0..total; total shows the finished picture. */
+  /** Drawing commands drawn: 0..total; total shows the finished picture. An edit shows it all. */
   const playhead = ref(0);
-  watch(total, (n) => (playhead.value = n), { immediate: true });
+  watch(model, (next) => (playhead.value = next.commands), { immediate: true });
 
   const surface = computed(() => {
     const k = Math.min(playhead.value, total.value);

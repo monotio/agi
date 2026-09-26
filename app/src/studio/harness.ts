@@ -5,13 +5,17 @@
 // are generated or held privately); `&authored=0` withholds the source so the
 // studio falls back to disassembling the bytes. The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
+// Keep succeeds in memory (each kept edit lands in `studioHarness.kept`);
+// `&keep=stale|install|storage` makes it refuse with that code instead.
 import { createApp, h, ref } from "vue";
 import "../styles/tokens.css";
 import RoomStudio from "./RoomStudio.vue";
 import { EGA_PALETTE } from "../palette.ts";
 import { ORIGINAL_SCENE_PICTURES } from "../../../games/adventure-department/sceneArt.ts";
 import { compilePictureSource, disassemblePicture } from "../../../src/picture/source.ts";
+import { requireResourceRevision } from "../../../src/gameIdentity.ts";
 import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
+import { ResourceCommitError, type PictureEdit } from "../resourceCommit.ts";
 import { inferNativeItems } from "../../../src/studio/nativeItems.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileDocument, itemAt, itemMask, renderUpTo } from "../../../src/studio/pictureQuery.ts";
@@ -55,6 +59,16 @@ const authored =
 const pictureNumber =
   pic === "demo" ? 0 : pic === "injected" ? (input?.pictureNumber ?? 0) : Number(pic);
 const closes = ref(0);
+const reopens = ref(0);
+const kept: PictureEdit[] = [];
+const refusal = params.get("keep");
+const revision = (n: number) => requireResourceRevision(n.toString(16).padStart(64, "0"));
+async function keep(edit: PictureEdit) {
+  if (refusal === "stale" || refusal === "install" || refusal === "storage")
+    throw new ResourceCommitError(refusal, `The harness refuses with ${refusal}.`);
+  kept.push(edit);
+  return { status: "committed" as const, projectId: null, revision: revision(kept.length + 1) };
+}
 
 const probe = {
   pic,
@@ -65,6 +79,10 @@ const probe = {
   get closes(): number {
     return closes.value;
   },
+  get reopens(): number {
+    return reopens.value;
+  },
+  kept,
   kernel: {
     compilePictureSource,
     disassemblePicture,
@@ -91,6 +109,9 @@ createApp({
       title: TITLES[pic] ?? `Picture ${pic}`,
       subtitle:
         pic === "demo" ? "demo · shapes" : pic === "injected" ? "" : `room ${pic} · PIC ${pic}`,
+      baseRevision: revision(1),
+      keep,
       onClose: () => closes.value++,
+      onReopen: () => reopens.value++,
     }),
 }).mount("#studio");

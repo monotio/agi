@@ -57,14 +57,22 @@ const compile = (source: string) =>
   compilePictureSource(source, { profile: DEFAULT_V2_PROFILE }).bytes;
 const PROBE = { x: 80, y: 80 };
 
-function gameFiles(): Record<string, Uint8Array> {
+/**
+ * Room 1's logic draws PIC `drawn`; PIC 1 and PIC `drawn` start blue. Logic 0
+ * runs the room's logic through call.v(v0), as AGI games do: a logic called
+ * by number is shared, and the static scan credits it with no room's picture.
+ */
+function gameFiles(drawn = 1): Record<string, Uint8Array> {
   return Object.fromEntries(
     gameContainer(
       [
-        "if (equaln(v0,0)) { new.room(1); } if (equaln(v0,1)) { call(1); } return;",
-        "if (isset(f5)) { assignn(v50,1); load.pic(v50); draw.pic(v50); show.pic(); } return;",
+        "if (equaln(v0,0)) { new.room(1); } call.v(v0); return;",
+        `if (isset(f5)) { assignn(v50,${drawn}); load.pic(v50); draw.pic(v50); show.pic(); } return;`,
       ],
-      (c) => c.putResource("picture", 1, compile(BLUE)),
+      (c) => {
+        c.putResource("picture", 1, compile(BLUE));
+        c.putResource("picture", drawn, compile(BLUE));
+      },
     ).files,
   );
 }
@@ -251,9 +259,9 @@ function rig(t: TestContext, files: Record<string, Uint8Array>, booted: BootedGa
 }
 
 /** Store an authored project and boot it; `library` makes it a catalog entry. */
-async function authoredRig(t: TestContext, name: string, catalog = false) {
+async function authoredRig(t: TestContext, name: string, catalog = false, drawn = 1) {
   const projectId = testProjectId(name);
-  const files = gameFiles();
+  const files = gameFiles(drawn);
   const revision = await gameRevision(files);
   await saveAuthoredGame(projectId, {
     title: "Studio room",
@@ -528,6 +536,37 @@ test("a kept picture re-renders the room and lands on the tape as patch then aut
   assert.equal(replayed.error, null);
   assert.equal(replayed.diverged, null);
   assert.equal(historySyncDigest(replayed.ctx.engine!), historySyncDigest(r.ctx.engine!));
+});
+
+test("Keep re-enters the room whose logic draws the picture, not the room of that number", async (t) => {
+  const { revision, r } = await authoredRig(t, "studio-pic7", false, 7);
+  assert.equal(r.ctx.engine!.vars[0], 1);
+  assert.equal(r.picturePixel(), 1, "room 1 shows PIC 7, blue");
+  const reentries = () => r.posted.filter((m) => m.type === "reenter");
+
+  // Room 1 never draws PIC 1: keeping it leaves the room as it stands.
+  const unshown = await r.controller.commitPictureEdit({
+    pictureNumber: 1,
+    bytes: compile(RED),
+    source: RED,
+    baseRevision: revision,
+  });
+  assert.equal(unshown.status, "committed");
+  assert.deepEqual(reentries(), []);
+  r.tick(4);
+  assert.equal(r.picturePixel(), 1);
+
+  const shown = await r.controller.commitPictureEdit({
+    pictureNumber: 7,
+    bytes: compile(RED),
+    source: RED,
+    baseRevision: unshown.revision,
+  });
+  assert.equal(shown.status, "committed");
+  assert.deepEqual(reentries(), [{ type: "reenter", room: 1 }]);
+  r.tick(4);
+  assert.equal(r.ctx.engine!.vars[0], 1);
+  assert.equal(r.picturePixel(), 4, "the re-entered room draws the edited PIC 7");
 });
 
 test("a failed install after the save keeps storage as the source of truth", async (t) => {

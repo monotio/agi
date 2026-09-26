@@ -132,7 +132,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Room Studio",
         body: [
           "Open in Studio, on a room in the World panel, reads that room's picture under three lenses: Art for what the player sees, Depth for how far each part of the scene sits, Walk for the control lines that steer the hero. Studio takes the whole window while the game waits paused; its back arrow returns to Create as you left it. It needs a larger screen than a phone.",
-          "The scrubber replays the draw order command by command, the scene list names each thing the picture draws, and clicking a pixel shows which command put it there — or why a fill stopped. In this release Studio only looks; it changes nothing.",
+          "The scrubber replays the draw order command by command, the scene list names each thing the picture draws, and clicking a pixel shows which command put it there — or why a fill stopped.",
+          "Select an item to edit it: drag it or its points, nudge it with the arrow keys (Shift for 8 pixels), or change its colour, priority and draw order in the inspector. Each lens locks what it is not about (the Depth lens keeps the art as it is) until you unlock it, and every change can be undone. Keep saves the picture into the game; closing with unkept changes asks first.",
         ],
       },
       {

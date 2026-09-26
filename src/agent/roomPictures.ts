@@ -2,7 +2,9 @@
  * Room → picture, as far as the static exit scan can prove it. Kept beside
  * the room-graph model (roomMap.ts), which owns the scan itself.
  */
-import type { StaticRoomScan } from "./roomMap.ts";
+import { openContainer } from "../container/container.ts";
+import type { AgiProfile } from "../runtime/profile.ts";
+import { scanContainerExits, type StaticRoomScan } from "./roomMap.ts";
 
 /** One picture a room's logic provably draws. */
 export interface RoomPicture {
@@ -55,4 +57,32 @@ export function roomPictureUse(
     scan.unresolvedPicture ||
     (pictures.length === 0 && (scan.calls.length > 0 || scan.unresolvedCall));
   return { built: true, pictures, runtime };
+}
+
+/**
+ * Whether room `room`'s own logic provably draws `picture`, from a static
+ * scan of the game `files`. A picture chosen at runtime or drawn by a shared
+ * logic is not proof; neither is the room number. False for files that do
+ * not open as a container.
+ */
+export function roomDrawsPicture(
+  files: ReadonlyMap<string, Uint8Array>,
+  room: number,
+  picture: number,
+  profile?: AgiProfile,
+): boolean {
+  const logics = new Map<number, Uint8Array>();
+  try {
+    const container = openContainer(files);
+    for (let num = 0; num < 256; num++) {
+      const payload = container.getResource("logic", num);
+      if (payload) logics.set(num, payload);
+    }
+  } catch {
+    return false;
+  }
+  const { scans, shared } = scanContainerExits(logics, profile);
+  return roomPictureUse(room, { scans, shared, pictures: new Set([picture]) }).pictures.some(
+    (use) => use.picture === picture,
+  );
 }
