@@ -8,7 +8,7 @@ import {
   LESSONS_STORAGE_KEY,
   readCompletedLessons,
 } from "../src/lessons/lessonStorage.ts";
-import { lessonCatalogId, lessonSetFor } from "../src/lessons/registry.ts";
+import { LESSON_RELEASES, lessonCatalogId, lessonSetFor } from "../src/lessons/registry.ts";
 import type { LessonVerifyInput, StudioLesson } from "../src/lessons/types.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 
@@ -25,55 +25,83 @@ const PROFILE = PROFILES["2.936"]!;
 
 // ---- registry ---------------------------------------------------------------
 
-test("lesson sets are found by catalog id only", () => {
-  const set = lessonSetFor("adventure-department");
+const TUTORIAL_1_1 = { id: "adventure-department", version: "1.1.0" };
+
+test("lesson sets are found by catalog release: id and version", async () => {
+  const set = await lessonSetFor(TUTORIAL_1_1);
   assert.ok(set, "the tutorial registers a lesson set");
   assert.equal(set.catalogId, "adventure-department");
-  assert.ok(
-    GAME_CATALOG.some((entry) => entry.id === set.catalogId),
-    "a registered set names a catalog entry",
-  );
-  assert.equal(lessonSetFor("kings-quest-1"), undefined);
-  assert.equal(lessonSetFor(undefined), undefined);
+  assert.equal(set.lessons.length, 3);
+  // The 1.0 release stays in players' libraries; these lessons verify 1.1 resources.
+  assert.equal(await lessonSetFor({ id: "adventure-department", version: "1.0.0" }), undefined);
+  assert.equal(await lessonSetFor({ id: "kings-quest-1", version: "1.1.0" }), undefined);
+  assert.equal(await lessonSetFor(undefined), undefined);
   // A prototype key is not a registered catalog id.
-  assert.equal(lessonSetFor("constructor"), undefined);
-  assert.equal(lessonSetFor("__proto__"), undefined);
+  assert.equal(await lessonSetFor({ id: "constructor", version: "1.1.0" }), undefined);
+  assert.equal(await lessonSetFor({ id: "__proto__", version: "1.1.0" }), undefined);
 });
 
-test("every registered lesson has a unique id, 2-4 steps and a target", () => {
-  const set = lessonSetFor("adventure-department")!;
-  const ids = set.lessons.map((lesson) => lesson.id);
-  assert.equal(new Set(ids).size, ids.length);
-  for (const lesson of set.lessons) {
-    assert.ok(lesson.steps.length >= 2 && lesson.steps.length <= 4, lesson.id);
-    assert.ok(lesson.open.studio === "room" || lesson.open.studio === "sprite", lesson.id);
+test("every registered release names a catalog release and loads the set written for it", async () => {
+  for (const release of LESSON_RELEASES) {
+    const set = await release.load();
+    assert.deepEqual(
+      { id: set.catalogId, version: set.version },
+      { id: release.id, version: release.version },
+    );
+    assert.ok(
+      GAME_CATALOG.some((entry) => entry.id === release.id && entry.version === release.version),
+      `${release.id} ${release.version} is a catalog release: re-verify its lessons on a version bump`,
+    );
+  }
+});
+
+test("every registered lesson has a unique id, 2-4 steps and a target", async () => {
+  for (const release of LESSON_RELEASES) {
+    const set = await release.load();
+    const ids = set.lessons.map((lesson) => lesson.id);
+    assert.equal(new Set(ids).size, ids.length);
+    for (const lesson of set.lessons) {
+      assert.ok(lesson.steps.length >= 2 && lesson.steps.length <= 4, lesson.id);
+      assert.ok(lesson.open.studio === "room" || lesson.open.studio === "sprite", lesson.id);
+    }
   }
 });
 
 const library = (patch: Partial<LibraryMetadata>) => ({ library: patch as LibraryMetadata });
 
-test("a game's lesson catalog id is its catalog entry's, or its remix parent's", () => {
+test("a game's lesson release is its catalog release, or its remix chain's", () => {
   const records: Record<string, ReturnType<typeof library>> = {
+    "catalog-adventure-department-1.1.0": library({
+      source: "catalog",
+      catalog: { id: "adventure-department", version: "1.1.0" },
+    }),
     "catalog-adventure-department-1.0.0": library({
       source: "catalog",
       catalog: { id: "adventure-department", version: "1.0.0" },
     }),
     "remix-a": library({
       source: "remix",
-      parent: { project: "catalog-adventure-department-1.0.0" } as LibraryMetadata["parent"],
+      parent: { project: "catalog-adventure-department-1.1.0" } as LibraryMetadata["parent"],
     }),
     "remix-b": library({
       source: "remix",
       parent: { project: "remix-a" } as LibraryMetadata["parent"],
+    }),
+    "remix-old": library({
+      source: "remix",
+      parent: { project: "catalog-adventure-department-1.0.0" } as LibraryMetadata["parent"],
     }),
     "loop-a": library({ source: "remix", parent: { project: "loop-b" } as never }),
     "loop-b": library({ source: "remix", parent: { project: "loop-a" } as never }),
     "zip-game": library({ source: "zip" }),
   };
   const meta = (id: string) => records[id] ?? null;
-  assert.equal(lessonCatalogId("catalog-adventure-department-1.0.0", meta), "adventure-department");
-  assert.equal(lessonCatalogId("remix-a", meta), "adventure-department");
-  assert.equal(lessonCatalogId("remix-b", meta), "adventure-department");
+  const OLD = { id: "adventure-department", version: "1.0.0" };
+  assert.deepEqual(lessonCatalogId("catalog-adventure-department-1.1.0", meta), TUTORIAL_1_1);
+  assert.deepEqual(lessonCatalogId("remix-a", meta), TUTORIAL_1_1);
+  assert.deepEqual(lessonCatalogId("remix-b", meta), TUTORIAL_1_1);
+  assert.deepEqual(lessonCatalogId("catalog-adventure-department-1.0.0", meta), OLD);
+  assert.deepEqual(lessonCatalogId("remix-old", meta), OLD, "a 1.0 remix keeps its release");
   assert.equal(lessonCatalogId("zip-game", meta), undefined);
   assert.equal(lessonCatalogId("loop-a", meta), undefined, "a parent cycle ends");
   assert.equal(lessonCatalogId("missing", meta), undefined);

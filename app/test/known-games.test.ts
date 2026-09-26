@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fixtureDir, fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
-import { detectKnownGame } from "../src/gameMetadata.ts";
+import { detectKnownGame, gameRevision } from "../src/gameMetadata.ts";
+import { readGameZip } from "../src/gameZip.ts";
+import { buildTutorial } from "../../games/adventure-department/game.ts";
 import {
   KNOWN_GAMES,
   detectKnownGameByHashes,
@@ -143,6 +145,23 @@ test("hasWalkthrough and resolveWalkthrough resolve by alias or content hashes",
     assert.equal(hasWalkthrough(revision), true);
     assert.equal(resolveWalkthrough(revision), "adventure-department");
   }
+});
+
+test("a stored 1.0 tutorial is still recognised beside 1.1, and offers no walkthrough", async () => {
+  // The released 1.0 archive fixtures are the 1.0 tutorial's bytes.
+  const old = await readGameZip(
+    new Uint8Array(readFileSync(new URL("./formats/game-v1.zip", import.meta.url))),
+  );
+  const oldRevision = await gameRevision(old.files);
+  assert.equal((await detectKnownGame(old.files))?.alias, "adventure-department-1.0");
+  assert.equal(getKnownGameByRevision(oldRevision)?.title, "Adventure Department");
+  assert.equal(hasWalkthrough(oldRevision), false, "1.0's route was replaced with its sources");
+
+  const current = buildTutorial().files;
+  const revision = await gameRevision(current);
+  assert.equal((await detectKnownGame(current))?.alias, "adventure-department");
+  assert.equal(getKnownGameByRevision(revision)?.alias, "adventure-department");
+  assert.equal(resolveWalkthrough(revision), "adventure-department");
 });
 
 for (const targetHash of [KNOWN_GAME_HASH.MH1, KNOWN_GAME_HASH.KQ1, KNOWN_GAME_HASH.SQ1] as const) {

@@ -100,19 +100,31 @@ const helpActions = computed<HelpActionKind[]>(() => {
   return actions;
 });
 
-/** The running game's Studio lessons: its catalog entry's, or the one its remix started from. */
+/**
+ * The running game's Studio lessons: its catalog release's, or the one its
+ * remix started from. The set loads with the guide open; a set for another
+ * release never shows meanwhile.
+ */
 const helpLessons = shallowRef<LessonSet | undefined>();
+let helpLessonsAsked = 0;
 function openHelp(): void {
   const game = state.phase === "running" ? currentGame() : null;
-  helpLessons.value =
+  const release =
     game && !game.installed
-      ? lessonSetFor(
-          lessonCatalogId(game.projectId, (id) => {
-            const project = projectId(id);
-            return project === null ? null : getCachedGameMeta(project);
-          }),
-        )
+      ? lessonCatalogId(game.projectId, (id) => {
+          const project = projectId(id);
+          return project === null ? null : getCachedGameMeta(project);
+        })
       : undefined;
+  const shown = helpLessons.value;
+  if (shown && (shown.catalogId !== release?.id || shown.version !== release.version))
+    helpLessons.value = undefined;
+  const asked = ++helpLessonsAsked;
+  void lessonSetFor(release)
+    .catch(() => undefined)
+    .then((set) => {
+      if (asked === helpLessonsAsked) helpLessons.value = set;
+    });
   helpGuide.value?.open();
 }
 
