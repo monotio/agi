@@ -30,6 +30,7 @@ type Verdict = { readonly ok: boolean; readonly hint?: string };
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 const MURAL = 4;
+const SUN = "sun";
 const ARCHIVE = 3;
 const ROBOT_VIEW = 2;
 const COUNTER_PRIORITY = 11;
@@ -108,7 +109,7 @@ function compileOrNull(
   }
 }
 
-/** Challenge 1: change one named object of the mural, and only that one. */
+/** Challenge 1: change the sun, and only the sun. */
 export function verifyMuralObject(input: LessonVerifyInput): Verdict {
   if (input.kind !== "picture" || input.num !== MURAL)
     return fail("This challenge is for the mural, PIC 4. Open it from the lesson.");
@@ -120,22 +121,33 @@ export function verifyMuralObject(input: LessonVerifyInput): Verdict {
   if (!before || input.afterSource === undefined)
     return fail("Make this change in Room Studio, so it can see which object you changed.");
   const after = parsePictureDocument(input.afterSource).document;
+  if (!after.items.some((item) => item.id === SUN))
+    return fail("The sun needs to stay in the sky — change its colour, size or place.");
   const changed = changedItems(before, after);
-  if (changed.length === 0)
-    return fail("Your change is outside every named object. Make it inside one, like Sun.");
-  if (changed.length > 1) {
-    const names = changed.map((id) => labelOf([after, before], id)).join(", ");
-    return fail(`You changed ${changed.length} objects (${names}). Change just one, like Sun.`);
+  // A new object (a drawn shape, a copy) counts as a change of its own.
+  if (changed.some((id) => !before.items.some((item) => item.id === id)))
+    return fail("Only the sun should change — this also added a new shape.");
+  const others = changed.filter((id) => id !== SUN);
+  if (others.length > 0) {
+    const names = others.map((id) => labelOf([after, before], id)).join(", ");
+    const removed = others.some((id) => !after.items.some((item) => item.id === id));
+    const what = `${removed ? "removed" : "changed"} ${names}`;
+    return fail(
+      changed.includes(SUN)
+        ? `Only the sun should change — this also ${what}.`
+        : `Only the sun should change, but this ${what}. Undo that, then change the sun.`,
+    );
   }
-  const [id] = changed as [string];
-  const label = labelOf([after, before], id);
+  if (changed.length === 0)
+    return fail("Your change is outside every named object. Change the sun: pick Sun in the list.");
+  const label = labelOf([after, before], SUN);
   const a = compileOrNull(before, input);
   const b = compileOrNull(after, input);
   if (!a || !b) return fail("The recipe has a mistake in it now. Undo your last step.");
   const moved = [...a.visual].some((value, i) => value !== b.visual[i]);
   if (!moved)
     return fail(`${label} changed in the recipe, but not on screen. Try a colour that stands out.`);
-  const allowed = unionMask(footprintMask(a, id, "both"), footprintMask(b, id, "both"));
+  const allowed = unionMask(footprintMask(a, SUN, "both"), footprintMask(b, SUN, "both"));
   const { ok, violations } = validateEdit(a, b, { lockedPlanes: [], allowedMask: allowed });
   if (!ok) {
     const cells = violations.reduce((sum, v) => sum + ("count" in v ? v.count : 0), 0);
@@ -146,7 +158,11 @@ export function verifyMuralObject(input: LessonVerifyInput): Verdict {
   return { ok: true };
 }
 
-/** Challenge 2: repaint the robot's left-facing loop and leave the right-facing loop alone. */
+/**
+ * Challenge 2: repaint the robot's left-facing loop and leave the right-facing
+ * loop alone. The repaint must land in one of loop 1's own cels: adding or
+ * removing a cel also breaks the mirror, but repaints nothing.
+ */
 export function verifyMirrorEdit(input: LessonVerifyInput): Verdict {
   if (input.kind !== "view" || input.num !== ROBOT_VIEW)
     return fail("This challenge is for the waving robot, VIEW 2. Open it from the lesson.");
@@ -166,7 +182,12 @@ export function verifyMirrorEdit(input: LessonVerifyInput): Verdict {
   if (check.violations.some((v) => v.constraint === "protected-loop"))
     return fail("The right-facing loop 0 changed too. Undo that: only loop 1 should change.");
   if (!check.ok) return fail("Something outside loop 1 changed. Only the left-facing loop should.");
-  if (!check.changedCels.some(({ loop }) => loop === 1))
+  const cels = before.loops[1]?.cels.length ?? 0;
+  if (after.loops[1]?.cels.length !== cels)
+    return fail(
+      `Loop 1 should keep its ${cels} cels. Undo the added or removed cel, and repaint one instead.`,
+    );
+  if (!check.changedCels.some(({ loop, cel }) => loop === 1 && cel < cels))
     return fail("Loop 1 still looks the same. Repaint a pixel in it, like his eye.");
   if (after.loops[1]?.alias !== null)
     return fail("Loop 1 still mirrors loop 0. Edit it so it becomes its own copy.");
@@ -236,7 +257,7 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
     const others = [...b.priority].some((value, i) => stand[i] === 1 && value > COUNTER_PRIORITY);
     return fail(
       others
-        ? "Some of the stand is deeper than 11, so it would hide the apprentice in front of it. Use the counter's 11."
+        ? "Some of the stand is closer than 11 (a bigger number), so it would hide the apprentice standing in front. Use the counter's 11."
         : `The stand isn't covered yet: ${hidden} of its ${standCells} pixels have depth 11. Cover all of it.`,
     );
   }
@@ -284,9 +305,9 @@ export const TUTORIAL_LESSONS: LessonSet = {
         "Loop 0 is the robot facing right: four drawings, or cels, that make his wave.",
         "Loop 1 faces left. It has no drawings of its own: it mirrors loop 0.",
         "Turn on onion skin to see one cel over the next.",
-        "Edit a cel in loop 1. It becomes its own copy, and loop 0 stays as it was.",
+        "Click a cel in the Loop 1 row first. Edit it: loop 1 becomes its own copy, and loop 0 stays as it was.",
       ],
-      open: { studio: "sprite", view: ROBOT_VIEW },
+      open: { studio: "sprite", view: ROBOT_VIEW, loop: 1, cel: 0 },
       challenge: {
         prompt: "Give the left-facing robot a different eye colour, without changing loop 0.",
         verify: verifyMirrorEdit,
@@ -299,7 +320,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
       steps: [
         "Switch to the Depth lens. Every colour is a priority number.",
         "Turn on the ghost and drag it behind the counter: the counter's 11 hides it.",
-        "Drag it in front: lower on the screen means a bigger number, so it shows.",
+        "Drag it in front: lower on the screen means a bigger number (band 11 at the counter's foot), so it shows.",
         "Now drag it behind the ledger stand. It floats in front: the stand has no depth.",
       ],
       open: { studio: "room", picture: ARCHIVE },

@@ -40,6 +40,8 @@ const WORD_GROUPS: readonly (readonly [number, readonly string[]])[] = [
       "that",
       "some",
       "of",
+      "how",
+      "do",
     ],
   ],
   [100, ["look", "examine", "inspect", "read", "x", "see", "check", "study"]],
@@ -47,12 +49,26 @@ const WORD_GROUPS: readonly (readonly [number, readonly string[]])[] = [
   [102, ["east", "e", "right"]],
   [103, ["west", "w", "left"]],
   [104, ["paint", "color", "colour", "draw"]],
-  [105, ["mural", "picture", "art", "frame", "painting", "scene", "canvas", "landscape", "sketch"]],
+  [
+    105,
+    [
+      "mural",
+      "picture",
+      "art",
+      "frame",
+      "painting",
+      "scene",
+      "canvas",
+      "landscape",
+      "sketch",
+      "sun",
+    ],
+  ],
   [106, ["pull", "flip", "use", "push", "press", "yank", "tug", "move", "shift"]],
   [107, ["lever", "switch", "handle"]],
   [108, ["show", "view", "display"]],
   [109, ["priority", "priorities", "depth", "layer", "layers"]],
-  [110, ["fix", "adjust", "repair", "mend"]],
+  [110, ["fix", "adjust", "repair", "mend", "give", "set"]],
   [111, ["robot", "machine", "bot"]],
   [112, ["clerk", "ferret", "felix"]],
   [113, ["room", "here", "place"]],
@@ -82,7 +98,7 @@ const WORD_GROUPS: readonly (readonly [number, readonly string[]])[] = [
   [137, ["plaque", "label", "sign"]],
   [138, ["wave", "waving"]],
   [139, ["wake", "activate", "start", "turn"]],
-  [140, ["console", "computer", "screen", "monitor", "terminal", "editor"]],
+  [140, ["console", "computer", "screen", "monitor", "terminal", "editor", "bay"]],
   [141, ["film", "strip", "flipbook", "poster", "reel"]],
   [142, ["ledger", "stand", "lectern", "tag"]],
   [143, ["bell"]],
@@ -116,6 +132,7 @@ const WORD_GROUPS: readonly (readonly [number, readonly string[]])[] = [
   [157, ["map", "plan"]],
   [158, ["clock", "time"]],
   [159, ["floor", "ground", "carpet", "tiles", "rug"]],
+  [160, ["hug", "cuddle", "pat", "pet"]],
 ];
 
 export const TUTORIAL_WORDS: [string, number][] = WORD_GROUPS.flatMap(([id, words]) =>
@@ -166,6 +183,10 @@ export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
 #message 16 "It smells of old paint and new ideas."
 #message 17 "You're welcome! Now, back to work."
 #message 18 "Ow. The robot is solid tin. Your toe is not."
+#message 19 "Just type what to do, in a word or two. %s1"
+#message 20 "You hug the sleeping robot. Cold tin. The WAKE lever might help."
+#message 21 "You hug the robot. He beeps happily and keeps waving."
+#message 22 "A hug never fixed an exhibit, but it's a kind thought."
 
 // Boot once, then dispatch the current room every interpreter cycle.
 if (!isset(f200)) {
@@ -194,6 +215,10 @@ if (said("look", "me")) { print(3); }
 if (said("inventory") || said("look", "inventory")) { print(4); }
 if (said("score") || said("look", "score")) { print(5); }
 if (equaln(v0, 2) && said("kick", "robot")) { print(18); }
+if (equaln(v0, 2) && said("hug", "robot")) {
+  if (isset(f31)) { print(21); } else { print(20); }
+}
+if (said("hug") || (equaln(v9, 0) && said("hug", "*"))) { print(22); }
 if (said("kick") || (equaln(v9, 0) && said("kick", "*"))) { print(6); }
 if (said("jump") || (equaln(v9, 0) && said("jump", "*"))) { print(7); }
 if (said("eat") || (equaln(v9, 0) && said("eat", "*"))) { print(8); }
@@ -201,6 +226,8 @@ if (said("climb") || (equaln(v9, 0) && said("climb", "*"))) { print(9); }
 if (said("wait") || (equaln(v9, 0) && said("wait", "*"))) { print(15); }
 if (said("smell") || (equaln(v9, 0) && said("smell", "*"))) { print(16); }
 if (said("thank") || (equaln(v9, 0) && said("thank", "*"))) { print(17); }
+// HOW DO I PAINT: how and do are ignored, and I is INVENTORY's word.
+if (equaln(v9, 0) && said("inventory", "...")) { print(19); }
 call.v(v0);
 // Whatever the room did not handle gets a Sierra-style reply naming the
 // unknown word and the room's next step (s1, which each room keeps current).
@@ -361,7 +388,7 @@ return;
 #message 23 "${hint("Robot awake! Next exhibit: go EAST.")}"
 #message 24 "${hint("Robot awake! The mural waits WEST.")}"
 #message 25 "${GRADUATED_HINT}"
-#message 26 "A sprite editor. Its screen shows the robot drawn big, one square pixel at a time."
+#message 26 "The charging bay's sprite editor. Its screen shows the robot drawn big, one square pixel at a time."
 #message 27 "A film strip of the robot's wave: four drawings in a row. Show them fast and he moves. That's all animation is."
 #message 28 "You wave. The robot doesn't wave back. It's switched off."
 #message 29 "You wave. The robot waves back! Same four drawings, over and over."
@@ -439,7 +466,7 @@ if (said("fix", "robot")) {
 if (said("take") || (equaln(v9, 0) && said("take", "*"))) { print(18); }
 if (said("pull", "robot")) { print(32); }
 if (said("pull", "lever") || said("pull")) {
-  if (posn(o0, 8, 112, 52, 167)) {
+  if (posn(o0, 26, 112, 56, 167)) {
     if (!isset(f31)) {
       set(f31); addn(v3, 10); set.view(o1, 2); start.cycling(o1);
       sound(3, f37);
@@ -495,6 +522,7 @@ return;
 #message 35 "Felix's priority is fixed already. He's exactly where he belongs."
 #message 36 "A thick red carpet. It muffles footsteps, and Felix likes it quiet."
 #message 37 "Wait: you're BEHIND the ledger stand, yet you float in front of it! The tag on it says DEPTH PENDING. Nobody has given the stand a depth number yet."
+#message 38 "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains."
 
 if (isset(f5)) {
   assignn(v50, 3); load.pic(v50); draw.pic(v50); show.pic();
@@ -556,6 +584,7 @@ if (said("talk") || (equaln(v9, 0) && said("talk", "*"))) {
   if (isset(f32)) { print(12); } else { print(11); }
 }
 if (said("ring", "bell") || said("ring") || said("use", "bell")) { print(27); }
+if (said("fix", "ledger") || said("fix", "ledger", "priority")) { print(38); }
 if (said("fix", "clerk") || said("pull", "clerk")) {
   if (isset(f32)) { print(35); } else { print(28); }
 }
@@ -565,7 +594,7 @@ if (said("show", "priority")) {
   show.pri.screen();
   clear.lines(23, 23, 0);
 }
-if (said("fix", "priority")) {
+if (said("fix", "priority") || said("fix", "clerk", "priority")) {
   if (!isset(f32)) {
     set(f32); addn(v3, 10); set.priority(o1, 10); set.cel(o2, 1);
     sound(2, f37);

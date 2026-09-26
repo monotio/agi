@@ -1,6 +1,6 @@
 /**
  * Stored game tests for the tutorial: one per exhibit, the walk between
- * them, the proximity rule and a room's own HELP. They ship inside the game archive as TESTS.JSON, so the app's
+ * them, the proximity rules and a room's own HELP. They ship inside the game archive as TESTS.JSON, so the app's
  * write tools rerun them after a remix and run_game_tests replays them on
  * demand. Each is a playtest_room scenario: the spawn stands where the
  * exhibit's posn() box expects the apprentice, an Enter clears the room's
@@ -94,6 +94,20 @@ export const TUTORIAL_GAME_TESTS: readonly GameTest[] = [
       flags: [{ id: 30, value: false }],
       vars: [{ id: 3, value: 0 }],
       printed: "You're too far away. Walk up to the frame, then PAINT MURAL.",
+    }),
+    cycleBudget: null,
+  },
+  {
+    // The lab's west doorway (18,151) is outside the lever's box (x 26-56).
+    name: "the lever needs the apprentice nearby",
+    room: 2,
+    spawnX: null,
+    spawnY: null,
+    steps: [step("enter"), step("command", "pull lever"), step("enter")],
+    expect: expecting({
+      flags: [{ id: 31, value: false }],
+      vars: [{ id: 3, value: 0 }],
+      printed: "You're too far away. Walk over to the lever, then PULL LEVER.",
     }),
     cycleBudget: null,
   },

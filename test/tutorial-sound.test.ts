@@ -35,6 +35,15 @@ function approachMural(engine: Engine, keys: number[]): void {
   assert.ok(engine.readObjects()[0]!.x >= 60, "did not reach the mural");
 }
 
+/** The lever works within its plate's reach: walk right from the lab's doorway, then stop. */
+function approachLever(engine: Engine, keys: number[]): void {
+  keys.push(0x4d00);
+  for (let cycle = 0; cycle < 200 && engine.readObjects()[0]!.x < 30; cycle++) engine.tick();
+  keys.push(0x4d00);
+  engine.tick();
+  assert.ok(engine.readObjects()[0]!.x >= 30, "did not reach the lever");
+}
+
 test("tutorial ships a short melodic opening and compact point/lever effects with editable intent", () => {
   const game = buildTutorial();
   const container = openContainer(new Map(Object.entries(game.files)));
@@ -108,6 +117,7 @@ test("each earned repair plays exactly one success cue and repeated commands sta
   assert.deepEqual(started, [1, 2]);
   commands.push("east");
   engine.tick();
+  approachLever(engine, keys);
   commands.push("pull lever");
   engine.tick();
   assert.deepEqual(started, [1, 2, 3], "lever attack and confirmation share one sound resource");

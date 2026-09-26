@@ -81,7 +81,7 @@ describe("Adventure Department lessons", () => {
       TUTORIAL_LESSONS.lessons.map(({ id, open }) => [id, open]),
       [
         ["ad-gallery-recipe", { studio: "room", picture: 4 }],
-        ["ad-lab-mirror", { studio: "sprite", view: 2 }],
+        ["ad-lab-mirror", { studio: "sprite", view: 2, loop: 1, cel: 0 }],
         ["ad-archive-depth", { studio: "room", picture: 3 }],
       ],
     );
@@ -125,7 +125,7 @@ describe("Adventure Department lessons", () => {
       assert.match(verdict.hint ?? "", /outside Sun changed too/);
     });
 
-    it("fails an edit that also touches another object, naming both", () => {
+    it("fails an edit that also touches another object, naming it", () => {
       const verdict = verifyMuralObject(
         pictureEdit(
           4,
@@ -134,7 +134,63 @@ describe("Adventure Department lessons", () => {
         ),
       );
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /2 objects.*Sun.*Cottage/);
+      assert.equal(verdict.hint, "Only the sun should change — this also changed Cottage.");
+    });
+
+    it("fails a change to another object alone", () => {
+      const verdict = verifyMuralObject(
+        pictureEdit(4, { type: "setItemColor", itemId: "cottage", plane: "visual", value: 5 }),
+      );
+      assert.equal(verdict.ok, false);
+      assert.match(verdict.hint ?? "", /^Only the sun should change, but this changed Cottage\./);
+    });
+
+    it("fails a new shape drawn in the meadow", () => {
+      const verdict = verifyMuralObject(
+        pictureEdit(4, {
+          type: "insertShape",
+          atLine: parsePictureDocument(TUTORIAL_PICTURES[4]!).document.lines.indexOf("end") + 1,
+          shape: {
+            kind: "rect",
+            color: 4,
+            priority: null,
+            filled: true,
+            x1: 60,
+            y1: 66,
+            x2: 66,
+            y2: 70,
+          },
+          id: "red-rect",
+          label: "Red rect",
+          kind: "art",
+        }),
+      );
+      assert.equal(verdict.ok, false);
+      assert.equal(verdict.hint, "Only the sun should change — this also added a new shape.");
+    });
+
+    it("fails a copy of the sun", () => {
+      const verdict = verifyMuralObject(
+        pictureEdit(4, {
+          type: "duplicateItem",
+          itemId: "sun",
+          dx: 30,
+          dy: 0,
+          newId: "sun-2",
+          newLabel: "Sun 2",
+        }),
+      );
+      assert.equal(verdict.ok, false);
+      assert.match(verdict.hint ?? "", /added a new shape/);
+    });
+
+    it("fails the sun deleted", () => {
+      const verdict = verifyMuralObject(pictureEdit(4, { type: "deleteItem", itemId: "sun" }));
+      assert.equal(verdict.ok, false);
+      assert.equal(
+        verdict.hint,
+        "The sun needs to stay in the sky — change its colour, size or place.",
+      );
     });
 
     it("fails no edit", () => {
@@ -150,6 +206,41 @@ describe("Adventure Department lessons", () => {
         viewEdit(2, { type: "recolor", scope: "loop", loop: 1, from: 14, to: 10 }),
       );
       assert.deepEqual(verdict, { ok: true });
+    });
+
+    it("passes one pencil pixel in loop 1's first cel", () => {
+      const cel = openSprite(tutorial.getResource("view", 2)!, profile).loops[1]!.cels[0]!;
+      const x = cel.width >> 1;
+      const y = cel.height >> 1;
+      const colour = [4, 2].find((value) => value !== cel.pixels[y * cel.width + x])!;
+      const verdict = verifyMirrorEdit(
+        viewEdit(2, { type: "setPixels", loop: 1, cel: 0, changes: [{ x, y, color: colour }] }),
+      );
+      assert.deepEqual(verdict, { ok: true });
+    });
+
+    it("fails a blank cel added to loop 1, which repaints nothing", () => {
+      const verdict = verifyMirrorEdit(viewEdit(2, { type: "addCel", loop: 1, at: 4 }));
+      assert.equal(verdict.ok, false);
+      assert.match(verdict.hint ?? "", /keep its 4 cels/);
+    });
+
+    it("fails a cel removed from loop 1", () => {
+      const verdict = verifyMirrorEdit(viewEdit(2, { type: "deleteCel", loop: 1, cel: 3 }));
+      assert.equal(verdict.ok, false);
+      assert.match(verdict.hint ?? "", /keep its 4 cels/);
+    });
+
+    it("fails a repaint that also adds a cel", () => {
+      const verdict = verifyMirrorEdit(
+        viewEdit(
+          2,
+          { type: "recolor", scope: "loop", loop: 1, from: 14, to: 10 },
+          { type: "addCel", loop: 1, at: 4, from: { loop: 1, cel: 0 } },
+        ),
+      );
+      assert.equal(verdict.ok, false);
+      assert.match(verdict.hint ?? "", /keep its 4 cels/);
     });
 
     it("fails the same edit carried through to loop 0", () => {
@@ -203,7 +294,7 @@ describe("Adventure Department lessons", () => {
     it("fails a depth that would hide the apprentice standing in front", () => {
       const verdict = verifyStandDepth(pictureEdit(3, depthRect(3, 12, 38, 84, 53, 120)));
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /deeper than 11/);
+      assert.match(verdict.hint ?? "", /closer than 11 \(a bigger number\)/);
     });
 
     it("fails depth painted over the walk barriers", () => {

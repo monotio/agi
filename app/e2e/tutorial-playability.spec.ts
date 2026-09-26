@@ -96,6 +96,17 @@ test("tutorial walls and three exhibits work through the real browser controls",
   const leverBefore = await leverPixels(page);
   expect(leverBefore.brightRed).toBeGreaterThan(0);
   await page.screenshot({ path: test.info().outputPath("lab-lever-before.png"), fullPage: true });
+  // From the doorway the lever is out of reach; its plate's reach is x 26-56.
+  await command(page, "pull lever");
+  await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+  expect((await textHook(page)).rows.join(" ")).toContain("too far away");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+    .toBeGreaterThanOrEqual(28);
+  await page.keyboard.press("ArrowRight");
   await command(page, "pull lever");
   let leverDuring = leverBefore;
   await expect

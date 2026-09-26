@@ -25,13 +25,15 @@ export interface CelRect {
   readonly height: number;
 }
 
-const FACINGS = ["Walk right", "Walk left", "Walk toward", "Walk away"];
+const FACINGS = ["Right-facing", "Left-facing", "Front-facing", "Back-facing"];
 
 /**
- * The facing the interpreter's motion picks a loop for: loops 0 and 1 walk
- * right and left in a view of two or three loops, and 2 and 3 walk toward
- * and away in a view of four (Engine.selectLoop; whether views of more than
- * four loops use that table depends on the interpreter, so they are not named).
+ * The facing the interpreter's motion picks a loop for: loops 0 and 1 face
+ * right and left in a view of two or three loops, and 2 and 3 face the
+ * viewer and away in a view of four (Engine.selectLoop; whether views of more
+ * than four loops use that table depends on the interpreter, so they are not
+ * named). The names say which way a loop faces, not that it walks: a waving
+ * robot or a standing clerk uses the same table.
  */
 export function loopFacing(loop: number, loops: number): string | undefined {
   if (loops === 4 || ((loops === 2 || loops === 3) && loop < 2)) return FACINGS[loop];

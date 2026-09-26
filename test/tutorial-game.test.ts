@@ -174,6 +174,17 @@ function walkUntilX(
   assert.ok(reached(engine.readObjects()[0]!.x), "arrow-key travel did not reach the exhibit");
 }
 
+/**
+ * Walk from the lab's west doorway to the WAKE lever and stop there: the
+ * doorway (x 18) is outside the lever's posn() box (x 26-56).
+ */
+function walkToLever(engine: Engine, host: TutorialHost): void {
+  walkUntilX(engine, host, 0x4d00, (x) => x >= 30);
+  host.keys.push(0x4d00);
+  engine.tick();
+  assert.ok(engine.readObjects()[0]!.x <= 56, "ego stops within the lever's reach");
+}
+
 function visualDifferences(
   actual: Uint8Array,
   background: Uint8Array,
@@ -269,7 +280,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "f987dcbaec399c2f96f81ae8ef33c0f78688189f372d6fe30b777749db0451a5",
+    "e21e5c7870890fa413cd592c3c59536aecb349dc6b78bd4a7acf1e178e779796",
     "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
   );
 });
@@ -382,6 +393,10 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
   assert.equal(engine.readObjects()[1]!.view, 1);
   enter(engine, host, "look logic");
   assert.match(host.prints.at(-1) ?? "", /Logic selects.*view.*loop.*cel/i);
+  enter(engine, host, "pull lever");
+  assert.equal(engine.flags[31], 0, "the lever cannot be pulled from the doorway");
+  assert.match(host.prints.at(-1) ?? "", /too far away.*lever/i);
+  walkToLever(engine, host);
   enter(engine, host, "pull lever");
   assert.equal(engine.flags[31], 1);
   assert.equal(engine.readObjects()[1]!.view, 2);
@@ -621,6 +636,7 @@ test("movement and sprite animation use readable pacing and ego rests on an idle
   );
   assert.equal(robot.cycleTime, 10, "the robot holds each dance pose for 500ms");
   assert.equal(robot.cycling, false, "the switched-off robot is still");
+  walkToLever(engine, host);
   enter(engine, host, "pull lever");
   robot = engine.readObjects()[1]!;
   assert.equal(robot.cycling, true);
@@ -663,6 +679,7 @@ test("the lab lever sweeps around a fixed pivot and retains its repaired positio
   assert.equal(engine.getFrame().visual[78 * SCREEN_WIDTH + 30], 12, "off grip is bright red");
   const pivot = visualRegion(engine.getFrame().visual, 35, 98, 41, 103);
 
+  walkToLever(engine, host);
   const printsBefore = host.prints.length;
   enter(engine, host, "pull lever");
   assert.equal(engine.flags[31], 1);
@@ -719,6 +736,7 @@ test("the lab lever sweeps around a fixed pivot and retains its repaired positio
 
   const interrupted = startTutorial();
   enter(interrupted.engine, interrupted.host, "east");
+  walkToLever(interrupted.engine, interrupted.host);
   enter(interrupted.engine, interrupted.host, "pull lever");
   interrupted.engine.tick();
   interrupted.engine.tick();
@@ -888,6 +906,34 @@ test("the ledger stand's missing depth explains itself the first time ego walks 
   );
 });
 
+// Phrasings a playtest typed: each gets a reply that points somewhere useful.
+test("the parser answers hugs, questions and the exhibits' other names", () => {
+  const { engine, host } = startTutorial();
+  const reply = (command: string): string => {
+    enter(engine, host, command);
+    return (host.prints.at(-1) ?? "").replace(/\s+/g, " ");
+  };
+  assert.match(reply("look sun"), /pencil sketch/, "the sun is part of the mural");
+  assert.equal(
+    reply("how do i paint"),
+    "Just type what to do, in a word or two. Try PAINT MURAL or HELP.",
+  );
+  assert.match(reply("hug robot"), /hug never fixed an exhibit/, "no robot in the gallery");
+  enter(engine, host, "east");
+  assert.match(reply("look bay"), /charging bay's sprite editor/);
+  assert.match(reply("hug robot"), /hug the sleeping robot.*WAKE lever/);
+  enter(engine, host, "east");
+  assert.equal(
+    reply("fix stand"),
+    "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains.",
+  );
+  assert.match(reply("fix ledger"), /Room Studio job/);
+  assert.equal(engine.flags[32], 0);
+  assert.match(reply("give felix priority"), /You change Felix from priority 15 to 10/);
+  assert.equal(engine.flags[32], 1);
+  assert.match(reply("set priority"), /fixed already/);
+});
+
 test("the archive globe stands fully inside the picture", () => {
   const surface = createPictureSurface();
   renderPicture(compilePictureSource(TUTORIAL_PICTURE_SOURCES[3]!).bytes, surface);
@@ -985,5 +1031,5 @@ test("the tutorial ships stored game tests that its game passes", () => {
   assert.equal(readStoredTests(session).length, TUTORIAL_GAME_TESTS.length);
   const verdict = runGameTests(session, null);
   assert.equal(verdict.success, true, verdict.error ?? "");
-  assert.match(verdict.message ?? "", /^6 game tests pass, 0 fail\./);
+  assert.match(verdict.message ?? "", /^7 game tests pass, 0 fail\./);
 });

@@ -514,9 +514,9 @@ test.describe("on the harness", () => {
     await expect(menu.getByRole("menuitem", { name: "Copy to loop…" })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(menu).toHaveAccessibleName("Copy loop 2, cel 1 to loop");
-    await expect(menu.getByRole("menuitem", { name: "Loop 0 · Walk right" })).toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: "Loop 0 · Right-facing" })).toBeFocused();
     for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowDown");
-    await expect(menu.getByRole("menuitem", { name: "Loop 3 · Walk away" })).toBeFocused();
+    await expect(menu.getByRole("menuitem", { name: "Loop 3 · Back-facing" })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(menu).toHaveCount(0);
     await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
@@ -533,7 +533,7 @@ test.describe("on the harness", () => {
     await menu.getByRole("menuitem", { name: "Move to loop…" }).focus();
     await page.keyboard.press("Enter");
     await expect(menu.getByRole("menuitem", { name: /^Loop 3/ })).toHaveCount(0);
-    await menu.getByRole("menuitem", { name: "Loop 2 · Walk toward" }).focus();
+    await menu.getByRole("menuitem", { name: "Loop 2 · Front-facing" }).focus();
     await page.keyboard.press("Enter");
     await expect(studio.getByTestId("studio-draft-status")).toHaveText("2 changes");
     const moved = open(await draftBytes(page));
