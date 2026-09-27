@@ -1,3 +1,4 @@
+import { type Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -60,6 +61,12 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await controlsDialog.getByRole("button", { name: /Sound On\/Off/ }).click();
   await expect(controlsDialog).toBeHidden();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND OFF");
+  // Its Close button hands the keyboard back to the game, not to the page body.
+  await help.click();
+  await helpItems.getByTestId("btn-game-controls").click();
+  await controlsDialog.getByTestId("controls-close").click();
+  await expect(controlsDialog).toBeHidden();
+  await expect(page.getByTestId("input-line")).toBeFocused();
 
   await settings.click();
   const sound = page.getByTestId("toggle-mute");
@@ -99,14 +106,24 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await page.keyboard.press("Escape");
   await expect(settings).toHaveAttribute("aria-expanded", "false");
 
-  // Tab past the sheet's last item leaves it, and the sheet closes behind the
-  // focus; nothing is left open for a later Escape to miss.
+  // The sheet is modal: Tab and Shift+Tab cycle inside it, however far, and
+  // never reach the page behind it.
   const sheet = page.getByTestId("settings-menu-menu");
   await settings.click();
-  await sheet.getByTestId("settings-advanced").focus();
-  await page.keyboard.press("Tab");
+  await expect(sheet).toHaveAttribute("aria-modal", "true");
+  const focusInSheet = () => sheet.evaluate((element) => element.contains(document.activeElement));
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press("Tab");
+    expect(await focusInSheet(), `Tab ${i + 1} stays in the sheet`).toBe(true);
+  }
+  for (let i = 0; i < 10; i++) {
+    await page.keyboard.press("Shift+Tab");
+    expect(await focusInSheet(), `Shift+Tab ${i + 1} stays in the sheet`).toBe(true);
+  }
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
-  await expect(settings).toHaveAttribute("aria-expanded", "false");
+  await expect(settings).toBeFocused();
   // Escape closes it from anywhere while it is open, and returns focus to the
   // Settings button — here with focus dropped to the page body.
   await settings.click();
@@ -144,4 +161,49 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   // game is a neutral target.
   await page.locator("#game-input-help").click();
   await expect(settings).toHaveAttribute("aria-expanded", "false");
+});
+
+/** A one-room game with the given boot lines, imported as a ZIP and started. */
+async function bootZipGame(page: Page, boot: string): Promise<void> {
+  const game = createContainer();
+  game.putFile("WORDS.TOK", new Uint8Array(52));
+  game.putResource("picture", 0, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic(
+      `if(!isset(f200)) { set(f200); assignn(v10,1); accept.input();
+        assignn(v50,0); load.pic(v50); draw.pic(v50); show.pic(); ${boot} }
+      if(controller(1)){menu.input();}
+      return;`,
+      { dictionary: new Map() },
+    ).payload,
+  );
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "hint-check.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(buildZip([...game.files].map(([name, data]) => ({ name, data })))),
+  });
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(2);
+}
+
+test("the strip does not offer Esc for a menu Escape does not open", async ({ page }) => {
+  await bootZipGame(
+    page,
+    `set.key(0,60,2); set.menu("Game"); set.menu.item("Sound <F2>",2); submit.menu();`,
+  );
+  const help = page.locator("#game-input-help");
+  await expect(help).toContainText("Arrows or numpad walk");
+  await expect(help).not.toContainText("game menu");
+});
+
+test("the strip names Esc as the game menu when Esc opens a submitted menu", async ({ page }) => {
+  await bootZipGame(
+    page,
+    `set.key(27,0,1); set.key(0,60,2); set.menu("Game"); set.menu.item("Sound <F2>",2); submit.menu();`,
+  );
+  await expect(page.locator("#game-input-help")).toContainText("Esc game menu");
 });

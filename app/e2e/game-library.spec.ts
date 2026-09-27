@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
+import { buildProjectZip } from "../src/projectArchive.ts";
 import {
   configureAi,
   isolateStorage,
@@ -84,6 +85,46 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
   await expect(card).toHaveAttribute("data-project-id", firstProjectId!);
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+});
+
+test("re-importing a project ZIP adds another copy and says so", async ({ page }) => {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic('display(5, 4, "A project copy."); accept.input(); return;', {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putFile("WORDS.TOK", new Uint8Array(52));
+  const archive = Buffer.from(
+    await buildProjectZip({
+      projectId: testProjectId("repeat-import"),
+      title: "Knight's Trial",
+      authoredAt: new Date(0).toISOString(),
+      provider: "stub",
+      model: "stub",
+      files: Object.fromEntries(game.files),
+      words: [],
+    }),
+  );
+  await isolateStorage(page);
+  await page.goto("/");
+  const notice = page.getByTestId("game-import-ready");
+  const cards = page.locator("[data-testid^='saved-game-card-']");
+  const upload = () =>
+    page.getByTestId("game-zip-input").setInputFiles({
+      name: "knights-trial-project.zip",
+      mimeType: "application/zip",
+      buffer: archive,
+    });
+  await upload();
+  await expect(notice).toContainText("Knight's Trial added to your library");
+  await expect(cards).toHaveCount(1);
+  await upload();
+  // Each project import is its own card; the second is named for what it is.
+  await expect(cards).toHaveCount(2);
+  await expect(notice).toContainText("Added another copy of Knight's Trial to your library");
 });
 
 test("a selected folder is checked, deduplicated with its ZIP, and can be copied independently", async ({

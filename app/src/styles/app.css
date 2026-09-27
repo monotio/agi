@@ -247,21 +247,46 @@
  * a media query: an on-screen keyboard makes a portrait phone's viewport wider
  * than tall, and must not flip it into the landscape layout.
  */
-.layout-landscape-short .play-area.with-touch {
-  --game-width: min(
-    calc(100vw - 268px),
-    calc((var(--layout-height, 100dvh) - 100px) * var(--game-ratio))
-  );
-  flex-direction: row;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-5);
+/*
+ * A short landscape phone plays in exactly the visible height: the bar, then
+ * the screen beside the pad, then the strip, with no page scroll. The screen
+ * fits whatever its cell leaves (container units), the pad scrolls inside its
+ * own column when Keys opens, and the strip keeps its hints on one row. A
+ * phone keyboard still scrolls the page: the shell keeps the tallest height.
+ */
+.in-game.touch-layout.layout-landscape-short .shell:not(:has(.shell-body--create)) {
+  height: var(--layout-height, 100dvh);
 }
-/* The strip stays under the game, not a third column beside the pad. */
+.layout-landscape-short .play-area.with-touch {
+  --game-width: min(100cqw, calc(100cqh * var(--game-ratio)));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: var(--space-3) var(--space-4);
+  min-height: 0;
+  padding: var(--space-2) var(--space-4) 0;
+}
+.layout-landscape-short .play-area.with-touch .stage {
+  container-type: size;
+}
+.layout-landscape-short .play-area.with-touch .touch-controls {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* The strip stays under the game, not a third column beside the pad, and
+   spans the window edge to edge. */
 .layout-landscape-short .play-area.with-touch .play-strip {
-  flex-basis: 100%;
-  order: 3;
+  grid-column: 1 / -1;
+  flex-wrap: nowrap;
+  width: auto;
+  margin: 0 calc(-1 * var(--space-4));
+}
+.layout-landscape-short .play-area.with-touch .play-hints {
+  flex: 0 1 min(36%, 440px);
+  justify-content: flex-end;
+  text-align: right;
 }
 .layout-portrait .play-area.with-touch {
   --game-width: min(
