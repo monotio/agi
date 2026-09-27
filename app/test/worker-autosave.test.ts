@@ -51,11 +51,9 @@ test("the autosave message carries files only when patchGeneration changed", () 
   assert.ok(first);
   assert.equal("files" in first, false, "no resource snapshot without a patch");
 
-  ctx.engine!.patchResource(
-    "logic",
-    9,
-    assembleLogic("return;", { dictionary: new Map() }).payload,
-  );
+  ctx.engine!.patchResources([
+    { kind: "logic", num: 9, payload: assembleLogic("return;", { dictionary: new Map() }).payload },
+  ]);
   ctx.cycle.cycleCount++;
   assert.equal(ctx.fns.autosave(false), true);
   const posted = presentation.filter((m) => m.type === "autosave");

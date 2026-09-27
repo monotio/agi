@@ -90,24 +90,17 @@ export function validateWorldDraft(draft: WorldDraft): string | null {
 const EDIT_LIMITS = { title: 160, exitName: 32 };
 
 /**
- * Apply one player edit: mutate a candidate world, validate it against the
+ * Apply one draft edit — a single field or a compound change (a room plus
+ * its connecting exit): mutate a candidate world, validate it against the
  * shared limits, and advance the draft only on success — a rejected edit
  * leaves the draft untouched instead of poisoning later edits.
  */
-function applyEdit(draft: WorldDraft, mutate: (world: WorldPlan) => void): string | null {
+export function draftEdit(draft: WorldDraft, mutate: (world: WorldPlan) => void): string | null {
   const candidate = structuredClone(draft.world);
   mutate(candidate);
   const error = validateWorldDraft({ baseRevision: "", world: candidate });
   if (!error) draft.world = candidate;
   return error;
-}
-
-/**
- * One compound edit (e.g. a room plus its connecting exit): mutate a
- * candidate world, validate it, and advance the draft only on success.
- */
-export function draftEdit(draft: WorldDraft, mutate: (world: WorldPlan) => void): string | null {
-  return applyEdit(draft, mutate);
 }
 
 /** Lowest unused room number, honoring rooms and any externally-taken numbers. */
@@ -124,14 +117,14 @@ export function lowestFreeRoom(
 export function draftRenameRoom(draft: WorldDraft, room: number, title: string): string | null {
   if (!draft.world.rooms[String(room)]) return `Room ${room} is not in the plan`;
   if (!title.trim()) return "A room needs a title";
-  return applyEdit(draft, (world) => {
+  return draftEdit(draft, (world) => {
     world.rooms[String(room)]!.title = title.trim();
   });
 }
 
 export function draftSetBrief(draft: WorldDraft, room: number, description: string): string | null {
   if (!draft.world.rooms[String(room)]) return `Room ${room} is not in the plan`;
-  return applyEdit(draft, (world) => {
+  return draftEdit(draft, (world) => {
     world.rooms[String(room)]!.description = description.trim();
   });
 }
@@ -145,7 +138,7 @@ export function draftAddRoom(
   if (!Number.isInteger(room) || room < 1 || room > 255) return "Invalid room number";
   if (draft.world.rooms[String(room)]) return `Room ${room} is already planned`;
   if (!title.trim()) return "A room needs a title";
-  return applyEdit(draft, (world) => {
+  return draftEdit(draft, (world) => {
     world.rooms[String(room)] = { title: title.trim(), description: description.trim(), exits: {} };
   });
 }
@@ -153,7 +146,7 @@ export function draftAddRoom(
 /** Remove a planned room and prune every exit that pointed at it. */
 export function draftRemoveRoom(draft: WorldDraft, room: number): string | null {
   if (!draft.world.rooms[String(room)]) return `Room ${room} is not in the plan`;
-  return applyEdit(draft, (world) => {
+  return draftEdit(draft, (world) => {
     delete world.rooms[String(room)];
     for (const entry of Object.values(world.rooms))
       for (const [name, target] of Object.entries(entry.exits))
@@ -172,7 +165,7 @@ export function draftAddExit(
   if (!label) return "An exit needs a name";
   if (label.length > EDIT_LIMITS.exitName) return "Exit name is too long";
   if (!draft.world.rooms[String(to)]) return `Room ${to} is not in the plan`;
-  return applyEdit(draft, (world) => {
+  return draftEdit(draft, (world) => {
     world.rooms[String(from)]!.exits[label] = to;
   });
 }
@@ -181,7 +174,7 @@ export function draftRemoveExit(draft: WorldDraft, from: number, name: string): 
   const entry = draft.world.rooms[String(from)];
   if (!entry) return `Room ${from} is not in the plan`;
   if (!(name in entry.exits)) return `Room ${from} has no exit '${name}'`;
-  return applyEdit(draft, (world) => {
+  return draftEdit(draft, (world) => {
     delete world.rooms[String(from)]!.exits[name];
   });
 }

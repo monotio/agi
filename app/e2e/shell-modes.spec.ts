@@ -9,6 +9,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -251,7 +252,7 @@ test("Create is a route: Back and Forward switch modes and a reload keeps Create
 
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#create/${target}$`));
   await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
     "aria-checked",
@@ -314,7 +315,7 @@ test("a cold deep link boots the stored game it names, or says it is not in this
   // Cold loads, as a link opened in a new tab: nothing of the page survives.
   await page.goto("about:blank");
   await page.goto(`/#create/${projectId}`);
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#create/${projectId}$`));
   await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
     "aria-checked",

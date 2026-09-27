@@ -103,6 +103,69 @@ interface ViewContext {
   colours: { loop: number; cel: number; colours: Record<string, number> }[];
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isBox = (value: unknown): value is Box =>
+  isRecord(value) && ["x0", "y0", "x1", "y1"].every((key) => typeof value[key] === "number");
+
+function isPictureContext(value: unknown): value is PictureContext {
+  if (!isRecord(value) || value["kind"] !== "picture") return false;
+  const area = value["selectionArea"];
+  const controls = value["controls"];
+  return (
+    typeof value["baseRevision"] === "string" &&
+    Array.isArray(value["selection"]) &&
+    value["selection"].every(
+      (s) =>
+        isRecord(s) &&
+        typeof s["id"] === "string" &&
+        typeof s["label"] === "string" &&
+        Array.isArray(s["lines"]) &&
+        s["lines"].length === 2 &&
+        s["lines"].every((n) => typeof n === "number"),
+    ) &&
+    isRecord(area) &&
+    (area["bbox"] === null || isBox(area["bbox"])) &&
+    Array.isArray(controls) &&
+    controls.every(
+      (c) =>
+        isRecord(c) &&
+        typeof c["value"] === "number" &&
+        typeof c["cells"] === "number" &&
+        (c["bbox"] === null || isBox(c["bbox"])),
+    )
+  );
+}
+
+function isViewContext(value: unknown): value is ViewContext {
+  if (!isRecord(value) || value["kind"] !== "view") return false;
+  return (
+    typeof value["baseRevision"] === "string" &&
+    Array.isArray(value["selection"]) &&
+    value["selection"].every(
+      (s) => isRecord(s) && typeof s["loop"] === "number" && typeof s["cel"] === "number",
+    ) &&
+    Array.isArray(value["colours"]) &&
+    value["colours"].every(
+      (c) =>
+        isRecord(c) &&
+        typeof c["loop"] === "number" &&
+        typeof c["cel"] === "number" &&
+        isRecord(c["colours"]),
+    )
+  );
+}
+
+/**
+ * The read_edit_context payload the stub acts on. The tool result is untyped
+ * details, so the shape — not a cast — decides whether it is one.
+ */
+function asEditContext(value: unknown): PictureContext | ViewContext {
+  if (isPictureContext(value) || isViewContext(value)) return value;
+  throw new Error("read_edit_context returned an unrecognised edit context.");
+}
+
 /**
  * Opens the selection's barrier under the default Walk locks: the barrier
  * cells' box becomes the walkable control value already there (water 3, else
@@ -224,8 +287,7 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
       for (const { toolCallId, result } of results) {
         transcript.push({ role: "tool", toolCallId, success: result.success });
         const name = names.get(toolCallId);
-        if (name === "read_edit_context" && result.success)
-          context = result.details as unknown as PictureContext | ViewContext;
+        if (name === "read_edit_context" && result.success) context = asEditContext(result.details);
         if (name === "propose_edit") outcomes.push(result.success);
       }
     },

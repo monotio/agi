@@ -14,7 +14,7 @@ import {
   isolateStorage,
   observe,
   openGameOptions,
-  textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { seedTutorial10 } from "./tutorialRelease.ts";
 
@@ -67,7 +67,7 @@ async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 }
 
 async function openLessons(page: Page): Promise<Locator> {
@@ -315,7 +315,7 @@ test("a game derived from the 1.0.0 tutorial shows no lesson section", async ({ 
     .getByTestId("saved-game-card-remix-of-tutorial-1-0")
     .getByTestId("btn-resume-cached")
     .click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(/remix-of-tutorial-1-0$/);
   await enterCreateMode(page);
   await openGameOptions(page, "help-menu");

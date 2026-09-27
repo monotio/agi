@@ -38,7 +38,6 @@ export interface AudioController {
   readonly audio: AgiAudio;
   toggleMute(): boolean;
   setAudioMode(mode: AudioMode): void;
-  setAudioVolume(vol: number): void;
   resumeAudio(): Promise<void>;
 }
 
@@ -63,10 +62,6 @@ export function useAudioController(
     postWorkerMessage({ type: "soundDevice", device: mode === "pc-speaker" ? 0 : 1 });
   }
 
-  function setAudioVolume(vol: number): void {
-    audio.setVolume(vol);
-  }
-
   function resumeAudio(): Promise<void> {
     return audio.resume();
   }
@@ -75,7 +70,6 @@ export function useAudioController(
     audio,
     toggleMute,
     setAudioMode,
-    setAudioVolume,
     resumeAudio,
   };
 }

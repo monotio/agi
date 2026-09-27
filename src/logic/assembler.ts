@@ -399,7 +399,7 @@ class Parser {
     }
     if (tok.text === "if") {
       this.expect("punct", "(");
-      const test = this.parseTest();
+      const test = this.parseOr();
       this.expect("punct", ")");
       const then = this.parseBlock();
       let else_: Stmt[] | null = null;
@@ -507,10 +507,6 @@ class Parser {
     );
   }
 
-  private parseTest(): TestExpr {
-    return this.parseOr();
-  }
-
   private parseOr(): TestExpr {
     const first = this.parseAnd();
     if (this.peek().text !== "||") return first;
@@ -541,7 +537,7 @@ class Parser {
     }
     if (tok.text === "(") {
       this.next();
-      const inner = this.parseTest();
+      const inner = this.parseOr();
       this.expect("punct", ")");
       // Parentheses around exactly one literal are meaningful, not redundant:
       // they ask for a one-term OR group (0xfc <pred> 0xfc). See the header.

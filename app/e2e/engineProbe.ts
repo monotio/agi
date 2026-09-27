@@ -136,6 +136,31 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
 }
 
 /**
+ * A cold Vite dev server transforms and serves the boot's whole module graph
+ * on first request, so the first game boot of a run — and any fresh page load
+ * or deep link — can sit far past the settled-state poll before room 1 shows.
+ */
+const COLD_BOOT_BUDGET_MS = 30_000;
+
+/**
+ * Wait until the engine reports `room`. `coldBoot` spends the cold-boot
+ * budget on a wait that covers a fresh boot; a warm room change keeps the
+ * default poll budget.
+ */
+export async function waitForRoom(
+  page: Page,
+  room: number,
+  options?: { coldBoot?: boolean },
+): Promise<void> {
+  await expect
+    .poll(
+      async () => (await textHook(page)).room,
+      options?.coldBoot === true ? { timeout: COLD_BOOT_BUDGET_MS } : {},
+    )
+    .toBe(room);
+}
+
+/**
  * The frame once the picture has stopped changing: boot and room re-entry
  * draw over several cycles, so a hash sampled at a fixed delay can catch the
  * screen mid-draw and make an "unchanged" comparison order-dependent. Settled

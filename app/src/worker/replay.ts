@@ -232,7 +232,7 @@ export function createReplay(ctx: WorkerContext) {
         snap = candidate;
     }
 
-    if (ctx.engine) ctx.engine.stopSoundPlayback();
+    if (ctx.engine) ctx.engine.stopSound();
     // The live segment ends here, exactly as a reset's does.
     ctx.fns.historyEnd("walkthrough");
     ctx.fns.abandonHostRequest();
@@ -283,7 +283,7 @@ export function createReplay(ctx: WorkerContext) {
     if (typeof msg.sessionId === "number") ctx.replay.currentSessionId = msg.sessionId;
     ctx.replay.isSeeking = Boolean(msg.seeking);
     ctx.replay.snapshots.clear();
-    if (ctx.engine) ctx.engine.stopSoundPlayback();
+    if (ctx.engine) ctx.engine.stopSound();
     const seed =
       typeof msg.seed === "number"
         ? msg.seed
@@ -789,7 +789,7 @@ export function openHistoryDrive(
         return;
       case "device": {
         const device = cause.device === 0 ? 0 : 1;
-        if (device !== ctx.boot.selectedSoundDevice) engine!.stopSoundPlayback();
+        if (device !== ctx.boot.selectedSoundDevice) engine!.stopSound();
         ctx.boot.selectedSoundDevice = device;
         engine!.vars[22] = device === 0 ? 1 : 3;
         return;
@@ -801,7 +801,9 @@ export function openHistoryDrive(
         });
         return;
       case "patch":
-        engine!.patchResource(cause.resource, cause.num, base64ToBytes(cause.data));
+        engine!.patchResources([
+          { kind: cause.resource, num: cause.num, payload: base64ToBytes(cause.data) },
+        ]);
         return;
       case "patchMeta": {
         const words = cause.words !== undefined ? base64ToBytes(cause.words) : undefined;

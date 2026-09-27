@@ -771,22 +771,11 @@ export class Engine {
   }
 
   /**
-   * Runtime container patch (the authoring agent's growth primitive):
-   * reclaims superseded records and repoints the directory transactionally.
-   * The engine picks it up on next load.
-   */
-  patchResource(
-    kind: "logic" | "picture" | "view" | "sound",
-    num: number,
-    payload: Uint8Array,
-  ): void {
-    this.patchResources([{ kind, num, payload }]);
-  }
-
-  /**
-   * Replace several resources as one transaction: the container takes every
+   * Runtime container patch (the authoring agent's growth primitive), for one
+   * or several resources as a single transaction: the container takes every
    * payload or refuses the set, leaving all of them on their old bytes. Each
-   * installed resource then counts as one patch, as `patchResource` does.
+   * installed resource's cached parse is evicted — a loaded view re-parses in
+   * place and its objects re-clamp (see `evictPatched`).
    */
   patchResources(
     resources: readonly {
@@ -2742,11 +2731,6 @@ export class Engine {
     }
   }
 
-  /** Stop the active sound before the host changes audio devices. */
-  stopSoundPlayback(): void {
-    this.stopSound();
-  }
-
   /** Advance the script-visible clock (v11..v14) from injected elapsed time. */
   advanceClock(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds < 0)
@@ -2803,8 +2787,11 @@ export class Engine {
     this.sounds.set(num, payload);
   }
 
-  /** stop.sound state teardown, shared with pause (spec: pause stops sound). */
-  private stopSound(): void {
+  /**
+   * stop.sound state teardown, shared with pause (spec: pause stops sound);
+   * the host also calls it before changing audio devices.
+   */
+  stopSound(): void {
     if (this.playingSound === null) return;
     for (const output of this.soundPlayback?.stop() ?? []) this.host.soundOutput?.(output);
     if (this.soundDoneFlag !== null) this.flags[this.soundDoneFlag] = 1;
@@ -4971,12 +4958,12 @@ export class Engine {
         return next;
       }
       case 0x29:
-        this.requireView(a(1));
+        this.loadView(a(1));
         this.setView(obj(0), a(1));
         return next;
       case 0x2a: {
         const view = this.vars[a(1)]!;
-        this.requireView(view);
+        this.loadView(view);
         this.setView(obj(0), view);
         return next;
       }
@@ -6011,10 +5998,6 @@ export class Engine {
     this.views.set(num, view);
     if (!this.viewOrder.includes(num)) this.viewOrder.push(num);
     return view;
-  }
-
-  private requireView(num: number): void {
-    this.loadView(num);
   }
 
   /** Cel count for an object's selected loop (1 when view missing). */

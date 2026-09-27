@@ -12,6 +12,7 @@ import {
   isolateStorage,
   textHook,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -36,7 +37,7 @@ async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 }
 
 async function openRoomStudio(page: Page, room: number): Promise<Locator> {
@@ -277,7 +278,7 @@ async function bootCreatedGame(page: Page): Promise<void> {
   });
   await page.reload();
   if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1);
   await waitForCycles(page, 2);
 }
 

@@ -439,10 +439,8 @@ export function useEngine(
   const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =
     testRecorder;
 
-  const { toggleMute, setAudioMode, setAudioVolume, resumeAudio } = useAudioController(
-    audio,
-    state,
-    (msg) => link.getWorker()?.postMessage(msg),
+  const { toggleMute, setAudioMode, resumeAudio } = useAudioController(audio, state, (msg) =>
+    link.getWorker()?.postMessage(msg),
   );
 
   const walkthrough = useWalkthroughController({
@@ -519,7 +517,6 @@ export function useEngine(
     audio,
     toggleMute,
     setAudioMode,
-    setAudioVolume,
     resumeAudio,
     discoverGames,
     bootGame: lifecycle.bootGame,

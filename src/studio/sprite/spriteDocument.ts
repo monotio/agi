@@ -293,8 +293,12 @@ function checkMembers(loops: readonly SpriteLoop[], members: readonly number[]):
   }
 }
 
-/** Encode the loops, keeping the document's description and its two leading header bytes. */
-function encode(document: SpriteDocument, loops: readonly SpriteLoop[]): Uint8Array {
+/**
+ * Encode `loops` as the document's VIEW payload, keeping its description and
+ * its two leading header bytes — without the unchanged-bytes short cut that
+ * `buildSprite`/`withLoops` take, so round-trip checks see real re-encodes.
+ */
+export function encodeSprite(document: SpriteDocument, loops: readonly SpriteLoop[]): Uint8Array {
   const { description, packed } = document;
   const spec: BuildLoopInput[] = [];
   const plans: MetadataPlan[] = [];
@@ -346,7 +350,7 @@ function encode(document: SpriteDocument, loops: readonly SpriteLoop[]): Uint8Ar
  * VIEW format cannot hold the loops.
  */
 export function withLoops(document: SpriteDocument, loops: readonly SpriteLoop[]): SpriteDocument {
-  const payload = encode(document, loops);
+  const payload = encodeSprite(document, loops);
   const decoded = decode(payload, document.packed);
   if (!sameLoops(decoded.loops, loops, false))
     throw new RangeError("the edited view does not decode to the pixels drawn");
@@ -368,9 +372,4 @@ export function withPayload(document: SpriteDocument, payload: Uint8Array): Spri
   }
   const bytes = payload.slice();
   return { ...document, loops: decode(bytes, document.packed).loops, payload: bytes };
-}
-
-/** Re-encode the document without the unchanged-bytes short cut (round-trip checks). */
-export function reencodeSprite(document: SpriteDocument): Uint8Array {
-  return encode(document, document.loops);
 }
