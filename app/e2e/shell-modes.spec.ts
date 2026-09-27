@@ -82,6 +82,33 @@ async function topBar(page: Parameters<typeof textHook>[0]) {
   });
 }
 
+test("Play shows the game and its bar only; Developer activity opens from Settings → Advanced", async ({
+  page,
+}) => {
+  await bootTutorial(page);
+  for (const [width, height] of [
+    [1440, 900],
+    [1280, 720],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect
+      .poll(() => page.evaluate(() => document.scrollingElement!.scrollHeight - window.innerHeight))
+      .toBeLessThanOrEqual(0);
+  }
+  await expect(page.getByTestId("developer-activity-summary")).toHaveCount(0);
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("settings-advanced").click();
+  await page.getByTestId("settings-developer-activity").click();
+  const sheet = page.getByTestId("developer-activity-sheet");
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole("heading", { name: "Developer activity" })).toBeVisible();
+  await expect(sheet.getByTestId("agent-panel")).toBeVisible();
+  await expect(sheet.getByTestId("gpu-backend")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(page.getByTestId("settings-menu")).toBeFocused();
+});
+
 test("short windows fit the whole game under the bar and the top bar never overlaps", async ({
   page,
 }) => {

@@ -201,6 +201,89 @@ export function setLinePoint(
   }
 }
 
+/** Line kinds a point can be inserted into, by `insertLinePoint`. */
+export const INSERTABLE_HEADS: readonly string[] = ["line", "polyline", "polygon", "rel"];
+
+/** Why a line of kind `head` takes no inserted point, in plain words. */
+const NO_INSERT: Record<string, string> = {
+  rect: "a rect is always its two corners; redraw it as a polygon to add corners",
+  xcorner:
+    "a staircase (xcorner) alternates horizontal and vertical steps, so a point between two corners would bend a step; move its corners instead",
+  ycorner:
+    "a staircase (ycorner) alternates vertical and horizontal steps, so a point between two corners would bend a step; move its corners instead",
+  fill: "a fill's points are seeds, not a line",
+  plot: "a plot's points are separate brush dabs, not a line",
+  copy: "a copy repeats other lines; replace it with the lines it expands to first",
+  raw: "raw bytes cannot be read safely",
+};
+
+/**
+ * The line with a new vertex x,y inserted so it becomes vertex `index`
+ * (0-based, in `setLinePoint`'s order): before the vertex now at `index`,
+ * or after the last when `index` is the vertex count. For `line`/`polyline`
+ * /`polygon` the pair is added as a token of its own; for `polygon`, `index`
+ * equal to the count puts it on the closing edge. For `rel` the deltas on
+ * both sides of the new vertex are rewritten and must stay within -7..7.
+ * Other kinds are refused, saying why.
+ */
+export function insertLinePoint(
+  line: string,
+  lineNo: number,
+  index: number,
+  x: number,
+  y: number,
+): string {
+  if (!onSurface(x, y)) {
+    throw new EditRefusal(`point ${x},${y} is off the surface (x 0..${MAX_X}, y 0..${MAX_Y})`);
+  }
+  const tokens = commandTokens(line);
+  const head = commandHead(line);
+  const outOfRange = (count: number): EditRefusal =>
+    new EditRefusal(`line ${lineNo} has ${count} points; a new point goes at 0..${count}`);
+  switch (head) {
+    case "line":
+    case "polyline":
+    case "polygon": {
+      const positions = tokens.flatMap((token, k) => (k > 0 && PAIR.test(token) ? [k] : []));
+      if (!Number.isInteger(index) || index < 0 || index > positions.length)
+        throw outOfRange(positions.length);
+      const out = [...tokens];
+      const point = `${x},${y}`;
+      if (index < positions.length) out[positions[index]!] = `${point} ${out[positions[index]!]}`;
+      else out[positions.at(-1)!] = `${out[positions.at(-1)!]} ${point}`;
+      return replaceTokens(line, out);
+    }
+    case "rel": {
+      const vertices = relVertices(tokens);
+      if (!Number.isInteger(index) || index < 0 || index > vertices.length)
+        throw outOfRange(vertices.length);
+      vertices.splice(index, 0, [x, y]);
+      const out = [`${vertices[0]![0]},${vertices[0]![1]}`];
+      for (let k = 1; k < vertices.length; k++) {
+        const ddx = vertices[k]![0] - vertices[k - 1]![0];
+        const ddy = vertices[k]![1] - vertices[k - 1]![1];
+        if (Math.abs(ddx) > 7 || Math.abs(ddy) > 7) {
+          throw new EditRefusal(
+            `line ${lineNo}: rel delta ${k} would be ${ddx},${ddy}, outside -7..7`,
+          );
+        }
+        out.push(`${ddx},${ddy}`);
+      }
+      // One token more than the line had: the last delta rides with the one before it.
+      const grown = [tokens[0]!, ...out];
+      const last = grown.pop()!;
+      grown[grown.length - 1] += ` ${last}`;
+      return replaceTokens(line, grown);
+    }
+    default: {
+      const why = NO_INSERT[head];
+      throw new EditRefusal(
+        `line ${lineNo} ('${head || "comment"}') takes no new point${why ? `: ${why}` : ""}`,
+      );
+    }
+  }
+}
+
 /** The `a-b` range of a `copy` line, or null for any other line. */
 export function copyRange(line: string): { from: number; to: number } | null {
   if (commandHead(line) !== "copy") return null;

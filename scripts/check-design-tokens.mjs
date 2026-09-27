@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 // Design-token ratchet: app chrome takes colours, font sizes and radii from
-// app/src/styles/tokens.css. This counts raw values in each component's styles
-// and fails when a file gains any beyond its recorded baseline. Migrations
-// lower the baseline with `--update`; it can never go up through this script.
+// app/src/styles/tokens.css. This counts raw values in every file that can
+// style the page: stylesheets, whole Vue components (their styles, inline
+// `style` attributes and the colours their scripts hand a canvas), the app's
+// TypeScript (inline style strings, canvas `fillStyle`/`strokeStyle`) and its
+// HTML entry pages. It fails when a file gains any beyond its recorded
+// baseline. Migrations lower the baseline with `--update`; it can never go up
+// through this script. Canvas code reads tokens from the computed style, or
+// the AGI palette (app/src/palette.ts) when the colour is a game colour.
+// An HTML page paints before tokens.css loads, so it may give a token a
+// fallback, `var(--surface-0, #070b0d)`, only with the token's own value.
 // It also refuses a scoped `:global(.a) .b`: Vue compiles that selector to the
 // bare `.a`, so the rule styles the ancestor instead of `.b`.
 import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -18,19 +25,49 @@ const RULES = [
   ["raw radius", /border(?:-[a-z]+)*-radius\s*:\s*[^;{}]*?\b[1-9]\d*(?:\.\d+)?px\b/g],
 ];
 
-function styleText(path, text) {
-  if (path.endsWith(".css")) return text;
-  return [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
+/** A Vue component's <style> blocks. */
+const vueStyles = (text) =>
+  [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
+
+/** Block, HTML and line comments out; a `//` counts only after whitespace or punctuation (not `https://`). */
+const uncommented = (text) =>
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/(^|[\s;{}(),])\/\/.*$/gm, "$1");
+
+/** Each token's value as tokens.css declares it first. */
+function tokenValues() {
+  const values = {};
+  const css = readFileSync(join(root, TOKENS_FILE), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [, name, value] of css.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g))
+    values[name] ??= value.trim();
+  return values;
+}
+
+/** An HTML page's `var(--token, fallback)` whose fallback is the token's own value, reduced to the token. */
+function withoutTokenFallbacks(text, values) {
+  return text.replace(
+    /var\(\s*(--[\w-]+)\s*,\s*([^()]*(?:\([^()]*\))?[^()]*)\)/g,
+    (all, name, fallback) =>
+      values[name] !== undefined && values[name] === fallback.trim() ? `var(${name})` : all,
+  );
 }
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) walk(path, out);
-    else if (/\.(vue|css)$/.test(entry.name)) out.push(path);
+    else if (/\.(vue|css|ts)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) out.push(path);
   }
   return out;
 }
+
+/** The HTML entry pages beside app/src (index.html and the harnesses). */
+const htmlPages = () =>
+  readdirSync(join(root, "app"), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".html"))
+    .map((entry) => join(root, "app", entry.name));
 
 /** A `:global(...)` with more selector after it, which Vue drops. */
 const GLOBAL_PREFIX = /:global\([^()]*\)(?!\s*[,{])[^,{]*/g;
@@ -38,15 +75,20 @@ const GLOBAL_PREFIX = /:global\([^()]*\)(?!\s*[,{])[^,{]*/g;
 const counts = {};
 const details = {};
 const globalPrefixes = [];
-for (const path of walk(join(root, "app/src"))) {
+const tokens = tokenValues();
+for (const path of [...walk(join(root, "app/src")), ...htmlPages()]) {
   const rel = relative(root, path);
   if (rel === TOKENS_FILE) continue;
-  const css = styleText(rel, readFileSync(path, "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
+  const raw = readFileSync(path, "utf8");
   if (rel.endsWith(".vue"))
-    for (const hit of css.match(GLOBAL_PREFIX) ?? []) globalPrefixes.push(`${rel}: ${hit.trim()}`);
+    for (const hit of uncommented(vueStyles(raw)).match(GLOBAL_PREFIX) ?? [])
+      globalPrefixes.push(`${rel}: ${hit.trim()}`);
+  const text = rel.endsWith(".html")
+    ? withoutTokenFallbacks(uncommented(raw), tokens)
+    : uncommented(raw);
   let total = 0;
   for (const [label, pattern] of RULES) {
-    const hits = css.match(pattern) ?? [];
+    const hits = text.match(pattern) ?? [];
     total += hits.length;
     if (hits.length) (details[rel] ??= []).push(`${hits.length} ${label}`);
   }

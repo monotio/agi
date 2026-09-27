@@ -1,7 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
-import { clickTimelineMark, isolateStorage, openCardMenu } from "./engineProbe.ts";
+import {
+  clickTimelineMark,
+  isolateStorage,
+  openCardMenu,
+  openDeveloperActivity,
+} from "./engineProbe.ts";
 
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 
@@ -290,13 +295,15 @@ test.describe("Walkthrough UI", () => {
       await page.mouse.up();
     }
 
-    // Verify Developer activity panel has single heading, no inner h2, and logs submitted inputs
-    const activitySummary = page.getByTestId("developer-activity-summary");
-    await expect(activitySummary).toBeVisible();
-    await expect(activitySummary).toHaveText("Developer activity");
-    await activitySummary.click();
+    // Verify Developer activity (Play keeps it in Settings → Advanced) has a
+    // single heading, no inner h2, and logs submitted inputs
+    await openDeveloperActivity(page);
+    const activitySheet = page.getByTestId("developer-activity-sheet");
+    await expect(activitySheet.getByRole("heading")).toHaveText(["Developer activity"]);
     await expect(page.getByTestId("agent-panel").locator("h2")).toHaveCount(0);
     await expect(page.getByTestId("gpu-backend")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(activitySheet).toBeHidden();
 
     const trace = await page.evaluate(() => window.__AGI_TRACE__ ?? []);
     const inputEntries = trace.filter((e) => e.kind === "input");

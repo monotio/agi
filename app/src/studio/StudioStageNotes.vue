@@ -63,6 +63,8 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
     <dd>move the item or a point</dd>
     <dt><UiKbd>←↑→↓</UiKbd></dt>
     <dd>nudge 1 px, <UiKbd>⇧</UiKbd> 8 px</dd>
+    <dt><UiKbd>⌥</UiKbd> + click</dt>
+    <dd>add a point to a line</dd>
     <dt><UiKbd>⌥</UiKbd> + arrows</dt>
     <dd>next item</dd>
     <dt><UiKbd>[</UiKbd> <UiKbd>]</UiKbd></dt>

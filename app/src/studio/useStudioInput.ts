@@ -14,7 +14,7 @@
  * next moves or presses on the picture.
  */
 
-import { computed, shallowRef, watch } from "vue";
+import { computed, getCurrentScope, onScopeDispose, shallowRef, watch } from "vue";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { ViewportPoint } from "../../../src/studio/viewport.ts";
@@ -44,7 +44,22 @@ export interface StudioInputOptions {
   readonly stage: () => HTMLElement | null;
   /** G: show or hide the actor probe. */
   readonly probe?: () => void;
+  /**
+   * Where a held Space or Alt can be let go outside the studio: a keyup
+   * anywhere, the window losing focus, the page hiding. Defaults to the
+   * page's own window and document; absent (in Node) nothing listens.
+   */
+  readonly host?: KeyReleaseHost | null;
 }
+
+/** The window and document a held key's release can land on. */
+interface KeyReleaseHost {
+  readonly window: EventTarget;
+  readonly document: EventTarget;
+}
+
+const pageHost = (): KeyReleaseHost | null =>
+  typeof window === "undefined" ? null : { window, document };
 
 /** Tools the keyboard cursor drives. */
 const CURSOR_TOOLS: readonly StudioTool[] = [
@@ -146,6 +161,40 @@ export function useStudioInput(options: StudioInputOptions) {
     return true;
   }
 
+  /** Alt is held: the Select and Point tools show where an Alt+click adds a point. */
+  const altHeld = shallowRef(false);
+
+  // A Space released outside the studio (another element stops its keyup,
+  // the window blurs, the tab hides) never reaches `spaceKey`: pan mode would
+  // stick until the next Space. Any of these lets go of it, and of Alt.
+  const host = options.host === undefined ? pageHost() : options.host;
+  if (host) {
+    const release = (): void => {
+      tools.spaceHeld.value = false;
+      altHeld.value = false;
+    };
+    const keydown = (event: Event): void => {
+      if ((event as KeyboardEvent).key === "Alt") altHeld.value = true;
+    };
+    const keyup = (event: Event): void => {
+      const { key } = event as KeyboardEvent;
+      if (key === " ") tools.spaceHeld.value = false;
+      else if (key === "Alt") altHeld.value = false;
+    };
+    const capture = { capture: true };
+    host.window.addEventListener("keydown", keydown, capture);
+    host.window.addEventListener("keyup", keyup, capture);
+    host.window.addEventListener("blur", release);
+    host.document.addEventListener("visibilitychange", release);
+    if (getCurrentScope())
+      onScopeDispose(() => {
+        host.window.removeEventListener("keydown", keydown, capture);
+        host.window.removeEventListener("keyup", keyup, capture);
+        host.window.removeEventListener("blur", release);
+        host.document.removeEventListener("visibilitychange", release);
+      });
+  }
+
   /** A rail letter (lower-cased): pick its tool, or toggle the probe; false for other keys. */
   function shortcut(key: string): boolean {
     const next = TOOL_KEYS[key];
@@ -187,6 +236,7 @@ export function useStudioInput(options: StudioInputOptions) {
     cell,
     keyboard,
     spoken,
+    altHeld,
     /** StudioToolOverlay's props: the tools' own, and the crosshair while the keys drive. */
     overlay: computed(() => ({
       ...tools.overlay.value,

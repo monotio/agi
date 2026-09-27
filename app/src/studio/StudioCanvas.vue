@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
-import type { LineHandle } from "../../../src/studio/editPoints.ts";
+import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
 import {
   CONTROL_VALUES,
@@ -43,6 +43,7 @@ const {
   guides = null,
   labels = null,
   handles = null,
+  ghost = null,
   flash = null,
   changed = null,
   movable = false,
@@ -59,6 +60,8 @@ const {
   labels?: readonly ControlLabel[] | null;
   /** The selected item's points, drawn as draggable handles. */
   handles?: readonly LineHandle[] | null;
+  /** Where an Alt+click adds a point to the selected line: a "+" mark. */
+  ghost?: LinePoint | null;
   /** Cells an edit was refused for, highlighted briefly. */
   flash?: MaskPaths | null;
   /** Cells an AI proposal changes, outlined while it awaits a verdict. */
@@ -312,6 +315,26 @@ function onLeave(): void {
           />
         </g>
       </g>
+      <g
+        v-if="ghost"
+        class="studio-pane__ghost"
+        data-role="insert-ghost"
+        :data-point="`${ghost.x},${ghost.y}`"
+      >
+        <ellipse
+          class="studio-pane__ghost-dot"
+          :cx="ghost.x + 0.5"
+          :cy="ghost.y + 0.5"
+          :rx="handleBox.markW * 0.8"
+          :ry="handleBox.markH * 0.8"
+          vector-effect="non-scaling-stroke"
+        />
+        <path
+          class="studio-pane__ghost-plus"
+          :d="`M${ghost.x + 0.5 - handleBox.markW * 0.45} ${ghost.y + 0.5}h${handleBox.markW * 0.9}M${ghost.x + 0.5} ${ghost.y + 0.5 - handleBox.markH * 0.45}v${handleBox.markH * 0.9}`"
+          vector-effect="non-scaling-stroke"
+        />
+      </g>
       <g v-if="highlight" data-role="hover">
         <path class="studio-pane__hl-fill" data-role="hover-fill" :d="highlight.fill" />
         <path
@@ -415,6 +438,16 @@ function onLeave(): void {
   fill: var(--surface-0);
   stroke: var(--action);
   stroke-width: 1.5px;
+}
+.studio-pane__ghost-dot {
+  fill: var(--action);
+  stroke: var(--surface-0);
+  stroke-width: 1.5px;
+}
+.studio-pane__ghost-plus {
+  fill: none;
+  stroke: var(--action-ink);
+  stroke-width: 2px;
 }
 .studio-pane__handle.is-seed .studio-pane__handle-mark {
   stroke: var(--warn);
