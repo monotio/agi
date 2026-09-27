@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
 import { scanFixtures } from "../test/fixtures.ts";
@@ -197,8 +197,48 @@ function fixtureServer(): Plugin {
   };
 }
 
+/**
+ * Records the production chunk graph, with each chunk's source modules
+ * relative to the repository root (which Vite's manifest omits), at
+ * `dist/.vite/bundle-graph.json` for scripts/check-bundle-budget.ts. Written
+ * into the output directory, it can never describe a different build; CI
+ * leaves it out of the published site.
+ */
+function bundleGraph(): Plugin {
+  const repository = join(import.meta.dirname, "..");
+  const local = (id: string): string =>
+    relative(repository, id.split("?")[0]!).replaceAll("\\", "/");
+  return {
+    name: "agi-bundle-graph",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const chunks = [];
+      const assets = [];
+      for (const output of Object.values(bundle)) {
+        if (output.type === "chunk") {
+          chunks.push({
+            file: output.fileName,
+            isEntry: output.isEntry,
+            imports: output.imports,
+            dynamicImports: output.dynamicImports,
+            css: [...(output.viteMetadata?.importedCss ?? [])],
+            modules: output.moduleIds.map(local),
+          });
+        } else {
+          assets.push({ file: output.fileName });
+        }
+      }
+      this.emitFile({
+        type: "asset",
+        fileName: ".vite/bundle-graph.json",
+        source: JSON.stringify({ chunks, assets }, null, 1),
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [vue(), fixtureServer()],
+  plugins: [vue(), fixtureServer(), bundleGraph()],
   server: {
     proxy: {
       "/api/openai": {

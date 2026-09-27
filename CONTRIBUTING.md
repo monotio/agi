@@ -44,10 +44,18 @@ server is already running, give the browser tests their own port:
 | `npm run lint:ast`                                           | ast-grep structural rules and suppression check                                                            |
 | `npm run eval:replay`                                        | Replay stored authoring failures without provider calls                                                    |
 | `npm run build`                                              | Compile the engine and build the browser app                                                               |
+| `npm run check:bundle`                                       | Bundle budget for the Play boot path, after a build                                                        |
 
 The full gate takes a few minutes. Playwright runs Vite in `test` mode with a
 deterministic stub provider, so browser tests never call a paid provider. Live
 model evaluations are described in [evals](evals/README.md).
+
+`npm run check:bundle` (in CI after the build) fails when the compressed
+JavaScript, CSS or workers loaded before a game's first frame outgrow their
+budgets, or when Studio code joins that path, and `app/e2e/perf-budgets.spec.ts`
+(tagged `@perf`; skip it with `--grep-invert @perf` where timing means nothing)
+bounds boot long tasks and Studio frame and input times. Change a budget only on
+purpose: edit it beside its measured value and give the reason in the commit.
 
 ### Editor setup
 
