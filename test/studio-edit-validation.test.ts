@@ -175,6 +175,34 @@ describe("validateEdit", () => {
       true,
     );
   });
+
+  it("reports one changed cell at the origin exactly, in each constraint's words", () => {
+    const before = compile(doc("end"));
+    const after = compile(doc("vis 5", "plot 0,0", "end"));
+    const origin = { cells: [{ x: 0, y: 0 }], bbox: { x0: 0, y0: 0, x1: 0, y1: 0 } };
+    assert.deepEqual(
+      validateEdit(before, after, {
+        lockedPlanes: ["visual"],
+        allowedMask: new Uint8Array(160 * 168),
+      }).violations,
+      [
+        {
+          constraint: "locked-plane",
+          plane: "visual",
+          count: 1,
+          ...origin,
+          message: "1 cell changed on the locked visual plane, within 0,0..0,0",
+        },
+        {
+          constraint: "outside-mask",
+          plane: "visual",
+          count: 1,
+          ...origin,
+          message: "1 cell changed outside the allowed area on the visual plane, within 0,0..0,0",
+        },
+      ],
+    );
+  });
 });
 
 describe("edit properties on decoded planes", () => {
