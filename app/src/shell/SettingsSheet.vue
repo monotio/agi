@@ -34,6 +34,8 @@ const emit = defineEmits<{
   "update:debugOpen": [value: boolean];
   "export-zip": [project: boolean];
   "start-over": [];
+  /** Play: open Developer activity, which Play keeps off the page. */
+  "developer-activity": [];
 }>();
 
 const { state, resumeAudio, toggleMute, setAudioMode, currentGame } = useEngineApi();
@@ -308,6 +310,18 @@ defineExpose({ toggle, close, open });
           >
             <span>Inspector<small>Priority layers, state and trace</small></span>
             <span class="setting-value">{{ debugOpen ? "On" : "Off" }}</span>
+          </button>
+          <button
+            v-if="state.phase === 'running' && shell.mode.value === 'play'"
+            type="button"
+            class="settings-row"
+            data-testid="settings-developer-activity"
+            @click="
+              close('trigger');
+              emit('developer-activity');
+            "
+          >
+            <span>Developer activity<small>Agent log, debug bundle and renderer</small></span>
           </button>
         </template>
       </section>

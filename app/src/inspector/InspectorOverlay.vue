@@ -18,6 +18,7 @@ import {
   pickVisualSource,
   type PickPoint,
 } from "../debugView.ts";
+import { EGA_PALETTE } from "../palette.ts";
 import { useInspector } from "./useInspector.ts";
 
 const { state } = useEngineApi();
@@ -120,17 +121,27 @@ const DIR_DELTA: [number, number][] = [
   [-1, -1],
 ];
 
-/** Mark colours are the AGI palette's own: marks annotate game pixels. */
+/** An AGI palette colour at `alpha`, for the canvas. */
+function agi(index: number, alpha = 1): string {
+  const [r, g, b] = EGA_PALETTE[index]!;
+  return `rgb(${r} ${g} ${b} / ${alpha})`;
+}
+
+/** Mark colours are the AGI palette's own (marks annotate game pixels): cyan, magenta, yellow, green, white. */
 const MARK = {
-  horizon: "rgba(85,255,255,0.65)",
-  base: "rgba(255,85,255,0.55)",
-  box: "rgba(85,255,255,0.9)",
-  hot: "#ffff55",
-  heading: "#55ff55",
-  target: "rgba(255,170,40,0.9)",
-  tether: "rgba(255,255,255,0.45)",
-  hover: "rgba(255,255,255,0.7)",
+  horizon: agi(11, 0.65),
+  base: agi(13, 0.55),
+  box: agi(11, 0.9),
+  hot: agi(14),
+  heading: agi(10),
+  tether: agi(15, 0.45),
+  hover: agi(15, 0.7),
 } as const;
+
+/** The move-target line is no game colour: the warn token, read once. */
+let targetInk: string | undefined;
+const targetColour = (): string =>
+  (targetInk ??= getComputedStyle(document.documentElement).getPropertyValue("--warn").trim());
 
 function drawOverlay(): void {
   const c = overlayCanvas.value;
@@ -217,13 +228,15 @@ function drawOverlay(): void {
       if (box.moveTarget) {
         const [sx, sy] = px(band, box.x + box.w / 2, box.baseline);
         const [tx, ty] = px(band, box.moveTarget.x, box.moveTarget.y);
-        ctx.strokeStyle = MARK.target;
+        ctx.strokeStyle = targetColour();
+        ctx.globalAlpha = 0.9;
         ctx.setLineDash([2, 2]);
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(tx, ty);
         ctx.stroke();
         ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
       }
       if (exploded) {
         // Ground tether: the sprite floats on its band while the collision

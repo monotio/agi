@@ -32,6 +32,7 @@ import {
   commandTokens,
   copyRange,
   EditRefusal,
+  insertLinePoint,
   onSurface,
   rawIncludes,
   replaceTokens,
@@ -63,6 +64,17 @@ export type EditOperation =
       readonly type: "setPoint";
       /** 1-based source line. */
       readonly line: number;
+      readonly pointIndex: number;
+      readonly x: number;
+      readonly y: number;
+    }
+  | {
+      /** Add a vertex to a line/polyline/polygon/rel command line of the item. */
+      readonly type: "insertPoint";
+      readonly itemId: string;
+      /** 1-based source line, one of the item's command lines. */
+      readonly line: number;
+      /** The new point's index: it goes before the point now there; the point count appends. */
       readonly pointIndex: number;
       readonly x: number;
       readonly y: number;
@@ -149,6 +161,23 @@ function setPoint(ctx: Context, line: number, index: number, x: number, y: numbe
   if (item?.locked) throw new EditRefusal(`line ${line} belongs to locked item '${item.id}'`);
   const slots = inputLines(ctx, 1, ctx.lines.length).map((entry) =>
     entry.from === line ? { ...entry, text: setLinePoint(entry.text, line, index, x, y) } : entry,
+  );
+  return finish(slots, ctx);
+}
+
+function insertPoint(
+  ctx: Context,
+  op: Extract<EditOperation, { type: "insertPoint" }>,
+): EditResult {
+  const { line, pointIndex, x, y } = op;
+  requireIntegers({ line, pointIndex, x, y });
+  const item = editableItem(ctx, op.itemId);
+  if (!inItem(item, line)) throw new EditRefusal(`line ${line} is not in item '${item.id}'`);
+  refuseCopiesOf(ctx, item, "adding a point to");
+  const slots = inputLines(ctx, 1, ctx.lines.length).map((entry) =>
+    entry.from === line
+      ? { ...entry, text: insertLinePoint(entry.text, line, pointIndex, x, y) }
+      : entry,
   );
   return finish(slots, ctx);
 }
@@ -410,6 +439,8 @@ function dispatch(ctx: Context, op: EditOperation): EditResult {
       return moveItem(ctx, op.itemId, op.dx, op.dy);
     case "setPoint":
       return setPoint(ctx, op.line, op.pointIndex, op.x, op.y);
+    case "insertPoint":
+      return insertPoint(ctx, op);
     case "setItemColor":
       return setItemColor(ctx, op.itemId, op.plane, op.value);
     case "deleteItem":

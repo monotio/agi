@@ -1,6 +1,8 @@
 /**
  * Direct manipulation on the Room Studio canvas. A press on a handle drags
- * that point (setPoint); a press on the selected item, or on an item it
+ * that point (setPoint); an Alt+press by the selected item's line adds a
+ * point on its nearest segment and drags the new point (insertPoint, one
+ * undo step with the drag); a press on the selected item, or on an item it
  * selects, drags the item (moveItem). The pane captures the pointer, so the
  * drag follows it past the edge. Pointer moves only store the latest cell;
  * one animation frame previews the edit from the gesture's start, so a burst
@@ -10,7 +12,7 @@
 
 import { nextTick, readonly, ref } from "vue";
 import type { EditOperation } from "../../../src/studio/editOperations.ts";
-import type { LineHandle } from "../../../src/studio/editPoints.ts";
+import type { LineHandle, PointInsertion } from "../../../src/studio/editPoints.ts";
 import type { ViewportPoint } from "../../../src/studio/viewport.ts";
 import type { PanePress } from "./StudioCanvas.vue";
 import type { StudioDraft, DraftOutcome } from "./useStudioDraft.ts";
@@ -29,6 +31,8 @@ export interface StudioDragOptions {
   readonly report: (outcome: DraftOutcome) => void;
   /** Whether a press on the item body drags it; false for the Point tool (handles only). */
   readonly movesItems?: () => boolean;
+  /** Where an Alt+press at `cell` adds a point to the item's line; undefined when it adds none. */
+  readonly insertAt?: (itemId: string, cell: ViewportPoint) => PointInsertion | undefined;
   /** Wait for an animation frame; injectable for tests. */
   readonly frame?: (callback: () => void) => number;
   readonly cancelFrame?: (handle: number) => void;
@@ -38,6 +42,8 @@ interface Armed {
   readonly start: ViewportPoint;
   readonly itemId: string;
   readonly handle: LineHandle | undefined;
+  /** The point an Alt+press adds, which the drag then moves. */
+  readonly insert?: PointInsertion;
   started: boolean;
   latest: ViewportPoint;
 }
@@ -52,7 +58,16 @@ export function useStudioDrag(options: StudioDragOptions) {
   function operation(drag: Armed): EditOperation {
     const dx = drag.latest.x - drag.start.x;
     const dy = drag.latest.y - drag.start.y;
-    const { handle } = drag;
+    const { handle, insert } = drag;
+    if (insert)
+      return {
+        type: "insertPoint",
+        itemId: drag.itemId,
+        line: insert.line,
+        pointIndex: insert.pointIndex,
+        x: insert.x + dx,
+        y: insert.y + dy,
+      };
     if (handle)
       return {
         type: "setPoint",
@@ -64,7 +79,7 @@ export function useStudioDrag(options: StudioDragOptions) {
     return { type: "moveItem", itemId: drag.itemId, dx, dy };
   }
   const label = (drag: Armed): string =>
-    `${drag.handle ? "Move point of" : "Move"} ${options.labelOf(drag.itemId)}`;
+    `${drag.insert ? "Add point to" : drag.handle ? "Move point of" : "Move"} ${options.labelOf(drag.itemId)}`;
 
   function preview(): void {
     pending = null;
@@ -79,8 +94,26 @@ export function useStudioDrag(options: StudioDragOptions) {
     );
   }
 
-  function press({ cell, handle }: PanePress): void {
+  /** Start a gesture: the undo step it records, and its first preview on the next frame. */
+  function start(drag: Armed): void {
+    drag.started = true;
+    dragging.value = true;
+    options.draft.beginGesture(label(drag));
+    pending ??= frame(preview);
+  }
+
+  function press({ event, cell, handle }: PanePress): void {
     const selected = options.editableId();
+    const insert =
+      event.altKey && !handle && selected !== undefined
+        ? options.insertAt?.(selected, cell)
+        : undefined;
+    if (insert && selected !== undefined) {
+      // The point exists from the press: a click adds it, a drag places it.
+      armed = { start: cell, latest: cell, itemId: selected, handle, insert, started: false };
+      start(armed);
+      return;
+    }
     if (handle && selected !== undefined) {
       armed = { start: cell, latest: cell, itemId: selected, handle, started: false };
       return;
@@ -99,9 +132,7 @@ export function useStudioDrag(options: StudioDragOptions) {
     current.latest = cell;
     if (!current.started) {
       if (cell.x === current.start.x && cell.y === current.start.y) return;
-      current.started = true;
-      dragging.value = true;
-      options.draft.beginGesture(label(current));
+      start(current);
     }
     pending ??= frame(preview);
   }

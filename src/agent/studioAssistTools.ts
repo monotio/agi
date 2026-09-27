@@ -204,6 +204,7 @@ const PICTURE_OP = {
       enum: [
         "moveItem",
         "setPoint",
+        "insertPoint",
         "setItemColor",
         "deleteItem",
         "duplicateItem",
@@ -362,7 +363,7 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_edit_context",
     description:
-      "Studio assist only. What the creator selected and may let you change: the picture or view, the lens and locked planes, the selected items (ids, labels, kinds, footprints) with an annotated-source excerpt of just those items and their neighbours (1-based line numbers for setPoint and atLine), or the selected cels as hex rows; the cells or cels you may not change; the room context; and the `baseRevision` propose_edit needs. `images` (default true) attaches a crop of the selection and a room overview. Never the whole project.",
+      "Studio assist only. What the creator selected and may let you change: the picture or view, the lens and locked planes, the selected items (ids, labels, kinds, footprints) with an annotated-source excerpt of just those items and their neighbours (1-based line numbers for setPoint, insertPoint and atLine), or the selected cels as hex rows; the cells or cels you may not change; the room context; and the `baseRevision` propose_edit needs. `images` (default true) attaches a crop of the selection and a room overview. Never the whole project.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -373,7 +374,7 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "propose_edit",
     description:
-      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget. Returns a candidateId with a before | after | diff image, or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
+      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget. Returns a candidateId with a before | after | diff image, or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -415,6 +416,15 @@ function pictureOp(raw: Raw, label: string): EditOperation {
     case "setPoint":
       return {
         type: "setPoint",
+        line: get("line"),
+        pointIndex: get("pointIndex"),
+        x: get("x"),
+        y: get("y"),
+      };
+    case "insertPoint":
+      return {
+        type: "insertPoint",
+        itemId: get("itemId"),
         line: get("line"),
         pointIndex: get("pointIndex"),
         x: get("x"),

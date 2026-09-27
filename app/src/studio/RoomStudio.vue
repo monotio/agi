@@ -13,7 +13,11 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { createAgentSessionState } from "../../../src/agent/tools.ts";
 import { openContainer } from "../../../src/container/container.ts";
-import { itemHandles } from "../../../src/studio/editPoints.ts";
+import {
+  itemHandles,
+  nearestInsertion,
+  type PointInsertion,
+} from "../../../src/studio/editPoints.ts";
 import type { StudioFocus } from "../../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, selectionArea } from "../../../src/studio/assistScope.ts";
 import { compileEditDocument, footprintMask } from "../../../src/studio/editValidation.ts";
@@ -166,6 +170,8 @@ const filter = ref("");
 const unlocks = ref<LensUnlocks>(NO_UNLOCKS);
 /** More points than this and the item shows no handles (the inspector still lists them). */
 const MAX_HANDLES = 160;
+/** How near its line, in CSS pixels, an Alt+click adds a point. */
+const INSERT_REACH = 12;
 
 const resolved = computed(() => resolveStudioSource({ bytes, authoredSource, profile }));
 const draft = useStudioDraft({
@@ -427,6 +433,13 @@ const selectionMask = computed(() => {
 });
 const pathsOf = (mask: Uint8Array | null): MaskPaths | null =>
   mask && { fill: maskFillPath(mask), outline: maskOutlinePath(mask) };
+/** Where an Alt+click at `cell` adds a point to item `id`'s line: within reach of it only. */
+function insertionNear(id: string, cell: Point): PointInsertion | undefined {
+  const insertion = nearestInsertion(draft.document.value, id, cell, viewport.value.pixelAspect);
+  return insertion && insertion.distance * viewport.value.zoom <= INSERT_REACH
+    ? insertion
+    : undefined;
+}
 const drag = useStudioDrag({
   draft,
   editableId: () => editableId.value,
@@ -435,6 +448,7 @@ const drag = useStudioDrag({
   labelOf: (id) => editing.item.value?.label ?? id,
   report: editing.report,
   movesItems: () => tools.tool.value !== "point",
+  insertAt: insertionNear,
 });
 /** Ego's size and rules as the live game holds them (the estimate's actor). */
 const ego = shallowRef<EgoShape>(DEFAULT_EGO);
@@ -534,6 +548,29 @@ const handleList = computed(() => {
 const handles = computed(() =>
   handleList.value.length > 0 && handleList.value.length <= MAX_HANDLES ? handleList.value : null,
 );
+/** Alt held over the selected line with Select or Point: the "+" where a click adds a point. */
+const insertGhost = computed(() => {
+  const id = editableId.value;
+  const cell = selection.canvasCell.value;
+  if (!input.altHeld.value || id === undefined || cell === undefined || drag.dragging.value)
+    return null;
+  if (tools.tool.value !== "select" && tools.tool.value !== "point") return null;
+  return insertionNear(id, cell) ?? null;
+});
+/** Insert: add a point to the selected line where the cursor is nearest it. */
+function insertPointAtCursor(): boolean {
+  const id = editableId.value;
+  if (id === undefined || (tools.tool.value !== "select" && tools.tool.value !== "point"))
+    return false;
+  const at = nearestInsertion(draft.document.value, id, input.cell.value);
+  if (!at) {
+    editing.say({ tone: "warn", text: "This item has no line to add a point to." });
+    return true;
+  }
+  if (editing.insertPoint(at.line, at.pointIndex, at.x, at.y))
+    input.spoken.value = `Point added at x ${at.x} y ${at.y}`;
+  return true;
+}
 const guides = computed(() => (showBands.value && lens.value !== "art" ? bandGuides() : null));
 const labels = computed(() => (lens.value === "walk" ? controlLabels(shown.value.priority) : null));
 
@@ -765,6 +802,7 @@ const keys: StudioKeyActions = {
   tool: toolKey,
   finish: tools.finish,
   ask: () => assistPanel.value?.focus() ?? false,
+  insertPoint: insertPointAtCursor,
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
@@ -870,6 +908,7 @@ function onKeyup(event: KeyboardEvent): void {
         :aria-label="input.label.value"
         @focus="input.focus"
         @blur="input.blur"
+        @pointermove="input.altHeld.value = $event.altKey"
       >
         <div class="studio__panes">
           <StudioCanvas
@@ -886,6 +925,7 @@ function onKeyup(event: KeyboardEvent): void {
             :guides="layer === 'art' ? null : guides"
             :labels="layer === 'art' ? null : labels"
             :handles
+            :ghost="insertGhost"
             :flash="flashPaths"
             :changed="changedPaths"
             :movable="editableId !== undefined && tools.tool.value === 'select'"

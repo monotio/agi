@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { computed, nextTick, ref } from "vue";
+import { computed, effectScope, nextTick, ref } from "vue";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
@@ -558,5 +558,39 @@ describe("the keyboard cursor (useStudioInput)", () => {
     tools.cancel();
     assert.equal(input.spaceKey(space(stage), true), true, "the pointer's Space pans");
     assert.equal(tools.spaceHeld.value, true);
+  });
+
+  it("lets go of a held Space released outside the studio, until the studio closes", () => {
+    const keyup = (key: string) => Object.assign(new Event("keyup"), { key });
+    const releases: [string, (host: { window: EventTarget; document: EventTarget }) => void][] = [
+      ["a keyup another element keeps", (host) => host.window.dispatchEvent(keyup(" "))],
+      ["the window losing focus", (host) => host.window.dispatchEvent(new Event("blur"))],
+      ["the tab hiding", (host) => host.document.dispatchEvent(new Event("visibilitychange"))],
+    ];
+    for (const [name, leave] of releases) {
+      const { tools } = setup("art");
+      const host = { window: new EventTarget(), document: new EventTarget() };
+      const scope = effectScope();
+      const input = scope.run(() =>
+        useStudioInput({
+          tools,
+          selection: { canvasCell: ref(), announcement: computed(() => "") },
+          fallback: { press() {}, drag() {}, release() {}, abort() {} },
+          stage: () => stage,
+          host,
+        }),
+      )!;
+      const down = { key: " ", target: null } as unknown as KeyboardEvent;
+      assert.equal(input.spaceKey(down, true), true);
+      host.window.dispatchEvent(keyup("a"));
+      assert.equal(tools.spaceHeld.value, true, "another key's keyup keeps panning");
+      leave(host);
+      assert.equal(tools.spaceHeld.value, false, name);
+      // Closed, the studio no longer listens.
+      scope.stop();
+      tools.spaceHeld.value = true;
+      leave(host);
+      assert.equal(tools.spaceHeld.value, true, `${name}, after the studio closed`);
+    }
   });
 });

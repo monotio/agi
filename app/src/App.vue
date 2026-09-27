@@ -8,6 +8,7 @@ import WalkthroughBar from "./WalkthroughBar.vue";
 import PlayArea from "./PlayArea.vue";
 import CreateDock from "./shell/CreateDock.vue";
 import UiButton from "./ui/UiButton.vue";
+import UiDialog from "./ui/UiDialog.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -207,6 +208,12 @@ const activityDocked = computed(
     workspace.active.right === "activity" &&
     !workspace.collapsed.right,
 );
+/**
+ * Play shows the game and its bar only: Developer activity leaves the page
+ * for a dialog that Settings → Advanced opens.
+ */
+const playing = computed(() => state.phase === "running" && !creating.value);
+const activitySheetOpen = ref(false);
 const assistantShown = computed(() =>
   phone.value
     ? sheetOpen.value && workspace.active.sheet === "assistant"
@@ -554,6 +561,7 @@ watch(
           workspace.confirmStudioLeave().then((go) => (go ? lib.onStartOver() : undefined))
         "
         @start-walkthrough="onStartWalkthrough"
+        @developer-activity="activitySheetOpen = true"
       >
         <WalkthroughBar
           v-if="state.walkthrough.active"
@@ -754,7 +762,16 @@ watch(
       data-testid="latest-sound-preview"
     />
 
-    <AgentLogPanel v-if="!activityDocked" v-show="!studioOpen" />
+    <AgentLogPanel v-if="!activityDocked && !playing" v-show="!studioOpen" />
+    <UiDialog
+      v-if="playing"
+      v-model:open="activitySheetOpen"
+      title="Developer activity"
+      size="lg"
+      data-testid="developer-activity-sheet"
+    >
+      <AgentLogPanel docked />
+    </UiDialog>
 
     <ReferenceUpload v-if="state.phase === 'running'" />
 

@@ -57,6 +57,7 @@ const emit = defineEmits<{
   "export-zip": [project: boolean];
   "start-over": [];
   "start-walkthrough": [target: string];
+  "developer-activity": [];
 }>();
 
 const {
@@ -435,6 +436,7 @@ async function onRecordSave(): Promise<void> {
     @update:debug-open="emit('update:debugOpen', $event)"
     @export-zip="onExportAgiZip"
     @start-over="emit('start-over')"
+    @developer-activity="emit('developer-activity')"
   />
   <HelpGuide
     ref="helpGuide"

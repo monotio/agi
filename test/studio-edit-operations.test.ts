@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { compilePictureSource } from "../src/picture/source.ts";
 import { applyEdit, type EditOperation } from "../src/studio/editOperations.ts";
 import {
   parsePictureDocument,
@@ -128,6 +129,95 @@ describe("applyEdit setPoint", () => {
     refused(lines, op(3, 1, 50, 30), /rel delta 1 would be 20,0/);
     refused(lines, op(1, 0), /has no points/);
     refused(lines, op(2, 0, 160, 0), /off the surface/);
+  });
+});
+
+describe("applyEdit insertPoint", () => {
+  const lines = doc(
+    '# @item a "A" art', //          1
+    "vis 1", //                      2
+    "line 10,10 20,10  # top", //    3
+    "polygon 40,40 50,40 45,48", //  4
+    "rel 30,30 2,-1 -3,4", //        5
+    "xcorner 60,60 65 70", //        6
+    "rect 1,1 5,5", //               7
+    "# @end", //                     8
+    '# @item b "B" art locked', //   9
+    "line 0,100 9,100", //           10
+    "# @end", //                     11
+    "end", //                        12
+  );
+  const op = (line: number, pointIndex: number, x: number, y: number, itemId = "a") =>
+    ({ type: "insertPoint", itemId, line, pointIndex, x, y }) as const;
+  const at = (line: number, pointIndex: number, x: number, y: number): string => {
+    const [after, changed] = edit(lines, op(line, pointIndex, x, y));
+    assert.deepEqual(changed, [line]);
+    return after[line - 1]!;
+  };
+
+  it("adds a vertex before the point at its index, or after the last", () => {
+    assert.equal(at(3, 1, 15, 12), "line 10,10 15,12 20,10  # top");
+    assert.equal(at(3, 0, 5, 10), "line 5,10 10,10 20,10  # top");
+    assert.equal(at(3, 2, 25, 10), "line 10,10 20,10 25,10  # top");
+    // A polygon's last index is its closing edge, 45,48 back to 40,40.
+    assert.equal(at(4, 3, 42, 44), "polygon 40,40 50,40 45,48 42,44");
+    // rel vertices 30,30 32,29 29,33: the deltas on both sides of the new one are rewritten.
+    assert.equal(at(5, 2, 31, 31), "rel 30,30 2,-1 -1,2 -2,2");
+    assert.equal(at(5, 0, 28, 30), "rel 28,30 2,0 2,-1 -3,4");
+  });
+
+  it("keeps the item's id and annotations, and compiles to the hand-read bytes", () => {
+    const small = doc(
+      '# @item a "A" art',
+      "vis 1",
+      "line 10,10 20,10",
+      "polygon 40,40 50,40 45,48",
+      "rel 30,30 2,-1",
+      "# @end",
+      "end",
+    );
+    let document = small;
+    for (const next of [op(3, 1, 15, 12), op(4, 3, 42, 44), op(5, 1, 31, 30)]) {
+      const result = applyEdit(document, next);
+      if ("error" in result) assert.fail(result.error);
+      document = result.document;
+    }
+    assert.deepEqual(
+      document.items.map(({ id, label, kind, openLine, closeLine }) => ({
+        id,
+        label,
+        kind,
+        openLine,
+        closeLine,
+      })),
+      [{ id: "a", label: "A", kind: "art", openLine: 1, closeLine: 6 }],
+    );
+    const source = serializePictureDocument(document);
+    assert.deepEqual(parsePictureDocument(source).diagnostics, []);
+    assert.deepEqual(
+      [...compilePictureSource(source).bytes],
+      [
+        ...[0xf0, 1],
+        // line 10,10 15,12 20,10
+        ...[0xf6, 10, 10, 15, 12, 20, 10],
+        // polygon 40,40 50,40 45,48 42,44, closed back to 40,40
+        ...[0xf6, 40, 40, 50, 40, 45, 48, 42, 44, 40, 40],
+        // rel 30,30 1,0 1,-1: 0x10 is +1,0; 0x19 is +1,-1 (0x08 the negative y sign)
+        ...[0xf7, 30, 30, 0x10, 0x19],
+        0xff,
+      ],
+    );
+  });
+
+  it("refuses the other kinds in plain words, bad indices, far deltas and foreign lines", () => {
+    refused(lines, op(6, 1, 62, 60), /line 6 \('xcorner'\) takes no new point: a staircase/);
+    refused(lines, op(7, 1, 3, 1), /a rect is always its two corners/);
+    refused(lines, op(2, 0, 3, 1), /line 2 \('vis'\) takes no new point$/);
+    refused(lines, op(3, 3, 3, 1), /line 3 has 2 points; a new point goes at 0\.\.2/);
+    refused(lines, op(5, 3, 40, 33), /rel delta 3 would be 11,0, outside -7\.\.7/);
+    refused(lines, op(3, 1, 160, 0), /off the surface/);
+    refused(lines, op(10, 1, 5, 100), /line 10 is not in item 'a'/);
+    refused(lines, op(10, 1, 5, 100, "b"), /item 'b' is locked/);
   });
 });
 
