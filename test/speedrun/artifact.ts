@@ -67,19 +67,16 @@ export async function walkthroughServedRevisions(target: string): Promise<Resour
 export function walkthroughFixtureHashes(target: string): Record<string, string> {
   const { files } = loadGame(target, { interpreterFiles: true, checkVolumes: "shipped" });
   const fFiles = fixtureFiles(target);
-  if (!fFiles) {
-    return Object.fromEntries(
-      [...files]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([name, bytes]) => [name, createHash("sha256").update(bytes).digest("hex")]),
-    );
-  }
-  const wordsName = fFiles.get("words.tok")!;
   const inputs = new Map(files);
-  inputs.set("WORDS.TOK", new Uint8Array(readFileSync(fixtureDir(target) + wordsName)));
+  if (fFiles)
+    inputs.set(
+      "WORDS.TOK",
+      new Uint8Array(readFileSync(fixtureDir(target) + fFiles.get("words.tok")!)),
+    );
+  // Code-point order: the tape stores these keys, and the machine's locale must not reorder them.
   return Object.fromEntries(
     [...inputs]
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([name, bytes]) => [name, createHash("sha256").update(bytes).digest("hex")]),
   );
 }

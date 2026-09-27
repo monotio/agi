@@ -64,6 +64,9 @@ export default defineConfig([
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/consistent-type-imports": ["error", { fixStyle: "inline-type-imports" }],
+      // `import { type X }` keeps an empty runtime import of its module, a
+      // real edge for the import-cycle and boot-path rules; `import type` is erased.
+      "@typescript-eslint/no-import-type-side-effects": "error",
       "@typescript-eslint/no-non-null-assertion": "off",
       // Sanctioned at provider SDK boundaries; warn so it stays visible.
       "@typescript-eslint/no-explicit-any": "warn",
@@ -186,6 +189,7 @@ export default defineConfig([
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-non-null-assertion": "off",
+      "@typescript-eslint/no-import-type-side-effects": "error",
       // Formatting is Prettier's job.
       "vue/max-attributes-per-line": "off",
       "vue/singleline-html-element-content-newline": "off",

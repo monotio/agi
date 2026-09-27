@@ -20,7 +20,7 @@ import {
   type TraversalOptions,
   type TraversalOutcome,
 } from "../../src/agent/navigationTraversal.ts";
-import { type Plan, type PlanOptions, type Target } from "../../src/agent/navigation.ts";
+import type { Plan, PlanOptions, Target } from "../../src/agent/navigation.ts";
 
 import {
   NavigationController,

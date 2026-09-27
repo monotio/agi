@@ -26,7 +26,7 @@ import {
 } from "../src/studio/assistScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { openSprite } from "../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../src/view/spriteDocument.ts";
 import { parseView } from "../src/view/view.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 import { AFTER_BRIDGE, BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "./studioAssistFixtures.ts";

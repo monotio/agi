@@ -11,7 +11,7 @@
  * no save or replay format.
  */
 
-import type { Engine } from "../runtime/engine.ts";
+import type { Engine } from "./engine.ts";
 import { standVerdict, type StandVerdict, type WalkableInput } from "./walkable.ts";
 
 export interface PlayHereTarget {

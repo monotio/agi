@@ -25,7 +25,7 @@ import {
 } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
-import type { ViewUsage } from "../../../src/studio/sprite/spriteUsage.ts";
+import type { ViewUsage } from "../../../src/agent/viewUsage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import type { PreviewCycler } from "../studio/sprite/spriteView.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
@@ -81,7 +81,7 @@ export interface SpriteStudioRequest extends StudioRequestBase {
   readonly kind: "sprite";
   readonly viewNumber: number;
   readonly bytes: Uint8Array;
-  /** Rooms and logics whose bytecode names the view (spriteUsage.ts). */
+  /** Rooms and logics whose bytecode names the view (src/agent/viewUsage.ts). */
   readonly usage: ViewUsage;
   /** Rooms with a picture to preview the sprite in, the room the game is in first. */
   readonly rooms: readonly SpriteRoom[];

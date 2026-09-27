@@ -33,7 +33,12 @@ import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { resourceCacheHint, resourceSetHint } from "./authoringState.ts";
 import { AUTHORING_TOOLS } from "./authoringToolDefinitions.ts";
-import { editableSource, executeAuthoringTool, sourceContextRevision } from "./authoringTools.ts";
+import {
+  editableSource,
+  executeAuthoringTool,
+  resolveSourceEdit,
+  sourceContextRevision,
+} from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
 import {
   executeStudioAssistTool,
@@ -396,6 +401,21 @@ function readDiagnostic(
   };
 }
 
+/** edit_resource_source compiles its patched text through the ordinary logic or picture writer. */
+function executeSourceEdit(
+  session: AgentSessionState,
+  name: string,
+  args: Record<string, unknown>,
+): AgentToolResult | undefined {
+  if (name !== "edit_resource_source") return undefined;
+  const edit = resolveSourceEdit(session, args);
+  if ("success" in edit) return edit;
+  return executeAgentTool(session, edit.kind === "logic" ? "write_logic_source" : "write_picture", {
+    room: edit.num,
+    source: edit.source,
+  });
+}
+
 /** Internal dispatch for arguments already normalized and checked against the catalog. */
 function executeValidatedAgentTool(
   session: AgentSessionState,
@@ -429,6 +449,7 @@ function executeValidatedAgentTool(
   }
   try {
     result =
+      executeSourceEdit(session, name, args) ??
       executeAuthoringTool(session, name, args) ??
       executeSpriteTool(session, name, args) ??
       executeSoundTool(session, name, args) ??

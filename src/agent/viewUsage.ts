@@ -16,9 +16,9 @@
  * `roomBakesView` answers that for a Keep. Animated objects read the view
  * afresh every frame and need no re-entry.
  */
-import { decodeLogicInsns } from "../../logic/disassembler.ts";
-import type { AgiProfile } from "../../runtime/profile.ts";
-import { scanContainerExits } from "../../agent/roomMap.ts";
+import { decodeLogicInsns } from "../logic/disassembler.ts";
+import type { AgiProfile } from "../runtime/profile.ts";
+import { scanContainerExits } from "./roomMap.ts";
 
 /** The operand position of the view number, keyed by constant-form opcode. */
 const CONSTANT_VIEW_OPERAND: Record<string, number> = {
@@ -136,4 +136,13 @@ export function roomBakesView(index: ViewUsageIndex, room: number, view: number)
   return logics.some(
     (num) => index.baked.get(num)?.has(view) === true || index.dynamicBakers.includes(num),
   );
+}
+
+/** One line naming what uses the view: Sprite Studio's usage chip and the Resources tab. */
+export function usageText(usage: ViewUsage): string {
+  const rooms = usage.rooms;
+  if (rooms.length > 0) return `Used by room${rooms.length === 1 ? "" : "s"} ${rooms.join(", ")}`;
+  if (usage.logics.length > 0)
+    return `Used by logic${usage.logics.length === 1 ? "" : "s"} ${usage.logics.join(", ")}`;
+  return usage.dynamic ? "Chosen at runtime" : "Not used by any logic";
 }

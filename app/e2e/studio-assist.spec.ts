@@ -15,7 +15,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import { createPictureSurface } from "../../src/types.ts";
 import { cacheGame, configureAi, enterCreateMode, textHook, waitForCycles } from "./engineProbe.ts";
 

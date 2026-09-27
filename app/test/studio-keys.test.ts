@@ -40,6 +40,7 @@ function actions(drawing: boolean) {
 const key = (name: string, target: object, extra: Partial<KeyboardEvent> = {}) =>
   ({
     key: name,
+    code: "",
     target,
     defaultPrevented: false,
     metaKey: false,
@@ -75,13 +76,39 @@ test("Space and Enter on the canvas click at the cursor, once per press", () => 
   assert.deepEqual(calls, ["click", "click enter", "finish"]);
 });
 
-test("Tab on the canvas toggles focus mode; Shift+Tab and Tab elsewhere move focus; ? opens the sheet", () => {
+test("Tab and Shift+Tab always move focus; ? opens the sheet", () => {
   const { act, calls } = actions(true);
-  assert.equal(studioKey(key("Tab", CANVAS), act), true);
+  assert.equal(studioKey(key("Tab", CANVAS), act), false);
   assert.equal(studioKey(key("Tab", CANVAS, { shiftKey: true }), act), false);
   assert.equal(studioKey(key("Tab", ELSEWHERE), act), false);
   assert.equal(studioKey(key("?", ELSEWHERE, { shiftKey: true }), act), true);
-  assert.deepEqual(calls, ["focus mode", "key sheet"]);
+  assert.deepEqual(calls, ["key sheet"]);
+});
+
+test("⌘\\ or Ctrl+\\ toggles focus mode from anywhere but a text field, on any layout", () => {
+  const { act, calls } = actions(false);
+  // US: the Backslash key, with ⌘ on a Mac or Ctrl elsewhere.
+  const us = { code: "Backslash" };
+  assert.equal(studioKey(key("\\", CANVAS, { ...us, metaKey: true }), act), true);
+  assert.equal(studioKey(key("\\", ELSEWHERE, { ...us, ctrlKey: true }), act), true);
+  // A held chord toggles once.
+  assert.equal(studioKey(key("\\", CANVAS, { ...us, ctrlKey: true, repeat: true }), act), true);
+  // A layout that types \ with Alt or AltGr elsewhere: the character decides.
+  const altGr = { code: "Minus", ctrlKey: true, altKey: true };
+  assert.equal(studioKey(key("\\", CANVAS, altGr), act), true);
+  // The modifier changed what `key` reports: the US key position still counts.
+  assert.equal(studioKey(key("|", CANVAS, { code: "Backslash", ctrlKey: true }), act), true);
+  assert.deepEqual(calls, ["focus mode", "focus mode", "focus mode", "focus mode"]);
+  // Not without the modifier, not Shift or Alt on the key position, not in a text field.
+  assert.equal(studioKey(key("\\", CANVAS, us), act), false);
+  assert.equal(studioKey(key("|", CANVAS, { ...us, shiftKey: true, ctrlKey: true }), act), false);
+  assert.equal(studioKey(key("«", CANVAS, { ...us, altKey: true, metaKey: true }), act), false);
+  const field = Object.assign(Object.create(HTMLElement.prototype) as HTMLElement, {
+    tagName: "TEXTAREA",
+    isContentEditable: false,
+  });
+  assert.equal(studioKey(key("\\", field, { ...us, metaKey: true }), act), false);
+  assert.equal(calls.length, 4);
 });
 
 test("Enter on the canvas without a drawing cursor still finishes", () => {

@@ -13,7 +13,7 @@ import {
   samePixels,
   type SpriteCel,
   type SpriteDocument,
-} from "../../src/studio/sprite/spriteDocument.ts";
+} from "../../src/view/spriteDocument.ts";
 import {
   configureAi,
   enterCreateMode,

@@ -2,7 +2,7 @@
 import { computed, inject, nextTick, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { StudioFocus } from "../../../../src/agent/studioAssistTools.ts";
 import { viewAssistScope } from "../../../../src/studio/assistScope.ts";
-import { openSprite, type SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
@@ -10,7 +10,7 @@ import { openContainer } from "../../../../src/container/container.ts";
 import { renderPicture } from "../../../../src/picture/renderer.ts";
 import { createPictureSurface } from "../../../../src/types.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
-import type { ViewUsage } from "../../../../src/studio/sprite/spriteUsage.ts";
+import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { engineKey, useEngineApi } from "../../engineContext.ts";
 import { aiSettingsKey } from "../../useAiSettings.ts";
 import UiIconButton from "../../ui/UiIconButton.vue";
@@ -57,7 +57,6 @@ import {
   feetWarning,
   parseBackdrop,
   previewPartner,
-  usageText,
   type PreviewCycler,
   type RoomBackdrop,
   type SpriteBackdrop,

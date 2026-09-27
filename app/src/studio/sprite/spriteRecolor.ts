@@ -9,7 +9,7 @@
  * linked loop alike.
  */
 
-import type { SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
+import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import type { CelRef, SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import { aliasGroup } from "./spriteView.ts";
 

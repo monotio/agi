@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
-import type { SpriteCel } from "../../../../src/studio/sprite/spriteDocument.ts";
-import { EGA_PALETTE } from "../../palette.ts";
+import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
+import { celRgba, EGA_PALETTE } from "../../palette.ts";
 import {
   backdropCells,
-  celRgba,
   DEFAULT_BACKDROP,
   type CelPoint,
   type CelRect,

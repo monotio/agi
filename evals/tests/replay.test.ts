@@ -16,7 +16,7 @@ import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScop
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import type { LensUnlocks, StudioLens } from "../../src/studio/lensRules.ts";
-import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import {
   anthropicToolContent,
   openAiToolContent,

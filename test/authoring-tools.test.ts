@@ -112,7 +112,7 @@ test("revision-checked source edits change only one matched section and reject s
     source: 'print("Old greeting."); return;',
   });
   const revision = logicRevision(state, 1);
-  const edit = executeAuthoringTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
@@ -123,7 +123,7 @@ test("revision-checked source edits change only one matched section and reject s
     "Hello again.",
   ]);
   assert.equal(
-    executeAuthoringTool(state, "edit_resource_source", {
+    executeAgentTool(state, "edit_resource_source", {
       kind: "logic",
       num: 1,
       expectedRevision: revision,
@@ -140,7 +140,7 @@ test("a batch of source edits resolves on one snapshot and applies once", () => 
     source: 'print("aaa"); print("bbb"); return;',
   });
   const revision = logicRevision(state, 1);
-  const edited = executeAuthoringTool(state, "edit_resource_source", {
+  const edited = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
@@ -158,7 +158,7 @@ test("a batch of source edits resolves on one snapshot and applies once", () => 
   assert.match(source, /"ccc".*"ddd"/, "both edits landed in one pass");
 
   // Overlapping occurrences of one find count: 'aa' in 'aaa' occurs twice.
-  const ambiguous = executeAuthoringTool(state, "edit_resource_source", {
+  const ambiguous = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: logicRevision(state, 1),
@@ -170,7 +170,7 @@ test("a batch of source edits resolves on one snapshot and applies once", () => 
   assert.equal(diagnostic?.editIndex, 0);
 
   // Two finds hitting the same snapshot range are rejected, not shifted.
-  const overlapping = executeAuthoringTool(state, "edit_resource_source", {
+  const overlapping = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: logicRevision(state, 1),
@@ -189,7 +189,7 @@ test("a batch of source edits resolves on one snapshot and applies once", () => 
   assert.equal(after, source, "a failed batch changes nothing");
 
   // Adjacent edits touching at a boundary are allowed.
-  const adjacent = executeAuthoringTool(state, "edit_resource_source", {
+  const adjacent = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: logicRevision(state, 1),
@@ -218,7 +218,7 @@ test("picture edits match the authored source read_picture returns, comments and
   assert.equal(read.success, true, read.error ?? "");
   const lines = String(read.details?.["source"]).split("\n");
   assert.deepEqual(lines, authored);
-  const edit = executeAuthoringTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_resource_source", {
     kind: "picture",
     num: 3,
     expectedRevision: read.details?.["revision"],
@@ -260,7 +260,7 @@ test("a source edit on an annotated write_scene picture keeps its Studio items a
   const read = executeAgentTool(state, "read_picture", { num: 7, include: "source" });
   assert.equal(read.success, true, read.error ?? "");
   assert.match(String(read.details?.["source"]), /# @item oak-tree "Oak tree" art/);
-  const edit = executeAuthoringTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_resource_source", {
     kind: "picture",
     num: 7,
     expectedRevision: read.details?.["revision"],
@@ -297,7 +297,7 @@ test("a stored picture source that no longer matches its resource is not trusted
     [...state.container.getResource("picture", 3)!],
     "the shown source compiles to the stored resource",
   );
-  const edit = executeAuthoringTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_resource_source", {
     kind: "picture",
     num: 3,
     expectedRevision: read.details?.["revision"],
@@ -382,7 +382,7 @@ test("a source revision covers what its text depends on, not unrelated vocabular
     true,
   );
   assert.equal(logicRevision(state, 1), revision);
-  const edit = executeAuthoringTool(state, "edit_resource_source", {
+  const edit = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,
@@ -391,7 +391,7 @@ test("a source revision covers what its text depends on, not unrelated vocabular
   assert.equal(edit.success, true, edit.error ?? "");
 
   // The edit moved the text, so the old revision is stale now.
-  const stale = executeAuthoringTool(state, "edit_resource_source", {
+  const stale = executeAgentTool(state, "edit_resource_source", {
     kind: "logic",
     num: 1,
     expectedRevision: revision,

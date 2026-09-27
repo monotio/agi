@@ -17,7 +17,7 @@ import {
   type CompiledDocument,
 } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { openSprite, type SpriteDocument } from "../src/studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteDocument } from "../src/view/spriteDocument.ts";
 import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 import { NO_UNLOCKS } from "../src/studio/lensRules.ts";

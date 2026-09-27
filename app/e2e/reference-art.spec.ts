@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { encodePngRgb } from "../../src/picture/png.ts";
 import {

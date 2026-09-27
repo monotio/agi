@@ -19,8 +19,8 @@ import type { RouteOutcome, RouteTestResult } from "../../../src/studio/route.ts
 import type { LogicRuleFragment } from "../../../src/studio/rules/logicDocument.ts";
 import type { FlagRef, RuleBox, RuleModel } from "../../../src/studio/rules/ruleModel.ts";
 import type { ExitContract } from "../../../src/studio/rules/ruleUsage.ts";
-import { standVerdict, type WalkableInput } from "../../../src/studio/walkable.ts";
-import type { PlayHereTarget } from "../../../src/studio/playHere.ts";
+import { standVerdict, type WalkableInput } from "../../../src/runtime/walkable.ts";
+import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 
 export type { EdgeSide };

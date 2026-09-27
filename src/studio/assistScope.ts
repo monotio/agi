@@ -67,7 +67,7 @@ import {
   type PictureItem,
 } from "./pictureDocument.ts";
 import { itemAt, type PicturePlane } from "./pictureQuery.ts";
-import type { SpriteDocument } from "./sprite/spriteDocument.ts";
+import type { SpriteDocument } from "../view/spriteDocument.ts";
 import type { CelRef } from "./sprite/spriteOperations.ts";
 import { validateSpriteEdit } from "./sprite/spriteValidation.ts";
 

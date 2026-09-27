@@ -8,7 +8,7 @@
  * change (it is reported as a metadata change). A cel whose size changed
  * counts every pixel of the larger size as changed.
  */
-import type { SpriteCel, SpriteDocument } from "./spriteDocument.ts";
+import type { SpriteCel, SpriteDocument } from "../../view/spriteDocument.ts";
 
 export interface SpriteEditConstraints {
   /** Cels whose displayed pixels may not change. */

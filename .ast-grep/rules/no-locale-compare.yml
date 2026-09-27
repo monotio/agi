@@ -2,12 +2,14 @@ id: no-locale-compare
 language: ts
 severity: error
 message: >-
-  localeCompare in engine, authoring or script code — order by code point so
-  hashes, stored revisions and reports do not depend on the machine's language
+  localeCompare in engine, authoring, script or test-harness code — order by
+  code point so hashes, stored revisions and reports do not depend on the
+  machine's language
 note: |
   Resource-set hints, world-plan revisions and other canonical serializations
   are stored in projects and tapes and recomputed on another machine; scripts
-  fingerprint fixtures and write reports that are compared across machines.
+  fingerprint fixtures and write reports that are compared across machines;
+  the test harness writes the fixture hashes walkthrough tapes store.
   `localeCompare` follows the runtime locale (Danish sorts `AA` after `Z`),
   so the same bytes could hash differently in two browsers.
   BAD:  entries.sort(([a], [b]) => a.localeCompare(b))
@@ -15,5 +17,6 @@ note: |
 files:
   - src/**
   - scripts/**
+  - test/**
 rule:
   pattern: $A.localeCompare($$$)

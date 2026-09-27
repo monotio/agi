@@ -1,6 +1,6 @@
 /**
  * The calm canvas: what keeps help and panels off the picture. The `?` key
- * sheet's open state; focus mode (Tab on the canvas), which hides the side
+ * sheet's open state; focus mode (⌘\ or Ctrl+\), which hides the side
  * panels for a full-width canvas; and a one-time tip in the status bar the
  * first time focus mode hides them, remembered per viewer. Viewer
  * preferences live in localStorage and every access is guarded: a private
@@ -26,7 +26,7 @@ export function writeViewerPref(key: string, value: string): void {
 }
 
 const FOCUS_TIP_KEY = "monotio_agi.studioFocusTip";
-const FOCUS_TIP = "Side panels hidden · Tab on the canvas brings them back";
+const FOCUS_TIP = "Side panels hidden · ⌘\\ or Ctrl+\\ brings them back";
 /** How long the tip stays in the status bar. */
 const TIP_MS = 5000;
 

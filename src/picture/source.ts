@@ -37,7 +37,7 @@
  * Zero dependencies; runs in browser, worker and Node.
  */
 
-import { type GameContainer } from "../types.ts";
+import type { GameContainer } from "../types.ts";
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
 
 export interface PictureSourceError {

@@ -6,7 +6,7 @@
 
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
 import type { PictureItem, PictureItemKind } from "../../../src/studio/pictureDocument.ts";
-import type { SpriteCel, SpriteDocument } from "../../../src/studio/sprite/spriteDocument.ts";
+import type { SpriteCel, SpriteDocument } from "../../../src/view/spriteDocument.ts";
 import type { CelRef } from "../../../src/studio/sprite/spriteOperations.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 

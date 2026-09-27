@@ -2,7 +2,7 @@ import { scanFootprint } from "../runtime/controlCheck.ts";
 import { decodeSave } from "../runtime/persistence.ts";
 import type { Engine } from "../runtime/engine.ts";
 import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
-import { walkableBounds, walkableMask } from "../studio/walkable.ts";
+import { walkableBounds, walkableMask } from "../runtime/walkable.ts";
 import {
   anchorClearance,
   searchAnchors,

@@ -5,7 +5,7 @@
  * game could not place ego at the spot, it says why in one line on the stage.
  */
 import { onScopeDispose, shallowRef } from "vue";
-import type { PlayHereTarget } from "../../../src/studio/playHere.ts";
+import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 
 /** How long the stage keeps a Play here note. */
 const NOTE_MS = 8000;

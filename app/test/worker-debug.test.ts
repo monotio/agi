@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
 import type { Inbound } from "../src/worker/context.ts";
-import { resetSession } from "../src/worker/context.ts";
+import { resetSession } from "../src/worker/session.ts";
 
 // One tickEngine run emits ~INSTRUCTIONS trace records: a chain of plain
 // assignn ops, no conditions, so every instruction executes every cycle.

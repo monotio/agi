@@ -7,8 +7,7 @@
 
 import { TIMER_INCREMENT_MS } from "../../../../src/runtime/cycleClock.ts";
 import type { PixelChange } from "../../../../src/studio/sprite/spriteCels.ts";
-import type { SpriteCel, SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
-import type { ViewUsage } from "../../../../src/studio/sprite/spriteUsage.ts";
+import type { SpriteCel, SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import { EGA_PALETTE } from "../../palette.ts";
 import { HOST_POLL_MS } from "../../worker/cycle.ts";
 
@@ -212,15 +211,6 @@ export function feetWarning(before: SpriteCel, after: SpriteCel): string | null 
   return `The feet moved ${parts.join(" and ")} of where the game stands the actor.${floats}`;
 }
 
-/** The top bar's usage chip: which rooms name the view. */
-export function usageText(usage: ViewUsage): string {
-  const rooms = usage.rooms;
-  if (rooms.length > 0) return `Used by room${rooms.length === 1 ? "" : "s"} ${rooms.join(", ")}`;
-  if (usage.logics.length > 0)
-    return `Used by logic${usage.logics.length === 1 ? "" : "s"} ${usage.logics.join(", ")}`;
-  return usage.dynamic ? "Chosen at runtime" : "Not used by any logic";
-}
-
 /** The pixels of a straight line from `a` to `b`, one per step along its longer axis. */
 export function linePoints(a: CelPoint, b: CelPoint): CelPoint[] {
   const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
@@ -337,37 +327,6 @@ export function clearSelectionChanges(cel: SpriteCel, selection: CelRect): Pixel
   for (let y = area.y; y < area.y + area.height; y++)
     for (let x = area.x; x < area.x + area.width; x++) out.push({ x, y, color: null });
   return out;
-}
-
-/**
- * The cel's colours into RGBA, transparent pixels left fully transparent;
- * `tint` blends every opaque pixel toward that colour (onion skins).
- */
-export function celRgba(
-  cel: SpriteCel,
-  out: Uint8ClampedArray,
-  tint?: { readonly rgb: readonly [number, number, number]; readonly alpha: number },
-): void {
-  for (let i = 0; i < cel.pixels.length; i++) {
-    const value = cel.pixels[i]!;
-    const o = i * 4;
-    if (value === cel.transparent) {
-      out[o + 3] = 0;
-      continue;
-    }
-    const [r, g, b] = EGA_PALETTE[value & 0x0f]!;
-    if (tint) {
-      out[o] = (r + tint.rgb[0]) / 2;
-      out[o + 1] = (g + tint.rgb[1]) / 2;
-      out[o + 2] = (b + tint.rgb[2]) / 2;
-      out[o + 3] = Math.round(tint.alpha * 255);
-    } else {
-      out[o] = r;
-      out[o + 1] = g;
-      out[o + 2] = b;
-      out[o + 3] = 255;
-    }
-  }
 }
 
 /** Total cels across the view's loops. */

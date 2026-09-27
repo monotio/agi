@@ -18,7 +18,7 @@ import {
   serializePictureDocument,
   type PictureDocument,
 } from "../src/studio/pictureDocument.ts";
-import { openSprite } from "../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../src/view/spriteDocument.ts";
 import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
 
 const profile = DEFAULT_V2_PROFILE;

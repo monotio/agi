@@ -26,7 +26,7 @@ import { clearCachedGame } from "./gameStorage.ts";
 import { watchProjectWrites } from "./projectTransaction.ts";
 import { clearGameSaves } from "./gameSaves.ts";
 import { removeMapSidecar } from "./roomMapStore.ts";
-import { type BootedGame, type Frame, type ProjectId } from "./gameTypes.ts";
+import type { BootedGame, Frame, ProjectId } from "./gameTypes.ts";
 export type { BootedGame, Frame, ProjectId };
 
 import { usePromptController } from "./usePromptController.ts";
@@ -40,7 +40,7 @@ import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "./useRoomMap.ts";
 import type { WorkerInbound, WorkerQueryPayload } from "./workerProtocol.ts";
-import type { PlayHereTarget } from "../../src/studio/playHere.ts";
+import type { PlayHereTarget } from "../../src/runtime/playHere.ts";
 import type { HistoryBatch } from "../../src/agent/history.ts";
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";

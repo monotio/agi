@@ -10,11 +10,10 @@ import assert from "node:assert/strict";
 import { OperationRecorder } from "../../src/agent/recordedReplay.ts";
 import type { ProfileId } from "../../src/runtime/profile.ts";
 import type { HistoryBatch, HistoryBoot, HistorySegment } from "../../src/agent/history.ts";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { replayHistorySegment } from "../src/worker/replay.ts";
 import type { WorkerControl, WorkerInbound } from "../src/workerProtocol.ts";
 
 /** 1 loop, 1 cel: a solid width x height block of color 5. */

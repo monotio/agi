@@ -13,7 +13,7 @@ import type { StudioFocus } from "../../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, selectionArea } from "../../../src/studio/assistScope.ts";
 import { compileEditDocument, footprintMask } from "../../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
-import type { PlayHereTarget } from "../../../src/studio/playHere.ts";
+import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engineContext.ts";
@@ -776,7 +776,7 @@ const subject = computed(() =>
 );
 const changeTotal = room.changes;
 
-// ---- The calm canvas: help in the status bar, the side panels on Tab --------
+// ---- The calm canvas: help in the status bar, the side panels on ⌘\ ----------
 const calm = useStudioCalm();
 function toggleFocus(): void {
   calm.toggleFocus();
@@ -1127,8 +1127,8 @@ function onKeyup(event: KeyboardEvent): void {
       <UiIconButton
         icon="panel-left"
         label="Focus mode"
-        shortcut="Tab on the canvas"
-        aria-keyshortcuts="Tab"
+        shortcut="⌘\"
+        aria-keyshortcuts="Meta+Backslash Control+Backslash"
         :pressed="calm.focus.value"
         data-testid="studio-focus-toggle"
         @click="toggleFocus"

@@ -7,7 +7,7 @@
  * for a game played without one (a catalog game such as the tutorial, or its
  * remix), the stored project's authoring sources. Sprite Studio: one VIEW's
  * bytes from the same snapshot, the rooms whose logic names it
- * (spriteUsage.ts) and the pictures they draw. Room Studio's Walk view also
+ * (viewUsage.ts) and the pictures they draw. Room Studio's Walk view also
  * reads the room's LOGIC: its annotated text under the same trust rule
  * (it must assemble to the booted bytes), the bindings and plan it names,
  * and the game's stored tests.
@@ -32,13 +32,13 @@ import type { ScannedResources } from "../useRoomMap.ts";
 import type { SpriteRoom } from "../shell/useCreateWorkspace.ts";
 import { scanContainerExits, type StaticRoomScan } from "../../../src/agent/roomMap.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
-import { openSprite, type SpriteCel } from "../../../src/studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteCel } from "../../../src/view/spriteDocument.ts";
 import {
   scanViewUsage,
   viewUsage,
   type ViewUsage,
   type ViewUsageIndex,
-} from "../../../src/studio/sprite/spriteUsage.ts";
+} from "../../../src/agent/viewUsage.ts";
 
 export interface StudioPictureSource {
   readonly bytes: Uint8Array;

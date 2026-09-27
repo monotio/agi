@@ -22,7 +22,7 @@ import {
   type CompiledDocument,
 } from "../../src/studio/editValidation.ts";
 import { itemMask } from "../../src/studio/pictureQuery.ts";
-import { openSprite, type SpriteDocument } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteDocument } from "../../src/view/spriteDocument.ts";
 import { validateSpriteEdit } from "../../src/studio/sprite/spriteValidation.ts";
 import { TUTORIAL_PICTURES } from "./sceneArt.ts";
 

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, shallowRef, useTemplateRef } from "vue";
 import UiIcon from "../../ui/UiIcon.vue";
-import { sameDisplay, type SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
+import { sameDisplay, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import { mirroredCel } from "../../../../src/studio/sprite/spriteCels.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
-import SpriteThumb from "./SpriteThumb.vue";
+import SpriteThumb from "../../world/SpriteThumb.vue";
 import { aliasGroup, loopFacing } from "./spriteView.ts";
 
 /**

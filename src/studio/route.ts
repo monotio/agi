@@ -21,7 +21,12 @@ import { createAgentSessionState } from "../agent/agentState.ts";
 import { openContainer } from "../container/container.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
 import { SCREEN_WIDTH, type GameContainer } from "../types.ts";
-import { standVerdict, walkableBounds, walkableMask, type WalkableInput } from "./walkable.ts";
+import {
+  standVerdict,
+  walkableBounds,
+  walkableMask,
+  type WalkableInput,
+} from "../runtime/walkable.ts";
 
 export interface RoutePoint {
   x: number;
