@@ -6,17 +6,27 @@ import type { StudioEditing } from "./useStudioEditing.ts";
 
 /**
  * The contextual toolbar beside the selection: Duplicate, the priority value
- * (a picker that opens below it), Delete, and Ask — which is a stub until AI
- * edits arrive. Placed by its parent in the pane's CSS pixels.
+ * (a picker that opens below it), Delete, and Ask, which opens "Ask about
+ * this selection" in the inspector. Placed by its parent in the pane's CSS
+ * pixels.
  */
-const { priority, priorityLocked, depthValuesLocked, edit } = defineProps<{
+const {
+  priority,
+  priorityLocked,
+  depthValuesLocked,
+  edit,
+  askable = false,
+} = defineProps<{
   /** The one priority the item draws; null for none, undefined for several. */
   priority: number | null | undefined;
   /** Why priority is locked now, or null. */
   priorityLocked: string | null;
   depthValuesLocked: boolean;
   edit: StudioEditing;
+  /** The game's AI can be asked here (not in the Studio harness). */
+  askable?: boolean;
 }>();
+const emit = defineEmits<{ ask: [] }>();
 const open = defineModel<boolean>("open", { required: true });
 const pickerId = useId();
 
@@ -47,8 +57,22 @@ function pick(value: number | null): void {
       Priority {{ priority === undefined ? "mixed" : priority === null ? "off" : priority }}
     </UiButton>
     <UiButton variant="ghost" size="sm" icon="trash" @click="edit.remove()">Delete</UiButton>
-    <span class="ctx-bar__ask" title="AI edits arrive in a later update">
-      <UiButton variant="ghost" size="sm" icon="sparkles" disabled> Ask </UiButton>
+    <span
+      class="ctx-bar__ask"
+      :title="
+        askable ? 'Ask the AI to change this selection (/)' : 'AI edits need the game\'s assistant'
+      "
+    >
+      <UiButton
+        variant="ghost"
+        size="sm"
+        icon="sparkles"
+        data-testid="ctx-ask"
+        :disabled="!askable"
+        @click="emit('ask')"
+      >
+        Ask
+      </UiButton>
     </span>
     <div v-if="open" :id="pickerId" class="ctx-bar__picker" @keydown.esc.stop="open = false">
       <StudioValuePicker

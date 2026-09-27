@@ -24,8 +24,11 @@ declare global {
     __AGI_AUDIO__?: AgiAudio;
     /** The latest presented frame (both screen planes), for sampling in tests. */
     __AGI_FRAME__?: () => Frame | null;
-    /** The open Room Studio draft: its compiled PIC bytes and annotated source. */
-    __AGI_STUDIO__?: { bytes(): Uint8Array; source(): string };
+    /**
+     * The open Room Studio draft: its compiled PIC bytes and annotated source,
+     * and the room's logic draft (annotated source) when the Walk view edits it.
+     */
+    __AGI_STUDIO__?: { bytes(): Uint8Array; source(): string; logic?: () => string };
     /** The open Sprite Studio draft: its encoded VIEW bytes. */
     __AGI_SPRITE__?: { bytes(): Uint8Array };
   }

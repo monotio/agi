@@ -6,13 +6,14 @@ import { AgentRun } from "./agentRun.ts";
  */
 
 import {
-  AGENT_TOOLS,
   ASK_TOOLS,
+  AUTHORING_TOOL_NAMES,
   buildSound,
   type SoundTrackInput,
   createAgentSessionState,
   executeAgentTool,
   executeAgentToolAsync,
+  STUDIO_ASSIST_TASK_TOOLS,
   type AgentRuntimeDeps,
   type AgentSessionState,
   type AgentSourceStore,
@@ -20,7 +21,11 @@ import {
   type AgentToolResult,
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { resourceSetHint, validateAuthoringState } from "../../../src/agent/authoringState.ts";
+import {
+  resourceSetHint,
+  validateAuthoringState,
+  type AuthoringState,
+} from "../../../src/agent/authoringState.ts";
 import {
   adoptTurnState,
   forkAgentState,
@@ -57,6 +62,14 @@ import {
   type LlmTurnResult,
 } from "./llmClient.ts";
 import { GAME_DICTIONARY, StubAgent } from "./stubAgent.ts";
+import {
+  createStudioAssistPrompt,
+  createStudioAssistStub,
+  MAX_STUDIO_ROUNDS,
+  type StudioAssistRequest,
+  type StudioAssistResult,
+} from "./studioAssist.ts";
+import { createStudioAssist } from "../../../src/agent/studioAssistTools.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
 import { runGameTests } from "../../../src/agent/gameTests.ts";
 import { verifyPlanConnections } from "../../../src/agent/roomMap.ts";
@@ -80,8 +93,12 @@ export interface PowerUpResult {
   files?: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
 }
 
-/** Tools active during Genesis and Room Authoring. Stable across both phases for prompt cache reuse. */
-const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.map((tool) => tool.name);
+/**
+ * Tools active during Genesis, Room Authoring and Remix: the whole catalog
+ * except the Studio assist pair. The advertised catalog stays stable across
+ * phases for prompt cache reuse; this is the availability policy.
+ */
+const AUTHORING_SESSION_TOOLS = AUTHORING_TOOL_NAMES;
 
 export interface BootResources {
   files: Record<string, Uint8Array>;
@@ -428,18 +445,23 @@ Answer the player's question using evidence from inspection when needed. For hin
    * frozen. The agent inspects the live game with the runtime tools, patches
    * resources, and finishes with a text turn; every tool call streams into
    * the bubble through onEvent. Returns what to patch into the interpreter.
+   * `beforeAdopt` is the host's commit gate, awaited once the turn's work is
+   * done but before its staged candidate is adopted — a refusal discards the
+   * turn exactly like a failed one: nothing reaches the session's resources.
    */
   runPowerUp(
     instruction: string,
     room: number,
     images?: readonly AgentToolImage[],
+    beforeAdopt?: () => Promise<void>,
   ): Promise<PowerUpResult> {
-    return this.task.run(() => this.remix(instruction, room, images));
+    return this.task.run(() => this.remix(instruction, room, images, beforeAdopt));
   }
   private async remix(
     instruction: string,
     room: number,
-    images?: readonly AgentToolImage[],
+    images: readonly AgentToolImage[] | undefined,
+    beforeAdopt: (() => Promise<void>) | undefined,
   ): Promise<PowerUpResult> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
@@ -467,6 +489,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         { images: frames.images?.map((i) => i.caption) },
       );
       const result = await this.stubFallback.powerUp(instruction, room);
+      // The commit gate runs before anything staged lands: a refusal leaves
+      // the session's resources as the turn found them.
+      await beforeAdopt?.();
       this.messages.push({ role: "assistant", text: result.text });
       for (const resource of result.patched)
         this.state.container.putResource(resource.kind, resource.num, resource.payload);
@@ -474,7 +499,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
     if (!this.conversation) throw new Error("No conversation provider configured");
 
-    this.conversation.setAvailableTools();
+    this.conversation.setAvailableTools(AUTHORING_SESSION_TOOLS);
 
     const staged = forkAgentState(this.state);
     const forkRevision = worldRevision(this.state.authoring.world);
@@ -565,6 +590,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         turn = await this.observeTurn(this.conversation.complete(), "remix");
       }
 
+      // The host's commit gate: a refusal throws into the turn's failure
+      // path, which discards the staged candidate untouched.
+      await beforeAdopt?.();
       const patched = changedResources(this.state, staged);
       const files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>> = {};
       for (const name of ["WORDS.TOK", "OBJECT", "TESTS.JSON"] as const) {
@@ -599,6 +627,92 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
+   * One Studio assist request: the creator's selection in Room Studio or
+   * Sprite Studio and what they asked for it. The model reads the focus and
+   * proposes candidates through the Studio tools only; nothing reaches the
+   * game or this session's resources. The result's candidate is what the UI
+   * previews and, on accept, applies as one undo step. The stub provider
+   * runs the same loop with a scripted conversation.
+   */
+  runStudioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
+    return this.task.run(() => this.studioAssist(request));
+  }
+  private async studioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
+    this.assertAdoptable();
+    const conversation =
+      this.conversation ?? (this.stubFallback ? createStudioAssistStub(request.instruction) : null);
+    if (!conversation)
+      throw new Error("Connect an API key in AI settings before asking the Studio assistant.");
+    const { instruction, focus } = request;
+    const assist = createStudioAssist(
+      focus,
+      request.maxProposals === undefined ? {} : { maxProposals: request.maxProposals },
+    );
+    const label = `${focus.scope.kind} ${focus.scope.num}`;
+    this.messages.push({ role: "user", text: instruction });
+    this.onEvent("request", `[Studio] "${instruction}" (${label})`, { instruction, scope: label });
+    conversation.setAvailableTools(STUDIO_ASSIST_TASK_TOOLS);
+    const deps: AgentRuntimeDeps = { allowedTools: STUDIO_ASSIST_TASK_TOOLS, studio: assist };
+    // Inspection reads a fork, as Ask does: nothing this turn runs may
+    // reach the session's resources.
+    const inspected = forkAgentState(this.state);
+    try {
+      let turn = await this.observeTurn(
+        conversation.sendUserMessage(createStudioAssistPrompt(instruction, focus)),
+        "studio",
+      );
+      for (let round = 1; turn.toolCalls.length; round++) {
+        const results: { toolCallId: string; result: AgentToolResult }[] = [];
+        for (const call of turn.toolCalls) {
+          await this.task.checkpoint(false);
+          this.onEvent("request", `[Studio] ${call.name}`, { tool: call.name, args: call.input });
+          const toolStart = performance.now();
+          const result =
+            round > MAX_STUDIO_ROUNDS
+              ? {
+                  success: false,
+                  error: `Not executed: this request reached its ${MAX_STUDIO_ROUNDS}-round limit.`,
+                }
+              : await executeAgentToolAsync(inspected, call.name, call.input, deps);
+          this.pendingToolMs += performance.now() - toolStart;
+          this.onEvent(
+            result.success ? "response" : "error",
+            `[Studio] ${call.name} -> ${result.success ? (result.message ?? "ok").split("\n")[0] : result.error}`,
+            { tool: call.name, result: { ...result, images: undefined } },
+          );
+          this.task.recordTool(call.name, call.input, result);
+          results.push({ toolCallId: call.id, result: this.projectForModel(result) });
+        }
+        conversation.appendToolResults(results);
+        if (round > MAX_STUDIO_ROUNDS) break;
+        turn = await this.observeTurn(conversation.complete(), "studio");
+      }
+      const text =
+        turn.toolCalls.length === 0 && turn.text
+          ? turn.text
+          : (assist.candidate?.summary ?? "No change was proposed.");
+      this.messages.push({ role: "assistant", text });
+      this.onEvent("response", `[Studio] ${text.slice(0, 300)}`, {
+        text,
+        candidate: assist.candidate?.candidateId ?? null,
+        proposals: assist.proposals,
+        refusals: assist.refusals,
+      });
+      return {
+        text,
+        candidate: assist.candidate,
+        proposals: assist.proposals,
+        refusals: assist.refusals,
+      };
+    } catch (error) {
+      conversation.recordInterruption?.(
+        `The Studio assist request was interrupted. Nothing was applied. ${String(error)}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
    * The compact model-facing projection of a tool result. The full result is
    * kept in the session diagnostic store under a diagnosticId the projected
    * details point at; earlier transcript items are never rewritten.
@@ -609,7 +723,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   private async observeTurn(
     pending: Promise<LlmTurnResult>,
-    phase: "ask" | "remix" | "genesis" | "room",
+    phase: "ask" | "remix" | "genesis" | "room" | "studio",
   ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;
@@ -711,20 +825,20 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   /**
    * Validate a resource edit's candidate state — the edited files plus the
-   * source `stage` records for them — without changing this session before
+   * source (and bindings) `stage` records for them — without changing this session before
    * storage succeeds. `changed` is what `stage` reported: whether the
    * recorded source differs from the one this session holds.
    */
   prepareSourcePatch(
     files: Record<string, Uint8Array>,
-    stage: (sources: AgentSourceStore) => boolean,
+    stage: (sources: AgentSourceStore, authoring: AuthoringState) => boolean,
   ): {
     authoringState: Record<string, unknown>;
     changed: boolean;
     adopt: () => void;
   } {
     const candidate = forkAgentState(this.state);
-    const changed = stage(candidate.sources);
+    const changed = stage(candidate.sources, candidate.authoring);
     const snapshot = this.getAuthoringState(candidate);
     const next = stateFromAuthoredData(
       files,
@@ -1010,16 +1124,19 @@ Answer the player's question using evidence from inspection when needed. For hin
     return { files, words, transcript, sessionId };
   }
 
-  handle(req: LlmRequest): Promise<string> {
-    return this.task.run(() => this.prepareRoom(req));
+  handle(req: LlmRequest, beforeAdopt?: () => Promise<void>): Promise<string> {
+    return this.task.run(() => this.prepareRoom(req, beforeAdopt));
   }
-  private async prepareRoom(req: LlmRequest): Promise<string> {
+  private async prepareRoom(req: LlmRequest, beforeAdopt?: () => Promise<void>): Promise<string> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating the next room.");
     if (this.stubFallback) {
       const response = await this.stubFallback.handle(req);
       if (req.op === "room" && response) {
+        // Same commit gate as a remix turn: refuse before the staged room
+        // lands in the session's container.
+        await beforeAdopt?.();
         const patch = prepareRoomPatch(
           openContainer(this.state.getFiles()),
           Number(req.context["room"]),
@@ -1179,6 +1296,9 @@ Answer the player's question using evidence from inspection when needed. For hin
       }
       if (!completed) throw new Error(`Room ${room} authoring did not finish.`);
 
+      // The host's commit gate: a refusal discards the staged room through
+      // the turn's failure path.
+      await beforeAdopt?.();
       const changed = changedResources(this.state, staged).map(({ kind, num, payload }) => ({
         kind,
         num,

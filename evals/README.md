@@ -9,6 +9,7 @@ the tools give it enough feedback to correct mistakes.
 | Genesis           | `npm run eval:genesis`               | An adventure brief becoming playable resources, with tool failures and usage   |
 | Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds     |
 | Remix benchmark   | `npm run eval:remix`                 | Ask/Remix cases on a real engine: requests, cost, latency and cache per run    |
+| Studio assist     | `npm run eval:studio`                | Selection-scoped Studio edits: candidates, refusals, rounds, tokens and cost   |
 | Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output |
 | Genesis matrix    | `npm run eval:matrix`                | Cost, content, picture depth and control lines, and brief coverage per run     |
 
@@ -28,7 +29,10 @@ Bad cases in `fixtures/bad-cases/` declare a tool call and its acceptable result
 Add one for a recurring failure, replay it through the real toolchain in
 `tests/replay.test.ts`, and observe failure before the fix and success afterward.
 Image transport cases check that rendered previews reach the provider as image
-content and that binary buffers do not expand into JSON properties.
+content and that binary buffers do not expand into JSON properties. A case with a
+`studio` focus (a picture's annotated `source`, `targetIds` and `lens`, or
+a view's `payload` and `targetCels`) replays a Studio assist tool call against that
+selection.
 
 ## Live model evaluations
 
@@ -36,6 +40,10 @@ Choose a provider and model explicitly and set its API key in the environment.
 Live runs are billed to that provider account. The runner headers document their
 options: [genesis](../scripts/eval-genesis.ts) and
 [picture fidelity](../scripts/eval-picture.ts).
+
+The Studio assist lane (`evals/studio-assist-benchmark.ts`) refuses a live run
+without `--budget-usd`, enforces that cap from provider usage across all its runs,
+and has a `--dry-run` that drives the same session loop with the offline stub.
 
 Genesis records model calls, compiler feedback, token usage and playtest results.
 Picture evaluation reads a local reference, asks for an art-direction brief,

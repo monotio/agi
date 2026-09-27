@@ -1,9 +1,7 @@
 /**
- * Lens locks for Room Studio edits (decision D6). Each lens locks the planes
- * it is not about: Art locks the priority plane, Depth and Walk the visual
- * plane, and Walk also keeps depth values (priority 4–15) off limits unless
- * they are allowed explicitly. Unlocking is explicit and lasts for the
- * Studio session. Every candidate edit is checked on its decoded planes by
+ * Lens locks for Room Studio edits (decision D6). The lens rules themselves
+ * (src/studio/lensRules.ts) are shared with AI proposals (assistScope.ts),
+ * so both pass the same validators. Every candidate edit is checked on its decoded planes by
  * the kernel's validateEdit, with the edited items' old and new footprints on
  * each plane as the only cells that plane may change, so an edit that changes
  * another object's output indirectly (a pre-empted fill) is refused. A
@@ -20,34 +18,20 @@ import {
   type CompiledDocument,
   type EditViolation,
 } from "../../../src/studio/editValidation.ts";
-import { itemMask, type PicturePlane } from "../../../src/studio/pictureQuery.ts";
+import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
+import {
+  checkLensRules,
+  depthValuesLocked,
+  lockedPlanes,
+  NO_UNLOCKS,
+  type LensUnlocks,
+} from "../../../src/studio/lensRules.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { StudioLens } from "./studioView.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 
-/** What the creator unlocked for this Studio session. */
-export interface LensUnlocks {
-  /** Art may change under the Depth and Walk lenses. */
-  readonly visual: boolean;
-  /** Depth may change under the Art lens. */
-  readonly priority: boolean;
-  /** Depth values 4–15 may change under the Walk lens. */
-  readonly depthInWalk: boolean;
-}
-
-export const NO_UNLOCKS: LensUnlocks = { visual: false, priority: false, depthInWalk: false };
-
-/** The planes `lens` keeps locked, less those unlocked. */
-export function lockedPlanes(lens: StudioLens, unlocks: LensUnlocks): PicturePlane[] {
-  if (lens === "art") return unlocks.priority ? [] : ["priority"];
-  return unlocks.visual ? [] : ["visual"];
-}
-
-/** Whether depth values 4–15 are locked: only in the Walk lens, until allowed. */
-export function depthValuesLocked(lens: StudioLens, unlocks: LensUnlocks): boolean {
-  return lens === "walk" && !unlocks.depthInWalk;
-}
+export { depthValuesLocked, lockedPlanes, NO_UNLOCKS, type LensUnlocks };
 
 /** What the item editor shows as locked: each plane's reason, or null, and the Walk depth rule. */
 export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
@@ -90,25 +74,6 @@ const lensName = (lens: StudioLens): string => `${lens[0]!.toUpperCase()}${lens.
 const where = (count: number, bbox: CellBox): string =>
   `${count} cell${count === 1 ? "" : "s"} at ${bbox.x0},${bbox.y0}..${bbox.x1},${bbox.y1}`;
 
-function boxOf(mask: Uint8Array): { count: number; bbox: CellBox } | null {
-  let count = 0;
-  let x0 = SCREEN_WIDTH;
-  let y0 = SCREEN_HEIGHT;
-  let x1 = -1;
-  let y1 = -1;
-  for (let i = 0; i < CELLS; i++) {
-    if (mask[i] !== 1) continue;
-    const x = i % SCREEN_WIDTH;
-    const y = (i - x) / SCREEN_WIDTH;
-    count++;
-    x0 = Math.min(x0, x);
-    y0 = Math.min(y0, y);
-    x1 = Math.max(x1, x);
-    y1 = Math.max(y1, y);
-  }
-  return count === 0 ? null : { count, bbox: { x0, y0, x1, y1 } };
-}
-
 /** Cells of `plane` that differ, where `counts` holds. */
 function diffMask(
   before: CompiledDocument,
@@ -121,45 +86,6 @@ function diffMask(
   const b = after[plane];
   for (let i = 0; i < CELLS; i++) if (a[i] !== b[i] && counts(i)) mask[i] = 1;
   return mask;
-}
-
-/**
- * Walk lens depth rule: no priority cell anywhere may move into, out of or
- * within depth values 4–15, except where an edited control item (0–3) covers
- * another item's depth or uncovers what lay under it. Moving a barrier is
- * allowed; moving, painting or removing depth is not, and neither is an edit
- * that changes another object's depth indirectly.
- */
-function depthViolation(
-  before: CompiledDocument,
-  after: CompiledDocument,
-  edited: readonly string[],
-): StudioViolation | null {
-  const wroteBefore = unionMask(
-    ...edited.map((id) => itemMask(before, before.document, id, "priority")),
-  );
-  const wroteAfter = unionMask(
-    ...edited.map((id) => itemMask(after, after.document, id, "priority")),
-  );
-  const mask = diffMask(before, after, "priority", (i) => {
-    const was = before.priority[i]!;
-    const now = after.priority[i]!;
-    if (was < 4 && now < 4) return false;
-    const covers = now < 4 && wroteAfter[i] === 1 && !(wroteBefore[i] === 1 && was >= 4);
-    const uncovers = was < 4 && wroteBefore[i] === 1 && wroteAfter[i] === 0;
-    return !covers && !uncovers;
-  });
-  const box = boxOf(mask);
-  if (!box) return null;
-  return {
-    rule: "walk-depth",
-    plane: "priority",
-    message: "This would change depth values 4–15, which are locked in the Walk lens.",
-    detail: `Depth values 4–15 are locked in the Walk lens: ${where(box.count, box.bbox)} would change.`,
-    count: box.count,
-    bbox: box.bbox,
-    mask,
-  };
 }
 
 /** The edited items' footprints on `plane`, before and after: the cells that plane may change. */
@@ -236,10 +162,16 @@ export function checkStudioEdit(
           mask,
         };
   });
-  if (depthValuesLocked(lens, unlocks)) {
-    const depth = depthViolation(before, after, edited);
-    if (depth) violations.push(depth);
-  }
+  for (const depth of checkLensRules(before, after, edited, lens, unlocks))
+    violations.push({
+      rule: depth.constraint,
+      plane: depth.plane,
+      message: "This would change depth values 4–15, which are locked in the Walk lens.",
+      detail: `Depth values 4–15 are locked in the Walk lens: ${where(depth.count, depth.bbox)} would change.`,
+      count: depth.count,
+      bbox: depth.bbox,
+      mask: depth.mask,
+    });
   return { ok: violations.length === 0, violations };
 }
 

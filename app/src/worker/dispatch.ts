@@ -185,6 +185,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onReenter(msg);
       return;
     }
+    if (msg.type === "playHere") {
+      ctx.fns.onPlayHere(msg);
+      return;
+    }
     if (msg.type === "boot") {
       const boot: BootMessage = msg;
       // A fresh session discards any open history view — its scratch engine

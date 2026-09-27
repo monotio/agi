@@ -38,6 +38,7 @@ import {
   type PathDraft,
   type RectCorners,
   type StudioTool,
+  type WalkTool,
 } from "./studioTools.ts";
 import { maskFillPath, type StudioLens } from "./studioView.ts";
 import type { StudioDocument } from "./useStudioDocument.ts";
@@ -56,10 +57,24 @@ export interface StudioToolsOptions {
   readonly say: (notice: StudioNotice | null) => void;
   /** Editing is blocked: drawing tools do nothing. */
   readonly frozen: () => boolean;
+  /** Drawing waits for an AI proposal's verdict (or its request). */
+  readonly paused?: () => boolean;
   /** The scrolling stage the hand pans. */
   readonly stage: () => HTMLElement | null;
   readonly frame?: (callback: () => void) => number;
   readonly cancelFrame?: (handle: number) => void;
+  /** The Walk view's tools (test walk, door box, edge exit): useStudioWalk's gestures. */
+  readonly walk?: WalkGestures | undefined;
+}
+
+/** What the walk tools do with the canvas's presses and drags. */
+export interface WalkGestures {
+  press(tool: WalkTool, cell: Point): boolean;
+  dragTo(cell: Point): void;
+  release(): void;
+  cancel(): boolean;
+  /** A door box is being drawn or dragged. */
+  busy(): boolean;
 }
 
 /** A shape's noun for the draw tools that make one. */
@@ -204,8 +219,12 @@ export function useStudioTools(options: StudioToolsOptions) {
 
   /** Drawing is blocked (view only, or a Keep that needs a reload): say so. */
   function blocked(): boolean {
-    if (!options.frozen()) return false;
-    options.say({ tone: "warn", text: "This picture is view only: nothing can be drawn." });
+    if (options.frozen()) {
+      options.say({ tone: "warn", text: "This picture is view only: nothing can be drawn." });
+      return true;
+    }
+    if (!options.paused?.()) return false;
+    options.say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
     return true;
   }
 
@@ -248,7 +267,7 @@ export function useStudioTools(options: StudioToolsOptions) {
   /** Esc: abandon what is being drawn. Returns whether anything was. */
   function cancel(): boolean {
     // Only the tools' own gesture: a Select drag is the drag composable's to abort.
-    const was = busy.value || at !== null;
+    const was = (options.walk?.cancel() ?? false) || busy.value || at !== null;
     stopFrame();
     if (at !== null && draft.gesturing.value) draft.cancelGesture();
     at = null;
@@ -354,7 +373,7 @@ export function useStudioTools(options: StudioToolsOptions) {
   let fillFrame: number | null = null;
   let fillKey = "";
   function previewFill(cell: Point | undefined): void {
-    if (tool.value !== "fill" || !cell || options.frozen()) {
+    if (tool.value !== "fill" || !cell || options.frozen() || options.paused?.()) {
       fillPreview.value = null;
       return;
     }
@@ -432,6 +451,10 @@ export function useStudioTools(options: StudioToolsOptions) {
       }
       case "hand":
         return true;
+      case "walk":
+      case "door":
+      case "edge":
+        return options.walk?.press(tool.value, cell) ?? true;
     }
   }
 
@@ -448,6 +471,7 @@ export function useStudioTools(options: StudioToolsOptions) {
 
   /** A rect's corner or the brush's pen moves to `cell`. */
   function dragTo(cell: Point, square: boolean): void {
+    if (options.walk?.busy()) return options.walk.dragTo(cell);
     const r = rect.value;
     if (r) {
       const moved = r.moved || cell.x !== r.start.x || cell.y !== r.start.y;
@@ -467,12 +491,13 @@ export function useStudioTools(options: StudioToolsOptions) {
       pan = null;
       return;
     }
-    if (rect.value) drag(pressed);
+    if (rect.value || options.walk?.busy()) drag(pressed);
     settleDrag();
   }
 
   /** The rect or brush stroke in progress is done: insert it. */
   function settleDrag(): void {
+    if (options.walk?.busy()) return options.walk.release();
     if (rect.value) {
       const op = rectOp();
       rect.value = null;
@@ -489,11 +514,12 @@ export function useStudioTools(options: StudioToolsOptions) {
   /** The pointer was taken away mid-drag: a rect or stroke is abandoned; a path waits. */
   function abort(): void {
     pan = null;
+    options.walk?.cancel();
     if (rect.value || stroke.value) cancel();
   }
 
   // A lens change or a frozen draft ends what was being drawn with the old values.
-  watch([lens, options.frozen], () => cancel());
+  watch([lens, options.frozen, () => options.paused?.() ?? false], () => cancel());
   // The picture changed under the fill tool's explanation (undo, Keep): it no longer holds.
   watch(
     () => draft.source.value,
@@ -517,9 +543,14 @@ export function useStudioTools(options: StudioToolsOptions) {
     };
   });
 
+  /** A drag the keyboard settles with its next Space or Enter: a rect, a stroke, a door box. */
+  const settling = (): boolean =>
+    rect.value !== null || stroke.value !== null || (options.walk?.busy() ?? false);
+
   return {
     tool,
     setTool,
+    settling,
     spaceHeld,
     panning,
     values,

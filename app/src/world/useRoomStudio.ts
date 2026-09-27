@@ -28,6 +28,7 @@ export function useRoomStudio() {
       room,
       pictureNumber: picture,
       ...source,
+      walk: room > 0 ? map.studioRoom(room) : null,
       // A picture can serve several rooms: an untitled room is named by what Studio edits.
       title: title || `PIC ${picture}`,
       subtitle: `Room ${room} · PIC ${picture}`,

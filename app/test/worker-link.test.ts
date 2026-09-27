@@ -23,6 +23,7 @@ const OUTBOUND_TYPES = [
   "engineState",
   "objects",
   "debugWritten",
+  "playedHere",
   "debugEvents",
   "debugTrace",
   "checkpoint",
@@ -263,6 +264,18 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "debugWritten":
         await roundTrip(link, w, "debugWrite", { type, id: 0 });
         break;
+      case "playedHere": {
+        const r = await roundTrip(link, w, "playHere", {
+          type,
+          id: 0,
+          ok: true,
+          room: 2,
+          x: 30,
+          y: 140,
+        });
+        assert.equal((r as { room: number }).room, 2);
+        break;
+      }
       case "debugEvents": {
         const r = await roundTrip(link, w, "debugEvents", {
           type,

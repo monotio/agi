@@ -18,6 +18,7 @@
  *   dismissPrint        acknowledge the engine's open modal (click path)
  *   hostAnswer          reply to a posted hostRequest
  *   reenter             re-enter the current room after a live patch
+ *   playHere            jump the live game to a room and ego spot
  *   patch               replace one container resource; acknowledged by "patched"
  *   patchMetadata       replace WORDS.TOK / OBJECT / TESTS.JSON
  *   state / objects / frames / checkpoint / exportFiles
@@ -32,7 +33,7 @@
  *
  * Messages out:
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,
- *   engineState, objects, checkpoint, exportFiles, debugWritten,
+ *   engineState, objects, checkpoint, exportFiles, debugWritten, playedHere,
  *   debugEvents, debugTrace, recordingStarted, recordingStopped, flushed,
  *   restored, booted, metadataPatched, patched, paused, error.
  *   WorkerPresentation — frame, trace, print, status, shake, showObj,
@@ -136,6 +137,11 @@ export type WorkerInbound =
   | { type: "dismissPrint" }
   | { type: "hostAnswer"; id: number; response: string }
   | { type: "reenter"; room?: number }
+  /**
+   * Play here: enter `room`, run its entry cycle and place ego's baseline at
+   * (x, y), keeping the session's flags. Answered by `playedHere`.
+   */
+  | { type: "playHere"; id: number; room: number; x: number; y: number }
   | {
       type: "patch";
       kind: PatchKind;
@@ -286,6 +292,16 @@ export type WorkerControl =
   | { type: "engineState"; id: number; state: EngineStateReport | null }
   | { type: "objects"; id: number; objects: ScreenObjectState[] }
   | { type: "debugWritten"; id: number }
+  /** ok: ego stands at the spot; otherwise `reason`, and where the game is now. */
+  | {
+      type: "playedHere";
+      id: number;
+      ok: boolean;
+      room: number;
+      x: number;
+      y: number;
+      reason?: string;
+    }
   | { type: "debugEvents"; id: number; cycle: number; latestSeq: number; events: DebugEvent[] }
   | { type: "debugTrace"; id: number; cycle: number; latestSeq: number; records: StampedTrace[] }
   | { type: "checkpoint"; id: number; image: Uint8Array | null }
@@ -548,6 +564,7 @@ export interface WorkerQueryReplies {
   historyRecover: Extract<WorkerControl, { type: "historyRecovery" }>;
   historyViewRestore: Extract<WorkerControl, { type: "historyViewRestored" }>;
   debugWrite: Extract<WorkerControl, { type: "debugWritten" }>;
+  playHere: Extract<WorkerControl, { type: "playedHere" }>;
   debugTrace: Extract<WorkerControl, { type: "debugTrace" }>;
   debugEvents: Extract<WorkerControl, { type: "debugEvents" }>;
 }
@@ -574,6 +591,7 @@ export interface WorkerQueryPayload {
   historyRecover: WorkerQueryReplies["historyRecover"];
   historyViewRestore: WorkerQueryReplies["historyViewRestore"];
   debugWrite: WorkerQueryReplies["debugWrite"];
+  playHere: WorkerQueryReplies["playHere"];
   debugTrace: WorkerQueryReplies["debugTrace"];
   debugEvents: WorkerQueryReplies["debugEvents"];
 }

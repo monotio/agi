@@ -44,6 +44,7 @@ const {
   labels = null,
   handles = null,
   flash = null,
+  changed = null,
   movable = false,
 } = defineProps<{
   layer: PaneLayer;
@@ -60,6 +61,8 @@ const {
   handles?: readonly LineHandle[] | null;
   /** Cells an edit was refused for, highlighted briefly. */
   flash?: MaskPaths | null;
+  /** Cells an AI proposal changes, outlined while it awaits a verdict. */
+  changed?: MaskPaths | null;
   /** The selection can be dragged: the pointer shows it. */
   movable?: boolean;
 }>();
@@ -69,6 +72,8 @@ const emit = defineEmits<{
   drag: [press: PanePress];
   release: [press: PanePress];
   abort: [];
+  /** A right-click on the picture: its cell and where the menu opens (viewport pixels). */
+  menu: [cell: ViewportPoint, at: { x: number; y: number }];
 }>();
 
 const canvas = useTemplateRef("canvas");
@@ -83,6 +88,31 @@ const handleBox = computed(() => {
   const x = 1 / (viewport.pixelAspect * viewport.zoom);
   const y = 1 / viewport.zoom;
   return { markW: 8 * x, markH: 8 * y, hitW: 24 * x, hitH: 24 * y };
+});
+
+/** Control label text size and a monospace glyph's advance, in CSS px. */
+const LABEL_PX = 11;
+const LABEL_ADVANCE = 0.6 * LABEL_PX;
+/**
+ * The control labels that read on their own at this zoom. Labels come
+ * largest run first; one whose text would overlap another's columns within
+ * two text lines of it would read as that label's second line, so it is
+ * left out (the legend still names every value).
+ */
+const readableLabels = computed(() => {
+  if (!labels) return null;
+  const { pixelAspect, zoom } = viewport;
+  const placed: { x0: number; x1: number; y: number }[] = [];
+  return labels.filter((tag) => {
+    const half = ((CONTROL_VALUES[tag.value]?.name.length ?? 0) * LABEL_ADVANCE) / 2;
+    const x = (tag.x + 0.5) * pixelAspect * zoom;
+    const box = { x0: x - half, x1: x + half, y: tag.y * zoom };
+    const stacks = placed.some(
+      (other) => box.x0 < other.x1 && other.x0 < box.x1 && Math.abs(box.y - other.y) < 2 * LABEL_PX,
+    );
+    if (!stacks) placed.push(box);
+    return !stacks;
+  });
 });
 
 let image: ImageData | undefined;
@@ -159,6 +189,12 @@ function onLost(event: PointerEvent): void {
   captured = null;
   emit("abort");
 }
+function onMenu(event: MouseEvent): void {
+  const cell = cellAt(event);
+  if (!cell) return;
+  event.preventDefault();
+  emit("menu", cell, { x: event.clientX, y: event.clientY });
+}
 function onLeave(): void {
   last = undefined;
   emit("hover", undefined);
@@ -177,6 +213,7 @@ function onLeave(): void {
     @pointercancel="onLost"
     @lostpointercapture="onLost"
     @pointerleave="onLeave"
+    @contextmenu="onMenu"
   >
     <canvas
       ref="canvas"
@@ -213,13 +250,13 @@ function onLeave(): void {
           {{ guide.band }}
         </text>
       </g>
-      <g v-if="labels" data-role="control-labels">
+      <g v-if="readableLabels" data-role="control-labels">
         <text
-          v-for="tag in labels"
+          v-for="tag in readableLabels"
           :key="`${tag.x},${tag.y}`"
           class="studio-pane__text studio-pane__text--control"
           text-anchor="middle"
-          :font-size="11 * unit"
+          :font-size="LABEL_PX * unit"
           :transform="`translate(${tag.x + 0.5} ${tag.y - unit * 3}) scale(0.5 1)`"
         >
           {{ CONTROL_VALUES[tag.value]?.name }}
@@ -230,6 +267,14 @@ function onLeave(): void {
         <path
           class="studio-pane__sel-line"
           :d="selection.outline"
+          vector-effect="non-scaling-stroke"
+        />
+      </g>
+      <g v-if="changed" data-role="changed">
+        <path class="studio-pane__changed-fill" :d="changed.fill" />
+        <path
+          class="studio-pane__changed-line"
+          :d="changed.outline"
           vector-effect="non-scaling-stroke"
         />
       </g>
@@ -339,6 +384,16 @@ function onLeave(): void {
   fill: none;
   stroke: var(--action);
   stroke-width: 2px;
+}
+.studio-pane__changed-fill {
+  fill: var(--ok);
+  fill-opacity: 0.12;
+}
+.studio-pane__changed-line {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 2px;
+  stroke-dasharray: 4 2;
 }
 .studio-pane__flash-fill {
   fill: var(--warn);

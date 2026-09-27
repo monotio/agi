@@ -28,6 +28,8 @@ export function useStudioEditing(options: {
   readonly selectedId: Ref<string | undefined>;
   /** Editing is blocked (view only, or a Keep that needs a reload). */
   readonly frozen: () => boolean;
+  /** Edits wait (an AI request or its proposal is open); undo and redo still run. */
+  readonly paused?: () => boolean;
 }) {
   const { draft, selectedId } = options;
   const { notice, say, hold } = useStudioNotice();
@@ -40,7 +42,9 @@ export function useStudioEditing(options: {
     draft.document.value.items.find((candidate) => candidate.id === selectedId.value),
   );
   /** The selected item, when the creator may edit it now. */
-  const editable = computed(() => (options.frozen() ? undefined : item.value));
+  const editable = computed(() =>
+    options.frozen() || options.paused?.() ? undefined : item.value,
+  );
 
   /** Show what an edit did: a refusal's reason (and its cells), or nothing. */
   function report(outcome: DraftOutcome): void {

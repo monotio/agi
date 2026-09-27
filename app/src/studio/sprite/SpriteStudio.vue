@@ -1,15 +1,31 @@
 <script setup lang="ts">
-import { computed, nextTick, onScopeDispose, ref, shallowRef, useTemplateRef, watch } from "vue";
+import {
+  computed,
+  inject,
+  nextTick,
+  onScopeDispose,
+  ref,
+  shallowRef,
+  useTemplateRef,
+  watch,
+} from "vue";
+import type { StudioFocus } from "../../../../src/agent/studioAssistTools.ts";
+import { viewAssistScope } from "../../../../src/studio/assistScope.ts";
+import { openSprite, type SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import type { ViewUsage } from "../../../../src/studio/sprite/spriteUsage.ts";
-import { useEngineApi } from "../../engineContext.ts";
+import { engineKey, useEngineApi } from "../../engineContext.ts";
+import { aiSettingsKey } from "../../useAiSettings.ts";
+import UiSegmented from "../../ui/UiSegmented.vue";
 import LessonCard from "../../lessons/LessonCard.vue";
 import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
 import type { ResourceCommitResult, ViewEdit } from "../../resourceCommit.ts";
 import { useOptionalCreateCenter, type SpriteRoom } from "../../shell/useCreateWorkspace.ts";
+import StudioAssistCompare from "../StudioAssistCompare.vue";
+import StudioAssistPanel from "../StudioAssistPanel.vue";
 import StudioKeepDialog from "../StudioKeepDialog.vue";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
 import StudioStageNotes from "../StudioStageNotes.vue";
@@ -19,6 +35,8 @@ import { useStudioKeep, type KeepRecovery } from "../useStudioKeep.ts";
 import { useStudioLeave } from "../useStudioLeave.ts";
 import { useStudioNotice } from "../useStudioNotice.ts";
 import { useStudioViewport } from "../useStudioViewport.ts";
+import { useStudioAssist, type StudioAssistHost } from "../useStudioAssist.ts";
+import { changedPixels, viewChangeSummary, viewScopeChips } from "../studioAssistText.ts";
 import SpriteCanvas, { type OnionSkin } from "./SpriteCanvas.vue";
 import SpriteCelPanel, { type CelEdit } from "./SpriteCelPanel.vue";
 import SpriteContactSheet from "./SpriteContactSheet.vue";
@@ -55,7 +73,9 @@ export type SpriteKeepFn = (
  * (SpriteContactSheet.vue). Keys are handled at the root and stopped
  * (spriteKeys.ts), so none reach the game, and focus never falls out of the
  * studio while it is open; every way out settles unkept changes first
- * (useStudioLeave), as in Room Studio.
+ * (useStudioLeave), as in Room Studio. "Ask about this selection"
+ * (useStudioAssist) has the game's AI propose a change to the selected cel
+ * or loop, previewed on the canvas and accepted as one undo step.
  */
 const {
   viewNumber,
@@ -97,7 +117,6 @@ const draft = useSpriteDraft({
   base: () => ({ bytes, revision: baseRevision }),
   profile: () => profile,
 });
-const shown = draft.shown;
 /** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
 const lesson = useStudioLesson();
 // A lesson can open on the loop and cel its steps speak of.
@@ -129,6 +148,105 @@ watch(
     cel.value = Math.min(cel.value, (document.loops[loop.value]?.cels.length ?? 1) - 1);
   },
 );
+
+// ---- Ask about this selection ----------------------------------------------
+const engineApi = inject(engineKey, null);
+const aiSettings = inject(aiSettingsKey, null);
+const assistHost: StudioAssistHost | null =
+  engineApi && aiSettings
+    ? {
+        run: (request) => engineApi.runStudioAssist(request, aiSettings.llmConfig()),
+        cancel: () => engineApi.discardAgent(),
+        resume: () => engineApi.continueAgent(),
+        task: () => engineApi.state.agentTask,
+        log: () => engineApi.state.agentLog,
+      }
+    : null;
+/** What an Ask is about: the selected cel, or every cel of its loop. */
+const askScope = ref<"cel" | "loop">("loop");
+const ASK_SCOPES = [
+  { value: "cel", label: "This cel" },
+  { value: "loop", label: "Whole loop" },
+] as const;
+const askCels = computed(() => {
+  const cels = draft.document.value.loops[loop.value]?.cels ?? [];
+  if (askScope.value === "cel")
+    return cels[cel.value] ? [{ loop: loop.value, cel: cel.value }] : [];
+  return cels.map((_, index) => ({ loop: loop.value, cel: index }));
+});
+/** Every loop the request leaves alone: pixels and metadata. */
+const askProtected = computed(() =>
+  draft.document.value.loops.flatMap((_, index) => (index === loop.value ? [] : [index])),
+);
+const currentView = () => ({ kind: "view" as const, payload: draft.bytes.value });
+const assist = useStudioAssist({
+  host: () => assistHost,
+  configured: () => aiSettings?.aiConfigured.value ?? false,
+  frozen: () => frozen(),
+  selected: () => askCels.value.length > 0,
+  focus: (): StudioFocus | null =>
+    askCels.value.length === 0
+      ? null
+      : {
+          scope: viewAssistScope({
+            num: viewNumber,
+            document: draft.document.value,
+            targetCels: askCels.value,
+            protectedLoops: askProtected.value,
+          }),
+          draft: currentView,
+        },
+  current: currentView,
+  apply: (candidate, focus) => {
+    if (candidate.kind !== "view" || focus.scope.kind !== "view")
+      return { ok: false, message: "That proposal is not for this view." };
+    const outcome = draft.adopt(candidate.draft.payload, "AI edit", focus.scope);
+    report(outcome);
+    return outcome.ok ? outcome : { ok: false, message: outcome.refusal.message };
+  },
+});
+/** An AI proposal awaiting a verdict, decoded. */
+const proposal = computed<SpriteDocument | null>(() => {
+  const candidate = assist.candidate.value;
+  if (assist.phase.value !== "candidate" || candidate?.kind !== "view") return null;
+  try {
+    return openSprite(candidate.draft.payload, profile);
+  } catch {
+    return null;
+  }
+});
+/** The canvas and previews show the draft (before) or the proposal applied (after). */
+const compare = ref<"before" | "after">("after");
+watch(proposal, (next, previous) => {
+  if (next && !previous) compare.value = "after";
+});
+/** What the canvas and previews show: a proposal's side, the gesture's preview, else the document. */
+const shown = computed(() =>
+  proposal.value
+    ? compare.value === "after"
+      ? proposal.value
+      : draft.document.value
+    : draft.shown.value,
+);
+/** The current cel's pixels the proposal changes. */
+const changedHere = computed(() =>
+  proposal.value
+    ? changedPixels(
+        draft.document.value.loops[loop.value]?.cels[cel.value],
+        proposal.value.loops[loop.value]?.cels[cel.value],
+      )
+    : null,
+);
+const assistChanges = computed(() =>
+  proposal.value ? viewChangeSummary(draft.document.value, proposal.value) : null,
+);
+const assistChips = computed(() => {
+  const scope = assist.holds.value ? assist.asked.value?.scope : undefined;
+  return scope?.kind === "view"
+    ? viewScopeChips({ targetCels: scope.targetCels, protectedLoops: scope.protectedLoops ?? [] })
+    : viewScopeChips({ targetCels: askCels.value, protectedLoops: askProtected.value });
+});
+const assistPanel = useTemplateRef("assistPanel");
 
 const currentCel = computed(() => shown.value.loops[loop.value]?.cels[cel.value]);
 const group = computed(() => aliasGroup(draft.document.value, loop.value));
@@ -179,6 +297,8 @@ async function keepView(revision: ResourceRevision): Promise<ResourceCommitResul
 }
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
+/** Edits wait while an AI request runs or its proposal awaits a verdict; undo still runs. */
+const editsBlocked = (): boolean => frozen() || assist.holds.value;
 
 /** Say what an edit did: why it was refused, a split-off copy, feet that moved. */
 function report(outcome: SpriteOutcome, feetFrom?: typeof currentCel.value): void {
@@ -211,6 +331,10 @@ function edit(
     say({ tone: "warn", text: "This view is view only: nothing can be changed." });
     return;
   }
+  if (assist.holds.value) {
+    say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
+    return;
+  }
   const ops = "type" in op ? [op] : op;
   const changes = ops.map((one) => ({ op: one, targets: targetsOf(one) }));
   report(draft.applyAll(changes, label), feetFrom);
@@ -233,6 +357,7 @@ const tools = useSpriteTools({
   report: (outcome) => report(outcome),
   say,
   frozen,
+  paused: () => assist.holds.value,
 });
 
 function selectCel(nextLoop: number, nextCel: number): void {
@@ -383,6 +508,7 @@ const keys: SpriteKeyActions = {
     else if (next) tools.setTool(next);
     return next !== undefined;
   },
+  ask: () => assistPanel.value?.focus() ?? false,
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
@@ -444,7 +570,7 @@ const status = computed(() => {
     <SpriteToolRail
       :tool="tools.tool.value"
       class="sprite-studio__rail"
-      :frozen="frozen()"
+      :frozen="editsBlocked()"
       :color
       @update:tool="tools.setTool"
       @flip="tools.flip()"
@@ -481,6 +607,7 @@ const status = computed(() => {
           :grid="showGrid"
           :baseline="showBaseline"
           :overlay="tools.overlay.value"
+          :changed="changedHere"
           :label="`Loop ${loop}, cel ${cel}: ${currentCel.width} by ${currentCel.height} pixels`"
           @hover="tools.hover"
           @press="(press) => tools.pressAt(press.point, press.alt)"
@@ -497,9 +624,15 @@ const status = computed(() => {
         :loop
         :cel
         :propagate="propagates(loop)"
-        :frozen="frozen()"
+        :frozen="editsBlocked()"
         @apply="(op) => edit(op, 'Recolour')"
         @close="tools.closeRecolor()"
+      />
+      <StudioAssistCompare
+        v-if="proposal"
+        v-model="compare"
+        below-bar
+        :stale="assist.stale.value"
       />
       <StudioStageNotes
         :banner="keeper.banner.value"
@@ -524,7 +657,7 @@ const status = computed(() => {
       :document="shown"
       :loop
       :cel
-      :frozen="frozen()"
+      :frozen="editsBlocked()"
       @select="selectCel"
       @edit="edit"
       @edits="edit"
@@ -544,7 +677,7 @@ const status = computed(() => {
         :cel="currentCel"
         :loop
         :index="cel"
-        :frozen="frozen()"
+        :frozen="editsBlocked()"
         @edit="celEdit"
       />
       <SpriteMirrorNote
@@ -564,6 +697,28 @@ const status = computed(() => {
         :cel="currentCel"
         :priority-base="priorityBase"
       />
+      <StudioAssistPanel
+        v-if="assistHost"
+        ref="assistPanel"
+        :assist
+        :chips="assistChips"
+        hint="To change the scope, pick another cel or loop on the timeline."
+        :changes="assistChanges"
+        noun="view"
+        empty="Select a cel on the timeline to ask the AI about it."
+        collapsible
+      >
+        <template #scope>
+          <UiSegmented
+            v-if="!assist.holds.value"
+            v-model="askScope"
+            size="sm"
+            label="Ask about"
+            :options="ASK_SCOPES"
+            data-testid="assist-scope"
+          />
+        </template>
+      </StudioAssistPanel>
     </aside>
 
     <footer class="sprite-studio__status">
@@ -636,6 +791,8 @@ const status = computed(() => {
 .sprite-studio__frame--recolor :deep(.stage-note) {
   left: calc(50% + 134px);
 }
+/* Ask floats at the frame's upper right, under the view bar: the side panel
+   keeps its previews in view without scrolling. */
 /* The held pen's cue, at the stage's lower left like the editing keys' hint. */
 .sprite-studio__pen {
   position: absolute;

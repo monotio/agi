@@ -262,13 +262,19 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
   const original = open(TUTORIAL_VIEW_0);
   expect(at(original.loops[0]!.cels[0]!, CENTRE.x, CENTRE.y)).toBe(CYAN);
 
-  // At 1440×900 the panel shows the palette, the previews and the room without scrolling.
+  // At 1440×900 the panel shows the palette, the previews and the room without
+  // scrolling; only the Ask box, last in the panel, may sit below them.
   const panel = studio.getByRole("complementary", { name: "Cel, previews and linked loops" });
   await expect(studio.getByTestId("sprite-mirror-note")).toBeVisible();
+  expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
   const panelBox = (await panel.boundingBox())!;
   const roomBox = (await studio.getByTestId("sprite-room-verdict").boundingBox())!;
   expect(roomBox.y + roomBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height);
-  expect(await panel.evaluate((element) => element.scrollHeight - element.clientHeight)).toBe(0);
+  expect(
+    await panel.evaluate(
+      (element) => element.lastElementChild?.getAttribute("data-testid") ?? null,
+    ),
+  ).toBe("studio-assist");
 
   // C, then Space on the canvas picks the cyan under the cursor as the colour to change.
   await studio.locator('[data-loop="0"][data-cel="0"]').click();

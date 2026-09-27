@@ -19,7 +19,9 @@ export interface InspectorCommand {
  * and the hovered or clicked pixel on both planes, with the command that
  * last wrote it. With a fill command at the playhead, a clicked pixel also
  * explains whether that fill reaches it. An editable item's editor goes in
- * the `editor` slot and replaces the read-only colour and priority lists.
+ * the `editor` slot and replaces the read-only colour and priority lists;
+ * a view's own panel (the Walk view's) goes in the `lead` slot above it all,
+ * and "Ask about this selection" in the `assist` slot under the editor.
  */
 const {
   row,
@@ -79,11 +81,13 @@ const writer = (plane: PlanePixel): string =>
 
 <template>
   <aside class="inspector" aria-label="Inspector">
+    <slot name="lead" />
     <header class="inspector__title">
       <h2>{{ row ? row.label : "Nothing selected" }}</h2>
       <p>{{ row ? summary : "Click an item in the Scene list or a pixel on the canvas." }}</p>
     </header>
     <slot name="editor" />
+    <slot name="assist" />
 
     <section v-if="pixel" class="inspector__sec" data-role="pixel">
       <h3>
