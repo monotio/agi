@@ -257,9 +257,8 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
     roomGeneration: true,
   });
 
-  const revision = requireResourceRevision(
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  );
+  // A booted game runs the revision storage holds: its files' own.
+  const revision = await gameRevision(dummyFiles);
   const remixGame: BootedGame = {
     installed: false,
     projectId: testProjectId("remix-project-789"),
@@ -392,6 +391,74 @@ test("reloading from storage resumes only a checkpoint of the stored bytes, else
   running = { ...running, installed: true, projectId: undefined, hash: "edition" };
   assert.equal(await controller.reloadFromStorage(config), false);
   assert.equal(boots.length, 2);
+});
+
+test("a tab behind storage never writes its checkpoint over the newer save's", async (t) => {
+  const id = testProjectId("checkpoint-behind-storage");
+  t.after(() => clearCachedGame(id));
+  installLocalStorageMock(t);
+  const before = { "WORDS.TOK": Uint8Array.of(0, 0) };
+  const after = { "WORDS.TOK": Uint8Array.of(0, 0), OBJECT: Uint8Array.of(1) };
+  // Another tab kept an edit and took a checkpoint of the kept bytes; this
+  // tab still runs `before` and has not heard of it yet.
+  await saveAuthoredGame(id, {
+    title: "Kept elsewhere",
+    provider: "stub",
+    model: "offline-stub",
+    files: after,
+    words: [],
+  });
+  writeAutosave(localStorage, {
+    format: "monotio.agi.autosave",
+    version: 1,
+    image: "other-tab",
+    cycle: 7,
+    room: 2,
+    savedAt: Date.now(),
+    game: { installed: false, identity: { project: id, revision: await gameRevision(after) } },
+  });
+  const running: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Kept elsewhere",
+    revision: await gameRevision(before),
+    files: before,
+    words: [],
+  };
+  let stored = 0;
+  const context = (game: BootedGame): AutosaveControllerContext => ({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => null,
+    onAutosaveStored: () => stored++,
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+  });
+  const controller = useAutosaveController(context(running));
+
+  // A checkpoint names this tab's revision, which storage no longer holds:
+  // it could never resume, and it would bury the other tab's.
+  controller.handleAutosave({ image: "this-tab", cycle: 90, room: 1 });
+  assert.equal(await controller.getAutosaveWrite(), false);
+  assert.equal(readAutosave(id)?.image, "other-tab");
+  assert.equal(stored, 0);
+
+  // A game on the stored revision checkpoints as before.
+  const current: BootedGame = { ...running, revision: await gameRevision(after), files: after };
+  const onStored = useAutosaveController(context(current));
+  // Unless it is marked behind (a removed-and-recreated project, a Keep
+  // that never installed): then nothing writes until it reloads.
+  current.behindStorage = true;
+  onStored.handleAutosave({ image: "marked", cycle: 91, room: 3 });
+  assert.equal(await onStored.getAutosaveWrite(), false);
+  delete current.behindStorage;
+  onStored.handleAutosave({ image: "current", cycle: 92, room: 3 });
+  assert.equal(await onStored.getAutosaveWrite(), true);
+  assert.equal(readAutosave(id)?.image, "current");
+  assert.equal(stored, 1);
 });
 
 test("useAutosaveController flushAutosave and drainFlushWaiters interact properly", async () => {

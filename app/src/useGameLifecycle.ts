@@ -22,7 +22,7 @@ import { gameStorageKey, type BootedGame, type CurrentGame, type ProjectId } fro
 import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
 import { fetchFixtureFiles, resolveFixtureTarget } from "./gameDiscovery.ts";
 import type { useAuthoringController } from "./useAuthoringController.ts";
-import type { useAutosaveController } from "./useAutosaveController.ts";
+import { storageMovedPast, type useAutosaveController } from "./useAutosaveController.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { useTestRecorder } from "./useTestRecorder.ts";
@@ -70,6 +70,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
   function resetScreenState(): void {
     autosave.resetScreen();
+    state.staleTab = false;
     state.powerUp.open = false;
     state.powerUp.busy = false;
     testRecorder.reset();
@@ -199,7 +200,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     try {
       const game = booted;
       const session = authoring.getSession();
-      if (game && session && (!game.installed || authoring.isRemixNeedsSave())) {
+      // Behind storage (another tab committed a newer revision) this game's
+      // files, conversation and checkpoint describe bytes storage no longer
+      // holds: nothing is saved over the newer project, and leaving is fine.
+      const behind = game !== null && storageMovedPast(game);
+      if (game && session && !behind && (!game.installed || authoring.isRemixNeedsSave())) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
@@ -207,7 +212,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           );
         await authoring.persistRemix(game, session, files);
       }
-      if (!ejectOptions?.abandonUnsaved) {
+      if (!ejectOptions?.abandonUnsaved && !behind) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(

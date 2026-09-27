@@ -121,7 +121,7 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   const menu = page.getByRole("menu", { name: "Game actions", exact: true });
   await expect(menu.getByRole("menuitem", { name: "Start over", exact: true })).toBeVisible();
   await page.keyboard.press("End");
-  await expect(menu.getByRole("menuitem", { name: "Remove game", exact: true })).toBeFocused();
+  await expect(menu.getByRole("menuitem", { name: "Remove game…", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(renamed.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
   await expect(renamed.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
@@ -133,7 +133,7 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   // A saved copy of the tutorial keeps its walkthrough action at the top.
   expect(items[0]).toMatch(/^Run walkthrough/);
   expect(items).toContain("Start over");
-  expect(items.at(-1)).toBe("Remove game");
+  expect(items.at(-1)).toBe("Remove game…");
   expect(items.indexOf("Make a copy")).toBeLessThan(items.findIndex((t) => /Export game/.test(t)));
   for (const width of [1440, 390]) {
     await page.keyboard.press("Escape");

@@ -1,6 +1,6 @@
 import type { ProfileId } from "../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
-import { reactive, shallowReactive } from "vue";
+import { getCurrentScope, onScopeDispose, reactive, shallowReactive } from "vue";
 import { createAgentLogger } from "./agent/agentLog.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createReplayDriver } from "./useReplayDriver.ts";
@@ -23,6 +23,7 @@ import {
   writeAutosave,
 } from "./useAutosaveController.ts";
 import { clearCachedGame } from "./gameStorage.ts";
+import { watchProjectWrites } from "./projectBroadcast.ts";
 import { clearGameSaves } from "./gameSaves.ts";
 import { removeMapSidecar } from "./roomMapStore.ts";
 import { type BootedGame, type Frame, type ProjectId } from "./gameTypes.ts";
@@ -112,6 +113,7 @@ export function useEngine(
       error: "",
     },
     resumed: false,
+    staleTab: false,
     recording: { active: false, starting: false, error: "" },
     historyPending: 0,
     historyUnsaved: null,
@@ -215,6 +217,18 @@ export function useEngine(
     window.__AGI_FRAME__ = link.getLatestFrame;
   }
 
+  /**
+   * Storage moved past the running game, found by a refused autosave or
+   * another tab's notice: the Assistant says so and offers Reload game, as a
+   * refused turn does, and the stage's note says it while it is closed.
+   */
+  function tellBehindStorage(): void {
+    logAgent("error", STALE_SAVE_MESSAGE);
+    state.powerUp.error = STALE_SAVE_MESSAGE;
+    state.powerUp.offerReload = true;
+    state.staleTab = true;
+  }
+
   const autosaveController = useAutosaveController({
     state,
     getBootedGame: () => lifecycle.getBootedGame(),
@@ -229,12 +243,7 @@ export function useEngine(
       hook.egoY = egoY;
       link.publishHook();
     },
-    // The Assistant says so and offers Reload game, as a refused turn does.
-    onBehindStorage: () => {
-      logAgent("error", STALE_SAVE_MESSAGE);
-      state.powerUp.error = STALE_SAVE_MESSAGE;
-      state.powerUp.offerReload = true;
-    },
+    onBehindStorage: tellBehindStorage,
     logAgent,
     isInstalledGame: (target) => lifecycle.isInstalledGame(target),
     bootGame: (target) => lifecycle.bootGame(target),
@@ -242,6 +251,14 @@ export function useEngine(
       lifecycle.bootAuthoredGame(template, config, bootOptions),
     configForGame: (projectId, config) => lifecycle.configForGame(projectId, config),
   });
+
+  // Another tab committing a newer revision of the running project marks it
+  // behind at once, not at its next refused write.
+  const stopWatchingWrites = watchProjectWrites({
+    getBootedGame: () => lifecycle.getBootedGame(),
+    onBehindStorage: tellBehindStorage,
+  });
+  if (getCurrentScope()) onScopeDispose(stopWatchingWrites);
 
   const historyController = useHistoryController({
     state,
