@@ -238,11 +238,16 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         ctx.logAgent("log", "autosave skipped: the game has no resolvable storage identity");
         return false;
       }
+      // A snapshot without its own picture (the worker sends none for a black
+      // screen) keeps the card's previous one for this game.
+      const preview = isProgressPreview(msg.preview)
+        ? msg.preview
+        : readAutosave(storageKey)?.preview;
       const record: AutosaveRecord = {
         format: "monotio.agi.autosave",
         version: 1,
         image: String(msg.image),
-        ...(isProgressPreview(msg.preview) ? { preview: msg.preview } : {}),
+        ...(preview !== undefined ? { preview } : {}),
         ...(msg.menus ? { menus: msg.menus } : {}),
         cycle: Number(msg.cycle),
         room: Number(msg.room),

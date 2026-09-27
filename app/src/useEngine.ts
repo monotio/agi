@@ -113,6 +113,7 @@ export function useEngine(
       error: "",
     },
     resumed: false,
+    gameEnded: null,
     staleTab: false,
     recording: { active: false, starting: false, error: "" },
     historyPending: 0,
@@ -361,7 +362,7 @@ export function useEngine(
     },
     getAgentSession: () => authoringController.getSession(),
     getReplayDriver: () => replayDriver,
-    ejectGame: () => lifecycle.ejectGame(),
+    gameQuit: () => void lifecycle.gameQuit(),
   });
 
   async function discoverGames(): Promise<void> {

@@ -159,6 +159,12 @@ export interface EngineState {
   /** This boot restored an autosave: the resume caption is showing. */
   resumed: boolean;
   /**
+   * The last game ran `quit` and play returned Home: Home says so, with Play
+   * again and (when progress was saved before the quit) Continue. A new game
+   * session clears it.
+   */
+  gameEnded: { projectId: string; title: string } | null;
+  /**
    * Storage moved past the running game (another tab committed a newer
    * revision): the stage's note offers Reload game until dismissed.
    */

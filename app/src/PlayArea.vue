@@ -109,18 +109,23 @@ const hasKeyPrompt = computed(() =>
   state.rows.some((r) => r.toLowerCase().includes("press any key")),
 );
 /**
- * Name the keys that satisfy have.key for this screen. Keys the script maps
- * to controllers (set.key) are not raw keys — Enter on the demo pack selects
- * a demo instead of dismissing its "press any key" page.
+ * The keys that satisfy have.key for this screen. A key the script maps to a
+ * controller (set.key) reaches a once-per-cycle poll as that controller, not
+ * as a raw key — Enter on the demo pack selects a demo instead of dismissing
+ * its "press any key" page (docs/fidelity.md, "Script key mappings and
+ * have.key").
  */
-const keyPromptHint = computed(() => {
+const keyPromptKeys = computed(() => {
   const mapped = new Set(state.controls.map((b) => b.key));
-  const usable = (
+  return (
     [
       [AGI_KEY.ENTER, "Enter"],
-      [0x20, "Space"],
+      [AGI_KEY.SPACE, "Space"],
     ] as [number, string][]
   ).filter(([key]) => !mapped.has(key));
+});
+const keyPromptHint = computed(() => {
+  const usable = keyPromptKeys.value;
   if (usable.length === 0) return "Press any key to start";
   return `Press ${usable.map(([, name]) => name).join(" / ")} to start`;
 });
@@ -161,8 +166,10 @@ function onScreenClick(ev: MouseEvent): void {
       if (state.modal !== "save" && state.modal !== "restore") dismissModal();
       return;
     }
-    // Empty Enter (0x000d) wakes have.key() e.g. title screens or prompts
-    sendKey(0x000d);
+    // A tap is Enter, which wakes have.key() on title screens and prompts —
+    // or, on a "press any key" screen whose script maps Enter, the key the
+    // hint names instead.
+    sendKey(hasKeyPrompt.value ? (keyPromptKeys.value[0]?.[0] ?? AGI_KEY.ENTER) : AGI_KEY.ENTER);
     return;
   }
   // A mouse click is also pointer input on click-move profiles (Amiga, IIgs).

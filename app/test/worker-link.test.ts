@@ -160,7 +160,7 @@ function makeLink() {
     handleRoomAuthoring: async () => "done",
     getAgentSession: () => null,
     getReplayDriver: () => driver,
-    ejectGame: () => depCalls.push("ejectGame"),
+    gameQuit: () => depCalls.push("gameQuit"),
   });
   return { link, state, hook, audioCalls, depCalls, logged, frames, driver };
 }
@@ -600,7 +600,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         break;
       case "quit":
         deliver(w, { type });
-        assert.ok(depCalls.includes("ejectGame"));
+        assert.ok(depCalls.includes("gameQuit"));
         break;
       case "log":
         deliver(w, { type, text: "hello" });

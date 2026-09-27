@@ -450,13 +450,14 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
   /**
    * Stage an import. `copy` says the library already held this game under
    * another card: a project import always gets its own card, so a repeat is
-   * another copy, not the first.
+   * another copy, not the first. `title` is the one its card shows — a known
+   * game's own title rather than the ZIP or folder name.
    */
   async function stageLibraryGame(
     game: OpenedGame,
     title: string,
     source: "zip" | "folder",
-  ): Promise<{ stored: ImportStorageReport | null; copy: boolean }> {
+  ): Promise<{ stored: ImportStorageReport | null; copy: boolean; title: string }> {
     const opening = await previewGame(game, game.profile);
     const before = new Map(
       savedGames.value.map((entry) => [entry.projectId, entry.library?.revision]),
@@ -479,14 +480,13 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       !before.has(importedProjectId) &&
       revision !== undefined &&
       [...before.values()].includes(revision);
-    return { stored, copy };
+    return { stored, copy, title: entry?.title ?? game.title ?? title };
   }
 
   /** The import notice: what was added, what came along, and what it is. */
   function importedNotice(
     game: OpenedGame,
-    title: string,
-    { stored, copy }: { stored: ImportStorageReport | null; copy: boolean },
+    { stored, copy, title }: { stored: ImportStorageReport | null; copy: boolean; title: string },
   ): string {
     const added = copy
       ? `Added another copy of ${title} to your library`
@@ -544,7 +544,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
       const name = file.name.replace(/\.zip$/i, "");
       const staged = await stageLibraryGame(game, name, "zip");
-      importNotice.value = importedNotice(game, game.title ?? name, staged);
+      importNotice.value = importedNotice(game, staged);
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {
@@ -581,7 +581,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       const firstPath = paths.keys().next().value as string | undefined;
       const title = firstPath?.split("/")[0] || "Imported game";
       const staged = await stageLibraryGame(game, title, "folder");
-      importNotice.value = importedNotice(game, game.title ?? title, staged);
+      importNotice.value = importedNotice(game, staged);
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {

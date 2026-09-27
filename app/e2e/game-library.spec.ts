@@ -80,7 +80,10 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
     mimeType: "application/zip",
     buffer: zip,
   });
-  await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
+  // The notice names the game as its card does, not the file it came in.
+  await expect(page.getByTestId("game-import-ready")).toContainText(
+    "library added to your library",
+  );
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
   await expect(card).toHaveAttribute("data-project-id", firstProjectId!);
   await card.getByTestId("btn-resume-cached").click();

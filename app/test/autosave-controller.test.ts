@@ -703,3 +703,41 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
   const res6 = await flush6;
   assert.equal(res6.status, "timeout");
 });
+
+test("an autosave without a preview keeps the card's previous picture", async (t) => {
+  installLocalStorageMock(t);
+  const { createProgressPreview } = await import("../src/progressPreview.ts");
+  const visual = new Uint8Array(160 * 168).fill(2);
+  const preview = createProgressPreview({ visual, text: new Uint8Array(2000), picRow: 1 });
+  const bootedGame: BootedGame = {
+    installed: true,
+    title: "Test Game",
+    revision: testRevision("preview-rev"),
+    files: { LOGDIR: new Uint8Array([0, 1]) },
+    words: [],
+    alias: "kq4",
+    hash: "c".repeat(64),
+  };
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => bootedGame,
+    getWorker: () => null,
+    logAgent: () => {},
+    isInstalledGame: () => true,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_p, config) => config,
+  });
+  try {
+    controller.handleAutosave({ image: "image-1", preview, cycle: 10, room: 3 });
+    await controller.getAutosaveWrite();
+    // The next frame was black, so the worker sent no preview with it.
+    controller.handleAutosave({ image: "image-2", cycle: 20, room: 142 });
+    await controller.getAutosaveWrite();
+    const stored = readAutosave("c".repeat(64));
+    assert.equal(stored?.image, "image-2", "the position still moves on");
+    assert.equal(stored?.preview, preview, "the card keeps the last real picture");
+  } finally {
+    clearAutosave("c".repeat(64));
+  }
+});

@@ -2,7 +2,7 @@
  * The autosave snapshot and the flush/checkpoint messages around it. Pure
  * functions of the worker context — importable under Node.
  */
-import { createProgressPreview } from "../progressPreview.ts";
+import { createProgressPreview, isBlackFrame } from "../progressPreview.ts";
 import { bytesToBase64 } from "../bytes.ts";
 import type { WorkerPresentation } from "../workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
@@ -31,6 +31,9 @@ export function createAutosave(ctx: WorkerContext) {
   function autosave(force: boolean): boolean {
     if (!ctx.engine) return false;
     if (!force && ctx.cycle.cycleCount === ctx.autosave.lastAutosaveCycle) return false;
+    // A game that quit has ended: its image would resume a stopped
+    // interpreter. The autosave taken before the quit stays the one to continue.
+    if (ctx.engine.readLeanState().terminated) return false;
     let image: Uint8Array | null;
     try {
       image = ctx.engine.autosaveImage();
@@ -51,11 +54,13 @@ export function createAutosave(ctx: WorkerContext) {
     };
     try {
       const presentation = ctx.engine.getPresentation();
-      msg.preview = createProgressPreview({
+      const frame = {
         visual: presentation.visual,
         text: presentation.text,
         picRow: ctx.engine.displayBase,
-      });
+      };
+      // A black screen leaves the card's previous picture in place.
+      if (!isBlackFrame(frame)) msg.preview = createProgressPreview(frame);
     } catch (error) {
       ctx.ports.presentation({
         type: "log",

@@ -186,6 +186,17 @@ function walkToLever(engine: Engine, host: TutorialHost): void {
   assert.ok(engine.readObjects()[0]!.x <= 56, "ego stops within the lever's reach");
 }
 
+/**
+ * Walk from the archive's west doorway up to Felix's counter and stop: the
+ * doorway (x 18) is outside the counter's posn() box (x 50-125).
+ */
+function walkToCounter(engine: Engine, host: TutorialHost): void {
+  walkUntilX(engine, host, 0x4d00, (x) => x >= 52);
+  host.keys.push(0x4d00);
+  engine.tick();
+  assert.ok(engine.readObjects()[0]!.x <= 125, "ego stops within the counter's reach");
+}
+
 function visualDifferences(
   actual: Uint8Array,
   background: Uint8Array,
@@ -281,7 +292,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "e21e5c7870890fa413cd592c3c59536aecb349dc6b78bd4a7acf1e178e779796",
+    "3bc186fe49f96e2b6c8452290439494b96f9e1c39f36dd68fac5f6321b19b6d4",
     "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
   );
 });
@@ -425,6 +436,10 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
   assert.equal(host.priorityScreens, 1);
   assert.match(host.priorityNotes[0]!, /Counter:11.*Felix:15/);
   enter(engine, host, "fix priority");
+  assert.equal(engine.flags[32], 0, "Felix cannot be fixed from the doorway");
+  assert.match(host.prints.at(-1) ?? "", /too far away.*counter/i);
+  walkToCounter(engine, host);
+  enter(engine, host, "fix priority");
   assert.equal(engine.flags[32], 1);
   assert.equal(engine.flags[33], 1, "all three repairs trigger the ending");
   assert.equal(
@@ -434,6 +449,8 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
   );
   assert.match(host.prints.at(-1) ?? "", /graduated/i);
   assert.match(host.prints.at(-2) ?? "", /priority 15 to 10/i);
+  enter(engine, host, "look exhibits");
+  assert.match(host.prints.at(-1) ?? "", /All three exhibits work/);
 
   enter(engine, host, "west");
   assert.equal(engine.vars[0], 2, "the finished game remains freely explorable");
@@ -831,6 +848,7 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
   assert.ok(headInFront > 0, "the clerk's head clears the counter");
   assert.ok(torsoInFront > 0, "priority 15 incorrectly puts the torso in front");
 
+  walkToCounter(engine, host);
   enter(engine, host, "fix priority");
   assert.equal(engine.readObjects()[1]!.priority, 10);
   assert.equal(engine.readObjects().find(({ num }) => num === 2)!.cel, 1);
@@ -915,6 +933,9 @@ test("the parser answers hugs, questions and the exhibits' other names", () => {
     return (host.prints.at(-1) ?? "").replace(/\s+/g, " ");
   };
   assert.match(reply("look sun"), /pencil sketch/, "the sun is part of the mural");
+  // The hint row says "Fix 3 exhibits": the word is known everywhere.
+  assert.match(reply("look exhibits"), /mural.*Picture Gallery.*robot.*Sprite Lab.*Felix/);
+  assert.equal(reply("fix exhibits"), "Each exhibit has its own fix. Try PAINT MURAL or HELP.");
   assert.equal(
     reply("how do i paint"),
     "Just type what to do, in a word or two. Try PAINT MURAL or HELP.",
@@ -930,9 +951,11 @@ test("the parser answers hugs, questions and the exhibits' other names", () => {
   );
   assert.match(reply("fix ledger"), /Room Studio job/);
   assert.equal(engine.flags[32], 0);
+  walkToCounter(engine, host);
   assert.match(reply("give felix priority"), /You change Felix from priority 15 to 10/);
   assert.equal(engine.flags[32], 1);
   assert.match(reply("set priority"), /fixed already/);
+  assert.match(reply("look exhibit"), /Three exhibits need fixing.*The other exhibits are WEST\./);
 });
 
 test("the archive globe stands fully inside the picture", () => {
@@ -1008,7 +1031,9 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
 
   enter(engine, host, "east");
   enter(engine, host, "east");
+  walkToCounter(engine, host);
   enter(engine, host, "fix priority");
+  assert.equal(engine.flags[32], 1);
   assert.equal(engine.flags[33], 0);
   enter(engine, host, "west");
   walkUntilX(engine, host, 0x4b00, (x) => x <= 50);

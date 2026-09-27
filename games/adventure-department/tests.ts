@@ -57,8 +57,8 @@ export const TUTORIAL_GAME_TESTS: readonly GameTest[] = [
   {
     name: "Felix gets his priority back",
     room: 3,
-    spawnX: null,
-    spawnY: null,
+    spawnX: 60,
+    spawnY: 140,
     steps: [step("enter"), step("command", "fix priority"), step("enter")],
     expect: expecting({
       flags: [{ id: 32, value: true }],

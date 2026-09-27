@@ -44,6 +44,15 @@ function approachLever(engine: Engine, keys: number[]): void {
   assert.ok(engine.readObjects()[0]!.x >= 30, "did not reach the lever");
 }
 
+/** Felix is fixed at his counter: walk right from the archive's doorway, then stop. */
+function approachCounter(engine: Engine, keys: number[]): void {
+  keys.push(0x4d00);
+  for (let cycle = 0; cycle < 200 && engine.readObjects()[0]!.x < 52; cycle++) engine.tick();
+  keys.push(0x4d00);
+  engine.tick();
+  assert.ok(engine.readObjects()[0]!.x >= 52, "did not reach the counter");
+}
+
 test("tutorial ships a short melodic opening and compact point/lever effects with editable intent", () => {
   const game = buildTutorial();
   const container = openContainer(new Map(Object.entries(game.files)));
@@ -128,6 +137,7 @@ test("each earned repair plays exactly one success cue and repeated commands sta
   assert.deepEqual(started, [1, 2, 3]);
   commands.push("east");
   engine.tick();
+  approachCounter(engine, keys);
   commands.push("fix priority");
   engine.tick();
   assert.equal(engine.vars[3], 30);

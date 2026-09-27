@@ -59,10 +59,12 @@ export const WALKTHROUGHS: readonly Walkthrough[] = [
       run.dismiss();
       run.checkpoint("Robot awake", { room: 2, score: 20 });
       run.command("east");
-      // Priority Archive: show the depth numbers, then fix Felix's.
+      // Priority Archive: show the depth numbers, then walk up to Felix's
+      // counter (its posn() box is x 50–125) and fix his.
       assert.equal(run.state().room, 3);
       assert.equal(run.state().score, 20);
       run.command("show priority");
+      run.walkTo(60, 151);
       run.command("fix priority");
       run.checkpoint("Graduated", { room: 3, score: 30 });
     },

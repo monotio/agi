@@ -388,7 +388,7 @@ export const CHARACTER_VIEWS: Readonly<Record<number, BuildViewInput>> = {
   },
   1: { description: "Teaching robot, asleep", loops: [{ cels: [robotAsleep] }] },
   2: {
-    description: "Teaching robot, waving: loop 1 mirrors loop 0",
+    description: "Teaching robot, waving",
     loops: [{ cels: robotWave }, { mirrorLoop: 0 }],
   },
   3: {

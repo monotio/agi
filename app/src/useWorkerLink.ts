@@ -53,7 +53,8 @@ interface WorkerLinkDeps {
   hostAnswered?(req: LlmRequest): void;
   getAgentSession(): AgentHandler | null;
   getReplayDriver(): ReplayDriver;
-  ejectGame(): void;
+  /** The game ran quit: leave for Home and say so there. */
+  gameQuit(): void;
 }
 
 /**
@@ -152,6 +153,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     worker?.terminate();
     audio.stop();
     deps.resetScreenState();
+    // A new session replaces the note about how the previous game ended.
+    state.gameEnded = null;
     drainPendingQueries(new Error("engine worker replaced"));
     const w = new Worker(new URL("./engine.worker.ts", import.meta.url), { type: "module" });
     wireWorker(w);
@@ -328,9 +331,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       // Fire-and-forget senders post patches with no waiter.
       patched: (msg) => patchWaiters.settlePatched(msg),
       log: (msg) => logAgent("log", msg.text),
-      quit: () => {
-        deps.ejectGame();
-      },
+      quit: () => deps.gameQuit(),
       replay: (msg) => {
         const replayDriver = deps.getReplayDriver();
         if (!replayDriver) return;

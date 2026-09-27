@@ -221,7 +221,7 @@ function rig(
     handleRoomAuthoring: async () => "",
     getAgentSession: () => null,
     getReplayDriver: () => ({ latest: null }),
-    ejectGame() {},
+    gameQuit() {},
   });
   link.wireWorker(worker as unknown as Worker);
   worker.postMessage({
