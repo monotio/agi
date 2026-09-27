@@ -20,7 +20,10 @@ npm --prefix app ci
 npm run dev
 ```
 
-The app opens at `http://localhost:5199/`. The repository has two package
+The app opens at `http://localhost:5199/`. Without an AI key,
+`npm --prefix app run dev -- --mode test --port 5199` runs the same app with
+the offline stub provider the browser tests use; add `-- --port N` to the app
+script, not the root one, to choose another port. The repository has two package
 roots: the root holds the engine, tests and scripts, and `app/` the Vue shell.
 A third, `evals/`, holds the evaluation runners; its own package adds only
 promptfoo, which the live comparisons need (`npm --prefix evals install`).
@@ -137,9 +140,11 @@ flowchart LR
     link["engine/useWorkerLink.ts"]
     present["play/usePresentation.ts → three/AgiStage.ts"]
     commit["project/resourceCommit.ts"]
+    authoring["authoring/useAuthoringController.ts"]
+    loader["agent/authoringLoader.ts"]
   end
   subgraph lazy["Authoring stack, loaded on first use"]
-    loader["agent/authoringLoader.ts"] --> stack["agent/authoringStack.ts"]
+    stack["agent/authoringStack.ts"]
   end
   subgraph worker["Engine worker (app/src/worker)"]
     dispatch["dispatch.ts"]
@@ -156,7 +161,8 @@ flowchart LR
   hostRequests -->|hostRequest| link
   link -->|hostAnswer| dispatch
   commit -->|patch| dispatch
-  link -.-> loader
+  authoring --> loader
+  loader -.->|"import()"| stack
   link --> present
   dispatch --> runtime
   cycle --> runtime
@@ -215,7 +221,7 @@ host's `catalog.json`) lists games to play.
 | An agent tool                        | Its definition in the family's module (`src/agent/roomTools.ts`, `pictureTools.ts`, `authoringToolDefinitions.ts`, …), gathered into `AGENT_TOOLS` in `src/agent/tools.ts`; add it to `ASK_TOOLS` or `STUDIO_ASSIST_TASK_TOOLS` only if those sessions need it | `test/agent-tools.test.ts` or the family's test; a failure it must reject as a JSON case in `evals/fixtures/bad-cases/` | `npm run eval:replay`, `npm run check` |
 | An interpreter quirk for one profile | A flag on the profile in `src/runtime/profile.ts`, its behavior in `src/runtime/`, and an entry in `docs/fidelity.md` with build, binary hash, addresses and conclusion                                                                                        | A hand-computed engine test under `test/`; the code comment cites the entry, checked by `test/doc-citations.test.ts`    | `npm test`, `npm run check`            |
 | A fan game the app recognises        | A `KNOWN_GAMES` entry in `src/games/knownGames.ts`: the SHA-256 of its `WORDS.TOK` and `OBJECT`, its era and profile                                                                                                                                           | `app/test/known-games.test.ts`; `npm run fixtures:audit` on your copy in `games/`, where fixture tests skip without it  | `npm run check`                        |
-| A Room Studio tool                   | `StudioTool` and `TOOL_SHORTCUTS` in `app/src/studio/studioTools.ts`, a rail entry in `StudioToolRail.vue`, help text in `StudioToolOptions.vue`, handling in `useStudioTools.ts`                                                                              | `app/test/studio-tools.test.ts`; `app/e2e/studio-tools.spec.ts` for the visible path                                    | `npm run check`, the spec              |
+| A Room Studio tool                   | `StudioTool` and `TOOL_SHORTCUTS` in `app/src/studio/studioTools.ts`, a rail entry in `StudioToolRail.vue`, its name, status-bar hint and cheat-sheet line in `studioHelp.ts`, handling in `useStudioTools.ts`                                                 | `app/test/studio-tools.test.ts`; `app/e2e/studio-tools.spec.ts` for the visible path                                    | `npm run check`, the spec              |
 
 TypeScript holds the Studio recipe together: a tool without a shortcut or help
 text does not compile, the rail reads its shortcut from `TOOL_SHORTCUTS`, and
