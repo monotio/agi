@@ -43,12 +43,14 @@ included.
 **Editions on other platforms.** Editions of the same game on different
 platforms (DOS, Amiga, IIgs) share the `WORDS.TOK` vocabulary hash but ship
 their own `OBJECT`. The game catalog fingerprints a release by the
-`(WORDS.TOK, OBJECT)` pair, so a bare hash or alias query resolves to the
-catalogued PC edition (the release the tests and walkthroughs were verified
-against), while a port resolves to its own catalog entry through its own pair
-and stays reachable by folder name. Two installations of the same edition, or
-editions outside the catalog, still report an ambiguous query that asks for the
-fixture folder.
+`(WORDS.TOK, OBJECT)` pair, and a catalogued query resolves by that pair: a
+bare `WORDS.TOK` hash or PC alias finds only the catalogued PC edition (the
+release the tests and walkthroughs were verified against), a port alias such as
+`sq2-amiga` only the port, and a query whose edition is not installed skips
+rather than borrowing the other platform's files. Every edition also stays
+reachable by folder name. Two installations of the same edition, or editions
+outside the catalog, still report an ambiguous query that asks for the fixture
+folder.
 
 Platform ports ship the same containers under their own file names: Amiga v2
 releases use lowercase `logdir`, `vol.n`, `object` and `words.tok`, Amiga v3

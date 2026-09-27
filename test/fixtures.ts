@@ -173,22 +173,12 @@ export function scanFixtures(): {
  * A project export placed under `games/` (a `PROJECT.JSON` or `GAME.JSON`
  * beside the resources) is an authored copy, not an edition fixture. When a
  * hash matches one plain edition plus such exports, the edition is the fixture.
- * Platform ports of the same game share the WORDS.TOK vocabulary hash but not
- * the OBJECT fingerprint; the vocabulary's catalogued pair wins a bare hash
- * query so tests and walkthroughs keep running the verified release, and the
- * ports stay reachable by folder name. Anything else ambiguous still asks.
+ * Anything else ambiguous still asks.
  */
 function uniqueEdition(query: string, matches: readonly DiscoveredFixture[]): DiscoveredFixture {
   if (matches.length === 1) return matches[0]!;
   const editions = matches.filter((m) => !m.files.has("project.json") && !m.files.has("game.json"));
   if (editions.length === 1) return editions[0]!;
-  const cataloged = editions.filter(
-    (m) =>
-      m.known !== null &&
-      m.wordsSha256 !== undefined &&
-      detectKnownGameByHashes(m.wordsSha256) === m.known,
-  );
-  if (cataloged.length === 1) return cataloged[0]!;
   throw new Error(
     `Ambiguous fixture query "${query}" matches multiple editions (${matches.map((m) => m.folder).join(", ")}); specify the fixture folder.`,
   );
@@ -204,6 +194,18 @@ export function findFixture(query: string): DiscoveredFixture | null {
   const norm = query.toLowerCase();
   const byDir = byDirName.get(norm);
   if (byDir) return byDir;
+
+  // A catalogued alias or vocabulary hash names one edition, fingerprinted by
+  // its (WORDS.TOK, OBJECT) pair. Platform editions share the vocabulary but
+  // not the OBJECT file, so a port alias never resolves to the PC release, nor
+  // a PC query to a port; both stay reachable by folder name.
+  const cataloged = getKnownGameByAlias(norm) ?? detectKnownGameByHashes(norm);
+  if (cataloged) {
+    const editions = (byWordsHash.get(cataloged.wordsSha256.toLowerCase()) ?? []).filter(
+      (m) => m.known === cataloged,
+    );
+    return editions.length ? uniqueEdition(query, editions) : null;
+  }
 
   const matches = byWordsHash.get(norm);
   if (matches) return uniqueEdition(query, matches);

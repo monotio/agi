@@ -94,7 +94,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
 
   /** Every worker's host requests follow the current idle-boundary session replacement. */
   const currentSessionAgent: AgentHandler = {
-    handle: async (request) => (await deps.getAgentSession()?.handle(request)) ?? "",
+    handle: async (request, beforeAdopt) =>
+      (await deps.getAgentSession()?.handle(request, beforeAdopt)) ?? "",
   };
 
   /** Publish the engine's text surface for tests and the debug bundle. */

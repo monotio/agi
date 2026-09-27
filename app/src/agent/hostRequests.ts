@@ -17,7 +17,8 @@ export interface LlmRequest {
 }
 
 export interface AgentHandler {
-  handle(req: LlmRequest): Promise<string>;
+  /** `beforeAdopt` is the host's commit gate, awaited before a staged room lands. */
+  handle(req: LlmRequest, beforeAdopt?: () => Promise<void>): Promise<string>;
 }
 
 export type AgentEventSink = (

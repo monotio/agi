@@ -21,7 +21,6 @@ import {
   openDeveloperActivity,
   openGameOptions,
   textHook,
-  waitForCycles,
 } from "./engineProbe.ts";
 
 /**
@@ -70,7 +69,9 @@ async function storedView(page: Page, projectId: string): Promise<Uint8Array> {
 async function playTutorial(page: Page): Promise<void> {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // A cold dev server compiles the boot's module graph on first request; a
+  // full worker pool can take longer than the default poll to reach room 1.
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
 }
 
@@ -93,25 +94,52 @@ async function paintCentre(page: Page, studio: Locator, loop: number, colour = R
   await page.keyboard.press("Space");
 }
 
-/** One presented frame with the screen-object table and ownership plane captured with it. */
+/** One presented frame's ego: its own pixels and the screen-object record captured with them. */
 interface EgoFrame {
-  readonly visual: number[];
-  /** Per pixel: the owning object's number + 1, 0 for the picture. */
-  readonly ownership: number[];
-  readonly ego: { view: number; loop: number; cel: number; x: number; y: number };
+  /** The pixels object 0 owns (ownership 1), as "x,y=colour". */
+  readonly pixels: string[];
+  readonly room: number;
+  readonly ego: {
+    view: number;
+    loop: number;
+    cel: number;
+    x: number;
+    y: number;
+    direction: number;
+  };
 }
 
 /**
- * The ego's own pixels in a frame (ownership 1: object 0), as "x,y=colour",
- * and the pixels `cel` paints standing at the ego's x and baseline y.
+ * The latest presented frame's ego, or null before the Inspect tab armed the
+ * objects and ownership channels. Only the ego's pixels leave the page, so a
+ * sample costs little on a loaded machine.
  */
-function egoPixels(frame: EgoFrame): string[] {
-  const out: string[] = [];
-  frame.ownership.forEach((owner, i) => {
-    if (owner === 1) out.push(`${i % 160},${Math.floor(i / 160)}=${frame.visual[i]}`);
+function egoFrame(page: Page): Promise<EgoFrame | null> {
+  return page.evaluate(() => {
+    const latest = window.__AGI_FRAME__?.();
+    const ego = latest?.objects?.find((object) => object.num === 0);
+    const room = window.__AGI_TEXT__?.room;
+    if (!latest?.ownership || !ego || room === undefined) return null;
+    const pixels: string[] = [];
+    latest.ownership.forEach((owner, i) => {
+      if (owner === 1) pixels.push(`${i % 160},${Math.floor(i / 160)}=${latest.visual[i]}`);
+    });
+    return {
+      pixels: pixels.sort(),
+      room,
+      ego: {
+        view: ego.view,
+        loop: ego.loop,
+        cel: ego.cel,
+        x: ego.x,
+        y: ego.y,
+        direction: ego.direction,
+      },
+    };
   });
-  return out.sort();
 }
+
+/** The pixels `cel` paints standing at the frame's ego x and baseline y. */
 function celPixels(frame: EgoFrame, cel: SpriteCel): string[] {
   const out: string[] = [];
   const top = frame.ego.y - cel.height + 1;
@@ -123,32 +151,46 @@ function celPixels(frame: EgoFrame, cel: SpriteCel): string[] {
   return out.sort();
 }
 
+/** The AGI directions the arrows set. */
+const DIRECTION = { ArrowRight: 3, ArrowLeft: 7 } as const;
+/**
+ * Room 1's east edge runs new.room(2), which stops the ego at the next room's
+ * door; the right walk turns back well short of it.
+ */
+const TURN_BACK_X = 100;
+
 /**
  * Walk ego with an arrow (AGI latches it) and sample the frames the engine
- * presents. The Inspect tab arms the objects and ownership channels, so each
- * frame carries the screen-object table of the very cycle it shows: the ego's
- * loop and cel are read from the engine, never inferred from timing.
+ * presents while it walks that way in room 1, then stop it with the same
+ * arrow. The Inspect tab arms the objects and ownership channels, so each
+ * frame carries the screen-object table of the very cycle it shows: the
+ * ego's loop and cel are read from the engine, never inferred from timing.
+ * The walk is bounded by where the ego is, not by how long sampling takes: a
+ * loaded page samples slowly, and a walk timed in samples once crossed into
+ * room 2 and left again by its west door, so the "left" frames showed an ego
+ * standing in another room.
  */
 async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", samples = 40) {
+  const direction = DIRECTION[key];
   await page.getByTestId("input-line").focus();
   await page.keyboard.press(key);
-  await waitForCycles(page, 4);
+  await expect.poll(async () => (await egoFrame(page))?.ego.direction).toBe(direction);
   const frames: EgoFrame[] = [];
-  for (let i = 0; i < samples; i++) {
-    const frame = await page.evaluate(() => {
-      const latest = window.__AGI_FRAME__!()!;
-      const ego = latest.objects?.find((object) => object.num === 0);
-      return latest.ownership && ego
-        ? {
-            visual: [...latest.visual],
-            ownership: [...latest.ownership],
-            ego: { view: ego.view, loop: ego.loop, cel: ego.cel, x: ego.x, y: ego.y },
-          }
-        : null;
-    });
-    if (frame) frames.push(frame);
+  while (frames.length < samples) {
+    const frame = await egoFrame(page);
+    if (
+      !frame ||
+      frame.room !== 1 ||
+      frame.ego.direction !== direction ||
+      frame.ego.x > TURN_BACK_X
+    )
+      break;
+    frames.push(frame);
     await page.waitForTimeout(35);
   }
+  // The same arrow stops the walk; the west wall may already have.
+  if ((await egoFrame(page))?.ego.direction === direction) await page.keyboard.press(key);
+  await expect.poll(async () => (await egoFrame(page))?.ego.direction).toBe(0);
   return frames;
 }
 
@@ -221,17 +263,14 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
   expect(left.length).toBeGreaterThan(10);
   // Every frame shows exactly the cel the engine says the ego is on.
   for (const frame of right)
-    expect(egoPixels(frame)).toEqual(celPixels(frame, original.loops[0]!.cels[frame.ego.cel]!));
+    expect(frame.pixels).toEqual(celPixels(frame, original.loops[0]!.cels[frame.ego.cel]!));
   for (const frame of left)
-    expect(egoPixels(frame)).toEqual(celPixels(frame, edited.loops[1]!.cels[frame.ego.cel]!));
+    expect(frame.pixels).toEqual(celPixels(frame, edited.loops[1]!.cels[frame.ego.cel]!));
   // Walking left reaches cel 0, which shows the fix; walking right never does.
   const fixedFrames = left.filter((frame) => frame.ego.cel === 0);
   expect(fixedFrames.length).toBeGreaterThan(0);
-  for (const frame of fixedFrames) expect(egoPixels(frame)).toEqual(celPixels(frame, fixed));
-  expect(right.some((frame) => egoPixels(frame).join() === celPixels(frame, fixed).join())).toBe(
-    false,
-  );
-  await page.keyboard.press("ArrowLeft");
+  for (const frame of fixedFrames) expect(frame.pixels).toEqual(celPixels(frame, fixed));
+  expect(right.some((frame) => frame.pixels.join() === celPixels(frame, fixed).join())).toBe(false);
 
   // A reload boots the stored remix: Studio opens on the kept bytes.
   await page.reload();
@@ -333,17 +372,16 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
   expect(right.length).toBeGreaterThan(10);
   for (const frame of right) {
     const cel = recoloured.loops[0]!.cels[frame.ego.cel]!;
-    expect(egoPixels(frame)).toEqual(celPixels(frame, cel));
-    expect(egoPixels(frame).some((pixel) => pixel.endsWith(`=${BLUE}`))).toBe(true);
-    expect(egoPixels(frame).some((pixel) => pixel.endsWith(`=${CYAN}`))).toBe(false);
+    expect(frame.pixels).toEqual(celPixels(frame, cel));
+    expect(frame.pixels.some((pixel) => pixel.endsWith(`=${BLUE}`))).toBe(true);
+    expect(frame.pixels.some((pixel) => pixel.endsWith(`=${CYAN}`))).toBe(false);
   }
   const left = (await walkAndSample(page, "ArrowLeft", 20)).filter(
     (frame) => frame.ego.view === 0 && frame.ego.loop === 1,
   );
   expect(left.length).toBeGreaterThan(5);
   for (const frame of left)
-    expect(egoPixels(frame)).toEqual(celPixels(frame, original.loops[1]!.cels[frame.ego.cel]!));
-  await page.keyboard.press("ArrowLeft");
+    expect(frame.pixels).toEqual(celPixels(frame, original.loops[1]!.cels[frame.ego.cel]!));
 });
 
 test("a Keep refuses as stale when the project changed elsewhere, and reopens from storage", async ({
