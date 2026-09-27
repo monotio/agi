@@ -184,5 +184,3 @@ export function createDebug(ctx: WorkerContext) {
     onTraceAck,
   };
 }
-
-export type DebugModule = ReturnType<typeof createDebug>;

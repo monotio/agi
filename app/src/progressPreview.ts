@@ -4,7 +4,7 @@ import { encodePngPaletteRgb } from "../../src/picture/png.ts";
 import { compositeFrame, FRAME_HEIGHT, FRAME_WIDTH, type CompositeInput } from "./composite.ts";
 
 const PREVIEW_PREFIX = "data:image/png;base64,";
-export const MAX_PROGRESS_PREVIEW_DATA_URL_LENGTH = 128 * 1024;
+const MAX_PROGRESS_PREVIEW_DATA_URL_LENGTH = 128 * 1024;
 
 function pngDataUrl(bytes: Uint8Array): string {
   let binary = "";

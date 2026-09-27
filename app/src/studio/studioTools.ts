@@ -33,7 +33,7 @@ export type StudioTool =
 /** The Walk view's tools: a test walk, a door box, an edge exit (useStudioWalk.ts). */
 export type WalkTool = "walk" | "door" | "edge";
 
-export const WALK_TOOLS: readonly StudioTool[] = ["walk", "door", "edge"];
+const WALK_TOOLS: readonly StudioTool[] = ["walk", "door", "edge"];
 
 export const isWalkTool = (tool: StudioTool): tool is WalkTool => WALK_TOOLS.includes(tool);
 
@@ -55,7 +55,7 @@ export const TOOL_KEYS: Record<string, StudioTool | "probe"> = {
 };
 
 /** Tools that insert a new item. */
-export const DRAWING_TOOLS: readonly StudioTool[] = ["line", "rect", "polygon", "fill", "brush"];
+const DRAWING_TOOLS: readonly StudioTool[] = ["line", "rect", "polygon", "fill", "brush"];
 
 export const isDrawingTool = (tool: StudioTool): boolean => DRAWING_TOOLS.includes(tool);
 
@@ -208,7 +208,7 @@ export function extendStroke(stroke: BrushStroke, to: Point): boolean {
 }
 
 /** The kind of an item drawing on these planes, as the kernel derives it for fills and plots. */
-export function kindFor(visual: number | null, priority: number | null): PictureItemKind {
+function kindFor(visual: number | null, priority: number | null): PictureItemKind {
   if (priority === null) return "art";
   if (visual !== null) return "mixed";
   return priority < 4 ? "walk" : "depth";

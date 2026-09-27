@@ -13,7 +13,7 @@ export interface OnionSkin {
 }
 
 /** A press on the canvas: the cel cell (unbounded while dragging) and whether Alt was held. */
-export interface CelPress {
+interface CelPress {
   readonly point: CelPoint;
   readonly alt: boolean;
 }

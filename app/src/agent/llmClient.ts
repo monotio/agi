@@ -38,7 +38,7 @@ export interface LlmConfig {
   budgetUsd?: number;
 }
 
-export interface ToolCallItem {
+interface ToolCallItem {
   id: string;
   name: string;
   input: Record<string, unknown>;

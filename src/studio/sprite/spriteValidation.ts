@@ -24,14 +24,14 @@ export interface SpriteEditConstraints {
   readonly targetLoops?: readonly number[];
 }
 
-export interface ChangedCel {
+interface ChangedCel {
   readonly loop: number;
   readonly cel: number;
   /** How many display pixels differ. */
   readonly pixels: number;
 }
 
-export type SpriteViolation =
+type SpriteViolation =
   | {
       readonly constraint: "protected-cel" | "protected-loop" | "outside-target";
       readonly loop: number;
@@ -47,7 +47,7 @@ export type SpriteViolation =
       readonly message: string;
     };
 
-export type SpriteMetadataChange =
+type SpriteMetadataChange =
   | { readonly kind: "loop-count"; readonly before: number; readonly after: number }
   | {
       readonly kind: "cel-count";

@@ -73,7 +73,7 @@ export function createWorkerQueries(): WorkerQueries {
 }
 
 /** A worker's confirmed install of one patched resource. */
-export type PatchAck = Omit<Extract<WorkerControl, { type: "patched" }>, "type" | "error"> & {
+type PatchAck = Omit<Extract<WorkerControl, { type: "patched" }>, "type" | "error"> & {
   hint: string;
 };
 

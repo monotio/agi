@@ -1,20 +1,19 @@
 import type { ProfileId } from "../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import { reactive, shallowReactive } from "vue";
-import { createAgentLogger, type AgentLogEntry, type AgentLogAudio } from "./agent/agentLog.ts";
+import { createAgentLogger } from "./agent/agentLog.ts";
 import type { ReplayObservation } from "./replay.ts";
 import { createReplayDriver } from "./useReplayDriver.ts";
 import {
   useWalkthroughController,
   createInitialWalkthroughState,
-  type WalkthroughUiState,
 } from "./useWalkthroughController.ts";
 import { useInputController } from "./useInputController.ts";
 import { useTestRecorder } from "./useTestRecorder.ts";
-import { useAuthoringController, type PowerUpUiState } from "./useAuthoringController.ts";
+import { useAuthoringController } from "./useAuthoringController.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import { AgiAudio } from "./audio/AgiAudio.ts";
-import { useAudioController, type AudioController } from "./audio/useAudioController.ts";
+import { useAudioController } from "./audio/useAudioController.ts";
 import {
   autosaveKey,
   clearAutosave,
@@ -26,18 +25,10 @@ import {
 import { clearCachedGame } from "./gameStorage.ts";
 import { clearGameSaves } from "./gameSaves.ts";
 import { removeMapSidecar } from "./roomMapStore.ts";
-import {
-  type BootedGame,
-  type CurrentGame,
-  type Frame,
-  type InstalledGameDescriptor,
-  type ProjectId,
-  findInstalledFolder,
-} from "./gameTypes.ts";
-export type { BootedGame, CurrentGame, Frame, InstalledGameDescriptor, ProjectId };
-export { findInstalledFolder };
+import { type BootedGame, type Frame, type ProjectId } from "./gameTypes.ts";
+export type { BootedGame, Frame, ProjectId };
 
-import { usePromptController, type PromptState } from "./usePromptController.ts";
+import { usePromptController } from "./usePromptController.ts";
 import { useSaveSlotController } from "./useSaveSlotController.ts";
 import { discoverInstalledGames } from "./gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
@@ -50,16 +41,11 @@ import { useRoomMap } from "./useRoomMap.ts";
 import type { WorkerInbound, WorkerQueryPayload } from "./workerProtocol.ts";
 import type { PlayHereTarget } from "../../src/studio/playHere.ts";
 import type { HistoryBatch } from "../../src/agent/history.ts";
-export type { PromptState };
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 
-export type { AgentLogEntry, AgentLogAudio };
-export { useAudioController, type AudioController };
-export type { WalkthroughUiState, PowerUpUiState };
-
-export { autosaveKey, clearAutosave, lastGameKey, readAutosave, writeAutosave };
-export type { AutosaveGame, AutosaveRecord } from "./useAutosaveController.ts";
+export { autosaveKey, lastGameKey, readAutosave, writeAutosave };
+export type { AutosaveRecord } from "./useAutosaveController.ts";
 
 /**
  * Forget a library game completely: its project body and conversation, its

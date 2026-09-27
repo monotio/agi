@@ -1,7 +1,7 @@
 /** Browser storage for the engine's twelve authentic save images, scoped per game. */
 type SaveStorage = Pick<Storage, "getItem" | "setItem">;
 
-export function gameSavesKey(targetKey: string): string {
+function gameSavesKey(targetKey: string): string {
   return `monotio_agi.saves.${encodeURIComponent(targetKey)}`;
 }
 

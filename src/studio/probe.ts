@@ -32,19 +32,19 @@ export interface ProbeInput {
   profile: Pick<AgiProfile, "priorityBaseAction">;
 }
 
-export interface ProbeCell {
+interface ProbeCell {
   x: number;
   y: number;
 }
 
-export interface ControlHit {
+interface ControlHit {
   /** 0 barrier, 1 conditional, 2 signal, 3 water. */
   value: 0 | 1 | 2 | 3;
   /** Footprint cells holding this control value, left to right. */
   cells: ProbeCell[];
 }
 
-export interface ProbeFootprint {
+interface ProbeFootprint {
   x: number;
   y: number;
   width: number;

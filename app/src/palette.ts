@@ -19,13 +19,3 @@ export const EGA_PALETTE: readonly [number, number, number][] = [
 ];
 
 /** Expand a 160x168 nibble buffer into an RGBA ImageData buffer. */
-export function surfaceToRgba(visual: Uint8Array, out: Uint8ClampedArray): void {
-  for (let i = 0; i < visual.length; i++) {
-    const [r, g, b] = EGA_PALETTE[visual[i]! & 0x0f]!;
-    const o = i * 4;
-    out[o] = r;
-    out[o + 1] = g;
-    out[o + 2] = b;
-    out[o + 3] = 255;
-  }
-}

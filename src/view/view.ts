@@ -31,7 +31,7 @@ export interface ViewCel {
   readonly pixels: Uint8Array;
 }
 
-export interface ViewLoop {
+interface ViewLoop {
   readonly cels: ViewCel[];
 }
 

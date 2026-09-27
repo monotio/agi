@@ -85,7 +85,7 @@ const CELL_H = 190;
  * When the plan moved under a dirty draft, `conflict` holds the plan's
  * current text; the draft stays untouched for explicit reconciliation.
  */
-export interface PlanFieldEdit {
+interface PlanFieldEdit {
   draft: string;
   base: string;
   conflict: string | null;

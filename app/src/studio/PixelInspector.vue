@@ -7,7 +7,7 @@ import type { FillExplanation } from "../../../src/studio/pictureQuery.ts";
 import { priorityMeaning } from "./studioView.ts";
 import type { PixelInfo, PlanePixel, SceneRow } from "./useStudioDocument.ts";
 
-export interface InspectorCommand {
+interface InspectorCommand {
   /** Timeline index. */
   entry: number;
   line: number;

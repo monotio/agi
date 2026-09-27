@@ -88,5 +88,3 @@ export function useEngineDebug(options: { state: EngineState; link: WorkerLink }
     readFrames,
   };
 }
-
-export type EngineDebug = ReturnType<typeof useEngineDebug>;

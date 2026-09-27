@@ -10,7 +10,7 @@ import {
 } from "./navigationController.ts";
 
 export type TraversalPhase = "approach" | "activation" | "observe" | "passage" | "landing";
-export interface TraversalCondition {
+interface TraversalCondition {
   label: string;
   test: (engine: Engine) => boolean;
 }

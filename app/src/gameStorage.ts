@@ -213,49 +213,8 @@ export async function bodyTransaction<T>(
 }
 
 /**
- * Read-modify-write on one record inside a single read-write transaction.
- * Separate get and put transactions from two tabs can interleave — the
- * second put silently overwrites the first's merge — so a caller that
- * updates an existing record must hold one transaction across both.
- * `update` gets the raw stored value (undefined when absent) and returns
- * the record to write plus the operation's result; omit `put` to commit no
- * write. Throwing aborts the transaction and propagates.
- */
-export async function updateBodyRecord<T>(
-  key: string,
-  update: (stored: unknown) => { put?: unknown; result: T },
-): Promise<T> {
-  const db = await openDatabase();
-  return new Promise<T>((resolve, reject) => {
-    const transaction = db.transaction("projects", "readwrite");
-    const store = transaction.objectStore("projects");
-    const request = store.get(key);
-    let outcome: { put?: unknown; result: T } | undefined;
-    let contractError: Error | undefined;
-    request.onsuccess = () => {
-      try {
-        outcome = update(request.result);
-        if (outcome.put !== undefined) store.put(outcome.put);
-      } catch (error) {
-        contractError = error instanceof Error ? error : new Error(String(error));
-        transaction.abort();
-      }
-    };
-    transaction.oncomplete = () => {
-      if (outcome === undefined) reject(new Error("Project storage transaction closed early."));
-      else resolve(outcome.result);
-    };
-    transaction.onerror = () => reject(contractError ?? transaction.error ?? request.error);
-    transaction.onabort = () =>
-      reject(
-        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
-      );
-  });
-}
-
-/**
- * updateBodyRecord's multi-record form: one get, then the puts and deletes
- * `update` returns, all inside the same read-write transaction. Append-only
+ * Read-modify-write inside a single read-write transaction: one get, then the
+ * puts and deletes `update` returns. Append-only
  * tables use it to write an immutable record and its manifest update
  * atomically — a commit that dies mid-write leaves no half-published row.
  */
@@ -385,7 +344,7 @@ export async function readBodyRecords(
       );
   });
 }
-export class ConcurrencyConflictError extends Error {
+class ConcurrencyConflictError extends Error {
   readonly currentRecord?: StoredGameBody | undefined;
   constructor(message: string, currentRecord?: StoredGameBody) {
     super(message);
@@ -394,14 +353,14 @@ export class ConcurrencyConflictError extends Error {
   }
 }
 
-export class ProjectDeletedError extends Error {
+class ProjectDeletedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ProjectDeletedError";
   }
 }
 
-export class ProjectExistsError extends Error {
+class ProjectExistsError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ProjectExistsError";

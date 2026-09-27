@@ -86,11 +86,11 @@ export interface LiveGameState {
  * variables from v27. The lower ones are the interpreter's (room numbers,
  * edges, input, timers); room entry sets them itself.
  */
-export const FIRST_GAME_FLAG = 16;
-export const FIRST_GAME_VAR = 27;
+const FIRST_GAME_FLAG = 16;
+const FIRST_GAME_VAR = 27;
 
 /** testRoute's preset for a live state: every game flag and variable as it stands. */
-export function livePreset(state: LiveGameState): {
+function livePreset(state: LiveGameState): {
   flags: { id: number; value: boolean }[];
   vars: { id: number; value: number }[];
 } {

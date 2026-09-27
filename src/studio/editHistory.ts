@@ -7,7 +7,7 @@
  */
 
 /** A snapshot to return to, named by the edit that left it. */
-export interface HistoryStep {
+interface HistoryStep {
   readonly label: string;
   readonly source: string;
 }

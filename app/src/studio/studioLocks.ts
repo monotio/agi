@@ -49,7 +49,7 @@ export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
 export const PLANE_NAMES: Record<PicturePlane, string> = { visual: "Art", priority: "Depth" };
 
 /** One reason an edit was refused, with the cells to highlight. */
-export interface StudioViolation {
+interface StudioViolation {
   /** The rule it breaks: the kernel's constraints, and the Walk lens depth rule. */
   readonly rule: EditViolation["constraint"] | "walk-depth";
   /** The plane it is about; null for the byte limit. */

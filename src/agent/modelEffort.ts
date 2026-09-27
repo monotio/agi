@@ -14,7 +14,7 @@ const REASONING_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhig
 const OPTIONAL_REASONING_LEVELS: readonly ModelEffort[] = ["none", ...REASONING_LEVELS];
 
 /** USD per million tokens, checked September 23, 2026 (see docs for provider price pages). */
-export interface ModelPrice {
+interface ModelPrice {
   input: number;
   output: number;
   /** True when input pricing doubles above the provider's long-context threshold. */

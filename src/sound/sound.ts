@@ -15,7 +15,7 @@
 import type { AgiProfile } from "../runtime/profile.ts";
 import { validatePlaybackState, type PlaybackState } from "../runtime/replayState.ts";
 
-export interface SoundNote {
+interface SoundNote {
   readonly tone: number; // Original device-profile tone word.
   readonly control: number; // Original command byte, including channel selector.
   readonly duration: number; // in sound ticks (60 ticks/s)
@@ -25,7 +25,7 @@ export interface SoundNote {
   readonly volume: number; // normalized gain 0.0 .. 1.0
 }
 
-export interface SoundChannel {
+interface SoundChannel {
   readonly channelIndex: number; // 0..3 (0..2 tone voices, 3 noise voice)
   readonly notes: readonly SoundNote[];
   readonly totalDuration: number; // duration in sound ticks
@@ -49,7 +49,7 @@ export const PIT_BASE_FREQ = 99431.67;
  * sentinel (docs/fidelity.md, "Original sound player audit"). Each tick the
  * signed delta is applied to the note's base attenuation until the hold.
  */
-export const DEFAULT_ENVELOPE_TABLE: readonly number[] = [
+const DEFAULT_ENVELOPE_TABLE: readonly number[] = [
   -2, -3, -2, -1, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5,
   5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11,
   12, 12, 12, 12, 12, 12, 13, 0x80,
@@ -61,7 +61,7 @@ export const DEFAULT_ENVELOPE_TABLE: readonly number[] = [
  * Selected through `AgiProfile.soundEnvelope`; unmeasured common-family
  * profiles keep the 2.917 table.
  */
-export const V3_ENVELOPE_TABLE: readonly number[] = [
+const V3_ENVELOPE_TABLE: readonly number[] = [
   -2, -3, -2, -1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
   3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10,
   10, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 13, 0x80,
@@ -74,7 +74,7 @@ export const V3_ENVELOPE_TABLE: readonly number[] = [
  * the offset applies to the note's own attenuation; the entries do not
  * accumulate.
  */
-export const AMIGA_ENVELOPE_TABLE: readonly number[] = [
+const AMIGA_ENVELOPE_TABLE: readonly number[] = [
   2, 1, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5,
   5, 5, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 11, 0x80,
 ];
@@ -88,7 +88,7 @@ export const AMIGA_ENVELOPE_TABLE: readonly number[] = [
  * the attack saturates at full volume. Selected through
  * `AgiProfile.soundEnvelope`.
  */
-export const AMIGA_2176_ENVELOPE_TABLE: readonly number[] = [
+const AMIGA_2176_ENVELOPE_TABLE: readonly number[] = [
   -2, -3, -2, -1, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5,
   5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12,
   12, 12, 12, 13, 0x80,

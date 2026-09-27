@@ -102,7 +102,7 @@ export interface AutosaveControllerContext {
   readonly configForGame: (projectId: ProjectId, config: LlmConfig) => LlmConfig;
 }
 
-export type AutosaveFlushResult =
+type AutosaveFlushResult =
   | { status: "saved"; cycle: number }
   | { status: "already_durable"; cycle: number }
   | { status: "not_checkpointable"; reason: string }

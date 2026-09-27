@@ -1307,5 +1307,3 @@ export function useHistoryView(deps: HistoryViewDeps) {
     transport,
   };
 }
-
-export type HistoryViewController = ReturnType<typeof useHistoryView>;

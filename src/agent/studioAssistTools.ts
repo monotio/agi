@@ -96,10 +96,10 @@ const MAX_ROW_PIXELS = 32768;
 /** Rows a sprite candidate sheet shows at most. */
 const MAX_SHEET_ROWS = 8;
 /** propose_edit calls one request allows: a ceiling, not a target. */
-export const DEFAULT_MAX_PROPOSALS = 4;
+const DEFAULT_MAX_PROPOSALS = 4;
 
 /** A ghost actor placed in Room Studio: one cel standing at one place. */
-export interface StudioGhost {
+interface StudioGhost {
   readonly view: number;
   readonly loop: number;
   readonly cel: number;

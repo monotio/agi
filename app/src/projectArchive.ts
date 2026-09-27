@@ -319,9 +319,9 @@ export function validateTranscript(messages: unknown, provider: string): unknown
   return messages;
 }
 
-export const MAX_PROJECT_DEPTH = 40;
-export const MAX_PROJECT_NODES = 25_000;
-export const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
+const MAX_PROJECT_DEPTH = 40;
+const MAX_PROJECT_NODES = 25_000;
+const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
 
 export function readProjectContext(
   bytes: Uint8Array,

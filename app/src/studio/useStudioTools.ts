@@ -68,7 +68,7 @@ export interface StudioToolsOptions {
 }
 
 /** What the walk tools do with the canvas's presses and drags. */
-export interface WalkGestures {
+interface WalkGestures {
   press(tool: WalkTool, cell: Point): boolean;
   dragTo(cell: Point): void;
   release(): void;

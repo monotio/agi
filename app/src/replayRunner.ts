@@ -16,7 +16,7 @@ import type {
 import type { Frame } from "./gameTypes.ts";
 
 /** Deterministic FNV-1a hash of the composited frame for regression checks. */
-export async function computeScreenHash(frame: Frame | null): Promise<string> {
+async function computeScreenHash(frame: Frame | null): Promise<string> {
   if (frame) {
     const data = new Uint8Array(frame.visual.length + frame.text.length);
     data.set(frame.visual);

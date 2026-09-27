@@ -32,7 +32,7 @@ export function playHereProblem(target: PlayHereTarget): string | null {
 }
 
 /** The walkable-rule input for ego as the engine holds it now: current cel, room horizon. */
-export function egoWalkable(engine: Engine): WalkableInput {
+function egoWalkable(engine: Engine): WalkableInput {
   const ego = engine.screenObjects[0]!;
   return {
     priority: engine.surface.priority,

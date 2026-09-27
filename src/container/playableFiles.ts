@@ -24,14 +24,14 @@ export const AMIGA_INTERPRETER_FILES: Readonly<Record<string, ProfileId>> = {
 };
 
 /** The Apple IIgs wavetable its interpreter uploads to the sound chip. */
-export const IIGS_WAVETABLE = "SIERRASTANDARD";
+const IIGS_WAVETABLE = "SIERRASTANDARD";
 
 /**
  * Whether a file is an interpreter executable detection reads: the PC
  * version-string carriers and `*.COM` loaders, the Amiga hunk executables
  * and the Apple IIgs `*.SYS16` load file.
  */
-export function isInterpreterFileName(name: string): boolean {
+function isInterpreterFileName(name: string): boolean {
   const upper = name.toUpperCase();
   return (
     INTERPRETER_FILES.includes(upper) ||

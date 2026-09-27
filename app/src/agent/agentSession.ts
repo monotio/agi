@@ -77,7 +77,7 @@ import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts
 import { continuationTranscript } from "../projectArchive.ts";
 
 /** Resource the remix turn wrote and the host must patch into the live game. */
-export interface PatchedResource {
+interface PatchedResource {
   kind: "logic" | "picture" | "view" | "sound";
   num: number;
   payload: Uint8Array;
@@ -116,7 +116,7 @@ export interface AgentChatMessage {
  * The remix user turn. A tail appended to the transcript, never an edit of
  * the cached system prefix.
  */
-export function createPowerUpPrompt(instruction: string, room: number): string {
+function createPowerUpPrompt(instruction: string, room: number): string {
   return `### LIVE PATCH REQUEST
 
 The world is frozen at a cycle boundary in room ${room}, and the player has asked for a change:

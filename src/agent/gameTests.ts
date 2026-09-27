@@ -33,7 +33,7 @@ export const GAME_TESTS_FORMAT = "monotio.agi.tests.v1";
  * Tests one write_game_tests or run_game_tests call may name. A game keeps
  * any number of tests; this only bounds a single call, which can repeat.
  */
-export const MAX_GAME_TESTS = 64;
+const MAX_GAME_TESTS = 64;
 /** TESTS.JSON is bounded on reading and writing by a game archive entry (gameZip MAX_ENTRY_BYTES). */
 export const GAME_TESTS_MAX_BYTES = 64 * 1024 * 1024;
 /** Tests rerun after one patch; keeps a write tool's latency bounded. */

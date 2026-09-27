@@ -19,9 +19,9 @@ import {
   type StudioDiagnosticCode,
 } from "../pictureDocument.ts";
 
-export type LogicRuleKind = "exit" | "region";
+type LogicRuleKind = "exit" | "region";
 
-export const LOGIC_RULE_KINDS: readonly LogicRuleKind[] = ["exit", "region"];
+const LOGIC_RULE_KINDS: readonly LogicRuleKind[] = ["exit", "region"];
 
 /** Rule ids follow the picture item id rule. */
 export const LOGIC_RULE_ID = PICTURE_ITEM_ID;

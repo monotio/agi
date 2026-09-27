@@ -29,7 +29,7 @@ export interface ShellBridge {
   focusGameInput(): void;
 }
 
-export const shellBridgeKey: InjectionKey<ShellBridge> = Symbol("agi-shell-bridge");
+const shellBridgeKey: InjectionKey<ShellBridge> = Symbol("agi-shell-bridge");
 
 export function createShellBridge(): ShellBridge {
   return {

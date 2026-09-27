@@ -113,5 +113,3 @@ export function createAutosave(ctx: WorkerContext) {
 
   return { autosave, onCheckpoint, onFlush };
 }
-
-export type AutosaveModule = ReturnType<typeof createAutosave>;

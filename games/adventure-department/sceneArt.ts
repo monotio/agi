@@ -21,7 +21,7 @@
 const VP_X = 80;
 const VP_Y = 47;
 /** The back wall's floor line, which is also the walk horizon. */
-export const FLOOR_Y = 112;
+const FLOOR_Y = 112;
 const BACK_LEFT = 24;
 const BACK_RIGHT = 135;
 const RAIL_Y = 88;
@@ -79,7 +79,7 @@ function along(side: Side, y: number, to: number = edge(side)): string {
   return `line ${back(side)},${y} ${to},${recede(back(side), y, to)}`;
 }
 
-export interface ShellColours {
+interface ShellColours {
   readonly wall: number;
   readonly wainscot: number;
   readonly floor: number;
@@ -1251,7 +1251,7 @@ const ARCHIVE_PICTURE = [
  * into the white left between the lines, and last a tree painted over the
  * finished view. Fills only flood white, which is why the sky comes last.
  */
-export const MURAL_PICTURE = [
+const MURAL_PICTURE = [
   "# The canvas is primed white first: the overlay lands on the gallery's grey canvas.",
   item("primer", "Canvas primer", "art", "vis 15", ...rows(54, 105, 30, 73)),
   item("edge", "Canvas edge", "art", "vis 0", "rect 53,29 106,74"),

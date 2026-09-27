@@ -22,7 +22,7 @@
 
 import type { StudioLens } from "./studioView.ts";
 
-export const LENS_KEYS: Record<string, StudioLens> = { "1": "art", "2": "depth", "3": "walk" };
+const LENS_KEYS: Record<string, StudioLens> = { "1": "art", "2": "depth", "3": "walk" };
 
 const ARROWS: Record<string, readonly [number, number]> = {
   ArrowUp: [0, -1],
@@ -32,7 +32,7 @@ const ARROWS: Record<string, readonly [number, number]> = {
 };
 
 /** Shift+arrow nudges this far. */
-export const NUDGE_FAR = 8;
+const NUDGE_FAR = 8;
 
 export interface StudioKeyActions {
   /** Whether the canvas has focus (arrows act on it only then). */

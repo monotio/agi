@@ -41,10 +41,10 @@ export interface AgentLogger {
 const MAX_AUDIO_PREVIEWS = 8;
 const MAX_AUDIO_PREVIEW_BYTES = 8 * 1024 * 1024;
 
-export const MAX_LOG_ENTRIES = 500;
-export const MAX_LOG_BYTES = 2 * 1024 * 1024;
+const MAX_LOG_ENTRIES = 500;
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
 
-export function isWave(bytes: Uint8Array): boolean {
+function isWave(bytes: Uint8Array): boolean {
   if (!(
     bytes.length >= 44 &&
     bytes.length <= MAX_AUDIO_PREVIEW_BYTES &&
@@ -78,7 +78,7 @@ export function isWave(bytes: Uint8Array): boolean {
   );
 }
 
-export function takeAudio(data: unknown): { previews: AgentLogAudio[]; serializable: unknown } {
+function takeAudio(data: unknown): { previews: AgentLogAudio[]; serializable: unknown } {
   if (!data || typeof data !== "object" || Array.isArray(data))
     return { previews: [], serializable: data };
   const record = data as Record<string, unknown>;

@@ -13,7 +13,7 @@ import { freshItemId, type DraftOutcome, type StudioDraft } from "./useStudioDra
 import { useStudioNotice } from "./useStudioNotice.ts";
 
 /** How far Cmd/Ctrl+D offsets a copy, in logical pixels. */
-export const DUPLICATE_OFFSET = 4;
+const DUPLICATE_OFFSET = 4;
 /** How long a refusal's cells stay highlighted. */
 const FLASH_MS = 1600;
 

@@ -5,13 +5,13 @@
  * entries use the agi-re "Resource Containers" five-byte/three-byte contracts.
  * Inventory and sound payloads remain in their original 2.001 formats.
  */
-export interface BooterFileRecord {
+interface BooterFileRecord {
   readonly slot: number;
   readonly offset: number;
   readonly bytes: number;
 }
 
-export interface BooterEvidence {
+interface BooterEvidence {
   readonly format: "pc-booter-2.001";
   readonly interpreterVersion: "2.001";
   readonly imageBytes: number;

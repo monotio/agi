@@ -79,19 +79,8 @@ export function gameIdentity(value: unknown): GameIdentity | null {
 }
 
 /** Validate a serialized identity record; throws naming the bad value. */
-export function requireGameIdentity(value: unknown): GameIdentity {
-  const identity = gameIdentity(value);
-  if (identity === null) throw new Error(`Invalid game identity: ${JSON.stringify(value)}`);
-  return identity;
-}
 
 /** The plain serialized shape of a GameIdentity. */
-export function serializeGameIdentity(identity: GameIdentity): {
-  project: string;
-  revision: string;
-} {
-  return { project: identity.project, revision: identity.revision };
-}
 
 /** Compile-time pin: a bare string must never satisfy either brand. */
 type AssertFalse<T extends false> = T;

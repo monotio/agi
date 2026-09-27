@@ -21,7 +21,7 @@ export interface IigsWave {
   readonly relPitch: number;
 }
 
-export interface IigsEnvelopeSegment {
+interface IigsEnvelopeSegment {
   readonly breakpoint: number;
   readonly increment: number;
 }
