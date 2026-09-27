@@ -108,7 +108,7 @@ for (const provider of ["openai", "anthropic"]) {
           process.execPath,
           [
             "--experimental-strip-types",
-            "scripts/eval-genesis.ts",
+            "evals/genesis-cli.ts",
             "--provider",
             provider,
             "--api-key",
@@ -263,7 +263,7 @@ for (const provider of ["openai", "anthropic"]) {
             process.execPath,
             [
               "--experimental-strip-types",
-              "scripts/eval-genesis.ts",
+              "evals/genesis-cli.ts",
               "--provider",
               provider,
               "--api-key",

@@ -194,7 +194,7 @@ async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", sample
   return frames;
 }
 
-test("a mirrored actor is repaired without changing its source loop, kept, reloaded, exported and played", async ({
+test("a mirrored actor is repaired without changing its source loop, kept, reloaded, exported and played @webkit-desktop", async ({
   page,
 }) => {
   test.setTimeout(120_000);

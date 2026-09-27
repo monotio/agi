@@ -1,5 +1,6 @@
 /**
- * Lens locks for Room Studio edits (decision D6). The lens rules themselves
+ * Lens locks for Room Studio edits, judged on decoded pixels, never on the
+ * edit's operations. The lens rules themselves
  * (src/studio/lensRules.ts) are shared with AI proposals (assistScope.ts),
  * so both pass the same validators. Every candidate edit is checked on its decoded planes by
  * the kernel's validateEdit, with the edited items' old and new footprints on

@@ -8,7 +8,7 @@
  * host image — runs the named cases, and reports cost, latency, cache
  * behavior and acceptance per run.
  *
- *   node --experimental-strip-types scripts/eval-remix.ts \
+ *   node --experimental-strip-types evals/remix-benchmark.ts \
  *     --game games/gr --case keys-help,recolor --provider openai --model gpt-6-astra \
  *     [--checkpoint autosave.bin] [--warm] [--repeats 3] [--out evals/results/remix]
  *

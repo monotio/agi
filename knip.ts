@@ -13,6 +13,8 @@ const config: KnipConfig = {
         // Spawned as a shell string by app/playwright.production.config.ts
         // (webServer command), which knip cannot resolve as an import.
         "scripts/serve-production.ts",
+        // Loaded by `npm run lint:deps` as a `plugin:` reporter path.
+        "scripts/dependency-report.mjs",
       ],
       project: ["src/**/*.ts", "scripts/**/*.{ts,mjs}", "test/**/*.ts", "games/**/*.ts"],
       // The built-in command runner plugin resolves to this specifier inside

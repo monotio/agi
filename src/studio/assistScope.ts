@@ -1,5 +1,5 @@
 /**
- * The scope contract of a Studio assist request (decision D6): what an AI
+ * The scope contract of a Studio assist request: what an AI
  * proposal made from a Room Studio or Sprite Studio selection may change.
  * The UI builds it from the selection and the lens; `checkCandidate` holds a
  * candidate to it on DECODED pixels, whatever the proposal's operations or

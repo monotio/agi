@@ -74,10 +74,10 @@ export function fingerprintReference(
   sources: ReadonlyMap<string, string>,
 ): string {
   const hash = createHash("sha256");
-  for (const [name, bytes] of [...files].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, bytes] of [...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     hash.update(JSON.stringify(["fixture", name, bytes.length])).update(bytes);
   }
-  for (const [name, source] of [...sources].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [name, source] of [...sources].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     hash.update(JSON.stringify(["source", name, source]));
   }
   return hash.digest("hex");

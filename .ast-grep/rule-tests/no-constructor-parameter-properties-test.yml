@@ -1,0 +1,10 @@
+id: no-constructor-parameter-properties
+valid:
+  - "class Port { readonly id: number; constructor(id: number) { this.id = id; } }"
+  - "class Port { send(message: string): void {} }"
+  - "class Port { constructor(id = 0) {} }"
+invalid:
+  - "class Port { constructor(private readonly id: number) {} }"
+  - "class Port { constructor(public id: number, name: string) {} }"
+  - "class Port { constructor(protected id?: number) {} }"
+  - "class Port { constructor(readonly id: number) {} }"

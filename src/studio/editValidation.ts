@@ -1,5 +1,5 @@
 /**
- * Edit validation for the Room Studio (decision D6): the UI and the agent
+ * Edit validation for the Room Studio: the UI and the agent
  * pass the same check, which compares the DECODED visual and priority planes
  * before and after an edit, never the operations or the source text.
  */

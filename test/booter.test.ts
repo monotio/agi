@@ -123,7 +123,7 @@ test("decoded files open as a v2-split container and detect the native 2.001 pro
 });
 
 test("2.001 action 0x8f configures max animated objects without touching signature", () => {
-  // docs/fidelity.md pc-booter-action-0x8f: in 2.001, action 0x8f is max.drawn.objects(count).
+  // docs/fidelity.md pc-booter-action-0x8f-maxdrawnobjects: in 2.001, action 0x8f is max.drawn.objects(count).
   // Boot logic passes count (e.g. 25) without looking up a message. In 2.089+, 0x8f is set.game.id(msg).
   const container = createContainer();
   container.putResource("logic", 0, buildLogicResource(new Uint8Array([0x8f, 25, 0x00]), []));
@@ -141,7 +141,7 @@ test("2.001 action 0x8f configures max animated objects without touching signatu
 });
 
 test("2.001 dispatch is bounded at 0x90, below the 2.089 range", () => {
-  // docs/fidelity.md pc-booter-action-0x8f: the booter dispatches actions
+  // docs/fidelity.md pc-booter-action-0x8f-maxdrawnobjects: the booter dispatches actions
   // 0x01..0x90 (`cmp al,0x90; jna`), so set.scan.start (0x91) is outside its
   // range but inside the 2.089 range (bound 0x9a).
   const container = createContainer();

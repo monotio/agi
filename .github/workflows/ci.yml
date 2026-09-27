@@ -108,6 +108,13 @@ jobs:
             shard: ""
             label: "webkit"
             artifact: "webkit"
+          # Desktop Studio in WebKit: the scenarios tagged @webkit-desktop
+          # (app/playwright.webkit.config.ts): six scenarios.
+          - browser: webkit
+            suite: desktop
+            shard: ""
+            label: "webkit desktop"
+            artifact: "webkit-desktop"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -128,8 +135,12 @@ jobs:
         working-directory: app
         env:
           CI: "1"
-      - if: matrix.browser == 'webkit'
+      - if: matrix.browser == 'webkit' && matrix.suite != 'desktop'
         run: npm --prefix app run e2e:phone -- --project=iphone-webkit --reporter=list
+        env:
+          CI: "1"
+      - if: matrix.suite == 'desktop'
+        run: npm --prefix app run e2e:webkit-desktop -- --reporter=list
         env:
           CI: "1"
       - if: failure()

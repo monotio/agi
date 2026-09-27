@@ -15,8 +15,8 @@ const LAZY_AUTHORING_MODULES = "^src/agent/(studioAssistTools|pictureTools)\\.ts
 export default {
   forbidden: [
     {
-      // AGENTS.md: no circular dependencies in src/ and app/src/. Only cycles
-      // where every edge is a runtime import are errors: a cycle closed by an
+      // AGENTS.md, Architecture rules: no runtime import cycles in src/ or
+      // app/src/. Only cycles where every edge is a runtime import are errors: a cycle closed by an
       // `import type` edge is erased at compile time and carries no
       // module-init-order risk. The legacy clusters in LEGACY_CYCLE_MODULES
       // fall through to "legacy-circular" below; any other runtime cycle —
@@ -40,14 +40,14 @@ export default {
       to: { circular: true, viaOnly: { path: LEGACY_CYCLE_MODULES } },
     },
     {
-      // AGENTS.md: app/ imports src/, never the reverse.
+      // AGENTS.md, Architecture rules: app/ imports src/, never the reverse.
       name: "src-not-to-app",
       severity: "error",
       from: { path: "^src/" },
       to: { path: "^app/" },
     },
     {
-      // AGENTS.md: src/ runs in the browser, a Web Worker and Node with zero
+      // AGENTS.md, Architecture rules: src/ runs in the browser, a Web Worker and Node with zero
       // runtime dependencies — no node:* core modules and no package imports;
       // platform access is injected. (Test/script folders live outside src/.)
       name: "src-no-platform-modules",
@@ -56,9 +56,10 @@ export default {
       to: { dependencyTypes: ["core", "npm"] },
     },
     {
-      // AGENTS.md: the Play boot path must not statically import Studio code
-      // (app/src/studio, src/studio); the shell reaches it through dynamic
-      // import() (defineAsyncComponent in App.vue). Type-only imports are
+      // AGENTS.md, Architecture rules: Studio code (app/src/studio, src/studio)
+      // stays off the Play boot path; the shell reaches it through dynamic
+      // import() (defineAsyncComponent in App.vue), and `npm run check:bundle`
+      // fails a build that puts it there. Type-only imports are
       // erased at build time and exempt. Warning for now: app/src/world/*,
       // app/src/worker/playHere.ts, app/src/route.worker.ts,
       // and app/src/resourceCommit.ts reach studio kernels statically,

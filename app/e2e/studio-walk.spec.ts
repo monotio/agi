@@ -83,7 +83,7 @@ async function moveCursor(page: Page, dx: number, dy: number): Promise<void> {
   }
 }
 
-test("a test walk in the lab reaches the lever plate; the gallery's rope blocks one; Play here", async ({
+test("a test walk in the lab reaches the lever plate; the gallery's rope blocks one; Play here @webkit-desktop", async ({
   page,
 }) => {
   await playTutorial(page);

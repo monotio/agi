@@ -8,6 +8,7 @@ import { assembleLogic } from "../../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../../src/picture/source.ts";
 import {
   cacheGame,
+  clickTimelineMark,
   configureAi,
   enterCreateMode,
   isolateStorage,
@@ -23,6 +24,15 @@ import {
  * original test fixture, with the stub provider for AI state. The fixture
  * server's installed-game list is answered empty, so no local game library
  * reaches a picture. Shots wait on published state, never on a clock.
+ *
+ * Nothing is restyled for the camera. A live session's history transport
+ * places its marks by how many ticks the session has run, which the wall
+ * clock decides, and the engine's clock runs in its worker, beyond the reach
+ * of Playwright's page.clock. So the Play shot starts from a finished tape:
+ * the tutorial's recorded walkthrough, sought to a checkpoint while paused,
+ * then Take control (takeControlAt). Create mode needs the tutorial's own
+ * project, which a walkthrough session is not, so its transport keeps one
+ * live mark: the start of the session, a few pixels into the lane.
  */
 
 /** Where the PNGs go: the capture script's staging folder, else the test's output. */
@@ -55,25 +65,39 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
   // The shipped display: square-pixel test mode off, 4:3 like a monitor of the day.
   await page.addInitScript(() => localStorage.setItem("monotio_agi.originalAspect", "on"));
-  // A history mark sits at its share of the session so far, and a live fill
-  // ends a hair short of 100%: the clock decides both. From the first paint,
-  // hide the marks and draw the live fill full, as it looks.
-  await page.addInitScript(() =>
-    document.addEventListener("DOMContentLoaded", () => {
-      const style = document.createElement("style");
-      style.textContent = [
-        ".transport-marker { visibility: hidden !important; }",
-        ".transport-progress-fill { width: 100% !important; }",
-      ].join("\n");
-      document.head.append(style);
-    }),
-  );
 });
 
 async function playTutorial(page: Page): Promise<void> {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await settled(page);
+}
+
+/**
+ * The tutorial from its recorded walkthrough: paused, sought to checkpoint
+ * `index`, then played from there. The new session's transport has no marks
+ * yet and fills once its first batch lands, the same on every run.
+ */
+async function takeControlAt(page: Page, index: number): Promise<void> {
+  await page.goto("/#watch/adventure-department");
+  await expect(page.getByTestId("walkthrough-bar")).toBeVisible({ timeout: 30_000 });
+  await page.getByTestId("btn-walkthrough-pause").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
+    .toBe("paused");
+  await clickTimelineMark(page, page.getByTestId(`walkthrough-marker-${index}`));
+  await expect
+    .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.checkpointIndex))
+    .toBe(index);
+  await settled(page);
+  await page.getByTestId("btn-walkthrough-take-control").click();
+  await expect(page.getByTestId("walkthrough-bar")).toBeHidden();
+  await expect(page.locator(".play-strip .transport-progress-fill")).toHaveAttribute(
+    "style",
+    /width: 100%/,
+  );
+  await expect(page.locator(".play-strip .transport-marker")).toHaveCount(0);
   await settled(page);
 }
 
@@ -109,26 +133,10 @@ test("home", async ({ page }) => {
 });
 
 test("tutorial-gallery", async ({ page }) => {
-  await playTutorial(page);
-  // Stand the apprentice at the mural, as its stored game test does, with
-  // Studio's Play here, then paint it.
-  const studio = await openRoomStudio(page, 1);
-  await page.mouse.click(...(await cell(page, 77, 140)), { button: "right" });
-  await page.getByTestId("canvas-menu").getByRole("menuitem", { name: "Play here" }).click();
-  await expect(studio).toBeHidden();
-  await expect.poll(async () => (await textHook(page)).egoX).toBe(77);
-  const note = page.getByTestId("play-here-note");
-  if (await note.isVisible()) await note.getByRole("button", { name: "Dismiss" }).click();
-  await page.getByTestId("input-line").focus();
-  await page.keyboard.type("paint mural");
-  await page.keyboard.press("Enter");
-  await expect
-    .poll(async () => (await textHook(page)).rows.join(" "))
-    .toContain("You paint a sun, mountains and");
-  await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
-  await expect.poll(async () => (await textHook(page)).rows[0]).toContain("Score: 10 of 30");
-  await settled(page);
+  // The moment the walkthrough has just painted the mural and dismissed its
+  // message: the status line reads "Mural fixed!".
+  await takeControlAt(page, 1);
+  expect((await textHook(page)).rows[0]).toContain("Score: 10 of 30");
   await shot(page, "tutorial-gallery");
 });
 

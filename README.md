@@ -262,6 +262,40 @@ with no custom opcodes. The engine runs in a Web Worker; the Vue shell adds a
 GPU-rendered CRT display and an in-game command line, while game text stays on
 the original 40 × 25 character screen.
 
+## How it's built
+
+Coding agents build this project, alongside the agent inside it, and the
+repository is arranged so that neither has to be taken at its word.
+
+- **A written agreement.** [AGENTS.md](AGENTS.md) holds the conventions,
+  boundaries and method every contributor follows, person or agent: evals
+  before features, and a check nobody has seen fail counts as a comment.
+- **Authority in code.** The in-app agent can only call the tools on its
+  session's [allowlist](src/agent/tools.ts), and what it writes still has to
+  get past the assembler, the resource checks and the Studio's pixel-level
+  validators.
+- **Mistakes become evals.** A model error that recurs is stored as a bad case,
+  [like this one](evals/fixtures/bad-cases/write-picture-source-y168.json),
+  and replayed offline on every check.
+- **One gate.** `npm run check` runs the typecheckers, ESLint,
+  [ast-grep rules](.ast-grep/rules), knip,
+  [dependency rules](.dependency-cruiser.mjs), a design-token ratchet, a
+  [contrast test](app/test/token-contrast.test.ts), the engine and app tests,
+  and the stored evals. [CI](.github/workflows/ci.yml) adds Playwright in
+  Chromium and WebKit.
+- **Budgets.** The Play boot path has a
+  [bundle budget](scripts/check-bundle-budget.ts) that also keeps Studio and
+  the AI stack off it, and [interaction budgets](app/e2e/perf-budgets.spec.ts)
+  bound boot long tasks and Studio frame and input times.
+- **Tests that are tested.** [Mutation testing](stryker.config.mjs), run on
+  demand, checks that the picture and Studio kernels' tests catch deliberate
+  bugs.
+- **Measured models.** The [Genesis benchmark](evals/benchmarks/genesis/1.0.0/README.md)
+  gives five models the same briefs and publishes every run, its cost and the
+  game it made.
+
+[How it fits together](CONTRIBUTING.md#how-it-fits-together) maps the code.
+
 ## Run it yourself
 
 Install Node.js 22.22 or newer, then:
@@ -279,7 +313,7 @@ interpreter.
 | Document                                                | For                                                             |
 | ------------------------------------------------------- | --------------------------------------------------------------- |
 | [Interpreter compatibility](docs/fidelity.md)           | How the original interpreters behave and how the engine matches |
-| [Contributing](CONTRIBUTING.md)                         | Development setup, checks and pull requests                     |
+| [Contributing](CONTRIBUTING.md)                         | Development setup, architecture, checks and pull requests       |
 | [Testing](docs/testing.md)                              | Game fixtures, walkthrough proofs and compatibility checks      |
 | [Hosting](docs/hosting.md#including-games-on-your-site) | Running your own copy and adding games to its catalog           |
 | [Evals](evals/README.md)                                | Measuring authoring quality                                     |

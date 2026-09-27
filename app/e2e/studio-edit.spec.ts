@@ -176,7 +176,7 @@ async function dragHandle(page: Page, line: number, index: number, dx: number, d
   await page.mouse.up();
 }
 
-test("a depth drag changes only the priority plane, undoes, keeps, reloads, exports and plays", async ({
+test("a depth drag changes only the priority plane, undoes, keeps, reloads, exports and plays @webkit-desktop", async ({
   page,
 }) => {
   await bootStudioGame(page);

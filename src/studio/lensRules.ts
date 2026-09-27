@@ -1,5 +1,5 @@
 /**
- * Room Studio lens rules (decision D6), shared by the creator's own edits
+ * Room Studio lens rules, shared by the creator's own edits
  * (app/src/studio/studioLocks.ts) and AI proposals (assistScope.ts) so both
  * pass the same validators. Each lens locks the planes it is not about: Art
  * locks the priority plane, Depth and Walk the visual plane, and Walk also

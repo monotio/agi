@@ -210,7 +210,7 @@ export interface AgiProfile {
    * Action 0x8f semantics:
    * - "max-drawn-objects": in 2.001 (load-module 0x0284), action 0x8f is
    *   `max.drawn.objects(count)`, which configures the animated/drawn object
-   *   table capacity (docs/fidelity.md pc-booter-action-0x8f).
+   *   table capacity (docs/fidelity.md pc-booter-action-0x8f-maxdrawnobjects).
    * - "set-game-id": in 2.089 and later, action 0x8f is `set.game.id(message_num)`,
    *   which copies up to seven message bytes into the runtime signature
    *   (spec "Save names and signatures").
@@ -511,7 +511,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // PC booter 2.001: no promoted spec profile exists (the catalog starts at
   // 2.089). Evidence-backed fields only; every other field inherits the
   // earliest documented contract and is listed as unverified in
-  // docs/fidelity.md (pc-booter-2.001-profile).
+  // docs/fidelity.md (pc-booter-2001-profile).
   "2.001": {
     ...BASE_EARLY,
     id: "2.001",
