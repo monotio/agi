@@ -370,13 +370,13 @@ export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number
     return {
       tone: "warn",
       fraction,
-      note: `Over the agent's ${n(sceneLimit)}-byte write_scene limit; the resource limit is ${n(recordLimit)} bytes.`,
+      note: `Larger than the ${n(sceneLimit)} bytes the assistant can rewrite in one go; the game allows ${n(recordLimit)} bytes.`,
     };
   if (bytes >= sceneLimit * BYTES_APPROACH)
     return {
       tone: "warn",
       fraction,
-      note: `Approaching the agent's ${n(sceneLimit)}-byte write_scene limit (resource limit ${n(recordLimit)}).`,
+      note: `Close to the ${n(sceneLimit)} bytes the assistant can rewrite in one go (the game allows ${n(recordLimit)}).`,
     };
   return {
     tone: "ok",

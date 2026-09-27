@@ -442,21 +442,15 @@ test("a stale base or an unusable source is refused before storage or the worker
   assert.equal(failure.message, "The game changed since you opened Studio. Reopen to continue.");
 });
 
-test("a Keep on a project removed in another tab says so, not the generic stale text", () => {
+test("a Studio Keep refused as removed shows the transaction's words, not the generic stale text", () => {
   const removed = "This game was removed in another tab. Reload to continue.";
   const worded = studioCommitFailure(
-    new ResourceCommitError("stale", removed, { behindStorage: true }),
+    new ResourceCommitError("stale", removed, { behindStorage: true, removed: true }),
   );
   assert.deepEqual([worded.code, worded.message, worded.behindStorage], ["stale", removed, true]);
-  // A typed reason on the error wins over the wording.
-  const typed = Object.assign(
-    new ResourceCommitError("stale", "Gone elsewhere.", { behindStorage: true }),
-    { reason: "removed" },
-  );
-  assert.equal(studioCommitFailure(typed).message, "Gone elsewhere.");
-  // Any other stale refusal keeps the Studio's own words.
+  // Any other stale refusal keeps the Studio's own words, whatever its text says.
   assert.equal(
-    studioCommitFailure(new ResourceCommitError("stale", "The project changed elsewhere.")).message,
+    studioCommitFailure(new ResourceCommitError("stale", removed, { behindStorage: true })).message,
     "The game changed since you opened Studio. Reopen to continue.",
   );
 });
