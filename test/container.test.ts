@@ -328,6 +328,46 @@ describe("transactional packing", () => {
     }
   });
 
+  it("puts a set of resources all or none, packed as the same puts made one by one", () => {
+    // Logic 0 and logic 1 share one record.
+    const files = new Map<string, Uint8Array>([
+      ["LOGDIR", Uint8Array.of(0, 0, 0, 0, 0, 0)],
+      ["VOL.0", Uint8Array.of(0x12, 0x34, 0, 1, 0, 42)],
+    ]);
+    const c = openContainer(files);
+    const before = new Map([...c.files].map(([name, bytes]) => [name, bytes.slice()]));
+    assert.throws(
+      () =>
+        c.putResources([
+          { kind: "picture", num: 0, payload: Uint8Array.of(5) },
+          { kind: "logic", num: 1, payload: new Uint8Array(PAYLOAD_MAX_BYTES + 1) },
+        ]),
+      /u16le record length/,
+    );
+    assert.deepEqual(c.files, before, "a refused set changes nothing");
+    c.putResources([
+      { kind: "logic", num: 1, payload: Uint8Array.of(7, 8) },
+      { kind: "picture", num: 0, payload: Uint8Array.of(5) },
+      { kind: "logic", num: 1, payload: Uint8Array.of(9) },
+    ]);
+    // Directory order: logic 0 keeps 42, logic 1 splits off with the later 9, then picture 0.
+    assert.deepEqual(
+      c.files.get("VOL.0"),
+      Uint8Array.of(0x12, 0x34, 0, 1, 0, 42, 0x12, 0x34, 0, 1, 0, 9, 0x12, 0x34, 0, 1, 0, 5),
+    );
+    assert.deepEqual(c.files.get("LOGDIR"), Uint8Array.of(0, 0, 0, 0, 0, 6));
+    assert.deepEqual(
+      c.files.get("PICDIR")!.subarray(0, 6),
+      Uint8Array.of(0, 0, 12, 0xff, 0xff, 0xff),
+    );
+    // A history tape replays each resource of the set on its own: same bytes.
+    const oneByOne = openContainer(files);
+    oneByOne.putResource("logic", 1, Uint8Array.of(7, 8));
+    oneByOne.putResource("picture", 0, Uint8Array.of(5));
+    oneByOne.putResource("logic", 1, Uint8Array.of(9));
+    assert.deepEqual(oneByOne.files, c.files);
+  });
+
   it("detaches Node Buffer inputs: container writes never alias caller storage", () => {
     // fs.readFile returns Buffer, whose .slice() is a view: a copy made with
     // .slice() would alias the caller's buffers, and repack writes the new

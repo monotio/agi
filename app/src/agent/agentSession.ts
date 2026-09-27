@@ -656,8 +656,10 @@ Answer the player's question using evidence from inspection when needed. For hin
     conversation.setAvailableTools(STUDIO_ASSIST_TASK_TOOLS);
     const deps: AgentRuntimeDeps = { allowedTools: STUDIO_ASSIST_TASK_TOOLS, studio: assist };
     // Inspection reads a fork, as Ask does: nothing this turn runs may
-    // reach the session's resources.
+    // reach the session's resources. It reads under the draft's profile,
+    // the one Accept re-checks the candidate with.
     const inspected = forkAgentState(this.state);
+    if (focus.profile) Object.assign(inspected, { profile: focus.profile });
     try {
       let turn = await this.observeTurn(
         conversation.sendUserMessage(createStudioAssistPrompt(instruction, focus)),

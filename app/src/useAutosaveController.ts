@@ -13,7 +13,7 @@ import {
   type AutosaveGame,
   type AutosaveRecord,
 } from "./gameProgress.ts";
-import { getCachedGameMeta, loadAuthoredGame, updateAuthoredGameFiles } from "./gameStorage.ts";
+import { getCachedGameMeta, loadAuthoredGame, updateAuthoredGameFilesAt } from "./gameStorage.ts";
 import {
   findInstalledFolder,
   gameStorageKey,
@@ -91,6 +91,8 @@ export interface AutosaveControllerContext {
   readonly getWorker: () => Worker | null;
   readonly onAutosaveStored?: (cycle: number) => void;
   readonly onAutosaveRestored?: (room: number, egoX: number, egoY: number) => void;
+  /** An autosave found a newer save in storage and wrote nothing; called once per game. */
+  readonly onBehindStorage?: () => void;
   readonly logAgent: (kind: AgentLogEntry["kind"], message: string, details?: unknown) => void;
   readonly isInstalledGame: (targetGame: string) => boolean;
   readonly bootGame: (targetFolder: string) => Promise<void>;
@@ -188,8 +190,28 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       const game = booted;
       if (msg.files) {
         if (booted.installed) return false;
-        if (!(await updateAuthoredGameFiles(game.projectId!, msg.files))) return false;
-        if (ctx.getBootedGame() !== game) return false;
+        // Behind storage (a Keep saved but not installed, a newer write from
+        // elsewhere) the running game's files are older than the record:
+        // nothing is written over it until the game reloads from storage.
+        if (booted.behindStorage) return false;
+        // Conditional, as every project write is: only over the revision this
+        // game booted on (or one already holding these files). A newer save
+        // elsewhere refuses: the game is behind storage from then on, and the
+        // reload it needs is offered once.
+        const current = await gameRevision(msg.files);
+        const outcome = await updateAuthoredGameFilesAt(game.projectId!, msg.files, {
+          revision: game.revision,
+          current,
+          ...(game.historyLifetime !== undefined ? { lifetime: game.historyLifetime } : {}),
+        });
+        if (outcome === "stale") {
+          if (ctx.getBootedGame() === game && !game.behindStorage) {
+            game.behindStorage = true;
+            ctx.onBehindStorage?.();
+          }
+          return false;
+        }
+        if (outcome !== "saved" || ctx.getBootedGame() !== game) return false;
         await updateBootedResources(game, msg.files);
       }
       const storageKey = gameStorageKey(game);

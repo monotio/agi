@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
+import {
+  STALE_SAVE_MESSAGE,
+  useAuthoringController,
+  type PowerUpUiState,
+} from "../src/useAuthoringController.ts";
+import { ResourceCommitError } from "../src/resourceCommit.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import * as authoringStack from "../src/agent/authoringStack.ts";
 import {
@@ -17,6 +22,7 @@ import {
   loadAuthoredGame,
   readHistoryLifetime,
   updateAuthoredGameFiles,
+  updateGameConversation,
 } from "../src/gameStorage.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { createWorldDraft, draftAddRoom } from "../../src/agent/worldPlan.ts";
@@ -24,7 +30,14 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { gameRevision } from "../src/gameMetadata.ts";
 import type { DecodedImage } from "../src/referenceArt.ts";
-import { base64ToBytes } from "../src/bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../src/bytes.ts";
+import { resourceSetHint } from "../../src/agent/authoringState.ts";
+import type { HistoryBoot } from "../../src/agent/history.ts";
+import { pictureAssistScope } from "../../src/studio/assistScope.ts";
+import { compileEditDocument } from "../../src/studio/editValidation.ts";
+import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
+import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
+import { BRIDGE_SOURCE } from "../../test/studioAssistFixtures.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
 import type { AwaitPatchedFn } from "../src/workerQueries.ts";
 
@@ -45,7 +58,7 @@ function createMockPowerUp(): PowerUpUiState {
 }
 
 /** The worker's install ack, answered at once for the bytes sent. */
-const ackPatch: AwaitPatchedFn = async (kind, num, hint) => ({ kind, num, hint, patchGen: 1 });
+const ackPatch: AwaitPatchedFn = async (resources) => ({ resources, patchGen: 1 });
 
 const mockConfig: LlmConfig = {
   provider: "stub",
@@ -600,9 +613,10 @@ test("keepStagedView refuses a busy turn and a moved durable base, then commits 
     words: [],
   };
   const powerUp = createMockPowerUp();
-  const patches: { type: string; kind?: string; num?: number }[] = [];
+  const patches: { type: string; resources?: { kind: string; num: number }[] }[] = [];
   const worker = {
-    postMessage: (message: { type: string; kind?: string; num?: number }) => patches.push(message),
+    postMessage: (message: { type: string; resources?: { kind: string; num: number }[] }) =>
+      patches.push(message),
   } as unknown as Worker;
   const controller = useAuthoringController({
     state: {
@@ -673,8 +687,10 @@ test("keepStagedView refuses a busy turn and a moved durable base, then commits 
     patches.map((p) => p.type),
     ["patch", "authoring"],
   );
-  assert.equal(patches[0]?.kind, "view");
-  assert.equal(patches[0]?.num, 0);
+  assert.deepEqual(
+    patches[0]?.resources?.map(({ kind, num }) => [kind, num]),
+    [["view", 0]],
+  );
   await clearCachedGame(projectId);
 });
 
@@ -870,9 +886,7 @@ const STALE_TURN_MESSAGE =
 
 type WorkerPost = {
   type: string;
-  kind?: "logic" | "picture" | "view" | "sound";
-  num?: number;
-  payload?: Uint8Array;
+  resources?: { kind: "logic" | "picture" | "view" | "sound"; num: number; payload: Uint8Array }[];
   files?: Record<string, Uint8Array>;
 };
 
@@ -884,8 +898,9 @@ function remixHarness(files: Record<string, Uint8Array>) {
   const worker = {
     postMessage(message: WorkerPost) {
       posts.push(message);
-      if (message.type === "patch" && message.kind !== undefined && message.num !== undefined)
-        liveContainer.putResource(message.kind, message.num, message.payload!);
+      if (message.type === "patch")
+        for (const { kind, num, payload } of message.resources ?? [])
+          liveContainer.putResource(kind, num, payload);
       if (message.type === "patchMetadata" && message.files)
         Object.assign(liveFiles, message.files);
     },
@@ -1418,4 +1433,224 @@ test("Ask opens on Connect AI at once when no model is connected, before the eng
   assert.equal(ui.powerUp.room, 1);
   assert.equal(ui.powerUp.error, "");
   assert.equal(controller.getSession(), null);
+});
+
+/**
+ * Two tabs on one project: this tab booted `files`, then the other tab kept
+ * an edit — new bytes, the source that describes them and its conversation.
+ * Whatever this tab saves next must not replace that record.
+ */
+async function staleTab(t: { after: (fn: () => void) => void }, name: string) {
+  installLocalStorageMock(t);
+  const projectId = testProjectId(name);
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Two tabs",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  t.after(() => void clearCachedGame(projectId));
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Two tabs",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+    historyLifetime: await readHistoryLifetime(projectId),
+  };
+  const kept = openContainer(new Map(Object.entries(files)));
+  kept.putResource("logic", 2, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const otherTab = AgentSession.fromAuthoredData(
+    mockConfig,
+    () => {},
+    Object.fromEntries(kept.files),
+    [],
+  );
+  otherTab.state.sources.logics.set(2, "return;");
+  assert.equal(
+    await updateGameConversation(
+      projectId,
+      [{ role: "user", content: "the other tab's conversation" }],
+      "other-tab",
+      otherTab.getAuthoringState(),
+      "stub",
+      "offline-stub",
+      { ...Object.fromEntries(kept.files), "WORDS.TOK": files["WORDS.TOK"]! },
+    ),
+    true,
+  );
+  const newer = (await loadAuthoredGame(projectId))!;
+  const ui = {
+    phase: "running" as const,
+    powerUp: createMockPowerUp(),
+    agentTask: null,
+    agentLog: [],
+    profile: "2.936",
+    worldTick: 0,
+    planDurableRev: "",
+  };
+  const controller = useAuthoringController({
+    state: ui,
+    getWorker: () => null,
+    query: async <T>(type: string) => (type === "state" ? ({ room: 1 } as T) : (null as T)),
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  const session = AgentSession.fromAuthoredData(mockConfig, () => {}, files, []);
+  controller.setSession(session);
+  /** The other tab's record, byte for byte: its files, sources, bindings and conversation. */
+  async function untouched(): Promise<void> {
+    const stored = (await loadAuthoredGame(projectId))!;
+    assert.equal(stored.generation, newer.generation, "nothing was written over the newer save");
+    assert.deepEqual(stored.files, newer.files);
+    assert.deepEqual(stored.authoringState, newer.authoringState);
+    assert.deepEqual(stored.transcript, newer.transcript);
+  }
+  return { ui, controller, game, files, session, untouched };
+}
+
+const staleSave = (error: unknown) =>
+  error instanceof ResourceCommitError &&
+  error.code === "stale" &&
+  error.behindStorage &&
+  error.message === STALE_SAVE_MESSAGE;
+
+test("a stale tab's Ask says the game changed elsewhere and never saves over the newer project", async (t) => {
+  const { ui, controller, untouched } = await staleTab(t, "two-tab-ask");
+  ui.powerUp.mode = "ask";
+  await controller.submitPowerUp("Where am I?");
+  assert.equal(ui.powerUp.messages.at(-1)?.role, "assistant", "the answer is shown");
+  assert.equal(ui.powerUp.error, STALE_SAVE_MESSAGE);
+  assert.equal(ui.powerUp.offerReload, true);
+  await untouched();
+});
+
+test("a stale tab's Studio assist request refuses as stale and never saves over the newer project", async (t) => {
+  const { controller, untouched } = await staleTab(t, "two-tab-studio-assist");
+  const compiled = compileEditDocument(
+    parsePictureDocument(BRIDGE_SOURCE).document,
+    DEFAULT_V2_PROFILE,
+  );
+  await assert.rejects(
+    controller.runStudioAssist(
+      {
+        instruction: "impossible: walk onto the ceiling",
+        focus: {
+          scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "walk" }),
+          draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
+          lens: "walk",
+        },
+      },
+      mockConfig,
+    ),
+    staleSave,
+  );
+  await untouched();
+});
+
+test("a stale tab's world-plan save refuses as stale and never saves over the newer project", async (t) => {
+  const { controller, untouched } = await staleTab(t, "two-tab-plan");
+  await assert.rejects(controller.persistSessionState(), staleSave);
+  await untouched();
+});
+
+test("a stale tab's AI settings change says the game changed elsewhere and never saves over the newer project", async (t) => {
+  const { ui, controller, untouched } = await staleTab(t, "two-tab-ai-config");
+  await controller.updateAiConfig({ ...mockConfig, model: "another-model" });
+  assert.equal(controller.getSession()?.getProviderContext().model, "another-model");
+  assert.equal(ui.powerUp.error, STALE_SAVE_MESSAGE);
+  assert.equal(ui.powerUp.offerReload, true);
+  await untouched();
+});
+
+test("a stale tab's history adoption refuses as stale and never rolls the newer project back", async (t) => {
+  const { controller, game, files, session, untouched } = await staleTab(t, "two-tab-adopt");
+  const boot = {
+    files: Object.fromEntries(
+      Object.entries(files).map(([name, bytes]) => [name, bytesToBase64(bytes)]),
+    ),
+    dictionary: [],
+    resourceSet: resourceSetHint({ getFiles: () => new Map(Object.entries(files)) }),
+  } as unknown as HistoryBoot;
+  await assert.rejects(
+    controller.adoptSessionState(game, boot, session.snapshotAuthoring()),
+    staleSave,
+  );
+  await untouched();
+  // Without a session the adopted files alone would follow: refused the same way.
+  controller.setSession(null);
+  await assert.rejects(controller.adoptSessionState(game, boot, undefined), staleSave);
+  await untouched();
+});
+
+test("a history adoption with no session stores the adopted files over the record it booted on", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("adopt-no-session");
+  const files = createTestFiles();
+  const later = openContainer(new Map(Object.entries(files)));
+  later.putResource("logic", 2, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const laterFiles = { ...Object.fromEntries(later.files), "WORDS.TOK": files["WORDS.TOK"]! };
+  await saveAuthoredGame(projectId, {
+    title: "Rewound",
+    provider: "stub",
+    model: "offline-stub",
+    files: laterFiles,
+    words: [],
+  });
+  t.after(() => void clearCachedGame(projectId));
+  const game: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Rewound",
+    revision: await gameRevision(laterFiles),
+    files: laterFiles,
+    words: [],
+    historyLifetime: await readHistoryLifetime(projectId),
+  };
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => null,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+  });
+  // Resume from a moment before logic 2 was added.
+  const boot = {
+    files: Object.fromEntries(
+      Object.entries(files).map(([name, bytes]) => [name, bytesToBase64(bytes)]),
+    ),
+    dictionary: [],
+    resourceSet: resourceSetHint({ getFiles: () => new Map(Object.entries(files)) }),
+  } as unknown as HistoryBoot;
+  await controller.adoptSessionState(game, boot, undefined);
+  const stored = (await loadAuthoredGame(projectId))!;
+  assert.equal(await gameRevision(stored.files), await gameRevision(files));
+  assert.equal(game.revision, await gameRevision(files));
 });

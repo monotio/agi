@@ -39,12 +39,14 @@ import type {
 } from "../src/workerProtocol.ts";
 import { studioCommitFailure, useStudioCommit } from "../src/studio/useStudioCommit.ts";
 import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
+import { useAutosaveController } from "../src/useAutosaveController.ts";
 import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
 import type { AwaitPatchedFn } from "../src/workerQueries.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
 import { authoredPictureSource, createAgentSessionState } from "../../src/agent/agentState.ts";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
 import { openContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
@@ -154,6 +156,8 @@ function rig(
     drop?: (msg: WorkerInbound) => boolean;
     /** Wraps the link's patch waiter the commit uses. */
     awaitPatched?: (link: AwaitPatchedFn) => AwaitPatchedFn;
+    /** Boot as the app boots authored games: a patched container rides each autosave. */
+    autosaveFiles?: boolean;
   } = {},
 ): Rig {
   const posted: WorkerInbound[] = [];
@@ -220,7 +224,12 @@ function rig(
     ejectGame() {},
   });
   link.wireWorker(worker as unknown as Worker);
-  worker.postMessage({ type: "boot", files, words: [] });
+  worker.postMessage({
+    type: "boot",
+    files,
+    words: [],
+    ...(hooks.autosaveFiles ? { autosaveFiles: true } : {}),
+  });
   // The test drives cycles on a controlled clock.
   ctx.fns.stopTimers();
   const tick = (n = 1): void => {
@@ -342,28 +351,49 @@ test("a patch is acked with the hint of the bytes the engine now holds", async (
   const { r } = await authoredRig(t, "studio-ack");
   const bytes = compile(RED);
   const before = r.ctx.engine!.patchGeneration;
-  const acked = r.link.awaitPatched("picture", 1, resourceCacheHint(bytes), 500);
+  const expected = [{ kind: "picture" as const, num: 1, hint: resourceCacheHint(bytes) }];
+  const acked = r.link.awaitPatched(expected, 500);
   r.link.getWorker()!.postMessage({
     type: "patch",
-    kind: "picture",
-    num: 1,
-    payload: bytes,
+    resources: [{ kind: "picture", num: 1, payload: bytes }],
   } satisfies WorkerInbound);
-  assert.deepEqual(await acked, {
-    kind: "picture",
-    num: 1,
-    patchGen: before + 1,
-    hint: resourceCacheHint(bytes),
-  });
+  assert.deepEqual(await acked, { resources: expected, patchGen: before + 1 });
   // An ack naming other bytes never confirms a waiter's install.
-  const wrong = r.link.awaitPatched("picture", 1, resourceCacheHint(compile(BLUE)), 500);
+  const wrong = r.link.awaitPatched(
+    [{ kind: "picture", num: 1, hint: resourceCacheHint(compile(BLUE)) }],
+    500,
+  );
   r.link.getWorker()!.postMessage({
     type: "patch",
-    kind: "picture",
-    num: 1,
-    payload: compile(RED),
+    resources: [{ kind: "picture", num: 1, payload: compile(RED) }],
   } satisfies WorkerInbound);
   await assert.rejects(wrong, /different picture 1 bytes/);
+});
+
+test("a patch whose second resource is refused leaves every resource on its old bytes", async (t) => {
+  const { files, r } = await authoredRig(t, "studio-batch-refused");
+  const engine = r.ctx.engine!;
+  const before = engine.patchGeneration;
+  const live = () => openContainer(new Map(engine.containerFiles));
+  const oldLogic = live().getResource("logic", 1);
+  const expected = [
+    { kind: "picture" as const, num: 1, hint: resourceCacheHint(compile(RED)) },
+    { kind: "logic" as const, num: 1, hint: "" },
+  ];
+  const acked = r.link.awaitPatched(expected, 500);
+  // The logic is over the u16 record length: the container refuses it.
+  const oversized = new Uint8Array(0x10000);
+  r.link.getWorker()!.postMessage({
+    type: "patch",
+    resources: [
+      { kind: "picture", num: 1, payload: compile(RED) },
+      { kind: "logic", num: 1, payload: oversized },
+    ],
+  } satisfies WorkerInbound);
+  await assert.rejects(acked, /exceeds the u16le record length limit/);
+  assert.deepEqual(live().getResource("picture", 1), storedPicture(files));
+  assert.deepEqual(live().getResource("logic", 1), oldLogic);
+  assert.equal(engine.patchGeneration, before, "a refused patch is not a patch");
 });
 
 test("a stale base or an unusable source is refused before storage or the worker", async (t) => {
@@ -452,7 +482,7 @@ test("an edit whose bytes and source already match commits nothing", async (t) =
   assert.equal(busy.value, false);
   assert.equal(lastError.value, null);
   assert.deepEqual(
-    patches(r).map((m) => m.kind),
+    patches(r).flatMap((m) => m.resources.map(({ kind }) => kind)),
     ["picture"],
     "the rename posted no second patch",
   );
@@ -520,6 +550,36 @@ for (const origin of ["catalog", "installed"] as const) {
     }
   });
 }
+
+test("a notes-only first Keep on a catalog game forks a remix and leaves the catalog entry as shipped", async (t) => {
+  const { projectId, revision, r } = await authoredRig(t, "studio-catalog-notes", true);
+  const shipped = (await loadAuthoredGame(projectId))!;
+  // The same bytes as BLUE, now with an item annotation.
+  const NAMED_BLUE = ['# @item sky "Sky" art', "vis 1", "fill 80,80", "# @end", "end"].join("\n");
+  assert.deepEqual(compile(NAMED_BLUE), compile(BLUE));
+  const result = await r.controller.commitPictureEdit({
+    pictureNumber: 1,
+    bytes: compile(NAMED_BLUE),
+    source: NAMED_BLUE,
+    baseRevision: revision,
+  });
+  assert.equal(result.status, "committed");
+  const remix = result.projectId!;
+  t.after(() => clearCachedGame(remix));
+  assert.notEqual(remix, projectId);
+  assert.equal(patches(r).length, 0, "no bytes changed, so nothing installs");
+  assert.equal(r.game().projectId, remix);
+  const fork = (await loadAuthoredGame(remix))!;
+  assert.equal(fork.library?.source, "remix");
+  assert.deepEqual(
+    (fork.authoringState?.["sources"] as { pictures: [number, string][] }).pictures,
+    [[1, NAMED_BLUE]],
+  );
+  const original = (await loadAuthoredGame(projectId))!;
+  assert.equal(original.generation, shipped.generation, "the catalog entry was not written");
+  assert.equal(original.library?.source, "catalog");
+  assert.equal(original.authoringState, undefined);
+});
 
 test("a kept picture re-renders the room and lands on the tape as patch then authoring", async (t) => {
   const { projectId, revision, r } = await authoredRig(t, "studio-render");
@@ -604,7 +664,7 @@ test("Keep re-enters the room whose logic draws the picture, not the room of tha
 
 test("a failed install after the save keeps storage as the source of truth", async (t) => {
   const { projectId, revision, r } = await authoredRig(t, "studio-install-fails");
-  t.mock.method(r.ctx.engine!, "patchResource", () => {
+  t.mock.method(r.ctx.engine!, "patchResources", () => {
     throw new Error("VOL.0 is full");
   });
   const { commit, lastError } = useStudioCommit(r.controller.commitPictureEdit);
@@ -749,9 +809,9 @@ test("a worker that never acks the patch fails the Keep as an install, after a b
     {
       drop: (msg) => msg.type === "patch",
       // Record the wait the commit asks for, and let it lapse at once.
-      awaitPatched: (link) => (kind, num, hint, timeoutMs) => {
+      awaitPatched: (link) => (resources, timeoutMs) => {
         timeouts.push(timeoutMs);
-        return link(kind, num, hint, 1);
+        return link(resources, 1);
       },
     },
   );
@@ -1009,7 +1069,7 @@ function roomFiles(): Record<string, Uint8Array> {
   );
 }
 
-async function roomRig(t: TestContext, name: string) {
+async function roomRig(t: TestContext, name: string, hooks: Parameters<typeof rig>[3] = {}) {
   const files = roomFiles();
   const projectId = testProjectId(name);
   const revision = await gameRevision(files);
@@ -1034,7 +1094,7 @@ async function roomRig(t: TestContext, name: string) {
     words: [],
     historyLifetime: await readHistoryLifetime(projectId),
   };
-  return { projectId, revision, files, r: rig(t, files, booted) };
+  return { projectId, revision, files, r: rig(t, files, booted, hooks) };
 }
 
 /** The doorway moved 20 px west, and the door rule followed it. */
@@ -1079,17 +1139,22 @@ test("a combined Keep installs the picture and the logic, each acked, and the do
   assert.equal(result.projectId, projectId);
   const posted = r.posted.slice(before).filter((m) => m.type === "patch" || m.type === "reenter");
   assert.deepEqual(
-    posted.map((m) => (m.type === "patch" ? `${m.type}:${m.kind}` : m.type)),
-    ["patch:picture", "patch:logic", "reenter"],
-    "both resources install, then the room re-enters",
+    posted.map((m) =>
+      m.type === "patch" ? `patch:${m.resources.map(({ kind }) => kind).join("+")}` : m.type,
+    ),
+    ["patch:picture+logic", "reenter"],
+    "both resources install in one patch, then the room re-enters",
   );
-  for (const kind of ["picture", "logic"] as const)
-    acks.push(
-      ...r.control
-        .filter((m) => m.type === "patched" && m.kind === kind)
-        .map((m) => (m.type === "patched" ? m.kind : "")),
-    );
-  assert.deepEqual(acks, ["picture", "logic"], "the worker acked each resource");
+  for (const m of r.control)
+    if (m.type === "patched") acks.push(...m.resources.map(({ kind, hint }) => `${kind}:${hint}`));
+  assert.deepEqual(
+    acks,
+    [
+      `picture:${resourceCacheHint(compile(pictureSource))}`,
+      `logic:${resourceCacheHint(logic.bytes)}`,
+    ],
+    "one ack names each resource's bytes",
+  );
 
   // Storage holds both resources and both sources.
   const stored = (await loadAuthoredGame(projectId))!;
@@ -1143,7 +1208,7 @@ test("a logic-only Keep stores the bindings its rules reserved and installs one 
     r.posted
       .slice(before)
       .filter((m) => m.type === "patch" || m.type === "reenter")
-      .map((m) => (m.type === "patch" ? m.kind : m.type)),
+      .flatMap((m) => (m.type === "patch" ? m.resources.map(({ kind }) => kind) : [m.type])),
     ["logic"],
     "only the logic installs, and a rule change needs no re-entry",
   );
@@ -1208,19 +1273,51 @@ test("a combined Keep is refused whole when stale or invalid, before storage or 
   assert.deepEqual(storedLogic((await loadAuthoredGame(projectId))!.files), storedLogic(files));
 });
 
-test("a combined Keep whose logic fails to install leaves storage as the source of truth", async (t) => {
-  const { projectId, revision, files, r } = await roomRig(t, "room-install-fails");
+/** A real autosave controller over the rig's booted game. */
+function autosaves(r: Rig, onBehindStorage?: () => void) {
+  return useAutosaveController({
+    ...(onBehindStorage ? { onBehindStorage } : {}),
+    state: { resumed: false },
+    getBootedGame: () => r.game(),
+    getWorker: r.link.getWorker,
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+  });
+}
+
+/** Take a worker autosave now and hand it to `controller`, as the link does; the message it stored. */
+async function autosaveNow(r: Rig, controller: ReturnType<typeof autosaves>) {
+  r.link.getWorker()!.postMessage({ type: "flush", id: 99 } satisfies WorkerInbound);
+  const message = r.presentation.findLast((m) => m.type === "autosave");
+  assert.ok(message?.type === "autosave", "the worker took an autosave");
+  controller.handleAutosave(message);
+  await controller.getAutosaveWrite();
+  return message;
+}
+
+/** The container resolves `pack` for anything but a logic, as a full volume would refuse it. */
+function refuseLogicPacks(t: TestContext, r: Rig): void {
+  const container = (r.ctx.engine as unknown as { container: { pack(arg: unknown): void } })
+    .container;
+  const pack = container.pack.bind(container);
+  t.mock.method(container, "pack", (arg: unknown) => {
+    const replacing = [arg].flat() as ({ kind?: string } | undefined)[];
+    if (replacing.some((replacement) => replacement?.kind === "logic"))
+      throw new Error("VOL.0 is full");
+    pack(arg);
+  });
+}
+
+test("a combined Keep whose logic fails to install leaves the running game on the old picture and logic", async (t) => {
+  const { projectId, revision, files, r } = await roomRig(t, "room-install-fails", {
+    autosaveFiles: true,
+  });
   const { pictureSource, logic } = movedDoorway(files);
   assert.ok(logic.ok);
-  const install = r.ctx.engine!.patchResource.bind(r.ctx.engine!);
-  t.mock.method(
-    r.ctx.engine!,
-    "patchResource",
-    (kind: Parameters<typeof install>[0], num: number, payload: Uint8Array) => {
-      if (kind === "logic") throw new Error("VOL.0 is full");
-      install(kind, num, payload);
-    },
-  );
+  refuseLogicPacks(t, r);
   const { commit, lastError } = useStudioCommit(r.controller.commitRoomEdit);
   const result = await commit({
     room: 1,
@@ -1236,4 +1333,82 @@ test("a combined Keep whose logic fails to install leaves storage as the source 
   assert.deepEqual(storedPicture(stored.files), compile(pictureSource));
   assert.deepEqual(storedLogic(stored.files), logic.bytes);
   assert.equal(r.game().revision, revision, "the live side stays on the old revision");
+  // Neither resource reached the running game: the picture waits with the logic.
+  const live = openContainer(new Map(r.ctx.engine!.containerFiles));
+  assert.deepEqual(live.getResource("picture", 1), storedPicture(files));
+  assert.deepEqual(live.getResource("logic", 1), storedLogic(files));
+  assert.equal(await gameRevision(Object.fromEntries(live.files)), revision);
+
+  // The next autosave keeps the saved Keep: no half-new files reach storage.
+  const generation = stored.generation;
+  await autosaveNow(r, autosaves(r));
+  const after = (await loadAuthoredGame(projectId))!;
+  assert.equal(after.generation, generation);
+  assert.deepEqual(storedPicture(after.files), compile(pictureSource));
+  assert.deepEqual(storedLogic(after.files), logic.bytes);
+  assert.equal(r.game().revision, revision);
+});
+
+test("after an install failure no autosave writes the running game's files, even when the install lands late", async (t) => {
+  // The patch is held back past its ack timeout, then reaches the worker.
+  const held: WorkerInbound[] = [];
+  const {
+    projectId,
+    revision,
+    files,
+    r: late,
+  } = await roomRig(t, "room-install-late", {
+    drop: (msg) => msg.type === "patch" && held.push(msg) > 0,
+    awaitPatched: (link) => (resources) => link(resources, 1),
+    autosaveFiles: true,
+  });
+  const { pictureSource, logic } = movedDoorway(files);
+  assert.ok(logic.ok);
+  const { commit, lastError } = useStudioCommit(late.controller.commitRoomEdit);
+  const result = await commit({
+    room: 1,
+    picture: { pictureNumber: 1, bytes: compile(pictureSource), source: pictureSource },
+    logic: { bytes: logic.bytes, source: logic.source, newBindings: {} },
+    baseRevision: revision,
+  });
+  assert.equal(result, null);
+  assert.equal(lastError.value?.code, "install");
+  const saved = (await loadAuthoredGame(projectId))!;
+  assert.equal(held.length, 1);
+  onWorkerMessage(late.ctx, held[0]!);
+  await late.settle();
+
+  const message = await autosaveNow(late, autosaves(late));
+  assert.ok(message.files, "the late install rides the autosave as files");
+  const after = (await loadAuthoredGame(projectId))!;
+  assert.equal(after.generation, saved.generation, "storage was not written");
+  assert.deepEqual(after.files, saved.files);
+  assert.equal(late.game().revision, revision, "the booted revision did not move");
+});
+
+test("an autosave carrying files never writes over another tab's newer Keep, and says so once", async (t) => {
+  const { projectId, files, r } = await roomRig(t, "room-autosave-behind", { autosaveFiles: true });
+  // Another tab keeps an edit: storage moves past this tab's booted revision.
+  const elsewhere = openContainer(new Map(Object.entries(files)));
+  elsewhere.putResource("picture", 1, compile(RED));
+  assert.equal(await updateAuthoredGameFiles(projectId, Object.fromEntries(elsewhere.files)), true);
+  const newer = (await loadAuthoredGame(projectId))!;
+  let notices = 0;
+  const controller = autosaves(r, () => notices++);
+  // A patch lands in this tab's worker, so its autosaves carry the container.
+  for (const logic of ["return;", "assignn(v60,1); return;"]) {
+    r.link.getWorker()!.postMessage({
+      type: "patch",
+      resources: [
+        { kind: "logic", num: 3, payload: assembleLogic(logic, { dictionary: new Map() }).payload },
+      ],
+    } satisfies WorkerInbound);
+    const message = await autosaveNow(r, controller);
+    assert.ok(message.files, "the autosave carries this tab's files");
+    const stored = (await loadAuthoredGame(projectId))!;
+    assert.equal(stored.generation, newer.generation, "nothing was written");
+    assert.deepEqual(stored.files, newer.files, "the other tab's Keep stays");
+  }
+  assert.equal(notices, 1, "the reload is offered once, not on every autosave");
+  assert.equal(r.game().behindStorage, true);
 });

@@ -7,6 +7,8 @@ import {
   createLessonBadges,
   LESSONS_STORAGE_KEY,
   readCompletedLessons,
+  readFoldedCards,
+  setCardFolded,
 } from "../src/lessons/lessonStorage.ts";
 import { LESSON_RELEASES, lessonCatalogId, lessonSetFor } from "../src/lessons/registry.ts";
 import type { LessonVerifyInput, StudioLesson } from "../src/lessons/types.ts";
@@ -151,6 +153,25 @@ test("an unknown badge record version is ignored and never rewritten", () => {
     [LESSONS_STORAGE_KEY]: JSON.stringify({ version: 1, completed: ["a", 3, null] }),
   });
   assert.deepEqual([...readCompletedLessons(mixed)], ["a"]);
+});
+
+test("a folded card is stored as { version: 1, folded }; another record is never rewritten", () => {
+  const CARDS = "monotio_agi.lessonCards";
+  const storage = memoryStorage();
+  setCardFolded("ad-gallery-recipe", true, storage);
+  setCardFolded("ad-robot-flipbook", true, storage);
+  setCardFolded("ad-gallery-recipe", false, storage);
+  assert.deepEqual(JSON.parse(storage.data.get(CARDS)!), {
+    version: 1,
+    folded: ["ad-robot-flipbook"],
+  });
+  assert.deepEqual([...readFoldedCards(storage)], ["ad-robot-flipbook"]);
+  for (const raw of [JSON.stringify({ version: 2, folded: ["a"] }), '["a"]', "not json"]) {
+    const other = memoryStorage({ [CARDS]: raw });
+    assert.deepEqual([...readFoldedCards(other)], [], raw);
+    setCardFolded("x", true, other);
+    assert.equal(other.data.get(CARDS), raw, raw);
+  }
 });
 
 test("blocked storage neither throws nor loses this page's badge", () => {

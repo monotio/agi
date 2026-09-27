@@ -780,7 +780,26 @@ export class Engine {
     num: number,
     payload: Uint8Array,
   ): void {
-    this.container.putResource(kind, num, payload);
+    this.patchResources([{ kind, num, payload }]);
+  }
+
+  /**
+   * Replace several resources as one transaction: the container takes every
+   * payload or refuses the set, leaving all of them on their old bytes. Each
+   * installed resource then counts as one patch, as `patchResource` does.
+   */
+  patchResources(
+    resources: readonly {
+      kind: "logic" | "picture" | "view" | "sound";
+      num: number;
+      payload: Uint8Array;
+    }[],
+  ): void {
+    this.container.putResources(resources);
+    for (const { kind, num } of resources) this.evictPatched(kind, num);
+  }
+
+  private evictPatched(kind: "logic" | "picture" | "view" | "sound", num: number): void {
     if (kind === "logic") this.logics.delete(num);
     else if (kind === "picture") {
       this.pictures.delete(num);

@@ -5,6 +5,7 @@
  */
 
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
+import type { PictureItem, PictureItemKind } from "../../../src/studio/pictureDocument.ts";
 import type { SpriteCel, SpriteDocument } from "../../../src/studio/sprite/spriteDocument.ts";
 import type { CelRef } from "../../../src/studio/sprite/spriteOperations.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
@@ -89,15 +90,64 @@ export function changedCells(
   return mask;
 }
 
+/** The items of a picture as the summary reads them. */
+interface SummaryItems {
+  readonly items: readonly Pick<PictureItem, "id" | "label" | "kind" | "locked">[];
+}
+
+/**
+ * What a candidate changes about the items themselves, in the Scene list's
+ * words: "relabels Bench occluder as "Old bench"", "makes Bench a depth
+ * item", "adds Bench shadow", "removes Sign", "changes the drawing order".
+ */
+function itemChanges(before: SummaryItems, after: SummaryItems): string[] {
+  const changes: string[] = [];
+  const kept = new Map(after.items.map((item) => [item.id, item]));
+  for (const was of before.items) {
+    const now = kept.get(was.id);
+    if (!now) {
+      changes.push(`removes ${was.label}`);
+      continue;
+    }
+    if (now.label !== was.label) changes.push(`relabels ${was.label} as "${now.label}"`);
+    if (now.kind !== was.kind) changes.push(`makes ${now.label} ${KIND_WORDS[now.kind]}`);
+    if (now.locked !== was.locked) changes.push(`${now.locked ? "locks" : "unlocks"} ${now.label}`);
+  }
+  const known = new Set(before.items.map((item) => item.id));
+  for (const item of after.items) if (!known.has(item.id)) changes.push(`adds ${item.label}`);
+  const order = (items: SummaryItems["items"]) =>
+    items.flatMap((item) => (known.has(item.id) && kept.has(item.id) ? [item.id] : [])).join(" ");
+  if (order(before.items) !== order(after.items)) changes.push("changes the drawing order");
+  return changes;
+}
+
+const KIND_WORDS: Record<PictureItemKind, string> = {
+  art: "an art item",
+  depth: "a depth item",
+  walk: "a walk item",
+  mixed: "a mixed item",
+};
+
 /**
  * What a picture candidate changes, per plane, inside `area` (the selection's
  * cells when it was asked) and outside it, so no cell is called "inside"
  * that is not: "80 depth cells inside Bridge"; "12 art cells and 80 depth
- * cells inside Bench"; "80 depth cells inside Bridge, 12 outside".
+ * cells inside Bench"; "80 depth cells inside Bridge, 12 outside". A
+ * candidate that changes no pixel says what it changes instead, read from
+ * the documents when both sides carry one: "No pixels change: relabels
+ * Bench occluder as "Old bench"".
  */
 export function pictureChangeSummary(
-  before: { readonly visual: Uint8Array; readonly priority: Uint8Array },
-  after: { readonly visual: Uint8Array; readonly priority: Uint8Array },
+  before: {
+    readonly visual: Uint8Array;
+    readonly priority: Uint8Array;
+    readonly document?: SummaryItems;
+  },
+  after: {
+    readonly visual: Uint8Array;
+    readonly priority: Uint8Array;
+    readonly document?: SummaryItems;
+  },
   where: string,
   area: Uint8Array,
 ): string {
@@ -113,10 +163,14 @@ export function pictureChangeSummary(
     ...(depth ? [plural(depth, "depth cell")] : []),
   ];
   const [within, beyond] = [words(inside), words(outside)];
-  if (beyond.length === 0)
-    return within.length
-      ? `${within.join(" and ")} inside ${where}`
+  if (beyond.length === 0) {
+    if (within.length) return `${within.join(" and ")} inside ${where}`;
+    const notes =
+      before.document && after.document ? itemChanges(before.document, after.document) : [];
+    return notes.length
+      ? `No pixels change: ${notes.join(", ")}`
       : "No pixels change (only the picture's notes)";
+  }
   if (within.length === 0) return `${beyond.join(" and ")} outside ${where}`;
   const samePlanes = inside.art > 0 === outside.art > 0 && within.length === 1;
   const rest = samePlanes ? String(outside.art + outside.depth) : beyond.join(" and ");

@@ -6,7 +6,9 @@
  * the model's words claim. Pure and deterministic.
  *
  * Pictures. A candidate must start from `baseRevision`, keep every item
- * outside `targetIds` (id, label, kind and lock), leave `lockedPlanes`
+ * outside `targetIds` (id, label, kind and lock), change no item's lock
+ * (locks are the creator's: a proposal never locks or unlocks an item, a
+ * selected one included, nor adds a locked one), leave `lockedPlanes`
  * untouched, fit `maxBytes`, and change each plane only inside that plane's
  * allowed cells (`allowedCells`): the ask-time area (the targets' old
  * footprints on the plane plus `allowedMask` when given), and the cells the
@@ -107,6 +109,7 @@ type AssistConstraint =
   | "stale-base"
   | "unknown-target"
   | "outside-target"
+  | "item-lock"
   | "locked-plane"
   | "outside-mask"
   | "fill-spill"
@@ -391,6 +394,17 @@ function checkPicture(
         constraint: "outside-target",
         message: `item '${item.id}' ("${item.label}") is not selected but would ${change}`,
       });
+  }
+  // Locks are the creator's: no proposal locks or unlocks an item, selected
+  // or new (an unselected one is reported above).
+  for (const item of after.document.items) {
+    const was = before.document.items.find((candidate) => candidate.id === item.id);
+    if (was ? was.locked === item.locked || !scope.targetIds.includes(item.id) : !item.locked)
+      continue;
+    violations.push({
+      constraint: "item-lock",
+      message: `${was ? "item" : "new item"} '${item.id}' ("${item.label}") would be ${item.locked ? "locked" : "unlocked"}, but only the creator locks or unlocks items: leave "locked" out of setItemMeta${was?.locked ? " and ask the creator to unlock it" : ""}`,
+    });
   }
   const created = after.document.items.flatMap((item) => (known.has(item.id) ? [] : [item.id]));
   const allowed = allowedCells(before, after, scope);

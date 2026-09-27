@@ -10,7 +10,7 @@ import {
 } from "./useWalkthroughController.ts";
 import { useInputController } from "./useInputController.ts";
 import { useTestRecorder } from "./useTestRecorder.ts";
-import { useAuthoringController } from "./useAuthoringController.ts";
+import { STALE_SAVE_MESSAGE, useAuthoringController } from "./useAuthoringController.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import { AgiAudio } from "./audio/AgiAudio.ts";
 import { useAudioController } from "./audio/useAudioController.ts";
@@ -228,6 +228,12 @@ export function useEngine(
       hook.egoX = egoX;
       hook.egoY = egoY;
       link.publishHook();
+    },
+    // The Assistant says so and offers Reload game, as a refused turn does.
+    onBehindStorage: () => {
+      logAgent("error", STALE_SAVE_MESSAGE);
+      state.powerUp.error = STALE_SAVE_MESSAGE;
+      state.powerUp.offerReload = true;
     },
     logAgent,
     isInstalledGame: (target) => lifecycle.isInstalledGame(target),

@@ -332,6 +332,7 @@ const assist = useStudioAssist({
       room: walk && walk.room > 0 ? walk.room : undefined,
       // Under ignore.horizon nothing stops ego; the estimate's 0 says the same.
       horizon: ego.value.horizon ?? 0,
+      profile,
     };
   },
   current: currentPicture,
@@ -749,7 +750,10 @@ async function recover(recovery: KeepRecovery): Promise<void> {
   // The draft was made on a game that moved on. Storage moved past the
   // running game (a Keep elsewhere, or a saved edit the game never loaded):
   // the game reloads from storage first, and the draft cannot come along.
-  const fromStorage = keeper.banner.value?.fromStorage === true;
+  await reopen(keeper.banner.value?.fromStorage === true);
+}
+/** Reopen Studio on the running game, or on the game reloaded from storage; the draft stays behind. */
+async function reopen(fromStorage: boolean): Promise<void> {
   if (fromStorage && !(await leave.confirmReload())) return;
   keeper.dismiss();
   draft.discard();
@@ -1061,6 +1065,7 @@ function onKeyup(event: KeyboardEvent): void {
           :chips="assistChips"
           hint="To change the scope, select another item or group, or unlock a plane in the Scene footer."
           :changes="assistChanges"
+          @reload="reopen(true)"
           noun="picture"
           empty="Select an item on the canvas or in the Scene list to ask the AI about it."
         />

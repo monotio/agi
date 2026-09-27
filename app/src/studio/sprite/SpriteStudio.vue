@@ -195,6 +195,7 @@ const assist = useStudioAssist({
             protectedLoops: askProtected.value,
           }),
           draft: currentView,
+          profile,
         },
   current: currentView,
   apply: (candidate, focus) => {
@@ -476,7 +477,10 @@ async function keepChanges(): Promise<boolean> {
 }
 async function recover(recovery: KeepRecovery): Promise<void> {
   if (recovery === "retry") return void keepChanges();
-  const fromStorage = keeper.banner.value?.fromStorage === true;
+  await reopen(keeper.banner.value?.fromStorage === true);
+}
+/** Reopen Studio on the running game, or on the game reloaded from storage; the draft stays behind. */
+async function reopen(fromStorage: boolean): Promise<void> {
   if (fromStorage && !(await leave.confirmReload())) return;
   keeper.dismiss();
   draft.discard();
@@ -704,6 +708,7 @@ const status = computed(() => {
         :chips="assistChips"
         hint="To change the scope, pick another cel or loop on the timeline."
         :changes="assistChanges"
+        @reload="reopen(true)"
         noun="view"
         empty="Select a cel on the timeline to ask the AI about it."
         collapsible
