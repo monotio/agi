@@ -639,8 +639,10 @@ remain separate measurements.
 ## Documentation captures
 
 The [media gallery](media/README.md) includes images returned by the actual
-agent tools and screenshots from browser tests, with source scenarios and
-reproduction commands. `scripts/capture-feedback.ts` generates tutorial feedback
-without a provider call. `app/playwright.capture.config.ts` records selected
-browser tests with original resources and mocked provider replies; generated
-recordings stay under `.captures/` until reviewed and edited.
+agent tools and screenshots of the app, with source scenarios and reproduction
+commands. `npm run media:capture` regenerates them: `app/e2e/media/docs.media.ts`
+drives the app in test mode with the stub provider, and
+`scripts/capture-feedback.ts` generates tutorial feedback without a provider
+call. `app/playwright.capture.config.ts` records selected browser tests with
+original resources and mocked provider replies; generated recordings stay under
+`.captures/` until reviewed and edited.

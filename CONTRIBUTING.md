@@ -46,6 +46,7 @@ server is already running, give the browser tests their own port:
 | `npm run mutation`                                           | Stryker mutation report on `src/picture/` and `src/studio/`; on demand, writes `reports/mutation/`         |
 | `npm run build`                                              | Compile the engine and build the browser app                                                               |
 | `npm run check:bundle`                                       | Bundle budget for the Play boot path, after a build                                                        |
+| `npm run media:capture`                                      | Recapture the README and `docs/media` images from the real app and agent tools; on demand, stub provider   |
 
 The full gate takes a few minutes. Playwright runs Vite in `test` mode with a
 deterministic stub provider, so browser tests never call a paid provider. Live
