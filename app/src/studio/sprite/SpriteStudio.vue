@@ -628,29 +628,6 @@ const status = computed(() => {
         @apply="(op) => edit(op, 'Recolour')"
         @close="tools.closeRecolor()"
       />
-      <StudioAssistPanel
-        v-if="assistHost"
-        ref="assistPanel"
-        class="sprite-studio__assist"
-        :assist
-        :chips="assistChips"
-        hint="To change the scope, pick another cel or loop on the timeline."
-        :changes="assistChanges"
-        noun="view"
-        empty="Select a cel on the timeline to ask the AI about it."
-        collapsible
-      >
-        <template #scope>
-          <UiSegmented
-            v-if="!assist.holds.value"
-            v-model="askScope"
-            size="sm"
-            label="Ask about"
-            :options="ASK_SCOPES"
-            data-testid="assist-scope"
-          />
-        </template>
-      </StudioAssistPanel>
       <StudioAssistCompare
         v-if="proposal"
         v-model="compare"
@@ -720,6 +697,28 @@ const status = computed(() => {
         :cel="currentCel"
         :priority-base="priorityBase"
       />
+      <StudioAssistPanel
+        v-if="assistHost"
+        ref="assistPanel"
+        :assist
+        :chips="assistChips"
+        hint="To change the scope, pick another cel or loop on the timeline."
+        :changes="assistChanges"
+        noun="view"
+        empty="Select a cel on the timeline to ask the AI about it."
+        collapsible
+      >
+        <template #scope>
+          <UiSegmented
+            v-if="!assist.holds.value"
+            v-model="askScope"
+            size="sm"
+            label="Ask about"
+            :options="ASK_SCOPES"
+            data-testid="assist-scope"
+          />
+        </template>
+      </StudioAssistPanel>
     </aside>
 
     <footer class="sprite-studio__status">
@@ -794,19 +793,6 @@ const status = computed(() => {
 }
 /* Ask floats at the frame's upper right, under the view bar: the side panel
    keeps its previews in view without scrolling. */
-.sprite-studio__assist {
-  position: absolute;
-  top: calc(var(--control-h) + var(--space-5));
-  right: var(--space-4);
-  z-index: var(--z-popover);
-  width: 300px;
-  max-height: calc(100% - var(--control-h) - var(--space-9));
-  overflow-y: auto;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-  box-shadow: var(--shadow-pop);
-}
 /* The held pen's cue, at the stage's lower left like the editing keys' hint. */
 .sprite-studio__pen {
   position: absolute;

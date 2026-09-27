@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref, useId, useTemplateRef } from "vue";
+import { computed, inject, nextTick, ref, useId, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import { aiSettingsKey } from "../useAiSettings.ts";
@@ -128,6 +128,15 @@ function reject(): void {
   refining.value = false;
 }
 
+// A side panel can hold the box below the fold: a proposal's verdict comes
+// into view when it arrives, so Accept and Reject are never off-screen.
+const verdict = useTemplateRef("verdict");
+watch(phase, async (next) => {
+  if (next !== "candidate") return;
+  await nextTick();
+  verdict.value?.scrollIntoView({ block: "nearest" });
+});
+
 defineExpose({ focus });
 </script>
 
@@ -246,7 +255,7 @@ defineExpose({ focus });
         >
           {{ assist.error.value }}
         </p>
-        <div class="assist__actions">
+        <div ref="verdict" class="assist__actions">
           <UiButton
             size="sm"
             variant="primary"

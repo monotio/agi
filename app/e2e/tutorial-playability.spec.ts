@@ -22,6 +22,14 @@ test("tutorial walking speed commands change movement without a modal", async ({
     await page.keyboard.press("ArrowRight");
     await waitForCycles(page, 2);
     expect(after.room).toBe(1);
+    // Walk back over the same floor, so a slow runner's overshoot never
+    // carries the next measurement off the room's east edge.
+    await page.keyboard.press("ArrowLeft");
+    await expect
+      .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+      .toBeLessThanOrEqual(before.egoX);
+    await page.keyboard.press("ArrowLeft");
+    await waitForCycles(page, 2);
     return (after.egoX - before.egoX) / (after.cycle - before.cycle);
   };
 

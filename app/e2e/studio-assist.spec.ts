@@ -303,6 +303,9 @@ test("Sprite Studio: make the eyes blue on loop 1, accept, loop 0 unchanged", as
   await ask(page, studio, "Make the robot's eyes blue");
   await expect(studio.getByTestId("assist-candidate")).toBeVisible();
   await expect(studio.getByTestId("assist-changes")).toHaveText("2 pixels in loop 1, cels 0, 1");
+  // The verdict comes into view in the side panel, where Ask sits last.
+  await expect(studio.getByTestId("assist-accept")).toBeInViewport({ ratio: 1 });
+  await expect(studio.getByTestId("assist-reject")).toBeInViewport({ ratio: 1 });
   // The cel canvas outlines the changed pixel of the cel on show.
   await expect(studio.getByTestId("sprite-canvas")).toHaveAttribute("data-changed", "1");
   await shot(page, "sprite-candidate-after");
