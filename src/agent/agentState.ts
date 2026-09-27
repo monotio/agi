@@ -45,7 +45,7 @@ export interface AgentToolResult {
   readonly audio?: readonly AgentToolAudio[] | undefined;
 }
 
-export interface AgentToolAudio {
+interface AgentToolAudio {
   readonly wav: Uint8Array;
   readonly mimeType: "audio/wav";
   readonly caption: string;

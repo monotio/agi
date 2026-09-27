@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createAgentSessionState, executeAgentTool, AGENT_TOOLS } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool, AGENT_TOOLS } from "../src/agent/tools.ts";
 
 describe("agent tools", () => {
   it("exports tool definitions with required schemas", () => {

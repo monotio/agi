@@ -2,7 +2,7 @@ import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok, buildWordsTok } from "../../src/logic/words.ts";
 import { buildView } from "../../src/view/view.ts";

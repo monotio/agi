@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAgentSessionState } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
 import { Engine } from "../src/runtime/engine.ts";

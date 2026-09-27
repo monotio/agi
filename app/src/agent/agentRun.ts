@@ -1,5 +1,5 @@
 import type { LlmUsage } from "./llmClient.ts";
-import type { AgentToolResult } from "../../../src/agent/tools.ts";
+import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import { MODEL_CAPABILITIES } from "../../../src/agent/modelEffort.ts";
 export interface AgentRunState {
   progress: AgentProgress | null;

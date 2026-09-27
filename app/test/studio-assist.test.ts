@@ -5,7 +5,7 @@ import { AgentSession } from "../src/agent/agentSession.ts";
 import type { AgentLogEntry } from "../src/agent/agentLog.ts";
 import type { AgentRunState } from "../src/agent/agentRun.ts";
 import { STUB_DECLINE_TEXT, type StudioAssistResult } from "../src/agent/studioAssist.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import type { StudioCandidate, StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { draftRevision, pictureAssistScope } from "../../src/studio/assistScope.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";

@@ -369,12 +369,18 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     state.powerUp.reply = "";
     state.powerUp.error = "";
     state.powerUp.offerReload = false;
-    state.powerUp.needsConfig = false;
+    // Whether a model is connected is known before the engine answers: the
+    // drawer opens on Connect AI, never on a prompt line that then vanishes.
+    state.powerUp.needsConfig = session
+      ? !session.isConfigured()
+      : getBootedGame() !== null && config.provider !== "stub" && !config.apiKey.trim();
     state.powerUp.feedStart = state.agentLog.length;
     state.powerUp.feedStartSeq = (state.agentLog.at(-1)?.seq ?? 0) + 1;
     try {
       const engineState = await query("state");
       state.powerUp.room = Number(engineState?.room ?? 0);
+      // Re-decided below against the session and game as they stand now.
+      state.powerUp.needsConfig = false;
       const booted = getBootedGame();
       if (!session && booted) {
         if (config.provider !== "stub" && !config.apiKey.trim()) {

@@ -13,7 +13,7 @@
  * from the pixels.
  */
 import { type GameIdentity, gameIdentity } from "../../src/gameIdentity.ts";
-import type { AgentToolImage } from "../../src/agent/tools.ts";
+import type { AgentToolImage } from "../../src/agent/agentState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import {
   convertCharacterSheet,

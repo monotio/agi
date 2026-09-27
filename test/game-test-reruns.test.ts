@@ -4,15 +4,15 @@ import { resourceCacheHint } from "../src/agent/authoringState.ts";
 import {
   parseGameTests,
   serializeGameTests,
-  testsForResource,
   validateGameTest,
-} from "../src/agent/gameTests.ts";
+} from "../src/agent/gameTestFormat.ts";
+import { testsForResource } from "../src/agent/gameTests.ts";
 import {
   buildObjectFile,
   createAgentSessionState,
-  executeAgentTool,
   type AgentSessionState,
-} from "../src/agent/tools.ts";
+} from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { buildView } from "../src/view/view.ts";

@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  AGENT_TOOLS,
-  createAgentSessionState,
-  executeAgentTool,
-  executeAgentToolAsync,
-  type AgentToolResult,
-} from "../src/agent/tools.ts";
+import { createAgentSessionState, type AgentToolResult } from "../src/agent/agentState.ts";
+import { AGENT_TOOLS, executeAgentTool, executeAgentToolAsync } from "../src/agent/tools.ts";
 import {
   splitToolResult,
   openAiToolContent,

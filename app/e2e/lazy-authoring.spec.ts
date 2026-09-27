@@ -30,7 +30,11 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   await expect.poll(() => scripts.some((url) => /WorldPanel/.test(url))).toBe(true);
   expect(authoring(), "authoring scripts requested by a cold Play boot").toEqual([]);
 
+  // No model is connected (the stored default is OpenAI without a key), so
+  // Ask opens on its connect prompt: the stack warms on the intent alone.
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeVisible();
+  const bubble = page.getByTestId("agent-bubble");
+  await expect(bubble).toContainText("Connect your AI provider to ask about this game.");
+  await expect(page.getByTestId("agent-bubble-input")).toBeHidden();
   await expect.poll(() => authoring().length, { timeout: 10_000 }).toBeGreaterThan(0);
 });

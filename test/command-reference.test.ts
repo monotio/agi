@@ -10,7 +10,8 @@ import {
 } from "../src/logic/opcodes.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 import { commandReference, formatCommandCatalog } from "../src/agent/commandReference.ts";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { createOrientationPrompt, AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
 
 test("command reference exactly follows every promoted profile and its operand variants", () => {

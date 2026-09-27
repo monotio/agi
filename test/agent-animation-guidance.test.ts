@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
 import { BASE_TEMPLATE_LOGIC0_SOURCE } from "../src/agent/baseTemplate.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";

@@ -32,12 +32,8 @@ import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { resourceCacheHint, resourceSetHint } from "./authoringState.ts";
-import {
-  AUTHORING_TOOLS,
-  editableSource,
-  executeAuthoringTool,
-  sourceContextRevision,
-} from "./authoringTools.ts";
+import { AUTHORING_TOOLS } from "./authoringToolDefinitions.ts";
+import { editableSource, executeAuthoringTool, sourceContextRevision } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
 import {
   executeStudioAssistTool,
@@ -111,20 +107,6 @@ export interface ToolDefinition {
 }
 
 export type { SoundNoteInput, SoundTrackInput } from "./soundBuilder.ts";
-export type {
-  AgentSessionState,
-  AgentSourceStore,
-  AgentToolAudio,
-  AgentToolImage,
-  AgentToolResult,
-} from "./agentState.ts";
-export {
-  assembleAuthoredLogic,
-  authoredLogicSource,
-  authoredPictureSource,
-  buildObjectFile,
-  createAgentSessionState,
-} from "./agentState.ts";
 export { buildSound, midiToAgiDivisor, parseNoteToMidi } from "./soundBuilder.ts";
 
 /** Shared JSON Schemas: OpenAI uses strict mode; Anthropic uses non-strict transport. */

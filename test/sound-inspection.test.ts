@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  createAgentSessionState,
-  executeAgentTool,
-  executeAgentToolAsync,
-} from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool, executeAgentToolAsync } from "../src/agent/tools.ts";
 import { resourceCacheHint, validateAuthoringState } from "../src/agent/authoringState.ts";
 import {
   splitToolResult,

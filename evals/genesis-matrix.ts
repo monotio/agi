@@ -47,7 +47,7 @@ import { createPictureSurface, type GameContainer, type PictureSurface } from ".
 import { parseView } from "../src/view/view.ts";
 import { parseSound } from "../src/sound/sound.ts";
 import { buildSound } from "../src/agent/soundBuilder.ts";
-import { parseGameTests } from "../src/agent/gameTests.ts";
+import { parseGameTests } from "../src/agent/gameTestFormat.ts";
 import { readInventoryObjects } from "../src/agent/inventory.ts";
 import { scanStaticExits, type EdgeSide } from "../src/agent/roomMap.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";

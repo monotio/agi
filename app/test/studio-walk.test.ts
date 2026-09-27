@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { effectScope, shallowRef } from "vue";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";

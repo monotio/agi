@@ -19,7 +19,7 @@ import {
   type StudioCandidate,
   type StudioFocus,
 } from "../../../src/agent/studioAssistTools.ts";
-import type { AgentToolResult } from "../../../src/agent/tools.ts";
+import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import type { LlmTurnResult, UnifiedConversation } from "./llmClient.ts";
 
 export interface StudioAssistRequest {

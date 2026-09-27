@@ -7,11 +7,8 @@ import { TUTORIAL_GAME_TESTS } from "../games/adventure-department/tests.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { openContainer } from "../src/container/container.ts";
 import { planWalk, renderNavigationSnapshot } from "../src/agent/navigation.ts";
-import {
-  createAgentSessionState,
-  executeAgentTool,
-  type AgentToolResult,
-} from "../src/agent/tools.ts";
+import { createAgentSessionState, type AgentToolResult } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 
 const output = resolve(process.argv[2] ?? ".captures/feedback");
 mkdirSync(output, { recursive: true });

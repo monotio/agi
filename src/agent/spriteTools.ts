@@ -1,6 +1,7 @@
 /** Bounded, row-oriented helpers for mechanical AGI sprite authoring. */
 import { resourceCacheHint } from "./authoringState.ts";
-import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
+import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 import { viewFeedback } from "./viewFeedback.ts";
 
 import { patchedView } from "../view/celEdit.ts";

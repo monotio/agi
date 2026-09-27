@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  createAgentSessionState,
+  type AgentSessionState,
+  type AgentToolResult,
+} from "../src/agent/agentState.ts";
+import {
   AGENT_TOOLS,
   ASK_TOOLS,
   AUTHORING_TOOL_NAMES,
-  createAgentSessionState,
   executeAgentTool,
   executeAgentToolAsync,
   STUDIO_ASSIST_TASK_TOOLS,
-  type AgentSessionState,
-  type AgentToolResult,
 } from "../src/agent/tools.ts";
 import {
   createStudioAssist,

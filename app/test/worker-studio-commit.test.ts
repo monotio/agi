@@ -42,7 +42,7 @@ import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
 import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
 import type { AwaitPatchedFn } from "../src/workerQueries.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
-import { authoredPictureSource, createAgentSessionState } from "../../src/agent/tools.ts";
+import { authoredPictureSource, createAgentSessionState } from "../../src/agent/agentState.ts";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";

@@ -3,7 +3,7 @@ import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
-import { buildObjectFile } from "../../src/agent/tools.ts";
+import { buildObjectFile } from "../../src/agent/agentState.ts";
 import { buildPublicGameZip } from "../src/projectArchive.ts";
 import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 

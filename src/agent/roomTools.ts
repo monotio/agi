@@ -9,8 +9,8 @@ import {
   createAgentSessionState,
   type AgentSessionState,
   type AgentToolResult,
-  type ToolDefinition,
-} from "./tools.ts";
+} from "./agentState.ts";
+import { type ToolDefinition } from "./tools.ts";
 import { editableSource, executeAuthoringTool, sourceContextRevision } from "./authoringTools.ts";
 import { resourceCacheHint, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { readInventoryObjects } from "./inventory.ts";

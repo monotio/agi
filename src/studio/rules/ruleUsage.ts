@@ -23,7 +23,7 @@
  * only when the interpreter reported that crossing, through that edge.
  */
 import type { AuthoringState } from "../../agent/authoringState.ts";
-import type { GameTest } from "../../agent/gameTests.ts";
+import type { GameTest } from "../../agent/gameTestFormat.ts";
 import {
   DIRECTION_NAMES,
   scanContainerExits,

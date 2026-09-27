@@ -12,7 +12,8 @@ import { PLAYTEST_EXPECT_SCHEMA, PLAYTEST_STEPS_SCHEMA } from "./coreToolDefinit
 import { decodeBase64 } from "./gameTestSteps.ts";
 import { playtestRoom } from "./playtest.ts";
 import { resourceSetHint } from "./authoringState.ts";
-import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
+import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 import { createContainer } from "../container/container.ts";
 import { assembleLogic } from "../logic/assembler.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
@@ -25,16 +26,6 @@ import {
   validateGameTest,
   type GameTest,
 } from "./gameTestFormat.ts";
-
-export {
-  GAME_TESTS_FILE,
-  GAME_TESTS_FORMAT,
-  GAME_TESTS_MAX_BYTES,
-  parseGameTests,
-  serializeGameTests,
-  validateGameTest,
-} from "./gameTestFormat.ts";
-export type { GameTest } from "./gameTestFormat.ts";
 
 /**
  * Tests one write_game_tests or run_game_tests call may name. A game keeps

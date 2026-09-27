@@ -1369,3 +1369,53 @@ test("a failed authoring load reads plainly in Ask and leaves Play running", asy
   await controller.openPowerUp(mockConfig);
   assert.equal(loads, 2);
 });
+
+test("Ask opens on Connect AI at once when no model is connected, before the engine answers", async () => {
+  // The drawer never shows its prompt line first and then swaps it for the
+  // connect prompt once the engine's state query returns.
+  const ui = {
+    phase: "running" as const,
+    powerUp: createMockPowerUp(),
+    agentTask: null,
+    agentLog: [],
+    profile: "2.936",
+    worldTick: 0,
+    planDurableRev: "",
+  };
+  ui.powerUp.mode = "ask";
+  let answer!: (state: unknown) => void;
+  const files = createTestFiles();
+  const controller = useAuthoringController({
+    state: ui,
+    getWorker: () => null,
+    query: <T>() => new Promise<T>((resolve) => (answer = resolve as (state: unknown) => void)),
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => ({
+      installed: true,
+      alias: "demo",
+      title: "Demo",
+      revision: testRevision("ask-connect-ai"),
+      files,
+      words: [],
+    }),
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    loadAuthoring: async () => assert.fail("an unconnected Ask loads no session"),
+  });
+
+  const opening = controller.openPowerUp({ provider: "openai", apiKey: "", model: "gpt-6-astra" });
+  assert.equal(ui.powerUp.open, true);
+  assert.equal(ui.powerUp.needsConfig, true, "Connect AI shows while the engine is asked");
+  answer({ room: 1 });
+  await opening;
+  assert.equal(ui.powerUp.needsConfig, true);
+  assert.equal(ui.powerUp.room, 1);
+  assert.equal(ui.powerUp.error, "");
+  assert.equal(controller.getSession(), null);
+});

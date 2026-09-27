@@ -16,7 +16,8 @@ import {
   installBaseTemplate,
 } from "../src/agent/baseTemplate.ts";
 import { buildSound } from "../src/agent/soundBuilder.ts";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
 
 /**

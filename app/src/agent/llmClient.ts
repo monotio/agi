@@ -5,11 +5,8 @@ import type { AgentRun } from "./agentRun.ts";
  */
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import {
-  AGENT_TOOLS,
-  type AgentToolImage,
-  type AgentToolResult,
-} from "../../../src/agent/tools.ts";
+import { type AgentToolImage, type AgentToolResult } from "../../../src/agent/agentState.ts";
+import { AGENT_TOOLS } from "../../../src/agent/tools.ts";
 import {
   splitToolResult,
   openAiToolContent,
