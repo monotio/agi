@@ -33,6 +33,20 @@ const RESUME_CAPTION_MS = 10_000;
 export { autosaveKey, writeAutosave };
 export type { AutosaveRecord, AutosaveGame };
 
+/**
+ * Storage holds another revision than the running project game: it is
+ * marked behind, or the project index names a newer save. Only a reason to
+ * skip this game's saves — the conditional file write and the cross-tab
+ * notice decide `behindStorage`, since this tab's own Keep also passes
+ * through a moment where the index is ahead of the game it installs into.
+ */
+export function storageMovedPast(game: BootedGame): boolean {
+  if (game.installed || !game.projectId) return false;
+  if (game.behindStorage) return true;
+  const stored = getCachedGameMeta(game.projectId)?.library?.revision;
+  return stored !== undefined && stored !== game.revision;
+}
+
 export function autosaveMatches(game: AutosaveGame, targetKey: string): boolean {
   // The record's project is the storage key it was written under: a record
   // found at another key — a shared-hash alias lookup — does not apply.
@@ -214,6 +228,10 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         if (outcome !== "saved" || ctx.getBootedGame() !== game) return false;
         await updateBootedResources(game, msg.files);
       }
+      // A checkpoint names the revision this game runs. Once storage holds
+      // another one (a Keep in another tab, which took its own checkpoint),
+      // this one could never resume and would bury that tab's: skip it.
+      if (storageMovedPast(game)) return false;
       const storageKey = gameStorageKey(game);
       const project = projectId(storageKey);
       if (!project) {

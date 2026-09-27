@@ -32,6 +32,7 @@ import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
 import { createGameLibrary, provideGameLibrary } from "./useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./usePresentation.ts";
 import SetupPanel from "./SetupPanel.vue";
+import StaleTabNote from "./StaleTabNote.vue";
 import { nextViewportLayout } from "./viewportLayout.ts";
 import ReferenceUpload from "./ReferenceUpload.vue";
 import { createShell, provideShell } from "./shell/useShell.ts";
@@ -646,6 +647,7 @@ watch(
                 ×
               </button>
             </p>
+            <StaleTabNote />
           </template>
         </PlayArea>
         <RoomStudio

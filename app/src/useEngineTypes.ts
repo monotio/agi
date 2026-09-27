@@ -158,6 +158,11 @@ export interface EngineState {
   powerUp: PowerUpUiState;
   /** This boot restored an autosave: the resume caption is showing. */
   resumed: boolean;
+  /**
+   * Storage moved past the running game (another tab committed a newer
+   * revision): the stage's note offers Reload game until dismissed.
+   */
+  staleTab: boolean;
   /** Player-action recording for a stored game test. */
   recording: { active: boolean; starting: boolean; error: string };
   /** History batches committed-or-in-flight to storage; >0 means unsaved tape. */

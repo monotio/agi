@@ -11,6 +11,7 @@ import {
  */
 
 import type { CachedGameMeta, CachedGameData, ProjectId, ResourceRevision } from "./gameTypes.ts";
+import { announceProjectWrite } from "./projectBroadcast.ts";
 import { normalizeReferences, type StoredReference } from "./referenceArt.ts";
 import { projectId, resourceRevision } from "../../src/gameIdentity.ts";
 import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
@@ -657,6 +658,13 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
     throw err;
   }
   localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
+  // Committed: a tab running another revision of this project learns now.
+  if (data.library && data.generation !== undefined)
+    announceProjectWrite({
+      projectId: data.projectId,
+      revision: data.library.revision,
+      generation: data.generation,
+    });
   return lifetime;
 }
 export function serializeWrite<T>(key: string, operation: () => Promise<T>): Promise<T> {

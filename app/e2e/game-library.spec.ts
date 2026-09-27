@@ -351,8 +351,42 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect.poll(() => storedAutosave(page, projectId)).not.toBeNull();
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
 
+  // Removing is previewed: the dialog names the game and what goes with it,
+  // and Cancel — the default focus — keeps every record.
+  const stored = () =>
+    page.evaluate(async (id) => {
+      const path = "/src/gameStorage.ts";
+      const { loadAuthoredGame } = await import(path);
+      const body = await loadAuthoredGame(id);
+      const keys = Object.keys(localStorage).sort();
+      return {
+        local: Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])),
+        revision: body?.library?.revision ?? null,
+      };
+    }, projectId);
+  const before = await stored();
+  expect(before.revision).not.toBeNull();
   await openLibraryActions(page, card);
   await page.getByTestId("remove-library-game").click();
+  const dialog = card.getByTestId("remove-game-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading")).toHaveText("Remove forgettable?");
+  await expect(dialog).toContainText("its saves, history, notes and any changes you made");
+  await expect(dialog.getByTestId("remove-game-cancel")).toBeFocused();
+  await dialog.getByTestId("remove-game-cancel").click();
+  await expect(dialog).toBeHidden();
+  await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
+  expect(await stored()).toEqual(before);
+
+  // Download game first is the card's own Download game…, and the question stays open.
+  await openLibraryActions(page, card);
+  await page.getByTestId("remove-library-game").click();
+  const download = page.waitForEvent("download");
+  await dialog.getByTestId("remove-game-download").click();
+  expect((await download).suggestedFilename()).toMatch(/\.zip$/);
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("remove-game-confirm").click();
+  await expect(dialog).toBeHidden();
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
   await expect(page.getByTestId("autosave-panel")).toHaveCount(0);
   await expect(page.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);

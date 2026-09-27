@@ -105,3 +105,83 @@ test("Download game from a tab behind storage downloads the running game and nev
   assert.deepEqual(stored.files, newer.files);
   assert.equal(game.revision, await gameRevision(files));
 });
+
+test("Leaving a game behind storage saves nothing over the newer project, and is not refused", async (t) => {
+  // Another tab committed a newer revision: this game's files, conversation
+  // and checkpoint all describe bytes storage no longer holds — whether this
+  // tab heard (marked behind) or only the project index says so.
+  const unheard = testProjectId("leave-behind-unheard");
+  const newer = createContainer();
+  newer.putResource("logic", 0, Uint8Array.of(0));
+  await saveAuthoredGame(unheard, {
+    title: "Kept elsewhere",
+    provider: "stub",
+    model: "offline-stub",
+    files: Object.fromEntries(newer.files),
+    words: [],
+  });
+  t.after(() => clearCachedGame(unheard));
+  const running = { installed: false, title: "Behind", files: {}, words: [] };
+  const revision = await gameRevision({});
+  for (const game of [
+    { ...running, projectId: testProjectId("leave-behind-marked"), revision, behindStorage: true },
+    { ...running, projectId: unheard, revision },
+  ] satisfies BootedGame[]) {
+    const calls: string[] = [];
+    const state = {
+      leaving: false,
+      phase: "running",
+      powerUp: { busy: false },
+      walkthrough: { active: false, status: "stopped" },
+    };
+    const noop = () => {};
+    const lifecycle = useGameLifecycle({
+      state,
+      audio: { stop: noop, setPaused: noop },
+      hook: {},
+      authoring: {
+        getSession: () => ({}),
+        isRemixNeedsSave: () => true,
+        persistRemix: async () => {
+          calls.push("persist");
+          throw new Error("The game was changed elsewhere");
+        },
+        resetSession: noop,
+      },
+      autosave: {
+        flushAutosaveDetailed: async () => {
+          calls.push("flush");
+          return { status: "storage_failure" };
+        },
+        reset: noop,
+        resetScreen: noop,
+      },
+      link: {
+        query: async (kind: string) => {
+          calls.push(kind);
+          return kind === "exportFiles" ? {} : true;
+        },
+        terminateWorker: () => calls.push("terminate"),
+        drainPendingQueries: noop,
+        clearShake: noop,
+      },
+      testRecorder: { reset: noop },
+      pauseEngine: noop,
+      resumeEngine: noop,
+      abortWalkthrough: noop,
+      promptCancel: noop,
+      drainHistoryCommits: async () => {},
+      nextSessionId: noop,
+      setActiveReplaySeed: noop,
+      stopHistoryWriter: noop,
+      resetPauseOwners: noop,
+      resetHistoryView: noop,
+      releaseAgentAudioPreviews: noop,
+    } as unknown as GameLifecycleOptions);
+    lifecycle.setBootedGame(game);
+    await lifecycle.ejectGame();
+    assert.deepEqual(calls, ["historyEnd", "terminate"], game.projectId);
+    assert.equal(state.phase, "idle");
+    assert.equal(lifecycle.getBootedGame(), null);
+  }
+});
