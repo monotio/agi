@@ -173,7 +173,9 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   const studio = await openStudio(page);
   await page.keyboard.press("r");
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText(
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws last, after step 12");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
+    "title",
     "New shapes are drawn last, after step 12.",
   );
   await studio.getByTestId("studio-tool-filled").check();
@@ -259,8 +261,10 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await page.keyboard.press("Home");
   for (let k = 0; k < 6; k++) await page.keyboard.press(".");
   await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-insert-at")).toContainText(
-    "New shapes are drawn after step 6 of 12",
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws after step 6 of 12");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
+    "title",
+    /^New shapes are drawn after step 6 of 12/,
   );
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 1);
@@ -273,11 +277,14 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   expect(drawn.visual[at(60, 95)]).toBe(1);
   // The playhead stays after the new item; the way back to the end is one click.
   // vis, pri off and 13 rows: 15 commands after the first 6.
-  await expect(studio.getByTestId("studio-insert-at")).toContainText(
-    "New shapes are drawn after step 21 of 27",
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws after step 21 of 27");
+  await expect(studio.getByTestId("studio-playhead-end")).toHaveAccessibleName(
+    "Move playhead to end",
   );
   await studio.getByTestId("studio-playhead-end").click();
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText(
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws last, after step 27");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
+    "title",
     "New shapes are drawn last, after step 27.",
   );
 });

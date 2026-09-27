@@ -18,7 +18,10 @@
  * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I, the
  *   Walk view's T D E, which open it first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
- * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue)
+ * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
+ *   opens the key sheet (StudioKeySheet.vue)
+ * - Tab on the focused canvas toggles focus mode (the side panels hide);
+ *   Shift+Tab still moves focus back out of the canvas
  */
 
 import type { StudioLens } from "./studioView.ts";
@@ -63,6 +66,10 @@ export interface StudioKeyActions {
   ask(): boolean;
   /** Insert: add a point to the selected line nearest the cursor; false when none was added. */
   insertPoint(): boolean;
+  /** Tab on the canvas: hide or show the side panels. */
+  focusMode(): void;
+  /** `?`: the key sheet. */
+  keySheet(): void;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -88,6 +95,10 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     return true;
   }
   const plain = !command && !event.altKey;
+  if (key === "Tab" && plain && !event.shiftKey && act.onCanvas(event.target)) {
+    act.focusMode();
+    return true;
+  }
   if ((key === " " || key === "Enter") && plain && act.onCanvas(event.target)) {
     // A held key repeats: one press is one click.
     if (event.repeat || act.click(key === "Enter")) return true;
@@ -117,6 +128,10 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   }
   if (event.altKey) return false;
   if (key === "/") return act.ask();
+  if (key === "?") {
+    act.keySheet();
+    return true;
+  }
   if (key === "Insert") return act.insertPoint();
   const lens = LENS_KEYS[key];
   if (lens) act.lens(lens);

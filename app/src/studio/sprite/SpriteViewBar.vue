@@ -1,20 +1,55 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { backdropKey, parseBackdrop, type SpriteBackdrop } from "./spriteView.ts";
+
 /**
- * The canvas's view toggles, over its top edge: the contact sheet of every
- * cel in place of the canvas, onion skins of the previous and next cels (and
- * how many of each, 1 to 3), the grid and the baseline. None of them changes
- * the view.
+ * The canvas's view toggles, docked at the right of the options bar: the
+ * contact sheet of every cel in place of the canvas, onion skins of the
+ * previous and next cels (and how many of each, 1 to 3), the grid, the
+ * baseline, and the backdrop behind transparent pixels. None of them
+ * changes the view: the backdrop is only while drawing, never the view's
+ * transparent colour.
  */
+const { roomBackdrop = null } = defineProps<{
+  /** The room a Room backdrop shows, when a room uses the view. */
+  roomBackdrop?: number | null;
+}>();
 const sheet = defineModel<boolean>("sheet", { required: true });
 const prev = defineModel<boolean>("prev", { required: true });
 const next = defineModel<boolean>("next", { required: true });
 const depth = defineModel<number>("depth", { required: true });
 const grid = defineModel<boolean>("grid", { required: true });
 const baseline = defineModel<boolean>("baseline", { required: true });
+const backdrop = defineModel<SpriteBackdrop>("backdrop", { required: true });
+const backdropValue = computed({
+  get: () => backdropKey(backdrop.value),
+  set: (value: string) => (backdrop.value = parseBackdrop(value)),
+});
 </script>
 
 <template>
   <div class="sprite-view-bar" role="group" aria-label="Canvas view">
+    <label
+      class="sprite-view-bar__backdrop"
+      title="Only while drawing: the view's transparent colour stays as it is"
+    >
+      <span>Backdrop</span>
+      <select v-model="backdropValue" data-testid="sprite-backdrop">
+        <option value="checker-dark">Dark checker</option>
+        <option value="checker-light">Light checker</option>
+        <option v-if="roomBackdrop !== null" value="room">Room {{ roomBackdrop }}</option>
+        <optgroup label="Solid colour">
+          <option
+            v-for="(name, colour) in EGA_COLOUR_NAMES"
+            :key="colour"
+            :value="`colour-${colour}`"
+          >
+            {{ colour }} · {{ name }}
+          </option>
+        </optgroup>
+      </select>
+    </label>
     <button
       type="button"
       class="sprite-view-bar__toggle"
@@ -74,32 +109,22 @@ const baseline = defineModel<boolean>("baseline", { required: true });
 </template>
 
 <style scoped>
-/* Above the contact sheet (z-index 1), whose toggle it holds: pressed again, it closes the sheet. */
 .sprite-view-bar {
-  position: absolute;
-  top: var(--space-4);
-  left: 50%;
-  z-index: 2;
   display: flex;
   align-items: center;
   gap: var(--space-0);
-  padding: var(--space-0);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  background: var(--surface-overlay);
-  transform: translateX(-50%);
 }
 .sprite-view-bar__toggle {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  height: var(--control-h-sm);
+  height: var(--control-h);
   padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius);
   color: var(--ink-2);
   background: transparent;
-  font: var(--weight-medium) var(--text-xs) / 1 var(--font-sans);
+  font: var(--weight-bold) var(--text-sm) / 1 var(--font-sans);
   cursor: pointer;
 }
 .sprite-view-bar__toggle:hover {
@@ -125,8 +150,30 @@ const baseline = defineModel<boolean>("baseline", { required: true });
 .sprite-view-bar__tint.is-next {
   background: var(--agi-11);
 }
+.sprite-view-bar__backdrop {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-right: var(--space-2);
+  color: var(--ink-2);
+  font: var(--weight-bold) var(--text-sm) / 1 var(--font-sans);
+}
+.sprite-view-bar__backdrop select {
+  max-width: 9.5rem;
+  height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-2);
+  font: var(--text-sm) var(--font-sans);
+}
+.sprite-view-bar__backdrop select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
 .sprite-view-bar__depth select {
-  height: var(--control-h-sm);
+  height: var(--control-h);
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
   color: var(--ink-2);
@@ -140,5 +187,12 @@ const baseline = defineModel<boolean>("baseline", { required: true });
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+@media (pointer: coarse) {
+  .sprite-view-bar__toggle,
+  .sprite-view-bar__backdrop select,
+  .sprite-view-bar__depth select {
+    height: var(--control-h-touch);
+  }
 }
 </style>

@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
 import type { SpriteCel } from "../../../../src/studio/sprite/spriteDocument.ts";
-import { celRgba, type CelPoint, type CelRect } from "./spriteView.ts";
+import { EGA_PALETTE } from "../../palette.ts";
+import {
+  backdropCells,
+  celRgba,
+  DEFAULT_BACKDROP,
+  type CelPoint,
+  type CelRect,
+  type RoomBackdrop,
+  type SpriteBackdrop,
+} from "./spriteView.ts";
 
 /** An onion skin: a neighbouring cel drawn faint and tinted under the edited one. */
 export interface OnionSkin {
@@ -20,7 +29,9 @@ interface CelPress {
 
 /**
  * The pixel canvas: one cel at integer zoom with AGI's 2:1 pixels (backing
- * store scaled by devicePixelRatio), a checker where it is transparent, the
+ * store scaled by devicePixelRatio), the chosen backdrop where it is
+ * transparent (a checker, a solid colour or the room behind it: view only,
+ * never the view's transparent colour), the
  * onion skins of its neighbours under it, and the grid, the selection and
  * the keyboard cursor over it. The baseline under it marks the cel's bottom
  * row, where the game stands an actor's feet. A press captures the pointer,
@@ -36,6 +47,8 @@ const {
   overlay,
   changed = null,
   label,
+  backdrop = DEFAULT_BACKDROP,
+  room = null,
 } = defineProps<{
   cel: SpriteCel;
   onion?: readonly OnionSkin[];
@@ -52,6 +65,9 @@ const {
   /** Row-major, the cel's size: 1 where an AI proposal changes the pixel. */
   changed?: Uint8Array | null;
   label: string;
+  backdrop?: SpriteBackdrop;
+  /** The room picture a Room backdrop reads. */
+  room?: RoomBackdrop | null;
 }>();
 const emit = defineEmits<{
   hover: [point: CelPoint | undefined];
@@ -109,12 +125,17 @@ watchEffect(
     const token = (name: string) => style.getPropertyValue(name).trim();
     const unitX = 2 * zoom * dpr;
     const unitY = zoom * dpr;
-    // The transparent colour's checker: one square per cel pixel.
-    const light = token("--surface-3");
-    const dark = token("--surface-2");
+    // The backdrop behind transparent pixels: one square per cel pixel.
+    const lightTone = backdrop.kind === "checker" && backdrop.tone === "light";
+    const checker = lightTone
+      ? [token("--backdrop-light"), token("--backdrop-light-alt")]
+      : [token("--surface-2"), token("--surface-3")];
+    const cells = backdropCells(backdrop, cel.width, cel.height, room);
     for (let y = 0; y < cel.height; y++)
       for (let x = 0; x < cel.width; x++) {
-        context.fillStyle = (x + y) % 2 === 0 ? dark : light;
+        const value = cells[y * cel.width + x]!;
+        const [r, g, b] = value >= 0 ? EGA_PALETTE[value]! : [0, 0, 0];
+        context.fillStyle = value >= 0 ? `rgb(${r} ${g} ${b})` : checker[value === -1 ? 0 : 1]!;
         context.fillRect(x * unitX, y * unitY, unitX, unitY);
       }
     for (const skin of [...onion].sort((a, b) => b.distance - a.distance))

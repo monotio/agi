@@ -73,6 +73,110 @@ export function celIntervalMs(speed: number, cycleTime = 1): number {
   return cycle * Math.max(1, cycleTime);
 }
 
+/** What the loop preview needs of a live screen object (ScreenObjectState's fields). */
+export interface PreviewCycler {
+  readonly num: number;
+  readonly view: number;
+  readonly loop: number;
+  readonly cycling: boolean;
+  readonly cycleTime: number;
+}
+
+/** How the loop preview is paced: the cel interval and whose cycle time it borrows. */
+export interface PreviewPacing {
+  readonly intervalMs: number;
+  readonly cycleTime: number;
+  /** The object whose cycle time paces it; null when no object shows the view now. */
+  readonly object: number | null;
+}
+
+/**
+ * The loop preview's pace, as the player sees `view` animate: the game's
+ * cycle delay (v10) times the cycle time of an object showing the view now
+ * (cycle.time: a cel every that many cycles). Of several, the one on
+ * `loop` wins, else ego (object 0), else the first. An object standing
+ * still keeps its cycle time for when it moves again; one whose cycle time
+ * is 0 (animation off) is passed over. With none the preview advances one
+ * cel a cycle, and says so.
+ */
+export function previewPacing(
+  speed: number,
+  cyclers: readonly PreviewCycler[],
+  view: number,
+  loop: number,
+): PreviewPacing {
+  const showing = cyclers.filter((o) => o.view === view && o.cycleTime > 0);
+  const chosen =
+    showing.find((o) => o.loop === loop) ?? showing.find((o) => o.num === 0) ?? showing[0];
+  const cycleTime = chosen?.cycleTime ?? 1;
+  return { intervalMs: celIntervalMs(speed, cycleTime), cycleTime, object: chosen?.num ?? null };
+}
+
+/**
+ * What shows behind a cel's transparent pixels while drawing. View only:
+ * the view's transparent colour is data and stays as it is; a backdrop is
+ * never part of the view and never reaches the draft.
+ */
+export type SpriteBackdrop =
+  | { readonly kind: "checker"; readonly tone: "dark" | "light" }
+  | { readonly kind: "colour"; readonly colour: number }
+  | { readonly kind: "room" };
+
+export const DEFAULT_BACKDROP: SpriteBackdrop = { kind: "checker", tone: "dark" };
+
+/** The backdrop as a stored preference: `checker-dark`, `checker-light`, `colour-N` or `room`. */
+export function backdropKey(backdrop: SpriteBackdrop): string {
+  if (backdrop.kind === "checker") return `checker-${backdrop.tone}`;
+  return backdrop.kind === "colour" ? `colour-${backdrop.colour}` : "room";
+}
+
+/** A stored preference back to a backdrop; anything else is the default. */
+export function parseBackdrop(value: string | null): SpriteBackdrop {
+  if (value === "checker-dark" || value === "checker-light")
+    return { kind: "checker", tone: value === "checker-dark" ? "dark" : "light" };
+  if (value === "room") return { kind: "room" };
+  const colour = /^colour-(\d{1,2})$/.exec(value ?? "")?.[1];
+  if (colour !== undefined && Number(colour) < 16)
+    return { kind: "colour", colour: Number(colour) };
+  return DEFAULT_BACKDROP;
+}
+
+/** A room picture's window behind the cel: its visual plane and where the cel stands on it. */
+export interface RoomBackdrop {
+  /** 160×168 visual colours. */
+  readonly visual: Uint8Array;
+  readonly x: number;
+  readonly baselineY: number;
+}
+
+/**
+ * The backdrop at each of a `width`×`height` cel's pixels, row-major: an
+ * EGA colour 0..15, or −1 and −2 for the checker's two squares. A room
+ * backdrop reads the picture where the cel would stand (its bottom row on
+ * `baselineY`); cells off the picture fall back to the checker.
+ */
+export function backdropCells(
+  backdrop: SpriteBackdrop,
+  width: number,
+  height: number,
+  room: RoomBackdrop | null = null,
+): Int8Array {
+  const out = new Int8Array(width * height);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const checker = (x + y) % 2 === 0 ? -1 : -2;
+      let value = checker;
+      if (backdrop.kind === "colour") value = backdrop.colour & 0x0f;
+      else if (backdrop.kind === "room" && room) {
+        const px = room.x + x;
+        const py = room.baselineY - (height - 1) + y;
+        if (px >= 0 && px < 160 && py >= 0 && py < 168) value = room.visual[py * 160 + px]! & 0x0f;
+      }
+      out[y * width + x] = value;
+    }
+  return out;
+}
+
 /** Where a cel's feet stand: its lowest opaque row and that row's leftmost opaque column. */
 export interface Feet {
   /** Rows between the lowest opaque row and the cel's bottom row (the baseline). */

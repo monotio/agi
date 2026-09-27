@@ -713,6 +713,7 @@ watch(
           :usage="studio.usage"
           :rooms="studio.rooms"
           :speed="studio.speed"
+          :cyclers="studio.cyclers"
           :priority-base="studio.priorityBase"
           :staged-reference="studio.stagedReference"
           @close="workspace.closeStudio()"

@@ -141,7 +141,7 @@ test("Play here from the canvas menu; the lab's native doors are read-only", asy
   const editor = studio.getByTestId("door-editor");
   await expect(editor.getByTestId("door-native")).toContainText("→ Picture Gallery");
   await expect(editor.getByTestId("door-destination")).toHaveCount(0);
-  await expect(editor.getByTestId("door-way-back")).toContainText("Way back: yes, via");
+  await expect(editor.getByTestId("door-way-back")).toContainText("Way back from there: ");
   await expect(editor.getByTestId("door-way-back")).toContainText("the east edge");
   await shot(page, "door-two-sided");
   await editor.getByTestId("door-edit-text").click();
@@ -337,7 +337,7 @@ test("a door box bound to the doorway moves with it in one Keep; an edge exit re
   await page.mouse.move(...(await cell(page, 135, 110)));
   await page.mouse.up();
   await expect(editor.getByTestId("door-follows")).toHaveValue("doorway");
-  await expect(editor.getByTestId("door-way-back")).toHaveText("One-way");
+  await expect(editor.getByTestId("door-way-back")).toHaveText("One way: nothing there leads back");
 
   // Move the doorway 20 px west by pointer: the door box moves with it as it drags.
   await studio.getByTestId("studio-unlock").click();
@@ -406,6 +406,9 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
 
   // The live game has not pressed the plate: the walk passes the shut door into the wall.
   await expect(studio.getByTestId("walk-live-state")).toBeChecked();
+  await expect(studio.getByTestId("walk-live-state").locator("xpath=..")).toHaveText(
+    "Start with my current flags and variables",
+  );
   await page.keyboard.press("t");
   await clickCell(page, 108, 150);
   await clickCell(page, 108, 100);
@@ -413,7 +416,7 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
     timeout: 30_000,
   });
   await expect(studio.getByTestId("walk-result-state")).toHaveText(
-    "Tested with your game as it is now",
+    "Fresh room entry with your flags and variables",
   );
   await studio.getByTestId("studio-keep").click();
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
@@ -436,16 +439,19 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
     timeout: 30_000,
   });
   await expect(studio.getByTestId("walk-result-state")).toHaveText(
-    "Tested with your game as it is now",
+    "Fresh room entry with your flags and variables",
   );
   await shot(page, "walk-live-state");
 
   // From a fresh start the flag is clear again and the door stays shut.
   await studio.getByTestId("walk-live-state").uncheck();
   await studio.getByTestId("walk-again").click();
-  await expect(studio.getByTestId("walk-result-state")).toHaveText("Tested from a fresh start", {
-    timeout: 30_000,
-  });
+  await expect(studio.getByTestId("walk-result-state")).toHaveText(
+    "Fresh room entry from a new game",
+    {
+      timeout: 30_000,
+    },
+  );
   await expect(studio.getByTestId("walk-result-title")).toHaveText("Blocked at Wall line");
 
   // With a start set, a click on the door box makes it the goal: the walk
@@ -457,4 +463,19 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
   await expect(studio.getByTestId("walk-result-title")).toHaveText("Went to room 2 (Green room)", {
     timeout: 30_000,
   });
+  // That walk certifies the door it went through, for this draft and state only.
+  await studio.locator('[data-testid="walk-door"][data-door="door-1"]').click();
+  await expect(editor.getByTestId("door-tested")).toHaveText("Tested ✓ (test walk)");
+  await studio.getByTestId("walk-live-state").uncheck();
+  await expect(editor.getByTestId("door-tested")).toHaveText("Not tested yet");
+  await studio.getByTestId("walk-live-state").check();
+  await expect(editor.getByTestId("door-tested")).toHaveText("Tested ✓ (test walk)");
+
+  // Play here from that card plays in the room the walk ended in, where it ended.
+  const [, endX, endY] = /^(\d+),(\d+) in room 2$/
+    .exec((await studio.getByTestId("walk-result-end").textContent()) ?? "")!
+    .map(Number);
+  await studio.getByTestId("walk-play-here").click();
+  await expect(studio).toBeHidden();
+  await expect.poll(() => egoAt(page)).toEqual([2, endX, endY]);
 });

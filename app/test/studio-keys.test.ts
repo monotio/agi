@@ -31,6 +31,8 @@ function actions(drawing: boolean) {
     finish: () => calls.push("finish") > 0,
     ask: () => calls.push("ask") > 0,
     insertPoint: () => calls.push("insert point") > 0,
+    focusMode: () => calls.push("focus mode"),
+    keySheet: () => calls.push("key sheet"),
   } satisfies Record<keyof StudioKeyActions, unknown>;
   return { act: act as StudioKeyActions, calls };
 }
@@ -71,6 +73,15 @@ test("Space and Enter on the canvas click at the cursor, once per press", () => 
   assert.equal(studioKey(key("Enter", ELSEWHERE), act), true);
   assert.equal(studioKey(key(" ", ELSEWHERE), act), false);
   assert.deepEqual(calls, ["click", "click enter", "finish"]);
+});
+
+test("Tab on the canvas toggles focus mode; Shift+Tab and Tab elsewhere move focus; ? opens the sheet", () => {
+  const { act, calls } = actions(true);
+  assert.equal(studioKey(key("Tab", CANVAS), act), true);
+  assert.equal(studioKey(key("Tab", CANVAS, { shiftKey: true }), act), false);
+  assert.equal(studioKey(key("Tab", ELSEWHERE), act), false);
+  assert.equal(studioKey(key("?", ELSEWHERE, { shiftKey: true }), act), true);
+  assert.deepEqual(calls, ["focus mode", "key sheet"]);
 });
 
 test("Enter on the canvas without a drawing cursor still finishes", () => {

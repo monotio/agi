@@ -9,6 +9,10 @@
  *   chosen, then runs `testRoute` on a throwaway copy of the game with the
  *   draft picture and logic in it, off the main thread. The result names
  *   what stopped it: the item under the refused cell.
+ * - A walk that changes room certifies the one door it went through
+ *   (walkView.ts `walkedDoor`), for the draft it ran on and the state it
+ *   ran with: an edit, another state or Clear leaves the door untested
+ *   again, and a walk the draft changed under certifies nothing now.
  * - Doors are the room's exits (walkView.ts): annotated rules are edited
  *   through the logic draft, one kernel rule edit per change; everything
  *   else is read-only. A door box that follows a picture item shows moved
@@ -39,6 +43,7 @@ import {
   outcomeTitle,
   refusedCell,
   walkDoors,
+  walkedDoor,
   type EdgeSide,
   type WalkDoor,
 } from "./walkView.ts";
@@ -73,6 +78,27 @@ export interface WalkResult {
   readonly title: string;
   /** "live": run with the live game's flags and variables; "fresh": from a new boot. */
   readonly state: "live" | "fresh";
+  /** The door the walk went through when it changed room; null when no door explains it. */
+  readonly door: string | null;
+  /** The draft the walk ran on (`draftVersion`). */
+  readonly version: string;
+}
+
+/** What a test walk's pass through a door is good for: that draft and that state preset. */
+interface DoorEvidence {
+  readonly version: string;
+  readonly preset: string;
+}
+
+/** A cheap fingerprint of byte arrays (FNV-1a), to tell one draft from another. */
+function fingerprint(...parts: readonly (Uint8Array | null | undefined)[]): string {
+  let hash = 0x811c9dc5;
+  for (const part of parts) {
+    const bytes = part ?? new Uint8Array(0);
+    for (let i = 0; i < bytes.length; i++) hash = Math.imul(hash ^ bytes[i]!, 0x01000193);
+    hash = Math.imul(hash ^ 0xff, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
 }
 
 /** The live game's flags and variables (256 each), as the worker's state query reports them. */
@@ -209,8 +235,10 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (selectedDoorId.value && !list.some((door) => door.id === selectedDoorId.value))
       selectedDoorId.value = null;
   });
-  /** Rooms a test walk reached through a room change this session: their doors count as tested. */
-  const walkedTo = shallowRef<ReadonlySet<number>>(new Set());
+  /** Doors a test walk went through, by door, with the draft and state it ran on. */
+  const evidence = shallowRef<ReadonlyMap<string, DoorEvidence>>(new Map());
+  /** The draft a walk would run on now: the picture and the room's logic. */
+  const draftVersion = computed(() => fingerprint(options.pictureBytes(), logic.bytes.value));
   /** A broken rule annotation (duplicated, nested or unterminated): the kernel refuses every edit. */
   const logicBlocked = computed(
     () => logic.diagnostics.value.find((entry) => RULE_EDIT_BLOCKERS.includes(entry.code)) ?? null,
@@ -447,6 +475,23 @@ export function useStudioWalk(options: StudioWalkOptions) {
   const failure = shallowRef<string | null>(null);
   /** Test walks start from the live game's flags and variables when it has them. */
   const useLiveState = shallowRef(true);
+  /** The live flags and variables the last walk read, as a fingerprint. */
+  const liveSeen = shallowRef<string | null>(null);
+  /** The state preset a walk would run with now. */
+  const preset = computed(() =>
+    useLiveState.value && liveSeen.value !== null ? `live:${liveSeen.value}` : "fresh",
+  );
+  /** Doors a test walk went through on this draft, in this state: "Tested ✓ (test walk)". */
+  const tested = computed<ReadonlySet<string>>(() => {
+    const out = new Set<string>();
+    for (const [id, proof] of evidence.value)
+      if (proof.version === draftVersion.value && proof.preset === preset.value) out.add(id);
+    return out;
+  });
+  /** The result card shows a walk on another draft than the one on screen. */
+  const resultStale = computed(
+    () => result.value !== null && result.value.version !== draftVersion.value,
+  );
   let run = 0;
 
   /** The estimate from the start to the goal (or the cell being aimed at). */
@@ -477,6 +522,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
 
   function clearWalk(): void {
     run++;
+    evidence.value = new Map();
     start.value = null;
     goal.value = null;
     aim.value = null;
@@ -553,6 +599,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
       return;
     }
     const mine = ++run;
+    const version = draftVersion.value;
     running.value = true;
     result.value = null;
     failure.value = null;
@@ -562,8 +609,15 @@ export function useStudioWalk(options: StudioWalkOptions) {
       if (useLiveState.value && options.liveState)
         live = await options.liveState().catch(() => null);
       if (mine !== run) return;
+      const carried = live ? livePreset(live) : null;
+      if (carried)
+        liveSeen.value = fingerprint(
+          Uint8Array.from(carried.flags, (flag) => (flag.value ? 1 : 0)),
+          Uint8Array.from(carried.vars, (v) => v.value),
+        );
+      const ranWith = carried ? `live:${liveSeen.value}` : "fresh";
       const walked = await runner({
-        ...(live ? livePreset(live) : {}),
+        ...(carried ?? {}),
         files,
         profile: options.profile().id,
         room: room.value,
@@ -577,15 +631,28 @@ export function useStudioWalk(options: StudioWalkOptions) {
         const cell = refusedCell(walkInput.value, walked.end, to);
         blockedBy = cell ? (options.labelAt(cell.x, cell.y) ?? null) : null;
       }
-      // A walk that left through a door tests that door's way out.
-      if (walked.outcome === "room_changed" && walked.room !== room.value)
-        walkedTo.value = new Set([...walkedTo.value, walked.room]);
+      // A walk that left through a door tests that door's way out: that door
+      // only, on the draft and state it ran with.
+      let door: string | null = null;
+      const left = walked.outcome === "room_changed" && walked.room !== room.value;
+      if (left) {
+        door = walkedDoor(
+          doors.value,
+          walked.room,
+          [from, ...(path?.slice(1, -1) ?? []), to],
+          horizon.value,
+        );
+        if (door !== null)
+          evidence.value = new Map([...evidence.value, [door, { version, preset: ranWith }]]);
+      }
       result.value = {
         from,
         to,
         result: walked,
-        title: outcomeTitle(walked, blockedBy, rooms.value),
-        state: live ? "live" : "fresh",
+        title: outcomeTitle(walked, blockedBy, rooms.value, left && door === null),
+        state: carried ? "live" : "fresh",
+        door,
+        version,
       };
     } catch (error) {
       if (mine !== run) return;
@@ -660,7 +727,8 @@ export function useStudioWalk(options: StudioWalkOptions) {
     selectedDoorId,
     selectedDoor,
     selectDoor: (id: string | null) => void (selectedDoorId.value = id),
-    walked: walkedTo,
+    tested,
+    resultStale,
     canEditDoors,
     /** The logic source's annotation problems; broken rules stop door editing. */
     logicDiagnostics: logic.diagnostics,

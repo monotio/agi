@@ -7,7 +7,9 @@ import { swatchInk } from "./spriteView.ts";
  * The fixed AGI palette with the edited cel's transparent colour marked ∅,
  * in two short rows of eight so the previews below stay in view. A radio
  * group: arrows move between colours. The transparent colour cannot
- * be painted; choosing it turns the eraser on instead.
+ * be painted; choosing it turns the eraser on instead. It is the view's
+ * data (what the game leaves see-through), not the drawing backdrop, which
+ * the options bar sets and which is never saved.
  */
 const { transparent } = defineProps<{ transparent: number }>();
 const emit = defineEmits<{ erase: [] }>();
@@ -43,7 +45,11 @@ function onKey(event: KeyboardEvent, value: number): void {
   <section class="sprite-palette" aria-labelledby="sprite-palette-title">
     <header class="sprite-palette__head">
       <h3 id="sprite-palette-title">Palette</h3>
-      <span data-testid="sprite-transparent">transparent = {{ transparent }} ∅</span>
+      <span
+        data-testid="sprite-transparent"
+        title="The cel's transparent colour is part of the view: the game shows what is behind it. The Backdrop above the canvas only changes what you see while drawing."
+        >∅ = {{ transparent }} · in-game transparent</span
+      >
     </header>
     <div class="sprite-palette__grid" role="radiogroup" aria-labelledby="sprite-palette-title">
       <button

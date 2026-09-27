@@ -2,15 +2,18 @@
 import { computed, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
-import type { Point } from "../../../src/studio/shapes.ts";
+import type { PlayHereTarget } from "../../../src/studio/playHere.ts";
 import type { StudioTool } from "./studioTools.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
 import {
   doorStatus,
   EDGE_NAMES,
   outcomeTone,
+  playTarget,
   resultPlace,
   ruleProblemText,
+  WALK_STATE_LABEL,
+  walkStateText,
   type WalkDoor,
 } from "./walkView.ts";
 
@@ -32,7 +35,7 @@ const { walk, tool, flags, items } = defineProps<{
 }>();
 const emit = defineEmits<{
   tool: [tool: StudioTool];
-  "play-here": [at: Point];
+  "play-here": [target: PlayHereTarget];
   /** Show the room's logic as text, at a line when one is known. */
   text: [line: number | null];
 }>();
@@ -44,17 +47,11 @@ const place = computed(() =>
 );
 const selected = computed(() => walk.selectedDoor.value);
 const status = computed(() =>
-  selected.value ? doorStatus(selected.value, walk.walked.value) : null,
+  selected.value ? doorStatus(selected.value, walk.tested.value.has(selected.value.id)) : null,
 );
-/**
- * Play here from where the walk ended; the goal when it never moved. A start
- * the player cannot stand on offers none: the engine's end is the room's
- * entry spot, not a place the creator chose.
- */
-const playSpot = computed<Point | null>(() =>
-  result.value?.result.outcome === "start_blocked"
-    ? null
-    : (result.value?.result.end ?? walk.goal.value),
+/** Play here from where the walk ended, in the room it ended in (walkView.ts `playTarget`). */
+const playSpot = computed<PlayHereTarget | null>(() =>
+  result.value ? playTarget(result.value.result, walk.room.value, walk.goal.value) : null,
 );
 
 function describe(door: WalkDoor): string {
@@ -150,7 +147,7 @@ const roomChoices = computed(() => {
           data-testid="walk-live-state"
           @change="walk.setUseLiveState(($event.target as HTMLInputElement).checked)"
         />
-        <span>Use my current game state</span>
+        <span>{{ WALK_STATE_LABEL }}</span>
       </label>
       <p class="walk-panel__prompt" aria-live="polite" data-testid="walk-prompt">
         {{
@@ -179,11 +176,14 @@ const roomChoices = computed(() => {
       >
         <strong data-testid="walk-result-title">{{ result.title }}</strong>
         <p class="walk-panel__note" data-testid="walk-result-state">
-          {{
-            result.state === "live"
-              ? "Tested with your game as it is now"
-              : "Tested from a fresh start"
-          }}
+          {{ walkStateText(result.state) }}
+        </p>
+        <p
+          v-if="walk.resultStale.value"
+          class="walk-panel__note is-stale"
+          data-testid="walk-result-stale"
+        >
+          The room changed since this walk: Test again to check it.
         </p>
         <dl>
           <dt>Cycles</dt>
@@ -420,6 +420,9 @@ const roomChoices = computed(() => {
   margin: 0;
   color: var(--ink-3);
   font-size: var(--text-2xs);
+}
+.walk-panel__note.is-stale {
+  color: var(--warn);
 }
 .walk-panel__prompt {
   margin: 0;
