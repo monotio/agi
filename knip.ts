@@ -28,8 +28,10 @@ const config: KnipConfig = {
         "src/studio/harness.ts",
         "src/studio/sprite/harness.ts",
         // The default playwright.config.ts is auto-detected; the variant
-        // configs (phone/capture/production/speedrun) are not.
+        // configs (phone/capture/production/speedrun/media) are not.
         "playwright*.config.ts",
+        // Documentation captures, matched by playwright.media.config.ts.
+        "e2e/media/*.media.ts",
         "production/**/*.spec.ts",
         // node --test glob from the app `test:app` script.
         "test/*.test.ts",

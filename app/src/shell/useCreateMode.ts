@@ -125,8 +125,8 @@ export function useCreateMode(deps: {
     },
   );
 
-  // Switching the inspector on or off elsewhere (Settings → Inspector, the
-  // assistant's Inspect button) moves to or away from its tab in Create.
+  // Switching the inspector on or off elsewhere (Settings → Inspector)
+  // moves to or away from its tab in Create.
   watch(debugOpen, (on) => {
     if (!creating.value || on === inspectShown()) return;
     workspace.showPanel(on ? "inspect" : "assistant");
