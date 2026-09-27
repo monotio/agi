@@ -51,11 +51,18 @@ export async function addLibraryGame(
   // claim the flag, so it counts only when the authoring context travels with it.
   const roomGeneration =
     source !== "catalog" && game.project !== undefined && game.roomGeneration === true;
+  // A remix names its parent in GAME.JSON, and stays its own game wherever it
+  // is imported: bytes it shares with its parent (or with the catalog card it
+  // came from) never fold it into that entry, nor a plain import into it.
+  const parent = game.metadata?.parent;
+  const remix = parent !== undefined && source !== "catalog";
   const basePrefix = catalog
     ? `catalog-${catalog.id}`
-    : known
-      ? known.alias
-      : `imported-${revision}`;
+    : remix
+      ? "remix"
+      : known
+        ? known.alias
+        : `imported-${revision}`;
   const preferredId = requireProjectId(catalog ? `${basePrefix}-${catalog.version}` : basePrefix);
   // Imported projects carry independent histories. Trusted catalog sources are repeatable fixtures.
   // The same bytes under another interpreter are another game to play: an
@@ -70,6 +77,8 @@ export async function addLibraryGame(
         library?.revision === revision &&
         (game.profile === undefined || library.profile === game.profile) &&
         entry.roomGeneration === roomGeneration &&
+        library.parent?.project === parent?.project &&
+        library.parent?.revision === parent?.revision &&
         (!catalog ||
           (library?.catalog?.id === catalog.id && library.catalog?.version === catalog.version))
       );
@@ -77,7 +86,11 @@ export async function addLibraryGame(
     if (existing) return existing.projectId;
   }
   let targetProjectId = preferredId;
-  if ((game.project && source !== "catalog") || (await loadAuthoredGame(targetProjectId))) {
+  if (
+    remix ||
+    (game.project && source !== "catalog") ||
+    (await loadAuthoredGame(targetProjectId))
+  ) {
     do targetProjectId = requireProjectId(`${preferredId}-${crypto.randomUUID()}`);
     while (await loadAuthoredGame(targetProjectId));
   }
@@ -85,7 +98,7 @@ export async function addLibraryGame(
     ...game.metadata,
     version: 1,
     revision,
-    source,
+    source: remix ? "remix" : source,
     ...(catalog ? { catalog } : {}),
     ...(known?.author && !game.metadata?.author ? { author: known.author } : {}),
     ...(game.profile ? { profile: game.profile } : {}),

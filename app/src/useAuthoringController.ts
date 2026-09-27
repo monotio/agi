@@ -785,7 +785,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const notes = getRoomNotes?.(Number(req.context["room"])) ?? [];
     if (notes.length) req.context = { ...req.context, playerNotes: notes };
     try {
-      const result = await agent.handle(req);
+      // The stored-project gate remix and map-build turns commit through:
+      // refuse before the turn spends, and again before its staged room
+      // lands in the session. A refusal rejects this request, so the worker
+      // declines the room: the player stays put and play resumes.
+      const turnBase = turnBaseGuard(game);
+      await turnBase();
+      const result = await agent.handle(req, turnBase);
       if (!result)
         throw new Error("The next room could not be created. Connect your model and try again.");
       if (state.powerUp === progress) {
@@ -793,6 +799,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         if (game && getBootedGame() === game && author && game.projectId) {
           const writtenRev = planRevisionOf(author);
           const files = Object.fromEntries(author.state.getFiles());
+          // Conditional on the generation that still holds the turn's base,
+          // so a write landing after the gate refuses this one too.
+          const captured = await storedAtRevision(game, game.revision);
           const saved = await updateGameConversation(
             game.projectId,
             author.getTranscript(),
@@ -801,18 +810,30 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             author.getProviderContext().provider,
             author.getProviderContext().model,
             files,
+            captured.data.generation ?? 0,
           );
           if (saved) {
             // The booted game follows what was stored, so a later turn or
             // Keep compares against the revision that now holds the room.
             await updateBootedResources(game, files);
             reportPlanSaved(writtenRev);
-          } else logAgent("error", "Browser storage could not save the room conversation.");
+          } else {
+            // A write that won the race is a stale refusal; anything else is
+            // storage failing, which leaves the room playable but unsaved.
+            await storedAtRevision(game, game.revision);
+            logAgent("error", "Browser storage could not save the room conversation.");
+          }
         }
       }
       return result;
     } catch (error) {
-      if (state.powerUp === progress) state.powerUp.error = String(error);
+      if (state.powerUp === progress) {
+        if (error instanceof ResourceCommitError && error.code === "stale") {
+          // The sentence and recovery a refused remix turn offers.
+          state.powerUp.error = error.message;
+          state.powerUp.offerReload = true;
+        } else state.powerUp.error = String(error);
+      }
       throw error;
     } finally {
       if (state.powerUp === progress) state.powerUp.busy = false;

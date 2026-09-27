@@ -15,7 +15,7 @@ import {
   readPublicMetadata,
 } from "../src/gameMetadata.ts";
 import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
-import { loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
+import { clearCachedGame, loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
 import { inspectGame } from "../src/gameInspection.ts";
 import { stageCharacterView, stagedRefusal, type DecodedImage } from "../src/referenceArt.ts";
 import { buildProjectZip, buildPublicGameZip } from "../src/projectArchive.ts";
@@ -471,6 +471,63 @@ test("a remix copy gets independent identity and bytes while preserving its orig
     true,
   );
   assert.deepEqual((await loadAuthoredGame(originalProjectId))!, before);
+});
+
+test("an imported remix keeps its own identity and parent, never folding into the catalog card", async (t) => {
+  installLocalStorage(t);
+  // The exported file set (with the OBJECT file an export supplies), so the
+  // remix's downloads carry exactly its parent's bytes.
+  const { files } = await readGameZip(
+    buildPublicGameZip({ files: game('display(5, 2, "Remixable"); return;'), title: "Parent" }),
+  );
+  const release = { id: "remix-parent", version: "1" };
+  const catalogId = await addLibraryGame(
+    { files, words: [] },
+    "Parent",
+    "catalog",
+    opening,
+    release,
+  );
+  const catalogCard = (await loadAuthoredGame(catalogId))!;
+  const remix = (await loadAuthoredGame(await copyLibraryGame(catalogId)))!;
+  const parent = { project: catalogId, revision: catalogCard.library!.revision };
+  // Unchanged bytes: the remix shares its parent's revision exactly.
+  assert.equal(remix.library?.revision, catalogCard.library?.revision);
+  const downloads = [buildPublicGameZip(remix), await buildProjectZip(remix)];
+  // Another browser: the remix is not stored there, its catalog parent is.
+  await clearCachedGame(remix.projectId);
+
+  const imported: string[] = [];
+  for (const zip of downloads) {
+    const id = await addLibraryGame(await readGameZip(zip), "Remix", "zip", opening);
+    assert.notEqual(id, catalogId);
+    assert.match(id, /^remix-/);
+    const stored = (await loadAuthoredGame(id))!;
+    assert.equal(stored.title, "Parent Remix");
+    assert.equal(stored.library?.source, "remix");
+    assert.deepEqual(stored.library?.parent, parent);
+    imported.push(id);
+  }
+  assert.notEqual(imported[1], imported[0], "a project archive keeps its own history");
+  assert.deepEqual(await loadAuthoredGame(catalogId), catalogCard);
+  // The same Game download again lands on a stored copy of the remix (either
+  // import holds its bytes and parent); the parent's own bytes imported
+  // plainly are not the remix.
+  const again = await addLibraryGame(
+    await readGameZip(buildPublicGameZip(remix)),
+    "Remix",
+    "zip",
+    opening,
+  );
+  assert.ok(imported.includes(again));
+  const plain = await addLibraryGame(
+    await readGameZip(buildPublicGameZip({ files, title: "Parent" })),
+    "Parent",
+    "zip",
+    opening,
+  );
+  assert.ok(!imported.includes(plain));
+  assert.equal((await loadAuthoredGame(plain))?.library?.parent, undefined);
 });
 
 test("catalog resources cannot be overwritten in place", async (t) => {

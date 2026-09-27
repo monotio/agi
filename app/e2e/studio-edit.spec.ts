@@ -469,7 +469,12 @@ test("two tabs: a Keep in one makes the other's Keep reload the saved game, then
   await reopenFromStorage(page, studioA);
   expect(await draftBytes(page)).toEqual(keptB);
   expect(await storedPicture(page, 5)).toEqual(keptB);
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The reloaded game runs, held by the reopened Studio's pause. A game
+  // started from the top may take that pause before its first cycle, still
+  // in room 0: it enters room 1 when Studio lets it go, not before.
+  await expect
+    .poll(() => page.evaluate(() => [window.__AGI_STATE__?.phase, window.__AGI_STATE__?.paused]))
+    .toEqual(["running", true]);
 
   // Edited on the saved bytes, A's next Keep lands.
   const reloaded = page.getByTestId("room-studio");
@@ -479,6 +484,9 @@ test("two tabs: a Keep in one makes the other's Keep reload the saved game, then
   await expect(reloaded.getByTestId("studio-draft-status")).toHaveText("Kept");
   expect(await storedPicture(page, 5)).toEqual(keptA);
   expect(keptA).not.toEqual(keptB);
+  // Released, the reloaded game plays on in room 1.
+  await reloaded.getByTestId("studio-close").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await tabB.close();
 });
 

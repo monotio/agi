@@ -210,7 +210,7 @@ test("handleRoomAuthoring establishes on-demand session for imported authorable 
     installed: false,
     projectId,
     title: "Imported Authorable Game",
-    revision: testRevision("rev-1"),
+    revision: await gameRevision(files),
     files,
     words: [],
   };
@@ -1128,3 +1128,95 @@ test("buildRoomFromMap refuses when the stored project moved mid-build", async (
   assert.equal(game.files, files);
   await clearCachedGame(projectId);
 });
+
+for (const when of ["before the turn", "mid-turn"] as const) {
+  test(`a room written mid-play is refused when the stored project moved ${when}`, async (t) => {
+    installLocalStorageMock(t);
+    const projectId = testProjectId(`jit-room-stale-${when === "mid-turn" ? "mid" : "before"}`);
+    const files = createTestFiles();
+    await saveAuthoredGame(projectId, {
+      title: "JIT stale",
+      provider: "stub",
+      model: "offline-stub",
+      files,
+      words: [],
+      roomGeneration: true,
+    });
+    const baseRevision = await gameRevision(files);
+    const game: BootedGame = {
+      installed: false,
+      projectId,
+      title: "JIT stale",
+      revision: baseRevision,
+      files,
+      words: [],
+    };
+    // A Studio Keep from another tab: the stored project moves past the
+    // revision the running game was built on.
+    const moved = openContainer(new Map(Object.entries(files)));
+    moved.putResource("logic", 3, assembleLogic("return;", { dictionary: new Map() }).payload);
+    const movedFiles = Object.fromEntries(moved.files);
+    const keepElsewhere = async () =>
+      assert.equal(await updateAuthoredGameFiles(projectId, movedFiles), true);
+    if (when === "before the turn") await keepElsewhere();
+    const room = assembleLogic("return;", { dictionary: new Map() }).payload;
+    let spent = false;
+    const ui = {
+      phase: "running" as const,
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    };
+    const controller = useAuthoringController({
+      state: ui,
+      getWorker: () => null,
+      query: async <T>() => null as T,
+      logAgent: () => {},
+      readFrames: async () => [],
+      pauseEngine: () => {},
+      resumeEngine: () => {},
+      getBootedGame: () => game,
+      setBootedGame: () => {},
+      flushAutosave: async () => {},
+      getAutosaveWrite: async () => true,
+      clearAutosave: () => {},
+      awaitPatched: ackPatch,
+      configForGame: (_p, config) => config,
+      getLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
+    });
+    // The session's contract: the host's gate runs before the staged room
+    // lands in the session's container.
+    const agent = {
+      handle: async (_req: unknown, beforeAdopt?: () => Promise<void>) => {
+        spent = true;
+        if (when === "mid-turn") await keepElsewhere();
+        await beforeAdopt?.();
+        controller.getSession()!.state.container.putResource("logic", 2, room);
+        return "Room created";
+      },
+    };
+    // The rejection is what the worker hears: an empty answer declines the
+    // room, so the player stays where they are and play resumes.
+    await assert.rejects(
+      controller.handleRoomAuthoring({ op: "room", context: { room: 2 } }, agent, () => {}),
+      (error) => {
+        assert.equal((error as { code?: string }).code, "stale");
+        return true;
+      },
+    );
+    assert.equal(spent, when === "mid-turn", "a turn already behind storage never spends");
+    // The room panel the request opened shows the refusal and its recovery.
+    assert.equal(ui.powerUp.mode, "room");
+    assert.equal(ui.powerUp.error, STALE_TURN_MESSAGE);
+    assert.equal(ui.powerUp.offerReload, true);
+    assert.equal(ui.powerUp.busy, false);
+    assert.equal(controller.getSession()!.state.container.getResource("logic", 2), null);
+    assert.equal(game.revision, baseRevision);
+    const stored = (await loadAuthoredGame(projectId))!;
+    assert.equal(await gameRevision(stored.files), await gameRevision(movedFiles));
+    await clearCachedGame(projectId);
+  });
+}
