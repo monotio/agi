@@ -15,7 +15,7 @@ import {
   samePixels,
   type SpriteCel,
   type SpriteDocument,
-} from "../../src/studio/sprite/spriteDocument.ts";
+} from "../../src/view/spriteDocument.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
 import { validateSpriteEdit } from "../../src/studio/sprite/spriteValidation.ts";
 import { testRevision } from "./identity.ts";
@@ -31,7 +31,6 @@ import {
   backdropCells,
   backdropKey,
   celIntervalMs,
-  celRgba,
   DEFAULT_BACKDROP,
   feetWarning,
   parseBackdrop,
@@ -41,8 +40,9 @@ import {
   moveSelectionChanges,
   previewPartner,
   swatchInk,
-  usageText,
 } from "../src/studio/sprite/spriteView.ts";
+import { celRgba } from "../src/palette.ts";
+import { usageText } from "../../src/agent/viewUsage.ts";
 import { useSpriteDraft } from "../src/studio/sprite/useSpriteDraft.ts";
 import { useSpriteTools } from "../src/studio/sprite/useSpriteTools.ts";
 import { contentFitZoom } from "../src/studio/useStudioViewport.ts";

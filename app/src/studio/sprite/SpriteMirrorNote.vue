@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIcon from "../../ui/UiIcon.vue";
-import type { SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
+import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import { aliasGroup } from "./spriteView.ts";
 
 /**

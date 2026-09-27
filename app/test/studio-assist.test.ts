@@ -10,7 +10,7 @@ import type { StudioCandidate, StudioFocus } from "../../src/agent/studioAssistT
 import { draftRevision, pictureAssistScope } from "../../src/studio/assistScope.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import type { PictureItemKind } from "../../src/studio/pictureDocument.ts";
-import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import { viewAssistScope } from "../../src/studio/assistScope.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
 import { BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "../../test/studioAssistFixtures.ts";

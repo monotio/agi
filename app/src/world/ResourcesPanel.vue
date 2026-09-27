@@ -9,8 +9,8 @@ import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import { useEngineApi } from "../engineContext.ts";
 import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
-import SpriteThumb from "../studio/sprite/SpriteThumb.vue";
-import { usageText } from "../studio/sprite/spriteView.ts";
+import SpriteThumb from "./SpriteThumb.vue";
+import { usageText } from "../../../src/agent/viewUsage.ts";
 import { viewScan } from "./studioSource.ts";
 import { useSpriteStudio } from "./useSpriteStudio.ts";
 

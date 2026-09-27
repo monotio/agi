@@ -675,7 +675,7 @@ test("concurrency conflict compare-and-swap preserves losing edits in stashedCon
   t.after(() => {
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
     else Reflect.deleteProperty(globalThis, "localStorage");
-    storage.clearStashedConflict(testProjectId("concurrent-project"));
+    storage.stashedConflicts.delete(testProjectId("concurrent-project"));
   });
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
@@ -731,7 +731,7 @@ test("concurrency conflict compare-and-swap preserves losing edits in stashedCon
   assert.equal(surviving.generation, 2);
 
   // Losing writer's work is stashed for recovery
-  const stashed = storage.getStashedConflict(testProjectId("concurrent-project"));
+  const stashed = storage.stashedConflicts.get(testProjectId("concurrent-project"));
   assert.notEqual(stashed, undefined);
   assert.equal(stashed?.reason, "concurrency_conflict");
   assert.equal(stashed?.data.title, "Tab A Overwrite");
@@ -744,7 +744,7 @@ test("delete-vs-write conflict preserves write in stashedConflicts", async (t) =
   t.after(() => {
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
     else Reflect.deleteProperty(globalThis, "localStorage");
-    storage.clearStashedConflict(testProjectId("deleted-project"));
+    storage.stashedConflicts.delete(testProjectId("deleted-project"));
   });
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
@@ -764,7 +764,7 @@ test("delete-vs-write conflict preserves write in stashedConflicts", async (t) =
   );
   assert.equal(result, false);
   // Stashed conflict recorded
-  const stashed = storage.getStashedConflict(testProjectId("deleted-project"));
+  const stashed = storage.stashedConflicts.get(testProjectId("deleted-project"));
   assert.notEqual(stashed, undefined);
   assert.equal(stashed?.reason, "project_deleted");
 });

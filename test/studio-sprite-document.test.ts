@@ -10,7 +10,7 @@ import {
   encodeSprite,
   openSprite,
   type SpriteProfile,
-} from "../src/studio/sprite/spriteDocument.ts";
+} from "../src/view/spriteDocument.ts";
 import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
 import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";

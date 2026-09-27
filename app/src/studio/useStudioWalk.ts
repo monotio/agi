@@ -28,7 +28,7 @@ import { RULE_EDIT_BLOCKERS } from "../../../src/studio/rules/logicDocument.ts";
 import type { FlagRef, RuleBox, RuleModel } from "../../../src/studio/rules/ruleModel.ts";
 import { roomExitContracts, type ExitContract } from "../../../src/studio/rules/ruleUsage.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
-import { walkableMask, type WalkableInput } from "../../../src/studio/walkable.ts";
+import { walkableMask, type WalkableInput } from "../../../src/runtime/walkable.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import { runRouteInWorker, type RouteRunner } from "./routeRunner.ts";
 import { rectFrom } from "./studioTools.ts";

@@ -12,7 +12,7 @@ import SpriteStudio, { type SpriteKeepFn } from "./SpriteStudio.vue";
 import { buildTutorial } from "../../../../games/adventure-department/game.ts";
 import { requireResourceRevision } from "../../../../src/gameIdentity.ts";
 import { DEFAULT_V2_PROFILE } from "../../../../src/runtime/profile.ts";
-import { openSprite } from "../../../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../../../src/view/spriteDocument.ts";
 import { applySpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import { parseView } from "../../../../src/view/view.ts";
 import { authoringFingerprint } from "../../gameStorage.ts";

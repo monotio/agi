@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, useTemplateRef } from "vue";
 import UiIcon from "../../ui/UiIcon.vue";
-import type { SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
-import SpriteThumb from "./SpriteThumb.vue";
+import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
+import SpriteThumb from "../../world/SpriteThumb.vue";
 import { aliasGroup, loopFacing } from "./spriteView.ts";
 
 /**

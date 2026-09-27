@@ -9,7 +9,7 @@ import {
   resizeCel,
   type ResizeAnchor,
 } from "../../../../src/studio/sprite/spriteCels.ts";
-import type { SpriteCel } from "../../../../src/studio/sprite/spriteDocument.ts";
+import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import { feetOf, feetWarning } from "./spriteView.ts";
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
-import { openSprite, type SpriteDocument } from "../src/studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteDocument } from "../src/view/spriteDocument.ts";
 import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
 import { validateSpriteEdit } from "../src/studio/sprite/spriteValidation.ts";
 import { mirroredView } from "./studio-sprite-fixture.ts";

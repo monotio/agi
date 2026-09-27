@@ -35,11 +35,21 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await expect(keyLink).toHaveAttribute("href", "https://platform.openai.com/api-keys");
   await dialog.getByTestId("provider-select").selectOption("anthropic");
   await expect(keyLink).toHaveAttribute("href", "https://platform.claude.com/settings/keys");
+  // Selects meet the design system's control height for this pointer
+  // (tokens.css: --control-h on a fine pointer, --control-h-touch on touch).
+  const controlHeight = await page.evaluate(() =>
+    parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue(
+        matchMedia("(pointer: coarse)").matches ? "--control-h-touch" : "--control-h",
+      ),
+    ),
+  );
+  expect(controlHeight).toBeGreaterThanOrEqual(40);
   for (const select of [
     dialog.getByTestId("provider-select"),
     dialog.getByTestId("model-select"),
   ]) {
-    expect((await select.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    expect((await select.boundingBox())?.height).toBeGreaterThanOrEqual(controlHeight);
   }
   await dialog.getByTestId("ai-settings-cancel").click();
   for (const action of [

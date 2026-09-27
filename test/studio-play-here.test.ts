@@ -4,7 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { buildView } from "../src/view/view.ts";
-import { placeEgo, playHereProblem } from "../src/studio/playHere.ts";
+import { placeEgo, playHereProblem } from "../src/runtime/playHere.ts";
 
 /** Room 1: a control-0 line across y=100, horizon 36, ego 3x5 at (80,120) walking east. */
 function room(extra = "") {

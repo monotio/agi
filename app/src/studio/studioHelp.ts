@@ -120,7 +120,7 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
               { keys: ["⌥ click", "Insert"], does: "Add a point to the selected line" },
             ]),
         { keys: ["Esc"], does: "Let go of one thing per press, then leave Studio" },
-        { keys: ["Tab"], does: "Hide or show the side panels (focus mode)" },
+        { keys: ["⌘ \\"], does: "Hide or show the side panels (focus mode)" },
         { keys: ["Menu", "⇧ F10"], does: "Canvas menu: Play here, test walks" },
       ],
     },

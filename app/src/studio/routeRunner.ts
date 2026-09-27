@@ -32,7 +32,7 @@ const ROUTE_TIMEOUT_MS = 30_000;
 
 export const runRouteInWorker: RouteRunner = (input) =>
   new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("../route.worker.ts", import.meta.url), { type: "module" });
+    const worker = new Worker(new URL("./route.worker.ts", import.meta.url), { type: "module" });
     const timeout = setTimeout(() => {
       worker.terminate();
       reject(new Error("The test walk took too long and was stopped."));

@@ -14,7 +14,7 @@ import {
   type EditHistory,
   type HistoryResult,
 } from "../editHistory.ts";
-import { withPayload, type SpriteDocument } from "./spriteDocument.ts";
+import { withPayload, type SpriteDocument } from "../../view/spriteDocument.ts";
 
 export { begin, commit } from "../editHistory.ts";
 

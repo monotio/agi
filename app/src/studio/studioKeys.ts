@@ -20,8 +20,8 @@
  *   or polygon, Backspace drops its last point
  * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
  *   opens the key sheet (StudioKeySheet.vue)
- * - Tab on the focused canvas toggles focus mode (the side panels hide);
- *   Shift+Tab still moves focus back out of the canvas
+ * - Cmd+\ (Ctrl+\ off a Mac) toggles focus mode, which hides the side
+ *   panels; Tab and Shift+Tab only ever move focus
  */
 
 import type { StudioLens } from "./studioView.ts";
@@ -66,7 +66,7 @@ export interface StudioKeyActions {
   ask(): boolean;
   /** Insert: add a point to the selected line nearest the cursor; false when none was added. */
   insertPoint(): boolean;
-  /** Tab on the canvas: hide or show the side panels. */
+  /** Cmd+\ or Ctrl+\: hide or show the side panels. */
   focusMode(): void;
   /** `?`: the key sheet. */
   keySheet(): void;
@@ -94,11 +94,17 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     if (!act.dismiss()) act.close();
     return true;
   }
-  const plain = !command && !event.altKey;
-  if (key === "Tab" && plain && !event.shiftKey && act.onCanvas(event.target)) {
-    act.focusMode();
+  // Focus mode: the backslash character, whatever keys a layout (AltGr,
+  // Option) types it with; or the US backslash key, whose character a
+  // modifier may change. A held chord toggles once.
+  if (
+    command &&
+    (key === "\\" || (event.code === "Backslash" && !event.altKey && !event.shiftKey))
+  ) {
+    if (!event.repeat) act.focusMode();
     return true;
   }
+  const plain = !command && !event.altKey;
   if ((key === " " || key === "Enter") && plain && act.onCanvas(event.target)) {
     // A held key repeats: one press is one click.
     if (event.repeat || act.click(key === "Enter")) return true;

@@ -84,6 +84,7 @@ runtime checks.
 | `src/runtime/`                                                            | Interpreter, profiles, input, objects, sound timing and saves |
 | `src/container/`, `src/logic/`, `src/picture/`, `src/view/`, `src/sound/` | AGI binary formats, compilers, readers and rendering          |
 | `src/agent/`                                                              | Authoring tools, prompts, command help and isolated playtests |
+| `src/studio/`, `app/src/studio/`                                          | Room Studio and Sprite Studio, loaded only when one opens     |
 | `app/src/`                                                                | Vue shell, engine worker, browser storage and ZIP formats     |
 | `app/src/agent/`                                                          | Provider sessions, conversation transport and worker bridge   |
 | `app/src/three/`                                                          | GPU presentation and CRT effects                              |
@@ -151,8 +152,9 @@ flowchart LR
 3. `useAuthoringController.ts` loads the authoring stack and hands the request to `AgentSession` (`agent/agentSession.ts`), which forks the game state.
 4. The provider conversation (`agent/llmClient.ts`) calls tools through `executeAgentToolAsync` (`src/agent/tools.ts`), which refuses any tool outside the session's allowlist.
 5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `handover` tool runs the room's game tests.
-6. The gate: `turnBaseGuard` (`useAuthoringController.ts`) refuses the turn if the stored game moved on while the agent worked.
+6. The gate: `turnBaseGuard` (`useAuthoringController.ts`) records the revision the turn builds on, and `requireSaved` (`projectTransaction.ts`) refuses the turn before it spends and again before its room lands if the stored project moved on.
 7. `prepareRoomPatch` (`src/agent/roomPatch.ts`) checks the room as a whole, the answer returns in `hostAnswer`, and the worker checks it again before `Engine.patchResources` resumes `new.room`.
+8. The controller saves the room over the stored project (`writeOverSaved`), and `confirmSaved` moves the booted game to that revision only once the running game's files read back as exactly the saved ones.
 
 **A Room Studio edit becomes bytes**
 
@@ -160,15 +162,16 @@ flowchart LR
 2. A gesture on `StudioCanvas.vue` reaches `useStudioInput.ts` and then `useStudioDrag.ts`, `useStudioEditing.ts` or `useStudioTools.ts`.
 3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
-5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit`, `lensRules.ts`).
-6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `resourceCommit.ts`, which checks the revision, validates, stores (`gameStorage.ts`) and posts `patch` to the worker.
+5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`).
+6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
 
 **Where authority lives.** Each of these is a check in code, not a prompt:
 
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` and `assistScope.ts` judge Studio edits and AI proposals by their decoded pixels, whatever the operations or the model claim.
-- `resourceCommit.ts` is the transaction behind every Keep: the bytes, their source, the stored project and the live worker move together or not at all, and a stale revision is refused.
+- `projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (a Keep, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
+- `resourceCommit.ts` is the transaction behind every Keep: the bytes, their source, the stored project and the live worker move together or not at all.
 - The logic assembler and the container writer are the validators of last resort.
 
 Two words carry more than one meaning. `prepareRoom` is the engine's host hook,

@@ -15,8 +15,8 @@
  */
 
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
-import { footprintAccepted, scanFootprint } from "../runtime/controlCheck.ts";
-import type { ScreenObject } from "../runtime/screenObject.ts";
+import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
+import type { ScreenObject } from "./screenObject.ts";
 
 export interface WalkableInput {
   /** The 160x168 priority/control plane. */

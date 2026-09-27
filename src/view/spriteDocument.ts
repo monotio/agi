@@ -16,14 +16,9 @@
  * An untouched document encodes to its original payload byte for byte, and so
  * does any document whose decoded state is again the original's.
  */
-import type { AgiProfile } from "../../runtime/profile.ts";
-import {
-  aliasGroups,
-  applyMetadata,
-  type AliasGroup,
-  type MetadataPlan,
-} from "../../view/celEdit.ts";
-import { buildView, parseView, type BuildLoopInput } from "../../view/view.ts";
+import type { AgiProfile } from "../runtime/profile.ts";
+import { aliasGroups, applyMetadata, type AliasGroup, type MetadataPlan } from "./celEdit.ts";
+import { buildView, parseView, type BuildLoopInput } from "./view.ts";
 
 export type SpriteProfile = Pick<AgiProfile, "packedViewLoopHeader">;
 

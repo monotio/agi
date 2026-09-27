@@ -8,7 +8,7 @@
  * cannot use the transparent colour.
  */
 import { SCREEN_WIDTH } from "../../types.ts";
-import { mirrorPixels, type SpriteCel } from "./spriteDocument.ts";
+import { mirrorPixels, type SpriteCel } from "../../view/spriteDocument.ts";
 
 /** Widest and tallest cel `buildView` accepts. */
 export const MAX_CEL_WIDTH = SCREEN_WIDTH;

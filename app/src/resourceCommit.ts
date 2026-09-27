@@ -14,7 +14,7 @@ import type { AuthoringState, BindingKind } from "../../src/agent/authoringState
 import { assembleAuthoredLogic, type AgentSourceStore } from "../../src/agent/agentState.ts";
 import { sourceCompilesTo } from "../../src/picture/source.ts";
 import { roomDrawsPicture } from "../../src/agent/roomPictures.ts";
-import { roomBakesView, scanViewUsage } from "../../src/studio/sprite/spriteUsage.ts";
+import { roomBakesView, scanViewUsage } from "../../src/agent/viewUsage.ts";
 import { viewSpec } from "../../src/view/celEdit.ts";
 import type { BuildViewInput } from "../../src/view/view.ts";
 import type { AgiProfile } from "../../src/runtime/profile.ts";
@@ -771,9 +771,10 @@ export function roomEdit(edit: RoomEdit): ResourceEdit {
 /**
  * Keep a Sprite Studio view: the edited VIEW bytes, with `sources.views`
  * following them as the spec read back from the bytes. Animated objects pick
- * the new cels up from the install itself (Engine.patchResource re-parses a
- * loaded view in place); the live room re-enters only when entering it bakes
- * the view into its picture with add.to.pic (spriteUsage.ts `roomBakesView`).
+ * the new cels up from the install itself (Engine.patchResources re-parses a
+ * loaded view in place and re-clamps its objects' loop and cel); the live
+ * room re-enters only when entering it bakes
+ * the view into its picture with add.to.pic (viewUsage.ts `roomBakesView`).
  */
 export function viewEdit(edit: ViewEdit): ResourceEdit {
   const { viewNumber: num, baseRevision } = edit;

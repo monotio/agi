@@ -8,11 +8,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
 import { buildView } from "../../src/view/view.ts";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerPorts } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { replayHistorySegment } from "../src/worker/replay.ts";
 import type { WorkerControl, WorkerInbound } from "../src/workerProtocol.ts";
 
 /** Room 1 plain; room 2 has a control-0 barrier across y=100 and an entry window. */

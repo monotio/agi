@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE, PROFILES } from "../src/runtime/profile.ts";
 import { buildView, parseView, readViewCel } from "../src/view/view.ts";
-import { openSprite, type SpriteDocument } from "../src/studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteDocument } from "../src/view/spriteDocument.ts";
 import {
   applySpriteEdit,
   type SpriteEdit,

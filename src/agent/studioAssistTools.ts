@@ -56,13 +56,13 @@ import type { PicturePlane } from "../studio/pictureQuery.ts";
 import { probeActor } from "../studio/probe.ts";
 import type { SceneShape } from "../studio/shapes.ts";
 import { RESIZE_ANCHORS, type ResizeAnchor } from "../studio/sprite/spriteCels.ts";
-import { openSprite, type SpriteDocument } from "../studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteDocument } from "../view/spriteDocument.ts";
 import {
   applySpriteEdit,
   type CelRef,
   type SpriteEdit,
 } from "../studio/sprite/spriteOperations.ts";
-import { walkableMask } from "../studio/walkable.ts";
+import { walkableMask } from "../runtime/walkable.ts";
 import { depthValuesLocked } from "../studio/lensRules.ts";
 import { PictureSourceSyntaxError } from "../picture/source.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";

@@ -505,15 +505,11 @@ export interface StashedConflict {
   error: Error;
 }
 
-const stashedConflicts = new Map<string, StashedConflict>();
-
-export function getStashedConflict(projectId: ProjectId): StashedConflict | undefined {
-  return stashedConflicts.get(projectId);
-}
-
-export function clearStashedConflict(projectId: ProjectId): void {
-  stashedConflicts.delete(projectId);
-}
+/**
+ * A write that lost its compare-and-swap, or targeted a removed project,
+ * kept by project for this page's lifetime so its content is not lost silently.
+ */
+export const stashedConflicts = new Map<string, StashedConflict>();
 
 /**
  * Replace one versioned record inside a single read-write transaction. A

@@ -65,7 +65,7 @@ const pictures = computed(() => {
   return roomPictureLabels(use, node.planned);
 });
 
-/** The VIEWs the selected room's logic names (spriteUsage.ts), each openable in Sprite Studio. */
+/** The VIEWs the selected room's logic names (viewUsage.ts), each openable in Sprite Studio. */
 const views = computed(() => {
   const node = selectedNode.value;
   return node ? roomViews(map.resources.value, node.room) : [];

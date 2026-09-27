@@ -243,7 +243,7 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
   );
 });
 
-test("Alt+arrow keys on the canvas step through items; Tab is focus mode, Shift+Tab leaves", async ({
+test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab and Shift+Tab leave", async ({
   page,
 }) => {
   await open(page, "demo");
@@ -258,19 +258,22 @@ test("Alt+arrow keys on the canvas step through items; Tab is focus mode, Shift+
   await expect(selected).toHaveAttribute("data-row", "floor");
   await page.keyboard.press("Alt+ArrowLeft");
   await expect(selected).toHaveAttribute("data-row", "floor");
-  // Tab on the canvas hides and shows the side panels; focus stays on the canvas.
-  await page.keyboard.press("Tab");
+  // ⌘\ (Ctrl+\ off a Mac) hides and shows the side panels; focus stays on the canvas.
+  await page.keyboard.press("ControlOrMeta+Backslash");
   await expect(canvas).toBeFocused();
   await expect(page.locator(".studio__scene")).toBeHidden();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press("ControlOrMeta+Backslash");
   await expect(page.locator(".studio__scene")).toBeVisible();
   await expect(selected).toHaveAttribute("data-row", "floor");
-  // Shift+Tab is never taken by the canvas: one press moves focus back, Tab returns.
+  // Tab and Shift+Tab are never taken by the canvas: each moves focus on or back.
+  await page.keyboard.press("Tab");
+  await expect(canvas).not.toBeFocused();
+  await expect(page.locator(".studio__scene")).toBeVisible();
+  await page.keyboard.press("Shift+Tab");
+  await expect(canvas).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(canvas).not.toBeFocused();
   await expect(selected).toHaveAttribute("data-row", "floor");
-  await page.keyboard.press("Tab");
-  await expect(canvas).toBeFocused();
 });
 
 test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {

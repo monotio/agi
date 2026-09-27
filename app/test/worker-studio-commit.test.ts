@@ -11,7 +11,7 @@ import { ref } from "vue";
 import assert from "node:assert/strict";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
 import { ResourceCommitError } from "../src/projectTransaction.ts";
@@ -19,7 +19,6 @@ import { useWorkerLink } from "../src/useWorkerLink.ts";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { replayHistorySegment } from "../src/worker/replay.ts";
 import { gameRevision } from "../src/gameMetadata.ts";
 import {
   clearCachedGame,
@@ -49,13 +48,13 @@ import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import { applyEdit } from "../../src/studio/editOperations.ts";
 import {
   parsePictureDocument,
   serializePictureDocument,
 } from "../../src/studio/pictureDocument.ts";
-import { placeEgo } from "../../src/studio/playHere.ts";
+import { placeEgo } from "../../src/runtime/playHere.ts";
 import { parseLogicDocument } from "../../src/studio/rules/logicDocument.ts";
 import { followPictureEdit } from "../../src/studio/rules/ruleBinding.ts";
 import { applyRuleEdit } from "../../src/studio/rules/ruleEdit.ts";

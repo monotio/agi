@@ -2,8 +2,8 @@
 import { computed, onMounted, onScopeDispose, shallowRef, watch } from "vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
-import type { SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
-import SpriteThumb from "./SpriteThumb.vue";
+import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
+import SpriteThumb from "../../world/SpriteThumb.vue";
 import { previewPacing, type PreviewCycler } from "./spriteView.ts";
 
 /**
