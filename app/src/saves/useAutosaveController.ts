@@ -15,10 +15,12 @@ import {
 } from "./gameProgress.ts";
 import {
   getCachedGameMeta,
+  getStorageKey,
   loadAuthoredGame,
+  readHistoryLifetime,
   updateAuthoredGameFilesAt,
 } from "../project/gameStorage.ts";
-import { markBehindStorage } from "../project/projectTransaction.ts";
+import { markBehindStorage, markRemoved } from "../project/projectTransaction.ts";
 import {
   findInstalledFolder,
   gameStorageKey,
@@ -92,6 +94,28 @@ export function clearAutosave(targetKey: string): void {
   }
 }
 
+/**
+ * The checkpoint Home may offer to continue: the last game played's, while
+ * its game can still boot. An authored project's checkpoint without a
+ * stored record is the removed project's own leftover under its own key:
+ * it is cleared, pointer and all, never offered. An installed edition's
+ * stays (its folder may only be missing for now); an index this release
+ * cannot read is kept but not offered.
+ */
+export function resumableAutosave(): AutosaveRecord | null {
+  const key = lastGameKey();
+  const record = key ? readAutosave(key) : null;
+  if (!key || !record || record.game.installed) return record;
+  const project = record.game.identity.project;
+  if (getCachedGameMeta(project)) return record;
+  try {
+    if (localStorage.getItem(getStorageKey(project)) === null) clearAutosave(key);
+  } catch {
+    /* a store we cannot read offers nothing */
+  }
+  return null;
+}
+
 /** The storage key of the game an autosave exists for, or null. Used by the picker. */
 export function lastGameKey(): string | null {
   try {
@@ -112,6 +136,11 @@ export interface AutosaveControllerContext {
   readonly onAutosaveRestored?: (room: number, egoX: number, egoY: number) => void;
   /** An autosave found a newer save in storage and wrote nothing; called once per game. */
   readonly onBehindStorage?: () => void;
+  /**
+   * The running project was removed: found by a checkpoint's lifetime check
+   * (once per game) or by a reload from storage (every time it is asked).
+   */
+  readonly onRemoved?: () => void;
   readonly logAgent: (kind: AgentLogEntry["kind"], message: string, details?: unknown) => void;
   readonly isInstalledGame: (targetGame: string) => boolean;
   readonly bootGame: (targetFolder: string) => Promise<void>;
@@ -195,6 +224,21 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     }, RESUME_CAPTION_MS) as unknown as number;
   }
 
+  /**
+   * The removal's lifetime check: whether the running project's history
+   * lifetime was ended by a removal (its receipt says deleted). The first
+   * finding marks the game removed and tells the player; nothing is stored
+   * for it from then on. Unknown (storage unreadable) is not a removal.
+   */
+  async function projectRemoved(game: BootedGame): Promise<boolean> {
+    if (game.installed || !game.projectId) return false;
+    if (game.removed) return true;
+    const live = await readHistoryLifetime(game.projectId).catch(() => undefined);
+    if (live !== null) return false;
+    if (markRemoved(game)) ctx.onRemoved?.();
+    return true;
+  }
+
   async function storeAutosave(msg: {
     image: string;
     preview?: unknown;
@@ -207,6 +251,9 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       const booted = ctx.getBootedGame();
       if (!booted) return false;
       const game = booted;
+      // A removed project stores nothing: a checkpoint would bring its key
+      // back, and Home would offer a game that no longer exists.
+      if (await projectRemoved(game)) return false;
       if (msg.files) {
         if (booted.installed) return false;
         // Behind storage (a Keep saved but not installed, a newer write from
@@ -272,6 +319,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         localStorage.setItem(LAST_GAME_KEY, storageKey);
       } catch (e) {
         ctx.logAgent("log", `autosave resume pointer failed: ${String(e)}`);
+      }
+      // Removed while this checkpoint was written: the removing tab cleared
+      // the key before it, or this lifetime check sees the receipt now.
+      if (await projectRemoved(game)) {
+        clearAutosave(storageKey);
+        return false;
       }
       ctx.onAutosaveStored?.(stored.cycle);
       lastAutosave = stored;
@@ -492,14 +545,20 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
    * checkpoint resumes only when it names the stored revision (another tab's
    * Keep takes a fresh one); otherwise the game starts from the top rather
    * than refusing the mismatch. False when the running game is no stored
-   * project.
+   * project; a removed one is marked so and told (`onRemoved`).
    */
   async function reloadFromStorage(config: LlmConfig): Promise<boolean> {
     const game = ctx.getBootedGame();
-    const id = game && !game.installed ? game.projectId : undefined;
-    if (!id || !getCachedGameMeta(id)) return false;
-    const stored = await loadAuthoredGame(id);
-    if (!stored) return false;
+    const id = game?.installed ? undefined : game?.projectId;
+    if (!game || !id) return false;
+    const stored = getCachedGameMeta(id) ? await loadAuthoredGame(id) : null;
+    if (!stored) {
+      // Nothing to reload: the project was removed. Say so every time it
+      // is asked for, so the reload never silently does nothing.
+      markRemoved(game);
+      ctx.onRemoved?.();
+      return false;
+    }
     const record = readAutosave(id);
     if (record && record.game.identity.revision === (await gameRevision(stored.files)))
       return resumeFromRecord(record, config);

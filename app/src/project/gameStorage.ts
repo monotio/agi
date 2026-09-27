@@ -1113,7 +1113,10 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
     // history. The manifest's batch and blob records key under
     // `history/${id}/`, so a plain manifest delete would orphan them all —
     // the cursor deletes every child key in the same transaction.
+    let ended: IDBRequest<HistoryLifetime | undefined> | undefined;
     await bodyTransaction("readwrite", (store) => {
+      // The lifetime this removal ends, read before its receipt is replaced.
+      ended = store.get(`lifetime/${projectId}`) as IDBRequest<HistoryLifetime | undefined>;
       // Keep a small deletion receipt outside the history prefix. A writer in
       // another tab must not recreate a tape, even if its boot arrives late.
       store.put({
@@ -1135,6 +1138,10 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
       return store.delete(projectId);
     });
     localStorage.removeItem(getStorageKey(projectId));
+    // A tab running the removed lifetime stops writing for it at once; one
+    // already removed has no lifetime left to end.
+    const removed = liveLifetime(ended?.result);
+    if (removed !== null) announceProjectWrite({ projectId, removed });
   });
 }
 

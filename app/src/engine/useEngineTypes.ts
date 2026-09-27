@@ -170,6 +170,12 @@ export interface EngineState {
    * revision): the stage's note offers Reload game until dismissed.
    */
   staleTab: boolean;
+  /**
+   * The running game's project was removed in another tab: nothing is stored
+   * for it any more, and the stage's note offers Download game and Back to
+   * games until dismissed. A reload asked for says it again.
+   */
+  projectRemoved: boolean;
   /** Player-action recording for a stored game test. */
   recording: { active: boolean; starting: boolean; error: string };
   /** History batches committed-or-in-flight to storage; >0 means unsaved tape. */

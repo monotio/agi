@@ -94,6 +94,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   function resetScreenState(): void {
     autosave.resetScreen();
     state.staleTab = false;
+    state.projectRemoved = false;
     // The timeline notices belong to the session that raised them.
     state.historyBlocked = null;
     state.historyRetry = null;
@@ -284,7 +285,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // Commits already in flight settle first: one may be the refusal that
     // says the tape can never be stored.
     await options.drainHistoryCommits();
-    if (!ejectOptions?.abandonHistory && !state.historyBlocked) {
+    // A removed project's timeline can never be stored: nothing is owed.
+    if (!ejectOptions?.abandonHistory && !state.historyBlocked && !booted?.removed) {
       try {
         await link.query("historyEnd", {}, 10_000);
         await options.drainHistoryCommits();
