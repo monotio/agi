@@ -1,0 +1,14 @@
+id: vue-no-withdefaults
+snapshots:
+  "const props = withDefaults(defineProps<Props>(), { count: 1 });":
+    labels:
+      - source: "withDefaults(defineProps<Props>(), { count: 1 })"
+        style: primary
+        start: 14
+        end: 62
+  "withDefaults(defineProps<{ label?: string }>(), { label: 'Keep' });":
+    labels:
+      - source: "withDefaults(defineProps<{ label?: string }>(), { label: 'Keep' })"
+        style: primary
+        start: 0
+        end: 66

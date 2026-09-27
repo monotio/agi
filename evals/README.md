@@ -38,8 +38,8 @@ selection.
 
 Choose a provider and model explicitly and set its API key in the environment.
 Live runs are billed to that provider account. The runner headers document their
-options: [genesis](../scripts/eval-genesis.ts) and
-[picture fidelity](../scripts/eval-picture.ts).
+options: [genesis](genesis-cli.ts) and
+[picture fidelity](picture-fidelity.ts).
 
 The Studio assist lane (`evals/studio-assist-benchmark.ts`) refuses a live run
 without `--budget-usd`, enforces that cap from provider usage across all its runs,

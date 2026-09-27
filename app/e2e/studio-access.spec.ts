@@ -155,7 +155,7 @@ async function nudgeOccluder(page: Page, studio: Locator): Promise<void> {
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
 }
 
-test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens, then Keep", async ({
+test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens, then Keep @webkit-desktop", async ({
   page,
 }) => {
   await bootGame(page);

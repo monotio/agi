@@ -320,7 +320,7 @@ async function nudgeOccluder(page: Page, studio: Locator) {
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
 }
 
-test("switching to Play with unkept changes asks: Cancel stays, Discard leaves", async ({
+test("switching to Play with unkept changes asks: Cancel stays, Discard leaves @webkit-desktop", async ({
   page,
 }) => {
   const studio = await openStudio(page);

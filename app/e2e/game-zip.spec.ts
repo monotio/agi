@@ -17,7 +17,7 @@ import {
   enterCreateMode,
 } from "./engineProbe.ts";
 
-test("a friend opens an exported world in a fresh browser without a key", async ({
+test("a friend opens an exported world in a fresh browser without a key @webkit-desktop", async ({
   page,
   browser,
 }) => {

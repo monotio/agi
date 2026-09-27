@@ -1,0 +1,8 @@
+id: vue-ref-null-redundant
+valid:
+  - "const el = ref<HTMLElement>();"
+  - "const count = ref<number | null>(0);"
+  - "const el = shallowRef<HTMLElement | null>(null);"
+invalid:
+  - "const el = ref<HTMLElement | null>(null);"
+  - "const game = ref<InstalledGame | null>(null);"

@@ -52,7 +52,7 @@
  * itself is testable. Sierra images, briefs and results never enter git.
  *
  * Programmatic use (promptfoo lane, evals/configs/picture.ts):
- *   import { runPictureEntry, loadManifest } from "./eval-picture.ts"
+ *   import { runPictureEntry, loadManifest } from "./picture-fidelity.ts"
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -98,7 +98,7 @@ import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
 import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
 import { loadGame } from "../test/game-fixture.ts";
 import { fixtureSkip } from "../test/fixtures.ts";
-import { cropSideBySidePng, sideBySidePng, surfaceToPng } from "./png.ts";
+import { cropSideBySidePng, sideBySidePng, surfaceToPng } from "../scripts/png.ts";
 
 // ---------------------------------------------------------------------------
 // Manifest

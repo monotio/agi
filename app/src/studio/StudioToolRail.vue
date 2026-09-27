@@ -4,7 +4,7 @@ import UiIconButton from "../ui/UiIconButton.vue";
 import type { IconName } from "../ui/icons.ts";
 import StudioCurrentValues from "./StudioCurrentValues.vue";
 import type { LensUnlocks } from "./studioLocks.ts";
-import type { CurrentValues, StudioTool } from "./studioTools.ts";
+import { TOOL_SHORTCUTS, type CurrentValues, type StudioTool } from "./studioTools.ts";
 import type { StudioLens } from "./studioView.ts";
 
 /**
@@ -47,30 +47,29 @@ interface RailTool {
   readonly id: StudioTool;
   readonly icon: IconName;
   readonly label: string;
-  readonly key: string;
   readonly draws?: boolean;
   /** Adds a door: needs the room's editable logic. */
   readonly doors?: boolean;
 }
 const GROUPS: readonly (readonly RailTool[])[] = [
   [
-    { id: "select", icon: "select", label: "Select and move", key: "V" },
-    { id: "point", icon: "spline", label: "Points only", key: "A" },
+    { id: "select", icon: "select", label: "Select and move" },
+    { id: "point", icon: "spline", label: "Points only" },
   ],
   [
-    { id: "line", icon: "line", label: "Line", key: "L", draws: true },
-    { id: "rect", icon: "rect", label: "Rectangle", key: "R", draws: true },
-    { id: "polygon", icon: "polygon", label: "Polygon", key: "P", draws: true },
-    { id: "fill", icon: "fill", label: "Fill", key: "F", draws: true },
-    { id: "brush", icon: "brush", label: "Brush", key: "B", draws: true },
-    { id: "pipette", icon: "pipette", label: "Pick colour and priority", key: "I" },
+    { id: "line", icon: "line", label: "Line", draws: true },
+    { id: "rect", icon: "rect", label: "Rectangle", draws: true },
+    { id: "polygon", icon: "polygon", label: "Polygon", draws: true },
+    { id: "fill", icon: "fill", label: "Fill", draws: true },
+    { id: "brush", icon: "brush", label: "Brush", draws: true },
+    { id: "pipette", icon: "pipette", label: "Pick colour and priority" },
   ],
 ];
 /** The Walk view's own tools: a test walk the game runs, and the room's doors. */
 const WALK_GROUP: readonly RailTool[] = [
-  { id: "walk", icon: "footprints", label: "Test walk", key: "T" },
-  { id: "door", icon: "exit", label: "Door box", key: "D", doors: true },
-  { id: "edge", icon: "move", label: "Edge exit", key: "E", doors: true },
+  { id: "walk", icon: "footprints", label: "Test walk" },
+  { id: "door", icon: "exit", label: "Door box", doors: true },
+  { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
 const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
 
@@ -125,13 +124,13 @@ watch(scroller, (el) => {
             <UiIconButton
               :icon="entry.icon"
               :label="entry.label"
-              :shortcut="entry.key"
+              :shortcut="TOOL_SHORTCUTS[entry.id]"
               :pressed="tool === entry.id"
               :disabled="(entry.draws && frozen) || (entry.doors && (frozen || !doorsEditable))"
               :data-tool="entry.id"
               @click="tool = entry.id"
             />
-            <kbd aria-hidden="true">{{ entry.key }}</kbd>
+            <kbd aria-hidden="true">{{ TOOL_SHORTCUTS[entry.id] }}</kbd>
           </div>
         </template>
         <span class="tool-rail__sep" aria-hidden="true"></span>
@@ -139,24 +138,24 @@ watch(scroller, (el) => {
           <UiIconButton
             icon="actor"
             :label="probeAvailable ? 'Actor probe' : 'Actor probe (this game has no VIEWs)'"
-            shortcut="G"
+            :shortcut="TOOL_SHORTCUTS.probe"
             :pressed="probeActive"
             :disabled="!probeAvailable"
             data-testid="studio-probe-toggle"
             @click="emit('probe')"
           />
-          <kbd aria-hidden="true">G</kbd>
+          <kbd aria-hidden="true">{{ TOOL_SHORTCUTS.probe }}</kbd>
         </div>
         <div class="tool-rail__tool">
           <UiIconButton
             icon="hand"
             label="Pan (or hold Space)"
-            shortcut="H"
+            :shortcut="TOOL_SHORTCUTS.hand"
             :pressed="tool === 'hand'"
             data-tool="hand"
             @click="tool = 'hand'"
           />
-          <kbd aria-hidden="true">H</kbd>
+          <kbd aria-hidden="true">{{ TOOL_SHORTCUTS.hand }}</kbd>
         </div>
       </div>
     </div>

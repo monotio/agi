@@ -1,0 +1,16 @@
+id: vue-no-usetemplateref-generic
+snapshots:
+  const canvas = useTemplateRef<InstanceType<typeof StudioCanvas>>("canvas");:
+    fixed: const canvas = useTemplateRef("canvas");
+    labels:
+      - source: useTemplateRef<InstanceType<typeof StudioCanvas>>("canvas")
+        style: primary
+        start: 15
+        end: 74
+  const input = useTemplateRef<HTMLInputElement>("input");:
+    fixed: const input = useTemplateRef("input");
+    labels:
+      - source: useTemplateRef<HTMLInputElement>("input")
+        style: primary
+        start: 14
+        end: 55

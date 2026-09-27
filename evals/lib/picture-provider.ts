@@ -1,5 +1,5 @@
 /**
- * Promptfoo custom provider wrapping scripts/eval-picture.ts. One instance
+ * Promptfoo custom provider wrapping evals/picture-fidelity.ts. One instance
  * per (vendor, model) lane; config: { vendor: "openai"|"anthropic"|"fake", model }.
  * Each test's `entry` var is a manifest entry JSON; the output is the
  * runner's EntryResult JSON (scored by asserts.ts:validatePictureFidelity).
@@ -7,9 +7,9 @@
 
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type * as PictureRunner from "../../scripts/eval-picture.ts";
+import type * as PictureRunner from "../picture-fidelity.ts";
 
-const RUNNER = pathToFileURL(resolve(import.meta.dirname, "../../scripts/eval-picture.ts")).href;
+const RUNNER = pathToFileURL(resolve(import.meta.dirname, "../picture-fidelity.ts")).href;
 const ROUNDS = Number(process.env["EVAL_PICTURE_ROUNDS"] ?? 4);
 
 interface PictureOptions {

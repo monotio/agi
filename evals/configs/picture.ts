@@ -1,7 +1,7 @@
 /**
  * Promptfoo Evaluation Lane: Picture fidelity leaderboard.
  *
- * Reuses scripts/eval-picture.ts through lib/picture-provider.ts: one
+ * Reuses evals/picture-fidelity.ts through lib/picture-provider.ts: one
  * promptfoo test per manifest entry, one provider per (vendor, model). The
  * score is the vision judge's overall 1..10 mapped to 0..1, gated by exact
  * metric floors (fill coverage, distinct colours) so a pretty-but-empty
@@ -14,9 +14,9 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { MODEL_IDS } from "./providers.ts";
-import type * as PictureRunner from "../../scripts/eval-picture.ts";
+import type * as PictureRunner from "../picture-fidelity.ts";
 
-const RUNNER = pathToFileURL(resolve(import.meta.dirname, "../../scripts/eval-picture.ts")).href;
+const RUNNER = pathToFileURL(resolve(import.meta.dirname, "../picture-fidelity.ts")).href;
 
 function lane(vendor: string, model: string) {
   return {

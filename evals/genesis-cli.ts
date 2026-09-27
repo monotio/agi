@@ -7,8 +7,8 @@
  * arguments, byte lengths, and compiler diagnostics.
  *
  * Framework-free TypeScript, runs directly with Node >= 22.6:
- *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider stub
- *   node --experimental-strip-types scripts/eval-genesis.ts --template knights-trial --provider openai --model gpt-6-sol
+ *   node --experimental-strip-types evals/genesis-cli.ts --template knights-trial --provider stub
+ *   node --experimental-strip-types evals/genesis-cli.ts --template knights-trial --provider openai --model gpt-6-sol
  *
  * --max-turns N (default 100) guards a paid run against a loop that never
  * finishes; --trace and --out choose where the trace and game files go.

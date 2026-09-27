@@ -1,4 +1,4 @@
-id: no-locale-compare-in-src
+id: no-locale-compare
 snapshots:
   entries.sort(([a], [b]) => a.localeCompare(b));:
     labels:

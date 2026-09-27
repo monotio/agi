@@ -25,7 +25,8 @@ docs/hosting.md hosting and releases, and docs/fidelity.md interpreter behavior.
 ## Commands
 
 Node 22.22+. Two package roots: the repo root (engine, tests, scripts) and `app/`
-(Vue shell).
+(Vue shell). `evals/` holds the evaluation runners and stored bad cases; its own
+package adds only promptfoo for live comparisons.
 
 ```bash
 npm ci && npm --prefix app ci                 # install both roots
@@ -35,6 +36,7 @@ npm test && npm run test:app                  # node:test under --experimental-s
 node --test --experimental-strip-types test/<file>.test.ts   # one engine test file
 npm run test:e2e                              # Playwright on its own `vite --mode test` server
 npm --prefix app run e2e -- e2e/<file>.spec.ts               # one spec
+npm --prefix app run e2e:webkit-desktop                      # desktop Studio scenarios tagged @webkit-desktop, in WebKit
 npm run lint:ast                              # ast-grep structural rules and suppression check (part of check)
 npm run eval:replay                           # stored bad cases, offline
 ```
@@ -116,6 +118,11 @@ code, comments or documentation.
   browser, a Web Worker and Node. No `node:*` or browser globals there; platform
   access is injected, and ESLint enforces the boundary. `app/` imports `src/`,
   never the reverse.
+- No runtime import cycles in `src/` or `app/src/`; `.dependency-cruiser.mjs` pins
+  the few older ones as warnings, and a new cycle fails `npm run lint:deps`.
+- Studio code (`src/studio/`, `app/src/studio/`) stays off the Play boot path: the
+  shell loads it through dynamic `import()`, and `npm run check:bundle` fails a
+  build that pulls it in.
 - Browser-only, BYOK, no server. Playwright runs Vite in `test` mode with the
   deterministic stub provider; browser tests never call paid providers.
 - Host interactions that cannot answer synchronously (authoring, prompts, key

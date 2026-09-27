@@ -22,12 +22,15 @@ npm run dev
 
 The app opens at `http://localhost:5199/`. The repository has two package
 roots: the root holds the engine, tests and scripts, and `app/` the Vue shell.
+A third, `evals/`, holds the evaluation runners; its own package adds only
+promptfoo, which the live comparisons need (`npm --prefix evals install`).
 After switching branches or pulling dependency updates, run `npm ci` in both;
 `npm run check` verifies installed dependencies against both manifests before
 it tests anything.
 
 For browser tests, install Chromium once with
-`npm --prefix app exec -- playwright install chromium`. If your development
+`npm --prefix app exec -- playwright install chromium`, and WebKit too for the
+phone and desktop WebKit suites. If your development
 server is already running, give the browser tests their own port:
 `AGI_E2E_PORT=5299 npm run test:e2e`.
 
@@ -41,6 +44,7 @@ server is already running, give the browser tests their own port:
 | `npm run test:app`                                           | Browser adapter, worker, storage and provider transport tests                                                                                                     |
 | `npm run test:e2e`                                           | Playwright scenarios against a dedicated test server                                                                                                              |
 | `npm --prefix app run e2e -- e2e/<file>.spec.ts`             | One Playwright spec                                                                                                                                               |
+| `npm --prefix app run e2e:webkit-desktop`                    | The desktop Studio scenarios tagged `@webkit-desktop`, in WebKit                                                                                                  |
 | `npm run lint:ast`                                           | ast-grep structural rules and suppression check                                                                                                                   |
 | `npm run eval:replay`                                        | Replay stored authoring failures without provider calls                                                                                                           |
 | `npm run mutation`                                           | Stryker mutation report on `src/picture/` and `src/studio/`; on demand, writes `reports/mutation/`                                                                |
@@ -85,10 +89,109 @@ runtime checks.
 | `app/src/three/`                                                          | GPU presentation and CRT effects                              |
 | `games/`                                                                  | Original adventure briefs and the tutorial                    |
 | `scripts/`                                                                | Walkthrough, audit, conformance and interpreter probe tools   |
-| `test/`, `app/test/`, `app/e2e/`, `evals/`                                | Engine, adapter, browser and authoring verification           |
+| `test/`, `app/test/`, `app/e2e/`                                          | Engine, adapter and browser verification                      |
+| `evals/`                                                                  | Stored bad cases, evaluation runners and benchmark results    |
 
 The engine in `src/` has no runtime dependencies and runs unchanged in the
 browser, a Web Worker and Node; platform access is injected through adapters.
+
+## How it fits together
+
+Three boundaries carry every feature. The Vue shell on the main thread owns the
+page; the engine worker owns the interpreter and its clock; the engine in
+`src/` is plain TypeScript with no platform access. The AI authoring stack is
+not on that path at all: `authoringLoader.ts` imports it on the first AI action.
+
+```mermaid
+flowchart LR
+  subgraph shell["Main thread: Vue shell (app/src)"]
+    link["useWorkerLink.ts"]
+    present["usePresentation.ts → three/AgiStage.ts"]
+    commit["resourceCommit.ts"]
+  end
+  subgraph lazy["Authoring stack, loaded on first use"]
+    loader["agent/authoringLoader.ts"] --> stack["agent/authoringStack.ts"]
+  end
+  subgraph worker["Engine worker (app/src/worker)"]
+    dispatch["dispatch.ts"]
+    cycle["cycle.ts"]
+    presentation["presentation.ts"]
+    hostRequests["hostRequests.ts"]
+  end
+  subgraph engine["src/: zero-dependency engine"]
+    runtime["runtime/engine.ts"]
+    formats["container, logic, picture, view, sound"]
+  end
+  link -->|WorkerInbound| dispatch
+  presentation -->|frame| link
+  hostRequests -->|hostRequest| link
+  link -->|hostAnswer| dispatch
+  commit -->|patch| dispatch
+  link -.-> loader
+  link --> present
+  dispatch --> runtime
+  cycle --> runtime
+  runtime --> formats
+  style lazy stroke-dasharray: 5 5
+```
+
+**A keypress becomes a frame**
+
+1. `App.vue` listens for `keydown` and hands it to `useGameKeys.ts`, which maps it to an AGI key code.
+2. `useInputController.ts` posts `{ type: "key" }`, a `WorkerInbound` message (`workerProtocol.ts`).
+3. `engine.worker.ts` passes it to `worker/dispatch.ts`, and `worker/input.ts` queues it.
+4. `worker/cycle.ts` ticks at 60 Hz and calls `Engine.tick()` (`src/runtime/engine.ts`), which drains the queue through the host (`worker/host.ts`) into `src/runtime/inputQueue.ts` and runs logic 0.
+5. `worker/presentation.ts` posts the screen as a `frame` message, transferring its buffers.
+6. `useWorkerLink.ts` receives it, and `usePresentation.ts` composites it (`composite.ts`) onto the GPU stage (`three/AgiStage.ts`).
+
+**The agent writes a room**
+
+1. `new.room` calls the `prepareRoom` host hook (`Engine.newRoom`); `worker/host.ts` asks for a room only in a game made in the app, and only when the room has no logic yet.
+2. `worker/hostRequests.ts` posts a `hostRequest` and parks the interpreter; the worker keeps serving other messages.
+3. `useAuthoringController.ts` loads the authoring stack and hands the request to `AgentSession` (`agent/agentSession.ts`), which forks the game state.
+4. The provider conversation (`agent/llmClient.ts`) calls tools through `executeAgentToolAsync` (`src/agent/tools.ts`), which refuses any tool outside the session's allowlist.
+5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `handover` tool runs the room's game tests.
+6. The gate: `turnBaseGuard` (`useAuthoringController.ts`) refuses the turn if the stored game moved on while the agent worked.
+7. `prepareRoomPatch` (`src/agent/roomPatch.ts`) checks the room as a whole, the answer returns in `hostAnswer`, and the worker checks it again before `Engine.patchResources` resumes `new.room`.
+
+**A Room Studio edit becomes bytes**
+
+1. `useStudioDocument.ts` opens the picture as annotated source (`src/studio/pictureDocument.ts`): items are comment blocks, so annotations never change the bytes.
+2. A gesture on `StudioCanvas.vue` reaches `useStudioInput.ts` and then `useStudioDrag.ts`, `useStudioEditing.ts` or `useStudioTools.ts`.
+3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source.
+4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
+5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit`, `lensRules.ts`).
+6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `resourceCommit.ts`, which checks the revision, validates, stores (`gameStorage.ts`) and posts `patch` to the worker.
+
+**Where authority lives.** Each of these is a check in code, not a prompt:
+
+- `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
+- `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
+- `editValidation.ts` and `assistScope.ts` judge Studio edits and AI proposals by their decoded pixels, whatever the operations or the model claim.
+- `resourceCommit.ts` is the transaction behind every Keep: the bytes, their source, the stored project and the live worker move together or not at all, and a stale revision is refused.
+- The logic assembler and the container writer are the validators of last resort.
+
+Two words carry more than one meaning. `prepareRoom` is the engine's host hook,
+`AgentSession.prepareRoom` is the turn that answers it, and `prepareRoomPatch`
+is the check on that answer. The known-games catalog (`src/games/knownGames.ts`)
+fingerprints releases, while the Home shelf (`app/src/gameCatalog.ts` and a
+host's `catalog.json`) lists games to play.
+
+### Extending
+
+| Task                                 | Files                                                                                                                                                                                                                                                          | Test                                                                                                                    | Gate                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| An agent tool                        | Its definition in the family's module (`src/agent/roomTools.ts`, `pictureTools.ts`, `authoringToolDefinitions.ts`, …), gathered into `AGENT_TOOLS` in `src/agent/tools.ts`; add it to `ASK_TOOLS` or `STUDIO_ASSIST_TASK_TOOLS` only if those sessions need it | `test/agent-tools.test.ts` or the family's test; a failure it must reject as a JSON case in `evals/fixtures/bad-cases/` | `npm run eval:replay`, `npm run check` |
+| An interpreter quirk for one profile | A flag on the profile in `src/runtime/profile.ts`, its behavior in `src/runtime/`, and an entry in `docs/fidelity.md` with build, binary hash, addresses and conclusion                                                                                        | A hand-computed engine test under `test/`; the code comment cites the entry, checked by `test/doc-citations.test.ts`    | `npm test`, `npm run check`            |
+| A fan game the app recognises        | A `KNOWN_GAMES` entry in `src/games/knownGames.ts`: the SHA-256 of its `WORDS.TOK` and `OBJECT`, its era and profile                                                                                                                                           | `app/test/known-games.test.ts`; `npm run fixtures:audit` on your copy in `games/`, where fixture tests skip without it  | `npm run check`                        |
+| A Room Studio tool                   | `StudioTool` and `TOOL_SHORTCUTS` in `app/src/studio/studioTools.ts`, a rail entry in `StudioToolRail.vue`, help text in `StudioToolOptions.vue`, handling in `useStudioTools.ts`                                                                              | `app/test/studio-tools.test.ts`; `app/e2e/studio-tools.spec.ts` for the visible path                                    | `npm run check`, the spec              |
+
+TypeScript holds the Studio recipe together: a tool without a shortcut or help
+text does not compile, the rail reads its shortcut from `TOOL_SHORTCUTS`, and
+`studio-tools.test.ts` fails when two tools share a letter. A new edit
+operation goes in `src/studio/editOperations.ts` with a test in
+`test/studio-edit-operations.test.ts`; the Studio's validators check it like any
+other edit.
 
 ## Design system
 
