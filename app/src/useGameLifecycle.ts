@@ -325,6 +325,24 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   }
 
   /**
+   * The game ran `quit`. Its interpreter has stopped, so no new autosave is
+   * taken: the one saved before the quit stays the one to continue. Play
+   * returns Home, which says the game ended.
+   */
+  async function gameQuit(): Promise<void> {
+    const game = booted;
+    if (!game) return;
+    const ended = { projectId: gameStorageKey(game), title: game.title };
+    try {
+      await ejectGame({ abandonUnsaved: true });
+    } catch (error) {
+      logAgent("log", `Leaving the ended game failed: ${String(error)}`);
+      return;
+    }
+    state.gameEnded = ended;
+  }
+
+  /**
    * The tail both create flows share once resources exist: record the
    * project, put the game in the slot, then boot a fresh worker with it. The
    * direct flow reaches it after startGenesis; the map's plan review reaches
@@ -636,6 +654,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     finishAuthoredBoot,
     bootAgentGame,
     ejectGame,
+    gameQuit,
     isInstalledGame,
     currentGame,
     exportCurrentGame,

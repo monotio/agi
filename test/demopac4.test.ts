@@ -142,3 +142,40 @@ test(
     assert.equal(engine.modalKind, null);
   },
 );
+
+/**
+ * The title's "Press any key..." is a once-per-cycle have.key poll in logic 1,
+ * while logic 0 maps Enter to controller 14 (set.key(13,0,14)). The original
+ * applies script key mappings only in the cycle's input phase; have.key's own
+ * dequeue reads raw keys (docs/fidelity.md, "Script key mappings and have.key").
+ * Enter that reaches the queue before the input phase becomes controller 14 and
+ * leaves the title up; Enter that arrives during the logic pass is raw for the
+ * poll and dismisses it.
+ */
+test(`${GAME_ALIAS}: Enter dismisses the title only when it reaches have.key raw`, { skip }, () => {
+  class MidCycleHost extends Host {
+    /** Keys handed to the next takeKeys call after the input phase's own. */
+    midCycle: number[] = [];
+    calls = 0;
+    override takeKeys(): number[] {
+      return ++this.calls === 2 ? this.midCycle.splice(0) : super.takeKeys();
+    }
+  }
+  const { container, dict, files } = loadGame(TARGET_HASH, { interpreterFiles: true });
+  const host = new MidCycleHost();
+  const engine = new Engine(container, host, dict, { profile: detectProfile(files) });
+  const step = (): void => {
+    host.calls = 0;
+    cycle(engine, host);
+  };
+  for (let i = 0; i < 50; i++) step();
+  assert.equal(engine.textRow(24).slice(22, 38), "Press any key...");
+  // At the cycle boundary Enter is script-mapped before logic runs.
+  host.keys.push(0x0d);
+  for (let i = 0; i < 10; i++) step();
+  assert.equal(engine.textRow(24).slice(22, 38), "Press any key...", "mapped Enter is ignored");
+  // During the logic pass the same key is still raw when have.key reads it.
+  host.midCycle.push(0x0d);
+  for (let i = 0; i < 10; i++) step();
+  assert.equal(engine.textRow(0).slice(1, 40), "Press number of demo to select/deselect");
+});

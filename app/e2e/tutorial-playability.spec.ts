@@ -144,6 +144,17 @@ test("tutorial walls and three exhibits work through the real browser controls",
   await expect.poll(async () => (await textHook(page)).room).toBe(3);
   await waitForCycles(page, 2);
   await page.screenshot({ path: test.info().outputPath("archive-before.png"), fullPage: true });
+  // From the doorway Felix is out of reach; his counter's reach is x 50-125.
+  await command(page, "fix priority");
+  await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+  expect((await textHook(page)).rows.join(" ")).toContain("too far away");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+    .toBeGreaterThanOrEqual(52);
+  await page.keyboard.press("ArrowRight");
   await command(page, "fix priority");
   await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("priority");

@@ -5,6 +5,9 @@
  * game played, the primary action continues it and the card shows its
  * current screen from the autosave's preview; otherwise the primary action
  * plays the tutorial and the card shows the tutorial's opening screen.
+ * When the last game ended by quitting, one line says so, with Play again and,
+ * if it saved progress before the quit, Continue — which is the primary
+ * action already when that game is the one the card shows.
  */
 import { computed } from "vue";
 import BootCard from "../ui/BootCard.vue";
@@ -30,8 +33,11 @@ const {
   catalogOpenings,
   catalogBusy,
   libraryActionBusy,
+  libraryAutosaves,
   importBusy,
   onResumeAutosave,
+  onPlayLibraryGame,
+  onStartLibraryGameOver,
   playCatalogGame,
 } = useGameLibrary();
 const bridge = useShellBridge();
@@ -57,6 +63,32 @@ const last = computed(() => {
     screen: record.preview ?? saved?.library?.preview,
   };
 });
+
+/** The game that just quit, with its library entry when it has one. */
+const ended = computed(() => {
+  const note = state.gameEnded;
+  if (!note) return undefined;
+  const game = savedGames.value.find((entry) => entry.projectId === note.projectId);
+  return {
+    title: game ? shelfTitle(game, catalogEntries.value) : note.title,
+    game,
+    saved: libraryAutosaves.value[note.projectId] !== undefined,
+    continued: last.value?.record.game.identity.project === note.projectId,
+  };
+});
+
+function playAgain(): void {
+  const game = ended.value?.game;
+  if (!game) return;
+  void playGuarded(game.projectId, () =>
+    ended.value?.saved ? onStartLibraryGameOver(game) : onPlayLibraryGame(game),
+  );
+}
+
+function continueEnded(): void {
+  const game = ended.value?.game;
+  if (game) void playGuarded(game.projectId, () => onPlayLibraryGame(game));
+}
 
 const tutorialScreen = computed(() => catalogOpenings.value[featuredCatalog.id]?.preview);
 
@@ -111,6 +143,32 @@ function onPrimary(): void {
           Create an adventure
         </UiButton>
       </div>
+      <p v-if="ended" class="hero-ended" role="status" data-testid="game-ended">
+        <span
+          ><strong>{{ ended.title }}</strong> · The game ended (it quit).</span
+        >
+        <template v-if="ended.game">
+          <UiButton
+            size="sm"
+            variant="ghost"
+            data-testid="game-ended-play-again"
+            :disabled="libraryActionBusy || importBusy"
+            @click="playAgain"
+          >
+            Play again
+          </UiButton>
+          <UiButton
+            v-if="ended.saved && !ended.continued"
+            size="sm"
+            variant="ghost"
+            data-testid="game-ended-continue"
+            :disabled="libraryActionBusy || importBusy"
+            @click="continueEnded"
+          >
+            Continue
+          </UiButton>
+        </template>
+      </p>
     </div>
 
     <figure class="continue" data-testid="home-continue">
@@ -189,6 +247,19 @@ function onPrimary(): void {
   max-width: 100%;
   white-space: normal;
   text-align: left;
+}
+.hero-ended {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-5) 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.hero-ended strong {
+  color: var(--ink);
+  font-weight: var(--weight-semibold);
 }
 .continue {
   min-width: 0;

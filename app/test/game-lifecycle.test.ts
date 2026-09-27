@@ -251,3 +251,70 @@ test("Leaving a game behind storage saves nothing over the newer project, and is
     assert.equal(lifecycle.getBootedGame(), null);
   }
 });
+
+function quitHarness() {
+  const calls: string[] = [];
+  const state = {
+    leaving: false,
+    phase: "running",
+    gameEnded: null as { projectId: string; title: string } | null,
+    powerUp: { busy: false },
+    walkthrough: { active: false, status: "stopped" },
+  };
+  const noop = () => {};
+  const lifecycle = useGameLifecycle({
+    state,
+    audio: { stop: noop, setPaused: noop },
+    hook: {},
+    logAgent: noop,
+    authoring: { getSession: () => null, resetSession: noop },
+    autosave: {
+      flushAutosaveDetailed: async () => {
+        calls.push("flush");
+        return { status: "saved" };
+      },
+      lastAutosaveRecord: () => null,
+      reset: noop,
+      resetScreen: noop,
+    },
+    link: {
+      query: async (kind: string) => {
+        calls.push(kind);
+        return true;
+      },
+      terminateWorker: () => calls.push("terminate"),
+      drainPendingQueries: noop,
+      clearShake: noop,
+    },
+    testRecorder: { reset: noop },
+    pauseEngine: noop,
+    resumeEngine: noop,
+    abortWalkthrough: noop,
+    promptCancel: noop,
+    drainHistoryCommits: async () => {},
+    nextSessionId: noop,
+    setActiveReplaySeed: noop,
+    stopHistoryWriter: noop,
+    resetPauseOwners: noop,
+    resetHistoryView: noop,
+    releaseAgentAudioPreviews: noop,
+  } as unknown as GameLifecycleOptions);
+  return { calls, state, lifecycle };
+}
+
+test("A game that quits returns Home with its ending noted and no autosave taken after the quit", async () => {
+  const { calls, state, lifecycle } = quitHarness();
+  const projectId = testProjectId("quits-at-the-quiz");
+  lifecycle.setBootedGame({
+    installed: false,
+    projectId,
+    title: "Quiz Game",
+    revision: await gameRevision({}),
+    files: {},
+    words: [],
+  });
+  await lifecycle.gameQuit();
+  assert.deepEqual(calls, ["historyEnd", "terminate"], "the ended interpreter is not flushed");
+  assert.equal(state.phase, "idle");
+  assert.deepEqual(state.gameEnded, { projectId, title: "Quiz Game" });
+});

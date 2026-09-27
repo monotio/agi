@@ -1249,7 +1249,7 @@ export class Engine {
         // is enqueued so the resumed poll sees it exactly like a live one.
         this.pendingInteraction = null;
         this.conditionReplayUntil = pending.condPc;
-        this.inputQueue.enqueueKey(Number(answer), this.keymap);
+        this.inputQueue.enqueueKey(Number(answer));
         break;
       }
       case "getstring": {
@@ -1362,7 +1362,7 @@ export class Engine {
    */
   releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
     if (eligible) {
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
       this.inputQueue.enqueue({ type: 2, value: 0 });
     }
   }
@@ -1459,13 +1459,13 @@ export class Engine {
     this.drawInputRow();
   }
 
-  /** have.key discards navigation/status events and preserves the unread suffix. */
+  /**
+   * have.key discards navigation/status events and preserves the unread
+   * suffix. It applies no script mapping: a mapped key is raw here.
+   */
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) {
-        if (event.mapOnConsume && this.keymap.has(event.value)) continue;
-        return event.value;
-      }
+      if (event.type === 1) return event.value;
     }
     return undefined;
   }
@@ -3034,7 +3034,7 @@ export class Engine {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
         this.pendingController = null;
       }
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
       // The original's message pump starts a click-move as the click arrives;
       // a direction event it queued alongside still cancels it below.
       for (const [x, y] of this.host.takePointerClicks?.() ?? []) this.pointerClick(x, y);
@@ -3048,7 +3048,9 @@ export class Engine {
           if (this.directionCoupling !== 0) this.objects[0]!.motionMode = MOTION_NORMAL;
         } else if (event.type === 3) this.controllers[event.value] = 1;
         else {
-          const mapped = event.mapOnConsume ? this.keymap.get(event.value) : undefined;
+          // Script key mappings apply here, and only here (docs/fidelity.md,
+          // "Script key mappings and have.key").
+          const mapped = this.keymap.get(event.value);
           if (mapped !== undefined) this.controllers[mapped] = 1;
           else this.handleKey(event.value);
         }
@@ -4499,7 +4501,7 @@ export class Engine {
         // gets a synthesized Enter after a bounded number of polls so a
         // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
-        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey;
         if (pressed === undefined) {
@@ -4511,7 +4513,7 @@ export class Engine {
               const delivered = this.hostCall({ kind: "key", condPc: pc }, () =>
                 blockingWait.call(this.host),
               );
-              this.inputQueue.enqueueKey(delivered ?? 0, this.keymap);
+              this.inputQueue.enqueueKey(delivered ?? 0);
               pressed = this.pollRawKey();
             }
           } else if (++this.haveKeyPolls > HAVE_KEY_POLL_LIMIT) {

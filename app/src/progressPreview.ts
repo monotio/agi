@@ -42,6 +42,20 @@ export function createProgressPreview(input: CompositeInput): string {
   return preview;
 }
 
+/**
+ * True when the composed frame is black from edge to edge: a cleared screen,
+ * or one a game blanked before it quit. It says nothing about the game, so an
+ * autosave taken on it keeps the card's previous picture instead.
+ */
+export function isBlackFrame(input: CompositeInput): boolean {
+  const rgba = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+  compositeFrame(input, rgba);
+  for (let pixel = 0; pixel < FRAME_WIDTH * FRAME_HEIGHT; pixel++) {
+    if (rgba[pixel * 4] || rgba[pixel * 4 + 1] || rgba[pixel * 4 + 2]) return false;
+  }
+  return true;
+}
+
 /** Reject active, remote, oversized or structurally invalid content before a resume card. */
 export function isProgressPreview(value: unknown): value is string {
   if (
