@@ -204,8 +204,8 @@ export interface AnthropicToolDefinition {
  * constrained grammar with limits this catalog exceeds — numeric, string and
  * array constraints are rejected outright, at most 20 tools may be strict, at
  * most 16 parameters may be nullable or union-typed, and even 8 of these tools
- * overflow the compiled grammar (observed September 2026, e.g. request
- * req_011CekXFu7mEkGe69ybWwf5D). OpenAI strict mode keeps the same catalog.
+ * overflow the compiled grammar, observed against the live API. OpenAI
+ * strict mode keeps the same catalog.
  */
 export function anthropicToolDefinitions(
   tools: readonly ToolDefinition[],

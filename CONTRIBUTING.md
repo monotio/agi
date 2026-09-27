@@ -33,33 +33,33 @@ server is already running, give the browser tests their own port:
 
 ### Commands
 
-| Command                                                      | Purpose                                                                                                    |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `npm run check`                                              | The gate: dependency check, typechecks, lint, ast-grep rules, formatting, unit tests and stored eval cases |
-| `npm test`                                                   | Engine tests                                                                                               |
-| `node --test --experimental-strip-types test/<file>.test.ts` | One engine test file                                                                                       |
-| `npm run test:app`                                           | Browser adapter, worker, storage and provider transport tests                                              |
-| `npm run test:e2e`                                           | Playwright scenarios against a dedicated test server                                                       |
-| `npm --prefix app run e2e -- e2e/<file>.spec.ts`             | One Playwright spec                                                                                        |
-| `npm run lint:ast`                                           | ast-grep structural rules and suppression check                                                            |
-| `npm run eval:replay`                                        | Replay stored authoring failures without provider calls                                                    |
-| `npm run mutation`                                           | Stryker mutation report on `src/picture/` and `src/studio/`; on demand, writes `reports/mutation/`         |
-| `npm run build`                                              | Compile the engine and build the browser app                                                               |
-| `npm run check:bundle`                                       | Bundle budget for the Play boot path, after a build                                                        |
-| `npm run media:capture`                                      | Recapture the README and `docs/media` images from the real app and agent tools; on demand, stub provider   |
+| Command                                                      | Purpose                                                                                                                                                           |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run check`                                              | The gate: dependency check, typechecks, lint, ast-grep rules, knip and dependency-cruiser, the design-token ratchet, formatting, unit tests and stored eval cases |
+| `npm test`                                                   | Engine tests                                                                                                                                                      |
+| `node --test --experimental-strip-types test/<file>.test.ts` | One engine test file                                                                                                                                              |
+| `npm run test:app`                                           | Browser adapter, worker, storage and provider transport tests                                                                                                     |
+| `npm run test:e2e`                                           | Playwright scenarios against a dedicated test server                                                                                                              |
+| `npm --prefix app run e2e -- e2e/<file>.spec.ts`             | One Playwright spec                                                                                                                                               |
+| `npm run lint:ast`                                           | ast-grep structural rules and suppression check                                                                                                                   |
+| `npm run eval:replay`                                        | Replay stored authoring failures without provider calls                                                                                                           |
+| `npm run mutation`                                           | Stryker mutation report on `src/picture/` and `src/studio/`; on demand, writes `reports/mutation/`                                                                |
+| `npm run build`                                              | Compile the engine and build the browser app                                                                                                                      |
+| `npm run check:bundle`                                       | Bundle budget for the Play boot path, after a build                                                                                                               |
+| `npm run media:capture`                                      | Recapture the README and `docs/media` images from the real app and agent tools; on demand, stub provider                                                          |
 
 The full gate takes a few minutes. Playwright runs Vite in `test` mode with a
 deterministic stub provider, so browser tests never call a paid provider. Live
 model evaluations are described in [evals](evals/README.md).
 
-`npm run check:bundle` (in CI after the build) fails when the compressed
-JavaScript, CSS or workers loaded before a game's first frame outgrow their
-budgets, or when Studio code or the AI authoring stack (loaded on the first AI
-action through `app/src/agent/authoringLoader.ts`) joins that path, and
-`app/e2e/perf-budgets.spec.ts` (tagged `@perf`; skip it with `--grep-invert
-@perf` where timing means nothing) bounds boot long tasks and Studio frame and
-input times. Change a budget only on
-purpose: edit it beside its measured value and give the reason in the commit.
+`npm run check:bundle` — run after `npm run build`, and failing in CI — fails
+when the compressed JavaScript, CSS or workers loaded before a game's first
+frame outgrow their budgets, or when Studio code or the AI authoring stack
+(loaded on the first AI action through `app/src/agent/authoringLoader.ts`)
+joins that path, and `app/e2e/perf-budgets.spec.ts` (tagged `@perf`; skip it
+with `--grep-invert @perf` where timing means nothing) bounds boot long tasks
+and Studio frame and input times. Change a budget only on purpose: edit it
+beside its measured value and give the reason in the commit.
 
 ### Editor setup
 

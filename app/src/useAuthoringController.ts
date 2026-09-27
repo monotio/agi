@@ -584,7 +584,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const historyLifetime = await saveAuthoredGameWithLifetime(remixProjectId, data);
       if (historyLifetime === null)
         throw new Error(
-          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
+          "Browser storage could not save this remix. Use Settings → This game → Download game… to keep it.",
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
@@ -619,7 +619,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         ))
       ) {
         throw new Error(
-          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
+          "Browser storage could not save this remix. Use Settings → This game → Download game… to keep it.",
         );
       }
     }
@@ -647,7 +647,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     }
     const writtenRev = planRevisionOf(author);
     if (!(await saveSessionRecord(booted, author)))
-      throw new Error("Conversation could not be saved. Use Game → Download game… to keep it.");
+      throw new Error(
+        "Conversation could not be saved. Use Settings → This game → Download game… to keep it.",
+      );
     reportPlanSaved(writtenRev);
   }
 
