@@ -170,21 +170,6 @@ export interface LlmTurnResult {
   toolCalls: ToolCallItem[];
 }
 
-export { DEFAULT_MODELS };
-
-export const MODEL_OPTIONS: Record<ProviderType, { id: string; label: string }[]> = {
-  anthropic: [
-    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
-    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
-  ],
-  openai: [
-    { id: "gpt-6-astra", label: "GPT-6 Astra" },
-    { id: "gpt-6-sol", label: "GPT-6 Sol" },
-    { id: "gpt-6-luna", label: "GPT-6 Luna" },
-  ],
-  stub: [{ id: "offline-stub", label: "Offline Deterministic Stub" }],
-};
-
 export interface UnifiedConversation {
   /**
    * Availability policy for this phase: which advertised tools may execute.

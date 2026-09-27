@@ -6,6 +6,7 @@ import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useAiSettings } from "./useAiSettings.ts";
+import { prefetchAuthoringStack } from "./agent/authoringLoader.ts";
 import PendingReferences from "./PendingReferences.vue";
 import UiChip from "./ui/UiChip.vue";
 import UiIcon from "./ui/UiIcon.vue";
@@ -170,6 +171,9 @@ async function onPowerUp(mode?: "ask" | "remix"): Promise<void> {
   }
   powerUpLine.value = "";
   if (mode !== undefined) state.powerUp.mode = mode;
+  // Opening the drawer shows intent: a connected session loads the stack
+  // now; otherwise it warms while the player connects a model.
+  prefetchAuthoringStack();
   await openPowerUp(llmConfig());
   await nextTick();
   powerUpEl.value?.focus({ preventScroll: true });

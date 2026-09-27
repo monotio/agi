@@ -1,4 +1,5 @@
-import { AgentSession } from "./agent/agentSession.ts";
+import type { AgentSession } from "./agent/agentSession.ts";
+import { loadAuthoringStack, type AuthoringLoader } from "./agent/authoringLoader.ts";
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
 import type { StudioAssistRequest, StudioAssistResult } from "./agent/studioAssist.ts";
@@ -9,7 +10,6 @@ import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
-import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import {
   createResourceCommit,
   pictureEdit,
@@ -116,6 +116,8 @@ export interface AuthoringControllerOptions {
   readonly getLlmConfig?: (() => LlmConfig) | undefined;
   /** Player intent pinned on the map for a room — attached to room requests. */
   readonly getRoomNotes?: ((room: number) => string[]) | undefined;
+  /** Loads the AI authoring stack on first use; tests pass a fake. */
+  readonly loadAuthoring?: AuthoringLoader | undefined;
 }
 
 export interface AuthoringController {
@@ -224,6 +226,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     configForGame,
     getLlmConfig,
     getRoomNotes,
+    loadAuthoring = loadAuthoringStack,
   } = options;
 
   let session: AgentSession | null = null;
@@ -231,6 +234,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   const commitResourceEdit = createResourceCommit({
     ...options,
+    loadAuthoring,
     getSession: () => session,
     postSessionSnapshot: (author) => postSessionSnapshot(author),
     onCommitted: (author) => {
@@ -278,11 +282,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   }
 
   async function createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
+    const stack = await loadAuthoring();
     const authored = game.installed ? null : await loadAuthoredGame(game.projectId!);
     const cached = game.installed
       ? await loadGameConversation(game.hash ?? game.alias ?? "installed")
       : authored;
-    return AgentSession.fromAuthoredData(
+    return stack.AgentSession.fromAuthoredData(
       config,
       logAgent,
       game.files,
@@ -751,24 +756,24 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     const game = getBootedGame();
     let author = getSession();
+    // A game that writes its rooms creates its session on the first one;
+    // the session (and the authoring stack it loads) comes up under the
+    // room progress below.
+    let sessionConfig: LlmConfig | null = null;
     if (!author && game && !game.installed && game.projectId) {
       const meta = getCachedGameMeta(game.projectId);
       if (meta?.roomGeneration && configForGame && getLlmConfig) {
         const config = configForGame(game.projectId, getLlmConfig());
-        if (config.provider === "stub" || Boolean(config.apiKey.trim())) {
-          author = await createGameSession(game, config);
-          attachSessionRuntime(author, game);
-          setSession(author);
-        }
+        if (config.provider === "stub" || Boolean(config.apiKey.trim())) sessionConfig = config;
       }
     }
-    if (!author) {
+    if (!author && !sessionConfig) {
       state.powerUp.needsConfig = true;
       throw new Error("The next room could not be created. Connect your model and try again.");
     }
     state.powerUp = {
       mode: "room",
-      messages: author.getMessages(),
+      messages: author?.getMessages() ?? [],
       open: true,
       needsConfig: false,
       busy: true,
@@ -785,6 +790,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const notes = getRoomNotes?.(Number(req.context["room"])) ?? [];
     if (notes.length) req.context = { ...req.context, playerNotes: notes };
     try {
+      if (!author) {
+        author = await createGameSession(game!, sessionConfig!);
+        attachSessionRuntime(author, game!);
+        setSession(author);
+        progress.messages = author.getMessages();
+      }
       // The stored-project gate remix and map-build turns commit through:
       // refuse before the turn spends, and again before its staged room
       // lands in the session. A refusal rejects this request, so the worker
@@ -899,6 +910,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // set is validated before anything lands — dictionary may only grow,
       // rewrites of other rooms' resources commit or fail as one transaction,
       // and the room needs logic plus picture.
+      const { prepareRoomPatch } = await loadAuthoring();
       const compiled = prepareRoomPatch(
         container,
         room,

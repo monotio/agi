@@ -5,7 +5,7 @@ import {
   MODEL_CAPABILITIES,
   modelEffortOptions,
 } from "../../src/agent/modelEffort.ts";
-import { DEFAULT_MODELS, MODEL_OPTIONS } from "../src/agent/llmClient.ts";
+import { DEFAULT_MODELS, MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import {
   AI_SETTINGS_KEY,
   loadAiSettings,

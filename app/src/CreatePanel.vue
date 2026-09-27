@@ -8,18 +8,21 @@
  * the header and the AI settings flow can reach them. It is a non-modal
  * dialog: the header (AI settings, Help) stays usable while it is open.
  */
-import { nextTick, onBeforeUnmount, onMounted, useTemplateRef } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, useTemplateRef, watch } from "vue";
 import UiButton from "./ui/UiButton.vue";
 import UiIconButton from "./ui/UiIconButton.vue";
 import { BUILTIN_TEMPLATES } from "./gameTemplates.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 import { useShellBridge } from "./shellBridge.ts";
+import { prefetchAuthoringStack } from "./agent/authoringLoader.ts";
 
 const open = defineModel<boolean>("open", { required: true });
 const { aiConfigured, aiSettingsUnavailable, openAiSettings } = useAiSettings();
 const { selectedTemplateId, adventureDraft, onBootSelectedTemplate } = useGameLibrary();
 const bridge = useShellBridge();
+// Creating an adventure runs Genesis: warm the authoring stack while the player writes the brief.
+watch(open, (shown) => shown && prefetchAuthoringStack(), { immediate: true });
 
 const panel = useTemplateRef("panel");
 const heading = useTemplateRef("heading");

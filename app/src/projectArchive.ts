@@ -4,7 +4,8 @@ import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
 import { gameRevision, publicGameMetadata, isPlayableFileName } from "./gameMetadata.ts";
 import { validateAuthoringState } from "../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
-import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/agent/tools.ts";
+import { buildObjectFile } from "../../src/agent/agentState.ts";
+import { buildSound, type SoundTrackInput } from "../../src/agent/soundBuilder.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import {

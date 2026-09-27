@@ -2,6 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
+import * as authoringStack from "../src/agent/authoringStack.ts";
+import {
+  AUTHORING_LOAD_FAILED,
+  AuthoringLoadError,
+  type AuthoringLoader,
+} from "../src/agent/authoringLoader.ts";
 import type { LlmConfig } from "../src/agent/llmClient.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -1220,3 +1226,146 @@ for (const when of ["before the turn", "mid-turn"] as const) {
     await clearCachedGame(projectId);
   });
 }
+
+test("the authoring stack loads on the first AI action, under the room's progress", async (t) => {
+  // Play boots without the authoring stack: constructing the controller
+  // loads nothing, and the first room a created game writes waits for the
+  // load while the room panel already shows the room being written.
+  installLocalStorageMock(t);
+  const projectId = testProjectId("lazy-authoring-stack");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "Lazy Stack Game",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+    roomGeneration: true,
+  });
+  const bootedGame: BootedGame = {
+    installed: false,
+    projectId,
+    title: "Lazy Stack Game",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+  };
+  let loads = 0;
+  let release!: () => void;
+  const arrived = new Promise<void>((resolve) => (release = resolve));
+  const loadAuthoring: AuthoringLoader = async () => {
+    loads++;
+    await arrived;
+    return authoringStack;
+  };
+  const ui = {
+    phase: "running" as const,
+    powerUp: createMockPowerUp(),
+    agentTask: null,
+    agentLog: [],
+    profile: "2.936",
+    worldTick: 0,
+    planDurableRev: "",
+  };
+  const controller = useAuthoringController({
+    state: ui,
+    getWorker: () => null,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => bootedGame,
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    configForGame: (_p, config) => config,
+    getLlmConfig: () => mockConfig,
+    loadAuthoring,
+  });
+  assert.equal(loads, 0, "constructing the controller loads nothing");
+
+  let handled = false;
+  const answer = controller.handleRoomAuthoring(
+    { op: "room", context: { room: 2 } },
+    {
+      handle: async () => {
+        handled = true;
+        return "Room created";
+      },
+    },
+    () => {},
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(loads, 1, "the first AI action starts the load");
+  assert.equal(controller.getSession(), null, "no session before the stack arrives");
+  assert.equal(handled, false);
+  assert.deepEqual(
+    { mode: ui.powerUp.mode, open: ui.powerUp.open, busy: ui.powerUp.busy },
+    { mode: "room", open: true, busy: true },
+    "the room progress shows while the stack loads",
+  );
+
+  release();
+  assert.equal(await answer, "Room created");
+  assert.equal(handled, true);
+  assert.ok(controller.getSession() instanceof AgentSession);
+  await clearCachedGame(projectId);
+});
+
+test("a failed authoring load reads plainly in Ask and leaves Play running", async () => {
+  let loads = 0;
+  const powerUp = createMockPowerUp();
+  powerUp.mode = "ask";
+  let resumed = false;
+  const files = createTestFiles();
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp,
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => null,
+    query: async <T>(type: string) => (type === "state" ? ({ room: 3 } as T) : (null as T)),
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {
+      resumed = true;
+    },
+    getBootedGame: () => ({
+      installed: true,
+      alias: "demo",
+      title: "Demo",
+      revision: testRevision("lazy-load-failure"),
+      files,
+      words: [],
+    }),
+    setBootedGame: () => {},
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    loadAuthoring: async () => {
+      loads++;
+      throw new AuthoringLoadError({ cause: new TypeError("Failed to fetch") });
+    },
+  });
+
+  await controller.openPowerUp(mockConfig);
+  assert.equal(loads, 1);
+  assert.equal(powerUp.error, AUTHORING_LOAD_FAILED);
+  assert.equal(powerUp.busy, false);
+  assert.equal(controller.getSession(), null);
+  // The drawer closes like any other; the next Ask tries the load again.
+  controller.closePowerUp();
+  assert.equal(resumed, true);
+  await controller.openPowerUp(mockConfig);
+  assert.equal(loads, 2);
+});

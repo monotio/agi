@@ -7,7 +7,8 @@
 import { continuationTranscript } from "./projectArchive.ts";
 import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
-import { AgentSession, type BootResources } from "./agent/agentSession.ts";
+import type { AgentSession, BootResources } from "./agent/agentSession.ts";
+import { loadAuthoringStack } from "./agent/authoringLoader.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgiAudio } from "./audio/AgiAudio.ts";
 import {
@@ -392,6 +393,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const templateId = bootOptions?.templateId;
 
       if (bootOptions?.useCached) {
+        // Start the authoring stack's download while storage reads the world.
+        if (getCachedGameMeta(projectId)?.roomGeneration) void loadAuthoringStack().catch(() => {});
         const w = link.spawnWorker();
         const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
         const cached = loaded?.data;
@@ -406,21 +409,30 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           const isConfigured =
             cachedConfig.provider === "stub" || Boolean(cachedConfig.apiKey.trim());
           const canAuthor = Boolean(cached.roomGeneration);
-          const cachedSession =
+          // A world that writes its rooms boots with its session, so the
+          // authoring stack loads with it; if the stack cannot load, the game
+          // still plays and its first new room retries.
+          const stack =
             canAuthor && isConfigured
-              ? AgentSession.fromAuthoredData(
-                  cachedConfig,
-                  logAgent,
-                  cached.files,
-                  cached.words,
-                  continuationTranscript(cached, cachedConfig.provider, cachedConfig.model),
-                  cached.provider === cachedConfig.provider && cached.model === cachedConfig.model
-                    ? cached.sessionId
-                    : undefined,
-                  cached.authoringState,
-                  cached.library?.profile,
-                )
+              ? await loadAuthoringStack().catch((error: unknown) => {
+                  logAgent("error", String(error));
+                  return null;
+                })
               : null;
+          const cachedSession = stack
+            ? stack.AgentSession.fromAuthoredData(
+                cachedConfig,
+                logAgent,
+                cached.files,
+                cached.words,
+                continuationTranscript(cached, cachedConfig.provider, cachedConfig.model),
+                cached.provider === cachedConfig.provider && cached.model === cachedConfig.model
+                  ? cached.sessionId
+                  : undefined,
+                cached.authoringState,
+                cached.library?.profile,
+              )
+            : null;
           authoring.setSession(cachedSession);
           const known = await detectKnownGame(cached.files);
           const revision = cached.library?.revision || (await gameRevision(cached.files));
@@ -469,7 +481,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       }
 
       options.setActiveLlmConfig(config);
-      const genesisSession = new AgentSession(config, logAgent);
+      const stack = await loadAuthoringStack();
+      const genesisSession = new stack.AgentSession(config, logAgent);
       authoring.setSession(genesisSession);
       const resources = await genesisSession.startGenesis(templateMarkdown);
       await finishAuthoredBoot(genesisSession, resources, {

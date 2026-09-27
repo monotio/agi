@@ -20,7 +20,7 @@ import {
   watch,
 } from "vue";
 import { useEngine, type AutosaveRecord } from "./useEngine.ts";
-import { MODEL_OPTIONS } from "./agent/llmClient.ts";
+import { MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { reconcileGameIndex } from "./gameStorage.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
 import { findInstalledFolder, gameStorageKey } from "./gameTypes.ts";
