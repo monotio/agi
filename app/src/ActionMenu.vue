@@ -9,12 +9,15 @@ const {
   iconOnly = false,
   icon = "chevron-down",
   disabled = false,
+  size = "md",
 } = defineProps<{
   label: string;
   testId?: string | undefined;
   iconOnly?: boolean;
   icon?: IconName;
   disabled?: boolean;
+  /** The icon-only trigger's size, as UiIconButton's. */
+  size?: "sm" | "md";
 }>();
 
 const trigger = useTemplateRef("trigger");
@@ -198,6 +201,7 @@ onBeforeUnmount(removeWindowListeners);
       ref="trigger"
       :icon="icon"
       :label="label"
+      :size
       class="action-menu__trigger action-menu__trigger--icon"
       aria-haspopup="menu"
       :aria-expanded="open"

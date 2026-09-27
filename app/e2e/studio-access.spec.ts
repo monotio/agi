@@ -352,6 +352,10 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
     if (where !== null && where !== "body") outside.push(where);
   }
   expect(outside).toEqual([]);
+  // Tab on the canvas toggles focus mode, so where 80 presses leave it
+  // depends on how many stops the bar has: bring the side panels back.
+  const focusMode = studio.getByRole("button", { name: "Focus mode" });
+  if ((await focusMode.getAttribute("aria-pressed")) === "true") await focusMode.click();
 
   // The full label is the row's tooltip; the filter shows a focus ring.
   await expect(studio.locator('[data-row="occluder"] .scene-list__label')).toHaveAttribute(

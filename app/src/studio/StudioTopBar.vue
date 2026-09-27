@@ -11,7 +11,9 @@ import { byteMeter, type StudioLens } from "./studioView.ts";
 /**
  * Room Studio's top bar: the way back to Create and what is open, the lens
  * switch, the picture's size against its limits, and the draft's controls
- * (StudioDraftControls: undo and redo, the changes, Discard and Keep).
+ * (StudioDraftControls: undo and redo, the changes, Discard and Keep). The
+ * `share` slot follows what is open, where the names give way to it: the
+ * right side has no room left at 1024px.
  */
 const {
   title,
@@ -70,6 +72,7 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
       <b class="top-bar__title">{{ title }}</b>
       <UiChip v-if="title !== picChip" data-testid="studio-picture">{{ picChip }}</UiChip>
       <span v-if="subtitle" class="top-bar__subtitle">{{ subtitle }}</span>
+      <slot name="share" />
     </div>
     <UiSegmented
       v-model="lens"
