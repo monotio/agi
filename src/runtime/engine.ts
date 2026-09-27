@@ -2470,8 +2470,15 @@ export class Engine {
     this.saveDialogMode = null;
     this.stopSound();
 
-    // 1. Scalar, parser, object, inventory, replay, logic-resume, display and
-    //    session state.
+    // 1. Scalar, signature, parser, object, inventory, replay, logic-resume,
+    //    display and session state. The signature area belongs to the state
+    //    block restore reads back wholesale, so a game that issues set.game.id
+    //    only on its boot pass keeps its save namespace through a restore or a
+    //    host resume (docs/fidelity.md, "Game signature across restore").
+    const signatureEnd = s.signature.indexOf(0);
+    this.signature = String.fromCharCode(
+      ...s.signature.subarray(0, signatureEnd < 0 ? s.signature.length : signatureEnd),
+    );
     this.vars.set(s.vars);
     this.flags.set(s.flags);
     this.timerTicks = s.timerTicks;
