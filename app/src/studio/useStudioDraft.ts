@@ -38,7 +38,7 @@ import {
   serializePictureDocument,
   type PictureDocument,
 } from "../../../src/studio/pictureDocument.ts";
-import { plainKernelRefusal } from "./studioMessages.ts";
+import { kernelDetail, plainKernelRefusal } from "./studioMessages.ts";
 import {
   checkStudioEdit,
   refusalText,
@@ -181,7 +181,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       return {
         kind: "kernel",
         message: plainKernelRefusal(op, result.error),
-        detail: result.error,
+        detail: kernelDetail(result.error, document.value),
       };
     const after = compileEditDocument(result.document, profile());
     const edited = [
@@ -227,7 +227,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       return refuse({
         kind: "kernel",
         message: plainKernelRefusal(op, recorded.reason),
-        detail: recorded.reason,
+        detail: kernelDetail(recorded.reason, document.value),
       });
     history.value = recorded.history;
     refusal.value = null;

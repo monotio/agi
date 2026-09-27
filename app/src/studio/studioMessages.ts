@@ -6,6 +6,7 @@
  */
 
 import type { EditOperation } from "../../../src/studio/editOperations.ts";
+import type { PictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 
 const LEAVES = "it would leave the picture";
@@ -64,6 +65,18 @@ export function plainKernelRefusal(op: EditOperation, error: string): string {
     if (match) return say(match, op);
   }
   return "The picture can't be changed that way.";
+}
+
+/**
+ * Kernel refusal `error` as the notice's Details show it: each quoted item
+ * id the document has becomes its label in double quotes, and a leading
+ * "item" goes ("item 'el-1' is locked" reads "\"Element 1\" is locked").
+ */
+export function kernelDetail(error: string, document: PictureDocument): string {
+  return error.replace(/(^item )?'([^']+)'/g, (text, _lead, id: string) => {
+    const item = document.items.find((candidate) => candidate.id === id);
+    return item ? `"${item.label}"` : text;
+  });
 }
 
 /** Where the drawing tools put new shapes: `index` commands draw before them, of `commands`. */

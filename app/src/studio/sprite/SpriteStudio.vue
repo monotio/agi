@@ -649,11 +649,6 @@ const status = computed(() => {
       <p v-if="tools.penDown.value" class="sprite-studio__pen" data-testid="sprite-pen-down">
         {{ PEN_DOWN }}
       </p>
-      <LessonCard
-        v-if="lesson.session.value"
-        :session="lesson.session.value"
-        :outcome="lesson.outcome.value"
-      />
     </main>
 
     <SpriteTimeline
@@ -668,6 +663,12 @@ const status = computed(() => {
     />
 
     <aside class="sprite-studio__panel" aria-label="Cel, previews and linked loops">
+      <!-- The lesson's card docks at the top of the side panel, never over the stage. -->
+      <LessonCard
+        v-if="lesson.session.value"
+        :session="lesson.session.value"
+        :outcome="lesson.outcome.value"
+      />
       <SpritePalette
         v-model="color"
         :transparent="currentCel?.transparent ?? 0"

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 /**
  * The "Try this" card a Studio shows when a Help guide lesson opened it:
- * the lesson's steps and challenge, docked in a corner of the canvas area,
- * with the last Keep's verdict. Hiding it folds it to a small tab, and the
+ * the lesson's steps and challenge, docked at the top of the Studio's side
+ * column (Room Studio's inspector, Sprite Studio's side panel) so it never
+ * covers the stage, with the last Keep's verdict. Hiding it folds it to a small tab, and the
  * fold is remembered per lesson in this browser (lessonStorage.ts).
  */
 import { computed, ref, watch } from "vue";
@@ -84,23 +85,17 @@ function fold(next: boolean): void {
 </template>
 
 <style scoped>
-/* Bottom right of the canvas area, stacked above the zoom control. */
+/* In flow at the top of the side column, inset like its sections. */
 .lesson-card,
 .lesson-tab {
-  position: absolute;
-  right: var(--space-4);
-  bottom: calc(2 * var(--space-4) + var(--control-h));
-  z-index: 1;
-  border: 1px solid var(--hairline-strong);
+  flex: none;
+  box-sizing: border-box;
+  margin: var(--space-3) var(--space-3) 0;
+  border: 1px solid var(--action-line);
   border-radius: var(--radius-lg);
-  background: var(--surface-overlay);
-  box-shadow: var(--shadow-pop);
+  background: var(--surface-2);
 }
 .lesson-card {
-  width: min(264px, calc(100% - 2 * var(--space-4)));
-  max-height: calc(100% - 3 * var(--space-4) - 2 * var(--control-h));
-  overflow-y: auto;
-  box-sizing: border-box;
   padding: var(--space-2) var(--space-3) var(--space-3) var(--space-4);
   color: var(--ink-2);
   font: var(--text-xs) / var(--leading) var(--font-sans);
@@ -149,6 +144,7 @@ function fold(next: boolean): void {
   color: var(--warn);
 }
 .lesson-tab {
+  align-self: start;
   min-height: var(--control-h-sm);
   padding: 0 var(--space-4);
   color: var(--action);

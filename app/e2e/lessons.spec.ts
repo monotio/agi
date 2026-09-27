@@ -51,6 +51,18 @@ const storedBadges = async (page: Page): Promise<string[]> =>
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: test.info().outputPath(`${name}.png`) });
 
+/** The lesson card sits inside `panel`, clear of the `stage` it teaches about. */
+async function expectDocked(card: Locator, stage: Locator, panel: Locator): Promise<void> {
+  const [box, stageBox, panelBox] = await Promise.all(
+    [card, stage, panel].map(async (locator) => (await locator.boundingBox())!),
+  );
+  expect(box!.x, "the card starts right of the stage").toBeGreaterThanOrEqual(
+    stageBox!.x + stageBox!.width,
+  );
+  expect(box!.x).toBeGreaterThanOrEqual(panelBox!.x);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width + 0.5);
+}
+
 async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
@@ -155,6 +167,11 @@ test("the robot lesson wants only the left facing repainted, and its card folds 
   await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveText(/mirror of 0/);
   const card = studio.getByTestId("lesson-card");
   await expect(card).toContainText("One robot, two directions");
+  await expectDocked(
+    card,
+    studio.locator(".sprite-studio__frame"),
+    studio.locator(".sprite-studio__panel"),
+  );
   await shot(page, "lessons-card-robot");
 
   // The lesson opens on the cel its steps speak of: loop 1, cel 0, the left facing.
@@ -211,29 +228,62 @@ test("the robot lesson wants only the left facing repainted, and its card folds 
   await expect(page.getByTestId("lesson-card-show")).toHaveCount(0);
 });
 
-test("the archive lesson wants a depth-only rect on the ledger stand", async ({ page }) => {
+test("the archive lesson is met by following its card, docked beside the stage", async ({
+  page,
+}) => {
   await playTutorial(page);
   await openLesson(page, DEPTH);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   expect(await studioBytes(page)).toEqual(PIC_3);
-  await expect(studio.getByTestId("lesson-card")).toContainText("Depth decides who is in front");
+  const card = studio.getByTestId("lesson-card");
+  await expect(card).toContainText("Depth decides who is in front");
+  await expectDocked(card, studio.locator(".studio__frame"), studio.locator(".studio__inspector"));
   await shot(page, "lessons-card-archive");
+  const steps = card.locator("ol > li");
 
-  // The playhead just after Counter depth, so the walk barriers drawn later stay on top.
+  // 1. The Depth lens.
+  await expect(steps.nth(0)).toContainText("Switch to the Depth lens.");
+  await studio.getByTestId("studio-lens").getByRole("radio", { name: "Depth" }).click();
+
+  // 2. The ghost behind the counter: its verdict shows, with nothing over it.
+  await expect(steps.nth(1)).toContainText("Turn on the ghost and drag it behind the counter");
+  const probe = studio.getByTestId("studio-probe-toggle");
+  await probe.click();
+  const handle = studio.getByTestId("ghost-probe-handle");
+  await expect(handle).toBeVisible();
+  const grip = (await handle.boundingBox())!;
+  const zoom = (await page.locator(".studio-pane").last().boundingBox())!.height / 168;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2 - 30 * zoom, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  const verdict = studio.locator('[data-role="ghost-verdict"]');
+  await expect(verdict).toContainText("Behind Counter depth");
+  await expect(verdict).toBeInViewport();
+  await shot(page, "lessons-archive-ghost-behind");
+  await probe.click();
+  await expect(handle).toHaveCount(0);
+
+  // 4. Counter depth's last command: new shapes are drawn there, before the
+  // walk barriers drawn after it.
+  await expect(steps.nth(3)).toContainText(
+    "Click Counter depth in the list, then its last command under Commands",
+  );
   const shipped = parsePictureDocument(TUTORIAL_PICTURES[3]!).document;
   const counter = shipped.items.find(({ id }) => id === "counter-depth")!;
   const drawn = compileEditDocument(shipped, DEFAULT_V2_PROFILE).spans.filter(
     ({ line }) => line < counter.closeLine,
   ).length;
-  await page.keyboard.press("2");
+  await studio.locator('[data-row="counter-depth"]').click();
+  await studio.getByTestId("inspector-commands").getByRole("button").last().click();
   const playhead = studio.getByRole("slider", { name: "Draw order playhead" });
-  await playhead.focus();
-  await page.keyboard.press("Home");
-  for (let i = 0; i < Math.floor(drawn / 10); i++) await page.keyboard.press("PageUp");
-  for (let i = 0; i < drawn % 10; i++) await page.keyboard.press("ArrowRight");
   await expect(playhead).toHaveAttribute("aria-valuenow", String(drawn));
 
+  // The challenge: a filled rectangle at depth 11 over the stand.
+  await expect(card).toContainText("Draw a filled rectangle of depth 11 over the ledger stand");
   await page.keyboard.press("r");
   await expect(studio.getByTestId("studio-insert-at")).toContainText(`after step ${drawn} of`);
   await studio.getByTestId("studio-tool-filled").check();
@@ -253,6 +303,7 @@ test("the archive lesson wants a depth-only rect on the ledger stand", async ({ 
   expect(after.priority[121 * 160 + 45], "the stand's barrier stays on top").toBe(0);
   await keep(studio, "Kept PIC 3. Challenge complete: Depth decides who is in front.");
   expect(await storedBadges(page)).toEqual([DEPTH]);
+  await shot(page, "lessons-archive-kept");
 });
 
 test("a game derived from the 1.0.0 tutorial shows no lesson section", async ({ page }) => {

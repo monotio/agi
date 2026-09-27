@@ -114,6 +114,8 @@ export function useStudioViewport(
     fit,
     dpr,
     fitted: computed(() => override.value === undefined),
+    /** The stage's width in CSS pixels. */
+    stageWidth: computed(() => size.value.width),
     zoomBy,
     zoomToFit,
   };

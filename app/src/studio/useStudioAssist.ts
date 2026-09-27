@@ -85,6 +85,10 @@ export function refusalWords(violations: readonly Violation[]): string {
         return locked.has(v.plane) ? [] : ["would change things outside the selection"];
       case "fill-spill":
         return locked.has(v.plane) ? [] : ["would spill a fill outside the selection"];
+      case "extra-copy":
+        return locked.has(v.plane)
+          ? []
+          : ["would copy the selection more than once, or in other colours"];
       case "outside-target":
         return ["would change things outside the selection"];
       case "walk-depth":

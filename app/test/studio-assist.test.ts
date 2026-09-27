@@ -507,6 +507,10 @@ describe("assist words", () => {
       ]),
       "would change the depth",
     );
+    assert.equal(
+      refusalWords([{ constraint: "extra-copy", plane: "visual" }]),
+      "would copy the selection more than once, or in other colours",
+    );
     const entry = (kind: AgentLogEntry["kind"], detail: string, data?: unknown): AgentLogEntry => ({
       id: detail,
       timestamp: 0,
