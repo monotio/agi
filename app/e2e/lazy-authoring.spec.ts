@@ -1,5 +1,5 @@
 import { expect, test } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 
 /**
  * The AI authoring stack — the agent session, the LLM clients and provider
@@ -24,7 +24,7 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
 
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   // Play's own idle-time warm-up (the map panel) has run: nothing further
   // is on its way without the player asking for it.
   await expect.poll(() => scripts.some((url) => /WorldPanel/.test(url))).toBe(true);

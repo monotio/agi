@@ -161,7 +161,9 @@ test("a continuation keyed on changed logic bytes is dropped and the windows pee
   // pass's bytecode: the continuation drops, the windows peel back onto the
   // snapshot's surface, and the next tick starts a fresh pass. Logic 1 holds
   // the parked print frame, so its new bytes key the continuation stale.
-  restored.patchResource("logic", 1, assembleLogic("return;", { dictionary: new Map() }).payload);
+  restored.patchResources([
+    { kind: "logic", num: 1, payload: assembleLogic("return;", { dictionary: new Map() }).payload },
+  ]);
   restored.restoreImage(image);
   assert.equal(restored.modalKind, null, "no phantom window survives the peel");
   assert.equal(restored.continuationPending, false, "no stale pass resumes");
@@ -179,7 +181,9 @@ test("an unrelated logic patch keeps the continuation resumable across a reload"
     new Map(),
   );
   // The patch generation moves, but no parked frame references logic 5.
-  engine.patchResource("logic", 5, assembleLogic("return;", { dictionary: new Map() }).payload);
+  engine.patchResources([
+    { kind: "logic", num: 5, payload: assembleLogic("return;", { dictionary: new Map() }).payload },
+  ]);
   engine.tick();
   assert.equal(engine.modalKind, "print", "the window is up");
   const image = engine.autosaveImage()!;

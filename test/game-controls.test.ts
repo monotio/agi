@@ -39,10 +39,10 @@ test("shortcut discovery reports actual bindings, menu labels and live enable st
   const detached = engine.readControls();
   detached[0]!.menuItems[0]!.text = "corrupted";
   assert.equal(engine.readControls()[0]!.menuItems[0]!.text, "Inspect");
-  engine.patchResource("logic", 0, compile("disable.item(7);return;"));
+  engine.patchResources([{ kind: "logic", num: 0, payload: compile("disable.item(7);return;") }]);
   engine.tick();
   assert.equal(engine.readControls()[0]!.menuItems[0]!.enabled, false);
-  engine.patchResource("logic", 0, compile("set.key(0,61,8);return;"));
+  engine.patchResources([{ kind: "logic", num: 0, payload: compile("set.key(0,61,8);return;") }]);
   engine.tick();
   assert.deepEqual(engine.readControls()[0], { key: 0x3d00, controller: 8, menuItems: [] });
 });

@@ -9,6 +9,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -250,7 +251,7 @@ test("a folded dock stays folded across a reload and brackets fold only outside 
 
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(/#create\//);
   await expect(page.getByTestId("create-dock-left")).toHaveClass(/create-dock--rail/);
 

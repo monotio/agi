@@ -9,7 +9,6 @@ playwright-report/
 *.pem
 *.key
 *.p12
-*.tsbuildinfo
 __pycache__/
 
 # Local game data of any name, files and directories alike; the original

@@ -21,6 +21,7 @@ import {
   openDeveloperActivity,
   openGameOptions,
   textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -69,9 +70,7 @@ async function storedView(page: Page, projectId: string): Promise<Uint8Array> {
 async function playTutorial(page: Page): Promise<void> {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  // A cold dev server compiles the boot's module graph on first request; a
-  // full worker pool can take longer than the default poll to reach room 1.
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
 }
 
@@ -197,7 +196,6 @@ async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", sample
 test("a mirrored actor is repaired without changing its source loop, kept, reloaded, exported and played @webkit-desktop", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
   await playTutorial(page);
   const catalog = new URL(page.url()).hash;
 
@@ -275,7 +273,7 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
   // A reload boots the stored remix: Studio opens on the kept bytes.
   await page.reload();
   if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1);
   studio = await openApprentice(page);
   expect(await draftBytes(page)).toEqual(kept);
   await studio.getByTestId("studio-close").click();
@@ -293,7 +291,6 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
 test("a loop's cyan recoloured to blue by keys is kept, and the walking ego shows it", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
   await playTutorial(page);
   const studio = await openApprentice(page);
   const CYAN = 11;
@@ -683,7 +680,6 @@ function sheetPng(): Buffer {
 test("a staged character-sheet candidate opens in Sprite Studio, is repaired and kept", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
   await isolateStorage(page);
   await page.route("**/api/openai/v1/responses", (route) =>
     route.fulfill(providerReply("openai", { id: "reply", output: [] })),

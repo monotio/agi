@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
 
 /**
  * Interaction budgets on the real app, measured in the page with the
@@ -131,7 +131,7 @@ async function playTutorial(page: Page): Promise<void> {
   await installProbe(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 }
 
 /** Press at `from`, move one step per animation frame to `to`, release. */

@@ -377,7 +377,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       if (ctx.recording.recording)
         ctx.recording.recording.tainted = "The sound device changed during recording.";
       const device = msg.device === 0 ? 0 : 1;
-      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSoundPlayback();
+      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSound();
       ctx.boot.selectedSoundDevice = device;
       if (ctx.engine) ctx.engine.vars[22] = device === 0 ? 1 : 3;
       ctx.fns.historyRecord({ kind: "device", device });

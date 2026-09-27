@@ -43,7 +43,13 @@ test("room changes restore player control after a scripted stop", () => {
        return;`,
       { takeKeys: () => keys.splice(0) },
     );
-    e.patchResource("logic", 1, assembleLogic("return;", { dictionary: new Map() }).payload);
+    e.patchResources([
+      {
+        kind: "logic",
+        num: 1,
+        payload: assembleLogic("return;", { dictionary: new Map() }).payload,
+      },
+    ]);
     e.tick();
     assert.equal(e.vars[0], 1);
     keys.push(0x4800);
@@ -62,11 +68,13 @@ test("alternate text mode skips post-logic movement and animation until graphics
   for (let i = 0; i < 10; i++) e.tick();
   assert.equal(o.x, 80);
   assert.equal(o.cel, 0);
-  e.patchResource(
-    "logic",
-    0,
-    assembleLogic("graphics();return;", { dictionary: new Map() }).payload,
-  );
+  e.patchResources([
+    {
+      kind: "logic",
+      num: 0,
+      payload: assembleLogic("graphics();return;", { dictionary: new Map() }).payload,
+    },
+  ]);
   e.tick();
   assert.equal(o.cel, 1);
 });
@@ -117,21 +125,25 @@ test("f1 reports complete ego occlusion without requiring the host to request a 
   e.tick();
   assert.equal(e.flags[1], 1);
   e.surface.priority.fill(4);
-  e.patchResource(
-    "logic",
-    0,
-    assembleLogic(
-      "animate.obj(o1);set.view(o1,0);ignore.objs(o1);position(o1,80,120);draw(o1);stop.cycling(o1);return;",
-      { dictionary: new Map() },
-    ).payload,
-  );
+  e.patchResources([
+    {
+      kind: "logic",
+      num: 0,
+      payload: assembleLogic(
+        "animate.obj(o1);set.view(o1,0);ignore.objs(o1);position(o1,80,120);draw(o1);stop.cycling(o1);return;",
+        { dictionary: new Map() },
+      ).payload,
+    },
+  ]);
   e.tick();
   assert.equal(e.flags[1], 1, "a later opaque sprite can cover ego completely");
-  e.patchResource(
-    "logic",
-    0,
-    assembleLogic("erase(o1);return;", { dictionary: new Map() }).payload,
-  );
+  e.patchResources([
+    {
+      kind: "logic",
+      num: 0,
+      payload: assembleLogic("erase(o1);return;", { dictionary: new Map() }).payload,
+    },
+  ]);
   e.tick();
   assert.equal(e.flags[1], 0, "erasing the covering sprite reveals ego");
 });

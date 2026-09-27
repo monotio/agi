@@ -7,7 +7,7 @@ import {
   openLibraryActions,
   openSavedGameDetails,
   savedGameCard,
-  textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { seedTutorial10, TUTORIAL_1_0 } from "./tutorialRelease.ts";
 
@@ -79,7 +79,7 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
 
   // Resuming the 1.0 card resumes the stored copy, not the catalog release.
   await older.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_1_0}$`));
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
     TUTORIAL_1_0,
@@ -129,6 +129,6 @@ test("the 1.0 card removes through the normal saved-game menu, leaving remix and
   const tutorial = page.getByTestId("catalog-adventure-department");
   await expect(tutorial).toBeVisible();
   await tutorial.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(/#play\/catalog-adventure-department-1\.1\.0$/);
 });

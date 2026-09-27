@@ -119,12 +119,16 @@ test("a sound patch invalidates the cached sound before its next load", () => {
     },
   });
   engine.tick();
-  engine.stopSoundPlayback();
-  engine.patchResource(
-    "sound",
-    1,
-    new Uint8Array([8, 0, 15, 0, 15, 0, 15, 0, 2, 0, 0x24, 0x82, 0x94, 0xff, 0xff, 0xff, 0xff]),
-  );
+  engine.stopSound();
+  engine.patchResources([
+    {
+      kind: "sound",
+      num: 1,
+      payload: new Uint8Array([
+        8, 0, 15, 0, 15, 0, 15, 0, 2, 0, 0x24, 0x82, 0x94, 0xff, 0xff, 0xff, 0xff,
+      ]),
+    },
+  ]);
   engine.tick();
   outputs.length = 0;
   engine.soundTick();
@@ -144,11 +148,13 @@ test("a damaged sound completes its flag and the game continues after playback",
       },
     },
   );
-  engine.patchResource(
-    "sound",
-    1,
-    Uint8Array.of(8, 0, 99, 0, 99, 0, 99, 0, 2, 0, 0x23, 0x81, 0x94, 255, 255),
-  );
+  engine.patchResources([
+    {
+      kind: "sound",
+      num: 1,
+      payload: Uint8Array.of(8, 0, 99, 0, 99, 0, 99, 0, 2, 0, 0x23, 0x81, 0x94, 255, 255),
+    },
+  ]);
   engine.tick();
   assert.equal(engine.flags[60], 0);
   engine.soundTick();

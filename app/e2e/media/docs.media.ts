@@ -15,6 +15,7 @@ import {
   settled,
   textHook,
   waitForCycles,
+  waitForRoom,
 } from "../engineProbe.ts";
 
 /**
@@ -70,7 +71,7 @@ test.beforeEach(async ({ page }) => {
 async function playTutorial(page: Page): Promise<void> {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await settled(page);
 }
 
