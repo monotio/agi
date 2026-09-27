@@ -1,20 +1,21 @@
 /**
  * Cross-tab news of project writes. Every committed project write posts
- * `{ projectId, revision, generation }` on one BroadcastChannel, and a tab
- * running that project on another revision learns at once that storage moved
- * past it, instead of at its next refused write. The message carries no data:
- * storage stays the source of truth and every project write stays
- * conditional. Where BroadcastChannel is missing (or throws), only this
- * early notice is lost; the conditional writes still refuse.
+ * `{ projectId, revision, generation }` on one BroadcastChannel, plus the
+ * new authoring `fingerprint` when the write changed the authoring content
+ * (a label, a lock, a binding). The message carries no data: storage stays
+ * the source of truth and every project write stays conditional. What a
+ * notice means for the running game is projectTransaction.ts's to decide.
+ * Where BroadcastChannel is missing (or throws), only this early notice is
+ * lost; the conditional writes still refuse.
  */
-import type { BootedGame } from "./gameTypes.ts";
-
 export const PROJECT_CHANNEL = "monotio_agi.projects";
 
 export interface ProjectWriteNotice {
   readonly projectId: string;
   readonly revision: string;
   readonly generation: number;
+  /** The authoring fingerprint the write left, present only when it changed. */
+  readonly fingerprint?: string | undefined;
 }
 
 /** The part of BroadcastChannel this module uses; tests pass a fake. */
@@ -58,38 +59,27 @@ export function announceProjectWrite(
 
 function readNotice(value: unknown): ProjectWriteNotice | null {
   if (!value || typeof value !== "object") return null;
-  const { projectId, revision, generation } = value as Record<string, unknown>;
-  return typeof projectId === "string" &&
-    typeof revision === "string" &&
-    typeof generation === "number"
-    ? { projectId, revision, generation }
-    : null;
+  const { projectId, revision, generation, fingerprint } = value as Record<string, unknown>;
+  if (
+    typeof projectId !== "string" ||
+    typeof revision !== "string" ||
+    typeof generation !== "number" ||
+    (fingerprint !== undefined && typeof fingerprint !== "string")
+  )
+    return null;
+  return { projectId, revision, generation, ...(fingerprint !== undefined ? { fingerprint } : {}) };
 }
 
-export interface ProjectWriteWatch {
-  readonly getBootedGame: () => BootedGame | null;
-  /** Storage moved past the running game; called once per game. */
-  readonly onBehindStorage: () => void;
-}
-
-/**
- * Mark the running game `behindStorage` when another tab commits a different
- * revision of its project: from then on nothing writes its files, and the
- * player may keep playing until they reload. Returns the unsubscribe.
- */
-export function watchProjectWrites(
-  watch: ProjectWriteWatch,
+/** Hear other tabs' project writes; malformed messages are dropped. Returns the unsubscribe. */
+export function listenForProjectWrites(
+  listener: (notice: ProjectWriteNotice) => void,
   channel: NoticeChannel | null = sharedChannel(),
 ): () => void {
   if (!channel) return () => {};
-  const listener = (event: { data: unknown }) => {
+  const receive = (event: { data: unknown }) => {
     const notice = readNotice(event.data);
-    const game = watch.getBootedGame();
-    if (!notice || !game || game.installed || game.projectId !== notice.projectId) return;
-    if (game.revision === notice.revision || game.behindStorage) return;
-    game.behindStorage = true;
-    watch.onBehindStorage();
+    if (notice) listener(notice);
   };
-  channel.addEventListener("message", listener);
-  return () => channel.removeEventListener("message", listener);
+  channel.addEventListener("message", receive);
+  return () => channel.removeEventListener("message", receive);
 }

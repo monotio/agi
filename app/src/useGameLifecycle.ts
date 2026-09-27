@@ -23,12 +23,30 @@ import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
 import { fetchFixtureFiles, resolveFixtureTarget } from "./gameDiscovery.ts";
 import type { useAuthoringController } from "./useAuthoringController.ts";
 import { storageMovedPast, type useAutosaveController } from "./useAutosaveController.ts";
+import {
+  advanceAuthoring,
+  hydrateAuthoring,
+  needsReload,
+  ResourceCommitError,
+} from "./projectTransaction.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { useTestRecorder } from "./useTestRecorder.ts";
 import type { WorkerLink } from "./useWorkerLink.ts";
 import type { CachedGameData } from "./gameStorage.ts";
 import type { WorkerInbound } from "./workerProtocol.ts";
+
+/**
+ * Exit's refusal while this session's timeline is still owed to storage:
+ * the game is saved and still open. The shell offers leaving without the
+ * timeline (`ejectGame({ abandonHistory: true })`) or staying.
+ */
+export class HistoryUnsavedError extends Error {
+  constructor() {
+    super("This session's rewind timeline is not saved yet.");
+    this.name = "HistoryUnsavedError";
+  }
+}
 
 export interface GameLifecycleOptions {
   readonly state: EngineState;
@@ -71,6 +89,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   function resetScreenState(): void {
     autosave.resetScreen();
     state.staleTab = false;
+    // The timeline notices belong to the session that raised them.
+    state.historyBlocked = null;
+    state.historyRetry = null;
     state.powerUp.open = false;
     state.powerUp.busy = false;
     testRecorder.reset();
@@ -193,7 +214,16 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     }
   }
 
-  async function ejectGame(ejectOptions?: { abandonUnsaved?: boolean }): Promise<void> {
+  /**
+   * Leave the game: save it, then wait until this session's timeline is
+   * durable. `abandonUnsaved` leaves without the latest progress checkpoint,
+   * `abandonHistory` without the timeline. A timeline storage can never
+   * take (`state.historyBlocked`) never holds Exit — the game itself saved.
+   */
+  async function ejectGame(ejectOptions?: {
+    abandonUnsaved?: boolean;
+    abandonHistory?: boolean;
+  }): Promise<void> {
     if (state.leaving || state.powerUp.busy) return;
     state.leaving = true;
     options.pauseEngine("eject");
@@ -202,17 +232,26 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const session = authoring.getSession();
       // Behind storage (another tab committed a newer revision) this game's
       // files, conversation and checkpoint describe bytes storage no longer
-      // holds: nothing is saved over the newer project, and leaving is fine.
-      const behind = game !== null && storageMovedPast(game);
-      if (game && session && !behind && (!game.installed || authoring.isRemixNeedsSave())) {
+      // holds; after another tab's authoring edit, its session describes
+      // authoring storage no longer holds. Nothing is saved over the newer
+      // project — found now or by the save itself — and leaving is fine.
+      if (
+        game &&
+        session &&
+        !storageMovedPast(game) &&
+        !needsReload(game) &&
+        (!game.installed || authoring.isRemixNeedsSave())
+      ) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
             "The current game could not be saved. Try Settings → This game → Download game… before leaving.",
           );
-        await authoring.persistRemix(game, session, files);
+        await authoring.persistRemix(game, session, files).catch((error: unknown) => {
+          if (!(error instanceof ResourceCommitError && error.code === "stale")) throw error;
+        });
       }
-      if (!ejectOptions?.abandonUnsaved && !behind) {
+      if (!ejectOptions?.abandonUnsaved && !(game !== null && storageMovedPast(game))) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
@@ -237,15 +276,20 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     }
     // A reply certifies that every queued history batch is durable. A
     // timeout says nothing about worker health: preserve its recovery bytes.
-    try {
-      await link.query("historyEnd", {}, 10_000);
-      await options.drainHistoryCommits();
-    } catch {
-      state.leaving = false;
-      options.resumeEngine("eject");
-      throw new Error(
-        "Session history is not saved yet. The game is still open. Retry saving history or use Settings → This game → Download game… to keep a recovery backup before trying Exit again.",
-      );
+    // Commits already in flight settle first: one may be the refusal that
+    // says the tape can never be stored.
+    await options.drainHistoryCommits();
+    if (!ejectOptions?.abandonHistory && !state.historyBlocked) {
+      try {
+        await link.query("historyEnd", {}, 10_000);
+        await options.drainHistoryCommits();
+      } catch {
+        if (!state.historyBlocked) {
+          state.leaving = false;
+          options.resumeEngine("eject");
+          throw new HistoryUnsavedError();
+        }
+      }
     }
     state.leaving = false;
     options.abortWalkthrough();
@@ -299,6 +343,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const { files, words, transcript, sessionId } = resources;
     const { projectId, templateId, title, config } = boot;
     const w = link.spawnWorker();
+    const authoringState = session.getAuthoringState();
     const authoredGame: CachedGameData = {
       projectId,
       templateId,
@@ -310,7 +355,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       words,
       transcript,
       sessionId,
-      authoringState: session.getAuthoringState(),
+      authoringState,
       roomGeneration: true,
     };
     const known = await detectKnownGame(files);
@@ -325,6 +370,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       words,
       authoredGame,
     };
+    // The world's first record is this tab's own authoring content.
+    advanceAuthoring(booted, authoringState);
     authoring.attachSessionRuntime(session, booted);
 
     const historyLifetime = await saveAuthoredGameWithLifetime(projectId, {
@@ -336,7 +383,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       words,
       transcript,
       sessionId,
-      authoringState: session.getAuthoringState(),
+      authoringState,
       roomGeneration: true,
     });
     if (historyLifetime === null)
@@ -450,6 +497,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             words: cached.words,
             authoredGame: cached,
           };
+          // The authoring content this boot read is the tab's base for it.
+          hydrateAuthoring(booted, cached.authoringState);
           if (cachedSession) {
             authoring.attachSessionRuntime(cachedSession, booted);
           }

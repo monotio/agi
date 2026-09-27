@@ -96,8 +96,8 @@ export type AwaitPatchedFn = (
 
 export interface PatchWaiters {
   readonly awaitPatched: AwaitPatchedFn;
-  /** Deliver one `patched` ack to the oldest waiter on its resources. */
-  readonly settlePatched: (msg: Extract<WorkerControl, { type: "patched" }>) => void;
+  /** Deliver one `patched` ack to the oldest waiter on its resources; false when none waited. */
+  readonly settlePatched: (msg: Extract<WorkerControl, { type: "patched" }>) => boolean;
   readonly drainPatchWaiters: (err?: Error) => void;
 }
 
@@ -141,10 +141,10 @@ export function createPatchWaiters(): PatchWaiters {
     });
   }
 
-  function settlePatched(msg: Extract<WorkerControl, { type: "patched" }>): void {
+  function settlePatched(msg: Extract<WorkerControl, { type: "patched" }>): boolean {
     const key = resourceList(msg.resources);
     const index = waiters.findIndex((w) => w.key === key);
-    if (index < 0) return;
+    if (index < 0) return false;
     const [waiter] = waiters.splice(index, 1);
     clearTimeout(waiter!.timer);
     const wrong = msg.resources.find((resource, i) => resource.hint !== waiter!.resources[i]!.hint);
@@ -157,6 +157,7 @@ export function createPatchWaiters(): PatchWaiters {
         ),
       );
     else waiter!.resolve({ resources: waiter!.resources, patchGen: msg.patchGen });
+    return true;
   }
 
   function drainPatchWaiters(err: Error = new Error("Operation aborted")): void {

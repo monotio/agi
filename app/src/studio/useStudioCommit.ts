@@ -8,11 +8,8 @@
  */
 import { readonly, ref, shallowRef } from "vue";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
-import {
-  ResourceCommitError,
-  type ResourceCommitErrorCode,
-  type ResourceCommitResult,
-} from "../resourceCommit.ts";
+import { ResourceCommitError, type ResourceCommitErrorCode } from "../projectTransaction.ts";
+import type { ResourceCommitResult } from "../resourceCommit.ts";
 
 export type { ResourceCommitResult };
 

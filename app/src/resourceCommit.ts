@@ -10,11 +10,7 @@ import type { AuthoringLoader } from "./agent/authoringLoader.ts";
 import { gameRevision, type LibraryMetadata } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
-import {
-  resourceCacheHint,
-  type AuthoringState,
-  type BindingKind,
-} from "../../src/agent/authoringState.ts";
+import type { AuthoringState, BindingKind } from "../../src/agent/authoringState.ts";
 import { assembleAuthoredLogic, type AgentSourceStore } from "../../src/agent/agentState.ts";
 import { sourceCompilesTo } from "../../src/picture/source.ts";
 import { roomDrawsPicture } from "../../src/agent/roomPictures.ts";
@@ -23,12 +19,26 @@ import { viewSpec } from "../../src/view/celEdit.ts";
 import type { BuildViewInput } from "../../src/view/view.ts";
 import type { AgiProfile } from "../../src/runtime/profile.ts";
 import {
-  loadAuthoredGameWithHistoryLifetime,
   loadGameConversation,
   saveAuthoredGameWithLifetime,
   saveGameConversation,
+  StaleAuthoringError,
+  authoringFingerprint,
+  generationOf,
+  type AuthoringFingerprint,
   type CachedGameData,
+  type GameConversation,
 } from "./gameStorage.ts";
+import {
+  advanceAuthoring,
+  authoringBaseOf,
+  hydrateAuthoring,
+  installPatch,
+  markBehindStorage,
+  needsReload,
+  requireSaved,
+  ResourceCommitError,
+} from "./projectTransaction.ts";
 import { stagedRefusal, type StoredReference } from "./referenceArt.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
 import {
@@ -41,49 +51,6 @@ import type { PatchKind, WorkerInbound, WorkerQueryFn } from "./workerProtocol.t
 import type { AwaitPatchedFn } from "./workerQueries.ts";
 import { base64ToBytes } from "./bytes.ts";
 
-/** Why a resource commit refused or failed; `code` picks the UI's wording. */
-export type ResourceCommitErrorCode =
-  /** An agent turn, a history adoption or another commit owns the session. */
-  | "busy"
-  /** The booted, stored or running game is not at the edit's base revision. */
-  | "stale"
-  /** The edit itself is unusable (its source does not compile to its bytes). */
-  | "invalid"
-  /** Browser storage refused the conditional write; nothing changed. */
-  | "storage"
-  /** The edit is saved, but the running game did not install it. */
-  | "install";
-
-export class ResourceCommitError extends Error {
-  readonly code: ResourceCommitErrorCode;
-  /** The project the edit was saved to — set on `install` failures. */
-  readonly projectId: ProjectId | undefined;
-  /**
-   * The stored project moved past the running game (another tab kept an
-   * edit): reopening on the running game would edit bytes storage no longer
-   * holds, so only reloading the game from storage continues.
-   */
-  readonly behindStorage: boolean;
-  constructor(
-    code: ResourceCommitErrorCode,
-    message: string,
-    detail: { savedTo?: ProjectId | undefined; behindStorage?: boolean } = {},
-  ) {
-    super(message);
-    this.name = "ResourceCommitError";
-    this.code = code;
-    this.projectId = detail.savedTo;
-    this.behindStorage = detail.behindStorage === true;
-  }
-}
-
-/**
- * How long a Keep waits for the running game to acknowledge the installed
- * bytes. The edit is already saved by then; a missing ack becomes the
- * `install` failure and its reload, never an endless "Keeping…".
- */
-const PATCH_ACK_TIMEOUT_MS = 10_000;
-
 export interface ResourceCommitResult {
   /** "unchanged": the bytes and source already matched — nothing was written. */
   status: "committed" | "unchanged";
@@ -91,10 +58,22 @@ export interface ResourceCommitResult {
   projectId: ProjectId | null;
   /** The resource revision of the committed files. */
   revision: ResourceRevision;
+  /** The authoring fingerprint storage holds after the Keep: the draft's next base. */
+  authoring: AuthoringFingerprint;
+}
+
+/**
+ * The authoring content a Studio draft was opened (or last kept) on —
+ * `openDraft` when Studio opened, then each Keep's `authoring`. A Keep
+ * refuses when the tab's authoring moved on since; undefined asks nothing
+ * (an installed edition's draft, which opens on no authored text).
+ */
+interface DraftBase {
+  baseAuthoring?: AuthoringFingerprint | undefined;
 }
 
 /** Room Studio's Keep request: new PIC bytes and the source that compiles to them. */
-export interface PictureEdit {
+export interface PictureEdit extends DraftBase {
   pictureNumber: number;
   bytes: Uint8Array;
   /** Annotated PIC source; must compile to exactly `bytes`. */
@@ -106,7 +85,7 @@ export interface PictureEdit {
 }
 
 /** Sprite Studio's Keep request: new VIEW bytes, decoded and re-encoded by the sprite kernel. */
-export interface ViewEdit {
+export interface ViewEdit extends DraftBase {
   viewNumber: number;
   bytes: Uint8Array;
   /** The booted resource revision Sprite Studio opened on. */
@@ -122,7 +101,7 @@ export interface ViewEdit {
  * edit alone); the logic source must assemble to exactly its bytes with the
  * game's bindings plus the ones the rule edits reserved.
  */
-export interface RoomEdit {
+export interface RoomEdit extends DraftBase {
   /** The room whose logic is edited (logic N is room N). */
   room: number;
   picture?: { pictureNumber: number; bytes: Uint8Array; source: string } | undefined;
@@ -154,6 +133,8 @@ export interface ResourceEdit {
   readonly owner: string;
   /** The revision the edit was made against; defaults to the booted one. */
   readonly baseRevision?: ResourceRevision | undefined;
+  /** The authoring content the edit was made against (see DraftBase). */
+  readonly baseAuthoring?: AuthoringFingerprint | undefined;
   /**
    * Re-enter the room the game stands in after the install when this says
    * the room shows the edit, judged on the edited files and the resources
@@ -181,6 +162,15 @@ export interface ResourceEdit {
   };
   /** Refuse before anything is written, given the session describing the bytes. */
   validate?(author: AgentSession): void;
+}
+
+/** The refusal of a Keep whose installed edition's authoring changed in another tab. */
+function staleAuthoring(what: string): ResourceCommitError {
+  return new ResourceCommitError(
+    "stale",
+    `This game's authoring changed elsewhere — reload it before keeping ${what}.`,
+    { behindStorage: true },
+  );
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -238,7 +228,8 @@ export function createResourceCommit(
    * a Room Studio picture — in this order:
    *
    * 1. refuse while an agent turn runs; reserve the session; pause the game;
-   * 2. refuse unless the booted game, the stored project (same lifetime) and
+   * 2. refuse unless the booted game, the stored project (same lifetime,
+   *    and the authoring content this tab holds — projectTransaction.ts) and
    *    the live worker's export all sit at `baseRevision`;
    * 3. build the edited files and the session state recording the edit's
    *    source, and validate both — nothing is written yet;
@@ -271,8 +262,9 @@ export function createResourceCommit(
    * - A game, session or worker replaced after the save (step 4) never
    *   takes the edit: that is an `install` failure too, never "committed".
    * - A stored project that moved past the running game (step 2: another
-   *   tab kept an edit) refuses as `stale` with `behindStorage`: the only
-   *   way on is the same reload from storage.
+   *   tab kept an edit, even one that changed only labels, locks or
+   *   bindings) refuses as `stale` with `behindStorage`: the only way on is
+   *   the same reload from storage.
    */
   async function commitResourceEdit(edit: ResourceEdit): Promise<ResourceCommitResult> {
     const game = getBootedGame();
@@ -297,39 +289,36 @@ export function createResourceCommit(
     pauseEngine(edit.owner);
     try {
       const baseRevision = edit.baseRevision ?? game.revision;
-      if (game.revision !== baseRevision)
+      // The draft's own base: the bytes, and the authoring content its text
+      // was read with. A session that hydrated newer content since, or a
+      // write of this tab's own, moved the game past the draft.
+      if (
+        game.revision !== baseRevision ||
+        (edit.baseAuthoring !== undefined && edit.baseAuthoring !== authoringBaseOf(game))
+      )
         throw new ResourceCommitError(
           "stale",
           `The game changed since ${what} was made — reopen it before keeping ${what}.`,
+          { behindStorage: needsReload(game) },
         );
       await getAutosaveWrite();
+      // The record the edit lands in must still hold its base: the bytes
+      // and the authoring content this tab holds, in this game's lifetime.
+      // An installed edition's discussion is read the same way.
+      const conversationKey = game.hash ?? game.alias ?? "installed";
       let stored: CachedGameData | null = null;
       let lifetime: string | null = null;
+      let conversation: GameConversation | undefined;
       if (!game.installed) {
-        const captured = await loadAuthoredGameWithHistoryLifetime(game.projectId!);
-        if (!captured)
-          throw new ResourceCommitError(
-            "stale",
-            "The project is no longer stored in this browser.",
-          );
-        ({ data: stored, lifetime } = captured);
-        // Storage moved past the running game: its files must not be
-        // written back over the newer record until the game reloads.
-        const behind = (message: string) => {
-          game.behindStorage = true;
-          return new ResourceCommitError("stale", message, { behindStorage: true });
-        };
-        if (
-          lifetime === null ||
-          (game.historyLifetime !== undefined && game.historyLifetime !== lifetime)
-        )
-          throw behind(
-            `The project was removed or changed elsewhere — reload it before keeping ${what}.`,
-          );
-        if ((await gameRevision(stored.files)) !== baseRevision)
-          throw behind(
-            `The project changed elsewhere since this game booted — reload it before keeping ${what}.`,
-          );
+        ({ data: stored, lifetime } = await requireSaved(game, {
+          revision: baseRevision,
+          authoring: true,
+          message: `The project changed elsewhere since this game booted — reload it before keeping ${what}.`,
+          removedMessage: `The project was removed or changed elsewhere — reload it before keeping ${what}.`,
+        }));
+      } else {
+        conversation = await loadGameConversation(conversationKey);
+        if (!hydrateAuthoring(game, conversation?.authoringState)) throw staleAuthoring(what);
       }
       const resolved = edit.resolve(stored);
       const worker = getWorker();
@@ -360,9 +349,6 @@ export function createResourceCommit(
         ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
         : game.words;
       const revision = bytesChanged ? await gameRevision(files) : baseRevision;
-      const conversationKey = game.hash ?? game.alias ?? "installed";
-      const conversation =
-        game.installed && !author ? await loadGameConversation(conversationKey) : undefined;
       const sourceSession =
         author ??
         (await loadAuthoring()).AgentSession.fromAuthoredData(
@@ -378,22 +364,28 @@ export function createResourceCommit(
       edit.validate?.(sourceSession);
       const candidate = sourceSession.prepareSourcePatch(files, resolved.stage);
       if (!bytesChanged && !candidate.changed && resolved.references === undefined)
-        return { status: "unchanged", projectId: game.projectId ?? null, revision };
+        return {
+          status: "unchanged",
+          projectId: game.projectId ?? null,
+          revision,
+          authoring: authoringBaseOf(game)!,
+        };
 
       // The conversation a new record carries: the live session's, else
       // an installed edition's stored discussion as it stands.
-      const context = conversation
-        ? {
-            provider: conversation.provider,
-            model: conversation.model,
-            transcript: conversation.transcript,
-            sessionId: conversation.sessionId,
-          }
-        : {
-            ...sourceSession.getProviderContext(),
-            transcript: sourceSession.getTranscript(),
-            sessionId: sourceSession.getSessionId(),
-          };
+      const context =
+        conversation && !author
+          ? {
+              provider: conversation.provider,
+              model: conversation.model,
+              transcript: conversation.transcript,
+              sessionId: conversation.sessionId,
+            }
+          : {
+              ...sourceSession.getProviderContext(),
+              transcript: sourceSession.getTranscript(),
+              sessionId: sourceSession.getSessionId(),
+            };
       // A catalog entry stays as shipped: its first edit of any kind — bytes,
       // or only the source text and bindings that describe them — forks.
       const forkCatalog = stored?.library?.source === "catalog";
@@ -468,7 +460,7 @@ export function createResourceCommit(
           data,
           targetId !== game.projectId
             ? { requireNew: true }
-            : { expectedGeneration: stored!.generation ?? 0, expectedLifetime: lifetime },
+            : { expectedGeneration: generationOf(stored!), expectedLifetime: lifetime },
         );
         if (historyLifetime === null)
           throw new ResourceCommitError(
@@ -477,11 +469,13 @@ export function createResourceCommit(
           );
       } else {
         try {
-          await saveGameConversation(conversationKey, {
-            ...context,
-            authoringState: candidate.authoringState,
-          });
-        } catch {
+          await saveGameConversation(
+            conversationKey,
+            { ...context, authoringState: candidate.authoringState },
+            { fingerprint: authoringBaseOf(game)! },
+          );
+        } catch (error) {
+          if (error instanceof StaleAuthoringError) throw staleAuthoring(what);
           throw new ResourceCommitError("storage", `Browser storage could not save ${what}.`);
         }
       }
@@ -490,43 +484,30 @@ export function createResourceCommit(
       // next boot; it must never patch a replacement worker or its game.
       // The running game did not take the edit, so it is not reported kept.
       const notInstalled = () => {
-        game.behindStorage = true;
+        markBehindStorage(game);
         return new ResourceCommitError(
           "install",
           `${what[0]!.toUpperCase()}${what.slice(1)} was saved, but the game changed before it could load it. Reload the game to continue from the saved project.`,
           { savedTo: targetId ?? undefined },
         );
       };
-      const result: ResourceCommitResult = { status: "committed", projectId: targetId, revision };
+      const result: ResourceCommitResult = {
+        status: "committed",
+        projectId: targetId,
+        revision,
+        authoring: authoringFingerprint(candidate.authoringState),
+      };
       if (moved()) throw notInstalled();
       if (bytesChanged) {
         // One patch carries every changed resource: the worker installs the
         // set or none of it, and its one ack names each resource's bytes.
-        // The waiter is armed before the patch is posted.
-        const acked = awaitPatched(
-          changed.map(({ kind, num, payload }) => ({
-            kind,
-            num,
-            hint: resourceCacheHint(payload),
-          })),
-          PATCH_ACK_TIMEOUT_MS,
-        );
-        const resources = changed.map(({ kind, num, payload }) => ({
-          kind,
-          num,
-          payload: new Uint8Array(payload),
-        }));
-        worker.postMessage(
-          { type: "patch", resources } satisfies WorkerInbound,
-          resources.map(({ payload }) => payload.buffer),
-        );
         try {
-          await acked;
+          await installPatch(worker, awaitPatched, changed);
         } catch (error) {
           // A refusal left the worker on the old bytes, but an ack that timed
           // out may still land: until the game reloads from storage, nothing
           // may write the running game's files back over the saved edit.
-          game.behindStorage = true;
+          markBehindStorage(game);
           throw new ResourceCommitError(
             "install",
             `${what[0]!.toUpperCase()}${what.slice(1)} was saved, but the running game could not load it (${error instanceof Error ? error.message : String(error)}). Reload the game to continue from the saved project.`,
@@ -563,6 +544,7 @@ export function createResourceCommit(
       adoptedGame.files = files;
       adoptedGame.words = words;
       adoptedGame.revision = revision;
+      advanceAuthoring(adoptedGame, candidate.authoringState);
       if (data) adoptedGame.authoredGame = data;
       if (adoptedGame !== game) {
         clearAutosave(gameStorageKey(game));
@@ -600,7 +582,7 @@ export function createResourceCommit(
 export function stagedViewEdit(
   game: BootedGame,
   id: string,
-  repaired?: { bytes: Uint8Array; baseRevision: ResourceRevision },
+  repaired?: Pick<ViewEdit, "bytes" | "baseRevision" | "baseAuthoring">,
 ): ResourceEdit {
   const payload = repaired && new Uint8Array(repaired.bytes);
   /** The repaired bytes' spec, read back once `validate` has the game's profile. */
@@ -609,6 +591,7 @@ export function stagedViewEdit(
     what: "a staged view",
     owner: "keepView",
     baseRevision: repaired?.baseRevision,
+    baseAuthoring: repaired?.baseAuthoring,
     resolve: (stored) => {
       const reference = stored?.references?.find((r) => r.id === id);
       if (!reference)
@@ -669,6 +652,7 @@ export function pictureEdit(edit: PictureEdit): ResourceEdit {
     what: "the picture edit",
     owner: "studioCommit",
     baseRevision,
+    baseAuthoring: edit.baseAuthoring,
     reenter: (room, files, profile) => roomDrawsPicture(files, room, num, profile),
     resolve: () => {
       if (!Number.isInteger(num) || num < 0 || num > 255)
@@ -709,6 +693,7 @@ export function roomEdit(edit: RoomEdit): ResourceEdit {
     what: "the room edit",
     owner: "studioCommit",
     baseRevision,
+    baseAuthoring: edit.baseAuthoring,
     reenter: (current, files, profile, changed) =>
       picture !== undefined &&
       changed.some((patch) => patch.kind === "picture") &&
@@ -799,6 +784,7 @@ export function viewEdit(edit: ViewEdit): ResourceEdit {
     what: "the view edit",
     owner: "studioCommit",
     baseRevision,
+    baseAuthoring: edit.baseAuthoring,
     reenter: (room, files, profile) => {
       const logics = new Map<number, Uint8Array>();
       try {

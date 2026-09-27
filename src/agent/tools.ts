@@ -1424,8 +1424,9 @@ function executeLegacyTool(
  * frames plus playtest_room's live checkpoint — read the INTERPRETER, which
  * lives in a Web Worker and answers asynchronously. The synchronous
  * `executeAgentTool` above cannot reach it, so the host passes these in to
- * `executeAgentToolAsync`. With no deps attached a section fails with a clear
- * message. The host selects the tools available during each phase.
+ * `executeAgentToolAsync`. With no source attached a section fails with a
+ * clear message. Which tools a task may run is not a source: each task names
+ * its list in AgentToolDeps.
  */
 export interface AgentRuntimeDeps {
   /**
@@ -1434,8 +1435,6 @@ export interface AgentRuntimeDeps {
    * read_room_context carries no plan entry.
    */
   readonly readOnly?: boolean;
-  /** Phase availability policy: names outside the list are denied before dispatch. */
-  readonly allowedTools?: readonly string[];
   readonly frames?: FrameSource | undefined;
   readonly engine?: EngineStateSource | undefined;
   /** Captures the paused interpreter's resumable image, or null when it cannot. */
@@ -1451,6 +1450,15 @@ export interface AgentRuntimeDeps {
    * it do read_edit_context and propose_edit run; see studioAssistTools.ts.
    */
   readonly studio?: StudioAssist | undefined;
+}
+
+/**
+ * What one tool call dispatches with: the host's live sources plus the
+ * task's availability policy. The list is required — a task that names no
+ * tools may run none — and names outside it are denied before dispatch.
+ */
+export interface AgentToolDeps extends AgentRuntimeDeps {
+  readonly allowedTools: readonly string[];
 }
 
 /**
@@ -1481,6 +1489,20 @@ function describeControls(
 /** Returned when a runtime tool is called with no interpreter attached. */
 const NO_LIVE_GAME =
   "No live game is attached to this session, so live inspection is unavailable. Use read_logic, read_picture and inspect_world_bible instead.";
+
+/**
+ * Genesis: the whole authoring catalog except the Studio pair, which needs a
+ * creator's selection. The three writing tasks share one list so the
+ * advertised catalog stays stable across phases for prompt-cache reuse; each
+ * keeps its own name, so narrowing one is a deliberate edit here.
+ */
+export const GENESIS_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
+
+/** Room writing (a just-in-time room, a map build): the Genesis catalog. */
+export const ROOM_AUTHORING_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
+
+/** Remix: the Genesis catalog, staged and committed by the host's verdict. */
+export const REMIX_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 
 /**
  * A Studio assist task: the two studio tools plus read-only inspection.
@@ -1603,18 +1625,20 @@ export async function executeAgentToolAsync(
   session: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
-  deps?: AgentRuntimeDeps,
+  deps: AgentToolDeps,
 ): Promise<AgentToolResult> {
-  if (deps?.allowedTools && !deps.allowedTools.includes(name))
-    return {
-      success: false,
-      error: `'${name}' is not available in this phase of the session.`,
-    };
+  // Ask's own wording first: the player can switch to Remix for a change.
   if (deps?.readOnly && !ASK_TOOLS.includes(name))
     return {
       success: false,
       error:
         "Ask mode is read-only. Explain the proposed change; the player can switch to Remix to apply it.",
+    };
+  // Deny by default: a caller that names no list (untyped JavaScript) runs nothing.
+  if (!Array.isArray(deps?.allowedTools) || !deps.allowedTools.includes(name))
+    return {
+      success: false,
+      error: `'${name}' is not available in this phase of the session.`,
     };
   const call = prepareAgentToolCall(name, args);
   if (!call.success) return call;

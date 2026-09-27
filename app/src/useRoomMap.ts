@@ -46,6 +46,8 @@ import type { AgentSession } from "./agent/agentSession.ts";
 import type { AuthoringState } from "../../src/agent/authoringState.ts";
 import { gameStorageKey, type BootedGame, type Frame } from "./gameTypes.ts";
 import type { ResourceRevision } from "../../src/gameIdentity.ts";
+import type { AuthoringFingerprint } from "./gameStorage.ts";
+import { openDraft } from "./projectTransaction.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
 import {
@@ -92,6 +94,16 @@ interface PlanFieldEdit {
 }
 
 /** The detail pane's edit session for one room's plan entry. */
+/** What a Studio draft opens on and keeps against: the booted bytes and the authoring content. */
+interface StudioBase {
+  readonly baseRevision: ResourceRevision;
+  readonly baseAuthoring: AuthoringFingerprint | undefined;
+}
+
+function studioBase(game: BootedGame): StudioBase {
+  return { baseRevision: game.revision, baseAuthoring: openDraft(game) };
+}
+
 export interface PlanRoomEdit {
   room: number;
   title: PlanFieldEdit;
@@ -206,20 +218,15 @@ export interface RoomMap {
   thumbnailFor(room: number): MapThumbnail | null;
   /** The static scan of the booted resources (files, logic scans, pictures, stored tests). */
   readonly resources: ComputedRef<ScannedResources>;
-  /** One picture's Room Studio input and the booted revision it was read at. */
-  studioSource(
-    picture: number,
-  ): (StudioPictureSource & { readonly baseRevision: ResourceRevision }) | null;
+  /** One picture's Room Studio input and the base it was read at (the draft's to keep against). */
+  studioSource(picture: number): (StudioPictureSource & StudioBase) | null;
   /** The Walk view's input for `room`: its logic, bindings, plan, tests and the rooms a door can reach. */
   studioRoom(room: number): StudioRoomSource | null;
   /**
    * One VIEW's Sprite Studio input and the booted revision it was read at;
    * `bytes` stands in for a view not in the game yet (a staged candidate).
    */
-  spriteSource(
-    view: number,
-    bytes?: Uint8Array,
-  ): (StudioSpriteSource & { readonly baseRevision: ResourceRevision }) | null;
+  spriteSource(view: number, bytes?: Uint8Array): (StudioSpriteSource & StudioBase) | null;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
@@ -1372,7 +1379,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
         deps.getSession()?.state,
         game.authoredGame?.authoringState,
       );
-      return source && { ...source, baseRevision: game.revision };
+      return source && { ...source, ...studioBase(game) };
     },
     studioRoom: (room) => {
       const game = deps.getBootedGame();
@@ -1395,7 +1402,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       const scanned = scanResources();
       if (!game || scanned.files !== game.files) return null;
       const source = studioSpriteSource(scanned, view, currentRoom.value ?? undefined, bytes);
-      return source && { ...source, baseRevision: game.revision };
+      return source && { ...source, ...studioBase(game) };
     },
     observeFrame,
     exportSidecar,

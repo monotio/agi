@@ -120,6 +120,27 @@ async function keepInTabB(page: Page): Promise<Locator> {
   return studio;
 }
 
+/** Tab B: the same project, one Room Studio edit of a label alone, kept. */
+async function keepLabelInTabB(page: Page): Promise<void> {
+  const tabB = await page.context().newPage();
+  await keepDetectedProfile(tabB);
+  await tabB.goto("/");
+  await resume(tabB);
+  await enterCreateMode(tabB);
+  const panel = tabB.getByTestId("world-panel");
+  await panel.getByTestId("map-room-1").click();
+  await panel.getByTestId("world-open-studio").click();
+  const studio = tabB.getByTestId("room-studio");
+  await expect(studio).toBeVisible();
+  await tabB.keyboard.press("2");
+  await studio.locator('[data-row="occluder"]').click();
+  const label = studio.getByTestId("item-label");
+  await label.fill("Low bench");
+  await label.press("Enter");
+  await studio.getByTestId("studio-keep").click();
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
+}
+
 /** What storage holds for the project: its revision, its notes and its checkpoint's revision. */
 function stored(page: Page) {
   return page.evaluate(async (id) => {
@@ -218,4 +239,30 @@ test("a tab running an older revision hears of another tab's Keep at once and re
     authoringState: kept.authoringState,
     checkpoint: kept.revision,
   });
+});
+
+test("a label kept in another tab is heard at once, and nothing this tab saves drops it", async ({
+  page,
+}) => {
+  await bootTabA(page);
+  const booted = await stored(page);
+  await keepLabelInTabB(page);
+  const kept = await stored(page);
+  // The bytes, their revision and the checkpoint stay; only the notes moved.
+  expect(kept.revision).toBe(booted.revision);
+  expect(kept.authoringState).toContain("Low bench");
+
+  const note = page.getByTestId("stale-tab-note");
+  await expect(note).toHaveText(
+    /This game changed in another tab\. Reload game to continue from the saved version\./,
+  );
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("agent-bubble-error")).toContainText("changed elsewhere");
+  await expect(page.getByTestId("agent-bubble-reload")).toBeVisible();
+  await page.getByRole("button", { name: "Back to game", exact: true }).click();
+
+  // Leaving writes this tab's older notes over nothing, and is not refused.
+  await page.getByTestId("btn-exit").click();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  expect((await stored(page)).authoringState).toContain("Low bench");
 });

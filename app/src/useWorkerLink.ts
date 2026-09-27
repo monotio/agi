@@ -15,6 +15,7 @@ import { LAST_GAME_KEY } from "./useAutosaveController.ts";
 import type { EngineState, ModalKind, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import { createPatchWaiters, createWorkerQueries } from "./workerQueries.ts";
+import { markBehindStorage } from "./projectTransaction.ts";
 import type {
   WorkerInbound,
   WorkerOutbound,
@@ -75,6 +76,8 @@ export interface WorkerLinkOptions {
   readonly getBootedGame: () => BootedGame | null;
   readonly getActiveWalkthroughSession: () => number;
   readonly observationListeners: Set<(obs: ReplayObservation) => void>;
+  /** A refused install nobody awaited put the running game behind storage. */
+  readonly onBehindStorage?: (() => void) | undefined;
 }
 
 export function useWorkerLink(options: WorkerLinkOptions) {
@@ -324,9 +327,16 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       metadataPatched: () => {
         state.patchTick++;
       },
-      // A patch's install acknowledgement: settles the commit awaiting it.
-      // Fire-and-forget senders post patches with no waiter.
-      patched: (msg) => patchWaiters.settlePatched(msg),
+      // A patch's install acknowledgement: settles the transaction awaiting
+      // it. Every install is awaited; should a refusal ever arrive for none,
+      // the running game still lacks bytes storage may hold, so nothing may
+      // write its files back until it reloads.
+      patched: (msg) => {
+        if (patchWaiters.settlePatched(msg)) return;
+        const game = options.getBootedGame();
+        const refused = msg.error !== undefined || msg.resources.some(({ hint }) => hint === null);
+        if (refused && game && markBehindStorage(game)) options.onBehindStorage?.();
+      },
       log: (msg) => logAgent("log", msg.text),
       quit: () => {
         deps.ejectGame();

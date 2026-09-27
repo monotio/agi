@@ -5,10 +5,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { createAgentSessionState, type AgentSessionState } from "../../src/agent/agentState.ts";
 import {
+  AUTHORING_TOOL_NAMES,
   executeAgentTool,
   executeAgentToolAsync,
   STUDIO_ASSIST_TASK_TOOLS,
-  type AgentRuntimeDeps,
+  type AgentToolDeps,
 } from "../../src/agent/tools.ts";
 import { createStudioAssist } from "../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
@@ -41,7 +42,7 @@ interface StudioCase {
   targetCels?: { loop: number; cel: number }[];
 }
 
-function studioDeps(session: AgentSessionState, studio: StudioCase): AgentRuntimeDeps {
+function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDeps {
   if (studio.kind === "picture") {
     const source = studio.source!;
     const compiled = compileEditDocument(parsePictureDocument(source).document, session.profile);
@@ -99,11 +100,11 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
               content.args,
               studioDeps(session, content.studio),
             )
-          : await (content.async ? executeAgentToolAsync : executeAgentTool)(
-              session,
-              content.tool,
-              content.args,
-            ));
+          : content.async
+            ? await executeAgentToolAsync(session, content.tool, content.args, {
+                allowedTools: AUTHORING_TOOL_NAMES,
+              })
+            : executeAgentTool(session, content.tool, content.args));
 
       for (const [path, expected] of Object.entries(content.expectedFields ?? {})) {
         let actual: unknown = res;

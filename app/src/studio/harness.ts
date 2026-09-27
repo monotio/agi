@@ -18,7 +18,9 @@ import { ORIGINAL_SCENE_PICTURES } from "../../../games/adventure-department/sce
 import { compilePictureSource, disassemblePicture } from "../../../src/picture/source.ts";
 import { requireResourceRevision } from "../../../src/gameIdentity.ts";
 import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
-import { ResourceCommitError, type PictureEdit } from "../resourceCommit.ts";
+import { authoringFingerprint } from "../gameStorage.ts";
+import { ResourceCommitError } from "../projectTransaction.ts";
+import type { PictureEdit } from "../resourceCommit.ts";
 import { inferNativeItems } from "../../../src/studio/nativeItems.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileDocument, itemAt, itemMask, renderUpTo } from "../../../src/studio/pictureQuery.ts";
@@ -88,7 +90,12 @@ async function keep(edit: PictureEdit) {
   if (refusal === "stale" || refusal === "install" || refusal === "storage")
     throw new ResourceCommitError(refusal, `The harness refuses with ${refusal}.`);
   kept.push(edit);
-  return { status: "committed" as const, projectId: null, revision: revision(kept.length + 1) };
+  return {
+    status: "committed" as const,
+    projectId: null,
+    revision: revision(kept.length + 1),
+    authoring: authoringFingerprint(undefined),
+  };
 }
 
 const probe = {

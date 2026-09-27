@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { useGameLifecycle, type GameLifecycleOptions } from "../src/useGameLifecycle.ts";
+import {
+  HistoryUnsavedError,
+  useGameLifecycle,
+  type GameLifecycleOptions,
+} from "../src/useGameLifecycle.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
 import {
@@ -47,9 +51,71 @@ test("Exit preserves the worker and session when autosave succeeds but history c
     drainHistoryCommits: async () => {},
     nextSessionId: () => calls.push("next session"),
   } as unknown as GameLifecycleOptions);
-  await assert.rejects(lifecycle.ejectGame(), /history.*not.*saved/i);
+  await assert.rejects(lifecycle.ejectGame(), HistoryUnsavedError);
   assert.equal(state.leaving, false);
   assert.deepEqual(calls, ["pause", "resume"]);
+});
+
+/** A lifecycle whose history barrier never answers — only the history choice decides Exit. */
+function exitWithSilentHistory(state: Record<string, unknown>, calls: string[]) {
+  return useGameLifecycle({
+    state,
+    hook: {},
+    audio: { stop: () => {}, setPaused: () => {} },
+    authoring: { getSession: () => null, resetSession: () => {} },
+    autosave: {
+      flushAutosaveDetailed: async () => ({ status: "saved" }),
+      reset: () => {},
+      resetScreen: () => {},
+    },
+    testRecorder: { reset: () => {} },
+    link: {
+      query: async (type: string) => {
+        calls.push(type);
+        throw new Error("history timeout");
+      },
+      terminateWorker: () => calls.push("terminate"),
+      drainPendingQueries: () => {},
+      clearShake: () => {},
+    },
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    resetPauseOwners: () => {},
+    resetHistoryView: () => {},
+    promptCancel: () => {},
+    abortWalkthrough: () => {},
+    stopHistoryWriter: () => {},
+    setActiveReplaySeed: () => {},
+    drainHistoryCommits: async () => {},
+    nextSessionId: () => 0,
+  } as unknown as GameLifecycleOptions);
+}
+
+function exitState(historyBlocked: { message: string } | null) {
+  return {
+    leaving: false,
+    powerUp: { busy: false },
+    walkthrough: {},
+    historyBlocked,
+  };
+}
+
+test("a history that can never be stored does not block Exit", async () => {
+  const calls: string[] = [];
+  const state = exitState({ message: "Your game is saved. This session's rewind timeline…" });
+  await exitWithSilentHistory(state, calls).ejectGame();
+  assert.equal(state.leaving, false);
+  assert.deepEqual(calls, ["terminate"], "no durability barrier waits on a refused tape");
+});
+
+test("Leave without this session's timeline exits past a pending history save", async () => {
+  const calls: string[] = [];
+  const state = exitState(null);
+  const lifecycle = exitWithSilentHistory(state, calls);
+  await assert.rejects(lifecycle.ejectGame(), HistoryUnsavedError);
+  assert.deepEqual(calls, ["historyEnd"]);
+  await lifecycle.ejectGame({ abandonHistory: true });
+  assert.deepEqual(calls, ["historyEnd", "terminate"]);
 });
 
 test("Download game from a tab behind storage downloads the running game and never rolls storage back", async (t) => {
