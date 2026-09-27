@@ -31,7 +31,7 @@ export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[
 const REASONING_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const OPTIONAL_REASONING_LEVELS: readonly ModelEffort[] = ["none", ...REASONING_LEVELS];
 
-/** USD per million tokens, checked September 23, 2026 (see docs for provider price pages). */
+/** USD per million tokens: provider list prices at the time of this release. */
 interface ModelPrice {
   input: number;
   output: number;
@@ -61,8 +61,8 @@ export interface ModelCapability {
 }
 
 /**
- * The tested capability table. Prices are standard API USD per million tokens,
- * checked September 23, 2026.
+ * The tested capability table. Prices are the providers' standard API list
+ * prices in USD per million tokens at the time of this release.
  * https://developers.openai.com/api/docs/models/gpt-6-astra
  * https://developers.openai.com/api/docs/models/gpt-6-sol
  * https://developers.openai.com/api/docs/models/gpt-6-luna

@@ -39,7 +39,8 @@ no account, no API key and no Sierra files.
 - **Rewind.** Every session records itself, so you can go back to any earlier
   moment and carry on from there.
 - **Get help.** **Help** is a short guide to playing, creating and managing your
-  games, open from every screen. Each topic can open the control it describes.
+  games, on the home screen and in a running game's Help menu. Each topic can
+  open the control it describes.
 
 ## The games it plays
 
@@ -291,7 +292,7 @@ Created by Joakim Riedel and published by [Monotio](https://monotio.com). The
 engine, authoring tools, browser shell and original project assets, including
 the Adventure Department tutorial, use the [MIT license](LICENSE).
 Dependencies and imported games keep their own licenses; no commercial game
-assets are part of this repository. The pencil, menu and chevron icons are from
-[Lucide](https://lucide.dev), with
-[ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in the
-build.
+assets are part of this repository. The icons are a hand-picked
+[Lucide](https://lucide.dev) set ([app/src/ui/icons.ts](app/src/ui/icons.ts)),
+with [ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in
+the build.

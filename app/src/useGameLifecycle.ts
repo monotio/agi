@@ -203,7 +203,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Game → Download game… before leaving.",
+            "The current game could not be saved. Try Settings → This game → Download game… before leaving.",
           );
         await authoring.persistRemix(game, session, files);
       }
@@ -211,16 +211,16 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
-            "Browser storage could not save latest progress. Use Game → Download game… for a development backup, or leave with previously saved progress.",
+            "Browser storage could not save latest progress. Use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "timeout") {
           throw new Error(
-            "Autosave timed out. Try again, use Game → Download game… for a development backup, or leave with previously saved progress.",
+            "Autosave timed out. Try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "not_checkpointable") {
           if (autosave.lastAutosaveRecord() !== null) {
             throw new Error(
-              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, use Game → Download game… for a development backup, or leave with previously saved progress.`,
+              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.`,
             );
           }
         }
@@ -239,7 +239,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       state.leaving = false;
       options.resumeEngine("eject");
       throw new Error(
-        "Session history is not saved yet. The game is still open. Retry saving history or use Game → Download game… to keep a recovery backup before trying Exit again.",
+        "Session history is not saved yet. The game is still open. Retry saving history or use Settings → This game → Download game… to keep a recovery backup before trying Exit again.",
       );
     }
     state.leaving = false;
@@ -337,7 +337,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (historyLifetime === null)
       logAgent(
         "error",
-        "Browser storage could not save this world. Use Game → Download game… to keep it.",
+        "Browser storage could not save this world. Use Settings → This game → Download game… to keep it.",
       );
     if (historyLifetime !== null)
       logAgent(

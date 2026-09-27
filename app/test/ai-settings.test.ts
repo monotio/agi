@@ -127,7 +127,7 @@ test("one atomic record keeps provider keys and models isolated", () => {
 });
 
 test("the app offers the current models, each with its published price and effort", () => {
-  // Checked against the provider model pages on September 23, 2026.
+  // Provider model pages and list prices at the time of this release.
   assert.deepEqual(
     MODEL_OPTIONS.anthropic.map((option) => option.id),
     ["claude-opus-5-5", "claude-fable-5-1"],

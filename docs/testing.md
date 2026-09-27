@@ -22,8 +22,9 @@ enable the compatibility suites for that edition.
 Place a game's files in any subfolder under `games/`, such as `games/kq1/` or
 `games/kings-quest-1/`. Fixture discovery indexes games by content hash
 (SHA-256 of `WORDS.TOK`), so folder names are arbitrary. Fan-made and
-self-authored games with `WORDS.TOK` (or `METADATA.JSON`) are recognized and
-playable in tests and in the app. Development discovery recognizes AGI v2 split
+self-authored games are recognized by `WORDS.TOK` or `GAME.JSON` and playable
+in tests and in the app; a `METADATA.JSON` may supply a title and author for
+one the catalog does not know. Development discovery recognizes AGI v2 split
 directories and v3 combined directories; play them from the same **Your games**
 gallery as saved projects. Installed game folders are ignored by git and
 excluded from production builds.

@@ -10,10 +10,10 @@ previews and authoring conversation to that provider. Provider calls use your
 account and are subject to the provider's data handling policies.
 
 Projects are saved in IndexedDB with a localStorage index.
-**Game → Download game…** downloads authoring history and images alongside the
-game; **Game → Export game…** downloads playable resources and public
-metadata. API credentials are excluded from both. Downloads are local files;
-sharing them is a separate action.
+**Settings → This game → Download game…** downloads authoring history and
+images alongside the game; **Settings → This game → Export game…** downloads
+playable resources and public metadata. API credentials are excluded from
+both. Downloads are local files; sharing them is a separate action.
 
 ## Trust boundaries
 
