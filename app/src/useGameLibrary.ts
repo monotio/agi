@@ -447,12 +447,20 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     await onClearSavedGame();
   }
 
+  /**
+   * Stage an import. `copy` says the library already held this game under
+   * another card: a project import always gets its own card, so a repeat is
+   * another copy, not the first.
+   */
   async function stageLibraryGame(
     game: OpenedGame,
     title: string,
     source: "zip" | "folder",
-  ): Promise<ImportStorageReport | null> {
+  ): Promise<{ stored: ImportStorageReport | null; copy: boolean }> {
     const opening = await previewGame(game, game.profile);
+    const before = new Map(
+      savedGames.value.map((entry) => [entry.projectId, entry.library?.revision]),
+    );
     let stored: ImportStorageReport | null = null;
     const importedProjectId = await addLibraryGame(
       game,
@@ -466,7 +474,24 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const entry = getCachedGameMeta(importedProjectId);
     if (entry)
       offerImportProfileChoice(entry, game.project !== undefined || game.roomGeneration === true);
-    return stored;
+    const revision = entry?.library?.revision;
+    const copy =
+      !before.has(importedProjectId) &&
+      revision !== undefined &&
+      [...before.values()].includes(revision);
+    return { stored, copy };
+  }
+
+  /** The import notice: what was added, what came along, and what it is. */
+  function importedNotice(
+    game: OpenedGame,
+    title: string,
+    { stored, copy }: { stored: ImportStorageReport | null; copy: boolean },
+  ): string {
+    const added = copy
+      ? `Added another copy of ${title} to your library`
+      : `${title} added to your library`;
+    return `${added}${progressNote(game, stored)}.${workInProgressNote(game)}`;
   }
 
   /** An unfinished world this copy cannot grow stops at unbuilt rooms. */
@@ -517,8 +542,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     try {
       if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
       const game = await readGameZip(new Uint8Array(await file.arrayBuffer()));
-      const stored = await stageLibraryGame(game, file.name.replace(/\.zip$/i, ""), "zip");
-      importNotice.value = `${game.title ?? file.name.replace(/\.zip$/i, "")} added to your library${progressNote(game, stored)}.${workInProgressNote(game)}`;
+      const name = file.name.replace(/\.zip$/i, "");
+      const staged = await stageLibraryGame(game, name, "zip");
+      importNotice.value = importedNotice(game, game.title ?? name, staged);
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {
@@ -554,8 +580,8 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       const game = readGameFiles(entries);
       const firstPath = paths.keys().next().value as string | undefined;
       const title = firstPath?.split("/")[0] || "Imported game";
-      const stored = await stageLibraryGame(game, title, "folder");
-      importNotice.value = `${game.title ?? title} added to your library${progressNote(game, stored)}.${workInProgressNote(game)}`;
+      const staged = await stageLibraryGame(game, title, "folder");
+      importNotice.value = importedNotice(game, game.title ?? title, staged);
     } catch (error) {
       importError.value = String(error).replace(/^Error: /, "");
     } finally {

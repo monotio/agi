@@ -95,6 +95,16 @@ watch(
   },
 );
 
+/**
+ * Escape opens a menu only when the game binds it (the template's
+ * set.key(27,0,c) → menu.input) and has submitted a menu; the key help names
+ * it only then. A menu shows up as the menu items of its keyed bindings.
+ */
+const escOpensMenu = computed(
+  () =>
+    state.controls.some((control) => control.key === AGI_KEY.ESCAPE) &&
+    state.controls.some((control) => control.menuItems.length > 0),
+);
 const hasKeyPrompt = computed(() =>
   state.rows.some((r) => r.toLowerCase().includes("press any key")),
 );
@@ -625,8 +635,12 @@ defineExpose({
           @close="debugOpen = false"
         />
       </div>
-      <!-- Shell actions over the stage's corner (the Play mode's Ask button). -->
-      <div class="stage-actions"><slot name="stage-actions" /></div>
+      <!-- Shell actions over the stage's corner (the Play mode's Ask button),
+           with the transport's floating card beside them, never over them. -->
+      <div class="stage-actions">
+        <div id="transport-card-host" class="transport-card-host"></div>
+        <slot name="stage-actions" />
+      </div>
     </div>
 
     <TouchControls
@@ -642,7 +656,11 @@ defineExpose({
     <!-- The slim strip under the stage: the one transport, then quiet key hints.
          Captions never overlay the game: all game text is on the CRT. -->
     <div v-if="state.phase === 'running'" class="play-strip">
-      <TransportBar v-if="engine.transport" :model="engine.transport" />
+      <TransportBar
+        v-if="engine.transport"
+        :model="engine.transport"
+        card-host="#transport-card-host"
+      />
       <div class="play-hints">
         <template v-if="!state.walkthrough.seeking && !state.historyView.active">
           <span v-if="state.resumed" class="caption resume-caption" data-testid="resume-caption">
@@ -676,7 +694,9 @@ defineExpose({
             >Type to open keyboard · Enter to send · Keys for F1–F10 and more</template
           >
           <template v-else
-            >Type to talk · Arrows or numpad walk · <kbd>Esc</kbd> game menu</template
+            >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
+              · <kbd>Esc</kbd> game menu</template
+            ></template
           >
         </p>
       </div>
@@ -715,12 +735,25 @@ defineExpose({
   right: var(--space-2);
   bottom: var(--space-3);
   z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  max-width: calc(100% - 2 * var(--space-2));
+  pointer-events: none;
+}
+.stage-actions > :deep(*) {
+  pointer-events: auto;
 }
 .with-touch .stage-actions {
   right: var(--space-1);
   bottom: var(--space-1);
 }
-.stage-actions:empty {
+.transport-card-host {
+  display: flex;
+  min-width: 0;
+}
+.transport-card-host:empty {
   display: none;
 }
 

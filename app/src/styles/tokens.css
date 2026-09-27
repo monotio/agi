@@ -19,10 +19,11 @@
   --hairline: #1f2e35;
   --hairline-strong: #2b3f48;
 
-  /* Ink. ink-3 is for secondary labels only; body text uses ink or ink-2. */
+  /* Ink. ink-3 is for secondary labels only; body text uses ink or ink-2. Each
+     reads at 4.5:1 or more on every surface (app/test/token-contrast.test.ts). */
   --ink: #e6f1f2;
   --ink-2: #a9bcc0;
-  --ink-3: #7d949a;
+  --ink-3: #82999f;
   --ink-disabled: #52666c;
 
   /* One action colour. Primary buttons fill with it; everything else tints. */

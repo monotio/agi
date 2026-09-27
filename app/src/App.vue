@@ -479,11 +479,44 @@ onMounted(async () => {
     })()
   )
     await resumeLastGame(llmConfig());
+  else if (playKey) await openRoutedGame(playKey);
   if (state.phase === "idle") {
     shell.reset();
     clearPlayHash();
   }
 });
+
+/** Home's note about the link it was opened with; cleared once any game runs. */
+const routeNote = ref("");
+
+/**
+ * A cold `#play/<target>` or `#create/<target>` whose game has no pending
+ * autosave: a link opened or pasted opens the stored library project or
+ * installed edition it names (its own autosave, or a fresh boot). A reload
+ * keeps landing on Home, which offers the game, as it always has. A game
+ * this browser does not hold gets a note either way.
+ */
+async function openRoutedGame(key: string): Promise<void> {
+  const stored = lib.savedGames.value.find((game) => game.projectId === key);
+  const norm = key.toLowerCase();
+  const installed = (state.installedGames ?? []).some((game) =>
+    [game.hash, game.alias, game.folder, game.wordsSha256].some(
+      (spelling) => spelling?.toLowerCase() === norm,
+    ),
+  );
+  if (!stored && !installed) {
+    routeNote.value = "That game isn't in this browser.";
+    return;
+  }
+  const navigation = performance.getEntriesByType("navigation")[0];
+  if (navigation instanceof PerformanceNavigationTiming && navigation.type === "reload") return;
+  if (stored) return lib.onPlayLibraryGame(stored);
+  try {
+    await lib.onPlayLocalGame(key);
+  } catch (error) {
+    lib.libraryActionError.value = String(error).replace(/^Error: /, "");
+  }
+}
 
 onUnmounted(() => {
   lib.unmountCatalog();
@@ -514,6 +547,7 @@ watch(
   () => [state.phase, state.paused, state.walkthrough.active, state.walkthrough.tick] as const,
   ([phase, paused, watching]) => {
     if (phase === "running") {
+      routeNote.value = "";
       if (!paused) {
         if (watching) updateWatchHash();
         else shell.markRoute();
@@ -753,7 +787,7 @@ watch(
       @closed="onAiSettingsClosed"
     />
 
-    <SetupPanel />
+    <SetupPanel :route-note="routeNote" />
 
     <!-- Below the fold: while Studio holds the page still they wait hidden,
          out of Tab's reach. -->
