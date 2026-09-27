@@ -15,7 +15,9 @@ import { DEFAULT_V2_PROFILE } from "../../../../src/runtime/profile.ts";
 import { openSprite } from "../../../../src/studio/sprite/spriteDocument.ts";
 import { applySpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import { parseView } from "../../../../src/view/view.ts";
-import { ResourceCommitError, type ViewEdit } from "../../resourceCommit.ts";
+import { authoringFingerprint } from "../../gameStorage.ts";
+import { ResourceCommitError } from "../../projectTransaction.ts";
+import type { ViewEdit } from "../../resourceCommit.ts";
 import { studioSpriteSource } from "../../world/studioSource.ts";
 
 const params = new URLSearchParams(location.search);
@@ -33,7 +35,12 @@ const keep: SpriteKeepFn = async (edit, staged) => {
   if (refusal === "stale" || refusal === "install" || refusal === "storage")
     throw new ResourceCommitError(refusal, `The harness refuses with ${refusal}.`);
   kept.push({ edit, staged });
-  return { status: "committed", projectId: null, revision: revision(kept.length + 1) };
+  return {
+    status: "committed",
+    projectId: null,
+    revision: revision(kept.length + 1),
+    authoring: authoringFingerprint(undefined),
+  };
 };
 
 const probe = {

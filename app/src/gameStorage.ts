@@ -14,6 +14,7 @@ import type { CachedGameMeta, CachedGameData, ProjectId, ResourceRevision } from
 import { announceProjectWrite } from "./projectBroadcast.ts";
 import { normalizeReferences, type StoredReference } from "./referenceArt.ts";
 import { projectId, resourceRevision } from "../../src/gameIdentity.ts";
+import { sha256Hex } from "../../src/crypto.ts";
 import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
 export type { CachedGameMeta, CachedGameData, ProjectId } from "./gameTypes.ts";
 
@@ -57,22 +58,65 @@ export interface GameConversation {
   authoringState: Record<string, unknown>;
 }
 
-/** Local discussions of installed games, without copying game resources into a project. */
+/**
+ * The conversation half of a session record — what an Ask, a Studio assist
+ * request or an AI settings change writes. It never carries authoring
+ * content: the stored plan, bindings and sources stay as they are.
+ */
+export interface ConversationUpdate {
+  provider: string;
+  model: string;
+  transcript: unknown[];
+  sessionId?: string | undefined;
+  /** The assistant panel's messages, stored as the authoring state's `chat`. */
+  chat: unknown[];
+}
+
+const CONVERSATION_RECORD = {
+  format: "monotio.agi.conversation",
+  version: 1,
+  versionError: "This game conversation version is not supported by this app.",
+};
+
+/**
+ * Local discussions of installed games, without copying game resources into
+ * a project. `expected` makes it an authoring write: it lands only while the
+ * stored record still holds the authoring content it was made from, and
+ * refuses with a `StaleAuthoringError` otherwise.
+ */
 export async function saveGameConversation(
   storageKey: string,
   context: GameConversation,
+  expected?: { fingerprint: AuthoringFingerprint },
 ): Promise<void> {
   const key = `conversation/${storageKey}`;
-  await putVersionedRecord(
-    key,
-    {
-      ...context,
-      projectId: key,
-      format: "monotio.agi.conversation",
-      version: 1,
-    },
-    "This game conversation version is not supported by this app.",
-  );
+  await putVersionedRecord(key, CONVERSATION_RECORD, (stored: GameConversation | undefined) => {
+    if (expected && authoringFingerprint(stored?.authoringState) !== expected.fingerprint)
+      throw new StaleAuthoringError("This game's authoring was changed elsewhere.");
+    return { ...context, projectId: key };
+  });
+}
+
+/** Store an installed game's conversation beside the authoring content it already holds. */
+export async function saveGameConversationUpdate(
+  storageKey: string,
+  update: ConversationUpdate,
+): Promise<void> {
+  const key = `conversation/${storageKey}`;
+  const { chat, ...conversation } = update;
+  await putVersionedRecord(key, CONVERSATION_RECORD, (stored: GameConversation | undefined) => ({
+    ...conversation,
+    authoringState: { ...stored?.authoringState, chat },
+    projectId: key,
+  }));
+}
+
+/** A write refused because the stored authoring content is not the one it was made from. */
+export class StaleAuthoringError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StaleAuthoringError";
+  }
 }
 
 export async function loadGameConversation(
@@ -83,8 +127,11 @@ export async function loadGameConversation(
     (store) => store.get(`conversation/${storageKey}`),
   );
   if (!stored) return undefined;
-  if (stored["format"] !== "monotio.agi.conversation" || stored["version"] !== 1)
-    throw new Error("This game conversation version is not supported by this app.");
+  if (
+    stored["format"] !== CONVERSATION_RECORD.format ||
+    stored["version"] !== CONVERSATION_RECORD.version
+  )
+    throw new Error(CONVERSATION_RECORD.versionError);
   const { format: _format, version: _version, projectId: _projectId, ...context } = stored;
   return context as unknown as GameConversation;
 }
@@ -270,10 +317,97 @@ export async function updateBodyRecords<T>(
   });
 }
 
+// ---------- record identities ----------
+//
+// Three facts about a stored record, each derived here and nowhere else;
+// projectTransaction.ts decides what they mean for a running game:
+// - the storage generation, the counter every conditional project write
+//   compares and bumps (a record written before it existed counts as 0);
+// - the history lifetime, the epoch of the `lifetime/<key>` receipt that
+//   deletion ends for good ("initial" for a project that predates receipts);
+// - the authoring fingerprint, a digest of the authoring state's editable
+//   content, computed from the record and never stored.
+// The fourth identity, the resource revision, is the playable bytes' digest
+// (gameMetadata.ts `gameRevision`) that every write stamps into `library`.
+
 interface HistoryLifetime {
   projectId: string;
   epoch: string;
   deleted: boolean;
+}
+
+/** The lifetime of a project written before lifetime receipts existed. */
+const INITIAL_LIFETIME = "initial";
+
+/** A receipt's live lifetime: null once the game was removed. */
+function liveLifetime(receipt: HistoryLifetime | undefined): string | null {
+  return receipt?.deleted ? null : (receipt?.epoch ?? INITIAL_LIFETIME);
+}
+
+/**
+ * Whether a writer holding `expected` may still write into a record whose
+ * live lifetime is `actual`. `undefined` expects no particular lifetime; a
+ * removed game (`actual` null) and a writer that booted a removed one
+ * (`expected` null) never hold.
+ */
+export function lifetimeHolds(expected: string | null | undefined, actual: string | null): boolean {
+  return actual !== null && expected !== null && (expected === undefined || expected === actual);
+}
+
+/** The generation a conditional write compares; 0 for a record written before generations. */
+export function generationOf(record: { generation?: number | undefined } | undefined): number {
+  return typeof record?.generation === "number" ? record.generation : 0;
+}
+
+/** A digest of a stored authoring state's editable content; see `authoringFingerprint`. */
+export type AuthoringFingerprint = string & { readonly __authoringFingerprint: true };
+
+/**
+ * The editable content of a stored authoring state as canonical JSON: every
+ * field but the chat (the plan, bindings, labels, locks, annotations and
+ * sources), keys in code-point order, byte arrays as number arrays. A
+ * missing state and one holding only chat are the same empty content.
+ */
+function editableContent(authoringState: Record<string, unknown> | undefined): string {
+  const { chat: _chat, ...editable } = authoringState ?? {};
+  return canonicalJson(editable);
+}
+
+function canonicalJson(value: unknown): string {
+  if (ArrayBuffer.isView(value) && !(value instanceof DataView))
+    return canonicalJson(Array.from(value as unknown as ArrayLike<number>));
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalJson(item ?? null)).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value).filter(([, item]) => item !== undefined);
+    entries.sort(([a], [b]) => compareCodePoints(a, b));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function compareCodePoints(a: string, b: string): number {
+  const x = [...a];
+  const y = [...b];
+  for (let i = 0; i < x.length && i < y.length; i++) {
+    const order = x[i]!.codePointAt(0)! - y[i]!.codePointAt(0)!;
+    if (order !== 0) return order;
+  }
+  return x.length - y.length;
+}
+
+/**
+ * The authoring fingerprint of a stored authoring state: SHA-256 of its
+ * editable content. Equal fingerprints mean equal plans, bindings and
+ * sources; the chat never counts. Synchronous, so a write transaction can
+ * check it before its put.
+ */
+export function authoringFingerprint(
+  authoringState: Record<string, unknown> | undefined,
+): AuthoringFingerprint {
+  return sha256Hex(
+    new TextEncoder().encode(editableContent(authoringState)),
+  ) as AuthoringFingerprint;
 }
 
 /** A boot captures this before its worker starts; deletion invalidates it permanently. */
@@ -281,7 +415,7 @@ export async function readHistoryLifetime(storageKey: string): Promise<string | 
   const stored = await bodyTransaction<HistoryLifetime | undefined>("readonly", (store) =>
     store.get(`lifetime/${storageKey}`),
   );
-  return stored?.deleted ? null : (stored?.epoch ?? "initial");
+  return liveLifetime(stored);
 }
 
 /** Checked inside the history write transaction, including for installed games without bodies. */
@@ -289,12 +423,7 @@ export function historyLifetimeGuard(storageKey: string, expected?: string | nul
   return {
     key: `lifetime/${storageKey}`,
     check: (raw: unknown): void => {
-      const stored = raw as HistoryLifetime | undefined;
-      if (
-        stored?.deleted ||
-        expected === null ||
-        (expected !== undefined && expected !== (stored?.epoch ?? "initial"))
-      )
+      if (!lifetimeHolds(expected, liveLifetime(raw as HistoryLifetime | undefined)))
         throw new ProjectDeletedError("This history writer belongs to a removed game.");
     },
   };
@@ -386,10 +515,16 @@ export function clearStashedConflict(projectId: ProjectId): void {
   stashedConflicts.delete(projectId);
 }
 
-async function putVersionedRecord<T extends { format: string; version: number }>(
+/**
+ * Replace one versioned record inside a single read-write transaction. A
+ * stored record of another format or version is never overwritten; `build`
+ * sees the stored record of this one (or none) and returns its successor,
+ * or throws to refuse.
+ */
+async function putVersionedRecord<S, T>(
   key: string,
-  record: T,
-  versionError: string,
+  kind: { format: string; version: number; versionError: string },
+  build: (stored: S | undefined) => T,
 ): Promise<void> {
   const db = await openDatabase();
   return new Promise<void>((resolve, reject) => {
@@ -399,13 +534,14 @@ async function putVersionedRecord<T extends { format: string; version: number }>
     let contractError: Error | undefined;
     existing.onsuccess = () => {
       const value = existing.result as Record<string, unknown> | undefined;
-      // A record this release does not recognise is never overwritten.
-      if (value && (value["format"] !== record.format || value["version"] !== record.version)) {
-        contractError = new Error(versionError);
+      try {
+        if (value && (value["format"] !== kind.format || value["version"] !== kind.version))
+          throw new Error(kind.versionError);
+        store.put({ ...build(value as S | undefined), format: kind.format, version: kind.version });
+      } catch (error) {
+        contractError = error instanceof Error ? error : new Error(String(error));
         transaction.abort();
-        return;
       }
-      store.put(record);
     };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(contractError ?? transaction.error);
@@ -422,18 +558,26 @@ interface ProjectWriteOptions {
   requireNew?: boolean | undefined;
 }
 
+/** What a committed body write replaced and began. */
+interface BodyWrite {
+  /** The committed history lifetime (a new record's fresh epoch). */
+  lifetime: string;
+  /** The record the write replaced; undefined for a new record. */
+  replaced: StoredGameBody | undefined;
+}
+
 async function writeCurrentBody(
   data: CachedGameData,
   options?: ProjectWriteOptions,
-): Promise<string> {
+): Promise<BodyWrite> {
   const db = await openDatabase();
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<BodyWrite>((resolve, reject) => {
     const transaction = db.transaction("projects", "readwrite");
     const store = transaction.objectStore("projects");
     const existing = store.get(data.projectId);
     let contractError: Error | undefined;
-    let committedGeneration = 1;
-    let lifetime = "initial";
+    let lifetime = INITIAL_LIFETIME;
+    let replaced: StoredGameBody | undefined;
 
     existing.onsuccess = () => {
       const value = existing.result as StoredGameBody | undefined;
@@ -458,7 +602,7 @@ async function writeCurrentBody(
           transaction.abort();
           return;
         }
-        const existingGen = typeof value.generation === "number" ? value.generation : 0;
+        const existingGen = generationOf(value);
         if (existingGen !== options.expectedGeneration) {
           contractError = new ConcurrencyConflictError(
             `Project "${data.projectId}" was modified by another window (expected generation ${options.expectedGeneration}, found ${existingGen}).`,
@@ -475,12 +619,11 @@ async function writeCurrentBody(
       const receipt = store.get(`lifetime/${data.projectId}`);
       receipt.onsuccess = () => {
         const previousLifetime = receipt.result as HistoryLifetime | undefined;
-        lifetime = previousLifetime?.epoch ?? "initial";
+        lifetime = previousLifetime?.epoch ?? INITIAL_LIFETIME;
         if (
           options?.expectedLifetime !== undefined &&
           (value === undefined ||
-            previousLifetime?.deleted ||
-            lifetime !== options.expectedLifetime)
+            !lifetimeHolds(options.expectedLifetime, liveLifetime(previousLifetime)))
         ) {
           contractError = new ProjectDeletedError(
             `Project "${data.projectId}" was removed or replaced by another window.`,
@@ -488,10 +631,8 @@ async function writeCurrentBody(
           transaction.abort();
           return;
         }
-        const prevGen = typeof value?.generation === "number" ? value.generation : 0;
-        committedGeneration =
-          (options?.expectedGeneration !== undefined ? options.expectedGeneration : prevGen) + 1;
-        data.generation = committedGeneration;
+        data.generation = (options?.expectedGeneration ?? generationOf(value)) + 1;
+        replaced = value;
         if (value === undefined) {
           lifetime = crypto.randomUUID();
           store.put({
@@ -504,7 +645,7 @@ async function writeCurrentBody(
       };
     };
 
-    transaction.oncomplete = () => resolve(lifetime);
+    transaction.oncomplete = () => resolve({ lifetime, replaced });
     transaction.onerror = () => reject(contractError ?? transaction.error);
     transaction.onabort = () =>
       reject(
@@ -566,8 +707,7 @@ async function readBody(
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
   const stored = snapshot.head as StoredGameBody | undefined;
-  const lifetime = snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime | undefined;
-  onLifetime?.(lifetime?.deleted ? null : (lifetime?.epoch ?? "initial"));
+  onLifetime?.(liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime));
   if (!stored)
     throw new Error(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
@@ -641,9 +781,9 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
       throw new Error(UNREADABLE_PROJECT_MESSAGE);
   }
   await stampLibraryMetadata(data, true);
-  let lifetime: string;
+  let written: BodyWrite;
   try {
-    lifetime = await writeCurrentBody(data, options);
+    written = await writeCurrentBody(data, options);
   } catch (err) {
     if (err instanceof ConcurrencyConflictError || err instanceof ProjectDeletedError) {
       stashedConflicts.set(data.projectId, {
@@ -658,14 +798,21 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
     throw err;
   }
   localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
-  // Committed: a tab running another revision of this project learns now.
-  if (data.library && data.generation !== undefined)
+  // Committed: a tab running another revision of this project learns now,
+  // and one holding other authoring content when this write changed it.
+  if (data.library && data.generation !== undefined) {
+    const authoring = editableContent(data.authoringState);
     announceProjectWrite({
       projectId: data.projectId,
       revision: data.library.revision,
       generation: data.generation,
+      ...(written.replaced !== undefined &&
+      authoring !== editableContent(written.replaced.authoringState)
+        ? { fingerprint: authoringFingerprint(data.authoringState) }
+        : {}),
     });
-  return lifetime;
+  }
+  return written.lifetime;
 }
 export function serializeWrite<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const next = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(operation);
@@ -788,12 +935,7 @@ export function updateAuthoredGameFilesAt(
       const data = await readBody(projectId, (value) => {
         lifetime = value;
       });
-      if (
-        !data ||
-        lifetime === null ||
-        (expected.lifetime !== undefined && expected.lifetime !== lifetime)
-      )
-        return "stale";
+      if (!data || !lifetimeHolds(expected.lifetime, lifetime)) return "stale";
       // The stamp is enough on every record this app writes; one without it
       // (or with a stamp that disagrees) is judged by its files instead.
       let stored = data.library?.revision;
@@ -845,6 +987,54 @@ export function updateAuthoredReferences(
   });
 }
 
+/** The stored transcript moves to the history when the provider or model changes. */
+function applyConversation(
+  data: CachedGameData,
+  transcript: unknown[],
+  sessionId: string | undefined,
+  provider: string | undefined,
+  model: string | undefined,
+): void {
+  if (
+    provider &&
+    (provider !== data.provider || (model && model !== data.model)) &&
+    data.transcript?.length
+  )
+    data.conversationHistory = [
+      ...(data.conversationHistory ?? []),
+      { provider: data.provider, model: data.model, transcript: data.transcript },
+    ];
+  data.transcript = transcript;
+  data.sessionId = sessionId;
+  if (provider) data.provider = provider;
+  if (model) data.model = model;
+}
+
+/**
+ * Store a project's conversation (see `ConversationUpdate`) under the
+ * generation check every project write shares, beside the files and
+ * authoring content the record already holds.
+ */
+export function updateProjectConversation(
+  projectId: ProjectId,
+  update: ConversationUpdate,
+  expectedGeneration: number,
+): Promise<boolean> {
+  return serializeWrite(projectId, async () => {
+    try {
+      const data = await readBody(projectId);
+      if (!data) return false;
+      applyConversation(data, update.transcript, update.sessionId, update.provider, update.model);
+      data.authoringState = { ...data.authoringState, chat: update.chat };
+      await writeBody(data, { expectedGeneration });
+      return true;
+    } catch (error) {
+      console.error("Conversation save failed:", error);
+      return false;
+    }
+  });
+}
+
 export function updateGameConversation(
   projectId: ProjectId,
   transcript: unknown[],
@@ -860,20 +1050,8 @@ export function updateGameConversation(
       const data = await readBody(projectId);
       if (!data) return false;
       const gen = expectedGeneration ?? data.generation;
-      if (
-        provider &&
-        (provider !== data.provider || (model && model !== data.model)) &&
-        data.transcript?.length
-      )
-        data.conversationHistory = [
-          ...(data.conversationHistory ?? []),
-          { provider: data.provider, model: data.model, transcript: data.transcript },
-        ];
-      data.transcript = transcript;
-      data.sessionId = sessionId;
+      applyConversation(data, transcript, sessionId, provider, model);
       if (authoringState) data.authoringState = authoringState;
-      if (provider) data.provider = provider;
-      if (model) data.model = model;
       if (files) {
         data.files = files;
         if (files["WORDS.TOK"])

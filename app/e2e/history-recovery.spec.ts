@@ -138,11 +138,16 @@ test("Exit keeps the game playable after history failure and succeeds after stor
   });
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-exit").click();
-  await expect(page.getByTestId("eject-refusal")).toContainText("Session history is not saved", {
-    timeout: 15_000,
-  });
+  // One sentence and a choice, not a refusal: the game itself is saved.
+  await expect(page.getByTestId("eject-history")).toContainText(
+    "This session's rewind timeline is not saved yet.",
+    { timeout: 15_000 },
+  );
+  await expect(page.getByTestId("eject-leave-without-timeline")).toBeVisible();
+  await expect(page.getByTestId("eject-keep-backup")).toBeVisible();
   expect((await textHook(page)).autosave).toBeGreaterThan(0);
-  await page.getByTestId("eject-dismiss").click();
+  await page.getByTestId("eject-stay").click();
+  await expect(page.getByTestId("eject-history")).toBeHidden();
   await waitForCycles(page, 2);
   await page.evaluate(() => {
     (window as unknown as { refuseHistory: boolean }).refuseHistory = false;
@@ -153,6 +158,87 @@ test("Exit keeps the game playable after history failure and succeeds after stor
   await expect(page.getByTestId("catalog-play-adventure-department")).toHaveText("Resume", {
     timeout: 15_000,
   });
+});
+
+test("a stored timeline this version cannot extend says so once, never blocks Exit, and a new timeline can start", async ({
+  page,
+}) => {
+  const play = page.getByTestId("catalog-play-adventure-department");
+  const exit = async () => {
+    await openGameOptions(page, "settings-menu");
+    await page.getByTestId("btn-exit").click();
+    await expect(play).toHaveText("Resume", { timeout: 15_000 });
+  };
+  await boot(page);
+  await exit();
+  // Between sessions, the game's tape becomes the pre-1.0 whole-tape layout.
+  const key = await page.evaluate(
+    () =>
+      new Promise<string>((resolve, reject) => {
+        const open = indexedDB.open("monotio-agi-projects");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const store = open.result.transaction("projects", "readwrite").objectStore("projects");
+          const keys = store.getAllKeys();
+          keys.onsuccess = () => {
+            const head = (keys.result as string[]).find(
+              (k) => k.startsWith("history/") && k.split("/").length === 2,
+            )!;
+            store.put({
+              format: "monotio.agi.history",
+              version: 1,
+              projectId: head,
+              recording: { segments: [] },
+              committed: {},
+            });
+            resolve(head);
+          };
+        };
+      }),
+  );
+  await play.click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The session's first batch meets the old record: one calm, permanent message.
+  await expect(page.getByTestId("history-blocked")).toHaveText(
+    /^Your game is saved\. This session's rewind timeline can't be stored: an older timeline for this game is in a format this version can't extend\./,
+    { timeout: 20_000 },
+  );
+  await expect(page.getByTestId("history-unsaved")).toBeHidden();
+  // Nothing about the refused tape holds Exit; the next session says it again.
+  await exit();
+  await play.click();
+  await expect(page.getByTestId("history-blocked")).toBeVisible({ timeout: 20_000 });
+
+  // Start a new timeline, confirmed: the session's tape lands there.
+  await page.getByTestId("history-new-timeline").click();
+  await page.getByTestId("history-new-timeline-confirm").click();
+  await expect(page.getByTestId("history-blocked")).toBeHidden();
+  const stored = () =>
+    page.evaluate(
+      (head) =>
+        new Promise<{ old: unknown; next: unknown }>((resolve) => {
+          const open = indexedDB.open("monotio-agi-projects");
+          open.onsuccess = () => {
+            const store = open.result.transaction("projects").objectStore("projects");
+            const old = store.get(head);
+            const next = store.get(`${head}/next`);
+            next.onsuccess = () => resolve({ old: old.result, next: next.result });
+          };
+        }),
+      key,
+    );
+  await expect
+    .poll(async () => ((await stored()).next as { segments?: unknown[] })?.segments?.length ?? 0)
+    .toBeGreaterThan(0);
+  // The old record is kept exactly as it was, for the release that wrote it.
+  expect((await stored()).old).toEqual({
+    format: "monotio.agi.history",
+    version: 1,
+    projectId: key,
+    recording: { segments: [] },
+    committed: {},
+  });
+  await exit();
 });
 
 test("unreadable saved slots are reported even when current checkpoint and history are available", async ({

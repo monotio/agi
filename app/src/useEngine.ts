@@ -23,7 +23,7 @@ import {
   writeAutosave,
 } from "./useAutosaveController.ts";
 import { clearCachedGame } from "./gameStorage.ts";
-import { watchProjectWrites } from "./projectBroadcast.ts";
+import { watchProjectWrites } from "./projectTransaction.ts";
 import { clearGameSaves } from "./gameSaves.ts";
 import { removeMapSidecar } from "./roomMapStore.ts";
 import { type BootedGame, type Frame, type ProjectId } from "./gameTypes.ts";
@@ -117,6 +117,8 @@ export function useEngine(
     recording: { active: false, starting: false, error: "" },
     historyPending: 0,
     historyUnsaved: null,
+    historyBlocked: null,
+    historyRetry: null,
     historyView: freshHistoryView(),
     walkthrough: createInitialWalkthroughState(),
     debugObjects: [],
@@ -184,6 +186,7 @@ export function useEngine(
     getBootedGame: () => lifecycle.getBootedGame(),
     getActiveWalkthroughSession: () => activeWalkthroughSession,
     observationListeners,
+    onBehindStorage: tellBehindStorage,
   });
 
   const input = useInputController({
@@ -269,6 +272,8 @@ export function useEngine(
       return () => clearTimeout(timer);
     },
     logAgent,
+    retryWorker: () =>
+      link.getWorker()?.postMessage({ type: "historyRetry" } satisfies WorkerInbound),
   });
 
   const authoringController = useAuthoringController({
@@ -293,6 +298,7 @@ export function useEngine(
     configForGame: (projectId, config) => lifecycle.configForGame(projectId, config),
     getLlmConfig: () => activeLlmConfig,
     getRoomNotes: (room) => roomMap.noteIntentFor(room),
+    onBehindStorage: tellBehindStorage,
   });
 
   const testRecorder = useTestRecorder({
@@ -355,9 +361,10 @@ export function useEngine(
     handleRoomAuthoring: (req: LlmRequest, agent: AgentHandler) =>
       authoringController.handleRoomAuthoring(req, agent, (dir) => sendDirection(dir)),
     // The room answer's authoring checkpoint posts after the hostAnswer —
-    // the tape records the state after the cause that produced it.
+    // the tape records the state after the cause that produced it — and
+    // the saved room's install confirmation reads the game back after it.
     hostAnswered: (req: LlmRequest) => {
-      if (req.op === "room") authoringController.postSessionSnapshot();
+      if (req.op === "room") authoringController.roomAnswered();
     },
     getAgentSession: () => authoringController.getSession(),
     getReplayDriver: () => replayDriver,
@@ -556,9 +563,12 @@ export function useEngine(
       if (state.walkthrough.active) return walkthrough.transport;
       return historyView.transport;
     },
-    /** The "history not saved" banner's retry — nudge the worker's resend. */
-    retryHistorySave: () =>
-      link.getWorker()?.postMessage({ type: "historyRetry" } satisfies WorkerInbound),
+    /** The "history not saved" banner's Try now: resend, then Saved or the reason. */
+    retryHistorySave: historyController.retrySave,
+    /** Beside a stored tape this version cannot extend, start a new one (player-confirmed). */
+    startNewTimeline: historyController.startNewTimeline,
+    /** That old tape's stored records, verbatim as JSON, for its own reader. */
+    readOldTimeline: historyController.readOldTimeline,
     /** Export waits out in-flight history commits before reading the tape. */
     drainHistoryCommits: historyController.drainHistoryCommits,
     observeMapFrame: roomMap.observeFrame,

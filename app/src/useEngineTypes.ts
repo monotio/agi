@@ -18,6 +18,7 @@ import type { PowerUpUiState } from "./useAuthoringController.ts";
 import type { PromptState } from "./usePromptController.ts";
 import type { WalkthroughUiState } from "./useWalkthroughController.ts";
 import type { HistoryViewMark } from "./useHistoryView.ts";
+import type { HistoryBlock, HistoryRetry } from "./useHistoryController.ts";
 import type { ProfileDetectionKind } from "../../src/runtime/profile.ts";
 
 /** Engine modal kinds (the engine draws them on its text surface). */
@@ -173,6 +174,14 @@ export interface EngineState {
    * visible — "history not saved since …" with a retry.
    */
   historyUnsaved: { batches: number; since: number } | null;
+  /**
+   * The stored tape is in a format this version cannot extend: the game
+   * saves, this session's timeline cannot. Permanent — no retry reaches it;
+   * the banner offers a new timeline beside the old one.
+   */
+  historyBlocked: HistoryBlock | null;
+  /** The unsaved banner's Try now: Saving…, then Saved or the plain reason. */
+  historyRetry: HistoryRetry | null;
   /** The history transport: paused live session plus a scratch replay under it. */
   historyView: HistoryViewUiState;
   /** Real-time walkthrough playback. */

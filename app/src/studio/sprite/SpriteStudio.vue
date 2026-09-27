@@ -18,6 +18,7 @@ import UiSegmented from "../../ui/UiSegmented.vue";
 import LessonCard from "../../lessons/LessonCard.vue";
 import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
 import type { ResourceCommitResult, ViewEdit } from "../../resourceCommit.ts";
+import type { AuthoringFingerprint } from "../../gameStorage.ts";
 import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
 import StudioAssistCompare from "../StudioAssistCompare.vue";
 import StudioAssistPanel from "../StudioAssistPanel.vue";
@@ -92,6 +93,7 @@ const {
   profile,
   title = undefined,
   baseRevision = undefined,
+  baseAuthoring = undefined,
   keep: keepFn = undefined,
   files = new Map(),
   usage = { rooms: [], logics: [], dynamic: false },
@@ -108,6 +110,8 @@ const {
   title?: string | undefined;
   /** The game revision the bytes were read at; without one the view is view only. */
   baseRevision?: ResourceRevision | undefined;
+  /** The authoring content the draft opens on; each Keep carries it (resourceCommit.ts). */
+  baseAuthoring?: AuthoringFingerprint | undefined;
   /** The Keep transaction; the engine's when omitted. */
   keep?: SpriteKeepFn | undefined;
   /** The game's container files, read at the same revision: the rooms' pictures. */
@@ -292,19 +296,27 @@ const keeper = useStudioKeep({ draft, keep: keepView });
 const engine = keepFn ? null : useEngineApi();
 /** The staged offer the next Keep spends; once kept, the view is the game's own. */
 let stagedPending = stagedReference;
+/** The authoring content the draft was opened or last kept on. */
+let keptAuthoring = baseAuthoring;
+watch(
+  () => baseAuthoring,
+  (next) => (keptAuthoring = next),
+);
 async function keepView(revision: ResourceRevision): Promise<ResourceCommitResult> {
   const edit: ViewEdit = {
     viewNumber,
     bytes: draft.bytes.value,
     baseRevision: revision,
+    baseAuthoring: keptAuthoring,
     reason: draft.reason(),
   };
   const result = keepFn
     ? await keepFn(edit, stagedPending)
     : stagedPending
-      ? await engine!.keepStagedView(stagedPending, { bytes: edit.bytes, baseRevision: revision })
+      ? await engine!.keepStagedView(stagedPending, edit)
       : await engine!.commitViewEdit(edit);
   stagedPending = undefined;
+  keptAuthoring = result.authoring;
   lesson.check({ kind: "view", num: viewNumber, after: edit.bytes, profile });
   return result;
 }

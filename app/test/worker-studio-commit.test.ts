@@ -14,7 +14,7 @@ import { testProjectId, testRevision } from "./identity.ts";
 import { gameContainer } from "./worker-ctx.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
-import { ResourceCommitError } from "../src/resourceCommit.ts";
+import { ResourceCommitError } from "../src/projectTransaction.ts";
 import { useWorkerLink } from "../src/useWorkerLink.ts";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";

@@ -18,11 +18,9 @@ import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engineContext.ts";
 import { aiSettingsKey } from "../useAiSettings.ts";
-import {
-  ResourceCommitError,
-  type ResourceCommitResult,
-  type RoomEdit,
-} from "../resourceCommit.ts";
+import { ResourceCommitError } from "../projectTransaction.ts";
+import type { ResourceCommitResult, RoomEdit } from "../resourceCommit.ts";
+import type { AuthoringFingerprint } from "../gameStorage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
@@ -124,6 +122,7 @@ const {
   title,
   subtitle = undefined,
   baseRevision = undefined,
+  baseAuthoring = undefined,
   keep: keepFn = undefined,
   keepRoom = undefined,
   files = undefined,
@@ -138,6 +137,8 @@ const {
   subtitle?: string | undefined;
   /** The game revision the bytes were read at; without one the picture is view only. */
   baseRevision?: ResourceRevision | undefined;
+  /** The authoring content the draft opens on; each Keep carries it (resourceCommit.ts). */
+  baseAuthoring?: AuthoringFingerprint | undefined;
   /** The Keep transaction; the engine's when omitted. */
   keep?: KeepFn | undefined;
   /** The combined picture + room logic Keep; the engine's when omitted. */
@@ -264,10 +265,19 @@ const room = {
     logic.discard();
   },
 };
+/** The authoring content the draft was opened or last kept on. */
+let keptAuthoring = baseAuthoring;
+watch(
+  () => baseAuthoring,
+  (next) => (keptAuthoring = next),
+);
 const keeper = useStudioKeep({
   draft: room,
   keep: async (baseRevision) => {
-    const edit = draftPictureEdit(draft, pictureNumber, baseRevision);
+    const edit = {
+      ...draftPictureEdit(draft, pictureNumber, baseRevision),
+      baseAuthoring: keptAuthoring,
+    };
     const pictureChanged = draft.dirty.value;
     let result: ResourceCommitResult;
     if (!logicInKeep() || !walk) result = await commitPicture(edit);
@@ -290,10 +300,12 @@ const keeper = useStudioKeep({
           newBindings: followed.newBindings,
         },
         baseRevision,
+        baseAuthoring: keptAuthoring,
         reason: edit.reason,
       });
       logic.markKept({ source: followed.source, bytes: followed.bytes });
     }
+    keptAuthoring = result.authoring;
     if (pictureChanged)
       lesson.check({
         kind: "picture",

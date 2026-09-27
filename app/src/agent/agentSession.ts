@@ -14,13 +14,16 @@ import {
 } from "../../../src/agent/agentState.ts";
 import {
   ASK_TOOLS,
-  AUTHORING_TOOL_NAMES,
   buildSound,
   type SoundTrackInput,
   executeAgentTool,
   executeAgentToolAsync,
+  GENESIS_TOOLS,
+  REMIX_TOOLS,
+  ROOM_AUTHORING_TOOLS,
   STUDIO_ASSIST_TASK_TOOLS,
   type AgentRuntimeDeps,
+  type AgentToolDeps,
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
 import {
@@ -94,13 +97,6 @@ export interface PowerUpResult {
   /** Updated auxiliary files; these must reach the live parser, inventory and export. */
   files?: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
 }
-
-/**
- * Tools active during Genesis, Room Authoring and Remix: the whole catalog
- * except the Studio assist pair. The advertised catalog stays stable across
- * phases for prompt cache reuse; this is the availability policy.
- */
-const AUTHORING_SESSION_TOOLS = AUTHORING_TOOL_NAMES;
 
 export interface BootResources {
   files: Record<string, Uint8Array>;
@@ -332,7 +328,7 @@ export class AgentSession implements AgentHandler {
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
-    const context = await this.orientationContext(room);
+    const context = await this.orientationContext(room, ASK_TOOLS);
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
@@ -342,7 +338,7 @@ export class AgentSession implements AgentHandler {
           state: { compact: true, variables: null, flags: null },
           frames: null,
         },
-        { ...this.runtime, readOnly: true },
+        { ...this.runtime, readOnly: true, allowedTools: ASK_TOOLS },
       );
       const text = result.success
         ? `You are in room ${room}. This test provider can inspect the game; connect a model for hints and debugging.`
@@ -374,6 +370,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           const result = await executeAgentToolAsync(inspected, call.name, call.input, {
             ...this.runtime,
             readOnly: true,
+            allowedTools: ASK_TOOLS,
           });
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
@@ -404,7 +401,8 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.oriented) this.orientation = input;
   }
 
-  private async orientationContext(room: number): Promise<string> {
+  /** The first request's scene brief, read under the task's own list. */
+  private async orientationContext(room: number, allowedTools: readonly string[]): Promise<string> {
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
     // The compact scene brief reads through the same tools the model uses —
@@ -415,7 +413,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         this.state,
         "read_room_context",
         { room, state: null, frames: null },
-        this.runtime,
+        { ...this.runtime, allowedTools },
       ),
       executeAgentTool(this.state, "read_picture", { num: room }),
     ];
@@ -470,7 +468,8 @@ Answer the player's question using evidence from inspection when needed. For hin
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: instruction });
     this.onEvent("request", `[Remix] "${instruction}" (room ${room})`, { instruction, room });
-    const prompt = (await this.orientationContext(room)) + createPowerUpPrompt(instruction, room);
+    const prompt =
+      (await this.orientationContext(room, REMIX_TOOLS)) + createPowerUpPrompt(instruction, room);
     if (this.stubFallback) {
       // The stub looks at the running game before it patches, exactly as the
       // model path does. That keeps the offline e2e a proof of the whole
@@ -483,7 +482,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           state: null,
           frames: { count: 4, stride: 1, sheet: true, plane: null },
         },
-        this.runtime,
+        { ...this.runtime, allowedTools: REMIX_TOOLS },
       );
       this.onEvent(
         frames.success ? "response" : "error",
@@ -501,7 +500,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
     if (!this.conversation) throw new Error("No conversation provider configured");
 
-    this.conversation.setAvailableTools(AUTHORING_SESSION_TOOLS);
+    this.conversation.setAvailableTools(REMIX_TOOLS);
 
     const staged = forkAgentState(this.state);
     const forkRevision = worldRevision(this.state.authoring.world);
@@ -558,7 +557,10 @@ Answer the player's question using evidence from inspection when needed. For hin
                 "Not executed: this turn ended at a successful handover. Ask for this change in the next Remix request.",
             };
           } else {
-            res = await executeAgentToolAsync(candidate, tc.name, tc.input, this.runtime);
+            res = await executeAgentToolAsync(candidate, tc.name, tc.input, {
+              ...this.runtime,
+              allowedTools: REMIX_TOOLS,
+            });
           }
           if (res.success) {
             Object.assign(staged, candidate);
@@ -654,7 +656,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     this.messages.push({ role: "user", text: instruction });
     this.onEvent("request", `[Studio] "${instruction}" (${label})`, { instruction, scope: label });
     conversation.setAvailableTools(STUDIO_ASSIST_TASK_TOOLS);
-    const deps: AgentRuntimeDeps = { allowedTools: STUDIO_ASSIST_TASK_TOOLS, studio: assist };
+    const deps: AgentToolDeps = { allowedTools: STUDIO_ASSIST_TASK_TOOLS, studio: assist };
     // Inspection reads a fork, as Ask does: nothing this turn runs may
     // reach the session's resources. It reads under the draft's profile,
     // the one Accept re-checks the candidate with.
@@ -1041,7 +1043,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     // Seed editable boilerplate before the first model turn. These are
     // ordinary resources the agent can use, extend or replace.
     installBaseTemplate(this.state, this.state.profile);
-    this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
+    this.conversation?.setAvailableTools(GENESIS_TOOLS);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
       // The stub records its world plan through the same update_world tool —
@@ -1088,7 +1090,7 @@ Answer the player's question using evidence from inspection when needed. For hin
                   "Not executed: this turn ended at a successful handover. Use an Ask or Remix request for further changes.",
               }
             : await executeAgentToolAsync(this.state, tc.name, tc.input, {
-                allowedTools: AUTHORING_SESSION_TOOLS,
+                allowedTools: GENESIS_TOOLS,
               });
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
@@ -1165,9 +1167,9 @@ Answer the player's question using evidence from inspection when needed. For hin
     const forkRevision = worldRevision(this.state.authoring.world);
     staged.genesisComplete = true;
     staged.sources.objects = readInventoryObjects(staged.getFiles().get("OBJECT"), staged.profile);
-    this.conversation.setAvailableTools(AUTHORING_SESSION_TOOLS);
-    const snapshot: AgentRuntimeDeps = {
-      allowedTools: AUTHORING_SESSION_TOOLS,
+    this.conversation.setAvailableTools(ROOM_AUTHORING_TOOLS);
+    const snapshot: AgentToolDeps = {
+      allowedTools: ROOM_AUTHORING_TOOLS,
       engine: {
         state: () => req.context["state"] ?? null,
         objects: () => req.context["objects"] ?? [],

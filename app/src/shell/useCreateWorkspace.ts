@@ -10,6 +10,7 @@
  * Folded docks are a per-viewer convenience kept in browser storage, never a
  * format: a blocked or corrupt entry falls back to open docks.
  */
+import type { AuthoringFingerprint } from "../gameStorage.ts";
 import {
   computed,
   inject,
@@ -39,6 +40,8 @@ interface StudioRequestBase {
   readonly subtitle?: string | undefined;
   /** The booted game's resource revision the bytes were read at. */
   readonly baseRevision: ResourceRevision;
+  /** The authoring content the draft opens on (projectTransaction.ts `openDraft`). */
+  readonly baseAuthoring?: AuthoringFingerprint | undefined;
   /** The booted game's container files, read at the same revision (VIEWs, room pictures). */
   readonly files: ReadonlyMap<string, Uint8Array>;
   /** The same resource read again from the running game, or null when it is gone. */

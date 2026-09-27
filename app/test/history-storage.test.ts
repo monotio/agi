@@ -42,6 +42,7 @@ import {
   saveHistoryBookmark,
   stageRetainedOriginal,
   type RetainedOriginal,
+  UnextendableHistoryError,
 } from "../src/historyStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -956,7 +957,13 @@ test("history uses v1 and refuses unsupported or obsolete storage without rewrit
     if (kind === "missing-directory") delete manifest["segments"];
     const before = JSON.stringify([...RECORDS]);
     await assert.rejects(loadGameHistory(key), /history record/i);
-    assert.equal(await appendHistoryBatch(key, batch(2), "2.936", IDENTITY), false);
+    // A permanent refusal naming which side of this release wrote the tape.
+    await assert.rejects(
+      appendHistoryBatch(key, batch(2), "2.936", IDENTITY),
+      (error: unknown) =>
+        error instanceof UnextendableHistoryError &&
+        error.stored === (kind === "missing-directory" ? "older" : "newer"),
+    );
     assert.equal(JSON.stringify([...RECORDS]), before);
   }
 });

@@ -14,6 +14,7 @@ import {
   type AutosaveRecord,
 } from "./gameProgress.ts";
 import { getCachedGameMeta, loadAuthoredGame, updateAuthoredGameFilesAt } from "./gameStorage.ts";
+import { markBehindStorage } from "./projectTransaction.ts";
 import {
   findInstalledFolder,
   gameStorageKey,
@@ -219,10 +220,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
           ...(game.historyLifetime !== undefined ? { lifetime: game.historyLifetime } : {}),
         });
         if (outcome === "stale") {
-          if (ctx.getBootedGame() === game && !game.behindStorage) {
-            game.behindStorage = true;
-            ctx.onBehindStorage?.();
-          }
+          if (ctx.getBootedGame() === game && markBehindStorage(game)) ctx.onBehindStorage?.();
           return false;
         }
         if (outcome !== "saved" || ctx.getBootedGame() !== game) return false;

@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import {
   PROJECT_CHANNEL,
   announceProjectWrite,
-  watchProjectWrites,
   type NoticeChannel,
 } from "../src/projectBroadcast.ts";
+import { watchProjectWrites } from "../src/projectTransaction.ts";
 import { clearCachedGame, renameAuthoredGame, saveAuthoredGame } from "../src/gameStorage.ts";
 import type { BootedGame } from "../src/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";

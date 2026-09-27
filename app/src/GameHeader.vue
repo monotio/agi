@@ -12,7 +12,7 @@ import PlayBar from "./shell/PlayBar.vue";
 import SettingsSheet from "./shell/SettingsSheet.vue";
 import UiButton from "./ui/UiButton.vue";
 import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
-import { computed, ref, shallowRef, useTemplateRef } from "vue";
+import { computed, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useShellBridge } from "./shellBridge.ts";
@@ -24,6 +24,7 @@ import { lessonCatalogId, lessonSetFor } from "./lessons/registry.ts";
 import type { LessonSet, StudioLesson } from "./lessons/types.ts";
 import { projectId } from "../../src/gameIdentity.ts";
 import { gameShortcuts } from "./gameControls.ts";
+import { HistoryUnsavedError } from "./useGameLifecycle.ts";
 import {
   suggestAssertions,
   type AssertionSuggestion,
@@ -70,6 +71,8 @@ const {
   saveRecordedTest,
   roomMap,
   retryHistorySave,
+  startNewTimeline,
+  readOldTimeline,
   currentGame,
 } = useEngineApi();
 const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
@@ -209,19 +212,61 @@ function onExportAgiZip(project: boolean): void {
   emit("export-zip", project);
 }
 
-async function onEjectGame(abandonUnsaved = false): Promise<void> {
+async function onEjectGame(
+  leave: "save" | "abandonUnsaved" | "abandonHistory" = "save",
+): Promise<void> {
   ejectRefusal.value = "";
+  historyExit.value = false;
   closeNavMenus();
   // Room Studio's unkept changes are kept or thrown away before the game is left.
   if (!(await workspace.confirmStudioLeave())) return;
   try {
-    await ejectGame(abandonUnsaved ? { abandonUnsaved: true } : undefined);
-    ejectRefusal.value = "";
+    await ejectGame(
+      leave === "abandonUnsaved"
+        ? { abandonUnsaved: true }
+        : leave === "abandonHistory"
+          ? { abandonHistory: true }
+          : undefined,
+    );
   } catch (error) {
-    ejectRefusal.value = String(error).replace(/^Error: /, "");
+    // Only the timeline is still owed: its own question, not a refusal.
+    if (error instanceof HistoryUnsavedError) historyExit.value = true;
+    else ejectRefusal.value = String(error).replace(/^Error: /, "");
   }
 }
 const ejectRefusal = ref<string>("");
+/** Exit waits on this session's timeline: leave without it, or stay. */
+const historyExit = ref(false);
+
+/**
+ * The timeline notices. A tape this version cannot extend offers a new
+ * timeline (confirmed first; the old one is kept as it is) and the old
+ * one's download. Try now's "Saved." clears itself after a moment.
+ */
+const confirmNewTimeline = ref(false);
+async function onStartNewTimeline(): Promise<void> {
+  confirmNewTimeline.value = false;
+  await startNewTimeline();
+}
+async function onDownloadOldTimeline(): Promise<void> {
+  const json = await readOldTimeline();
+  if (json === null) return;
+  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${currentGame()?.projectId ?? "game"}-old-timeline.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+watch(
+  () => state.historyRetry?.status,
+  (status) => {
+    if (status === "saved")
+      setTimeout(() => {
+        if (state.historyRetry?.status === "saved") state.historyRetry = null;
+      }, 4000);
+  },
+);
 
 /** Game-test recording: the worker captures; this dialog names and saves. */
 const recordDialog = useTemplateRef("recordDialog");
@@ -343,7 +388,7 @@ async function onRecordSave(): Promise<void> {
   <PlayBar
     v-else
     :settings-open="settingsOpen"
-    @exit="onEjectGame(false)"
+    @exit="onEjectGame()"
     @settings="toggleSettings"
     @help-guide="openHelp()"
     @controls="controlsDialog?.showModal()"
@@ -362,7 +407,7 @@ async function onRecordSave(): Promise<void> {
           size="sm"
           data-testid="eject-retry"
           :disabled="state.leaving"
-          @click="onEjectGame(false)"
+          @click="onEjectGame()"
         >
           Try again
         </UiButton>
@@ -378,7 +423,7 @@ async function onRecordSave(): Promise<void> {
           size="sm"
           data-testid="eject-leave-anyway"
           :disabled="state.leaving"
-          @click="onEjectGame(true)"
+          @click="onEjectGame('abandonUnsaved')"
         >
           Leave anyway
         </UiButton>
@@ -387,16 +432,76 @@ async function onRecordSave(): Promise<void> {
         </UiButton>
       </div>
     </div>
+    <div v-if="historyExit" class="export-refusal" data-testid="eject-history" role="alert">
+      <p>This session's rewind timeline is not saved yet.</p>
+      <div class="notice-actions">
+        <UiButton
+          size="sm"
+          data-testid="eject-leave-without-timeline"
+          :disabled="state.leaving"
+          @click="onEjectGame('abandonHistory')"
+        >
+          Leave without this session's timeline
+        </UiButton>
+        <UiButton variant="primary" size="sm" data-testid="eject-stay" @click="historyExit = false">
+          Stay
+        </UiButton>
+        <UiButton
+          variant="ghost"
+          size="sm"
+          data-testid="eject-keep-backup"
+          :disabled="exportBusy"
+          @click="onExportAgiZip(true)"
+        >
+          Keep a backup first
+        </UiButton>
+      </div>
+    </div>
     <div
-      v-if="state.historyUnsaved"
+      v-if="state.historyBlocked"
+      class="history-unsaved"
+      data-testid="history-blocked"
+      role="status"
+    >
+      <p>{{ state.historyBlocked.message }}</p>
+      <template v-if="confirmNewTimeline">
+        <p>The old timeline stays in this browser exactly as it is.</p>
+        <UiButton size="sm" data-testid="history-new-timeline-confirm" @click="onStartNewTimeline">
+          Start the new timeline
+        </UiButton>
+        <UiButton size="sm" variant="ghost" @click="confirmNewTimeline = false">Cancel</UiButton>
+      </template>
+      <template v-else>
+        <UiButton size="sm" data-testid="history-new-timeline" @click="confirmNewTimeline = true">
+          Start a new timeline
+        </UiButton>
+        <UiButton
+          size="sm"
+          variant="ghost"
+          data-testid="history-old-download"
+          @click="onDownloadOldTimeline"
+        >
+          Download the old timeline
+        </UiButton>
+      </template>
+    </div>
+    <div
+      v-else-if="state.historyUnsaved || state.historyRetry"
       class="history-unsaved"
       data-testid="history-unsaved"
       role="status"
     >
-      <p>Play keeps recording; saving is retrying in the background.</p>
+      <p v-if="state.historyRetry?.status === 'saving'">Saving…</p>
+      <p v-else-if="state.historyRetry?.status === 'saved'">Saved.</p>
+      <p v-else-if="state.historyRetry?.status === 'failed'">
+        Not saved yet: {{ state.historyRetry.reason }}. Saving keeps retrying in the background.
+      </p>
+      <p v-else>Play keeps recording; saving is retrying in the background.</p>
       <UiButton
+        v-if="state.historyUnsaved"
         size="sm"
         data-testid="history-retry"
+        :disabled="state.historyRetry?.status === 'saving'"
         :title="`Not saved since ${new Date(state.historyUnsaved.since).toLocaleTimeString()}`"
         @click="retryHistorySave()"
       >

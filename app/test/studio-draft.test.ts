@@ -16,6 +16,7 @@ import {
 } from "../src/studio/useStudioDraft.ts";
 import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
 import type { PictureEdit } from "../src/resourceCommit.ts";
+import { authoringFingerprint } from "../src/gameStorage.ts";
 
 /**
  * A white room: an art box outline, the red paint filling it, a grey wall
@@ -211,7 +212,12 @@ describe("useStudioDraft", () => {
       draft,
       keep: async (baseRevision) => {
         kept.push(draftPictureEdit(draft, 5, baseRevision));
-        return { status: "committed", projectId: null, revision: testRevision("notes") };
+        return {
+          status: "committed",
+          projectId: null,
+          revision: testRevision("notes"),
+          authoring: authoringFingerprint(undefined),
+        };
       },
     });
     assert.equal(await keeper.keep(), true);
