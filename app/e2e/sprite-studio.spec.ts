@@ -181,7 +181,9 @@ async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", sample
       !frame ||
       frame.room !== 1 ||
       frame.ego.direction !== direction ||
-      frame.ego.x > TURN_BACK_X
+      // Only a walk east can reach the east exit; a walk west may begin past
+      // the turn-back point when the eastward walk overshot it on a slow host.
+      (key === "ArrowRight" && frame.ego.x > TURN_BACK_X)
     )
       break;
     frames.push(frame);
