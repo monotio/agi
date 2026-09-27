@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import {
   AGENT_TOOLS,
-  createAgentSessionState,
   executeAgentTool,
   executeAgentToolAsync,
   type AgentRuntimeDeps,

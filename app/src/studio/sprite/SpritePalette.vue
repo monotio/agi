@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { swatchInk } from "./spriteView.ts";
 
 /**
  * The fixed AGI palette with the edited cel's transparent colour marked ∅,
@@ -64,7 +65,7 @@ function onKey(event: KeyboardEvent, value: number): void {
         @click="choose(value)"
         @keydown="onKey($event, value)"
       >
-        <span>{{ value === transparent ? "∅" : value }}</span>
+        <span :style="{ color: swatchInk(value) }">{{ value === transparent ? "∅" : value }}</span>
       </button>
     </div>
   </section>
@@ -107,13 +108,12 @@ function onKey(event: KeyboardEvent, value: number): void {
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+/* The label's colour is black or white per swatch (swatchInk), 4.5:1 or better. */
 .sprite-palette__swatch span {
   position: absolute;
   bottom: 1px;
   left: 3px;
-  color: var(--ink);
   font: var(--text-2xs) / 1 var(--font-mono);
-  mix-blend-mode: difference;
 }
 .sprite-palette__swatch[aria-checked="true"] {
   outline: 2px solid var(--action);

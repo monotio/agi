@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-// tools.ts must resolve before authoringTools.ts — the module spreads
-// AUTHORING_TOOLS at top level while authoringTools back-imports tool helpers.
 import {
   buildObjectFile,
   createAgentSessionState,
-  executeAgentTool,
-  executeAgentToolAsync,
   type AgentSessionState,
-} from "../src/agent/tools.ts";
+} from "../src/agent/agentState.ts";
+import { executeAgentTool, executeAgentToolAsync } from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
 import { installBaseTemplate } from "../src/agent/baseTemplate.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";

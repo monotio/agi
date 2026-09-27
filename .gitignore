@@ -24,3 +24,7 @@ games/*
 
 # Raw documentation screenshots, recordings and tool output.
 .captures/
+
+# Stryker mutation sandboxes and reports.
+.stryker-tmp/
+reports/

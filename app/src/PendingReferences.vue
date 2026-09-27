@@ -16,12 +16,13 @@ defineProps<{ busy: boolean; room: number; allowAttach: boolean }>();
   >
     <UiButton
       v-if="allowAttach"
+      icon="image"
       data-testid="agent-attach-reference"
-      title="Attach reference art for the agent"
+      title="Attach reference art for the agent: a room picture or a character sheet"
       :disabled="busy"
       @click="openReferenceUpload(room || undefined)"
     >
-      Art
+      Attach art
     </UiButton>
     <div
       v-if="pendingReferences.length"

@@ -287,21 +287,41 @@ class ResourceContainer implements GameContainer {
   }
 
   putResource(kind: ResourceKind, num: number, payload: Uint8Array): void {
-    checkResourceNum(num);
-    if (num >= INITIAL_DIRECTORY_ENTRIES) throw new RangeError("resource number must be 0..255");
-    if (payload.length > PAYLOAD_MAX_BYTES) {
-      throw new RangeError(
-        `payload of ${payload.length} bytes exceeds the u16le record length limit of ${PAYLOAD_MAX_BYTES}`,
-      );
-    }
-    this.pack({ kind, num, payload });
+    this.putResources([{ kind, num, payload }]);
   }
 
-  /** Build all replacement bytes first; validation failure leaves the live map untouched. */
-  pack(replacement?: { kind: ResourceKind; num: number; payload: Uint8Array }): void {
+  putResources(
+    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[],
+  ): void {
+    const byKey = new Map<string, { kind: ResourceKind; num: number; payload: Uint8Array }>();
+    for (const resource of resources) {
+      const { num, payload } = resource;
+      checkResourceNum(num);
+      if (num >= INITIAL_DIRECTORY_ENTRIES) throw new RangeError("resource number must be 0..255");
+      if (payload.length > PAYLOAD_MAX_BYTES) {
+        throw new RangeError(
+          `payload of ${payload.length} bytes exceeds the u16le record length limit of ${PAYLOAD_MAX_BYTES}`,
+        );
+      }
+      // A later entry for the same resource wins, as a later put would.
+      byKey.set(`${resource.kind} ${num}`, resource);
+    }
+    this.pack([...byKey.values()]);
+  }
+
+  /**
+   * Repack every indexed record with `replacements` in place. All replacement
+   * bytes are built first; validation failure leaves the live map untouched.
+   */
+  pack(
+    replacements: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[] = [],
+  ): void {
     const directories = RESOURCE_KINDS.map((kind) => {
       const original = this.#directory(kind);
-      const required = replacement?.kind === kind ? (replacement.num + 1) * ENTRY_BYTES : 0;
+      const required = Math.max(
+        0,
+        ...replacements.filter((r) => r.kind === kind).map((r) => (r.num + 1) * ENTRY_BYTES),
+      );
       const bytes = new Uint8Array(Math.max(original.length, required)).fill(0xff);
       bytes.set(original);
       return bytes;
@@ -314,7 +334,8 @@ class ResourceContainer implements GameContainer {
       const kind = RESOURCE_KINDS[k]!;
       const directory = directories[k]!;
       for (let num = 0; num < Math.min(256, Math.floor(directory.length / ENTRY_BYTES)); num++) {
-        const replacing = replacement?.kind === kind && replacement.num === num;
+        const replacement = replacements.find((r) => r.kind === kind && r.num === num);
+        const replacing = replacement !== undefined;
         const entry = this.#readEntry(kind, num);
         if (!replacing && !entry) continue;
         const key = entry && !replacing ? `${entry.volume}:${entry.offset}` : null;

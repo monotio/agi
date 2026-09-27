@@ -3,13 +3,12 @@ import { describe, it } from "node:test";
 import { assertNoImageData } from "../../test/modelText.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { createAgentSessionState, type AgentSessionState } from "../../src/agent/agentState.ts";
 import {
-  createAgentSessionState,
   executeAgentTool,
   executeAgentToolAsync,
   STUDIO_ASSIST_TASK_TOOLS,
   type AgentRuntimeDeps,
-  type AgentSessionState,
 } from "../../src/agent/tools.ts";
 import { createStudioAssist } from "../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";

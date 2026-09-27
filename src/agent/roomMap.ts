@@ -47,7 +47,7 @@ export interface RoomObservation {
   readonly history?: { segment: string; seq: number; tick: number };
 }
 
-export type EdgeProvenance = "observed" | "planned" | "static";
+type EdgeProvenance = "observed" | "planned" | "static";
 
 export interface RoomGraphEdge {
   readonly from: number;
@@ -365,7 +365,7 @@ export function scanContainerExits(
 }
 
 /** One exit the world plan declares: from --name--> to. */
-export interface PlanConnection {
+interface PlanConnection {
   readonly from: number;
   readonly name: string;
   readonly to: number;

@@ -28,7 +28,7 @@ export type RouteWorkerOutbound = { result: RouteTestResult } | { error: string 
 export type RouteRunner = (input: RouteWorkerInbound) => Promise<RouteTestResult>;
 
 /** A walk that takes longer than this has failed. */
-export const ROUTE_TIMEOUT_MS = 30_000;
+const ROUTE_TIMEOUT_MS = 30_000;
 
 export const runRouteInWorker: RouteRunner = (input) =>
   new Promise((resolve, reject) => {

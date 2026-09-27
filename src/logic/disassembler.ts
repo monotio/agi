@@ -542,11 +542,6 @@ export function disassembleLogicWarnings(
 }
 
 /** One decoded action opcode: offset, name and raw operand bytes. */
-export interface DecodedAction {
-  readonly at: number;
-  readonly name: string;
-  readonly args: readonly number[];
-}
 
 /**
  * The linear action decode — every opcode the stream executes, without the
@@ -554,17 +549,6 @@ export interface DecodedAction {
  * logic name" use this instead of parsing the rendered source. Unknown opcode
  * bytes are skipped (one byte) the same way decodeLinear resyncs.
  */
-export function decodeLogicActions(
-  payload: Uint8Array,
-  opts: DisassembleOptions = {},
-): readonly DecodedAction[] {
-  const d = new Disassembler(payload, opts);
-  const out: DecodedAction[] = [];
-  for (const insn of d.insns.values())
-    if (insn.kind === "action" && insn.name !== undefined)
-      out.push({ at: insn.at, name: insn.name, args: insn.args ?? [] });
-  return out;
-}
 
 /** The instruction stream for consumers that need control-flow boundaries. */
 export interface DecodedInsn {

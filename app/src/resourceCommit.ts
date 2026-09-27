@@ -5,7 +5,8 @@
  * The authoring controller owns the session and wires this in; the edit
  * descriptors below say what each Keep writes.
  */
-import { AgentSession } from "./agent/agentSession.ts";
+import type { AgentSession } from "./agent/agentSession.ts";
+import type { AuthoringLoader } from "./agent/authoringLoader.ts";
 import { gameRevision, type LibraryMetadata } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -14,7 +15,7 @@ import {
   type AuthoringState,
   type BindingKind,
 } from "../../src/agent/authoringState.ts";
-import { assembleAuthoredLogic, type AgentSourceStore } from "../../src/agent/tools.ts";
+import { assembleAuthoredLogic, type AgentSourceStore } from "../../src/agent/agentState.ts";
 import { sourceCompilesTo } from "../../src/picture/source.ts";
 import { roomDrawsPicture } from "../../src/agent/roomPictures.ts";
 import { roomBakesView, scanViewUsage } from "../../src/studio/sprite/spriteUsage.ts";
@@ -81,7 +82,7 @@ export class ResourceCommitError extends Error {
  * bytes. The edit is already saved by then; a missing ack becomes the
  * `install` failure and its reload, never an endless "Keeping…".
  */
-export const PATCH_ACK_TIMEOUT_MS = 10_000;
+const PATCH_ACK_TIMEOUT_MS = 10_000;
 
 export interface ResourceCommitResult {
   /** "unchanged": the bytes and source already matched — nothing was written. */
@@ -139,7 +140,7 @@ export interface RoomEdit {
 }
 
 /** One resource a commit writes and installs. */
-export interface ResourcePatch {
+interface ResourcePatch {
   readonly kind: PatchKind;
   readonly num: number;
   readonly payload: Uint8Array;
@@ -168,7 +169,7 @@ export interface ResourceEdit {
     | undefined;
   /** Read the edit against the freshly loaded project record; throw to refuse. */
   resolve(stored: CachedGameData | null): {
-    /** The resources the edit writes, installed in this order, each acked by the worker. */
+    /** The resources the edit writes, installed by the worker as one set under one ack. */
     patches: readonly ResourcePatch[];
     /**
      * Record the edit's source (and any bindings it reserved) on the
@@ -206,6 +207,8 @@ export interface ResourceCommitContext {
   readonly postSessionSnapshot: (author: AgentSession) => void;
   /** The commit landed everywhere; `author` is the live session, if any. */
   readonly onCommitted: (author: AgentSession | null) => void;
+  /** Loads the authoring stack, whose session records a Keep made without a live one. */
+  readonly loadAuthoring: AuthoringLoader;
 }
 
 export function createResourceCommit(
@@ -227,6 +230,7 @@ export function createResourceCommit(
     getSession,
     postSessionSnapshot,
     onCommitted,
+    loadAuthoring,
   } = ctx;
 
   /**
@@ -240,8 +244,9 @@ export function createResourceCommit(
    *    source, and validate both — nothing is written yet;
    * 4. write bytes, source and project fields in one conditional save
    *    (catalog entries and installed editions fork into a new remix);
-   * 5. install each changed resource in the worker and wait for every ack
-   *    naming its bytes (a Room Studio Keep installs a picture and a logic);
+   * 5. install the changed resources in the worker as one all-or-nothing
+   *    patch and wait for its ack naming each resource's bytes (a Room
+   *    Studio Keep installs a picture and a logic together);
    * 6. adopt the session and booted identity, re-enter the room when the
    *    edit shows there, post the tape's authoring checkpoint, and take a
    *    fresh autosave under the new revision.
@@ -255,11 +260,16 @@ export function createResourceCommit(
    *   edit names the old revision, so the resume offer refuses it instead of
    *   restoring state onto new bytes. A fork's remix sits in the library
    *   while the reload reopens the untouched catalog entry or edition.
-   * - A failed install (step 5) — a refusal, or no ack within
-   *   PATCH_ACK_TIMEOUT_MS — throws `install` and leaves the live game,
-   *   session and booted identity on the old revision, so the next commit
-   *   refuses as stale; the worker's refusal also raises its session error.
-   *   Reloading the game from storage picks the saved edit up.
+   * - A refused install (step 5) leaves every resource of the set on its
+   *   old bytes in the worker; a missing ack within PATCH_ACK_TIMEOUT_MS
+   *   may still land the whole set later. Either way the commit throws
+   *   `install` and leaves the session and booted identity on the old
+   *   revision, so the next commit refuses as stale, and marks the booted
+   *   game `behindStorage`: no autosave or download writes its files over
+   *   the saved edit until the game reloads from storage, which picks the
+   *   edit up. The worker's refusal also raises its session error.
+   * - A game, session or worker replaced after the save (step 4) never
+   *   takes the edit: that is an `install` failure too, never "committed".
    * - A stored project that moved past the running game (step 2: another
    *   tab kept an edit) refuses as `stale` with `behindStorage`: the only
    *   way on is the same reload from storage.
@@ -303,20 +313,22 @@ export function createResourceCommit(
             "The project is no longer stored in this browser.",
           );
         ({ data: stored, lifetime } = captured);
+        // Storage moved past the running game: its files must not be
+        // written back over the newer record until the game reloads.
+        const behind = (message: string) => {
+          game.behindStorage = true;
+          return new ResourceCommitError("stale", message, { behindStorage: true });
+        };
         if (
           lifetime === null ||
           (game.historyLifetime !== undefined && game.historyLifetime !== lifetime)
         )
-          throw new ResourceCommitError(
-            "stale",
+          throw behind(
             `The project was removed or changed elsewhere — reload it before keeping ${what}.`,
-            { behindStorage: true },
           );
         if ((await gameRevision(stored.files)) !== baseRevision)
-          throw new ResourceCommitError(
-            "stale",
+          throw behind(
             `The project changed elsewhere since this game booted — reload it before keeping ${what}.`,
-            { behindStorage: true },
           );
       }
       const resolved = edit.resolve(stored);
@@ -353,7 +365,7 @@ export function createResourceCommit(
         game.installed && !author ? await loadGameConversation(conversationKey) : undefined;
       const sourceSession =
         author ??
-        AgentSession.fromAuthoredData(
+        (await loadAuthoring()).AgentSession.fromAuthoredData(
           { provider: "stub", model: "offline-stub", apiKey: "" },
           () => {},
           exported,
@@ -382,8 +394,9 @@ export function createResourceCommit(
             transcript: sourceSession.getTranscript(),
             sessionId: sourceSession.getSessionId(),
           };
-      const forkCatalog =
-        stored?.library?.source === "catalog" && stored.library.revision !== revision;
+      // A catalog entry stays as shipped: its first edit of any kind — bytes,
+      // or only the source text and bindings that describe them — forks.
+      const forkCatalog = stored?.library?.source === "catalog";
       const forkInstalled = game.installed && bytesChanged;
       const targetId =
         forkCatalog || forkInstalled
@@ -475,30 +488,52 @@ export function createResourceCommit(
 
       // Navigating away during the write keeps the durable result for the
       // next boot; it must never patch a replacement worker or its game.
+      // The running game did not take the edit, so it is not reported kept.
+      const notInstalled = () => {
+        game.behindStorage = true;
+        return new ResourceCommitError(
+          "install",
+          `${what[0]!.toUpperCase()}${what.slice(1)} was saved, but the game changed before it could load it. Reload the game to continue from the saved project.`,
+          { savedTo: targetId ?? undefined },
+        );
+      };
       const result: ResourceCommitResult = { status: "committed", projectId: targetId, revision };
-      if (moved()) return result;
+      if (moved()) throw notInstalled();
       if (bytesChanged) {
-        // Every waiter is armed before its patch is posted; each resource
-        // needs its own ack naming the bytes it installed.
-        const acks = changed.map(({ kind, num, payload }) => {
-          const acked = awaitPatched(kind, num, resourceCacheHint(payload), PATCH_ACK_TIMEOUT_MS);
-          const transfer = new Uint8Array(payload);
-          worker.postMessage(
-            { type: "patch", kind, num, payload: transfer } satisfies WorkerInbound,
-            [transfer.buffer],
-          );
-          return acked;
-        });
+        // One patch carries every changed resource: the worker installs the
+        // set or none of it, and its one ack names each resource's bytes.
+        // The waiter is armed before the patch is posted.
+        const acked = awaitPatched(
+          changed.map(({ kind, num, payload }) => ({
+            kind,
+            num,
+            hint: resourceCacheHint(payload),
+          })),
+          PATCH_ACK_TIMEOUT_MS,
+        );
+        const resources = changed.map(({ kind, num, payload }) => ({
+          kind,
+          num,
+          payload: new Uint8Array(payload),
+        }));
+        worker.postMessage(
+          { type: "patch", resources } satisfies WorkerInbound,
+          resources.map(({ payload }) => payload.buffer),
+        );
         try {
-          await Promise.all(acks);
+          await acked;
         } catch (error) {
+          // A refusal left the worker on the old bytes, but an ack that timed
+          // out may still land: until the game reloads from storage, nothing
+          // may write the running game's files back over the saved edit.
+          game.behindStorage = true;
           throw new ResourceCommitError(
             "install",
             `${what[0]!.toUpperCase()}${what.slice(1)} was saved, but the running game could not load it (${error instanceof Error ? error.message : String(error)}). Reload the game to continue from the saved project.`,
             { savedTo: targetId ?? undefined },
           );
         }
-        if (moved()) return result;
+        if (moved()) throw notInstalled();
       }
 
       // The worker holds the saved bytes: the session, the booted identity
@@ -543,8 +578,9 @@ export function createResourceCommit(
       postSessionSnapshot(sourceSession);
       onCommitted(author);
       // The checkpoint follows the new revision now: a resume offer never
-      // pairs the edited bytes with a snapshot taken before them.
-      if (bytesChanged) await flushAutosave(2000);
+      // pairs the edited bytes with a snapshot taken before them. A fork
+      // takes its first checkpoint under the remix's own key at once.
+      if (bytesChanged || adoptedGame !== game) await flushAutosave(2000);
       return result;
     } finally {
       release?.();
@@ -660,8 +696,8 @@ export function pictureEdit(edit: PictureEdit): ResourceEdit {
  * Keep Room Studio's picture and room logic together: the edited PIC with
  * the annotated text that compiles to it, and the room's LOGIC with the
  * annotated source that assembles to it (door and edge exit rules), plus the
- * flag bindings the rule edits reserved. Both install, each with its own ack,
- * or neither is kept. The room re-enters when the picture changed and its
+ * flag bindings the rule edits reserved. Both install in one all-or-nothing
+ * patch, or neither does. The room re-enters when the picture changed and its
  * logic draws it; rule changes are per-cycle, so a logic change alone runs
  * from the next cycle.
  */

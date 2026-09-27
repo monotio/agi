@@ -36,7 +36,7 @@ import {
   type WorldDraft,
   type WorldPlan,
 } from "../../src/agent/worldPlan.ts";
-import { parseGameTests } from "../../src/agent/gameTests.ts";
+import { parseGameTests } from "../../src/agent/gameTestFormat.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
 import { createPictureSurface } from "../../src/types.ts";
@@ -85,7 +85,7 @@ const CELL_H = 190;
  * When the plan moved under a dirty draft, `conflict` holds the plan's
  * current text; the draft stays untouched for explicit reconciliation.
  */
-export interface PlanFieldEdit {
+interface PlanFieldEdit {
   draft: string;
   base: string;
   conflict: string | null;
@@ -353,7 +353,15 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     const rev = planRevisionNow();
     const durableAtIssue = state.planDurableRev;
     const ticket = ++planWriteTicket;
-    const ok = (await deps.onWorldEdited?.()) ?? true;
+    let ok: boolean;
+    try {
+      ok = (await deps.onWorldEdited?.()) ?? true;
+    } catch (error) {
+      // A newer save elsewhere: retrying cannot help, reloading the game can.
+      if (ticket === planWriteTicket)
+        planSaveError.value = error instanceof Error ? error.message : String(error);
+      return;
+    }
     if (ticket !== planWriteTicket) return; // a newer write owns the verdict
     if (!ok) {
       planSaveError.value =

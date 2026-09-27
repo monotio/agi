@@ -281,6 +281,42 @@ test("Room Studio: a declined request and a rejected proposal leave the draft un
   await expect(studio.getByTestId("studio-keep")).toBeDisabled();
 });
 
+test("Room Studio: a request behind a save made elsewhere writes nothing and offers Reload game", async ({
+  page,
+}) => {
+  await bootAssistGame(page);
+  await configureAi(page, { provider: "stub" });
+  const studio = await openRoomStudio(page);
+  await selectBridge(page, studio);
+  // Another tab keeps an edit: the stored project moves past the running game.
+  const generation = await page.evaluate(async (projectId) => {
+    const path = "/src/gameStorage.ts";
+    const storage = await import(path);
+    const cached = await storage.loadAuthoredGame(projectId);
+    const changed = { ...cached.files, "AGIDATA.OVL": new TextEncoder().encode("kept elsewhere") };
+    if (!(await storage.updateAuthoredGameFiles(projectId, changed)))
+      throw new Error("Fixture update failed");
+    return (await storage.loadAuthoredGame(projectId)).generation as number;
+  }, PROJECT);
+  await ask(page, studio, "impossible: make the sky walkable");
+  await expect(studio.getByTestId("assist-error")).toHaveText(
+    "The game was changed elsewhere, so this conversation was not saved over it. Reload the game to continue from the saved project.",
+  );
+  expect(
+    await page.evaluate(async (projectId) => {
+      const path = "/src/gameStorage.ts";
+      const storage = await import(path);
+      return (await storage.loadAuthoredGame(projectId)).generation as number;
+    }, PROJECT),
+    "nothing was written over the newer save",
+  ).toBe(generation);
+  await shot(page, "room-assist-behind-storage");
+  await studio.getByTestId("assist-reload").click();
+  await expect(page.getByTestId("studio-notice")).toHaveText(
+    "Loaded the latest saved version of this game.",
+  );
+});
+
 test("Sprite Studio: make the eyes blue on loop 1, accept, loop 0 unchanged", async ({ page }) => {
   await bootAssistGame(page);
   await configureAi(page, { provider: "stub" });

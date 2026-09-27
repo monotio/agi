@@ -30,6 +30,7 @@ function actions(drawing: boolean) {
     tool: () => false,
     finish: () => calls.push("finish") > 0,
     ask: () => calls.push("ask") > 0,
+    insertPoint: () => calls.push("insert point") > 0,
   } satisfies Record<keyof StudioKeyActions, unknown>;
   return { act: act as StudioKeyActions, calls };
 }
@@ -101,4 +102,23 @@ test("/ focuses the Ask box from anywhere but a text field", () => {
   });
   assert.equal(studioKey(key("/", field), act), false);
   assert.deepEqual(calls, ["ask", "ask"]);
+});
+
+test("Insert adds a point to the selected line; + stays zoom", () => {
+  const { act, calls } = actions(false);
+  assert.equal(studioKey(key("Insert", CANVAS), act), true);
+  assert.equal(studioKey(key("+", CANVAS), act), true);
+  assert.equal(studioKey(key("Insert", ELSEWHERE, { altKey: true }), act), false);
+  assert.deepEqual(calls, ["insert point", "zoom"]);
+});
+
+test("Alt+Enter on the canvas adds a point where the cursor stands, as Alt+click does", () => {
+  const { act, calls } = actions(false);
+  assert.equal(studioKey(key("Enter", CANVAS, { altKey: true }), act), true);
+  // Off the canvas it is not a click: no point is added.
+  studioKey(key("Enter", ELSEWHERE, { altKey: true }), act);
+  assert.deepEqual(
+    calls.filter((call) => call === "insert point"),
+    ["insert point"],
+  );
 });

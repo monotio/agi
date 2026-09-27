@@ -77,5 +77,3 @@ export function createPlayHere(ctx: WorkerContext) {
 
   return { onPlayHere };
 }
-
-export type PlayHereModule = ReturnType<typeof createPlayHere>;

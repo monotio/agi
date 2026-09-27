@@ -1,4 +1,5 @@
-import { AgentSession } from "./agent/agentSession.ts";
+import type { AgentSession } from "./agent/agentSession.ts";
+import { loadAuthoringStack, type AuthoringLoader } from "./agent/authoringLoader.ts";
 import type { AgentHandler, LlmRequest } from "./agent/hostRequests.ts";
 import type { AgentRunState } from "./agent/agentRun.ts";
 import type { StudioAssistRequest, StudioAssistResult } from "./agent/studioAssist.ts";
@@ -9,7 +10,6 @@ import { continuationTranscript } from "./projectArchive.ts";
 import { gameRevision, updateBootedResources } from "./gameMetadata.ts";
 import { buildWordsTok, parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
-import { prepareRoomPatch } from "../../src/agent/roomPatch.ts";
 import {
   createResourceCommit,
   pictureEdit,
@@ -29,6 +29,7 @@ import {
   loadGameConversation,
   saveAuthoredGameWithLifetime,
   saveGameConversation,
+  updateAuthoredGameFiles,
   updateAuthoredReferences,
   updateGameConversation,
   type CachedGameData,
@@ -51,7 +52,7 @@ import {
   type ResourceRevision,
 } from "../../src/gameIdentity.ts";
 import type { LogAgentFn } from "./useInputController.ts";
-import type { WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
+import type { PatchResource, WorkerInbound, WorkerQueryFn } from "./workerProtocol.ts";
 import type { AwaitPatchedFn } from "./workerQueries.ts";
 import type { HistoryBoot } from "../../src/agent/history.ts";
 import { base64ToBytes } from "./bytes.ts";
@@ -86,6 +87,14 @@ export interface PowerUpUiState {
 const STALE_TURN_MESSAGE =
   "The game was changed elsewhere while the assistant worked, so nothing was applied. Reload the game, then ask again.";
 
+/**
+ * The refusal of a conversation or session save whose project moved past
+ * the running game: nothing was written over the newer save, and only
+ * reloading the game from storage continues.
+ */
+export const STALE_SAVE_MESSAGE =
+  "The game was changed elsewhere, so this conversation was not saved over it. Reload the game to continue from the saved project.";
+
 export interface AuthoringControllerOptions {
   readonly state: {
     phase: "idle" | "loading" | "running" | "error";
@@ -116,6 +125,8 @@ export interface AuthoringControllerOptions {
   readonly getLlmConfig?: (() => LlmConfig) | undefined;
   /** Player intent pinned on the map for a room — attached to room requests. */
   readonly getRoomNotes?: ((room: number) => string[]) | undefined;
+  /** Loads the AI authoring stack on first use; tests pass a fake. */
+  readonly loadAuthoring?: AuthoringLoader | undefined;
 }
 
 export interface AuthoringController {
@@ -144,7 +155,8 @@ export interface AuthoringController {
   /** Author one planned room's resources into the running game (map build). */
   buildRoomFromMap(room: number, from: number, notes: string[], exitName?: string): Promise<void>;
   /** Persist the session's authoring state; false when storage refused or
-   *  there is no project to write to. */
+   *  there is no project to write to. Rejects as stale (STALE_SAVE_MESSAGE)
+   *  when the project moved past the running game. */
   persistSessionState(): Promise<boolean>;
   /** Post the session's authoring state as a tape checkpoint. */
   postSessionSnapshot(author?: AgentSession | null): void;
@@ -224,6 +236,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     configForGame,
     getLlmConfig,
     getRoomNotes,
+    loadAuthoring = loadAuthoringStack,
   } = options;
 
   let session: AgentSession | null = null;
@@ -231,6 +244,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   const commitResourceEdit = createResourceCommit({
     ...options,
+    loadAuthoring,
     getSession: () => session,
     postSessionSnapshot: (author) => postSessionSnapshot(author),
     onCommitted: (author) => {
@@ -264,25 +278,67 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     };
   }
 
-  /** The stored project record, refused as stale unless it still holds `revision` in this game's lifetime. */
-  async function storedAtRevision(game: BootedGame, revision: string | undefined) {
+  /**
+   * The stored project record, refused as stale unless it still holds
+   * `revision` in this game's lifetime. A refusal marks the booted game
+   * behind storage: nothing writes its files over the newer record.
+   */
+  async function storedAtRevision(
+    game: BootedGame,
+    revision: string | undefined,
+    message = STALE_TURN_MESSAGE,
+  ) {
     const captured = await loadAuthoredGameWithHistoryLifetime(game.projectId!);
     if (
       !captured ||
       captured.lifetime === null ||
       (game.historyLifetime !== undefined && game.historyLifetime !== captured.lifetime) ||
       (await gameRevision(captured.data.files)) !== revision
-    )
-      throw new ResourceCommitError("stale", STALE_TURN_MESSAGE, { behindStorage: true });
+    ) {
+      game.behindStorage = true;
+      throw new ResourceCommitError("stale", message, { behindStorage: true });
+    }
     return captured;
   }
 
+  /**
+   * Save `author`'s conversation and authoring state (its sources and
+   * bindings describe the bytes) to the booted project — conditional, like
+   * every project write: the record must still hold the revision this game
+   * runs, and the write lands only on the generation that check read. A
+   * newer save (another tab, a Keep the game never loaded) refuses as stale
+   * with STALE_SAVE_MESSAGE; `files` (a history adoption's) ride the same
+   * write. False when storage itself refused.
+   */
+  async function saveSessionRecord(
+    game: BootedGame,
+    author: AgentSession,
+    files?: Record<string, Uint8Array>,
+  ): Promise<boolean> {
+    const captured = await storedAtRevision(game, game.revision, STALE_SAVE_MESSAGE);
+    const context = author.getProviderContext();
+    const saved = await updateGameConversation(
+      game.projectId!,
+      author.getTranscript(),
+      author.getSessionId(),
+      author.getAuthoringState(),
+      context.provider,
+      context.model,
+      files,
+      captured.data.generation ?? 0,
+    );
+    // A write that won the race since the check is a stale refusal too.
+    if (!saved) await storedAtRevision(game, game.revision, STALE_SAVE_MESSAGE);
+    return saved;
+  }
+
   async function createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
+    const stack = await loadAuthoring();
     const authored = game.installed ? null : await loadAuthoredGame(game.projectId!);
     const cached = game.installed
       ? await loadGameConversation(game.hash ?? game.alias ?? "installed")
       : authored;
-    return AgentSession.fromAuthoredData(
+    return stack.AgentSession.fromAuthoredData(
       config,
       logAgent,
       game.files,
@@ -362,14 +418,22 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     state.powerUp.open = true;
     state.powerUp.busy = true;
     state.powerUp.reply = "";
-    state.powerUp.error = "";
-    state.powerUp.offerReload = false;
-    state.powerUp.needsConfig = false;
+    // A game behind a newer save keeps saying so until it reloads.
+    const behind = getBootedGame()?.behindStorage === true;
+    state.powerUp.error = behind ? STALE_SAVE_MESSAGE : "";
+    state.powerUp.offerReload = behind;
+    // Whether a model is connected is known before the engine answers: the
+    // drawer opens on Connect AI, never on a prompt line that then vanishes.
+    state.powerUp.needsConfig = session
+      ? !session.isConfigured()
+      : getBootedGame() !== null && config.provider !== "stub" && !config.apiKey.trim();
     state.powerUp.feedStart = state.agentLog.length;
     state.powerUp.feedStartSeq = (state.agentLog.at(-1)?.seq ?? 0) + 1;
     try {
       const engineState = await query("state");
       state.powerUp.room = Number(engineState?.room ?? 0);
+      // Re-decided below against the session and game as they stand now.
+      state.powerUp.needsConfig = false;
       const booted = getBootedGame();
       if (!session && booted) {
         if (config.provider !== "stub" && !config.apiKey.trim()) {
@@ -436,20 +500,15 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           sessionId: replacement.getSessionId(),
           authoringState: replacement.getAuthoringState(),
         });
-      } else if (
-        !(await updateGameConversation(
-          game.projectId!,
-          replacement.getTranscript(),
-          replacement.getSessionId(),
-          replacement.getAuthoringState(),
-          context.provider,
-          context.model,
-        ))
-      ) {
+      } else if (!(await saveSessionRecord(game, replacement))) {
         logAgent("error", "Browser storage could not save the updated AI session.");
       }
-    } catch {
-      logAgent("error", "Browser storage could not save the updated AI session.");
+    } catch (error) {
+      if (error instanceof ResourceCommitError && error.code === "stale") {
+        // The settings apply; the newer save is left as it is.
+        state.powerUp.error = error.message;
+        state.powerUp.offerReload = true;
+      } else logAgent("error", "Browser storage could not save the updated AI session.");
     }
   }
 
@@ -525,7 +584,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const historyLifetime = await saveAuthoredGameWithLifetime(remixProjectId, data);
       if (historyLifetime === null)
         throw new Error(
-          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
+          "Browser storage could not save this remix. Use Settings → This game → Download game… to keep it.",
         );
       // The checkpoint moves with the progress: the original card must never
       // offer a snapshot taken under resources its own container does not have.
@@ -560,7 +619,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         ))
       ) {
         throw new Error(
-          "Browser storage could not save this remix. Use Game → Download game… to keep it.",
+          "Browser storage could not save this remix. Use Settings → This game → Download game… to keep it.",
         );
       }
     }
@@ -571,7 +630,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   /**
    * Save the conversation a turn that wrote no resources grew (Ask, a Studio
-   * assist request): the installed game's record, or the project's.
+   * assist request): the installed game's record, or the project's. A
+   * project that moved past the running game refuses as stale
+   * (STALE_SAVE_MESSAGE) and keeps its newer save.
    */
   async function saveConversation(booted: BootedGame, author: AgentSession): Promise<void> {
     if (booted.installed) {
@@ -584,19 +645,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       });
       return;
     }
-    const context = author.getProviderContext();
     const writtenRev = planRevisionOf(author);
-    if (
-      !(await updateGameConversation(
-        booted.projectId!,
-        author.getTranscript(),
-        author.getSessionId(),
-        author.getAuthoringState(),
-        context.provider,
-        context.model,
-      ))
-    )
-      throw new Error("Conversation could not be saved. Use Game → Download game… to keep it.");
+    if (!(await saveSessionRecord(booted, author)))
+      throw new Error(
+        "Conversation could not be saved. Use Settings → This game → Download game… to keep it.",
+      );
     reportPlanSaved(writtenRev);
   }
 
@@ -604,7 +657,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    * One Studio assist request from Room Studio or Sprite Studio on the game's
    * session (created on first use, as the assistant's is). The candidate it
    * returns is data for the Studio to preview; no resource is written here.
-   * A conversation that cannot be saved is logged, never a failed request.
+   * A conversation that cannot be saved is logged, never a failed request —
+   * except over a newer save: that refuses as stale (STALE_SAVE_MESSAGE),
+   * the request's answer with it, and only a reload from storage continues.
    */
   async function runStudioAssist(
     request: StudioAssistRequest,
@@ -625,12 +680,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const author = session;
     const result = await author.runStudioAssist(request);
     if (getBootedGame() === booted && session === author)
-      await saveConversation(booted, author).catch((error: unknown) =>
+      await saveConversation(booted, author).catch((error: unknown) => {
+        if (error instanceof ResourceCommitError) throw error;
         logAgent(
           "error",
           `Browser storage could not save the Studio conversation: ${String(error)}`,
-        ),
-      );
+        );
+      });
     return result;
   }
 
@@ -708,13 +764,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         await persistRemix(game, session, Object.fromEntries(container.files));
       }
       if (files) worker?.postMessage({ type: "patchMetadata", files } satisfies WorkerInbound);
-      for (const res of patched) {
-        const payload = new Uint8Array(res.payload);
-        worker?.postMessage(
-          { type: "patch", kind: res.kind, num: res.num, payload } satisfies WorkerInbound,
-          [payload.buffer],
-        );
-      }
+      if (patched.length) postPatch(patched);
       // The tape checkpoint rides the same ordered queue: it lands after
       // the commit's patches, so a take between them restores the state
       // that produced them.
@@ -751,24 +801,24 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (state.powerUp.busy) throw new Error("Wait for the current agent task to finish.");
     const game = getBootedGame();
     let author = getSession();
+    // A game that writes its rooms creates its session on the first one;
+    // the session (and the authoring stack it loads) comes up under the
+    // room progress below.
+    let sessionConfig: LlmConfig | null = null;
     if (!author && game && !game.installed && game.projectId) {
       const meta = getCachedGameMeta(game.projectId);
       if (meta?.roomGeneration && configForGame && getLlmConfig) {
         const config = configForGame(game.projectId, getLlmConfig());
-        if (config.provider === "stub" || Boolean(config.apiKey.trim())) {
-          author = await createGameSession(game, config);
-          attachSessionRuntime(author, game);
-          setSession(author);
-        }
+        if (config.provider === "stub" || Boolean(config.apiKey.trim())) sessionConfig = config;
       }
     }
-    if (!author) {
+    if (!author && !sessionConfig) {
       state.powerUp.needsConfig = true;
       throw new Error("The next room could not be created. Connect your model and try again.");
     }
     state.powerUp = {
       mode: "room",
-      messages: author.getMessages(),
+      messages: author?.getMessages() ?? [],
       open: true,
       needsConfig: false,
       busy: true,
@@ -785,7 +835,19 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const notes = getRoomNotes?.(Number(req.context["room"])) ?? [];
     if (notes.length) req.context = { ...req.context, playerNotes: notes };
     try {
-      const result = await agent.handle(req);
+      if (!author) {
+        author = await createGameSession(game!, sessionConfig!);
+        attachSessionRuntime(author, game!);
+        setSession(author);
+        progress.messages = author.getMessages();
+      }
+      // The stored-project gate remix and map-build turns commit through:
+      // refuse before the turn spends, and again before its staged room
+      // lands in the session. A refusal rejects this request, so the worker
+      // declines the room: the player stays put and play resumes.
+      const turnBase = turnBaseGuard(game);
+      await turnBase();
+      const result = await agent.handle(req, turnBase);
       if (!result)
         throw new Error("The next room could not be created. Connect your model and try again.");
       if (state.powerUp === progress) {
@@ -793,6 +855,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         if (game && getBootedGame() === game && author && game.projectId) {
           const writtenRev = planRevisionOf(author);
           const files = Object.fromEntries(author.state.getFiles());
+          // Conditional on the generation that still holds the turn's base,
+          // so a write landing after the gate refuses this one too.
+          const captured = await storedAtRevision(game, game.revision);
           const saved = await updateGameConversation(
             game.projectId,
             author.getTranscript(),
@@ -801,18 +866,30 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
             author.getProviderContext().provider,
             author.getProviderContext().model,
             files,
+            captured.data.generation ?? 0,
           );
           if (saved) {
             // The booted game follows what was stored, so a later turn or
             // Keep compares against the revision that now holds the room.
             await updateBootedResources(game, files);
             reportPlanSaved(writtenRev);
-          } else logAgent("error", "Browser storage could not save the room conversation.");
+          } else {
+            // A write that won the race is a stale refusal; anything else is
+            // storage failing, which leaves the room playable but unsaved.
+            await storedAtRevision(game, game.revision);
+            logAgent("error", "Browser storage could not save the room conversation.");
+          }
         }
       }
       return result;
     } catch (error) {
-      if (state.powerUp === progress) state.powerUp.error = String(error);
+      if (state.powerUp === progress) {
+        if (error instanceof ResourceCommitError && error.code === "stale") {
+          // The sentence and recovery a refused remix turn offers.
+          state.powerUp.error = error.message;
+          state.powerUp.offerReload = true;
+        } else state.powerUp.error = String(error);
+      }
       throw error;
     } finally {
       if (state.powerUp === progress) state.powerUp.busy = false;
@@ -878,6 +955,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // set is validated before anything lands — dictionary may only grow,
       // rewrites of other rooms' resources commit or fail as one transaction,
       // and the room needs logic plus picture.
+      const { prepareRoomPatch } = await loadAuthoring();
       const compiled = prepareRoomPatch(
         container,
         room,
@@ -901,17 +979,24 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       await persistRemix(game, author, Object.fromEntries(container.files));
       const worker = getWorker();
       worker?.postMessage({ type: "patchMetadata", files: metadataFiles } satisfies WorkerInbound);
-      for (const res of compiled.resources) {
-        const payload = new Uint8Array(res.payload);
-        worker?.postMessage(
-          { type: "patch", kind: res.kind, num: res.num, payload } satisfies WorkerInbound,
-          [payload.buffer],
-        );
-      }
+      if (compiled.resources.length) postPatch(compiled.resources);
       postSessionSnapshot(author);
     } finally {
       resumeEngine("mapBuild");
     }
+  }
+
+  /** Install a turn's resources in the running game as one all-or-nothing patch. */
+  function postPatch(resources: readonly PatchResource[]): void {
+    const copies = resources.map(({ kind, num, payload }) => ({
+      kind,
+      num,
+      payload: new Uint8Array(payload),
+    }));
+    getWorker()?.postMessage(
+      { type: "patch", resources: copies } satisfies WorkerInbound,
+      copies.map(({ payload }) => payload.buffer),
+    );
   }
 
   /** A write landed: record the revision it carried — captured before the
@@ -935,16 +1020,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const game = getBootedGame();
     const author = session;
     if (!game || game.installed || !game.projectId || !author) return false;
-    const context = author.getProviderContext();
     const writtenRev = planRevisionOf(author);
-    const saved = await updateGameConversation(
-      game.projectId,
-      author.getTranscript(),
-      author.getSessionId(),
-      author.getAuthoringState(),
-      context.provider,
-      context.model,
-    );
+    // A newer save refuses as stale (thrown): the plan edit stays unsaved.
+    const saved = await saveSessionRecord(game, author);
     if (!saved) logAgent("error", "Browser storage could not save the updated world plan.");
     else reportPlanSaved(writtenRev);
     // The committed world plan is a tape checkpoint too: a Resume here
@@ -992,19 +1070,19 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // a mismatched install throws before touching the session.
       author.adoptAuthoredData(files, words, snapshot, boot.resourceSet);
       if (!game.installed && game.projectId) {
-        const context = author.getProviderContext();
         const writtenRev = planRevisionOf(author);
-        const saved = await updateGameConversation(
-          game.projectId,
-          author.getTranscript(),
-          author.getSessionId(),
-          author.getAuthoringState(),
-          context.provider,
-          context.model,
-          files,
-        );
+        // Over the record this game booted on only: a newer save refuses
+        // as stale and the adoption hold stays until a reload.
+        const saved = await saveSessionRecord(game, author, files);
         if (saved) reportPlanSaved(writtenRev);
         else logAgent("error", "Browser storage could not save the adopted session state.");
+      }
+    } else if (getBootedGame() === game && !game.installed && game.projectId) {
+      // No session: the adopted files alone follow, on the same condition.
+      const captured = await storedAtRevision(game, game.revision, STALE_SAVE_MESSAGE);
+      if (!(await updateAuthoredGameFiles(game.projectId, files, captured.data.generation ?? 0))) {
+        await storedAtRevision(game, game.revision, STALE_SAVE_MESSAGE);
+        logAgent("error", "Browser storage could not save the adopted game.");
       }
     }
     await updateBootedResources(game, files, words);

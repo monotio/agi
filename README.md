@@ -26,7 +26,7 @@ Open [agi.monotio.com](https://agi.monotio.com/) and click **Play now** on
 you repair a picture, wake up a sprite and sort out a clerk's priority. You need
 no account, no API key and no Sierra files.
 
-![Adventure Department: paint a mural while playing in the browser](docs/media/tutorial-gallery.png)
+![Adventure Department in Play: the apprentice has just painted the gallery's mural, and the status line reads Mural fixed! Next exhibit: go EAST.](docs/media/tutorial-gallery.png)
 
 - **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
   The files stay in your browser's storage and are never uploaded. The app
@@ -39,7 +39,8 @@ no account, no API key and no Sierra files.
 - **Rewind.** Every session records itself, so you can go back to any earlier
   moment and carry on from there.
 - **Get help.** **Help** is a short guide to playing, creating and managing your
-  games, open from every screen. Each topic can open the control it describes.
+  games, on the home screen and in a running game's Help menu. Each topic can
+  open the control it describes.
 
 ## The games it plays
 
@@ -118,33 +119,6 @@ while the agent writes it. Along the way you can:
 - attach reference images for rooms and character sprites;
 - preview the game's sounds as WAV clips.
 
-A running game has two modes, switched in the top bar: **Play** is the game as
-its players see it, and **Create** docks the tools around it — the world map
-and its rooms on the left, the assistant on the right. Create also opens
-**Room Studio** on a room's picture: art, depth and walk lenses, a draw-order
-scrubber and a pixel inspector that names the command behind any pixel. Select
-an item to drag it or its points, nudge it with the arrow keys, recolour,
-reorder, duplicate or delete it, or draw new lines, rectangles, polygons, fills
-and brush strokes at the scrubber's point in the draw order; a ghost actor shows
-where a character would stand behind or in front of the scene. The walk lens
-runs test walks in a throwaway copy of the game, plays from any spot, and wires
-door boxes and edge exits to other rooms; a door can follow its doorway art, so
-moving the art moves the door in the same Keep. Each lens locks
-the planes it is not about, **Keep** saves the edited picture into the game, and
-leaving with unkept changes asks first. **Ask about this selection** has your
-connected AI change just the selected item ("make this bridge walkable without
-changing the art"): its proposal shows on the canvas before and after, the
-app's own checks hold it to the selection and the locks, and Accept makes it one
-undo step.
-
-**Sprite Studio** edits a view's loops and cels the same way: open it from a
-room's views, the Resources tab or a staged character sheet, draw with the pixel
-tools, reorder, duplicate and flip cels on a loops × cels timeline, and watch the
-loop at the game's speed and standing in a room at its real depth. A loop that
-mirrors another becomes a separate copy when you edit it, so fixing one facing
-never changes the other unless you ask. Ask works here too, on the selected cel
-or its whole loop, with every other loop protected.
-
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
 animated sprites, vocabulary, inventory and sound. The heroes above walk because
 the agent drew each frame of each direction, then compiled them into the same
@@ -172,6 +146,57 @@ you can change. What the agent writes comes from your provider's model and is
 not reviewed by the app, so play a game through before you share it, especially
 with children. [Security](SECURITY.md) covers storage and data flow, and
 [adventure briefs](games/README.md) covers writing your own templates.
+
+## Edit every room by hand
+
+A running game has two modes, switched in the top bar. **Play** is the game as
+its players see it. **Create** docks the tools around it: the world map and its
+rooms on the left, the assistant on the right. From a room in the World panel,
+its picture opens in **Room Studio** and its views in **Sprite Studio**.
+
+<p align="center">
+  <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>
+  <a href="docs/media/room-studio-walk.png"><img src="docs/media/room-studio-walk.png" width="49%" alt="The Walk lens on the tutorial's Sprite Lab: the walkable tint, doors labelled Picture Gallery and Priority Archive, and a test walk from the west door that reports Reached"></a>
+  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Ask about this selection on a bridge over a river: the proposed change outlined on the canvas with Before and After, the AI's summary, and Accept and Reject"></a>
+  <a href="docs/media/sprite-studio.png"><img src="docs/media/sprite-studio.png" width="49%" alt="Sprite Studio on the tutorial's waving robot: the cel canvas, the loops and cels timeline with a mirrored loop, loop previews and the robot standing in its room"></a>
+</p>
+
+_Left to right, top to bottom: Room Studio with the velvet rope selected, a test
+walk across the Sprite Lab, a proposal from Ask about this selection, and Sprite
+Studio on the waving robot._
+
+- **Room Studio** shows a room's picture under three lenses: Art for what the
+  player sees, Depth for how far away each part sits, and Walk for the lines that
+  steer the hero. A scrubber replays the draw order command by command, the
+  scene list names what the picture draws, and clicking a pixel shows the
+  command that put it there.
+- **Editing** works on items: drag one or its points, nudge it with the arrow
+  keys, change its colour, priority or draw order, duplicate or delete it.
+  Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
+  The tool rail draws lines, rectangles, polygons, fills and brush strokes at
+  the scrubber's point in the draw order, and a ghost actor shows whether a
+  character would stand in front of the scene or behind it.
+- **Keep** saves the picture into the game. Each lens locks the planes it is not
+  about until you unlock them, every change can be undone, even after Keep, and
+  leaving with unkept changes asks first.
+- **Test walks and doors** live in the Walk lens. A test walk runs the real game
+  in a throwaway copy and reports Reached, Blocked at whatever was in the way,
+  the room it went to, or the message that stopped it. Door boxes and edge exits
+  lead to other rooms; a door can follow its doorway art, so moving the art
+  moves the door in the same Keep. Exits written in the room's own logic stay
+  read-only. Right-click any spot and **Play here** jumps into the game there.
+- **Ask about this selection** has your connected AI change only the selected
+  item: "make this bridge walkable without changing the art". Its proposal shows
+  on the canvas, Before or After, with the changed cells outlined. The app's own
+  checks hold it to the selection and the lens's locks, and Accept makes it one
+  undo step.
+- **Sprite Studio** edits a view's loops and cels. Open it from a room's views,
+  the Resources tab or a staged character sheet, draw with the pixel tools, and
+  reorder, duplicate and flip cels on a loops × cels timeline. The previews play
+  the loop at the game's speed and stand it in a room at its real depth. Editing
+  a loop that mirrors another makes it a separate copy, so fixing one facing
+  never changes the other unless you ask. Ask works here too, on the selected
+  cel or its whole loop, with every other loop protected.
 
 ## Save and share
 
@@ -258,7 +283,7 @@ interpreter.
 | [Testing](docs/testing.md)                              | Game fixtures, walkthrough proofs and compatibility checks      |
 | [Hosting](docs/hosting.md#including-games-on-your-site) | Running your own copy and adding games to its catalog           |
 | [Evals](evals/README.md)                                | Measuring authoring quality                                     |
-| [Media gallery](docs/media/README.md)                   | Screenshots of the agent's tools and the tutorial               |
+| [Media gallery](docs/media/README.md)                   | Screenshots of the app, the Studios and the agent's tools       |
 | [Security](SECURITY.md)                                 | Keys, storage and data flow                                     |
 
 ## License
@@ -267,7 +292,7 @@ Created by Joakim Riedel and published by [Monotio](https://monotio.com). The
 engine, authoring tools, browser shell and original project assets, including
 the Adventure Department tutorial, use the [MIT license](LICENSE).
 Dependencies and imported games keep their own licenses; no commercial game
-assets are part of this repository. The pencil, menu and chevron icons are from
-[Lucide](https://lucide.dev), with
-[ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in the
-build.
+assets are part of this repository. The icons are a hand-picked
+[Lucide](https://lucide.dev) set ([app/src/ui/icons.ts](app/src/ui/icons.ts)),
+with [ISC and Feather MIT notices](app/public/licenses/lucide.txt) included in
+the build.

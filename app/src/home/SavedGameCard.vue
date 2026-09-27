@@ -6,10 +6,11 @@
  * card is also that catalog release's only card on the shelf (the tutorial):
  * it keeps the catalog card's test ids and badge.
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import ActionMenu from "../ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import GameCard, { type CardImage } from "./GameCard.vue";
+import RemoveGameDialog from "./RemoveGameDialog.vue";
 import StartFresh from "./StartFresh.vue";
 import { libraryDetails, showDetails } from "./cardDetails.ts";
 import { shelfTitle } from "./shelfIdentity.ts";
@@ -109,6 +110,14 @@ const monogram = computed(
 
 function play(): void {
   void playGuarded(game.projectId, () => onPlayLibraryGame(game));
+}
+
+/** Remove game deletes everything stored for the game: it asks first. */
+const confirmRemove = ref(false);
+
+async function remove(): Promise<void> {
+  confirmRemove.value = false;
+  await onRemoveLibraryGame(game);
 }
 
 function openDetails(): void {
@@ -260,11 +269,18 @@ function openDetails(): void {
           role="menuitem"
           class="danger"
           data-testid="remove-library-game"
-          @click="onRemoveLibraryGame(game)"
+          @click="confirmRemove = true"
         >
-          Remove game
+          Remove game…
         </button>
       </ActionMenu>
+      <RemoveGameDialog
+        v-model:open="confirmRemove"
+        :title
+        :download-disabled="exportBusy"
+        @download="onExportLibraryGame(game, true)"
+        @remove="remove"
+      />
     </template>
   </GameCard>
 </template>

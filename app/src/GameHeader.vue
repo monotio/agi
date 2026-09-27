@@ -57,6 +57,7 @@ const emit = defineEmits<{
   "export-zip": [project: boolean];
   "start-over": [];
   "start-walkthrough": [target: string];
+  "developer-activity": [];
 }>();
 
 const {
@@ -176,13 +177,17 @@ bridge.closeNavMenus = closeNavMenus;
 
 /**
  * Game controls closes back into the game: its keyboard, not the Help menu
- * item that opened it. The close event arrives a task later, so focus the
- * player already moved elsewhere stays where it is.
+ * item that opened it. The close event can arrive while focus still sits on
+ * the closing dialog's button, which then drops to the body; focus the player
+ * already moved elsewhere stays where it is.
  */
 function onControlsClosed(): void {
   const active = document.activeElement;
-  if (state.phase === "running" && (active === null || active === document.body))
-    bridge.focusGameInput();
+  const dropped =
+    active === null ||
+    active === document.body ||
+    (controlsDialog.value?.contains(active) ?? false);
+  if (state.phase === "running" && dropped) bridge.focusGameInput();
 }
 
 const shortcuts = computed(() => gameShortcuts(state.controls));
@@ -435,6 +440,7 @@ async function onRecordSave(): Promise<void> {
     @update:debug-open="emit('update:debugOpen', $event)"
     @export-zip="onExportAgiZip"
     @start-over="emit('start-over')"
+    @developer-activity="emit('developer-activity')"
   />
   <HelpGuide
     ref="helpGuide"

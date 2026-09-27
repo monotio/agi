@@ -24,7 +24,7 @@ const ARROWS: Record<string, readonly [number, number]> = {
 };
 
 /** Shift+arrow moves this far. */
-export const ARROW_FAR = 8;
+const ARROW_FAR = 8;
 
 export interface SpriteKeyActions {
   /** Whether the canvas has focus (arrows, Space and Enter act on it only then). */

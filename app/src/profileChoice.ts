@@ -11,7 +11,7 @@ import type { ProjectId } from "./gameTypes.ts";
 
 export { type ProfileId, type ProfileDetectionKind };
 
-export interface ProfileOption {
+interface ProfileOption {
   readonly id: ProfileId;
   /** Catalogued releases that ship this build, comma-separated; empty when none do. */
   readonly releases: string;

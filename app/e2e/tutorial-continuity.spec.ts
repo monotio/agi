@@ -113,6 +113,7 @@ test("the 1.0 card removes through the normal saved-game menu, leaving remix and
   await expect(menu.getByTestId("rename-game")).toBeVisible();
   await expect(menu.getByTestId("remove-library-game")).toBeVisible();
   await menu.getByTestId("remove-library-game").click();
+  await older.getByTestId("remove-game-confirm").click();
   await expect(older).toHaveCount(0);
   await expect.poll(autosave).toBeNull();
   expect(

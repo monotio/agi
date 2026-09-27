@@ -6,7 +6,8 @@ import {
   PICTURE_COMPARISON_LEGEND,
   pictureComparisonPng,
 } from "./pictureFeedback.ts";
-import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
+import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 import { computePictureMetrics, DEFAULT_HORIZON } from "../picture/metrics.ts";
 import { renderPicture } from "../picture/renderer.ts";
 import { compilePictureSource } from "../picture/source.ts";

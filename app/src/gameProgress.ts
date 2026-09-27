@@ -45,7 +45,7 @@ export interface AutosaveRecord {
   game: AutosaveGame;
 }
 
-export function autosaveTargetKey(game: AutosaveGame): string {
+function autosaveTargetKey(game: AutosaveGame): string {
   return game.identity.project;
 }
 
@@ -112,7 +112,7 @@ function isFutureAutosave(raw: string): boolean {
 }
 
 /** Where a project archive keeps the player's progress. */
-export const AUTOSAVE_FILE = "SAVES/AUTOSAVE.JSON";
+const AUTOSAVE_FILE = "SAVES/AUTOSAVE.JSON";
 const SLOT_FILE = /^SAVES\/SG\.(1[0-2]|[1-9])$/;
 /** A save image is a few kilobytes; the record adds a bounded PNG preview. */
 const MAX_SAVE_IMAGE_BYTES = 64 * 1024;

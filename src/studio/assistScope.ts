@@ -6,9 +6,11 @@
  * the model's words claim. Pure and deterministic.
  *
  * Pictures. A candidate must start from `baseRevision`, keep every item
- * outside `targetIds` (id, label, kind and lock), leave `lockedPlanes`
+ * outside `targetIds` (id, label, kind and lock), change no item's lock
+ * (locks are the creator's: a proposal never locks or unlocks an item, a
+ * selected one included, nor adds a locked one), leave `lockedPlanes`
  * untouched, fit `maxBytes`, and change each plane only inside that plane's
- * allowed cells (`allowedCells`): the ask-time area (the targets' old
+ * allowed cells (`licence`): the ask-time area (the targets' old
  * footprints on the plane plus `allowedMask` when given), and the cells the
  * targets' bounded commands own after the edit. Lines, corners, rectangles
  * and plots lie on their own coordinates, so a reshaped or moved target may
@@ -18,11 +20,17 @@
  * decoded geometry. A fill that spills past that is a `fill-spill`.
  * `allowedMask` only adds cells; it never lifts the footprint rule. New items
  * a proposal inserts get no licence of their own: their pixels must land in
- * the allowed cells. The lens rules a manual edit passes (lensRules.ts: the
- * Walk lens keeps depth values 4–15) apply too, with the targets and the
- * items the candidate creates as the edited items. `pictureAssistScope` licenses the selection's on-screen
- * area on every unlocked plane, so "make this bridge walkable" in the Walk
- * lens may paint priority under the selected bridge art.
+ * the allowed cells. The one exception is a duplicate, as manual Duplicate
+ * makes: each target licenses ONE translated position, its own move or else
+ * one new item repeating its commands with the same registers (colours and
+ * pen), whose old area on each plane moved is allowed on that plane. A
+ * further repeat, or one in other colours, is an `extra-copy` where it lands
+ * outside the allowed cells. The lens rules a manual edit passes
+ * (lensRules.ts: the Walk lens keeps depth values 4–15) apply too, with the
+ * targets and the items the candidate creates as the edited items.
+ * `pictureAssistScope` licenses the selection's on-screen area on every
+ * unlocked plane, so "make this bridge walkable" in the Walk lens may paint
+ * priority under the selected bridge art.
  *
  * Views. A candidate must start from `baseRevision`, change displayed pixels
  * only in `targetCels`, leave `protectedLoops` untouched (pixels and
@@ -45,7 +53,7 @@ import {
   type CompiledDocument,
 } from "./editValidation.ts";
 import { commandTokens, EditRefusal, translateLine } from "./editSource.ts";
-import { commandHead } from "./editState.ts";
+import { commandHead, drawStateBeforeLine } from "./editState.ts";
 import {
   checkLensRules,
   lockedPlanes,
@@ -103,18 +111,20 @@ export interface ViewAssistScope {
 
 export type AssistScope = PictureAssistScope | ViewAssistScope;
 
-export type AssistConstraint =
+type AssistConstraint =
   | "stale-base"
   | "unknown-target"
   | "outside-target"
+  | "item-lock"
   | "locked-plane"
   | "outside-mask"
   | "fill-spill"
+  | "extra-copy"
   | "walk-depth"
   | "protected-loop"
   | "max-bytes";
 
-export interface AssistViolation {
+interface AssistViolation {
   readonly constraint: AssistConstraint;
   /** Plain words: what the candidate would break. */
   readonly message: string;
@@ -236,41 +246,83 @@ const GEOMETRY = new Set([
   "ycorner",
 ]);
 
-/** The item's coordinate-bearing command lines, in order. */
-const geometryOf = (document: PictureDocument, item: PictureItem): string[] =>
+/** Heads that set a register: a copy is compared by the registers its commands draw with. */
+const STATE_HEADS = new Set(["vis", "visual", "pri", "priority", "pen"]);
+
+/** A drawing command line of an item: 1-based line and text. */
+interface Drawing {
+  readonly line: number;
+  readonly text: string;
+}
+
+/** The item's command lines other than register settings, in order. */
+const drawingOf = (document: PictureDocument, item: PictureItem): Drawing[] =>
   item.commandLines
-    .map((line) => document.lines[line - 1]!)
-    .filter((text) => GEOMETRY.has(commandHead(text)));
+    .map((line) => ({ line, text: document.lines[line - 1]! }))
+    .filter(({ text }) => !STATE_HEADS.has(commandHead(text)));
 
 /**
- * The offset `moved` repeats `original`'s geometry at: every coordinate
- * command of `original` moved by one dx,dy, in order and nothing else (state
- * lines aside, which move nothing); null when it is not such a copy. Only an
- * item with bounded commands counts: its outline moved with its fills, while
- * a bare fill encloses nothing, so any fill would pass as a copy of it.
+ * Every command byte read as a command, and the pen as its raw operand: the
+ * visual and priority registers read the same under every profile, and a
+ * copy's pen must be byte for byte its original's.
+ */
+const ANY_VOCABULARY = { pictureMaxCommand: 0xff, patternProfile: "shaped-v2" } as const;
+
+/**
+ * Whether each of `now`'s commands draws with the registers the command at
+ * its index in `was` drew with: the same visual and priority values (or
+ * off), and for a plot the same pen.
+ */
+function sameState(
+  before: CompiledDocument,
+  was: readonly Drawing[],
+  after: CompiledDocument,
+  now: readonly Drawing[],
+): boolean {
+  return was.every(({ line, text }, index) => {
+    const a = drawStateBeforeLine(before, line, ANY_VOCABULARY);
+    const b = drawStateBeforeLine(after, now[index]!.line, ANY_VOCABULARY);
+    return (
+      a.visual === b.visual &&
+      a.priority === b.priority &&
+      (commandHead(text) !== "plot" || a.pen === b.pen)
+    );
+  });
+}
+
+/**
+ * The offset `moved` repeats `original`'s drawing at: every command of
+ * `original` (register settings aside) moved by one dx,dy, in order and
+ * nothing else, and whether each command draws with the same registers
+ * (`sameState`); null when it is not such a repeat, or holds a copy or raw
+ * line. Only an item with bounded commands counts: its outline moved with
+ * its fills, while a bare fill encloses nothing, so any fill would pass as a
+ * copy of it.
  */
 function translation(
-  before: PictureDocument,
+  before: CompiledDocument,
   original: PictureItem,
-  after: PictureDocument,
+  after: CompiledDocument,
   moved: PictureItem,
-): { dx: number; dy: number } | null {
-  const was = geometryOf(before, original);
-  const now = geometryOf(after, moved);
-  if (was.length !== now.length || was.every((text) => commandHead(text) === "fill")) return null;
+): { dx: number; dy: number; sameState: boolean } | null {
+  const was = drawingOf(before.document, original);
+  const now = drawingOf(after.document, moved);
+  if (was.length !== now.length || was.every(({ text }) => commandHead(text) === "fill"))
+    return null;
+  const anchor = was.findIndex(({ text }) => GEOMETRY.has(commandHead(text)));
   const pair = (text: string) => /^(-?\d+),(-?\d+)$/.exec(commandTokens(text)[1] ?? "");
-  const from = pair(was[0]!);
-  const to = pair(now[0]!);
+  const from = anchor < 0 ? null : pair(was[anchor]!.text);
+  const to = anchor < 0 ? null : pair(now[anchor]!.text);
   if (!from || !to) return null;
   const dx = Number(to[1]) - Number(from[1]);
   const dy = Number(to[2]) - Number(from[2]);
   try {
     const same = was.every(
-      (text, index) =>
+      ({ text }, index) =>
         commandTokens(translateLine(text, 0, dx, dy)).join(" ") ===
-        commandTokens(now[index]!).join(" "),
+        commandTokens(now[index]!.text).join(" "),
     );
-    return same ? { dx, dy } : null;
+    return same ? { dx, dy, sameState: sameState(before, was, after, now) } : null;
   } catch (error) {
     if (error instanceof EditRefusal) return null;
     throw error;
@@ -289,41 +341,78 @@ function shifted(mask: Uint8Array, dx: number, dy: number): Uint8Array {
   return out;
 }
 
+/** A new item that repeats a target somewhere the candidate gets no licence for, and why. */
+interface Stray {
+  /** The target's label. */
+  readonly target: string;
+  /** "second": the target already moved or was copied once; "colours": other registers. */
+  readonly why: "second" | "colours";
+}
+
+interface Licence {
+  /** Each plane's allowed cells. */
+  readonly cells: Record<PicturePlane, Uint8Array>;
+  /** New items repeating a target without a licence, by id. */
+  readonly strays: ReadonlyMap<string, Stray>;
+}
+
 /**
  * Each plane's allowed cells: the ask-time area (the targets' old footprints
- * plus the scope's extra cells), each target's old area moved by the offset
- * the candidate moved or copied it by, and the cells the targets' bounded
- * commands own after the edit. A fill gets no cells of its own.
+ * plus the scope's extra cells), the cells the targets' bounded commands own
+ * after the edit, and at most ONE translated position per target, as manual
+ * Move and Duplicate make: the target's own move (its old area on both
+ * planes, moved), or else the first new item repeating it at an offset with
+ * the same registers (its old area on each plane, moved). Any further repeat,
+ * or one in other registers, gets nothing and is named a stray. A fill gets
+ * no cells of its own.
  */
-export function allowedCells(
+function licence(
   before: CompiledDocument,
   after: CompiledDocument,
   scope: Pick<PictureAssistScope, "targetIds" | "allowedMask">,
-): Record<PicturePlane, Uint8Array> {
+): Licence {
   const known = new Set(before.document.items.map((item) => item.id));
-  const moved: Uint8Array[] = [];
+  const created = after.document.items.filter((item) => !known.has(item.id));
+  const moved: Record<PicturePlane, Uint8Array[]> = { visual: [], priority: [] };
+  const copies = new Set<string>();
+  const strays = new Map<string, Stray>();
   for (const id of scope.targetIds) {
     const original = before.document.items.find((item) => item.id === id);
     if (!original) continue;
-    for (const item of after.document.items) {
-      if (item.id !== id && known.has(item.id)) continue;
-      const offset = translation(before.document, original, after.document, item);
-      if (offset && (offset.dx !== 0 || offset.dy !== 0))
-        moved.push(shifted(footprintMask(before, id, "both"), offset.dx, offset.dy));
+    const own = after.document.items.find((item) => item.id === id);
+    const offset = own && translation(before, original, after, own);
+    let placed = !!offset && (offset.dx !== 0 || offset.dy !== 0);
+    if (offset && placed) {
+      const area = shifted(footprintMask(before, id, "both"), offset.dx, offset.dy);
+      for (const plane of PLANES) moved[plane].push(area);
+    }
+    for (const item of created) {
+      const copy = translation(before, original, after, item);
+      if (!copy || (copy.dx === 0 && copy.dy === 0)) continue;
+      if (placed || !copy.sameState) {
+        if (!strays.has(item.id))
+          strays.set(item.id, { target: original.label, why: placed ? "second" : "colours" });
+        continue;
+      }
+      placed = true;
+      copies.add(item.id);
+      for (const plane of PLANES)
+        moved[plane].push(shifted(footprintMask(before, id, plane), copy.dx, copy.dy));
     }
   }
+  for (const id of copies) strays.delete(id);
   const cells = (plane: PicturePlane) => {
     const extra = extraCells(scope.allowedMask, plane);
     return unionMask(
       ...(extra ? [extra] : []),
-      ...moved,
+      ...moved[plane],
       ...scope.targetIds.flatMap((id) => [
         footprintMask(before, id, plane),
         footprintMask(after, id, plane, "bounded"),
       ]),
     );
   };
-  return { visual: cells("visual"), priority: cells("priority") };
+  return { cells: { visual: cells("visual"), priority: cells("priority") }, strays };
 }
 
 const PLANE_WORDS: Record<PicturePlane, string> = {
@@ -392,8 +481,19 @@ function checkPicture(
         message: `item '${item.id}' ("${item.label}") is not selected but would ${change}`,
       });
   }
+  // Locks are the creator's: no proposal locks or unlocks an item, selected
+  // or new (an unselected one is reported above).
+  for (const item of after.document.items) {
+    const was = before.document.items.find((candidate) => candidate.id === item.id);
+    if (was ? was.locked === item.locked || !scope.targetIds.includes(item.id) : !item.locked)
+      continue;
+    violations.push({
+      constraint: "item-lock",
+      message: `${was ? "item" : "new item"} '${item.id}' ("${item.label}") would be ${item.locked ? "locked" : "unlocked"}, but only the creator locks or unlocks items: leave "locked" out of setItemMeta${was?.locked ? " and ask the creator to unlock it" : ""}`,
+    });
+  }
   const created = after.document.items.flatMap((item) => (known.has(item.id) ? [] : [item.id]));
-  const allowed = allowedCells(before, after, scope);
+  const { cells: allowed, strays } = licence(before, after, scope);
   const result = validateEdit(before, after, {
     lockedPlanes: scope.lockedPlanes,
     allowedMask: allowed,
@@ -401,6 +501,10 @@ function checkPicture(
   });
   const controlled = new Set([...scope.targetIds, ...created]);
   const spills = new Map<string, { plane: PicturePlane; label: string; cells: Tally }>();
+  const repeats = new Map<
+    string,
+    { plane: PicturePlane; id: string; label: string; stray: Stray; cells: Tally }
+  >();
   for (const violation of result.violations) {
     if (violation.constraint === "max-bytes") {
       violations.push({
@@ -421,17 +525,31 @@ function checkPicture(
       });
       continue;
     }
-    // The cells validateEdit found outside the allowed ones: those a fill of
-    // an item the proposal controls now owns are that fill spilling.
+    // The cells validateEdit found outside the allowed ones: those a stray
+    // repeat of a target owns are that repeat, and those a fill of an item
+    // the proposal controls owns are that fill spilling.
     const rest = tally();
     const [a, b, mask] = [before[plane], after[plane], allowed[plane]];
     for (let i = 0; i < CELLS; i++) {
       if (a[i] === b[i] || mask[i] === 1) continue;
       const x = i % SCREEN_WIDTH;
       const y = (i - x) / SCREEN_WIDTH;
-      const item = filledCell(after, plane, i)
-        ? itemAt(after, after.document, x, y, plane)
-        : undefined;
+      const owner = itemAt(after, after.document, x, y, plane);
+      const stray = owner && strays.get(owner.id);
+      if (owner && stray) {
+        const key = `${plane} ${owner.id}`;
+        const repeat = repeats.get(key) ?? {
+          plane,
+          id: owner.id,
+          label: owner.label,
+          stray,
+          cells: tally(),
+        };
+        repeats.set(key, repeat);
+        add(repeat.cells, x, y);
+        continue;
+      }
+      const item = filledCell(after, plane, i) ? owner : undefined;
       if (!item || !controlled.has(item.id)) {
         add(rest, x, y);
         continue;
@@ -450,6 +568,14 @@ function checkPicture(
         message: `${at(rest.count, boxOf(rest))} of the ${PLANE_WORDS[plane]} outside the selection would change`,
       });
   }
+  for (const { plane, id, label, stray, cells } of repeats.values())
+    violations.push({
+      constraint: "extra-copy",
+      plane,
+      count: cells.count,
+      bbox: boxOf(cells),
+      message: `new item '${id}' ("${label}") ${stray.why === "second" ? "would be a second copy of" : "copies"} the selected "${stray.target}"${stray.why === "second" ? "" : " in other colours"}: ${at(cells.count, boxOf(cells))} of the ${PLANE_WORDS[plane]} outside the selection would change. ${stray.why === "second" ? "An assist may move a selected item or copy it once, no more; drop the extra copies" : "A copy keeps the item's colours and pen; draw it in the same ones, or keep new drawing inside the selection"}`,
+    });
   for (const { plane, label, cells } of spills.values())
     violations.push({
       constraint: "fill-spill",
@@ -594,7 +720,9 @@ export function assistRefusalText(check: AssistCheck): string {
     .filter(
       (v) =>
         !(
-          (v.constraint === "outside-mask" || v.constraint === "fill-spill") &&
+          (v.constraint === "outside-mask" ||
+            v.constraint === "fill-spill" ||
+            v.constraint === "extra-copy") &&
           locked.has(v.plane)
         ),
     )

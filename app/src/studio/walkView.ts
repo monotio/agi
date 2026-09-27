@@ -206,7 +206,7 @@ export function edgeAt(cell: Point, horizon: number): EdgeSide {
 }
 
 /** The standable cell nearest `at` (screen distance), within `radius` rows; null when none. */
-export function nearestStandable(mask: Uint8Array, at: Point, radius = 48): Point | null {
+function nearestStandable(mask: Uint8Array, at: Point, radius = 48): Point | null {
   let best: Point | null = null;
   let bestDistance = Infinity;
   for (let dy = -radius; dy <= radius; dy++) {

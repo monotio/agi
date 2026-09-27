@@ -1,4 +1,4 @@
-import { createAgentSessionState, type AgentSessionState } from "../../../src/agent/tools.ts";
+import { createAgentSessionState, type AgentSessionState } from "../../../src/agent/agentState.ts";
 import { validateAuthoringState } from "../../../src/agent/authoringState.ts";
 import { worldRevision } from "../../../src/agent/worldPlan.ts";
 import { openContainer } from "../../../src/container/container.ts";

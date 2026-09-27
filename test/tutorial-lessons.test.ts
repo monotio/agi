@@ -303,7 +303,10 @@ describe("Adventure Department lessons", () => {
         pictureEdit(3, { ...depthRect(3, 11, 38, 84, 53, 121), atLine: end }),
       );
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /walk barrier/);
+      assert.equal(
+        verdict.hint,
+        "That covered a walk barrier, so the apprentice could walk through things. Draw the depth earlier: undo, click Counter depth's last command under Commands (or drag the draw order back before the barriers), and draw it again.",
+      );
     });
 
     it("fails a change to the picture itself", () => {

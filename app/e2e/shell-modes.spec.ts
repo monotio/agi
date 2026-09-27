@@ -1,5 +1,9 @@
 import { expect, test } from "./test.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
+  cacheGame,
   isolateStorage,
   openGameOptions,
   textHook,
@@ -82,6 +86,36 @@ async function topBar(page: Parameters<typeof textHook>[0]) {
   });
 }
 
+test("Play shows the game and its bar only; Developer activity opens from Settings → Advanced", async ({
+  page,
+}) => {
+  await bootTutorial(page);
+  // The tutorial registers no menu, so the key help does not offer Esc for one.
+  await expect(page.locator("#game-input-help")).toContainText("Arrows or numpad walk");
+  await expect(page.locator("#game-input-help")).not.toContainText("game menu");
+  for (const [width, height] of [
+    [1440, 900],
+    [1280, 720],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect
+      .poll(() => page.evaluate(() => document.scrollingElement!.scrollHeight - window.innerHeight))
+      .toBeLessThanOrEqual(0);
+  }
+  await expect(page.getByTestId("developer-activity-summary")).toHaveCount(0);
+  await openGameOptions(page, "settings-menu");
+  await page.getByTestId("settings-advanced").click();
+  await page.getByTestId("settings-developer-activity").click();
+  const sheet = page.getByTestId("developer-activity-sheet");
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole("heading", { name: "Developer activity" })).toBeVisible();
+  await expect(sheet.getByTestId("agent-panel")).toBeVisible();
+  await expect(sheet.getByTestId("gpu-backend")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(page.getByTestId("settings-menu")).toBeFocused();
+});
+
 test("short windows fit the whole game under the bar and the top bar never overlaps", async ({
   page,
 }) => {
@@ -122,18 +156,21 @@ test("short windows fit the whole game under the bar and the top bar never overl
     expect(bar.width).toBeGreaterThan(width - 40);
   }
   // Touch layouts keep the landscape rules: the pad beside the screen, which
-  // is sized from the stable viewport.
+  // is sized from the stable viewport so the page does not scroll.
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("toggle-touch-controls").click();
   await page.keyboard.press("Escape");
   const pad = page.getByTestId("touch-controls");
   await expect(pad).toBeVisible();
-  // min(844 - 268, (390 - 100) × 1.6) = 464.
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(464);
+  // The stage row: 390 - 52 bar - 6 top padding - 8 row gap - 48 strip = 276
+  // rows, narrower than its column, so the width is 276 × 1.6 = 441.6.
+  await expect.poll(async () => (await surfaceBox(page)).width).toBeCloseTo(441.6, 1);
   const screen = await surfaceBox(page);
   const padBox = (await pad.boundingBox())!;
   expect(padBox.width).toBe(220);
   expect(padBox.x).toBeGreaterThanOrEqual(screen.x + screen.width);
+  expect(padBox.x + padBox.width).toBeLessThanOrEqual(844);
+  expect(await page.evaluate(() => document.scrollingElement!.scrollHeight)).toBe(390);
   expect((await topBar(page)).overlaps).toEqual([]);
 });
 
@@ -238,4 +275,57 @@ test("keys typed on the shell chrome never reach the game's parser", async ({ pa
   await expect(input).toBeFocused();
   await page.keyboard.type("look");
   await expect(input).toHaveValue("look");
+});
+
+test("a cold deep link boots the stored game it names, or says it is not in this browser", async ({
+  page,
+}) => {
+  const game = createContainer();
+  game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(!isset(f200)){set(f200);accept.input();new.room(1);}return;", {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic("if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();}return;", {
+      dictionary: new Map(),
+    }).payload,
+  );
+  const projectId = testProjectId("deep-link-fixture");
+  await isolateStorage(page);
+  await page.goto("/");
+  // Stored in this browser, never played: there is no autosave to resume.
+  await cacheGame(page, {
+    projectId,
+    title: "Deep link fixture",
+    provider: "stub",
+    model: "stub",
+    imported: false,
+    roomGeneration: true,
+    files: Object.fromEntries(game.files),
+    words: [],
+  });
+
+  // Cold loads, as a link opened in a new tab: nothing of the page survives.
+  await page.goto("about:blank");
+  await page.goto(`/#create/${projectId}`);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await expect(page).toHaveURL(new RegExp(`#create/${projectId}$`));
+  await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+
+  // A link to a game this browser does not hold lands on Home and says so.
+  await page.goto("about:blank");
+  await page.goto("/#play/not-in-this-browser");
+  const note = page.getByTestId("route-note");
+  await expect(note).toHaveText("That game isn't in this browser.");
+  await expect(page.getByTestId("hero-primary")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
 });

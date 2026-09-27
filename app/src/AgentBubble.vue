@@ -3,9 +3,9 @@ import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from
 import AgentTaskControls from "./AgentTaskControls.vue";
 import SoundPreview from "./SoundPreview.vue";
 import { useEngineApi } from "./engineContext.ts";
-import { usePresentation } from "./usePresentation.ts";
 import { useShellBridge } from "./shellBridge.ts";
 import { useAiSettings } from "./useAiSettings.ts";
+import { prefetchAuthoringStack } from "./agent/authoringLoader.ts";
 import PendingReferences from "./PendingReferences.vue";
 import UiChip from "./ui/UiChip.vue";
 import UiIcon from "./ui/UiIcon.vue";
@@ -19,7 +19,6 @@ const { surface } = defineProps<{ surface: "drawer" | "dock" }>();
 const engine = useEngineApi();
 const { state, openPowerUp, closePowerUp, submitPowerUp, stopAgent, continueAgent, discardAgent } =
   engine;
-const { debugOpen } = usePresentation();
 const bridge = useShellBridge();
 const { aiConfigured, aiSettingsUnavailable, openAiSettings, llmConfig, taskBudget } =
   useAiSettings();
@@ -170,6 +169,9 @@ async function onPowerUp(mode?: "ask" | "remix"): Promise<void> {
   }
   powerUpLine.value = "";
   if (mode !== undefined) state.powerUp.mode = mode;
+  // Opening the drawer shows intent: a connected session loads the stack
+  // now; otherwise it warms while the player connects a model.
+  prefetchAuthoringStack();
   await openPowerUp(llmConfig());
   await nextTick();
   powerUpEl.value?.focus({ preventScroll: true });
@@ -256,20 +258,11 @@ async function onBubbleReload(): Promise<void> {
           Remix
         </button>
       </div>
-      <button
-        v-if="surface === 'dock'"
-        type="button"
-        class="agent-inspect"
-        :class="{ on: debugOpen }"
-        data-testid="inspect-toggle"
-        :aria-pressed="debugOpen"
-        title="AGI inspector: priority views, objects, vars, flags, trace"
-        @click="debugOpen = !debugOpen"
-      >
-        <UiIcon name="inspect" :size="16" />Inspect
-      </button>
       <span class="agent-bubble-right">
-        <span class="agent-bubble-room" data-testid="agent-bubble-room"
+        <span
+          class="agent-bubble-room"
+          data-testid="agent-bubble-room"
+          :title="`${asking ? 'Read-only' : 'Paused'} · ${state.powerUp.room > 0 ? `room ${state.powerUp.room}` : '…'}`"
           >{{ asking ? "Read-only" : "Paused" }} ·
           {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
         >
@@ -524,21 +517,30 @@ async function onBubbleReload(): Promise<void> {
   color: var(--action);
 }
 
+/* The status gives way first: it truncates, the mode switch and the close
+   button never shrink, so the header fits every dock width. */
 .agent-bubble-right {
   display: flex;
+  flex: 1 1 auto;
+  justify-content: flex-end;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   margin-left: auto;
 }
 
 .agent-bubble-room {
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink-3);
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* The close button keeps a 44px hit area at every pointer size; negative
    margins keep the compact header row from growing. */
 .bubble-close {
+  flex: none;
   display: inline-grid;
   place-items: center;
   min-width: var(--control-h-touch);
@@ -557,6 +559,7 @@ async function onBubbleReload(): Promise<void> {
 }
 
 .agent-mode-switch {
+  flex: none;
   display: flex;
   gap: var(--space-0);
   padding: 3px;
@@ -581,30 +584,6 @@ async function onBubbleReload(): Promise<void> {
 }
 
 /* Inspector entry beside the mode switch: a toggle (the dock outlives the panel). */
-.agent-inspect {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-h-sm);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius);
-  color: var(--ink-2);
-  background: transparent;
-  font: var(--weight-semibold) var(--text-xs) / 1 var(--font-sans);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.agent-inspect:hover {
-  color: var(--ink);
-  background: var(--surface-3);
-}
-.agent-inspect.on {
-  color: var(--action);
-  border-color: var(--action-line);
-  background: var(--action-soft);
-}
-
 .agent-conversation {
   flex: 1 1 auto;
   min-height: 96px;

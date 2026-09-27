@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { applyEdit, type EditOperation } from "../../src/studio/editOperations.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
-import { insertionText, plainKernelRefusal } from "../src/studio/studioMessages.ts";
+import { insertionText, kernelDetail, plainKernelRefusal } from "../src/studio/studioMessages.ts";
 
 const { document } = parsePictureDocument(
   [
@@ -91,5 +91,19 @@ describe("insertionText", () => {
     );
     assert.equal(insertionText(12, 12), "New shapes are drawn last, after step 12.");
     assert.equal(insertionText(0, 0), "New shapes are drawn first.");
+  });
+});
+
+describe("kernelDetail", () => {
+  it("names items by their labels, never their ids", () => {
+    const [technical] = refusal({ type: "moveItem", itemId: "held", dx: 1, dy: 0 });
+    assert.equal(technical, "item 'held' is locked; unlock it first");
+    assert.equal(kernelDetail(technical, document), '"Held" is locked; unlock it first');
+    assert.equal(
+      kernelDetail("line 9 belongs to locked item 'held'", document),
+      'line 9 belongs to locked item "Held"',
+    );
+    // An id the document lacks stays as it was.
+    assert.equal(kernelDetail("no item 'gone'", document), "no item 'gone'");
   });
 });

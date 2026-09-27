@@ -12,7 +12,8 @@ import {
   type AgentFrame,
   type FrameSource,
 } from "../src/agent/frames.ts";
-import { createAgentSessionState, executeAgentToolAsync } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentToolAsync } from "../src/agent/tools.ts";
 import { projectToolResult } from "../src/agent/toolTransport.ts";
 import { FrameRing, SURFACE_BYTES, TEXT_BYTES } from "../app/src/frameRing.ts";
 

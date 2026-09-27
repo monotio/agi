@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Engine } from "../src/runtime/engine.ts";
-import { createAgentSessionState } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
@@ -121,7 +121,8 @@ import {
   type RecordedHostCall,
 } from "../src/agent/recordedReplay.ts";
 import { buildRecordedTest } from "../app/src/gameRecording.ts";
-import { buildSound, buildObjectFile } from "../src/agent/tools.ts";
+import { buildObjectFile } from "../src/agent/agentState.ts";
+import { buildSound } from "../src/agent/tools.ts";
 
 function capture(
   logic: string,
@@ -478,7 +479,7 @@ test("recording preserves an object beyond authentic save.game allocation", () =
 });
 
 import { executeAgentTool } from "../src/agent/tools.ts";
-import { parseGameTests, serializeGameTests } from "../src/agent/gameTests.ts";
+import { parseGameTests, serializeGameTests } from "../src/agent/gameTestFormat.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
 
 test("recording payload roundtrips through tool validation, TESTS.JSON and execution", () => {

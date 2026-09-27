@@ -16,7 +16,7 @@ import {
 import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import { rngDraw } from "../../src/runtime/rng.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { installBaseTemplate } from "../../src/agent/baseTemplate.ts";
 import { gameContainer } from "./worker-ctx.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -476,9 +476,13 @@ test("the full boundary matrix replays to the same observed state", () => {
   // boundary that moves patchGeneration onto the marks.
   send({
     type: "patch",
-    kind: "logic",
-    num: 12,
-    payload: assembleLogic("assignn(v63,42);return;", { dictionary: new Map() }).payload,
+    resources: [
+      {
+        kind: "logic",
+        num: 12,
+        payload: assembleLogic("assignn(v63,42);return;", { dictionary: new Map() }).payload,
+      },
+    ],
   });
   send({ type: "debugWrite", id: 9, flags: [[214, 1]] });
   tick(3);

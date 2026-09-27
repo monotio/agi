@@ -74,11 +74,12 @@ const baseline = defineModel<boolean>("baseline", { required: true });
 </template>
 
 <style scoped>
+/* Above the contact sheet (z-index 1), whose toggle it holds: pressed again, it closes the sheet. */
 .sprite-view-bar {
   position: absolute;
   top: var(--space-4);
   left: 50%;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: var(--space-0);

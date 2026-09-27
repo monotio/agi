@@ -3,7 +3,7 @@ import type { StoredReference } from "./referenceArt.ts";
 import type { ScreenObjectState } from "../../src/runtime/engine.ts";
 import { projectId } from "../../src/gameIdentity.ts";
 import { cellChar } from "../../src/runtime/textSurface.ts";
-import type { GameIdentity, ProjectId, ResourceRevision } from "../../src/gameIdentity.ts";
+import type { ProjectId, ResourceRevision } from "../../src/gameIdentity.ts";
 
 /**
  * One library entry's stable id (an imported game, a created adventure, a
@@ -11,7 +11,7 @@ import type { GameIdentity, ProjectId, ResourceRevision } from "../../src/gameId
  * contract lives in src/gameIdentity.ts; these re-exports keep the app's
  * existing import sites.
  */
-export type { GameIdentity, ProjectId, ResourceRevision };
+export type { ProjectId, ResourceRevision };
 
 export interface CachedGameMeta {
   library?: LibraryMetadata | undefined;
@@ -50,6 +50,13 @@ export interface BootedGame {
   readonly folder?: string | undefined;
   readonly projectId?: ProjectId | undefined;
   authoredGame?: CachedGameData | undefined;
+  /**
+   * The stored project holds a newer save than the running game: a Keep
+   * saved but not installed, or a write from elsewhere. Nothing writes this
+   * game's files to storage until it reloads from storage, which boots a
+   * fresh BootedGame without the mark.
+   */
+  behindStorage?: true | undefined;
 }
 
 export interface InstalledGameDescriptor {

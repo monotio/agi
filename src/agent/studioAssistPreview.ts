@@ -19,7 +19,7 @@ const CHANGED: Rgb = [255, 85, 255];
 /** Transparent sprite pixels and gutters. */
 const BACKDROP: Rgb = [38, 43, 50];
 /** Gutter between sprite tiles, in image pixels. */
-export const TILE_GAP = 4;
+const TILE_GAP = 4;
 
 /** An unchanged cell in a diff panel: its colour at a quarter, over grey. */
 function dim([r, g, b]: Rgb): Rgb {
@@ -118,7 +118,7 @@ export interface CelPair {
 }
 
 /** Tile geometry for `pairs`: the widest and tallest cel, enlarged 1..4 times to about 96 rows. */
-export function spriteTileSize(pairs: readonly CelPair[]): {
+function spriteTileSize(pairs: readonly CelPair[]): {
   scale: number;
   width: number;
   height: number;

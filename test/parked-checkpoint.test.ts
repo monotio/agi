@@ -5,7 +5,7 @@ import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { OperationRecorder } from "../src/agent/recordedReplay.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
-import { buildObjectFile, createAgentSessionState } from "../src/agent/tools.ts";
+import { buildObjectFile, createAgentSessionState } from "../src/agent/agentState.ts";
 
 /**
  * Checkpoints at parked boundaries (docs/fidelity.md parked-host-waits). A

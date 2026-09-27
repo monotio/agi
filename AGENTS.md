@@ -30,7 +30,7 @@ Node 22.22+. Two package roots: the repo root (engine, tests, scripts) and `app/
 ```bash
 npm ci && npm --prefix app ci                 # install both roots
 npm run dev                                   # Vite dev server on http://localhost:5199
-npm run check                                 # the gate: typecheck (root + app), lint, ast-grep, prettier, engine + app tests, eval replay
+npm run check                                 # the gate: dep check, typecheck (root + app), lint, ast-grep, knip, dep-cruiser, token ratchet, prettier, engine + app tests, eval replay
 npm test && npm run test:app                  # node:test under --experimental-strip-types
 node --test --experimental-strip-types test/<file>.test.ts   # one engine test file
 npm run test:e2e                              # Playwright on its own `vite --mode test` server

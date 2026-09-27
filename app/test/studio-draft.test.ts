@@ -5,6 +5,7 @@ import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
+import { nearestInsertion } from "../../src/studio/editPoints.ts";
 import { useStudioDrag } from "../src/studio/useStudioDrag.ts";
 import {
   changeCount,
@@ -290,6 +291,41 @@ describe("useStudioDrag", () => {
     drag.release(at(62, 96));
     assert.equal(line(draft, 12), "rect 42,91 121,106");
     assert.equal(draft.history.value.past.length, 1);
+  });
+
+  it("adds a point with an Alt+press by the line, placed by the drag, as one step each", () => {
+    const { draft } = setup("walk");
+    const frames: (() => void)[] = [];
+    const drag = useStudioDrag({
+      draft,
+      editableId: () => "edge",
+      pick: () => assert.fail("an Alt+press by the line keeps the selection"),
+      onSelection: () => true,
+      labelOf: (id) => id,
+      report: (outcome) => assert.equal(outcome.ok, true),
+      insertAt: (id, cell) => nearestInsertion(draft.document.value, id, cell),
+      frame: (callback) => frames.push(callback),
+      cancelFrame: () => {},
+    });
+    const alt = { altKey: true } as PointerEvent;
+    const at = (x: number, y: number) => ({ event: alt, cell: { x, y }, handle: undefined });
+    // A click under 80,140 on the edge 20,140-139,140 adds 80,140 there.
+    drag.press(at(80, 141));
+    assert.equal(drag.dragging.value, true);
+    frames.shift()!();
+    assert.match(draft.preview.value!.source, /line 20,140 80,140 139,140/);
+    drag.release(at(80, 141));
+    assert.equal(line(draft, 16), "line 20,140 80,140 139,140");
+    // By 100,141 the nearest segment is now 80,140-139,140: the point, 100,140,
+    // is its index 2; the drag carries it 9 rows down.
+    drag.press(at(100, 141));
+    drag.drag(at(100, 150));
+    drag.release(at(100, 150));
+    assert.equal(line(draft, 16), "line 20,140 80,140 100,149 139,140");
+    assert.deepEqual(
+      draft.history.value.past.map((step) => step.label),
+      ["Add point to edge", "Add point to edge"],
+    );
   });
 
   it("abandons a cancelled drag without a step", () => {

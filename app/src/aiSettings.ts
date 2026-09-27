@@ -1,13 +1,13 @@
 import {
   defaultModelEffort,
+  MODEL_OPTIONS,
   modelEffortOptions,
   type ModelEffort,
 } from "../../src/agent/modelEffort.ts";
-import { MODEL_OPTIONS } from "./agent/llmClient.ts";
 
 export type AiSettingsProvider = "openai" | "anthropic" | "stub";
 
-export interface AiProviderSettings {
+interface AiProviderSettings {
   model: string;
   apiKey: string;
   effort: ModelEffort;

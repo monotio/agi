@@ -2,17 +2,14 @@ import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import {
-  createAgentSessionState,
-  STUDIO_ASSIST_TASK_TOOLS,
-  type AgentSessionState,
-} from "../../src/agent/tools.ts";
+import { createAgentSessionState, type AgentSessionState } from "../../src/agent/agentState.ts";
+import { STUDIO_ASSIST_TASK_TOOLS } from "../../src/agent/tools.ts";
 import type { StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
-import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
+import { DEFAULT_V2_PROFILE, PROFILES } from "../../src/runtime/profile.ts";
 import { parseView } from "../../src/view/view.ts";
 import { BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "../../test/studioAssistFixtures.ts";
 import { STUB_DECLINE_TEXT } from "../src/agent/studioAssist.ts";
@@ -191,4 +188,29 @@ test("a provider turn offers only the Studio task tools and is denied anything e
     /'write_picture' is not available in this phase/,
   );
   assert.equal(live.container.getResource("picture", 1), null);
+});
+
+test("the request's tools read the draft under the Studio's profile, not the session's", async () => {
+  // A pen is not available before AGI 2.4: the same draft compiles under the
+  // session's 2.936 and is refused under the Studio's 2.089.
+  const penSource = BRIDGE_SOURCE.replace(
+    "end\n",
+    ['# @item dot "Dot" art', "vis 1", "pen 0", "plot 10,10", "# @end", "end", ""].join("\n"),
+  );
+  const focus = (profile?: StudioFocus["profile"]): StudioFocus => ({
+    ...bridgeFocus(),
+    draft: () => ({ kind: "picture", source: penSource }),
+    ...(profile ? { profile } : {}),
+  });
+  const read = async (profile?: StudioFocus["profile"]) => {
+    const events: string[] = [];
+    const { session } = stubSession(events);
+    await session.runStudioAssist({
+      instruction: "impossible: walk onto the ceiling",
+      focus: focus(profile),
+    });
+    return events.find((line) => line.startsWith("[Studio] read_edit_context ->"));
+  };
+  assert.doesNotMatch((await read())!, /pen is not available/);
+  assert.match((await read(PROFILES["2.089"]))!, /pen is not available in profile 2\.089/);
 });

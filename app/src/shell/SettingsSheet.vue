@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /**
  * The one settings sheet: sound and display, AI, this game's downloads and
- * Start over, and the advanced diagnostics. A non-modal dialog anchored to
- * the right edge — the game stays visible. It behaves as a popover: a click
- * outside or focus moving outside (Tab past its last item) closes it, and
- * Escape closes it from anywhere and returns focus to the Settings button.
- * Toggles keep it open; actions close it. Keys pressed inside never reach
- * the game (App.vue skips events from dialogs).
+ * Start over, and the advanced diagnostics. A modal sheet anchored to the
+ * right edge, with no backdrop — the game stays visible. Tab and Shift+Tab
+ * cycle inside it and never reach the page behind; Escape closes it from
+ * anywhere and returns focus to the Settings button; a click outside closes
+ * it too, leaving focus with what was clicked. Toggles keep it open; actions
+ * close it. Keys pressed inside never reach the game (App.vue skips events
+ * from dialogs).
  */
 import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
@@ -34,6 +35,8 @@ const emit = defineEmits<{
   "update:debugOpen": [value: boolean];
   "export-zip": [project: boolean];
   "start-over": [];
+  /** Play: open Developer activity, which Play keeps off the page. */
+  "developer-activity": [];
 }>();
 
 const { state, resumeAudio, toggleMute, setAudioMode, currentGame } = useEngineApi();
@@ -56,19 +59,53 @@ function onOutsidePointerDown(event: PointerEvent): void {
   close("stay");
 }
 
-/** Escape anywhere while the sheet is open: the sheet, not the game, takes it. */
+const TAB_STOPS =
+  "button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
+
+/**
+ * Tab past either end of the sheet wraps to its other end; from anywhere
+ * outside it (focus dropped to the page body), Tab enters it.
+ */
+function trapTab(event: KeyboardEvent): void {
+  const root = sheet.value;
+  if (!root) return;
+  const stops = Array.from(root.querySelectorAll<HTMLElement>(TAB_STOPS)).filter(
+    (stop) => stop.getClientRects().length > 0,
+  );
+  const first = stops[0];
+  const last = stops.at(-1);
+  if (!first || !last) return;
+  const active = document.activeElement;
+  const inside = active instanceof Node && root.contains(active);
+  const edge = event.shiftKey ? first : last;
+  if (inside && active !== edge) return;
+  event.preventDefault();
+  (event.shiftKey ? last : first).focus({ preventScroll: true });
+}
+
+/**
+ * Keys while the sheet is open: Escape anywhere closes it (the sheet, not the
+ * game, takes it) and Tab stays inside it.
+ */
 function onWindowKeydown(event: KeyboardEvent): void {
-  if (event.key !== "Escape" || event.defaultPrevented) return;
-  // Another dialog above the sheet (AI settings) closes itself first.
+  if ((event.key !== "Escape" && event.key !== "Tab") || event.defaultPrevented) return;
+  // Another dialog above the sheet (AI settings) handles its own keys.
   const target = event.target;
   const other = target instanceof Element ? target.closest("dialog[open]") : null;
   if (other && other !== sheet.value) return;
+  if (event.key === "Tab") {
+    trapTab(event);
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   close("trigger");
 }
 
-/** Focus moving to anything outside the sheet (Tab past its end) closes it. */
+/**
+ * Focus taken outside by anything but Tab (the game claiming its input, a
+ * click the outside handler has not seen) closes the sheet behind it.
+ */
 function onFocusOut(event: FocusEvent): void {
   const next = event.relatedTarget;
   if (!(next instanceof Node)) return;
@@ -125,6 +162,7 @@ defineExpose({ toggle, close, open });
     ref="sheet"
     class="settings-sheet"
     aria-labelledby="settings-sheet-title"
+    aria-modal="true"
     data-testid="settings-menu-menu"
     @focusout="onFocusOut"
   >
@@ -308,6 +346,18 @@ defineExpose({ toggle, close, open });
           >
             <span>Inspector<small>Priority layers, state and trace</small></span>
             <span class="setting-value">{{ debugOpen ? "On" : "Off" }}</span>
+          </button>
+          <button
+            v-if="state.phase === 'running' && shell.mode.value === 'play'"
+            type="button"
+            class="settings-row"
+            data-testid="settings-developer-activity"
+            @click="
+              close('trigger');
+              emit('developer-activity');
+            "
+          >
+            <span>Developer activity<small>Agent log, debug bundle and renderer</small></span>
           </button>
         </template>
       </section>

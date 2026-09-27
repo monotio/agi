@@ -96,11 +96,11 @@ function put(
 
 const BLACK = EGA_PALETTE[0]!;
 /** Share of the priority colour in the Depth blend. */
-export const DEPTH_BLEND = 0.5;
+const DEPTH_BLEND = 0.5;
 /** How far the art fades toward black under the Walk lens. */
-export const WALK_DIM = 0.7;
+const WALK_DIM = 0.7;
 /** How far an off-pattern control cell fades toward black. */
-export const PATTERN_FADE = 0.55;
+const PATTERN_FADE = 0.55;
 
 /**
  * Paint one pane into RGBA `out` (160x168x4). Art is the visual plane in EGA
@@ -343,7 +343,7 @@ export function spanIndexAt(spans: readonly PictureSourceSpan[], offset: number)
 }
 
 /** When the byte meter starts warning: this share of write_scene's limit. */
-export const BYTES_APPROACH = 0.8;
+const BYTES_APPROACH = 0.8;
 
 export interface ByteMeter {
   tone: "ok" | "warn" | "danger";
@@ -394,7 +394,7 @@ export interface LabelParts {
 }
 
 /** Longer tails keep only their last words, so the head still shows something. */
-export const LABEL_TAIL_MAX = 12;
+const LABEL_TAIL_MAX = 12;
 
 /**
  * Split an item label where the numbers that tell rows apart begin:

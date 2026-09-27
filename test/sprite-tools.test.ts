@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { executeSpriteTool, SPRITE_TOOLS } from "../src/agent/spriteTools.ts";
 import { buildView, parseView, selectViewCel } from "../src/view/view.ts";
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { itemHandles, linePoints } from "../src/studio/editPoints.ts";
+import { itemHandles, linePoints, nearestInsertion } from "../src/studio/editPoints.ts";
 import { setLinePoint } from "../src/studio/editSource.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
 
@@ -117,5 +117,56 @@ describe("itemHandles", () => {
       { x: 50, y: 94, line: 5, index: 0, kind: "seed" },
     ]);
     assert.deepEqual(itemHandles(document, "missing"), []);
+  });
+});
+
+describe("nearestInsertion", () => {
+  const { document } = parsePictureDocument(
+    [
+      '# @item a "A" depth', //       1
+      "pri 10", //                    2
+      "polygon 40,90 60,90 50,99", // 3
+      "fill 50,94", //                4
+      "# @end", //                    5
+      '# @item s "S" art', //         6
+      "vis 1", //                     7
+      "line 10,10 11,11", //          8
+      "xcorner 20,20 30 30", //       9
+      "# @end", //                    10
+    ].join("\n"),
+  );
+
+  it("puts the point on the nearest segment, measured with pixels twice as wide as tall", () => {
+    // 50,88 over the top edge 40,90-60,90: halfway along it, 2 rows away.
+    assert.deepEqual(nearestInsertion(document, "a", { x: 50, y: 88 }), {
+      line: 3,
+      pointIndex: 1,
+      x: 50,
+      y: 90,
+      distance: 2,
+    });
+    // 44,95 by the closing edge 50,99-40,90: t = (6*10*4 + 4*9) / (100*4 + 81) = 276/481,
+    // so 44.262,93.836, rounded 44,94; 1.277 rows off it (the top edge is 5 away).
+    const closing = nearestInsertion(document, "a", { x: 44, y: 95 })!;
+    assert.deepEqual(
+      { ...closing, distance: 0 },
+      { line: 3, pointIndex: 3, x: 44, y: 94, distance: 0 },
+    );
+    assert.ok(Math.abs(closing.distance - 1.27669) < 1e-4, String(closing.distance));
+  });
+
+  it("never lands on a vertex, and skips segments with no pixel between their ends", () => {
+    // On vertex 40,90 the top edge offers its first inner pixel, 41,90, 2 rows off
+    // (the closing edge's last inner point, 41,90.9, is 2.19 off).
+    assert.deepEqual(nearestInsertion(document, "a", { x: 40, y: 90 }), {
+      line: 3,
+      pointIndex: 1,
+      x: 41,
+      y: 90,
+      distance: 2,
+    });
+    // A 1-step line and a staircase take no point; a fill is no line.
+    assert.equal(nearestInsertion(document, "s", { x: 10, y: 10 }), undefined);
+    assert.equal(nearestInsertion(document, "missing", { x: 0, y: 0 }), undefined);
   });
 });

@@ -11,6 +11,7 @@ import {
  */
 
 import type { CachedGameMeta, CachedGameData, ProjectId, ResourceRevision } from "./gameTypes.ts";
+import { announceProjectWrite } from "./projectBroadcast.ts";
 import { normalizeReferences, type StoredReference } from "./referenceArt.ts";
 import { projectId, resourceRevision } from "../../src/gameIdentity.ts";
 import { PROFILES, type ProfileId } from "../../src/runtime/profile.ts";
@@ -213,49 +214,8 @@ export async function bodyTransaction<T>(
 }
 
 /**
- * Read-modify-write on one record inside a single read-write transaction.
- * Separate get and put transactions from two tabs can interleave — the
- * second put silently overwrites the first's merge — so a caller that
- * updates an existing record must hold one transaction across both.
- * `update` gets the raw stored value (undefined when absent) and returns
- * the record to write plus the operation's result; omit `put` to commit no
- * write. Throwing aborts the transaction and propagates.
- */
-export async function updateBodyRecord<T>(
-  key: string,
-  update: (stored: unknown) => { put?: unknown; result: T },
-): Promise<T> {
-  const db = await openDatabase();
-  return new Promise<T>((resolve, reject) => {
-    const transaction = db.transaction("projects", "readwrite");
-    const store = transaction.objectStore("projects");
-    const request = store.get(key);
-    let outcome: { put?: unknown; result: T } | undefined;
-    let contractError: Error | undefined;
-    request.onsuccess = () => {
-      try {
-        outcome = update(request.result);
-        if (outcome.put !== undefined) store.put(outcome.put);
-      } catch (error) {
-        contractError = error instanceof Error ? error : new Error(String(error));
-        transaction.abort();
-      }
-    };
-    transaction.oncomplete = () => {
-      if (outcome === undefined) reject(new Error("Project storage transaction closed early."));
-      else resolve(outcome.result);
-    };
-    transaction.onerror = () => reject(contractError ?? transaction.error ?? request.error);
-    transaction.onabort = () =>
-      reject(
-        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
-      );
-  });
-}
-
-/**
- * updateBodyRecord's multi-record form: one get, then the puts and deletes
- * `update` returns, all inside the same read-write transaction. Append-only
+ * Read-modify-write inside a single read-write transaction: one get, then the
+ * puts and deletes `update` returns. Append-only
  * tables use it to write an immutable record and its manifest update
  * atomically — a commit that dies mid-write leaves no half-published row.
  */
@@ -385,7 +345,7 @@ export async function readBodyRecords(
       );
   });
 }
-export class ConcurrencyConflictError extends Error {
+class ConcurrencyConflictError extends Error {
   readonly currentRecord?: StoredGameBody | undefined;
   constructor(message: string, currentRecord?: StoredGameBody) {
     super(message);
@@ -394,14 +354,14 @@ export class ConcurrencyConflictError extends Error {
   }
 }
 
-export class ProjectDeletedError extends Error {
+class ProjectDeletedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ProjectDeletedError";
   }
 }
 
-export class ProjectExistsError extends Error {
+class ProjectExistsError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ProjectExistsError";
@@ -698,6 +658,13 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
     throw err;
   }
   localStorage.setItem(getStorageKey(data.projectId), JSON.stringify(storedIndex(data)));
+  // Committed: a tab running another revision of this project learns now.
+  if (data.library && data.generation !== undefined)
+    announceProjectWrite({
+      projectId: data.projectId,
+      revision: data.library.revision,
+      generation: data.generation,
+    });
   return lifetime;
 }
 export function serializeWrite<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -799,6 +766,51 @@ export function updateAuthoredGameFiles(
     } catch (error) {
       console.error("Project autosave failed:", error);
       return false;
+    }
+  });
+}
+
+/**
+ * Replace the project's files only while the record still holds `expected`:
+ * its stamped revision (every write stamps `library.revision` from the files,
+ * so no hash is taken here) and, when given, its history lifetime. A record
+ * that already holds `current` (the files' own revision) is left as it is.
+ * "stale" when the record moved elsewhere, "failed" when storage refused.
+ */
+export function updateAuthoredGameFilesAt(
+  projectId: ProjectId,
+  files: Record<string, Uint8Array>,
+  expected: { revision: ResourceRevision; current: ResourceRevision; lifetime?: string | null },
+): Promise<"saved" | "stale" | "failed"> {
+  return serializeWrite(projectId, async () => {
+    try {
+      let lifetime: string | null = null;
+      const data = await readBody(projectId, (value) => {
+        lifetime = value;
+      });
+      if (
+        !data ||
+        lifetime === null ||
+        (expected.lifetime !== undefined && expected.lifetime !== lifetime)
+      )
+        return "stale";
+      // The stamp is enough on every record this app writes; one without it
+      // (or with a stamp that disagrees) is judged by its files instead.
+      let stored = data.library?.revision;
+      if (stored !== expected.current && stored !== expected.revision)
+        stored = await gameRevision(data.files);
+      if (stored === expected.current) return "saved";
+      if (stored !== expected.revision) return "stale";
+      data.files = files;
+      if (files["WORDS.TOK"])
+        data.words = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
+      await writeBody(data, { expectedGeneration: data.generation, expectedLifetime: lifetime });
+      return "saved";
+    } catch (error) {
+      if (error instanceof ConcurrencyConflictError || error instanceof ProjectDeletedError)
+        return "stale";
+      console.error("Project autosave failed:", error);
+      return "failed";
     }
   });
 }

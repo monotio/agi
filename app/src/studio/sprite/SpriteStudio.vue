@@ -195,6 +195,7 @@ const assist = useStudioAssist({
             protectedLoops: askProtected.value,
           }),
           draft: currentView,
+          profile,
         },
   current: currentView,
   apply: (candidate, focus) => {
@@ -476,7 +477,10 @@ async function keepChanges(): Promise<boolean> {
 }
 async function recover(recovery: KeepRecovery): Promise<void> {
   if (recovery === "retry") return void keepChanges();
-  const fromStorage = keeper.banner.value?.fromStorage === true;
+  await reopen(keeper.banner.value?.fromStorage === true);
+}
+/** Reopen Studio on the running game, or on the game reloaded from storage; the draft stays behind. */
+async function reopen(fromStorage: boolean): Promise<void> {
   if (fromStorage && !(await leave.confirmReload())) return;
   keeper.dismiss();
   draft.discard();
@@ -645,11 +649,6 @@ const status = computed(() => {
       <p v-if="tools.penDown.value" class="sprite-studio__pen" data-testid="sprite-pen-down">
         {{ PEN_DOWN }}
       </p>
-      <LessonCard
-        v-if="lesson.session.value"
-        :session="lesson.session.value"
-        :outcome="lesson.outcome.value"
-      />
     </main>
 
     <SpriteTimeline
@@ -664,6 +663,12 @@ const status = computed(() => {
     />
 
     <aside class="sprite-studio__panel" aria-label="Cel, previews and linked loops">
+      <!-- The lesson's card docks at the top of the side panel, never over the stage. -->
+      <LessonCard
+        v-if="lesson.session.value"
+        :session="lesson.session.value"
+        :outcome="lesson.outcome.value"
+      />
       <SpritePalette
         v-model="color"
         :transparent="currentCel?.transparent ?? 0"
@@ -704,6 +709,7 @@ const status = computed(() => {
         :chips="assistChips"
         hint="To change the scope, pick another cel or loop on the timeline."
         :changes="assistChanges"
+        @reload="reopen(true)"
         noun="view"
         empty="Select a cel on the timeline to ask the AI about it."
         collapsible

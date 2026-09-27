@@ -32,6 +32,7 @@ import {
   loopFacing,
   moveSelectionChanges,
   previewPartner,
+  swatchInk,
   usageText,
 } from "../src/studio/sprite/spriteView.ts";
 import { useSpriteDraft } from "../src/studio/sprite/useSpriteDraft.ts";
@@ -573,5 +574,20 @@ describe("sprite view helpers", () => {
       "Loop 3 is not an exact mirror of loop 1; replace it to link them.",
     );
     assert.equal(plainSpriteRefusal("something new"), "The view can't be changed that way.");
+  });
+});
+
+describe("swatch labels", () => {
+  it("are black or white per AGI colour, whichever reads at 4.5:1 or better", () => {
+    // WCAG relative luminance of each EGA colour, worked by hand: 0x55 is
+    // 0.0908 linear, 0xaa 0.402. Dark gray (0.091) takes white at 7.5:1,
+    // brown (0.150) white at 5.2:1, light blue (0.156) white at 5.1:1,
+    // light red (0.284) black at 6.7:1, cyan (0.317) black at 7.3:1.
+    const W = "var(--agi-15)";
+    const B = "var(--agi-0)";
+    assert.deepEqual(
+      Array.from({ length: 16 }, (_, colour) => swatchInk(colour)),
+      [W, W, B, B, W, W, W, B, W, W, B, B, B, B, B, B],
+    );
   });
 });

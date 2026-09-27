@@ -306,42 +306,48 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "patch") {
-      const { kind, num } = msg;
-      const payload = new Uint8Array(msg.payload);
-      if (!ctx.engine) {
+      const resources = msg.resources.map(({ kind, num, payload }) => ({
+        kind,
+        num,
+        payload: new Uint8Array(payload),
+      }));
+      const refused = (patchGen: number, error: string) =>
         control({
           type: "patched",
-          kind,
-          num,
-          patchGen: 0,
-          hint: null,
-          error: "No game is running.",
+          resources: resources.map(({ kind, num }) => ({ kind, num, hint: null })),
+          patchGen,
+          error,
         });
+      if (!ctx.engine) {
+        refused(0, "No game is running.");
         return;
       }
       if (ctx.recording.recording)
         ctx.recording.recording.tainted = "Game resources changed during recording.";
       try {
-        ctx.engine.patchResource(kind, num, payload);
+        // All or none: a refusal leaves every resource on its old bytes.
+        ctx.engine.patchResources(resources);
       } catch (e) {
         // The ack names the refusal for a caller awaiting it; the rethrow
         // keeps the session error every patch sender has always raised.
-        const patchGen = ctx.engine.patchGeneration;
-        control({ type: "patched", kind, num, patchGen, hint: null, error: String(e) });
+        refused(ctx.engine.patchGeneration, String(e));
         throw e;
       }
-      ctx.fns.historyRecord({
-        kind: "patch",
-        resource: kind,
-        num,
-        data: bytesToBase64(payload),
-      });
+      for (const { kind, num, payload } of resources)
+        ctx.fns.historyRecord({
+          kind: "patch",
+          resource: kind,
+          num,
+          data: bytesToBase64(payload),
+        });
       control({
         type: "patched",
-        kind,
-        num,
+        resources: resources.map(({ kind, num, payload }) => ({
+          kind,
+          num,
+          hint: resourceCacheHint(payload),
+        })),
         patchGen: ctx.engine.patchGeneration,
-        hint: resourceCacheHint(payload),
       });
       return;
     }

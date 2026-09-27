@@ -1,5 +1,5 @@
 import type { OpenedGame } from "../../app/src/gameZip.ts";
-import { serializeGameTests } from "../../src/agent/gameTests.ts";
+import { serializeGameTests } from "../../src/agent/gameTestFormat.ts";
 import { TUTORIAL_GAME_TESTS } from "./tests.ts";
 import { createAuthoringState, resourceCacheHint } from "../../src/agent/authoringState.ts";
 import { buildSound } from "../../src/agent/tools.ts";

@@ -13,7 +13,7 @@ import {
   type AutosaveGame,
   type AutosaveRecord,
 } from "./gameProgress.ts";
-import { getCachedGameMeta, loadAuthoredGame, updateAuthoredGameFiles } from "./gameStorage.ts";
+import { getCachedGameMeta, loadAuthoredGame, updateAuthoredGameFilesAt } from "./gameStorage.ts";
 import {
   findInstalledFolder,
   gameStorageKey,
@@ -32,6 +32,20 @@ const RESUME_CAPTION_MS = 10_000;
 
 export { autosaveKey, writeAutosave };
 export type { AutosaveRecord, AutosaveGame };
+
+/**
+ * Storage holds another revision than the running project game: it is
+ * marked behind, or the project index names a newer save. Only a reason to
+ * skip this game's saves — the conditional file write and the cross-tab
+ * notice decide `behindStorage`, since this tab's own Keep also passes
+ * through a moment where the index is ahead of the game it installs into.
+ */
+export function storageMovedPast(game: BootedGame): boolean {
+  if (game.installed || !game.projectId) return false;
+  if (game.behindStorage) return true;
+  const stored = getCachedGameMeta(game.projectId)?.library?.revision;
+  return stored !== undefined && stored !== game.revision;
+}
 
 export function autosaveMatches(game: AutosaveGame, targetKey: string): boolean {
   // The record's project is the storage key it was written under: a record
@@ -91,6 +105,8 @@ export interface AutosaveControllerContext {
   readonly getWorker: () => Worker | null;
   readonly onAutosaveStored?: (cycle: number) => void;
   readonly onAutosaveRestored?: (room: number, egoX: number, egoY: number) => void;
+  /** An autosave found a newer save in storage and wrote nothing; called once per game. */
+  readonly onBehindStorage?: () => void;
   readonly logAgent: (kind: AgentLogEntry["kind"], message: string, details?: unknown) => void;
   readonly isInstalledGame: (targetGame: string) => boolean;
   readonly bootGame: (targetFolder: string) => Promise<void>;
@@ -102,7 +118,7 @@ export interface AutosaveControllerContext {
   readonly configForGame: (projectId: ProjectId, config: LlmConfig) => LlmConfig;
 }
 
-export type AutosaveFlushResult =
+type AutosaveFlushResult =
   | { status: "saved"; cycle: number }
   | { status: "already_durable"; cycle: number }
   | { status: "not_checkpointable"; reason: string }
@@ -188,10 +204,34 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       const game = booted;
       if (msg.files) {
         if (booted.installed) return false;
-        if (!(await updateAuthoredGameFiles(game.projectId!, msg.files))) return false;
-        if (ctx.getBootedGame() !== game) return false;
+        // Behind storage (a Keep saved but not installed, a newer write from
+        // elsewhere) the running game's files are older than the record:
+        // nothing is written over it until the game reloads from storage.
+        if (booted.behindStorage) return false;
+        // Conditional, as every project write is: only over the revision this
+        // game booted on (or one already holding these files). A newer save
+        // elsewhere refuses: the game is behind storage from then on, and the
+        // reload it needs is offered once.
+        const current = await gameRevision(msg.files);
+        const outcome = await updateAuthoredGameFilesAt(game.projectId!, msg.files, {
+          revision: game.revision,
+          current,
+          ...(game.historyLifetime !== undefined ? { lifetime: game.historyLifetime } : {}),
+        });
+        if (outcome === "stale") {
+          if (ctx.getBootedGame() === game && !game.behindStorage) {
+            game.behindStorage = true;
+            ctx.onBehindStorage?.();
+          }
+          return false;
+        }
+        if (outcome !== "saved" || ctx.getBootedGame() !== game) return false;
         await updateBootedResources(game, msg.files);
       }
+      // A checkpoint names the revision this game runs. Once storage holds
+      // another one (a Keep in another tab, which took its own checkpoint),
+      // this one could never resume and would bury that tab's: skip it.
+      if (storageMovedPast(game)) return false;
       const storageKey = gameStorageKey(game);
       const project = projectId(storageKey);
       if (!project) {

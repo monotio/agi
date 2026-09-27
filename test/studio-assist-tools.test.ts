@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  createAgentSessionState,
+  type AgentSessionState,
+  type AgentToolResult,
+} from "../src/agent/agentState.ts";
+import {
   AGENT_TOOLS,
   ASK_TOOLS,
   AUTHORING_TOOL_NAMES,
-  createAgentSessionState,
   executeAgentTool,
   executeAgentToolAsync,
   STUDIO_ASSIST_TASK_TOOLS,
-  type AgentSessionState,
-  type AgentToolResult,
 } from "../src/agent/tools.ts";
 import {
   createStudioAssist,
@@ -246,6 +248,43 @@ test("propose_edit works on a detached copy and returns a before | after | diff 
   );
   // The creator sees the same estimate on the candidate card.
   assert.deepEqual(candidate.kind === "picture" && candidate.walkable, { before: 880, after: 960 });
+});
+
+test("propose_edit takes insertPoint: a new vertex on the selected item's line", async () => {
+  const propose_ = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const types = (
+    propose_.parameters.properties["pictureOps"] as {
+      items: { properties: { type: { enum: string[] } } };
+    }
+  ).items.properties.type.enum;
+  assert.ok(types.includes("insertPoint"));
+  assert.match(propose_.description, /insertPoint itemId line pointIndex x y/);
+  // The art lens, so the bridge's colour may change; its first row, line 15,
+  // 60,118-99,118, dips to 80,119 in the middle.
+  const compiled = compileEditDocument(
+    parsePictureDocument(BRIDGE_SOURCE).document,
+    DEFAULT_V2_PROFILE,
+  );
+  const assist = createStudioAssist({
+    scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens: "art" }),
+    draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
+    lens: "art",
+  });
+  const result = await propose(session(), assist, [
+    op("pictureOps", {
+      type: "insertPoint",
+      itemId: "bridge",
+      line: 15,
+      pointIndex: 1,
+      x: 80,
+      y: 119,
+    }),
+  ]);
+  assert.equal(result.success, true, result.error ?? "");
+  const candidate = assist.candidate!;
+  const source = candidate.kind === "picture" ? candidate.draft.source : "";
+  assert.equal(source.split("\n")[14], "line 60,118 80,119 99,118");
+  assert.match(source, /# @item bridge "Bridge" art/, "the item keeps its id");
 });
 
 test("a fill spilling out of the selection is refused with what to do about it", async () => {

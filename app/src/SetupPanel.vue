@@ -13,6 +13,9 @@ import HomeHero from "./home/HomeHero.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 
+/** Why Home opened instead of the game a link named (App.vue). */
+const { routeNote = "" } = defineProps<{ routeNote?: string }>();
+
 const { state, stopAgent, continueAgent, discardAgent } = useEngineApi();
 const { activeTemplate, onGameDrop } = useGameLibrary();
 const createOpen = ref(false);
@@ -35,6 +38,9 @@ function onDrop(event: DragEvent): void {
     @dragover.prevent
     @drop.prevent="onDrop"
   >
+    <p v-if="routeNote" class="route-note" role="status" data-testid="route-note">
+      {{ routeNote }}
+    </p>
     <HomeHero :create-open="createOpen" />
     <div v-if="state.phase === 'error'" class="error-banner" data-testid="error-panel" role="alert">
       <span class="error-badge">ERROR</span>
@@ -101,6 +107,15 @@ function onDrop(event: DragEvent): void {
   outline: 2px dashed transparent;
   outline-offset: var(--space-4);
   transition: outline-color var(--duration-fast) var(--ease-out);
+}
+.route-note {
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--surface-1);
+  font: var(--weight-semibold) var(--text-md) / var(--leading) var(--font-sans);
 }
 .setup-panel.dragging {
   outline-color: var(--action-line);

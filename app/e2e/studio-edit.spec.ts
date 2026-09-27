@@ -243,6 +243,61 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   expect(await framePriority(page, 80, 90)).toBe(4);
 });
 
+test("Alt shows where a point goes on the selected line; Alt+click adds it and Insert adds one at the cursor", async ({
+  page,
+}) => {
+  await bootStudioGame(page);
+  const studio = await openStudio(page);
+  await page.keyboard.press("2");
+  await studio.locator('[data-row="occluder"]').click();
+  await expect(studio.locator("[data-handle]")).toHaveCount(6);
+  const pane = page.locator(".studio-pane").last();
+  const box = (await pane.boundingBox())!;
+  const zoom = box.height / 168;
+  const cell = (x: number, y: number) =>
+    [box.x + (x + 0.5) * 2 * zoom, box.y + (y + 0.5) * zoom] as const;
+  const polygon = (points: string) =>
+    SOURCE.replace("polygon 40,90 119,90 126,98 119,105 40,105", `polygon ${points}`);
+
+  // One row above the top edge 40,90-119,90, halfway along it: the "+" sits on
+  // the edge at 80,90, and only while Alt is held.
+  await page.mouse.move(...cell(80, 89));
+  const ghost = pane.locator('[data-role="insert-ghost"]');
+  await expect(ghost).toHaveCount(0);
+  await page.keyboard.down("Alt");
+  await page.mouse.move(...cell(80, 89));
+  await expect(ghost).toHaveAttribute("data-point", "80,90");
+  await page.screenshot({ path: "test-results/studio-insert-point-hover.png" });
+
+  // Alt+press adds it; the same drag carries it 6 rows up. One step.
+  await page.mouse.down();
+  for (let k = 1; k <= 3; k++) await page.mouse.move(...cell(80, 89 - 2 * k));
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await expect(ghost).toHaveCount(0);
+  await expect(studio.locator("[data-handle]")).toHaveCount(7);
+  await expect(pane.locator('[data-point="' + POLYGON_LINE + ':1"]')).toBeVisible();
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(
+    polygon("40,90 80,84 119,90 126,98 119,105 40,105"),
+  );
+  await page.screenshot({ path: "test-results/studio-insert-point-result.png" });
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  expect(await draftBytes(page)).toEqual(PIC_5);
+
+  // Insert: the cursor stands where the pointer last hovered, 80,89.
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("Insert");
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(
+    polygon("40,90 80,90 119,90 126,98 119,105 40,105"),
+  );
+  expect(await draftBytes(page)).toEqual(
+    compilePictureSource(polygon("40,90 80,90 119,90 126,98 119,105 40,105")).bytes,
+  );
+});
+
 test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys stay in Studio", async ({
   page,
 }) => {
@@ -414,7 +469,12 @@ test("two tabs: a Keep in one makes the other's Keep reload the saved game, then
   await reopenFromStorage(page, studioA);
   expect(await draftBytes(page)).toEqual(keptB);
   expect(await storedPicture(page, 5)).toEqual(keptB);
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The reloaded game runs, held by the reopened Studio's pause. A game
+  // started from the top may take that pause before its first cycle, still
+  // in room 0: it enters room 1 when Studio lets it go, not before.
+  await expect
+    .poll(() => page.evaluate(() => [window.__AGI_STATE__?.phase, window.__AGI_STATE__?.paused]))
+    .toEqual(["running", true]);
 
   // Edited on the saved bytes, A's next Keep lands.
   const reloaded = page.getByTestId("room-studio");
@@ -424,6 +484,9 @@ test("two tabs: a Keep in one makes the other's Keep reload the saved game, then
   await expect(reloaded.getByTestId("studio-draft-status")).toHaveText("Kept");
   expect(await storedPicture(page, 5)).toEqual(keptA);
   expect(keptA).not.toEqual(keptB);
+  // Released, the reloaded game plays on in room 1.
+  await reloaded.getByTestId("studio-close").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await tabB.close();
 });
 

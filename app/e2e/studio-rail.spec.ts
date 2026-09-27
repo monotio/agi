@@ -96,3 +96,59 @@ for (const viewport of VIEWPORTS) {
     expect(overflow, "the page does not scroll").toBeLessThanOrEqual(0);
   });
 }
+
+/** Whether two boxes share any area (touching edges do not count). */
+const overlaps = (a: Box, b: Box) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in every lens", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 600 });
+  const studio = await openLabStudio(page);
+  const top = {
+    lens: studio.getByTestId("studio-lens"),
+    size: studio.getByTestId("studio-bytes"),
+    undo: studio.getByTestId("studio-undo"),
+    status: studio.getByTestId("studio-draft-status"),
+    keep: studio.getByTestId("studio-keep"),
+  };
+  const stage = {
+    view: studio.getByRole("toolbar", { name: "View" }),
+    legend: studio.locator('[data-role="control-legend"]'),
+    zoom: studio.getByRole("group", { name: "Zoom" }),
+  };
+  for (const [key, lens] of [
+    ["1", "Art"],
+    ["2", "Depth"],
+    ["3", "Walk"],
+  ] as const) {
+    await page.keyboard.press(key);
+    await expect(top.lens.getByRole("radio", { name: new RegExp(lens) })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    for (const group of [top, stage]) {
+      const boxes: [string, Box][] = [];
+      for (const [name, locator] of Object.entries(group))
+        if (await locator.isVisible()) boxes.push([name, (await locator.boundingBox())!]);
+      for (const [i, [a, boxA]] of boxes.entries())
+        for (const [b, boxB] of boxes.slice(i + 1))
+          expect(overlaps(boxA, boxB), `${lens}: ${a} overlaps ${b}`).toBe(false);
+    }
+  }
+  // The Walk legend folded into the bar opens under it, clear of it; the
+  // footer carries the size the top bar had no room for.
+  await expect(stage.legend).toHaveCount(0);
+  await studio.getByTestId("studio-legend-toggle").click();
+  await expect(stage.legend).toBeVisible();
+  expect(
+    overlaps((await stage.view.boundingBox())!, (await stage.legend.boundingBox())!),
+    "the open legend overlaps the view bar",
+  ).toBe(false);
+  await expect(studio.getByTestId("studio-size")).toHaveText(/^\d+ B · \d+ cmds$/);
+  await page.screenshot({ path: test.info().outputPath("studio-walk-1024x600.png") });
+  await page.keyboard.press("1");
+  await studio.locator('[data-row="west-wall"]').click();
+  await page.screenshot({ path: test.info().outputPath("studio-art-selected-1024x600.png") });
+});

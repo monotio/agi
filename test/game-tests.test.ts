@@ -8,10 +8,9 @@ import {
   GAME_TESTS_MAX_BYTES,
   parseGameTests,
   serializeGameTests,
-  testsForResource,
-  verdictLine,
   type GameTest,
-} from "../src/agent/gameTests.ts";
+} from "../src/agent/gameTestFormat.ts";
+import { testsForResource, verdictLine } from "../src/agent/gameTests.ts";
 import { DIRECTION_KEYS, directionForDelta, randomSource } from "../src/agent/gameTestSteps.ts";
 import { playtestRoom } from "../src/agent/playtest.ts";
 import { splitToolResult } from "../src/agent/toolTransport.ts";
@@ -21,12 +20,11 @@ import {
   createOrientationPrompt,
 } from "../src/agent/prompt.ts";
 import {
-  ASK_TOOLS,
   buildObjectFile,
   createAgentSessionState,
-  executeAgentTool,
   type AgentSessionState,
-} from "../src/agent/tools.ts";
+} from "../src/agent/agentState.ts";
+import { ASK_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";

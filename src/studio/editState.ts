@@ -20,7 +20,7 @@ export interface DrawState {
 
 export type DrawRegister = keyof DrawState;
 
-export const DRAW_REGISTERS: readonly DrawRegister[] = ["visual", "priority", "pen"];
+const DRAW_REGISTERS: readonly DrawRegister[] = ["visual", "priority", "pen"];
 
 export type RegisterSet = Record<DrawRegister, boolean>;
 
@@ -30,7 +30,10 @@ export type RegisterSet = Record<DrawRegister, boolean>;
  * 0xf0 at command boundaries and commands above the profile's vocabulary, and
  * stops at 0xff.
  */
-export function drawStateAt(bytes: Uint8Array, end: number, profile: AgiProfile): DrawState {
+/** What the state reader needs of a profile: its command vocabulary and pen reading. */
+type StateVocabulary = Pick<AgiProfile, "pictureMaxCommand" | "patternProfile">;
+
+function drawStateAt(bytes: Uint8Array, end: number, profile: StateVocabulary): DrawState {
   let visual: number | null = null;
   let priority: number | null = null;
   let pen = 0;
@@ -58,7 +61,7 @@ export function drawStateAt(bytes: Uint8Array, end: number, profile: AgiProfile)
 export function drawStateBeforeLine(
   compiled: { readonly bytes: Uint8Array; readonly spans: readonly PictureSourceSpan[] },
   line: number,
-  profile: AgiProfile,
+  profile: StateVocabulary,
 ): DrawState {
   let end = 0;
   for (const span of compiled.spans) {

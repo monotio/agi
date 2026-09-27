@@ -112,8 +112,9 @@ test("the World panel maps rooms to the pictures their logic draws", async ({ pa
   await expect(panel.getByTestId("world-room-pictures")).toContainText(
     "PIC 5 · shared with room 2",
   );
-  await expect(panel.getByTestId("world-play-here")).toBeDisabled();
-  await expect(panel.locator("[title='Coming in a later update']")).toBeVisible();
+  // No placeholder: Play here lives in Room Studio (its canvas menu), where the spot is chosen.
+  await expect(panel.getByTestId("world-play-here")).toHaveCount(0);
+  await expect(panel.locator("[title='Coming in a later update']")).toHaveCount(0);
 
   await panel.getByTestId("map-room-3").click();
   await expect(panel.getByTestId("world-room-pictures")).toContainText("picture chosen at runtime");
@@ -287,3 +288,26 @@ test("a folded dock stays folded across a reload and brackets fold only outside 
   await expect(page.getByTestId("agent-panel")).toBeVisible();
   await expect(page.getByTestId("agent-panel")).toHaveCount(1);
 });
+
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 1440, height: 900 },
+]) {
+  test(`the assistant's header keeps Back to game inside the dock at ${viewport.width}×${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await bootWorkspaceGame(page);
+    await enterCreateMode(page);
+    await page.getByTestId("power-up").click();
+    // The right dock: its tabs (create-dock-right) above the assistant it hosts.
+    const dock = page.getByRole("complementary", { name: "Assistant panels" });
+    const close = page.getByTestId("agent-bubble-close");
+    await expect(close).toBeInViewport({ ratio: 1 });
+    const [inner, outer] = [(await close.boundingBox())!, (await dock.boundingBox())!];
+    expect(inner.x).toBeGreaterThanOrEqual(outer.x);
+    expect(inner.y).toBeGreaterThanOrEqual(outer.y);
+    expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width);
+    expect(inner.y + inner.height).toBeLessThanOrEqual(outer.y + outer.height);
+  });
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { CONTROL_VALUES, patternOn, type StudioLens, type StudioViewMode } from "./studioView.ts";
@@ -6,9 +7,15 @@ import { CONTROL_VALUES, patternOn, type StudioLens, type StudioViewMode } from 
 /**
  * The stage's view toggles: how the planes show (blend, split, priority
  * only) and the band guides under the Depth and Walk lenses, plus the Walk
- * lens's legend of control lines.
+ * lens's legend of control lines. On a narrow stage the legend folds into
+ * the bar as a Legend toggle that opens it under the bar, so the two never
+ * overlap.
  */
-const { lens } = defineProps<{ lens: StudioLens }>();
+const { lens, foldLegend = false } = defineProps<{
+  lens: StudioLens;
+  /** The stage is too narrow for the legend beside the bar. */
+  foldLegend?: boolean;
+}>();
 const mode = defineModel<StudioViewMode>("mode", { required: true });
 const bands = defineModel<boolean>("bands", { required: true });
 
@@ -17,6 +24,13 @@ const MODES = [
   { value: "split", label: "Split" },
   { value: "priority", label: "Priority only" },
 ] as const;
+
+/** The folded legend is open under the bar. */
+const legendOpen = ref(false);
+watch(
+  () => foldLegend,
+  () => (legendOpen.value = false),
+);
 </script>
 
 <template>
@@ -32,9 +46,27 @@ const MODES = [
     >
       Bands
     </UiButton>
+    <UiButton
+      v-if="lens === 'walk' && foldLegend"
+      variant="ghost"
+      size="sm"
+      class="view-bar__toggle"
+      :aria-pressed="legendOpen"
+      aria-controls="studio-control-legend"
+      data-testid="studio-legend-toggle"
+      @click="legendOpen = !legendOpen"
+    >
+      Legend
+    </UiButton>
     <span v-if="lens === 'art'" class="view-bar__note">Art lens · visual plane</span>
   </div>
-  <figure v-if="lens === 'walk'" class="view-legend" data-role="control-legend">
+  <figure
+    v-if="lens === 'walk' && (!foldLegend || legendOpen)"
+    id="studio-control-legend"
+    class="view-legend"
+    :class="{ 'is-folded': foldLegend }"
+    data-role="control-legend"
+  >
     <figcaption>Control lines</figcaption>
     <div v-for="control in CONTROL_VALUES" :key="control.value" class="view-legend__row">
       <svg viewBox="0 0 8 2" width="32" height="8" aria-hidden="true">
@@ -95,6 +127,14 @@ const MODES = [
   border-radius: var(--radius-lg);
   background: var(--surface-overlay);
   font-size: var(--text-xs);
+}
+/* Folded, it opens under the bar's centre like a menu. */
+.view-legend.is-folded {
+  top: calc(2 * var(--space-4) + var(--control-h));
+  left: 50%;
+  z-index: 2;
+  box-shadow: var(--shadow-pop);
+  transform: translateX(-50%);
 }
 .view-legend figcaption {
   color: var(--ink-3);

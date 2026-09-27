@@ -352,9 +352,7 @@ export function createReplay(ctx: WorkerContext) {
   };
 }
 
-export type ReplayModule = ReturnType<typeof createReplay>;
-
-export interface HistoryDivergence {
+interface HistoryDivergence {
   /** The recorded mark that failed — or the event the stream stranded. */
   at: { seq: number; tick: number; cycle: number };
   detail: string;
@@ -437,7 +435,7 @@ export interface HistoryDrivePorts {
   presentation?(message: WorkerPresentation, transfer?: Transferable[]): void;
 }
 
-export type HistoryDriveStep = "event" | "tick" | "halt";
+type HistoryDriveStep = "event" | "tick" | "halt";
 
 /**
  * A persistent scratch replay: the same verification loop

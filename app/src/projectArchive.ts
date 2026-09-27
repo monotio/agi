@@ -4,7 +4,8 @@ import { base64ToBytes, bytesToBase64 } from "./bytes.ts";
 import { gameRevision, publicGameMetadata, isPlayableFileName } from "./gameMetadata.ts";
 import { validateAuthoringState } from "../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
-import { buildObjectFile, buildSound, type SoundTrackInput } from "../../src/agent/tools.ts";
+import { buildObjectFile } from "../../src/agent/agentState.ts";
+import { buildSound, type SoundTrackInput } from "../../src/agent/soundBuilder.ts";
 import { detectProfile } from "../../src/runtime/profile.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import {
@@ -216,13 +217,13 @@ function finishArchive(entries: ZipFileInput[]): Uint8Array<ArrayBuffer> {
     expanded += size;
     if (size > 64 * 1024 * 1024 || expanded > 256 * 1024 * 1024)
       throw new Error(
-        "This project exceeds the supported archive size. Choose Game → Export game… to keep its playable resources.",
+        "This project exceeds the supported archive size. Choose Settings → This game → Export game… to keep its playable resources.",
       );
   }
   const zip = buildZip(entries);
   if (zip.length > 128 * 1024 * 1024)
     throw new Error(
-      "This project exceeds the 128 MB archive limit. Choose Game → Export game… to keep its playable resources.",
+      "This project exceeds the 128 MB archive limit. Choose Settings → This game → Export game… to keep its playable resources.",
     );
   return zip;
 }
@@ -319,9 +320,9 @@ export function validateTranscript(messages: unknown, provider: string): unknown
   return messages;
 }
 
-export const MAX_PROJECT_DEPTH = 40;
-export const MAX_PROJECT_NODES = 25_000;
-export const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
+const MAX_PROJECT_DEPTH = 40;
+const MAX_PROJECT_NODES = 25_000;
+const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
 
 export function readProjectContext(
   bytes: Uint8Array,

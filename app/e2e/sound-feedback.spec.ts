@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/zip.ts";
-import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
+import { configureAi, enterCreateMode, openDeveloperActivity, textHook } from "./engineProbe.ts";
 
 type ProviderItem = {
   type?: string;
@@ -225,7 +225,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
   await expect(page.getByTestId("latest-sound-preview")).toBeVisible();
-  await page.getByTestId("agent-panel").locator("summary").click();
+  await openDeveloperActivity(page);
   await expect(page.getByTestId("agent-panel").getByTestId("sound-preview-audio")).toBeVisible();
 
   const blobUrl = await page

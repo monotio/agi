@@ -7,12 +7,8 @@
 import { computed, inject, nextTick, provide, ref, watch } from "vue";
 import type { InjectionKey, Ref } from "vue";
 import type { EngineApi } from "./engineContext.ts";
-import {
-  DEFAULT_MODELS,
-  MODEL_OPTIONS,
-  type LlmConfig,
-  type ProviderType,
-} from "./agent/llmClient.ts";
+import type { LlmConfig, ProviderType } from "./agent/llmClient.ts";
+import { DEFAULT_MODELS, MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
 import { DEFAULT_TASK_BUDGET_USD } from "./agent/agentRun.ts";
 

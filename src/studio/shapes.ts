@@ -20,7 +20,7 @@ interface NamedShape {
   readonly label?: string | undefined;
 }
 
-export interface RectShape extends NamedShape {
+interface RectShape extends NamedShape {
   readonly kind: "rect";
   readonly color: number | null;
   readonly priority: number | null;
@@ -31,7 +31,7 @@ export interface RectShape extends NamedShape {
   readonly y2: number;
 }
 
-export interface PathShape extends NamedShape {
+interface PathShape extends NamedShape {
   readonly kind: "polygon" | "line";
   readonly color: number | null;
   readonly priority: number | null;
@@ -41,12 +41,12 @@ export interface PathShape extends NamedShape {
 
 export type SceneShape = RectShape | PathShape;
 
-export function orientation(a: Point, b: Point, c: Point): number {
+function orientation(a: Point, b: Point, c: Point): number {
   const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
   return Math.sign(cross);
 }
 
-export function onSegment(a: Point, b: Point, p: Point): boolean {
+function onSegment(a: Point, b: Point, p: Point): boolean {
   return (
     orientation(a, b, p) === 0 &&
     p.x >= Math.min(a.x, b.x) &&
@@ -56,7 +56,7 @@ export function onSegment(a: Point, b: Point, p: Point): boolean {
   );
 }
 
-export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
+function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
   const abC = orientation(a, b, c);
   const abD = orientation(a, b, d);
   const cdA = orientation(c, d, a);
@@ -89,7 +89,7 @@ export function validateSimplePolygon(points: readonly Point[], label: string): 
   }
 }
 
-export function coordinates(points: readonly Point[]): string {
+function coordinates(points: readonly Point[]): string {
   return points.map(({ x, y }) => `${x},${y}`).join(" ");
 }
 

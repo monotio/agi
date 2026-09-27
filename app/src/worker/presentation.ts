@@ -235,5 +235,3 @@ export function createPresentation(ctx: WorkerContext) {
 
   return { postFrame, onRenderFrame, onFrames };
 }
-
-export type PresentationModule = ReturnType<typeof createPresentation>;

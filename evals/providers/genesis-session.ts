@@ -17,7 +17,7 @@ import { validateGenesis } from "../../src/agent/playtest.ts";
 import { RESOURCE_KINDS } from "../../src/types.ts";
 
 import type { LlmConfig, LlmUsage } from "../../app/src/agent/llmClient.ts";
-import type { AgentSessionState, AgentToolResult } from "../../src/agent/tools.ts";
+import type { AgentSessionState, AgentToolResult } from "../../src/agent/agentState.ts";
 
 export type EffortProvider = "openai" | "anthropic";
 export interface EffortStage {

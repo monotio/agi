@@ -17,13 +17,13 @@ import {
   assembleAuthoredLogic,
   authoredPictureSource,
   type AgentSessionState,
-} from "../../../src/agent/tools.ts";
+} from "../../../src/agent/agentState.ts";
 import {
   createAuthoringState,
   validateAuthoringState,
   type AuthoringState,
 } from "../../../src/agent/authoringState.ts";
-import { parseGameTests, type GameTest } from "../../../src/agent/gameTests.ts";
+import { parseGameTests, type GameTest } from "../../../src/agent/gameTestFormat.ts";
 import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { sourceCompilesTo } from "../../../src/picture/source.ts";

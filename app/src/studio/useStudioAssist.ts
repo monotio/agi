@@ -24,6 +24,7 @@ import {
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { AgentRunState } from "../agent/agentRun.ts";
 import type { StudioAssistRequest, StudioAssistResult } from "../agent/studioAssist.ts";
+import { ResourceCommitError } from "../resourceCommit.ts";
 
 /** Where requests run: the game's session, through the engine. */
 export interface StudioAssistHost {
@@ -45,8 +46,7 @@ export interface AssistTurn {
   readonly text: string;
 }
 
-export type AssistOutcome =
-  { readonly ok: true } | { readonly ok: false; readonly message: string };
+type AssistOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 export interface StudioAssistOptions {
   /** Null where no AI can run (the Studio harness). */
@@ -85,6 +85,10 @@ export function refusalWords(violations: readonly Violation[]): string {
         return locked.has(v.plane) ? [] : ["would change things outside the selection"];
       case "fill-spill":
         return locked.has(v.plane) ? [] : ["would spill a fill outside the selection"];
+      case "extra-copy":
+        return locked.has(v.plane)
+          ? []
+          : ["would copy the selection more than once, or in other colours"];
       case "outside-target":
         return ["would change things outside the selection"];
       case "walk-depth":
@@ -155,6 +159,11 @@ export function useStudioAssist(options: StudioAssistOptions) {
   const reply = ref("");
   /** Why the last action failed, in plain words. */
   const error = ref("");
+  /**
+   * The last request failed because the project moved past the running game
+   * (a newer save elsewhere): only reloading the game from storage continues.
+   */
+  const behindStorage = ref(false);
   /** The conversation about the current selection. */
   const thread = ref<AssistTurn[]>([]);
   let threadKey = "";
@@ -222,6 +231,7 @@ export function useStudioAssist(options: StudioAssistOptions) {
     candidate.value = null;
     reply.value = "";
     error.value = "";
+    behindStorage.value = false;
     asked.value = focus;
     startSeq.value = host.log().at(-1)?.seq ?? 0;
     stopping = false;
@@ -238,7 +248,11 @@ export function useStudioAssist(options: StudioAssistOptions) {
       if (id !== runId) return;
       if (stopping) phase.value = "stopped";
       else {
-        error.value = String(failure).replace(/^Error: /, "");
+        error.value =
+          failure instanceof ResourceCommitError
+            ? failure.message
+            : String(failure).replace(/^Error: /, "");
+        behindStorage.value = failure instanceof ResourceCommitError && failure.behindStorage;
         phase.value = "failed";
       }
     }
@@ -295,6 +309,7 @@ export function useStudioAssist(options: StudioAssistOptions) {
     asked,
     reply,
     error,
+    behindStorage,
     thread,
     running,
     holds,

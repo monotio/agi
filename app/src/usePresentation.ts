@@ -224,7 +224,7 @@ export function createPresentation() {
 
 export type Presentation = ReturnType<typeof createPresentation>;
 
-export const presentationKey: InjectionKey<Presentation> = Symbol("agi-presentation");
+const presentationKey: InjectionKey<Presentation> = Symbol("agi-presentation");
 
 export function providePresentation(presentation: Presentation): void {
   provide(presentationKey, presentation);

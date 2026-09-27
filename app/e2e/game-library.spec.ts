@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/zip.ts";
+import { buildProjectZip } from "../src/projectArchive.ts";
 import {
   configureAi,
   isolateStorage,
@@ -84,6 +85,46 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
   await expect(card).toHaveAttribute("data-project-id", firstProjectId!);
   await card.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+});
+
+test("re-importing a project ZIP adds another copy and says so", async ({ page }) => {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic('display(5, 4, "A project copy."); accept.input(); return;', {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putFile("WORDS.TOK", new Uint8Array(52));
+  const archive = Buffer.from(
+    await buildProjectZip({
+      projectId: testProjectId("repeat-import"),
+      title: "Knight's Trial",
+      authoredAt: new Date(0).toISOString(),
+      provider: "stub",
+      model: "stub",
+      files: Object.fromEntries(game.files),
+      words: [],
+    }),
+  );
+  await isolateStorage(page);
+  await page.goto("/");
+  const notice = page.getByTestId("game-import-ready");
+  const cards = page.locator("[data-testid^='saved-game-card-']");
+  const upload = () =>
+    page.getByTestId("game-zip-input").setInputFiles({
+      name: "knights-trial-project.zip",
+      mimeType: "application/zip",
+      buffer: archive,
+    });
+  await upload();
+  await expect(notice).toContainText("Knight's Trial added to your library");
+  await expect(cards).toHaveCount(1);
+  await upload();
+  // Each project import is its own card; the second is named for what it is.
+  await expect(cards).toHaveCount(2);
+  await expect(notice).toContainText("Added another copy of Knight's Trial to your library");
 });
 
 test("a selected folder is checked, deduplicated with its ZIP, and can be copied independently", async ({
@@ -351,8 +392,42 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect.poll(() => storedAutosave(page, projectId)).not.toBeNull();
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
 
+  // Removing is previewed: the dialog names the game and what goes with it,
+  // and Cancel — the default focus — keeps every record.
+  const stored = () =>
+    page.evaluate(async (id) => {
+      const path = "/src/gameStorage.ts";
+      const { loadAuthoredGame } = await import(path);
+      const body = await loadAuthoredGame(id);
+      const keys = Object.keys(localStorage).sort();
+      return {
+        local: Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])),
+        revision: body?.library?.revision ?? null,
+      };
+    }, projectId);
+  const before = await stored();
+  expect(before.revision).not.toBeNull();
   await openLibraryActions(page, card);
   await page.getByTestId("remove-library-game").click();
+  const dialog = card.getByTestId("remove-game-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading")).toHaveText("Remove forgettable?");
+  await expect(dialog).toContainText("its saves, history, notes and any changes you made");
+  await expect(dialog.getByTestId("remove-game-cancel")).toBeFocused();
+  await dialog.getByTestId("remove-game-cancel").click();
+  await expect(dialog).toBeHidden();
+  await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
+  expect(await stored()).toEqual(before);
+
+  // Download game first is the card's own Download game…, and the question stays open.
+  await openLibraryActions(page, card);
+  await page.getByTestId("remove-library-game").click();
+  const download = page.waitForEvent("download");
+  await dialog.getByTestId("remove-game-download").click();
+  expect((await download).suggestedFilename()).toMatch(/\.zip$/);
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("remove-game-confirm").click();
+  await expect(dialog).toBeHidden();
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
   await expect(page.getByTestId("autosave-panel")).toHaveCount(0);
   await expect(page.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);

@@ -18,7 +18,7 @@ export interface RecordedReplay {
   state: EngineReplayState;
   operations: RecordedOperation[];
 }
-export const MAX_RECORDED_OPERATIONS = 60000;
+const MAX_RECORDED_OPERATIONS = 60000;
 export const MAX_RECORDED_BYTES = 180000;
 
 export class OperationRecorder {

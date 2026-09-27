@@ -6,10 +6,25 @@
  * events translate to lane percents and dispatch through the model — the
  * scrub/hover machinery lives in useTransport.
  */
-import { onUnmounted, useTemplateRef } from "vue";
+import { onUnmounted, ref, useTemplateRef } from "vue";
 import type { TransportModel, TransportMark } from "./useTransport.ts";
 
-const props = defineProps<{ model: TransportModel }>();
+const props = defineProps<{
+  model: TransportModel;
+  /**
+   * Where the secondary controls float: a corner the stage shares with its
+   * own actions (Ask), so the card sits beside them and never over them.
+   */
+  cardHost?: string | undefined;
+}>();
+
+/** A phone wraps the secondary controls under the row instead (see the styles). */
+const narrowQuery = window.matchMedia("(max-width: 600px)");
+const narrow = ref(narrowQuery.matches);
+function onNarrowChange(event: MediaQueryListEvent): void {
+  narrow.value = event.matches;
+}
+narrowQuery.addEventListener("change", onNarrowChange);
 
 const timelineEl = useTemplateRef("timelineEl");
 
@@ -81,6 +96,7 @@ function releaseFocus(ev: MouseEvent): void {
 }
 
 onUnmounted(() => {
+  narrowQuery.removeEventListener("change", onNarrowChange);
   window.removeEventListener("pointermove", onTimelinePointerMove);
   window.removeEventListener("pointerup", onTimelinePointerUp);
   window.removeEventListener("pointercancel", onTimelinePointerUp);
@@ -220,113 +236,115 @@ onUnmounted(() => {
           LIVE
         </button>
       </div>
-      <div class="transport-secondary">
-        <div
-          v-if="model.speedGroup"
-          class="transport-speed-group"
-          role="group"
-          aria-label="Playback speed"
-        >
+      <Teleport :to="cardHost ?? 'body'" defer :disabled="!cardHost || narrow">
+        <div class="transport-secondary">
+          <div
+            v-if="model.speedGroup"
+            class="transport-speed-group"
+            role="group"
+            aria-label="Playback speed"
+          >
+            <button
+              v-for="s in [1, 2, 4, 8]"
+              :key="s"
+              type="button"
+              class="ui-button ui-button--secondary transport-speed-btn"
+              :class="{
+                'transport-speed-btn--active': model.speed === s,
+                [model.speedActiveClass]: model.speed === s,
+              }"
+              :data-testid="`${model.speedTestid}${s}`"
+              :title="model.speedTitle(s)"
+              @click="
+                model.setSpeed(s);
+                releaseFocus($event);
+              "
+            >
+              {{ s }}×
+            </button>
+          </div>
+
+          <span v-if="model.posTestid" class="transport-pos" :data-testid="model.posTestid">
+            <span v-if="model.readout" class="transport-readout">{{ model.readout }}</span>
+            <span
+              v-if="model.dropped > 0"
+              class="transport-note"
+              data-testid="history-dropped"
+              title="The tape outgrew its storage bound — playback starts at the oldest kept session"
+              >earlier tape dropped</span
+            >
+          </span>
+
           <button
-            v-for="s in [1, 2, 4, 8]"
-            :key="s"
+            v-for="btn in model.trailing"
+            :key="btn.testid"
             type="button"
-            class="ui-button ui-button--secondary transport-speed-btn"
+            class="transport-btn"
             :class="{
-              'transport-speed-btn--active': model.speed === s,
-              [model.speedActiveClass]: model.speed === s,
+              'transport-action': btn.variant !== undefined,
+              'ui-button ui-button--primary': btn.variant === 'primary',
+              'ui-button ui-button--secondary': btn.variant === 'secondary',
             }"
-            :data-testid="`${model.speedTestid}${s}`"
-            :title="model.speedTitle(s)"
+            :data-testid="btn.testid"
+            :title="btn.title"
+            :aria-label="btn.aria"
+            :disabled="btn.disabled"
             @click="
-              model.setSpeed(s);
+              btn.run();
               releaseFocus($event);
             "
           >
-            {{ s }}×
+            <svg
+              v-if="btn.icon === 'bookmark'"
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
+            </svg>
+            <template v-if="btn.label">{{ btn.label }}</template>
+          </button>
+
+          <button
+            v-if="model.storyPause"
+            type="button"
+            class="ui-button ui-button--secondary transport-speed-btn transport-story-pause"
+            :class="{
+              'transport-speed-btn--active': model.storyPause.on,
+              [model.speedActiveClass]: model.storyPause.on,
+            }"
+            :data-testid="model.storyPause.testid"
+            :title="
+              model.storyPause.on
+                ? 'Pause on dialogue: enabled (pauses on dialogue)'
+                : 'Pause on dialogue: disabled (auto-advances with reading dwell)'
+            "
+            :aria-label="
+              model.storyPause.on ? 'Disable pause on dialogue' : 'Enable pause on dialogue'
+            "
+            @click="
+              model.storyPause!.toggle();
+              releaseFocus($event);
+            "
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="currentColor"
+              aria-hidden="true"
+              class="transport-story-pause-icon"
+            >
+              <path
+                d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"
+              />
+            </svg>
+            Pause on dialogue
           </button>
         </div>
-
-        <span v-if="model.posTestid" class="transport-pos" :data-testid="model.posTestid">
-          <span v-if="model.readout" class="transport-readout">{{ model.readout }}</span>
-          <span
-            v-if="model.dropped > 0"
-            class="transport-note"
-            data-testid="history-dropped"
-            title="The tape outgrew its storage bound — playback starts at the oldest kept session"
-            >earlier tape dropped</span
-          >
-        </span>
-
-        <button
-          v-for="btn in model.trailing"
-          :key="btn.testid"
-          type="button"
-          class="transport-btn"
-          :class="{
-            'transport-action': btn.variant !== undefined,
-            'ui-button ui-button--primary': btn.variant === 'primary',
-            'ui-button ui-button--secondary': btn.variant === 'secondary',
-          }"
-          :data-testid="btn.testid"
-          :title="btn.title"
-          :aria-label="btn.aria"
-          :disabled="btn.disabled"
-          @click="
-            btn.run();
-            releaseFocus($event);
-          "
-        >
-          <svg
-            v-if="btn.icon === 'bookmark'"
-            viewBox="0 0 24 24"
-            width="14"
-            height="14"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d="M17 3H7a2 2 0 0 0-2 2v16l7-3 7 3V5a2 2 0 0 0-2-2z" />
-          </svg>
-          <template v-if="btn.label">{{ btn.label }}</template>
-        </button>
-
-        <button
-          v-if="model.storyPause"
-          type="button"
-          class="ui-button ui-button--secondary transport-speed-btn transport-story-pause"
-          :class="{
-            'transport-speed-btn--active': model.storyPause.on,
-            [model.speedActiveClass]: model.storyPause.on,
-          }"
-          :data-testid="model.storyPause.testid"
-          :title="
-            model.storyPause.on
-              ? 'Pause on dialogue: enabled (pauses on dialogue)'
-              : 'Pause on dialogue: disabled (auto-advances with reading dwell)'
-          "
-          :aria-label="
-            model.storyPause.on ? 'Disable pause on dialogue' : 'Enable pause on dialogue'
-          "
-          @click="
-            model.storyPause!.toggle();
-            releaseFocus($event);
-          "
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="13"
-            height="13"
-            fill="currentColor"
-            aria-hidden="true"
-            class="transport-story-pause-icon"
-          >
-            <path
-              d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"
-            />
-          </svg>
-          Pause on dialogue
-        </button>
-      </div>
+      </Teleport>
     </template>
 
     <span v-else-if="model.loadingText" class="transport-status">{{ model.loadingText }}</span>
@@ -374,10 +392,10 @@ onUnmounted(() => {
 <style scoped>
 /*
  * One row inside the play strip: play, the scrub bar and LIVE. The tape's
- * and walkthrough's secondary controls float just above the strip's right
- * end (the strip is their positioned ancestor), so opening the tape never
- * moves or resizes the timeline under the pointer. Errors and pending notes
- * wrap below the row.
+ * and walkthrough's secondary controls float as a card in the stage's corner
+ * beside Ask (the `cardHost`), so opening the tape never moves or resizes
+ * the timeline under the pointer and never covers Ask. Errors and pending
+ * notes wrap below the row.
  */
 .transport {
   display: flex;
@@ -399,14 +417,9 @@ onUnmounted(() => {
   flex: 1 1 240px;
 }
 .transport-secondary {
-  position: absolute;
-  right: var(--space-6);
-  bottom: calc(100% + var(--space-2));
-  z-index: var(--z-dock);
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-3);
-  max-width: calc(100% - 2 * var(--space-6));
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);

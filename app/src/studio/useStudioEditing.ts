@@ -1,6 +1,6 @@
 /**
  * Room Studio's edit commands for the selected item — nudge, duplicate,
- * delete, reorder, colour, label/kind/lock and single points — each one kernel
+ * delete, reorder, colour, label/kind/lock and single points (moved or added) — each one kernel
  * edit and one undo step, and the short notice that says what was refused
  * (with the refused cells flashed on the canvas) or kept.
  */
@@ -13,7 +13,7 @@ import { freshItemId, type DraftOutcome, type StudioDraft } from "./useStudioDra
 import { useStudioNotice } from "./useStudioNotice.ts";
 
 /** How far Cmd/Ctrl+D offsets a copy, in logical pixels. */
-export const DUPLICATE_OFFSET = 4;
+const DUPLICATE_OFFSET = 4;
 /** How long a refusal's cells stay highlighted. */
 const FLASH_MS = 1600;
 
@@ -123,6 +123,12 @@ export function useStudioEditing(options: {
   const setPoint = (line: number, pointIndex: number, x: number, y: number): boolean =>
     run(() => ({ type: "setPoint", line, pointIndex, x, y }), "Move point of");
 
+  const insertPoint = (line: number, pointIndex: number, x: number, y: number): boolean =>
+    run(
+      (target) => ({ type: "insertPoint", itemId: target.id, line, pointIndex, x, y }),
+      "Add point to",
+    );
+
   function history(which: "undo" | "redo"): boolean {
     if (options.frozen()) return false;
     const done = which === "undo" ? draft.undo() : draft.redo();
@@ -145,6 +151,7 @@ export function useStudioEditing(options: {
     setColour,
     setMeta,
     setPoint,
+    insertPoint,
     undo: () => history("undo"),
     redo: () => history("redo"),
   };

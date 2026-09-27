@@ -12,7 +12,7 @@
  */
 import { itemHandles } from "../editPoints.ts";
 import type { PictureDocument } from "../pictureDocument.ts";
-import { assembleAuthoredLogic } from "../../agent/tools.ts";
+import { assembleAuthoredLogic } from "../../agent/agentState.ts";
 import { serializeLogicDocument, type LogicDocument } from "./logicDocument.ts";
 import { applyRuleEdit, type RuleSession } from "./ruleEdit.ts";
 import { readRules, ruleBox } from "./ruleModel.ts";

@@ -179,17 +179,6 @@ function openInStudio(picture: number): void {
               Open in Studio
             </UiButton>
           </span>
-          <span title="Coming in a later update">
-            <UiButton
-              size="sm"
-              icon="play"
-              disabled
-              aria-description="Coming in a later update"
-              data-testid="world-play-here"
-            >
-              Play here
-            </UiButton>
-          </span>
         </div>
         <section v-if="views.length" class="world-views" aria-label="Views this room uses">
           <h4>Views</h4>

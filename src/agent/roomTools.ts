@@ -9,8 +9,8 @@ import {
   createAgentSessionState,
   type AgentSessionState,
   type AgentToolResult,
-  type ToolDefinition,
-} from "./tools.ts";
+} from "./agentState.ts";
+import { type ToolDefinition } from "./tools.ts";
 import { editableSource, executeAuthoringTool, sourceContextRevision } from "./authoringTools.ts";
 import { resourceCacheHint, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { readInventoryObjects } from "./inventory.ts";
@@ -420,7 +420,8 @@ export function executeRoomTool(
       lines.push(`if (${[...new Set(patterns)].join(" || ")}) {`);
       if (conditions.length) lines.push(`  if (${conditions.join(" && ")}) {`);
       if (giveItem !== null) lines.push(`  get(${giveItem});`);
-      if (removeItem !== null) lines.push(`  put(${removeItem}, 0);`);
+      // drop writes location 0; put reads its location from a variable, and v0 is this room.
+      if (removeItem !== null) lines.push(`  drop(${removeItem});`);
       if (setFlag !== null) lines.push(`  set(f${setFlag});`);
       const response = text(interaction["response"], "response", 1000);
       if (response) lines.push(`  print(${JSON.stringify(response)});`);

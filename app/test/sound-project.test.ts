@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import { createAgentSessionState, executeAgentTool } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
+import { executeAgentTool } from "../../src/agent/tools.ts";
 import { buildProjectZip } from "../src/projectArchive.ts";
 import { readGameZip } from "../src/gameZip.ts";
 

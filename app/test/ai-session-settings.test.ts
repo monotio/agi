@@ -2,7 +2,7 @@ import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 
 test("reconfiguration preserves authored state and chat while the next request uses the new model and key", async (t) => {
   const requests: { authorization: string | null; body: Record<string, unknown> }[] = [];

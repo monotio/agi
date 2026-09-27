@@ -5,9 +5,10 @@
  * getBootedGame.
  */
 import { continuationTranscript } from "./projectArchive.ts";
-import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMetadata.ts";
+import { detectKnownGame, gameRevision } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
-import { AgentSession, type BootResources } from "./agent/agentSession.ts";
+import type { AgentSession, BootResources } from "./agent/agentSession.ts";
+import { loadAuthoringStack } from "./agent/authoringLoader.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import type { AgiAudio } from "./audio/AgiAudio.ts";
 import {
@@ -16,13 +17,12 @@ import {
   loadAuthoredGameWithHistoryLifetime,
   readHistoryLifetime,
   saveAuthoredGameWithLifetime,
-  updateAuthoredGameFiles,
 } from "./gameStorage.ts";
 import { gameStorageKey, type BootedGame, type CurrentGame, type ProjectId } from "./gameTypes.ts";
 import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
 import { fetchFixtureFiles, resolveFixtureTarget } from "./gameDiscovery.ts";
 import type { useAuthoringController } from "./useAuthoringController.ts";
-import type { useAutosaveController } from "./useAutosaveController.ts";
+import { storageMovedPast, type useAutosaveController } from "./useAutosaveController.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "./useInputController.ts";
 import type { useTestRecorder } from "./useTestRecorder.ts";
@@ -70,6 +70,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
   function resetScreenState(): void {
     autosave.resetScreen();
+    state.staleTab = false;
     state.powerUp.open = false;
     state.powerUp.busy = false;
     testRecorder.reset();
@@ -199,28 +200,32 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     try {
       const game = booted;
       const session = authoring.getSession();
-      if (game && session && (!game.installed || authoring.isRemixNeedsSave())) {
+      // Behind storage (another tab committed a newer revision) this game's
+      // files, conversation and checkpoint describe bytes storage no longer
+      // holds: nothing is saved over the newer project, and leaving is fine.
+      const behind = game !== null && storageMovedPast(game);
+      if (game && session && !behind && (!game.installed || authoring.isRemixNeedsSave())) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
-            "The current game could not be saved. Try Game → Download game… before leaving.",
+            "The current game could not be saved. Try Settings → This game → Download game… before leaving.",
           );
         await authoring.persistRemix(game, session, files);
       }
-      if (!ejectOptions?.abandonUnsaved) {
+      if (!ejectOptions?.abandonUnsaved && !behind) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
           throw new Error(
-            "Browser storage could not save latest progress. Use Game → Download game… for a development backup, or leave with previously saved progress.",
+            "Browser storage could not save latest progress. Use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "timeout") {
           throw new Error(
-            "Autosave timed out. Try again, use Game → Download game… for a development backup, or leave with previously saved progress.",
+            "Autosave timed out. Try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
           );
         } else if (flushResult.status === "not_checkpointable") {
           if (autosave.lastAutosaveRecord() !== null) {
             throw new Error(
-              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, use Game → Download game… for a development backup, or leave with previously saved progress.`,
+              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.`,
             );
           }
         }
@@ -239,7 +244,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       state.leaving = false;
       options.resumeEngine("eject");
       throw new Error(
-        "Session history is not saved yet. The game is still open. Retry saving history or use Game → Download game… to keep a recovery backup before trying Exit again.",
+        "Session history is not saved yet. The game is still open. Retry saving history or use Settings → This game → Download game… to keep a recovery backup before trying Exit again.",
       );
     }
     state.leaving = false;
@@ -337,7 +342,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (historyLifetime === null)
       logAgent(
         "error",
-        "Browser storage could not save this world. Use Game → Download game… to keep it.",
+        "Browser storage could not save this world. Use Settings → This game → Download game… to keep it.",
       );
     if (historyLifetime !== null)
       logAgent(
@@ -392,6 +397,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       const templateId = bootOptions?.templateId;
 
       if (bootOptions?.useCached) {
+        // Start the authoring stack's download while storage reads the world.
+        if (getCachedGameMeta(projectId)?.roomGeneration) void loadAuthoringStack().catch(() => {});
         const w = link.spawnWorker();
         const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
         const cached = loaded?.data;
@@ -406,21 +413,30 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           const isConfigured =
             cachedConfig.provider === "stub" || Boolean(cachedConfig.apiKey.trim());
           const canAuthor = Boolean(cached.roomGeneration);
-          const cachedSession =
+          // A world that writes its rooms boots with its session, so the
+          // authoring stack loads with it; if the stack cannot load, the game
+          // still plays and its first new room retries.
+          const stack =
             canAuthor && isConfigured
-              ? AgentSession.fromAuthoredData(
-                  cachedConfig,
-                  logAgent,
-                  cached.files,
-                  cached.words,
-                  continuationTranscript(cached, cachedConfig.provider, cachedConfig.model),
-                  cached.provider === cachedConfig.provider && cached.model === cachedConfig.model
-                    ? cached.sessionId
-                    : undefined,
-                  cached.authoringState,
-                  cached.library?.profile,
-                )
+              ? await loadAuthoringStack().catch((error: unknown) => {
+                  logAgent("error", String(error));
+                  return null;
+                })
               : null;
+          const cachedSession = stack
+            ? stack.AgentSession.fromAuthoredData(
+                cachedConfig,
+                logAgent,
+                cached.files,
+                cached.words,
+                continuationTranscript(cached, cachedConfig.provider, cachedConfig.model),
+                cached.provider === cachedConfig.provider && cached.model === cachedConfig.model
+                  ? cached.sessionId
+                  : undefined,
+                cached.authoringState,
+                cached.library?.profile,
+              )
+            : null;
           authoring.setSession(cachedSession);
           const known = await detectKnownGame(cached.files);
           const revision = cached.library?.revision || (await gameRevision(cached.files));
@@ -469,7 +485,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       }
 
       options.setActiveLlmConfig(config);
-      const genesisSession = new AgentSession(config, logAgent);
+      const stack = await loadAuthoringStack();
+      const genesisSession = new stack.AgentSession(config, logAgent);
       authoring.setSession(genesisSession);
       const resources = await genesisSession.startGenesis(templateMarkdown);
       await finishAuthoredBoot(genesisSession, resources, {
@@ -546,14 +563,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (!data) throw new Error("The current game metadata is unavailable.");
     const files = await link.query("exportFiles");
     if (!files || booted !== game) throw new Error("The game changed during export. Try again.");
-    await updateBootedResources(game, files);
-    if (
-      !game.installed &&
-      !(await updateAuthoredGameFiles(game.projectId!, files).catch(() => false))
-    ) {
-      logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
-    }
-    const assembled = authoring.assembleExportData(data, game, session, files);
+    // The download is the running game as it stands; storage is not written.
+    // Every resource write already saved its files before installing them,
+    // so a running game that differs from the record is behind it (a Keep
+    // it never loaded, a save from another tab), and writing its files back
+    // would roll that newer save back.
+    const words = files["WORDS.TOK"]
+      ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
+      : game.words;
+    const assembled = authoring.assembleExportData(data, { ...game, words }, session, files);
     const progressKey = gameStorageKey(game);
     return { data: assembled, progressKey };
   }
@@ -574,5 +592,3 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     exportCurrentGame,
   };
 }
-
-export type GameLifecycle = ReturnType<typeof useGameLifecycle>;

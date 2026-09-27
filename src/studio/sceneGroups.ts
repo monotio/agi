@@ -85,9 +85,9 @@ export function groupSceneItems<K extends string>(
 }
 
 /** Above this many top-level rows, the Scene list folds them into draw-order sections. */
-export const SECTION_ROW_LIMIT = 60;
+const SECTION_ROW_LIMIT = 60;
 /** About how many sections a long list gets. */
-export const SECTION_TARGET = 36;
+const SECTION_TARGET = 36;
 
 export interface SceneSpan {
   /** Index of the first top-level row. */

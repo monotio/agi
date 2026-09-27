@@ -14,7 +14,8 @@ import { edgeAnchor, type WalkDoor } from "./walkView.ts";
  * where it leads), the door box being drawn, and a test walk's start, goal,
  * estimated path and the spot where the engine's walk ended. Doors take the
  * pointer with the Select and walk tools: Select picks a door and drags its
- * box; the test walk tool starts where the player comes in through it. A
+ * box; the test walk tool starts where the player comes in through it, or,
+ * with a start already set, walks into it as the goal. A
  * selected door box that can follow the art has a link handle at its lower
  * right corner: drag it onto a picture item and the box follows that item.
  */
@@ -105,7 +106,10 @@ function onDoorDown(event: PointerEvent, door: WalkDoor): void {
   event.preventDefault();
   const cell = cellOf(event);
   if (tool === "walk") {
-    walk.startFromDoor(door.id);
+    // A walk waiting for its goal walks into the door; otherwise the door
+    // starts one where the player comes in through it.
+    if (walk.start.value && !walk.goal.value) walk.walkTo(cell);
+    else walk.startFromDoor(door.id);
     return;
   }
   walk.grabDoor(door.id, cell);

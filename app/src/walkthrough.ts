@@ -302,7 +302,7 @@ export interface WalkthroughCheckpoint {
   readonly actionIndex: number;
 }
 
-export function extractCheckpoints(
+function extractCheckpoints(
   actions: readonly ReplayAction[],
   totalTicks: number,
 ): WalkthroughCheckpoint[] {

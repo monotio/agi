@@ -359,7 +359,7 @@ export function filterScene(
 }
 
 /** The plane a row's pixels are highlighted on under `lens`. */
-export function rowPlane(row: Pick<SceneRow, "kind">, lens: StudioLens): PicturePlane {
+function rowPlane(row: Pick<SceneRow, "kind">, lens: StudioLens): PicturePlane {
   if (row.kind === "art") return "visual";
   if (row.kind === "depth" || row.kind === "walk") return "priority";
   return lens === "art" ? "visual" : "priority";

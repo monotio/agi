@@ -251,6 +251,14 @@ test("the catalogued OBJECT fingerprint wins a hash query shared with a port edi
   assert.equal(portFixture?.title, basename(port));
   const catalogedFixture = findFixture(basename(cataloged));
   assert.equal(catalogedFixture?.known?.alias, "synthetic");
+
+  // With only the other edition installed, the catalogued alias and hash find
+  // nothing rather than the edition that merely shares the vocabulary.
+  rmSync(cataloged, { recursive: true, force: true });
+  clearFixtureCache();
+  assert.equal(findFixture("synthetic"), null, "the alias needs its own OBJECT fingerprint");
+  assert.equal(findFixture(wordsHash), null, "so does the catalogued vocabulary hash");
+  assert.equal(findFixture(basename(port))?.folder, basename(port));
 });
 
 test("a lowercase port installation is discovered and checked through its own file names", (t) => {

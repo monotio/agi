@@ -324,8 +324,10 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
   await page.setViewportSize({ width: 1280, height: 720 });
   await bootGame(page);
   const activity = page.getByTestId("developer-activity-summary");
-  await expect(activity).toBeAttached();
+  // Play keeps Developer activity off the page; Create's page holds it, hidden under Studio.
+  await expect(activity).toHaveCount(0);
   const studio = await openStudio(page);
+  await expect(activity).toBeAttached();
   await expect(activity).toBeHidden();
   const scroll = () =>
     page.evaluate(() => {

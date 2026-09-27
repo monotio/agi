@@ -382,14 +382,10 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         deliver(w, { type });
         break; // deliberate no-op — the assertion is that it is handled.
       case "patched": {
-        const acked = link.awaitPatched("picture", 3, "7-0000abcd", 200);
-        deliver(w, { type, kind: "picture", num: 3, patchGen: 4, hint: "7-0000abcd" });
-        assert.deepEqual(await acked, {
-          kind: "picture",
-          num: 3,
-          patchGen: 4,
-          hint: "7-0000abcd",
-        });
+        const resources = [{ kind: "picture" as const, num: 3, hint: "7-0000abcd" }];
+        const acked = link.awaitPatched(resources, 200);
+        deliver(w, { type, resources, patchGen: 4 });
+        assert.deepEqual(await acked, { resources, patchGen: 4 });
         break;
       }
       case "frame": {

@@ -1,12 +1,8 @@
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  MODEL_OPTIONS,
-  createAnthropicConversation,
-  createOpenAiConversation,
-} from "../src/agent/llmClient.ts";
-import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
+import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
+import { MODEL_CAPABILITIES, MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
 
 test("every selectable model has a tested capability entry", () => {

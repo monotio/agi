@@ -55,17 +55,15 @@ export const DOT_EGO = buildView({
 
 /**
  * A 4x3 robot head, transparent 0, grey 7, one red eye (12) at x 1, y 1;
- * cel 1 moves the eye to x 2. Loop 1 mirrors loop 0.
+ * cel 1 moves the eye to x 2. Each cel mirrored is the other.
  */
+export const ROBOT_CELS = [
+  { width: 4, height: 3, transparentColor: 0, pixels: [0, 7, 7, 0, 7, 12, 7, 7, 0, 7, 7, 0] },
+  { width: 4, height: 3, transparentColor: 0, pixels: [0, 7, 7, 0, 7, 7, 12, 7, 0, 7, 7, 0] },
+] as const;
+
+/** The robot head; loop 1 mirrors loop 0. */
 export const ROBOT_VIEW = buildView({
   description: "Test robot",
-  loops: [
-    {
-      cels: [
-        { width: 4, height: 3, transparentColor: 0, pixels: [0, 7, 7, 0, 7, 12, 7, 7, 0, 7, 7, 0] },
-        { width: 4, height: 3, transparentColor: 0, pixels: [0, 7, 7, 0, 7, 7, 12, 7, 0, 7, 7, 0] },
-      ],
-    },
-    { mirrorLoop: 0 },
-  ],
+  loops: [{ cels: ROBOT_CELS }, { mirrorLoop: 0 }],
 });

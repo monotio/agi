@@ -8,6 +8,7 @@ import WalkthroughBar from "./WalkthroughBar.vue";
 import PlayArea from "./PlayArea.vue";
 import CreateDock from "./shell/CreateDock.vue";
 import UiButton from "./ui/UiButton.vue";
+import UiDialog from "./ui/UiDialog.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -19,7 +20,7 @@ import {
   watch,
 } from "vue";
 import { useEngine, type AutosaveRecord } from "./useEngine.ts";
-import { MODEL_OPTIONS } from "./agent/llmClient.ts";
+import { MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { reconcileGameIndex } from "./gameStorage.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
 import { findInstalledFolder, gameStorageKey } from "./gameTypes.ts";
@@ -31,6 +32,7 @@ import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
 import { createGameLibrary, provideGameLibrary } from "./useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./usePresentation.ts";
 import SetupPanel from "./SetupPanel.vue";
+import StaleTabNote from "./StaleTabNote.vue";
 import { nextViewportLayout } from "./viewportLayout.ts";
 import ReferenceUpload from "./ReferenceUpload.vue";
 import { createShell, provideShell } from "./shell/useShell.ts";
@@ -207,6 +209,12 @@ const activityDocked = computed(
     workspace.active.right === "activity" &&
     !workspace.collapsed.right,
 );
+/**
+ * Play shows the game and its bar only: Developer activity leaves the page
+ * for a dialog that Settings → Advanced opens.
+ */
+const playing = computed(() => state.phase === "running" && !creating.value);
+const activitySheetOpen = ref(false);
 const assistantShown = computed(() =>
   phone.value
     ? sheetOpen.value && workspace.active.sheet === "assistant"
@@ -471,11 +479,44 @@ onMounted(async () => {
     })()
   )
     await resumeLastGame(llmConfig());
+  else if (playKey) await openRoutedGame(playKey);
   if (state.phase === "idle") {
     shell.reset();
     clearPlayHash();
   }
 });
+
+/** Home's note about the link it was opened with; cleared once any game runs. */
+const routeNote = ref("");
+
+/**
+ * A cold `#play/<target>` or `#create/<target>` whose game has no pending
+ * autosave: a link opened or pasted opens the stored library project or
+ * installed edition it names (its own autosave, or a fresh boot). A reload
+ * keeps landing on Home, which offers the game, as it always has. A game
+ * this browser does not hold gets a note either way.
+ */
+async function openRoutedGame(key: string): Promise<void> {
+  const stored = lib.savedGames.value.find((game) => game.projectId === key);
+  const norm = key.toLowerCase();
+  const installed = (state.installedGames ?? []).some((game) =>
+    [game.hash, game.alias, game.folder, game.wordsSha256].some(
+      (spelling) => spelling?.toLowerCase() === norm,
+    ),
+  );
+  if (!stored && !installed) {
+    routeNote.value = "That game isn't in this browser.";
+    return;
+  }
+  const navigation = performance.getEntriesByType("navigation")[0];
+  if (navigation instanceof PerformanceNavigationTiming && navigation.type === "reload") return;
+  if (stored) return lib.onPlayLibraryGame(stored);
+  try {
+    await lib.onPlayLocalGame(key);
+  } catch (error) {
+    lib.libraryActionError.value = String(error).replace(/^Error: /, "");
+  }
+}
 
 onUnmounted(() => {
   lib.unmountCatalog();
@@ -506,6 +547,7 @@ watch(
   () => [state.phase, state.paused, state.walkthrough.active, state.walkthrough.tick] as const,
   ([phase, paused, watching]) => {
     if (phase === "running") {
+      routeNote.value = "";
       if (!paused) {
         if (watching) updateWatchHash();
         else shell.markRoute();
@@ -554,6 +596,7 @@ watch(
           workspace.confirmStudioLeave().then((go) => (go ? lib.onStartOver() : undefined))
         "
         @start-walkthrough="onStartWalkthrough"
+        @developer-activity="activitySheetOpen = true"
       >
         <WalkthroughBar
           v-if="state.walkthrough.active"
@@ -638,6 +681,7 @@ watch(
                 ×
               </button>
             </p>
+            <StaleTabNote />
           </template>
         </PlayArea>
         <RoomStudio
@@ -743,7 +787,7 @@ watch(
       @closed="onAiSettingsClosed"
     />
 
-    <SetupPanel />
+    <SetupPanel :route-note="routeNote" />
 
     <!-- Below the fold: while Studio holds the page still they wait hidden,
          out of Tab's reach. -->
@@ -754,7 +798,16 @@ watch(
       data-testid="latest-sound-preview"
     />
 
-    <AgentLogPanel v-if="!activityDocked" v-show="!studioOpen" />
+    <AgentLogPanel v-if="!activityDocked && !playing" v-show="!studioOpen" />
+    <UiDialog
+      v-if="playing"
+      v-model:open="activitySheetOpen"
+      title="Developer activity"
+      size="lg"
+      data-testid="developer-activity-sheet"
+    >
+      <AgentLogPanel docked />
+    </UiDialog>
 
     <ReferenceUpload v-if="state.phase === 'running'" />
 

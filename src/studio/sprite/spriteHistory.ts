@@ -23,7 +23,7 @@ export type SpriteHistoryResult =
   | { readonly ok: false; readonly reason: string };
 
 /** The document's encoded payload as a string snapshot, one character per byte. */
-export function spriteSnapshot(document: SpriteDocument): string {
+function spriteSnapshot(document: SpriteDocument): string {
   let out = "";
   for (let i = 0; i < document.payload.length; i += 4096)
     out += String.fromCharCode(...document.payload.subarray(i, i + 4096));

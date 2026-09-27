@@ -19,7 +19,7 @@
  *   hostAnswer          reply to a posted hostRequest
  *   reenter             re-enter the current room after a live patch
  *   playHere            jump the live game to a room and ego spot
- *   patch               replace one container resource; acknowledged by "patched"
+ *   patch               replace container resources all or none; acknowledged by "patched"
  *   patchMetadata       replace WORDS.TOK / OBJECT / TESTS.JSON
  *   state / objects / frames / checkpoint / exportFiles
  *                       read-only queries, answered by id
@@ -121,6 +121,13 @@ export interface BootMessage {
 /** A container resource the `patch` message replaces. */
 export type PatchKind = "logic" | "picture" | "view" | "sound";
 
+/** One resource of a `patch` message. */
+export interface PatchResource {
+  kind: PatchKind;
+  num: number;
+  payload: Uint8Array;
+}
+
 export type WorkerInbound =
   | BootMessage
   | { type: "pause"; paused: boolean }
@@ -142,11 +149,15 @@ export type WorkerInbound =
    * (x, y), keeping the session's flags. Answered by `playedHere`.
    */
   | { type: "playHere"; id: number; room: number; x: number; y: number }
+  /**
+   * Replace every listed resource, or none: the worker stages the whole set
+   * before the live container changes, so a refusal (a full volume, an
+   * oversized payload) leaves the running game on its old bytes for all of
+   * them. One `patched` answers the message.
+   */
   | {
       type: "patch";
-      kind: PatchKind;
-      num: number;
-      payload: Uint8Array;
+      resources: PatchResource[];
     }
   | {
       type: "patchMetadata";
@@ -354,18 +365,17 @@ export type WorkerControl =
     }
   | { type: "metadataPatched" }
   /**
-   * The acknowledgement of one `patch`, posted after the engine installed it
-   * (or refused it). `hint` is `resourceCacheHint` of the bytes the engine
-   * now holds for the resource — null with `error` when the install failed —
-   * so a caller awaiting the ack verifies it installed exactly what it sent.
-   * `patchGen` is the engine's patch generation after the message.
+   * The acknowledgement of one `patch`, posted after the engine installed
+   * the whole set (or refused it whole). Each resource's `hint` is
+   * `resourceCacheHint` of the bytes the engine now holds for it — every hint
+   * null with `error` when the install was refused — so a caller awaiting the
+   * ack verifies it installed exactly what it sent. `patchGen` is the
+   * engine's patch generation after the message.
    */
   | {
       type: "patched";
-      kind: PatchKind;
-      num: number;
+      resources: { kind: PatchKind; num: number; hint: string | null }[];
       patchGen: number;
-      hint: string | null;
       error?: string;
     }
   /**
@@ -529,7 +539,7 @@ export interface RoomTransitionNotice {
 }
 
 /** A history replay divergence as the wire carries it. */
-export interface HistoryViewDivergence {
+interface HistoryViewDivergence {
   at: { seq: number; tick: number; cycle: number };
   detail: string;
   expected?: string;
@@ -545,7 +555,7 @@ export type WorkerOutbound = WorkerControl | WorkerPresentation;
  * settles with. `flushed` is not here — the autosave controller owns its own
  * waiter table because a flush can outlive the caller's await (pagehide).
  */
-export interface WorkerQueryReplies {
+interface WorkerQueryReplies {
   state: Extract<WorkerControl, { type: "engineState" }>;
   objects: Extract<WorkerControl, { type: "objects" }>;
   frames: Extract<WorkerControl, { type: "frames" }>;

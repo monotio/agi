@@ -5,10 +5,11 @@ import { AgentSession } from "../src/agent/agentSession.ts";
 import type { AgentLogEntry } from "../src/agent/agentLog.ts";
 import type { AgentRunState } from "../src/agent/agentRun.ts";
 import { STUB_DECLINE_TEXT, type StudioAssistResult } from "../src/agent/studioAssist.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import type { StudioCandidate, StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { draftRevision, pictureAssistScope } from "../../src/studio/assistScope.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
+import type { PictureItemKind } from "../../src/studio/pictureDocument.ts";
 import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
 import { viewAssistScope } from "../../src/studio/assistScope.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
@@ -506,6 +507,10 @@ describe("assist words", () => {
       ]),
       "would change the depth",
     );
+    assert.equal(
+      refusalWords([{ constraint: "extra-copy", plane: "visual" }]),
+      "would copy the selection more than once, or in other colours",
+    );
     const entry = (kind: AgentLogEntry["kind"], detail: string, data?: unknown): AgentLogEntry => ({
       id: detail,
       timestamp: 0,
@@ -581,6 +586,41 @@ describe("assist words", () => {
     assert.equal(
       pictureChangeSummary({ visual: plane(1), priority: plane(4) }, art, "Bench", plane(0)),
       "3 art cells and 10 depth cells outside Bench",
+    );
+    // No pixel changes: the summary names what the proposal does to the items.
+    type Item = { id: string; label: string; kind: PictureItemKind; locked: boolean };
+    const bench: Item = { id: "bench", label: "Bench occluder", kind: "depth", locked: false };
+    const sign: Item = { id: "sign", label: "Sign", kind: "art", locked: false };
+    const same = (items: readonly Item[]) => ({
+      visual: plane(1),
+      priority: plane(4),
+      document: { items },
+    });
+    assert.equal(
+      pictureChangeSummary(
+        same([bench]),
+        same([{ ...bench, label: "Old bench" }]),
+        "Bench occluder",
+        everywhere,
+      ),
+      'No pixels change: relabels Bench occluder as "Old bench"',
+    );
+    assert.equal(
+      pictureChangeSummary(
+        same([bench, sign]),
+        same([{ ...sign, kind: "mixed" }, bench, { ...sign, id: "sign-2", label: "Sign copy" }]),
+        "Sign",
+        everywhere,
+      ),
+      "No pixels change: makes Sign a mixed item, adds Sign copy, changes the drawing order",
+    );
+    assert.equal(
+      pictureChangeSummary(same([bench, sign]), same([bench]), "Sign", everywhere),
+      "No pixels change: removes Sign",
+    );
+    assert.equal(
+      pictureChangeSummary(same([bench]), same([bench]), "Bench occluder", everywhere),
+      "No pixels change (only the picture's notes)",
     );
     assert.deepEqual(walkableWords({ before: 880, after: 960 }), {
       line: "Where the player can stand (estimate): 880 → 960 cells in the selection",

@@ -48,7 +48,7 @@ export interface SoundFeedbackOptions {
   representation?: "music" | "sound" | undefined;
 }
 
-export interface SoundFeedbackEvent {
+interface SoundFeedbackEvent {
   channel: number;
   index: number;
   tone: number | null;
@@ -73,7 +73,7 @@ export interface SoundFeedbackEvent {
   durationBeats?: number;
 }
 
-export interface SoundFeedbackChannel {
+interface SoundFeedbackChannel {
   channel: number;
   label: string;
   notes: number;
@@ -81,7 +81,7 @@ export interface SoundFeedbackChannel {
   durationSeconds: number;
 }
 
-export interface SoundFeedbackPreview {
+interface SoundFeedbackPreview {
   startTick: number;
   endTick: number;
   startSeconds: number;

@@ -6,19 +6,21 @@ import { AgentRun } from "./agentRun.ts";
  */
 
 import {
-  ASK_TOOLS,
-  AUTHORING_TOOL_NAMES,
-  buildSound,
-  type SoundTrackInput,
   createAgentSessionState,
-  executeAgentTool,
-  executeAgentToolAsync,
-  STUDIO_ASSIST_TASK_TOOLS,
-  type AgentRuntimeDeps,
   type AgentSessionState,
   type AgentSourceStore,
   type AgentToolImage,
   type AgentToolResult,
+} from "../../../src/agent/agentState.ts";
+import {
+  ASK_TOOLS,
+  AUTHORING_TOOL_NAMES,
+  buildSound,
+  type SoundTrackInput,
+  executeAgentTool,
+  executeAgentToolAsync,
+  STUDIO_ASSIST_TASK_TOOLS,
+  type AgentRuntimeDeps,
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
 import {
@@ -77,7 +79,7 @@ import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts
 import { continuationTranscript } from "../projectArchive.ts";
 
 /** Resource the remix turn wrote and the host must patch into the live game. */
-export interface PatchedResource {
+interface PatchedResource {
   kind: "logic" | "picture" | "view" | "sound";
   num: number;
   payload: Uint8Array;
@@ -116,7 +118,7 @@ export interface AgentChatMessage {
  * The remix user turn. A tail appended to the transcript, never an edit of
  * the cached system prefix.
  */
-export function createPowerUpPrompt(instruction: string, room: number): string {
+function createPowerUpPrompt(instruction: string, room: number): string {
   return `### LIVE PATCH REQUEST
 
 The world is frozen at a cycle boundary in room ${room}, and the player has asked for a change:
@@ -654,8 +656,10 @@ Answer the player's question using evidence from inspection when needed. For hin
     conversation.setAvailableTools(STUDIO_ASSIST_TASK_TOOLS);
     const deps: AgentRuntimeDeps = { allowedTools: STUDIO_ASSIST_TASK_TOOLS, studio: assist };
     // Inspection reads a fork, as Ask does: nothing this turn runs may
-    // reach the session's resources.
+    // reach the session's resources. It reads under the draft's profile,
+    // the one Accept re-checks the candidate with.
     const inspected = forkAgentState(this.state);
+    if (focus.profile) Object.assign(inspected, { profile: focus.profile });
     try {
       let turn = await this.observeTurn(
         conversation.sendUserMessage(createStudioAssistPrompt(instruction, focus)),

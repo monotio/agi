@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createAgentSessionState } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { applyEdit, type EditOperation } from "../src/studio/editOperations.ts";
 import { parsePictureDocument, type PictureDocument } from "../src/studio/pictureDocument.ts";

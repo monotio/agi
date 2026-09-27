@@ -13,7 +13,8 @@
  *   drawing tool or the pipette the arrows move the keyboard cursor instead
  *   (Shift: 8) and Space or Enter clicks at it (useStudioInput.ts)
  * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; `[` `]` move back/forward
- *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
+ *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo;
+ *   Insert adds a point to the selected line where the cursor is nearest it
  * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I, the
  *   Walk view's T D E, which open it first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
@@ -22,7 +23,7 @@
 
 import type { StudioLens } from "./studioView.ts";
 
-export const LENS_KEYS: Record<string, StudioLens> = { "1": "art", "2": "depth", "3": "walk" };
+const LENS_KEYS: Record<string, StudioLens> = { "1": "art", "2": "depth", "3": "walk" };
 
 const ARROWS: Record<string, readonly [number, number]> = {
   ArrowUp: [0, -1],
@@ -32,7 +33,7 @@ const ARROWS: Record<string, readonly [number, number]> = {
 };
 
 /** Shift+arrow nudges this far. */
-export const NUDGE_FAR = 8;
+const NUDGE_FAR = 8;
 
 export interface StudioKeyActions {
   /** Whether the canvas has focus (arrows act on it only then). */
@@ -60,6 +61,8 @@ export interface StudioKeyActions {
   finish(): boolean;
   /** `/`: focus the Ask box; false when there is none. */
   ask(): boolean;
+  /** Insert: add a point to the selected line nearest the cursor; false when none was added. */
+  insertPoint(): boolean;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -89,6 +92,9 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     // A held key repeats: one press is one click.
     if (event.repeat || act.click(key === "Enter")) return true;
   }
+  // Alt+Enter is Alt+click where the keyboard cursor stands: a point on the line.
+  if (key === "Enter" && event.altKey && !command && act.onCanvas(event.target))
+    return event.repeat || act.insertPoint();
   if (key === "Enter" && !command && act.finish()) return true;
   if (command && !event.altKey) {
     const lower = key.toLowerCase();
@@ -111,6 +117,7 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   }
   if (event.altKey) return false;
   if (key === "/") return act.ask();
+  if (key === "Insert") return act.insertPoint();
   const lens = LENS_KEYS[key];
   if (lens) act.lens(lens);
   else if (key === "Delete" || key === "Backspace") act.remove();

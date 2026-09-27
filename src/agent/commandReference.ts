@@ -10,7 +10,8 @@ import {
 } from "../logic/opcodes.ts";
 import { ACTION_HELP, CONDITION_HELP } from "./commandHelp.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
-import type { ToolDefinition, AgentToolResult } from "./tools.ts";
+import type { AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 
 const REFERENCE_SOURCE = "https://peterkelly.github.io/agi-re/spec/";
 

@@ -372,7 +372,7 @@ export function planWalk(run: NavigationState, target: Target, options?: PlanOpt
   };
 }
 
-export function describePosition(run: NavigationState): unknown {
+function describePosition(run: NavigationState): unknown {
   const e = run.engine;
   const o = e.screenObjects[0]!;
   const s = decodeSave(e.serialize(), e.profile);

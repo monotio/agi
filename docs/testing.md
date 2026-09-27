@@ -22,8 +22,9 @@ enable the compatibility suites for that edition.
 Place a game's files in any subfolder under `games/`, such as `games/kq1/` or
 `games/kings-quest-1/`. Fixture discovery indexes games by content hash
 (SHA-256 of `WORDS.TOK`), so folder names are arbitrary. Fan-made and
-self-authored games with `WORDS.TOK` (or `METADATA.JSON`) are recognized and
-playable in tests and in the app. Development discovery recognizes AGI v2 split
+self-authored games are recognized by `WORDS.TOK` or `GAME.JSON` and playable
+in tests and in the app; a `METADATA.JSON` may supply a title and author for
+one the catalog does not know. Development discovery recognizes AGI v2 split
 directories and v3 combined directories; play them from the same **Your games**
 gallery as saved projects. Installed game folders are ignored by git and
 excluded from production builds.
@@ -43,12 +44,14 @@ included.
 **Editions on other platforms.** Editions of the same game on different
 platforms (DOS, Amiga, IIgs) share the `WORDS.TOK` vocabulary hash but ship
 their own `OBJECT`. The game catalog fingerprints a release by the
-`(WORDS.TOK, OBJECT)` pair, so a bare hash or alias query resolves to the
-catalogued PC edition (the release the tests and walkthroughs were verified
-against), while a port resolves to its own catalog entry through its own pair
-and stays reachable by folder name. Two installations of the same edition, or
-editions outside the catalog, still report an ambiguous query that asks for the
-fixture folder.
+`(WORDS.TOK, OBJECT)` pair, and a catalogued query resolves by that pair: a
+bare `WORDS.TOK` hash or PC alias finds only the catalogued PC edition (the
+release the tests and walkthroughs were verified against), a port alias such as
+`sq2-amiga` only the port, and a query whose edition is not installed skips
+rather than borrowing the other platform's files. Every edition also stays
+reachable by folder name. Two installations of the same edition, or editions
+outside the catalog, still report an ambiguous query that asks for the fixture
+folder.
 
 Platform ports ship the same containers under their own file names: Amiga v2
 releases use lowercase `logdir`, `vol.n`, `object` and `words.tok`, Amiga v3
@@ -637,8 +640,10 @@ remain separate measurements.
 ## Documentation captures
 
 The [media gallery](media/README.md) includes images returned by the actual
-agent tools and screenshots from browser tests, with source scenarios and
-reproduction commands. `scripts/capture-feedback.ts` generates tutorial feedback
-without a provider call. `app/playwright.capture.config.ts` records selected
-browser tests with original resources and mocked provider replies; generated
-recordings stay under `.captures/` until reviewed and edited.
+agent tools and screenshots of the app, with source scenarios and reproduction
+commands. `npm run media:capture` regenerates them: `app/e2e/media/docs.media.ts`
+drives the app in test mode with the stub provider, and
+`scripts/capture-feedback.ts` generates tutorial feedback without a provider
+call. `app/playwright.capture.config.ts` records selected browser tests with
+original resources and mocked provider replies; generated recordings stay under
+`.captures/` until reviewed and edited.

@@ -1,15 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  authoredPictureSource,
-  createAgentSessionState,
-  executeAgentTool,
-} from "../src/agent/tools.ts";
+import { authoredPictureSource, createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
 import { compilePictureSource } from "../src/picture/source.ts";
-import type { AgentSessionState } from "../src/agent/tools.ts";
+import type { AgentSessionState } from "../src/agent/agentState.ts";
 
 /** The revision token read_logic reports — text plus compilation context. */
 function logicRevision(state: AgentSessionState, num: number): string {

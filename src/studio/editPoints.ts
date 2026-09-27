@@ -7,7 +7,7 @@
 
 import type { PictureDocument } from "./pictureDocument.ts";
 import { commandHead } from "./editState.ts";
-import { commandTokens } from "./editSource.ts";
+import { commandTokens, INSERTABLE_HEADS } from "./editSource.ts";
 
 export interface LinePoint {
   readonly x: number;
@@ -85,4 +85,57 @@ export function itemHandles(document: PictureDocument, itemId: string): LineHand
     const kind = commandHead(text) === "fill" ? "seed" : "vertex";
     return linePoints(text).map((point, index) => ({ ...point, line, index, kind }));
   });
+}
+
+/** Where an `insertPoint` edit puts a new vertex on an item's line. */
+export interface PointInsertion extends LinePoint {
+  /** 1-based source line. */
+  readonly line: number;
+  /** The `pointIndex` of the `insertPoint` edit: the new vertex's index. */
+  readonly pointIndex: number;
+  /** From the asked point to the segment, in logical rows (x scaled by the pixel aspect). */
+  readonly distance: number;
+}
+
+/**
+ * The point on the item's nearest line segment to `at`, as an `insertPoint`
+ * would add it: the closest point of the segment, rounded to a pixel that is
+ * neither of its ends. Segments of line, polyline, polygon (its closing edge
+ * too) and rel lines count; one too short to hold a pixel between its ends
+ * does not. `aspect` is a logical pixel's width in rows (2 on the 160-wide
+ * picture shown 2:1). Undefined when the item has no such segment.
+ */
+export function nearestInsertion(
+  document: PictureDocument,
+  itemId: string,
+  at: LinePoint,
+  aspect = 2,
+): PointInsertion | undefined {
+  const item = document.items.find((candidate) => candidate.id === itemId);
+  let best: PointInsertion | undefined;
+  for (const line of item?.commandLines ?? []) {
+    const text = document.lines[line - 1] ?? "";
+    const head = commandHead(text);
+    if (!INSERTABLE_HEADS.includes(head)) continue;
+    const points = linePoints(text);
+    const ends = points.slice(1).map((b, k) => [points[k]!, b, k + 1] as const);
+    if (head === "polygon" && points.length > 2)
+      ends.push([points.at(-1)!, points[0]!, points.length]);
+    for (const [a, b, pointIndex] of ends) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const steps = Math.max(Math.abs(dx), Math.abs(dy));
+      if (steps < 2) continue;
+      const along =
+        ((at.x - a.x) * dx * aspect * aspect + (at.y - a.y) * dy) /
+        (dx * dx * aspect * aspect + dy * dy);
+      const t = Math.min(1 - 1 / steps, Math.max(1 / steps, along));
+      const px = a.x + t * dx;
+      const py = a.y + t * dy;
+      const distance = Math.hypot((at.x - px) * aspect, at.y - py);
+      if (best && best.distance <= distance) continue;
+      best = { line, pointIndex, x: Math.round(px), y: Math.round(py), distance };
+    }
+  }
+  return best;
 }

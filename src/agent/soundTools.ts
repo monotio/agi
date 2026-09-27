@@ -4,12 +4,11 @@ import {
   buildSound,
   midiToAgiDivisor,
   parseNoteToMidi,
-  type AgentSessionState,
-  type AgentToolResult,
   type SoundNoteInput,
   type SoundTrackInput,
-  type ToolDefinition,
-} from "./tools.ts";
+} from "./soundBuilder.ts";
+import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 import { parseSound } from "../sound/sound.ts";
 import { renderSoundPreview } from "../sound/preview.ts";
 import { soundFeedback, type SoundFeedbackOptions } from "./soundFeedback.ts";

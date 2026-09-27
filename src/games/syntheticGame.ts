@@ -7,7 +7,8 @@ import { assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok } from "../logic/words.ts";
 import { compilePictureSource } from "../picture/source.ts";
 import { buildView } from "../view/view.ts";
-import { buildSound, buildObjectFile } from "../agent/tools.ts";
+import { buildObjectFile } from "../agent/agentState.ts";
+import { buildSound } from "../agent/tools.ts";
 
 export const SYNTHETIC_WORDS: [string, number][] = [
   ["go", 0],

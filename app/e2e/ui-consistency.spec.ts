@@ -168,8 +168,8 @@ test("library details stay concise and Add game is a secondary action", async ({
   await expect(details).toBeHidden();
   expect((await card.boundingBox())!.height, "details never resize the card").toBe(height);
   // UiButton's fine-pointer height is --control-h (40px); touch gets 44px via
-  // the pointer:coarse media query.
-  for (const action of await card.locator("button").all()) {
+  // the pointer:coarse media query. The card's closed Remove dialog has no box.
+  for (const action of await card.locator("button:visible").all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(40);
   }
   await add.click();

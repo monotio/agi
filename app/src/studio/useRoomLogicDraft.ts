@@ -15,7 +15,7 @@
 
 import { computed, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
 import type { BindingKind } from "../../../src/agent/authoringState.ts";
-import { assembleAuthoredLogic } from "../../../src/agent/tools.ts";
+import { assembleAuthoredLogic } from "../../../src/agent/agentState.ts";
 import type { PictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { parseLogicDocument, type LogicDocument } from "../../../src/studio/rules/logicDocument.ts";
 import { followPictureEdit, itemTranslation } from "../../../src/studio/rules/ruleBinding.ts";

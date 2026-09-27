@@ -176,9 +176,7 @@ test("the map records a live transition and matches it against plan and logic", 
   // Visit room 2 through the inspector's flag write: logic 1's literal
   // new.room(2) fires, so the journal edge joins the planned and static ones.
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
-  await page.keyboard.press("Escape");
+  await page.getByTestId("dock-tab-inspect").click();
   await page.getByTestId("dbg-tab-state").click();
   await page.getByTestId("dbg-flags").locator("button").nth(6).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);

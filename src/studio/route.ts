@@ -17,7 +17,7 @@ import {
   smoothAnchors,
   type SearchOptions,
 } from "../agent/navigationSearch.ts";
-import { createAgentSessionState } from "../agent/tools.ts";
+import { createAgentSessionState } from "../agent/agentState.ts";
 import { openContainer } from "../container/container.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
 import { SCREEN_WIDTH, type GameContainer } from "../types.ts";

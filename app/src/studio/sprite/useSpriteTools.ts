@@ -56,7 +56,6 @@ export const SPRITE_TOOL_KEYS: Record<string, SpriteTool | "flip"> = {
 };
 
 /** Shift+arrow moves this far. */
-export const CURSOR_FAR = 8;
 
 const LABELS: Record<SpriteTool, string> = {
   pencil: "Pencil",
@@ -482,5 +481,3 @@ export function useSpriteTools(options: SpriteToolsOptions) {
     hover,
   };
 }
-
-export type SpriteTools = ReturnType<typeof useSpriteTools>;
