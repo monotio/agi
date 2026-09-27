@@ -7,6 +7,7 @@
  * plays the tutorial and the card shows the tutorial's opening screen.
  */
 import { computed } from "vue";
+import BootCard from "../ui/BootCard.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import { useEngineApi } from "../engineContext.ts";
@@ -70,7 +71,11 @@ function onPrimary(): void {
 <template>
   <section class="hero" aria-labelledby="welcome-title">
     <div class="hero-copy">
-      <h1 id="welcome-title">AGI IS HERE<span>.</span></h1>
+      <!-- The wordmark in the interpreter's own font; the heading's text is
+           for assistive tech and search, the boot card for the eye. -->
+      <h1 id="welcome-title" class="hero-title">
+        <BootCard class="hero-boot" /><span class="hero-title__text">AGI IS HERE.</span>
+      </h1>
       <p class="hero-line">
         Play Sierra-style adventures, build your own with AI, and edit every room by hand in the
         authentic
@@ -145,15 +150,18 @@ function onPrimary(): void {
   align-items: center;
   padding: var(--space-6) 0 0;
 }
-.hero h1 {
-  margin: 0 0 var(--space-4);
-  color: var(--ink);
-  font: 800 var(--text-display) / 1 var(--font-mono);
-  letter-spacing: 0.02em;
-  text-shadow: 0 0 24px var(--action-soft);
+.hero-title {
+  margin: 0 0 var(--space-6);
+  line-height: 0;
 }
-.hero h1 span {
-  color: var(--action);
+/* Visually hidden, still the heading's accessible name. */
+.hero-title__text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .hero-line {
   max-width: 34rem;

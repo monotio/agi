@@ -635,8 +635,8 @@ defineExpose({
           @close="debugOpen = false"
         />
       </div>
-      <!-- Shell actions over the stage's corner (the Play mode's Ask button),
-           with the transport's floating card beside them, never over them. -->
+      <!-- Notices over the stage's corner (toasts), with the transport's
+           floating card beside them, never over them. -->
       <div class="stage-actions">
         <div id="transport-card-host" class="transport-card-host"></div>
         <slot name="stage-actions" />
@@ -690,15 +690,15 @@ defineExpose({
           </span>
         </template>
         <p id="game-input-help" class="input-help">
-          <template v-if="touchControls"
-            >Type to open keyboard · Enter to send · Keys for F1–F10 and more</template
-          >
+          <template v-if="touchControls">Type for the keyboard · Keys for F1–F10</template>
           <template v-else
             >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
               · <kbd>Esc</kbd> game menu</template
             ></template
           >
         </p>
+        <!-- Shell actions docked in the strip (Play's Ask), clear of the stage. -->
+        <slot name="strip-actions" />
       </div>
     </div>
   </div>

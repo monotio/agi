@@ -12,6 +12,7 @@
 import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiSwitch from "../ui/UiSwitch.vue";
 import { useEngineApi } from "../engineContext.ts";
 import { useAiSettings } from "../useAiSettings.ts";
 import { useShellBridge } from "../shellBridge.ts";
@@ -35,7 +36,7 @@ const emit = defineEmits<{
   "update:debugOpen": [value: boolean];
   "export-zip": [project: boolean];
   "start-over": [];
-  /** Play: open Developer activity, which Play keeps off the page. */
+  /** Open Developer activity, which no screen keeps on the page. */
   "developer-activity": [];
 }>();
 
@@ -174,59 +175,43 @@ defineExpose({ toggle, close, open });
 
       <section class="settings-sheet__group" aria-labelledby="settings-sound-display">
         <h3 id="settings-sound-display">Sound and display</h3>
-        <button
-          type="button"
-          role="switch"
+        <UiSwitch
           class="settings-row"
           data-sheet-item
           data-testid="toggle-mute"
-          :aria-checked="!state.soundMuted"
-          @click="
+          :model-value="!state.soundMuted"
+          @update:model-value="
             resumeAudio();
             toggleMute();
           "
         >
-          <span
-            >Sound<small
-              >{{ state.soundMuted ? "Off" : "On" }} — linked to the game’s sound setting</small
-            ></span
-          >
-          <span class="setting-value">{{ state.soundMuted ? "Off" : "On" }}</span>
-        </button>
-        <button
+          Sound<small>Linked to the game’s own sound setting</small>
+        </UiSwitch>
+        <UiSwitch
           v-if="gpuBackend"
-          type="button"
-          role="switch"
           class="settings-row"
-          :aria-checked="crtEnabled"
           data-testid="toggle-crt"
-          @click="emit('update:crtEnabled', !crtEnabled)"
+          :model-value="crtEnabled"
+          @update:model-value="emit('update:crtEnabled', $event)"
         >
-          <span>Display<small>CRT scanlines, glow and curved glass</small></span>
-          <span class="setting-value">{{ crtEnabled ? "On" : "Off" }}</span>
-        </button>
-        <button
-          type="button"
-          role="switch"
+          Display<small>CRT scanlines, glow and curved glass</small>
+        </UiSwitch>
+        <UiSwitch
           class="settings-row"
-          :aria-checked="originalAspect"
           data-testid="toggle-original-aspect"
-          @click="emit('update:originalAspect', !originalAspect)"
+          :model-value="originalAspect"
+          @update:model-value="emit('update:originalAspect', $event)"
         >
-          <span>Original 4:3<small>Taller pixels, as 1980s monitors showed them</small></span>
-          <span class="setting-value">{{ originalAspect ? "On" : "Off" }}</span>
-        </button>
-        <button
-          type="button"
-          role="switch"
+          Original 4:3<small>Taller pixels, as 1980s monitors showed them</small>
+        </UiSwitch>
+        <UiSwitch
           class="settings-row"
-          :aria-checked="touchControls"
           data-testid="toggle-touch-controls"
-          @click="emit('update:touchControls', !touchControls)"
+          :model-value="touchControls"
+          @update:model-value="emit('update:touchControls', $event)"
         >
-          <span>On-screen controls<small>Directions, keyboard and game keys</small></span>
-          <span class="setting-value">{{ touchControls ? "On" : "Off" }}</span>
-        </button>
+          On-screen controls<small>Directions, keyboard and game keys</small>
+        </UiSwitch>
       </section>
 
       <section class="settings-sheet__group" aria-labelledby="settings-ai">
@@ -335,20 +320,16 @@ defineExpose({ toggle, close, open });
             >
             <span v-if="soundFamily(state.profile) === 'pc'" class="setting-value">Change</span>
           </button>
-          <button
+          <UiSwitch
             v-if="state.phase === 'running'"
-            type="button"
-            role="switch"
             class="settings-row"
-            :aria-checked="debugOpen"
             data-testid="settings-inspect"
-            @click="emit('update:debugOpen', !debugOpen)"
+            :model-value="debugOpen"
+            @update:model-value="emit('update:debugOpen', $event)"
           >
-            <span>Inspector<small>Priority layers, state and trace</small></span>
-            <span class="setting-value">{{ debugOpen ? "On" : "Off" }}</span>
-          </button>
+            Inspector<small>Priority layers, state and trace</small>
+          </UiSwitch>
           <button
-            v-if="state.phase === 'running' && shell.mode.value === 'play'"
             type="button"
             class="settings-row"
             data-testid="settings-developer-activity"
@@ -383,6 +364,15 @@ defineExpose({ toggle, close, open });
   box-shadow: var(--shadow-pop);
   font: var(--text-md) / var(--leading) var(--font-sans);
 }
+/* The sheet drops in from under the bar (motion.css: sheets slide 8px). */
+.settings-sheet[open] {
+  animation: ui-sheet-in-down var(--duration) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-sheet[open] {
+    animation: none;
+  }
+}
 .settings-sheet__head {
   position: sticky;
   top: 0;
@@ -409,7 +399,7 @@ defineExpose({ toggle, close, open });
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
-.settings-row {
+.settings-sheet .settings-row {
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -425,10 +415,10 @@ defineExpose({ toggle, close, open });
   text-align: left;
   cursor: pointer;
 }
-.settings-row:hover:not(:disabled) {
+.settings-sheet .settings-row:hover:not(:disabled) {
   background: var(--surface-3);
 }
-.settings-row:disabled {
+.settings-sheet .settings-row:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -451,8 +441,5 @@ defineExpose({ toggle, close, open });
   color: var(--action);
   font-size: var(--text-xs);
   white-space: nowrap;
-}
-.settings-row[role="switch"][aria-checked="false"] .setting-value {
-  color: var(--ink-3);
 }
 </style>

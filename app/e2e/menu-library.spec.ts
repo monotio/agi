@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
+  openDeveloperActivity,
   openLibraryActions,
   isolateStorage,
   openSavedGameDetails,
@@ -53,10 +54,14 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await expect(page.getByRole("menuitem", { name: /ZIP/i })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /folder/i })).toBeVisible();
   await page.keyboard.press("Escape");
+  // The test game lives in Developer activity, off the page until Settings →
+  // Advanced opens it.
   await expect(page.getByTestId("boot-agent")).toBeHidden();
-  await page.getByTestId("agent-panel").getByText("Developer activity", { exact: true }).click();
+  await expect(page.getByTestId("developer-activity-summary")).toHaveCount(0);
+  await openDeveloperActivity(page);
   await expect(page.getByTestId("boot-agent")).toBeVisible();
-  await page.getByTestId("agent-panel").getByText("Developer activity", { exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("developer-activity-sheet")).toBeHidden();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.screenshot({

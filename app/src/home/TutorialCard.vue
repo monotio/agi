@@ -78,7 +78,7 @@ async function focusPlay(): Promise<void> {
       >
         <span
           >{{ localAutosave(game) ? "Resume" : "Play" }} installed copy<small>{{
-            game.folder ?? game.alias
+            game.title
           }}</small></span
         >
       </button>
@@ -157,7 +157,7 @@ async function focusPlay(): Promise<void> {
         >
           <span
             >{{ localAutosave(game) ? "Resume" : "Play" }} installed copy<small>{{
-              game.folder ?? game.alias
+              game.title
             }}</small></span
           >
         </button>

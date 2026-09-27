@@ -2,17 +2,19 @@
 import { ref } from "vue";
 import SoundPreview from "./SoundPreview.vue";
 import UiButton from "./ui/UiButton.vue";
+import UiIcon from "./ui/UiIcon.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { usePresentation } from "./usePresentation.ts";
 import { useAiSettings } from "./useAiSettings.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 
 /**
- * Developer activity: the agent log, the debug bundle and the test game. The
- * page keeps it in a disclosure below the game; Create docks it open in its
- * Activity tab.
+ * Developer activity: the agent log, the debug bundle and the test game. It
+ * never sits on the page: Create docks it in its Activity tab, and Settings →
+ * Advanced opens it as a dialog everywhere else. Running the test game emits
+ * `booted`, so the dialog can step aside for it.
  */
-const { docked = false } = defineProps<{ docked?: boolean }>();
+const emit = defineEmits<{ booted: [] }>();
 
 const engine = useEngineApi();
 const { state, clearAgentLog, resumeAudio, bootAgentGame, currentGame } = engine;
@@ -78,46 +80,42 @@ async function copyDebugBundle(): Promise<void> {
 </script>
 
 <template>
-  <!-- Live Agent Debug Activity Panel -->
-  <component
-    :is="docked ? 'section' : 'details'"
-    v-if="docked || state.agentLog.length || testMode"
-    class="agent-panel"
-    :class="{ 'agent-panel--docked': docked }"
-    :aria-label="docked ? 'Developer activity' : undefined"
-    data-testid="agent-panel"
-  >
-    <summary v-if="!docked" data-testid="developer-activity-summary">Developer activity</summary>
+  <section class="agent-panel" aria-label="Developer activity" data-testid="agent-panel">
     <div class="agent-panel-header">
-      <span class="backend-tag" data-testid="gpu-backend">{{ gpuBackend || "canvas2d" }}</span>
+      <span class="backend-tag" title="Renderer" data-testid="gpu-backend">{{
+        gpuBackend || "canvas2d"
+      }}</span>
       <div class="agent-panel-actions">
-        <button
-          type="button"
-          class="telemetry-btn"
+        <span v-if="copyFeedback" class="copy-feedback" role="status">{{ copyFeedback }}</span>
+        <UiButton
+          size="sm"
+          icon="copy"
           data-testid="btn-copy-trace"
-          title="Copy entire debug trace to clipboard"
+          title="Copy the whole debug trace to the clipboard"
           @click="copyDebugBundle"
         >
-          📋 Copy Debug Bundle
-        </button>
-        <button
-          type="button"
-          class="telemetry-btn secondary"
+          Copy debug bundle
+        </UiButton>
+        <UiButton
+          size="sm"
+          variant="ghost"
+          icon="trash"
           data-testid="btn-clear-trace"
-          title="Clear telemetry logs"
+          title="Clear the log"
           @click="clearAgentLog"
         >
           Clear
-        </button>
-        <span v-if="copyFeedback" class="copy-feedback">{{ copyFeedback }}</span>
+        </UiButton>
       </div>
     </div>
     <UiButton
       v-if="testMode && (state.phase === 'idle' || state.phase === 'error')"
+      icon="play"
       data-testid="boot-agent"
       @click="
         resumeAudio();
         bootAgentGame();
+        emit('booted');
       "
     >
       Run test game
@@ -134,7 +132,10 @@ async function copyDebugBundle(): Promise<void> {
           <span class="agent-kind">{{ entry.kind }}</span>
           <span class="agent-detail">{{ entry.detail }}</span>
           <span v-if="entry.data" class="agent-expand-toggle">
-            {{ expandedLogIds.has(entry.id) ? "▲ collapse" : "▼ inspect" }}
+            <UiIcon
+              :name="expandedLogIds.has(entry.id) ? 'chevron-up' : 'chevron-down'"
+              :size="12"
+            />{{ expandedLogIds.has(entry.id) ? "collapse" : "inspect" }}
           </span>
         </div>
         <pre v-if="entry.data && expandedLogIds.has(entry.id)" class="agent-data-preview">{{
@@ -142,35 +143,23 @@ async function copyDebugBundle(): Promise<void> {
         }}</pre>
         <SoundPreview v-if="entry.audio?.length" :audio="entry.audio" />
       </div>
-      <p v-if="docked && !state.agentLog.length" class="agent-empty">
+      <p v-if="!state.agentLog.length" class="agent-empty">
         Agent requests, tool calls and results appear here as the assistant works.
       </p>
     </div>
-  </component>
+  </section>
 </template>
 
 <style scoped>
 .backend-tag {
-  font-size: var(--text-2xs);
   color: var(--ink-3);
-  letter-spacing: 0.15em;
+  font: var(--weight-semibold) var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
 }
 
 .agent-panel {
-  width: var(--shell-width);
-  margin-top: 1rem;
-  border-top: 1px solid var(--hairline);
-  max-height: 280px;
-  overflow-y: auto;
   font-size: var(--text-xs);
-}
-
-.agent-panel--docked {
-  width: auto;
-  max-height: none;
-  margin: 0;
-  border-top: 0;
-  overflow: visible;
 }
 
 .agent-empty {
@@ -179,55 +168,19 @@ async function copyDebugBundle(): Promise<void> {
   font-family: var(--font-sans);
 }
 
-.agent-panel summary {
-  cursor: pointer;
-  padding: 12px 0;
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-
 .agent-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
 }
 
 .agent-panel-actions {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-}
-
-.telemetry-btn {
-  font-size: var(--text-2xs);
-  padding: 0.2rem 0.5rem;
-  background: var(--surface-3);
-  border: 1px solid var(--action-line);
-  color: var(--action);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.telemetry-btn:hover {
-  background: var(--action-soft);
-  border-color: var(--action);
-  color: var(--ink);
-}
-
-.telemetry-btn.secondary {
-  background: var(--surface-2);
-  border-color: var(--hairline-strong);
-  color: var(--ink-3);
-}
-
-.telemetry-btn.secondary:hover {
-  background: var(--surface-3);
-  border-color: var(--hairline-strong);
-  color: var(--ink);
+  gap: var(--space-2);
 }
 
 .copy-feedback {
@@ -291,6 +244,9 @@ async function copyDebugBundle(): Promise<void> {
 }
 
 .agent-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   font-size: var(--text-2xs);
   color: var(--action);
   opacity: 0.8;

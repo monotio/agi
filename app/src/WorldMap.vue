@@ -12,7 +12,9 @@
  * The graph, list and details are shared with Create mode's World panel
  * (world/); this file is the window around them.
  */
-import { computed, onMounted, onUnmounted, useTemplateRef } from "vue";
+import { computed, ref, useTemplateRef, watch } from "vue";
+import UiButton from "./ui/UiButton.vue";
+import UiDialog from "./ui/UiDialog.vue";
 import { useEngineApi } from "./engineContext.ts";
 import WorldGraph from "./world/WorldGraph.vue";
 import WorldRoomDetail from "./world/WorldRoomDetail.vue";
@@ -24,22 +26,21 @@ const map = engine.roomMap;
 // Top-level refs unwrap in the template; .value stays in the script.
 const { unsaved, storageError } = map;
 
-const dialog = useTemplateRef("dialog");
 const graphView = useTemplateRef("graphView");
 
-onMounted(() => {
-  dialog.value?.showModal();
-});
-onUnmounted(() => {
-  if (dialog.value?.open) dialog.value.close();
-});
-
-function onDialogClose(): void {
+/** Shown while mounted: App mounts the window only while the map is open. */
+const shown = ref(true);
+watch(shown, (value) => {
+  if (value) return;
   map.closeMap();
   // A refused review close (storage would not keep the draft) leaves the
   // map's state open — reopen the shell so the player sees why.
-  if (map.open.value && dialog.value && !dialog.value.open) dialog.value.showModal();
-}
+  if (map.open.value) shown.value = true;
+});
+
+const title = computed(() =>
+  map.experience.value === "create" ? (map.canPlan.value ? "World plan" : "Full map") : "World map",
+);
 
 const selectedNode = computed(
   () => map.graph.value.nodes.find((n) => n.room === map.selected.value) ?? null,
@@ -58,32 +59,56 @@ function addStandaloneRoom(): void {
 </script>
 
 <template>
-  <dialog
-    ref="dialog"
+  <UiDialog
+    v-model:open="shown"
+    :title="title"
+    size="lg"
+    flush
     class="world-map"
-    aria-labelledby="world-map-title"
+    close-testid="map-close"
+    close-label="Close map"
     data-testid="world-map"
-    @close="onDialogClose"
   >
-    <header class="map-header">
-      <h2 id="world-map-title">
+    <template #actions>
+      <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
+      <UiButton
+        size="sm"
+        data-testid="btn-world-plan"
+        :title="
+          map.experience.value === 'create'
+            ? 'Back to the discovered map'
+            : map.planAvailable.value
+              ? 'Edit rooms, exits and intent'
+              : 'Every room the logic names'
+        "
+        @click="map.experience.value = map.experience.value === 'create' ? 'play' : 'create'"
+      >
         {{
           map.experience.value === "create"
-            ? map.canPlan.value
+            ? "World map"
+            : map.planAvailable.value
               ? "World plan"
               : "Full map"
-            : "World map"
         }}
-      </h2>
-      <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
+      </UiButton>
+      <UiButton size="sm" variant="ghost" data-testid="map-reset-layout" @click="map.resetLayout()">
+        Reset layout
+      </UiButton>
+    </template>
+    <div
+      v-if="
+        storageError ||
+        unsaved ||
+        (map.canPlan.value && (map.planDirty.value || map.planSaveError.value))
+      "
+      class="map-alerts"
+    >
       <span v-if="storageError" class="map-error" role="alert" data-testid="map-error">
         {{ storageError }}
       </span>
       <span v-if="unsaved" class="map-unsaved" data-testid="map-unsaved">
         Map data is not saved — retrying in the background.
-        <button type="button" class="ui-button ui-button--secondary" @click="map.retrySave()">
-          Retry now
-        </button>
+        <UiButton size="sm" variant="ghost" @click="map.retrySave()">Retry now</UiButton>
       </span>
       <span
         v-if="map.canPlan.value && (map.planDirty.value || map.planSaveError.value)"
@@ -92,107 +117,51 @@ function addStandaloneRoom(): void {
         data-testid="map-plan-unsaved"
       >
         {{ map.planSaveError.value || "The plan has unsaved edits." }}
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
+        <UiButton
+          size="sm"
+          variant="ghost"
           data-testid="map-plan-retry"
           @click="map.retryPlanSave()"
         >
           Retry
-        </button>
+        </UiButton>
       </span>
-      <span class="map-header-actions">
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
-          data-testid="btn-world-plan"
-          :title="
-            map.experience.value === 'create'
-              ? 'Back to the discovered map'
-              : map.planAvailable.value
-                ? 'Edit rooms, exits and intent'
-                : 'Every room the logic names'
-          "
-          @click="map.experience.value = map.experience.value === 'create' ? 'play' : 'create'"
-        >
-          {{
-            map.experience.value === "create"
-              ? "World map"
-              : map.planAvailable.value
-                ? "World plan"
-                : "Full map"
-          }}
-        </button>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
-          data-testid="map-reset-layout"
-          @click="map.resetLayout()"
-        >
-          Reset layout
-        </button>
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
-          data-testid="map-close"
-          @click="map.closeMap()"
-        >
-          Close
-        </button>
-      </span>
-    </header>
+    </div>
     <div class="map-body">
       <section class="map-list-pane" aria-label="Rooms">
         <WorldRoomList @pick="pickRoom" />
-        <button
+        <UiButton
           v-if="map.canPlan.value"
-          type="button"
-          class="map-add-room ui-button ui-button--secondary"
+          icon="plus"
+          size="sm"
+          variant="ghost"
+          class="map-add-room"
           data-testid="map-add-room"
           @click="addStandaloneRoom"
         >
-          + Add a room
-        </button>
+          Add a room
+        </UiButton>
       </section>
       <WorldGraph ref="graphView" />
       <WorldRoomDetail v-if="selectedNode" class="map-detail-pane" :node="selectedNode" />
     </div>
-  </dialog>
+  </UiDialog>
 </template>
 
 <style scoped>
-.world-map {
+.world-map.ui-dialog {
   width: min(980px, 96vw);
   max-height: 88dvh;
-  padding: 0;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  color: var(--ink);
-  background: var(--surface-1);
-}
-.world-map::backdrop {
-  background: var(--scrim);
-}
-.map-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--hairline);
-}
-.map-header h2 {
-  margin: 0;
-  font-size: var(--text-lg);
-}
-.map-header-actions {
-  display: flex;
-  gap: var(--space-3);
-  margin-left: auto;
 }
 .map-paused {
   color: var(--ok);
   font-size: var(--text-xs);
+}
+.map-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  padding: 0 var(--space-6) var(--space-3);
 }
 .map-error,
 .map-unsaved {
@@ -206,7 +175,8 @@ function addStandaloneRoom(): void {
   display: grid;
   grid-template-columns: minmax(200px, 260px) 1fr;
   grid-template-rows: minmax(0, 1fr) auto;
-  max-height: calc(88dvh - 60px);
+  max-height: calc(88dvh - 72px);
+  border-top: 1px solid var(--hairline);
 }
 .map-list-pane {
   min-height: 160px;

@@ -27,6 +27,8 @@ export interface ShellBridge {
   assistantInputEl(): HTMLElement | null | undefined;
   /** Focus the game input (registered by PlayArea). */
   focusGameInput(): void;
+  /** Open the Help guide, optionally at a section id (registered by GameHeader). */
+  openHelp(section?: string): void;
 }
 
 const shellBridgeKey: InjectionKey<ShellBridge> = Symbol("agi-shell-bridge");
@@ -41,6 +43,7 @@ export function createShellBridge(): ShellBridge {
     createButtonEl: () => null,
     assistantInputEl: () => null,
     focusGameInput: () => {},
+    openHelp: () => {},
   };
 }
 

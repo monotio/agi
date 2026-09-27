@@ -8,9 +8,11 @@
  * the recorded-test save dialog. The engine API is injected, never passed.
  */
 import HelpGuide from "./HelpGuide.vue";
+import BrandMark from "./ui/BrandMark.vue";
 import PlayBar from "./shell/PlayBar.vue";
 import SettingsSheet from "./shell/SettingsSheet.vue";
 import UiButton from "./ui/UiButton.vue";
+import UiDialog from "./ui/UiDialog.vue";
 import type { HelpActionKind, HelpRequest } from "./helpContent.ts";
 import { computed, ref, shallowRef, useTemplateRef } from "vue";
 import { useEngineApi } from "./engineContext.ts";
@@ -77,7 +79,7 @@ const bridge = useShellBridge();
 const shell = useShell();
 const workspace = useCreateWorkspace();
 
-const controlsDialog = useTemplateRef("controlsDialog");
+const controlsOpen = ref(false);
 const helpGuide = useTemplateRef("helpGuide");
 const settingsSheet = useTemplateRef("settingsSheet");
 const settingsOpen = computed(() => settingsSheet.value?.open ?? false);
@@ -108,7 +110,7 @@ const helpActions = computed<HelpActionKind[]>(() => {
  */
 const helpLessons = shallowRef<LessonSet | undefined>();
 let helpLessonsAsked = 0;
-function openHelp(): void {
+function openHelp(section?: string): void {
   const game = state.phase === "running" ? currentGame() : null;
   const release =
     game && !game.installed
@@ -126,8 +128,9 @@ function openHelp(): void {
     .then((set) => {
       if (asked === helpLessonsAsked) helpLessons.value = set;
     });
-  helpGuide.value?.open();
+  helpGuide.value?.open(section);
 }
+bridge.openHelp = openHelp;
 
 function onHelpLesson(lesson: StudioLesson): void {
   void studios.open(lesson.open, lesson);
@@ -142,7 +145,7 @@ function onHelpAction(request: HelpRequest): void {
       void studios.open({ studio: "sprite", view: request.view });
       return;
     case "controls":
-      controlsDialog.value?.showModal();
+      controlsOpen.value = true;
       return;
     case "map":
       if (shell.mode.value === "create") workspace.showPanel("world");
@@ -170,7 +173,7 @@ function onHelpAction(request: HelpRequest): void {
 }
 
 function closeNavMenus(): void {
-  if (controlsDialog.value?.open) controlsDialog.value.close();
+  controlsOpen.value = false;
   settingsSheet.value?.close("stay");
 }
 bridge.closeNavMenus = closeNavMenus;
@@ -184,9 +187,7 @@ bridge.closeNavMenus = closeNavMenus;
 function onControlsClosed(): void {
   const active = document.activeElement;
   const dropped =
-    active === null ||
-    active === document.body ||
-    (controlsDialog.value?.contains(active) ?? false);
+    active === null || active === document.body || active.closest("dialog:not([open])") !== null;
   if (state.phase === "running" && dropped) bridge.focusGameInput();
 }
 
@@ -292,9 +293,9 @@ async function onRecordSave(): Promise<void> {
       v-if="state.phase === 'idle' || state.phase === 'error'"
       class="publisher"
       href="https://monotio.com"
-      >MONOTIO <span>/ AGI</span></a
-    >
-    <span v-else class="publisher">MONOTIO <span>/ AGI</span></span>
+      >MONOTIO <span>/ AGI</span><BrandMark
+    /></a>
+    <span v-else class="publisher">MONOTIO <span>/ AGI</span><BrandMark /></span>
     <nav
       v-if="state.phase === 'idle' || state.phase === 'error'"
       class="game-nav"
@@ -346,7 +347,7 @@ async function onRecordSave(): Promise<void> {
     @exit="onEjectGame(false)"
     @settings="toggleSettings"
     @help-guide="openHelp()"
-    @controls="controlsDialog?.showModal()"
+    @controls="controlsOpen = true"
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
   />
@@ -449,19 +450,15 @@ async function onRecordSave(): Promise<void> {
     @action="onHelpAction"
     @lesson="onHelpLesson"
   />
-  <dialog
-    ref="controlsDialog"
-    class="controls-dialog"
-    aria-labelledby="controls-dialog-title"
+  <UiDialog
+    v-model:open="controlsOpen"
+    title="Game controls"
+    size="sm"
+    close-testid="controls-close"
+    :restore-focus="false"
     data-testid="game-controls"
-    @close="onControlsClosed"
+    @closed="onControlsClosed"
   >
-    <header>
-      <h2 id="controls-dialog-title">Game controls</h2>
-      <UiButton size="sm" data-testid="controls-close" @click="controlsDialog?.close()">
-        Close
-      </UiButton>
-    </header>
     <p class="controls-hint">
       Arrow keys move. Type a command and press Enter. Escape opens the game's own menu.
     </p>
@@ -489,7 +486,7 @@ async function onRecordSave(): Promise<void> {
         </button>
       </div>
     </template>
-  </dialog>
+  </UiDialog>
   <dialog
     ref="recordDialog"
     class="record-dialog"
@@ -574,8 +571,11 @@ async function onRecordSave(): Promise<void> {
   text-decoration: none;
   white-space: nowrap;
 }
-.publisher span {
+.publisher > span {
   color: var(--ink-3);
+}
+a.publisher:hover > span {
+  color: var(--ink-2);
 }
 /* GitHub is a link, drawn as the ghost small button beside it. */
 .repo-link {
@@ -672,8 +672,7 @@ async function onRecordSave(): Promise<void> {
   font-size: var(--text-xs);
 }
 
-.record-dialog,
-.controls-dialog {
+.record-dialog {
   box-sizing: border-box;
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
@@ -682,16 +681,14 @@ async function onRecordSave(): Promise<void> {
   box-shadow: var(--shadow-dialog);
   font: var(--text-md) / var(--leading) var(--font-sans);
 }
-.record-dialog::backdrop,
-.controls-dialog::backdrop {
+.record-dialog::backdrop {
   background: var(--scrim);
 }
 .record-dialog {
   width: min(480px, 92vw);
   padding: var(--space-5) var(--space-6);
 }
-.record-dialog h2,
-.controls-dialog h2 {
+.record-dialog h2 {
   margin: 0 0 var(--space-3);
   font: var(--weight-semibold) var(--text-lg) / var(--leading-tight) var(--font-sans);
 }
@@ -728,22 +725,6 @@ async function onRecordSave(): Promise<void> {
   gap: var(--space-3);
 }
 
-.controls-dialog {
-  width: min(24rem, calc(100vw - 2rem));
-  max-height: min(70vh, 32rem);
-  padding: var(--space-4) var(--space-5);
-  overflow-y: auto;
-}
-.controls-dialog header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-5);
-  margin-bottom: var(--space-3);
-}
-.controls-dialog h2 {
-  margin: 0;
-}
 .controls-hint {
   margin: var(--space-1) var(--space-1) var(--space-4);
   color: var(--ink-2);

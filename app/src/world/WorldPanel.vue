@@ -12,6 +12,7 @@
 import { computed, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 import { useEngineApi } from "../engineContext.ts";
 import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
@@ -131,39 +132,29 @@ function openInStudio(picture: number): void {
       Add a room
     </UiButton>
     <WorldRoomDetail v-if="selectedNode" :node="selectedNode" compact :view-only="viewOnly">
+      <template #chips>
+        <UiChip v-if="pictures" class="world-chip" :tone="pictures.tone">{{
+          pictures.chip
+        }}</UiChip>
+        <UiChip v-for="entry in views" :key="entry.view" class="world-chip"
+          >VIEW {{ entry.view }}</UiChip
+        >
+      </template>
       <template #lead>
-        <p v-if="pictures" class="world-pictures" data-testid="world-room-pictures">
-          <UiChip :tone="pictures.tone">{{ pictures.chip }}</UiChip>
-          <span>{{ pictures.detail }}</span>
+        <p
+          v-if="pictures && pictures.detail !== pictures.chip"
+          class="world-pictures"
+          data-testid="world-room-pictures"
+        >
+          {{ pictures.detail }}
         </p>
         <div class="world-actions">
-          <span
-            v-if="studioPictures.length > 1"
-            class="world-actions__pictures"
-            role="group"
-            aria-label="Open a picture in Room Studio"
-            :title="studioFits ? undefined : STUDIO_TOO_SMALL"
-          >
-            <UiButton
-              v-for="(picture, index) in studioPictures"
-              :key="picture"
-              :variant="index === 0 ? 'primary' : 'secondary'"
-              size="sm"
-              icon="pencil"
-              :data-testid="index === 0 ? 'world-open-studio' : `world-open-studio-${picture}`"
-              :data-picture="picture"
-              :disabled="studioOpen || !studioFits"
-              :aria-describedby="!studioFits ? 'world-studio-small' : undefined"
-              @click="openInStudio(picture)"
-            >
-              Open PIC {{ picture }}
-            </UiButton>
-          </span>
-          <span v-else :title="studioFits ? undefined : STUDIO_TOO_SMALL">
+          <span class="world-actions__primary" :title="studioFits ? undefined : STUDIO_TOO_SMALL">
             <UiButton
               variant="primary"
               size="sm"
               icon="pencil"
+              block
               data-testid="world-open-studio"
               :data-picture="studioPictures[0]"
               :disabled="studioPictures.length === 0 || studioOpen || !studioFits"
@@ -176,32 +167,29 @@ function openInStudio(picture: number): void {
               "
               @click="openInStudio(studioPictures[0]!)"
             >
-              Open in Studio
+              {{ studioPictures.length > 1 ? `Open PIC ${studioPictures[0]}` : "Open in Studio" }}
+            </UiButton>
+          </span>
+          <span
+            v-if="studioPictures.length > 1"
+            class="world-actions__more"
+            role="group"
+            aria-label="Open another picture in Room Studio"
+          >
+            <UiButton
+              v-for="picture in studioPictures.slice(1)"
+              :key="picture"
+              size="sm"
+              icon="pencil"
+              :data-testid="`world-open-studio-${picture}`"
+              :data-picture="picture"
+              :disabled="studioOpen || !studioFits"
+              @click="openInStudio(picture)"
+            >
+              Open PIC {{ picture }}
             </UiButton>
           </span>
         </div>
-        <section v-if="views.length" class="world-views" aria-label="Views this room uses">
-          <h4>Views</h4>
-          <ul data-testid="world-room-views">
-            <li v-for="entry in views" :key="entry.view" :data-view="entry.view">
-              <span class="world-views__name">
-                <b>VIEW {{ entry.view }}</b>
-                <span v-if="entry.description">{{ entry.description }}</span>
-              </span>
-              <UiButton
-                size="sm"
-                variant="ghost"
-                icon="pencil"
-                :data-testid="`world-open-sprite-${entry.view}`"
-                :disabled="studioOpen || !studioFits"
-                :aria-label="`Open VIEW ${entry.view} in Sprite Studio`"
-                @click="sprites.open(entry.view)"
-              >
-                Open in Sprite Studio
-              </UiButton>
-            </li>
-          </ul>
-        </section>
         <p
           v-if="!studioFits"
           id="world-studio-small"
@@ -218,6 +206,25 @@ function openInStudio(picture: number): void {
         >
           {{ pictures.studioBlocked }}
         </p>
+        <section v-if="views.length" class="world-views" aria-label="Sprites this room uses">
+          <h4>Sprites</h4>
+          <ul data-testid="world-room-views">
+            <li v-for="entry in views" :key="entry.view" :data-view="entry.view">
+              <span class="world-views__name">
+                <b>VIEW {{ entry.view }}</b>
+                <span v-if="entry.description">{{ entry.description }}</span>
+              </span>
+              <UiIconButton
+                icon="pencil"
+                size="sm"
+                :label="`Open VIEW ${entry.view} in Sprite Studio`"
+                :data-testid="`world-open-sprite-${entry.view}`"
+                :disabled="studioOpen || !studioFits"
+                @click="sprites.open(entry.view)"
+              />
+            </li>
+          </ul>
+        </section>
       </template>
     </WorldRoomDetail>
   </div>
@@ -241,47 +248,51 @@ function openInStudio(picture: number): void {
 .world-add-room {
   align-self: flex-start;
 }
-.world-pictures {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  margin: 0;
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-}
-.world-pictures .ui-chip {
+.world-chip {
   font-family: var(--font-mono);
 }
-.world-actions,
-.world-actions__pictures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
+.world-pictures {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
 }
-.world-actions__pictures {
+.world-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
 }
+.world-actions__primary {
+  display: block;
+}
+.world-actions__more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.world-views {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
 .world-views h4 {
-  margin: 0 0 var(--space-1);
+  margin: var(--space-2) 0 0;
   color: var(--ink-3);
-  font: var(--weight-semibold) var(--text-2xs) / var(--leading) var(--font-sans);
+  font: var(--weight-bold) var(--text-2xs) / 1 var(--font-sans);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
 .world-views ul {
   display: grid;
-  gap: var(--space-1);
+  grid-template-columns: minmax(0, 1fr);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .world-views li {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-3);
   font-size: var(--text-xs);
 }
 .world-views__name {

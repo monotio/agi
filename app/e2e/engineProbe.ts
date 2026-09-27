@@ -278,23 +278,18 @@ export async function openCreateAdventure(page: Page): Promise<void> {
 }
 
 /**
- * Open Developer activity without toggling it closed: the page's disclosure,
- * or in Play, which keeps it off the page, its dialog from Settings → Advanced.
+ * Open Developer activity, which no screen keeps on the page: Settings →
+ * Advanced opens it — as a dialog, or as Create's Activity tab on a desktop.
+ * A panel already showing stays as it is.
  */
 export async function openDeveloperActivity(page: Page): Promise<void> {
   const panel = page.getByTestId("agent-panel");
-  if ((await panel.evaluate((element) => element.tagName)) === "DETAILS") {
-    if ((await panel.getAttribute("open")) === null)
-      await page.getByTestId("developer-activity-summary").click();
-    return;
-  }
-  const sheet = page.getByTestId("developer-activity-sheet");
-  if (await sheet.isVisible()) return;
+  if (await panel.isVisible()) return;
   await openGameOptions(page, "settings-menu");
   const advanced = page.getByTestId("settings-advanced");
   if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
   await page.getByTestId("settings-developer-activity").click();
-  await expect(sheet).toBeVisible();
+  await expect(panel).toBeVisible();
 }
 
 /** Configure the app-wide AI connection through the same dialog a player uses. */

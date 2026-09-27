@@ -2,6 +2,7 @@
 import { ref, useTemplateRef } from "vue";
 import UiButton from "./ui/UiButton.vue";
 import UiIconButton from "./ui/UiIconButton.vue";
+import UiSelect from "./ui/UiSelect.vue";
 import { defaultModelEffort, modelEffortOptions } from "../../src/agent/modelEffort.ts";
 import { copyAiSettings, type AiSettings, type AiSettingsProvider } from "./aiSettings.ts";
 
@@ -59,27 +60,29 @@ defineExpose({ show, close });
         <UiIconButton icon="x" label="Cancel AI settings" :disabled="saving" @click="close" />
       </header>
       <label for="ai-provider">Provider</label>
-      <select id="ai-provider" v-model="draft.provider" data-testid="provider-select">
+      <UiSelect id="ai-provider" v-model="draft.provider" block data-testid="provider-select">
         <option value="openai">OpenAI</option>
         <option value="anthropic">Anthropic</option>
         <option v-if="allowStub" value="stub">Offline test provider</option>
-      </select>
+      </UiSelect>
       <label for="ai-model">Model</label>
-      <select
+      <UiSelect
         id="ai-model"
         v-model="draft.profiles[draft.provider].model"
+        block
         data-testid="model-select"
         @change="applyModelDefault"
       >
         <option v-for="option in models[draft.provider]" :key="option.id" :value="option.id">
           {{ option.label }}
         </option>
-      </select>
+      </UiSelect>
       <template v-if="draft.provider !== 'stub'">
         <label for="ai-effort">Reasoning effort</label>
-        <select
+        <UiSelect
           id="ai-effort"
           v-model="draft.profiles[draft.provider].effort"
+          block
           data-testid="effort-select"
         >
           <option
@@ -92,7 +95,7 @@ defineExpose({ show, close });
               effort === defaultModelEffort(draft.profiles[draft.provider].model) ? "(default)" : ""
             }}
           </option>
-        </select>
+        </UiSelect>
       </template>
       <template v-if="draft.provider !== 'stub'">
         <div class="field-label-row">
@@ -193,14 +196,17 @@ label {
   color: var(--ink-2);
   font-size: var(--text-sm);
 }
-select,
+/* The connection form keeps touch-size controls at every pointer. */
+input,
+form :deep(.ui-select__control) {
+  min-height: var(--control-h-touch);
+}
 input {
   width: 100%;
-  min-height: var(--control-h-touch);
   box-sizing: border-box;
-  padding: 9px 11px;
+  padding: var(--space-2) var(--space-4);
   border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   color: var(--ink);
   background: var(--surface-sunken);
   font: var(--text-md) / 1.4 var(--font-sans);
@@ -208,9 +214,6 @@ input {
 a {
   color: var(--action);
   font-size: var(--text-xs);
-}
-select {
-  height: var(--control-h-touch);
 }
 .dialog-error {
   color: var(--danger);

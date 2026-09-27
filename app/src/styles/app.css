@@ -130,38 +130,21 @@
 .assistant-start .dock-note {
   margin: 0;
 }
-/* The Ask button over the stage's corner, legible over black or art. On a
-   phone the screen fills the stage, so it shrinks to its icon in the corner. */
-.ask-button.ui-btn {
-  background: var(--surface-overlay);
+/* Play's Ask sits at the end of the play strip, clear of the stage. While
+   the drawer it opens is showing, it steps away (the drawer has its own ×). */
+.ask-button {
+  flex: none;
 }
-.with-touch .ask-button.ui-btn {
-  width: var(--control-h-touch);
-  padding: 0;
+.ask-button--away {
+  visibility: hidden;
 }
-.with-touch .ask-button .ui-btn__label {
-  display: none;
-}
-/* Why Room Studio's Play here could not place the player: one line over the stage. */
-.play-here-note {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  max-width: calc(var(--space-9) * 10);
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--warn-line);
-  border-radius: var(--radius);
-  color: var(--ink);
-  background: var(--surface-overlay);
-  font-size: var(--text-sm);
-}
-.play-here-note button {
-  border: 0;
-  color: var(--ink-2);
-  background: none;
-  font: inherit;
-  cursor: pointer;
+/* Narrow strips wrap the hints under the transport: the hint reads from the
+   left and Ask holds the right edge. */
+@media (max-width: 900px) {
+  .play-hints:has(.ask-button) {
+    justify-content: space-between;
+    text-align: left;
+  }
 }
 
 /* Narrow windows: Create stacks its docks under the stage, and an open

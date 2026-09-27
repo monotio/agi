@@ -10,6 +10,7 @@ import AgentTaskControls from "./AgentTaskControls.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
 import HomeHero from "./home/HomeHero.vue";
+import BootCard from "./ui/BootCard.vue";
 import { useEngineApi } from "./engineContext.ts";
 import { useGameLibrary } from "./useGameLibrary.ts";
 
@@ -59,6 +60,7 @@ function onDrop(event: DragEvent): void {
     data-testid="splash-screen"
   >
     <div class="splash-card">
+      <BootCard bare class="splash-boot" />
       <h2 class="splash-title">
         {{
           state.loading?.generating === false
@@ -126,6 +128,10 @@ function onDrop(event: DragEvent): void {
   max-width: 480px;
 }
 
+.splash-card .splash-boot {
+  --boot-px: 3;
+  margin: 0 auto var(--space-7);
+}
 .splash-title {
   font-size: var(--text-xl);
   letter-spacing: 0.15em;
