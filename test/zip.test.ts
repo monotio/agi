@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildZip, crc32 } from "../app/src/zip.ts";
+import { buildZip, crc32 } from "../app/src/archive/zip.ts";
 
 describe("buildZip", () => {
   it("computes accurate CRC32 for known strings", () => {

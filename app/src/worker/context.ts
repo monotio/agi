@@ -8,10 +8,10 @@ import type { Engine, EngineHost } from "../../../src/runtime/engine.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import { CycleClock } from "../../../src/runtime/cycleClock.ts";
-import { SoundClock } from "../soundClock.ts";
-import { FrameRing } from "../frameRing.ts";
+import { SoundClock } from "./soundClock.ts";
+import { FrameRing } from "./frameRing.ts";
 import type { OperationRecorder } from "../../../src/agent/recordedReplay.ts";
-import type { RecordedEvent } from "../gameRecording.ts";
+import type { RecordedEvent } from "../authoring/gameRecording.ts";
 import type {
   DebugEvent,
   HostRequestOp,
@@ -19,7 +19,7 @@ import type {
   WorkerControl,
   WorkerInbound,
   WorkerPresentation,
-} from "../workerProtocol.ts";
+} from "./workerProtocol.ts";
 import { createInput } from "./input.ts";
 import { createHostRequests } from "./hostRequests.ts";
 import { createReplay } from "./replay.ts";
@@ -46,7 +46,7 @@ import type {
   HistoryRoomMark,
   HistorySyncMark,
 } from "../../../src/agent/history.ts";
-import type { BootMessage } from "../workerProtocol.ts";
+import type { BootMessage } from "./workerProtocol.ts";
 import type { HostAnswerOutcome } from "./hostRequests.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */

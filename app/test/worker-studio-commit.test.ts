@@ -13,34 +13,37 @@ import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
-import { ResourceCommitError } from "../src/projectTransaction.ts";
-import { useWorkerLink } from "../src/useWorkerLink.ts";
+import {
+  useAuthoringController,
+  type PowerUpUiState,
+} from "../src/authoring/useAuthoringController.ts";
+import { ResourceCommitError } from "../src/project/projectTransaction.ts";
+import { useWorkerLink } from "../src/engine/useWorkerLink.ts";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import {
   clearCachedGame,
   loadAuthoredGame,
   readHistoryLifetime,
   saveAuthoredGame,
   updateAuthoredGameFiles,
-} from "../src/gameStorage.ts";
-import type { BootedGame, ProjectId, ResourceRevision } from "../src/gameTypes.ts";
-import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
+} from "../src/project/gameStorage.ts";
+import type { BootedGame, ProjectId, ResourceRevision } from "../src/project/gameTypes.ts";
+import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
 import type {
   WorkerControl,
   WorkerInbound,
   WorkerOutbound,
   WorkerPresentation,
-} from "../src/workerProtocol.ts";
+} from "../src/worker/workerProtocol.ts";
 import { studioCommitFailure, useStudioCommit } from "../src/studio/useStudioCommit.ts";
 import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
-import { useAutosaveController } from "../src/useAutosaveController.ts";
+import { useAutosaveController } from "../src/saves/useAutosaveController.ts";
 import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
-import type { AwaitPatchedFn } from "../src/workerQueries.ts";
+import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
 import { authoredPictureSource, createAgentSessionState } from "../../src/agent/agentState.ts";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
@@ -61,7 +64,7 @@ import { applyRuleEdit } from "../../src/studio/rules/ruleEdit.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
 import { viewSpec } from "../../src/view/celEdit.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
-import { bytesToBase64 } from "../src/bytes.ts";
+import { bytesToBase64 } from "../src/project/bytes.ts";
 
 installIndexedDbFixture();
 

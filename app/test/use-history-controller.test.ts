@@ -8,8 +8,8 @@
 import { stampBoot } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { useHistoryController } from "../src/useHistoryController.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+import { useHistoryController } from "../src/history/useHistoryController.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 import type { HistoryBatch, HistoryBoot } from "../../src/agent/history.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -19,14 +19,14 @@ import {
   saveAuthoredGame,
   saveAuthoredGameWithLifetime,
   loadAuthoredGameWithHistoryLifetime,
-} from "../src/gameStorage.ts";
+} from "../src/project/gameStorage.ts";
 import {
   clearStagedOriginal,
   commitStagedOriginal,
   resolveStagedSwap,
   saveHistoryBookmark,
   stageRetainedOriginal,
-} from "../src/historyStorage.ts";
+} from "../src/history/historyStorage.ts";
 
 const records = installIndexedDbFixture();
 
@@ -160,7 +160,7 @@ test("a mid-session storage-key change migrates the tape instead of orphaning it
   assert.equal(state.historyUnsaved, null, "no batch is stranded by the key change");
 
   // The moved record holds the whole stream; a resend dedups under it.
-  const { loadGameHistory } = await import("../src/historyStorage.ts");
+  const { loadGameHistory } = await import("../src/history/historyStorage.ts");
   const moved = await loadGameHistory("hc-remix");
   assert.equal(moved?.segments.length, 1);
   assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(4) }), true);

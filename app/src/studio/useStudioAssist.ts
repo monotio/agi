@@ -24,7 +24,7 @@ import {
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { AgentRunState } from "../agent/agentRun.ts";
 import type { StudioAssistRequest, StudioAssistResult } from "../agent/studioAssist.ts";
-import { ResourceCommitError } from "../projectTransaction.ts";
+import { ResourceCommitError } from "../project/projectTransaction.ts";
 
 /** Where requests run: the game's session, through the engine. */
 export interface StudioAssistHost {

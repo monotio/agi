@@ -9,7 +9,7 @@
 
 import { encodePngPaletteRgbDeflated, EGA_RGB } from "../../../../src/picture/png.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../../src/types.ts";
-import { FONT } from "../../font8x8.ts";
+import { FONT } from "../../render/font8x8.ts";
 
 export const FRAME_WIDTH = 320;
 export const FRAME_HEIGHT = 200;

@@ -5,7 +5,7 @@
  * scan) and reads the same picture again when a refused Keep reopens it.
  */
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import type { PictureStudioRequest } from "../shell/useCreateWorkspace.ts";
 
 const RELOADED = "Loaded the latest saved version of this game.";

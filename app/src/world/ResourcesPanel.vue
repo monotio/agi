@@ -7,7 +7,7 @@
  */
 import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
 import SpriteThumb from "./SpriteThumb.vue";
 import { usageText } from "../../../src/agent/viewUsage.ts";

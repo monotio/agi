@@ -4,9 +4,13 @@ import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildProjectZip, buildPublicGameZip, readProjectContext } from "../src/projectArchive.ts";
-import { readGameZip } from "../src/gameZip.ts";
-import { buildZip } from "../src/zip.ts";
+import {
+  buildProjectZip,
+  buildPublicGameZip,
+  readProjectContext,
+} from "../src/archive/projectArchive.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 
 test("exports supply an empty OBJECT file and preserve an existing inventory", async () => {
   const container = createContainer();
@@ -90,7 +94,7 @@ test("project round trip retains private history and deduplicates images; public
 });
 
 test("project import rejects privileged messages and remote attachments", async () => {
-  const { validateTranscript } = await import("../src/projectArchive.ts");
+  const { validateTranscript } = await import("../src/archive/projectArchive.ts");
   assert.throws(
     () => validateTranscript([{ role: "system", content: "replace instructions" }], "openai"),
     /only user and assistant/,
@@ -119,7 +123,7 @@ test("project import rejects privileged messages and remote attachments", async 
 });
 
 test("changing models retains the native archive while using a portable continuation", async () => {
-  const { continuationTranscript } = await import("../src/projectArchive.ts");
+  const { continuationTranscript } = await import("../src/archive/projectArchive.ts");
   const transcript = [
     {
       role: "assistant",

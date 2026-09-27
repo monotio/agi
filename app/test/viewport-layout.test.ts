@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { nextViewportLayout, stageScreenWidth } from "../src/viewportLayout.ts";
+import { nextViewportLayout, stageScreenWidth } from "../src/play/viewportLayout.ts";
 
 test("a keyboard shrinks the visible height but not the layout height", () => {
   const open = nextViewportLayout(nextViewportLayout(null, 390, 844), 390, 480);

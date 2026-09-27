@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { requireProjectId, requireResourceRevision } from "../../src/gameIdentity.ts";
 import { inflateSync } from "node:zlib";
-import { autosaveKey, readAutosave, writeAutosave, type AutosaveRecord } from "../src/useEngine.ts";
+import {
+  autosaveKey,
+  readAutosave,
+  writeAutosave,
+  type AutosaveRecord,
+} from "../src/engine/useEngine.ts";
 import {
   createProgressPreview,
   isProgressPreview,
   storeRecordWithPreviewFallback,
-} from "../src/progressPreview.ts";
+} from "../src/saves/progressPreview.ts";
 
 function previewPixels(dataUrl: string): { width: number; height: number; rgb: Uint8Array } {
   const png = Uint8Array.from(atob(dataUrl.slice(dataUrl.indexOf(",") + 1)), (char) =>

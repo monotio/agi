@@ -15,7 +15,7 @@ import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
-import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import {
   computeSyncMark,
   HISTORY_FINGERPRINT_VERSION,
@@ -33,7 +33,7 @@ import { resourceSetHint } from "../../../src/agent/authoringState.ts";
 import type { WorkerContext, WorkerPorts } from "./context.ts";
 import { createEngineHost } from "./host.ts";
 import { replayTick } from "./replay.ts";
-import type { WorkerControl, WorkerPresentation } from "../workerProtocol.ts";
+import type { WorkerControl, WorkerPresentation } from "./workerProtocol.ts";
 
 interface HistoryDivergence {
   /** The recorded mark that failed — or the event the stream stranded. */

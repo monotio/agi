@@ -19,7 +19,7 @@ import {
   type HistoryReplayOptions,
 } from "../src/worker/historyDrive.ts";
 import type { HistorySegment } from "../../src/agent/history.ts";
-import type { WorkerControl, WorkerPresentation } from "../src/workerProtocol.ts";
+import type { WorkerControl, WorkerPresentation } from "../src/worker/workerProtocol.ts";
 
 export interface WorkerHarness {
   ctx: WorkerContext;

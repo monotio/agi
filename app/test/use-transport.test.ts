@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { useTransport, type TransportMark, type TransportSource } from "../src/useTransport.ts";
+import {
+  useTransport,
+  type TransportMark,
+  type TransportSource,
+} from "../src/history/useTransport.ts";
 
 function makeSource(marks: TransportMark[]) {
   const calls = { seeks: [] as number[], marks: [] as TransportMark[] };

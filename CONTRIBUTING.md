@@ -85,9 +85,7 @@ runtime checks.
 | `src/container/`, `src/logic/`, `src/picture/`, `src/view/`, `src/sound/` | AGI binary formats, compilers, readers and rendering          |
 | `src/agent/`                                                              | Authoring tools, prompts, command help and isolated playtests |
 | `src/studio/`, `app/src/studio/`                                          | Room Studio and Sprite Studio, loaded only when one opens     |
-| `app/src/`                                                                | Vue shell, engine worker, browser storage and ZIP formats     |
-| `app/src/agent/`                                                          | Provider sessions, conversation transport and worker bridge   |
-| `app/src/three/`                                                          | GPU presentation and CRT effects                              |
+| `app/src/`                                                                | The browser app: Vue shell, engine worker, storage and ZIPs   |
 | `games/`                                                                  | Original adventure briefs and the tutorial                    |
 | `scripts/`                                                                | Walkthrough, audit, conformance and interpreter probe tools   |
 | `test/`, `app/test/`, `app/e2e/`                                          | Engine, adapter and browser verification                      |
@@ -95,6 +93,36 @@ runtime checks.
 
 The engine in `src/` has no runtime dependencies and runs unchanged in the
 browser, a Web Worker and Node; platform access is injected through adapters.
+
+Inside `app/src/`, `main.ts` mounts `App.vue`, the shell's root component, and
+each folder holds one responsibility:
+
+| Folder           | Responsibility                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------- |
+| `engine/`        | The main thread's side of the engine: worker link, queries, lifecycle, `useEngine.ts`   |
+| `worker/`        | The engine worker: its entry, the message protocol, dispatch, clock and host            |
+| `play/`          | The Play screen: stage, keyboard and touch input, prompts and presentation              |
+| `render/`        | Frame composition: the EGA palette, the 8×8 font and the 320×200 compositor             |
+| `three/`         | GPU presentation and CRT effects                                                        |
+| `audio/`         | Sound output on the main thread                                                         |
+| `inspector/`     | The AGI inspector: its dock, overlay, coordinate mapping and layer picking              |
+| `history/`       | The always-on recording, its storage and the transport bar under the stage              |
+| `walkthrough/`   | Walkthrough playback and the replay driver the browser tests use                        |
+| `saves/`         | A player's progress: save slots, autosaves and their thumbnails                         |
+| `project/`       | The stored project: bodies, identities, metadata and the transactions every write takes |
+| `archive/`       | ZIP formats: project archives, published games and `HISTORY.JSON`                       |
+| `library/`       | The game library: imports, the hosted catalog, discovery, previews and profile choice   |
+| `home/`          | The Home screen: the shelf, its cards and the create panel                              |
+| `shell/`         | Page chrome and modes: the header, Play bar, Create docks, Settings, Help and routing   |
+| `settings/`      | AI provider, model and key settings                                                     |
+| `authoring/`     | The assistant's panels, the controller that runs AI turns, and recorded game tests      |
+| `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use  |
+| `references/`    | Reference art the player supplies for the agent to encode                               |
+| `world/`         | The world map, its room graph and plan, and the Studio launchers                        |
+| `studio/`        | Room Studio and Sprite Studio, loaded only when one opens                               |
+| `lessons/`       | Studio lessons tied to catalog releases                                                 |
+| `ui/`, `styles/` | Base controls, design tokens and global stylesheets                                     |
+| `types/`         | Ambient declarations                                                                    |
 
 ## How it fits together
 
@@ -106,9 +134,9 @@ not on that path at all: `authoringLoader.ts` imports it on the first AI action.
 ```mermaid
 flowchart LR
   subgraph shell["Main thread: Vue shell (app/src)"]
-    link["useWorkerLink.ts"]
-    present["usePresentation.ts → three/AgiStage.ts"]
-    commit["resourceCommit.ts"]
+    link["engine/useWorkerLink.ts"]
+    present["play/usePresentation.ts → three/AgiStage.ts"]
+    commit["project/resourceCommit.ts"]
   end
   subgraph lazy["Authoring stack, loaded on first use"]
     loader["agent/authoringLoader.ts"] --> stack["agent/authoringStack.ts"]
@@ -138,21 +166,21 @@ flowchart LR
 
 **A keypress becomes a frame**
 
-1. `App.vue` listens for `keydown` and hands it to `useGameKeys.ts`, which maps it to an AGI key code.
-2. `useInputController.ts` posts `{ type: "key" }`, a `WorkerInbound` message (`workerProtocol.ts`).
-3. `engine.worker.ts` passes it to `worker/dispatch.ts`, and `worker/input.ts` queues it.
+1. `App.vue` listens for `keydown` and hands it to `play/useGameKeys.ts`, which maps it to an AGI key code.
+2. `play/useInputController.ts` posts `{ type: "key" }`, a `WorkerInbound` message (`worker/workerProtocol.ts`).
+3. `worker/engine.worker.ts` passes it to `worker/dispatch.ts`, and `worker/input.ts` queues it.
 4. `worker/cycle.ts` ticks at 60 Hz and calls `Engine.tick()` (`src/runtime/engine.ts`), which drains the queue through the host (`worker/host.ts`) into `src/runtime/inputQueue.ts` and runs logic 0.
 5. `worker/presentation.ts` posts the screen as a `frame` message, transferring its buffers.
-6. `useWorkerLink.ts` receives it, and `usePresentation.ts` composites it (`composite.ts`) onto the GPU stage (`three/AgiStage.ts`).
+6. `engine/useWorkerLink.ts` receives it, and `play/usePresentation.ts` composites it (`render/composite.ts`) onto the GPU stage (`three/AgiStage.ts`).
 
 **The agent writes a room**
 
 1. `new.room` calls the `prepareRoom` host hook (`Engine.newRoom`); `worker/host.ts` asks for a room only in a game made in the app, and only when the room has no logic yet.
 2. `worker/hostRequests.ts` posts a `hostRequest` and parks the interpreter; the worker keeps serving other messages.
-3. `useAuthoringController.ts` loads the authoring stack and hands the request to `AgentSession` (`agent/agentSession.ts`), which forks the game state.
+3. `authoring/useAuthoringController.ts` loads the authoring stack and hands the request to `AgentSession` (`agent/agentSession.ts`), which forks the game state.
 4. The provider conversation (`agent/llmClient.ts`) calls tools through `executeAgentToolAsync` (`src/agent/tools.ts`), which refuses any tool outside the session's allowlist.
 5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `handover` tool runs the room's game tests.
-6. The gate: `turnBaseGuard` (`useAuthoringController.ts`) records the revision the turn builds on, and `requireSaved` (`projectTransaction.ts`) refuses the turn before it spends and again before its room lands if the stored project moved on.
+6. The gate: `turnBaseGuard` (`authoring/useAuthoringController.ts`) records the revision the turn builds on, and `requireSaved` (`project/projectTransaction.ts`) refuses the turn before it spends and again before its room lands if the stored project moved on.
 7. `prepareRoomPatch` (`src/agent/roomPatch.ts`) checks the room as a whole, the answer returns in `hostAnswer`, and the worker checks it again before `Engine.patchResources` resumes `new.room`.
 8. The controller saves the room over the stored project (`writeOverSaved`), and `confirmSaved` moves the booted game to that revision only once the running game's files read back as exactly the saved ones.
 
@@ -163,21 +191,21 @@ flowchart LR
 3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
 5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`).
-6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
+6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `project/resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `project/projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`project/gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
 
 **Where authority lives.** Each of these is a check in code, not a prompt:
 
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` and `assistScope.ts` judge Studio edits and AI proposals by their decoded pixels, whatever the operations or the model claim.
-- `projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (a Keep, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `resourceCommit.ts` is the transaction behind every Keep: the bytes, their source, the stored project and the live worker move together or not at all.
+- `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (a Keep, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
+- `project/resourceCommit.ts` is the transaction behind every Keep: the bytes, their source, the stored project and the live worker move together or not at all.
 - The logic assembler and the container writer are the validators of last resort.
 
 Two words carry more than one meaning. `prepareRoom` is the engine's host hook,
 `AgentSession.prepareRoom` is the turn that answers it, and `prepareRoomPatch`
 is the check on that answer. The known-games catalog (`src/games/knownGames.ts`)
-fingerprints releases, while the Home shelf (`app/src/gameCatalog.ts` and a
+fingerprints releases, while the Home shelf (`app/src/library/gameCatalog.ts` and a
 host's `catalog.json`) lists games to play.
 
 ### Extending

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FONT, HAS_GLYPH } from "../src/font8x8.ts";
+import { FONT, HAS_GLYPH } from "../src/render/font8x8.ts";
 import { wordmarkRaster } from "../src/ui/wordmark.ts";
 
 /**

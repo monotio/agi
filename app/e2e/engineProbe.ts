@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { CachedGameData } from "../src/gameTypes.ts";
+import type { CachedGameData } from "../src/project/gameTypes.ts";
 
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
@@ -19,7 +19,7 @@ export interface AiConfiguration {
  * counter, and the pixels on the probe canvas.
  */
 
-/** Mirror of window.__AGI_TEXT__ (see app/src/useEngine.ts, TextHook). */
+/** Mirror of window.__AGI_TEXT__ (see app/src/engine/useEngine.ts, TextHook). */
 export interface TextHook {
   rows: string[];
   modal: string | null;
@@ -465,7 +465,7 @@ export async function cacheGame(
   const { files, ...metadata } = game;
   const saved = await page.evaluate(
     async ({ metadata, files }) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { saveAuthoredGame } = await import(path);
       return saveAuthoredGame(metadata.projectId, {
         ...metadata,

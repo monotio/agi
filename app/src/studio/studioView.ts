@@ -4,7 +4,7 @@
  * draw-order tick layout and Scene list labels. No Vue and no DOM, so tests drive them directly.
  */
 
-import { EGA_PALETTE } from "../palette.ts";
+import { EGA_PALETTE } from "../render/palette.ts";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { PictureSourceSpan } from "../../../src/picture/source.ts";

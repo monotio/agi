@@ -13,14 +13,14 @@
 import { createApp, defineComponent, h, ref } from "vue";
 import "../styles/tokens.css";
 import RoomStudio from "./RoomStudio.vue";
-import { EGA_PALETTE } from "../palette.ts";
+import { EGA_PALETTE } from "../render/palette.ts";
 import { ORIGINAL_SCENE_PICTURES } from "../../../games/adventure-department/sceneArt.ts";
 import { compilePictureSource, disassemblePicture } from "../../../src/picture/source.ts";
 import { requireResourceRevision } from "../../../src/gameIdentity.ts";
 import { DEFAULT_V2_PROFILE } from "../../../src/runtime/profile.ts";
-import { authoringFingerprint } from "../gameStorage.ts";
-import { ResourceCommitError } from "../projectTransaction.ts";
-import type { PictureEdit } from "../resourceCommit.ts";
+import { authoringFingerprint } from "../project/gameStorage.ts";
+import { ResourceCommitError } from "../project/projectTransaction.ts";
+import type { PictureEdit } from "../project/resourceCommit.ts";
 import { inferNativeItems } from "../../../src/studio/nativeItems.ts";
 import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
 import { compileDocument, itemAt, itemMask, renderUpTo } from "../../../src/studio/pictureQuery.ts";

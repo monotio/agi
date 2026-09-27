@@ -7,7 +7,7 @@
  * resource as Studio first opened on it, through every reopen.
  */
 import { computed } from "vue";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import type { LessonTarget, StudioLesson } from "../lessons/types.ts";
 import { useRoomStudio } from "../world/useRoomStudio.ts";

@@ -7,7 +7,7 @@
 // HTML entry pages. It fails when a file gains any beyond its recorded
 // baseline. Migrations lower the baseline with `--update`; it can never go up
 // through this script. Canvas code reads tokens from the computed style, or
-// the AGI palette (app/src/palette.ts) when the colour is a game colour.
+// the AGI palette (app/src/render/palette.ts) when the colour is a game colour.
 // An HTML page paints before tokens.css loads, so it may give a token a
 // fallback, `var(--surface-0, #070b0d)`, only with the token's own value.
 // It also refuses a scoped `:global(.a) .b`: Vue compiles that selector to the

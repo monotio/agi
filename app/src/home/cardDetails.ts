@@ -3,8 +3,8 @@
  * shows it, so reading details never changes a card's height.
  */
 import { ref } from "vue";
-import type { CachedGameMeta } from "../gameStorage.ts";
-import type { GameCatalogEntry } from "../gameCatalog.ts";
+import type { CachedGameMeta } from "../project/gameStorage.ts";
+import type { GameCatalogEntry } from "../library/gameCatalog.ts";
 
 export interface CardDetails {
   title: string;

@@ -7,26 +7,34 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
-import { readGameFiles, readGameZip } from "../src/gameZip.ts";
+import { readGameFiles, readGameZip } from "../src/archive/gameZip.ts";
 import {
   gameRevision,
   isPlayableFileName,
   normalizeLibraryMetadata,
   readPublicMetadata,
-} from "../src/gameMetadata.ts";
-import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
-import { clearCachedGame, loadAuthoredGame, updateAuthoredGameFiles } from "../src/gameStorage.ts";
-import { inspectGame } from "../src/gameInspection.ts";
-import { stageCharacterView, stagedRefusal, type DecodedImage } from "../src/referenceArt.ts";
-import { buildProjectZip, buildPublicGameZip } from "../src/projectArchive.ts";
+} from "../src/project/gameMetadata.ts";
+import { addLibraryGame, copyLibraryGame } from "../src/library/gameLibrary.ts";
+import {
+  clearCachedGame,
+  loadAuthoredGame,
+  updateAuthoredGameFiles,
+} from "../src/project/gameStorage.ts";
+import { inspectGame } from "../src/library/gameInspection.ts";
+import {
+  stageCharacterView,
+  stagedRefusal,
+  type DecodedImage,
+} from "../src/references/referenceArt.ts";
+import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchive.ts";
 import {
   readGameProgress,
   type AutosaveRecord,
   type GameProgress,
   type ImportStorageReport,
-} from "../src/gameProgress.ts";
+} from "../src/saves/gameProgress.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
-import type { CachedGameData } from "../src/gameTypes.ts";
+import type { CachedGameData } from "../src/project/gameTypes.ts";
 
 function toBase64(bytes: Uint8Array): string {
   let binary = "";

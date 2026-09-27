@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, shallowRef, useId } from "vue";
 import type { PictureSourceSpan } from "../../../../src/picture/source.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { TimelineEntry } from "../../../../src/studio/pictureQuery.ts";
-import ActionMenu from "../../ActionMenu.vue";
+import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiDialog from "../../ui/UiDialog.vue";
 import UiIcon from "../../ui/UiIcon.vue";

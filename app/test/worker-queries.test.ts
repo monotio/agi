@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createWorkerQueries } from "../src/workerQueries.ts";
+import { createWorkerQueries } from "../src/engine/workerQueries.ts";
 
 function createMockWorker(): Worker {
   const posted: unknown[] = [];

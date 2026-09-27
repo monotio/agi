@@ -13,7 +13,7 @@ import { computed, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
 import { roomPictureLabels } from "./roomPictureLabels.ts";

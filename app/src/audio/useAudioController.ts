@@ -1,5 +1,5 @@
 import type { AgiAudio, AudioMode } from "./AgiAudio.ts";
-import type { WorkerInbound } from "../workerProtocol.ts";
+import type { WorkerInbound } from "../worker/workerProtocol.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 
 /** The output hardware a profile's interpreter drives. */

@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gameShortcuts, movementDirection, pcKey, registeredKey } from "../src/gameControls.ts";
+import {
+  gameShortcuts,
+  movementDirection,
+  pcKey,
+  registeredKey,
+} from "../src/play/gameControls.ts";
 
 function key(key: string, modifiers: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {

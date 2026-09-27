@@ -7,23 +7,23 @@ import {
   describeGameProfile,
   formatProfileResolution,
   type ProfileChoiceControllerDeps,
-} from "../src/profileChoice.ts";
-import { addLibraryGame, copyLibraryGame } from "../src/gameLibrary.ts";
+} from "../src/library/profileChoice.ts";
+import { addLibraryGame, copyLibraryGame } from "../src/library/gameLibrary.ts";
 import {
   getCachedGameMeta,
   loadAuthoredGame,
   clearCachedGame,
   setLibraryGameProfile,
   type CachedGameMeta,
-} from "../src/gameStorage.ts";
-import { normalizeLibraryMetadata } from "../src/gameMetadata.ts";
-import { inspectGame } from "../src/gameInspection.ts";
+} from "../src/project/gameStorage.ts";
+import { normalizeLibraryMetadata } from "../src/project/gameMetadata.ts";
+import { inspectGame } from "../src/library/gameInspection.ts";
 import { testRevision } from "./identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { PROFILES, type ProfileDetectionKind } from "../../src/runtime/profile.ts";
-import type { OpenedGame } from "../src/gameZip.ts";
-import type { ProjectId } from "../src/gameTypes.ts";
+import type { OpenedGame } from "../src/archive/gameZip.ts";
+import type { ProjectId } from "../src/project/gameTypes.ts";
 
 installIndexedDbFixture();
 

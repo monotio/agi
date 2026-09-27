@@ -15,19 +15,23 @@ import {
   STALE_SAVE_MESSAGE,
   useAuthoringController,
   type PowerUpUiState,
-} from "../src/useAuthoringController.ts";
-import { openDraft, ResourceCommitError, watchProjectWrites } from "../src/projectTransaction.ts";
-import { PROJECT_CHANNEL, type NoticeChannel } from "../src/projectBroadcast.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
+} from "../src/authoring/useAuthoringController.ts";
+import {
+  openDraft,
+  ResourceCommitError,
+  watchProjectWrites,
+} from "../src/project/projectTransaction.ts";
+import { PROJECT_CHANNEL, type NoticeChannel } from "../src/project/projectBroadcast.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import {
   authoringFingerprint,
   clearCachedGame,
   loadAuthoredGame,
   readHistoryLifetime,
   saveAuthoredGame,
-} from "../src/gameStorage.ts";
-import type { BootedGame, ProjectId } from "../src/gameTypes.ts";
-import type { AwaitPatchedFn } from "../src/workerQueries.ts";
+} from "../src/project/gameStorage.ts";
+import type { BootedGame, ProjectId } from "../src/project/gameTypes.ts";
+import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
 import type { LlmConfig } from "../src/agent/llmClient.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";

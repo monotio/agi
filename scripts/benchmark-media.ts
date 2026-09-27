@@ -18,7 +18,7 @@ import { encodePngPaletteRgb, EGA_RGB } from "../src/picture/png.ts";
 import { openContainer } from "../src/container/container.ts";
 import { parseView, type ViewCel } from "../src/view/view.ts";
 import { detectProfile } from "../src/runtime/profile.ts";
-import { FONT } from "../app/src/font8x8.ts";
+import { FONT } from "../app/src/render/font8x8.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const SNAPSHOT = join(ROOT, "evals/benchmarks/genesis/1.0.0");

@@ -43,7 +43,7 @@ import {
   stageRetainedOriginal,
   type RetainedOriginal,
   UnextendableHistoryError,
-} from "../src/historyStorage.ts";
+} from "../src/history/historyStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 

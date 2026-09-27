@@ -6,12 +6,12 @@
  * this bar only asks for them.
  */
 import { computed } from "vue";
-import ActionMenu from "../ActionMenu.vue";
+import ActionMenu from "../ui/ActionMenu.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
-import { useEngineApi } from "../engineContext.ts";
-import { gameShortcuts } from "../gameControls.ts";
-import { hasWalkthrough } from "../walkthrough.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import { gameShortcuts } from "../play/gameControls.ts";
+import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
 import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 

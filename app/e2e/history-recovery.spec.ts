@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
 
 function entries(bytes: Uint8Array): Map<string, Uint8Array> {

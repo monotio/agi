@@ -28,7 +28,7 @@ import { disassembleLogic } from "../../../src/logic/disassembler.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { sourceCompilesTo } from "../../../src/picture/source.ts";
 import { detectProfile, type AgiProfile } from "../../../src/runtime/profile.ts";
-import type { ScannedResources } from "../useRoomMap.ts";
+import type { ScannedResources } from "./useRoomMap.ts";
 import type { SpriteRoom } from "../shell/useCreateWorkspace.ts";
 import { scanContainerExits, type StaticRoomScan } from "../../../src/agent/roomMap.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";

@@ -2,7 +2,7 @@ import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { isolateStorage, savedGameCard, textHook } from "./engineProbe.ts";
 
 test("the first parser command waits for the worker's initial input mode", async ({ page }) => {

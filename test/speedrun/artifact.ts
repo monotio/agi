@@ -5,7 +5,7 @@ import { fixtureDir, fixtureFiles } from "../fixtures.ts";
 import { BUILTIN_GAME_BUILDERS, loadGame } from "../game-fixture.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
 import type { GameIdentity, ResourceRevision } from "../../src/gameIdentity.ts";
-import { gameRevision } from "../../app/src/gameMetadata.ts";
+import { gameRevision } from "../../app/src/project/gameMetadata.ts";
 import type { Action } from "./runner.ts";
 import { walkthrough, type Walkthrough } from "./walkthroughs.ts";
 

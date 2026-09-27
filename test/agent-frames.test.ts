@@ -15,7 +15,7 @@ import {
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { AUTHORING_TOOL_NAMES, executeAgentToolAsync } from "../src/agent/tools.ts";
 import { projectToolResult } from "../src/agent/toolTransport.ts";
-import { FrameRing, SURFACE_BYTES, TEXT_BYTES } from "../app/src/frameRing.ts";
+import { FrameRing, SURFACE_BYTES, TEXT_BYTES } from "../app/src/worker/frameRing.ts";
 
 /**
  * A deterministic fake frame source: frame `cycle` paints its whole visual

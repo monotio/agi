@@ -7,7 +7,7 @@ import { probeActor } from "../../../../src/studio/probe.ts";
 import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../../src/types.ts";
 import { forEachPaintedPixel, type ViewCel } from "../../../../src/view/view.ts";
-import { EGA_PALETTE } from "../../palette.ts";
+import { EGA_PALETTE } from "../../render/palette.ts";
 import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
 
 /**

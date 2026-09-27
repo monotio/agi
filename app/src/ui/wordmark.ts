@@ -4,7 +4,7 @@
  * The full stop is the one accent — the cyan square that is also the app's
  * mark and favicon. Pure, so the boot card only paints what this returns.
  */
-import { FONT } from "../font8x8.ts";
+import { FONT } from "../render/font8x8.ts";
 
 /** Font pixels, row-major: 0 dark, 1 lit, 2 lit accent (the full stop). */
 export interface WordmarkRaster {

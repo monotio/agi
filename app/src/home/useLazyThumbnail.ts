@@ -5,10 +5,10 @@
  * remembers every result in memory. Nothing here is persisted.
  */
 import { onScopeDispose, ref, watch, type Ref } from "vue";
-import { loadAuthoredGame, type CachedGameMeta } from "../gameStorage.ts";
-import { fetchFixtureFiles } from "../gameDiscovery.ts";
-import { previewGame } from "../gamePreview.ts";
-import type { InstalledGameDescriptor } from "../gameTypes.ts";
+import { loadAuthoredGame, type CachedGameMeta } from "../project/gameStorage.ts";
+import { fetchFixtureFiles } from "../library/gameDiscovery.ts";
+import { previewGame } from "../library/gamePreview.ts";
+import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { createThumbnailQueue } from "./thumbnailQueue.ts";
 

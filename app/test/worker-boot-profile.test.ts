@@ -9,7 +9,11 @@ import {
   type HistoryBoot,
   type HistorySegment,
 } from "../../src/agent/history.ts";
-import type { WorkerControl, WorkerInbound, WorkerPresentation } from "../src/workerProtocol.ts";
+import type {
+  WorkerControl,
+  WorkerInbound,
+  WorkerPresentation,
+} from "../src/worker/workerProtocol.ts";
 
 test("worker boot with a profile override reports the chosen profile and detection kind", () => {
   const container = gameContainer(["assignn(v0, 1); accept.input(); return;"]);

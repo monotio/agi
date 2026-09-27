@@ -11,8 +11,8 @@
 import { computed, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
-import { useEngineApi } from "../engineContext.ts";
-import { useShellBridge } from "../shellBridge.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import { useShellBridge } from "./shellBridge.ts";
 import { useShell } from "./useShell.ts";
 
 const { phone } = defineProps<{ phone: boolean }>();

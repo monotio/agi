@@ -118,7 +118,7 @@ test("the 1.0 card removes through the normal saved-game menu, leaving remix and
   await expect.poll(autosave).toBeNull();
   expect(
     await page.evaluate(async (id) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { loadAuthoredGame } = await import(path);
       return (await loadAuthoredGame(id)) !== null;
     }, TUTORIAL_1_0),

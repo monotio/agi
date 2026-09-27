@@ -3,7 +3,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { sseEvent, providerSse } from "../../test/provider-stream.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
 
 for (const provider of ["openai", "anthropic"] as const) {

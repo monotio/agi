@@ -7,7 +7,7 @@ import { ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
-import { UNREADABLE_PROJECT_MESSAGE } from "../gameStorage.ts";
+import { UNREADABLE_PROJECT_MESSAGE } from "../project/gameStorage.ts";
 import { useProjectRecovery } from "./projectRecovery.ts";
 
 const { projectId, title } = defineProps<{ projectId: ProjectId; title: string }>();

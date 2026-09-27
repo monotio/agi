@@ -3,7 +3,7 @@ import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { providerReply } from "../../test/provider-stream.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import {
   configureAi,
   isolateStorage,

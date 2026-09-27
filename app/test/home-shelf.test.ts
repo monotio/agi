@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GAME_CATALOG } from "../src/gameCatalog.ts";
+import { GAME_CATALOG } from "../src/library/gameCatalog.ts";
 import { formatRelativeTime } from "../src/home/relativeTime.ts";
 import { releaseName, shelfTitle } from "../src/home/shelfIdentity.ts";
 import { createThumbnailQueue } from "../src/home/thumbnailQueue.ts";
-import type { CachedGameMeta } from "../src/gameStorage.ts";
-import type { LibraryMetadata } from "../src/gameMetadata.ts";
+import type { CachedGameMeta } from "../src/project/gameStorage.ts";
+import type { LibraryMetadata } from "../src/project/gameMetadata.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 
 const NOW = Date.UTC(2026, 8, 26, 12, 0, 0);

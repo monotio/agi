@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readGameFiles, readGameZip } from "../app/src/gameZip.ts";
-import { buildProjectZip, buildPublicGameZip } from "../app/src/projectArchive.ts";
+import { readGameFiles, readGameZip } from "../app/src/archive/gameZip.ts";
+import { buildProjectZip, buildPublicGameZip } from "../app/src/archive/projectArchive.ts";
 import {
   GAME_TESTS_FILE,
   GAME_TESTS_FORMAT,

@@ -2,27 +2,27 @@
   "schema": "monotio.agi.walkthrough.v1",
   "identity": {
     "project": "adventure-department",
-    "revision": "3bc186fe49f96e2b6c8452290439494b96f9e1c39f36dd68fac5f6321b19b6d4"
+    "revision": "62f0651af38642b852fdf1efb1b7e1a3b1eb5dfbd7ce0b4aee91335a3793b8e8"
   },
   "supportedRevisions": [
-    "3bc186fe49f96e2b6c8452290439494b96f9e1c39f36dd68fac5f6321b19b6d4"
+    "62f0651af38642b852fdf1efb1b7e1a3b1eb5dfbd7ce0b4aee91335a3793b8e8"
   ],
   "coverage": "complete-game",
   "profile": "2.936",
   "seed": 1,
   "fixtureHashes": {
-    "LOGDIR": "e53b6f9942a8b975a04e60d8c6ff7cb3188f2ac78deca7b24b758778ac7341ed",
+    "LOGDIR": "f91211f2fe43e5b4273b5526ee2d7a65d2042ad7fc3bc76231e342db34c99bd3",
     "OBJECT": "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
-    "PICDIR": "ba5f0621eb676ed097451054fd1c28be9e9b4d63012e303d0e0a69e17b16e295",
-    "SNDDIR": "0369aae9b22b5ca31092b7b591f4ebc04b2330ed8d3160379963b9d592c23a1c",
+    "PICDIR": "747a7f3615d1e1162c321be2900a0a377f42a49e33cbce8fecbef6a53e5d4d7f",
+    "SNDDIR": "1f5673409717edbefb083bb0b031e523807be4831d6583756a0038a662ee6c1b",
     "TESTS.JSON": "633457f3c5813f3205997c9ed2883a12c8865cdd9f4bea0ea0cee4d76b1b14c3",
-    "VIEWDIR": "47228e689437f5a9e73a924ee79b52eb6fe47d82d7c2b3ad6c5001140658320f",
-    "VOL.0": "f96e44d068cb9ffcb8dbbc19294dd0fbb50822ead86ef40bdbadd3e09a4d5e8e",
+    "VIEWDIR": "712067ffd81f8863e1d5096348c5c30f92aacba573a5ab0085120618b58841a3",
+    "VOL.0": "645086d956a2826057d807b9912aebdd0fbc15da2c932032e2c4db3e94eaf2df",
     "WORDS.TOK": "397cff8894a7de92b8d5f834c004bb45cc2279ddc0f44dd9e020b05d0b68de62"
   },
   "status": "completed",
   "failure": null,
-  "elapsedMs": 121,
+  "elapsedMs": 42,
   "virtualTicks": 1622,
   "cycles": 169,
   "actions": [

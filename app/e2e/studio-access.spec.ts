@@ -128,7 +128,7 @@ const at = (x: number, y: number) => y * 160 + x;
 
 async function storedPicture(page: Page): Promise<Uint8Array> {
   const files = await page.evaluate(async (id) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const game = await loadAuthoredGame(id);
     return Object.entries(game.files as Record<string, Uint8Array>).map(

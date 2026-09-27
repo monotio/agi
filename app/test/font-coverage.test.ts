@@ -4,7 +4,7 @@ import { KNOWN_GAMES } from "../../src/games/knownGames.ts";
 import { parseLogicResource } from "../../src/logic/resource.ts";
 import { fixtureSkip } from "../../test/fixtures.ts";
 import { loadGame } from "../../test/game-fixture.ts";
-import { HAS_GLYPH } from "../src/font8x8.ts";
+import { HAS_GLYPH } from "../src/render/font8x8.ts";
 
 /**
  * Every character a catalogued game's messages print has a glyph in the 8×8

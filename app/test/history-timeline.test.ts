@@ -18,14 +18,14 @@ import {
   readOldTimeline,
   startNewTimeline,
   UnextendableHistoryError,
-} from "../src/historyStorage.ts";
+} from "../src/history/historyStorage.ts";
 import {
   useHistoryController,
   type HistoryBlock,
   type HistoryRetry,
-} from "../src/useHistoryController.ts";
-import { clearCachedGame } from "../src/gameStorage.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+} from "../src/history/useHistoryController.ts";
+import { clearCachedGame } from "../src/project/gameStorage.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 

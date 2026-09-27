@@ -7,7 +7,7 @@
  * it keeps the catalog card's test ids and badge.
  */
 import { computed, ref } from "vue";
-import ActionMenu from "../ActionMenu.vue";
+import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import GameCard, { type CardImage } from "./GameCard.vue";
 import RemoveGameDialog from "./RemoveGameDialog.vue";
@@ -18,12 +18,12 @@ import { projectThumbnail } from "./useLazyThumbnail.ts";
 import { useProjectRecovery } from "./projectRecovery.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
 import { useNow } from "./useNow.ts";
-import { useGameLibrary } from "../useGameLibrary.ts";
-import { useShellBridge } from "../shellBridge.ts";
-import { hasWalkthrough } from "../walkthrough.ts";
-import { describeGameProfile } from "../profileChoice.ts";
-import type { CachedGameMeta } from "../gameStorage.ts";
-import type { GameCatalogEntry } from "../gameCatalog.ts";
+import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { useShellBridge } from "../shell/shellBridge.ts";
+import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
+import { describeGameProfile } from "../library/profileChoice.ts";
+import type { CachedGameMeta } from "../project/gameStorage.ts";
+import type { GameCatalogEntry } from "../library/gameCatalog.ts";
 
 const {
   game,

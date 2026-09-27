@@ -7,14 +7,14 @@ import {
   lastGameKey,
   useAutosaveController,
   type AutosaveControllerContext,
-} from "../src/useAutosaveController.ts";
-import { writeAutosave, type AutosaveRecord } from "../src/gameProgress.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+} from "../src/saves/useAutosaveController.ts";
+import { writeAutosave, type AutosaveRecord } from "../src/saves/gameProgress.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
-import { saveAuthoredGame, clearCachedGame } from "../src/gameStorage.ts";
+import { saveAuthoredGame, clearCachedGame } from "../src/project/gameStorage.ts";
 
 installIndexedDbFixture();
 
@@ -706,7 +706,7 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
 
 test("an autosave without a preview keeps the card's previous picture", async (t) => {
   installLocalStorageMock(t);
-  const { createProgressPreview } = await import("../src/progressPreview.ts");
+  const { createProgressPreview } = await import("../src/saves/progressPreview.ts");
   const visual = new Uint8Array(160 * 168).fill(2);
   const preview = createProgressPreview({ visual, text: new Uint8Array(2000), picRow: 1 });
   const bootedGame: BootedGame = {

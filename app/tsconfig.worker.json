@@ -7,6 +7,10 @@
     "lib": ["ES2024", "WebWorker"],
     "types": []
   },
-  "include": ["src/engine.worker.ts", "src/preview.worker.ts", "src/studio/route.worker.ts"],
+  "include": [
+    "src/worker/engine.worker.ts",
+    "src/library/preview.worker.ts",
+    "src/studio/route.worker.ts"
+  ],
   "exclude": []
 }

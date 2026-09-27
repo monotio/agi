@@ -10,15 +10,19 @@
  * every edit.
  */
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
-import MapPlanEditor from "../MapPlanEditor.vue";
+import MapPlanEditor from "./MapPlanEditor.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiField from "../ui/UiField.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
-import { getOrExtractCheckpoints, loadWalkthrough, resolveWalkthrough } from "../walkthrough.ts";
-import { openReferenceUpload } from "../referenceUploadState.ts";
+import {
+  getOrExtractCheckpoints,
+  loadWalkthrough,
+  resolveWalkthrough,
+} from "../walkthrough/walkthrough.ts";
+import { openReferenceUpload } from "../references/referenceUploadState.ts";
 import type { RoomGraphEdge, RoomGraphNode } from "../../../src/agent/roomMap.ts";
 
 const {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compositeFrame, FRAME_HEIGHT, FRAME_WIDTH } from "../src/composite.ts";
-import { EGA_PALETTE } from "../src/palette.ts";
+import { compositeFrame, FRAME_HEIGHT, FRAME_WIDTH } from "../src/render/composite.ts";
+import { EGA_PALETTE } from "../src/render/palette.ts";
 
 function fixture(): { visual: Uint8Array; priority: Uint8Array; text: Uint8Array; picRow: number } {
   const visual = new Uint8Array(160 * 168).fill(15);

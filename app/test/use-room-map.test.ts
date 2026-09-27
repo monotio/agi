@@ -6,13 +6,13 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createAuthoringState } from "../../src/agent/authoringState.ts";
 import { commitWorldDraft, worldRevision, type WorldDraft } from "../../src/agent/worldPlan.ts";
-import { useRoomMap } from "../src/useRoomMap.ts";
+import { useRoomMap } from "../src/world/useRoomMap.ts";
 import { roomPictureUse } from "../../src/agent/roomPictures.ts";
 import { studioPictureSource } from "../src/world/studioSource.ts";
 import type { AgentSession } from "../src/agent/agentSession.ts";
-import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
-import type { BootedGame, Frame } from "../src/gameTypes.ts";
-import type { RoomTransitionNotice } from "../src/workerProtocol.ts";
+import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
+import type { BootedGame, Frame } from "../src/project/gameTypes.ts";
+import type { RoomTransitionNotice } from "../src/worker/workerProtocol.ts";
 
 /**
  * The composable's durable state, pause ownership and thumbnail binding —

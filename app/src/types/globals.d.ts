@@ -5,10 +5,10 @@
  * Playwright specs read them (app/e2e/engineProbe.ts). Declaring them here is
  * what lets useEngine.ts publish them without an `any` cast.
  */
-import type { AgentLogEntry, EngineState, TextHook } from "../useEngine.ts";
-import type { ReplayDriver } from "../replay.ts";
+import type { AgentLogEntry, EngineState, TextHook } from "../engine/useEngine.ts";
+import type { ReplayDriver } from "../walkthrough/replay.ts";
 import type { AgiAudio } from "../audio/AgiAudio.ts";
-import type { Frame } from "../gameTypes.ts";
+import type { Frame } from "../project/gameTypes.ts";
 
 declare global {
   interface Window {

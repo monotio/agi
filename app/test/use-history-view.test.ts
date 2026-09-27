@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { reactive } from "vue";
-import { useHistoryView, freshHistoryView } from "../src/useHistoryView.ts";
+import { useHistoryView, freshHistoryView } from "../src/history/useHistoryView.ts";
 import {
   HISTORY_FORMAT_VERSION,
   type HistoryBatch,
@@ -24,12 +24,12 @@ import {
   loadRetainedBranches,
   loadTapeOutline,
   stageRetainedOriginal,
-} from "../src/historyStorage.ts";
+} from "../src/history/historyStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
-import type { EngineState } from "../src/useEngineTypes.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
-import type { WorkerInbound } from "../src/workerProtocol.ts";
+import type { EngineState } from "../src/engine/useEngineTypes.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
+import type { WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 const RECORDS = installIndexedDbFixture();
 

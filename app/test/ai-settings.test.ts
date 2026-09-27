@@ -11,7 +11,7 @@ import {
   loadAiSettings,
   saveAiSettings,
   type AiSettings,
-} from "../src/aiSettings.ts";
+} from "../src/settings/aiSettings.ts";
 
 class MemoryStorage {
   readonly values = new Map<string, string>();

@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
 
 test("top navigation groups controls and follows game sound through shortcuts, app toggles and restore", async ({

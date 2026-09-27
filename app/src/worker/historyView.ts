@@ -16,7 +16,7 @@
  */
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
-import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import {
   HISTORY_FINGERPRINT_VERSION,
   historyBootSemantic,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GAME_CATALOG } from "../src/gameCatalog.ts";
-import type { LibraryMetadata } from "../src/gameMetadata.ts";
+import { GAME_CATALOG } from "../src/library/gameCatalog.ts";
+import type { LibraryMetadata } from "../src/project/gameMetadata.ts";
 import { checkLessonKeep, type LessonSession } from "../src/lessons/lessonCheck.ts";
 import {
   createLessonBadges,

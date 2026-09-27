@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readGameSaves, writeGameSave } from "../src/gameSaves.ts";
+import { readGameSaves, writeGameSave } from "../src/saves/gameSaves.ts";
 
 test("version-1 numbered saves round trip and isolate games", () => {
   const values = new Map<string, string>([["monotio_agi.save", "legacy"]]);

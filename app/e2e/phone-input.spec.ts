@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { buildObjectFile } from "../../src/agent/agentState.ts";
-import { buildPublicGameZip } from "../src/projectArchive.ts";
+import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
 import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 
 test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });

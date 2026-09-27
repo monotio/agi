@@ -1,0 +1,316 @@
+import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
+import { readProgressEntries, type GameProgress } from "../saves/gameProgress.ts";
+import { readMapArchive } from "../world/roomMapStore.ts";
+import { readHistoryArchive, type ProjectHistory } from "./historyArchive.ts";
+import type { RoomMapSidecar } from "../../../src/agent/roomMap.ts";
+import { crc32 } from "./zip.ts";
+import { readPublicMetadata, type PublicGameMetadata } from "../project/gameMetadata.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
+import { openContainer, DIRECTORY_FILES } from "../../../src/container/container.ts";
+import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
+import { decodeBooter, isBooterImage } from "../../../src/container/booter.ts";
+import { parseWordsTok } from "../../../src/logic/words.ts";
+import { parseLogicResource } from "../../../src/logic/resource.ts";
+
+export const MAX_GAME_ZIP_BYTES = 128 * 1024 * 1024;
+const MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
+const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
+
+/** Read stored/deflated ZIPs into memory; no paths are written to disk. */
+export interface OpenedGame {
+  files: Record<string, Uint8Array>;
+  words: [string, number][];
+  title?: string;
+  roomGeneration?: boolean;
+  /** GAME.JSON marks the world unfinished: exits may lead to rooms not built yet. */
+  workInProgress?: boolean;
+  project?: ProjectContext;
+  /** The player's save slots and autosave; a project archive carries them, a published game never does. */
+  progress?: GameProgress;
+  /** The world-map journal and UI layout; project archives only. */
+  map?: RoomMapSidecar;
+  /** The recorded session tape with its kept original and bookmarks; project archives only. */
+  history?: ProjectHistory;
+  metadata?: PublicGameMetadata;
+  /** The interpreter override GAME.JSON names; detection decides without one. */
+  profile?: ProfileId;
+  /** Recovery payloads remain in the original ZIP; they are not replay imports. */
+  backupWarning?: string;
+  /** A MAP.JSON this app could not read; the import goes on without the map. */
+  mapWarning?: string;
+}
+
+export async function readGameZip(bytes: Uint8Array): Promise<OpenedGame> {
+  if (bytes.length < 22 || bytes.length > MAX_GAME_ZIP_BYTES)
+    throw new Error("Choose a valid game ZIP smaller than 128 MB.");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const check = (offset: number, length: number, limit = bytes.length): void => {
+    if (offset < 0 || length < 0 || offset + length > limit)
+      throw new Error("Truncated ZIP archive.");
+  };
+  let end = -1;
+  for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 65557); at--) {
+    if (
+      view.getUint32(at, true) === 0x06054b50 &&
+      at + 22 + view.getUint16(at + 20, true) === bytes.length
+    ) {
+      end = at;
+      break;
+    }
+  }
+  if (end < 0) throw new Error("ZIP directory is missing.");
+  const count = view.getUint16(end + 10, true);
+  if (
+    view.getUint16(end + 4, true) ||
+    view.getUint16(end + 6, true) ||
+    view.getUint16(end + 8, true) !== count ||
+    count > 1024
+  )
+    throw new Error("Use a single ZIP with at most 1024 files; ZIP64 is not supported.");
+  const directorySize = view.getUint32(end + 12, true);
+  const directoryStart = view.getUint32(end + 16, true);
+  check(directoryStart, directorySize, end);
+  let at = directoryStart;
+  let expanded = 0;
+  const entries = new Map<string, Uint8Array>();
+  const decoder = new TextDecoder();
+  for (let index = 0; index < count; index++) {
+    check(at, 46, directoryStart + directorySize);
+    if (view.getUint32(at, true) !== 0x02014b50) throw new Error("Invalid ZIP directory entry.");
+    const flags = view.getUint16(at + 8, true);
+    const method = view.getUint16(at + 10, true);
+    const crc = view.getUint32(at + 16, true);
+    const packed = view.getUint32(at + 20, true);
+    const size = view.getUint32(at + 24, true);
+    const nameLength = view.getUint16(at + 28, true);
+    const extraLength = view.getUint16(at + 30, true);
+    const commentLength = view.getUint16(at + 32, true);
+    const local = view.getUint32(at + 42, true);
+    const disk = view.getUint16(at + 34, true);
+    check(at + 46, nameLength + extraLength + commentLength, directoryStart + directorySize);
+    const name = decoder.decode(bytes.subarray(at + 46, at + 46 + nameLength)).replace(/\\/g, "/");
+    if (
+      !name ||
+      name.startsWith("/") ||
+      name.includes(":") ||
+      name.includes("\0") ||
+      name.split("/").some((p) => p === ".." || p === ".")
+    )
+      throw new Error("Invalid ZIP entry path.");
+    at += 46 + nameLength + extraLength + commentLength;
+    if (flags & 0x41 || (method !== 0 && method !== 8) || disk)
+      throw new Error("Use an unencrypted ZIP with standard compression.");
+    expanded += size;
+    if (size > MAX_ENTRY_BYTES || expanded > MAX_EXPANDED_BYTES)
+      throw new Error("ZIP expands beyond the game import size limit.");
+    check(local, 30, directoryStart);
+    if (
+      view.getUint32(local, true) !== 0x04034b50 ||
+      view.getUint16(local + 8, true) !== method ||
+      view.getUint16(local + 6, true) !== flags
+    )
+      throw new Error("Invalid ZIP local header.");
+    const localNameLength = view.getUint16(local + 26, true);
+    const start = local + 30 + localNameLength + view.getUint16(local + 28, true);
+    check(local + 30, start - local - 30, directoryStart);
+    if (
+      decoder
+        .decode(bytes.subarray(local + 30, local + 30 + localNameLength))
+        .replace(/\\/g, "/") !== name
+    )
+      throw new Error("ZIP filenames do not match.");
+    check(start, packed, directoryStart);
+    let data = bytes.slice(start, start + packed);
+    if (method === 8) {
+      const reader = new Blob([data])
+        .stream()
+        .pipeThrough(new DecompressionStream("deflate-raw"))
+        .getReader();
+      const output = new Uint8Array(size);
+      let written = 0;
+      try {
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          if (written + chunk.value.length > size) throw new Error("ZIP expanded size mismatch.");
+          output.set(chunk.value, written);
+          written += chunk.value.length;
+        }
+        if (written !== size) throw new Error("ZIP expanded size mismatch.");
+      } finally {
+        await reader.cancel();
+      }
+      data = output;
+    }
+    if (data.length !== size || crc32(data) !== crc)
+      throw new Error(`ZIP checksum failed for ${name}.`);
+    const key = name.toUpperCase();
+    if (entries.has(key)) throw new Error(`Duplicate ZIP filename: ${name}.`);
+    entries.set(key, data);
+  }
+  if (at !== directoryStart + directorySize) throw new Error("Invalid ZIP directory size.");
+  return readGameFiles(entries);
+}
+
+/**
+ * A dropped PC booter disk image (any path, detected by geometry and boot
+ * signature) decodes into the ordinary container files at its own folder
+ * root, keeping the native interpreter bytes as AGIDATA.OVL so profile
+ * detection preserves the 2.001 identity across import and reload.
+ */
+function expandBooterImage(entries: Map<string, Uint8Array>): void {
+  const images = [...entries].filter(([, bytes]) => isBooterImage(bytes));
+  if (images.length === 0) return;
+  if (images.length > 1) throw new Error("Choose one PC booter disk image at a time.");
+  const [imagePath, imageBytes] = images[0]!;
+  const decoded = decodeBooter(imageBytes);
+  entries.delete(imagePath);
+  const root = imagePath.slice(0, imagePath.lastIndexOf("/") + 1);
+  for (const [name, bytes] of decoded.files) entries.set(root + name, bytes);
+  entries.set(`${root}AGIDATA.OVL`, decoded.evidence.interpreterData);
+}
+/** Shared folder/ZIP boundary: normalize paths, select one root, then validate AGI resources. */
+export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGame {
+  if (input.size > 1024) throw new Error("Choose one AGI game with at most 1024 files.");
+  const entries = new Map<string, Uint8Array>();
+  let expanded = 0;
+  for (const [path, bytes] of input) {
+    const upper = path.replace(/\\/g, "/").toUpperCase();
+    const slash = upper.lastIndexOf("/");
+    // macOS metadata: Finder's __MACOSX resource-fork tree and AppleDouble
+    // `._` files, which would otherwise read as a second LOGDIR root.
+    if (upper.startsWith("__MACOSX/") || upper.startsWith("._", slash + 1)) continue;
+    const name = upper.slice(0, slash + 1) + canonicalResourceName(upper.slice(slash + 1));
+    if (
+      !name ||
+      name.startsWith("/") ||
+      name.includes(":") ||
+      name.includes("\0") ||
+      name.split("/").some((part) => part === ".." || part === ".")
+    )
+      throw new Error("Invalid game file path.");
+    if (entries.has(name)) throw new Error(`Duplicate game filename: ${name}.`);
+    expanded += bytes.length;
+    if (bytes.length > MAX_ENTRY_BYTES || expanded > MAX_EXPANDED_BYTES)
+      throw new Error("The game exceeds the import size limit.");
+    entries.set(name, bytes);
+  }
+  expandBooterImage(entries);
+  const decoder = new TextDecoder();
+  const directories = [...entries.keys()].filter((path) => {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    return (
+      name === "LOGDIR" || (name.endsWith("DIR") && !Object.values(DIRECTORY_FILES).includes(name))
+    );
+  });
+  const roots = [...new Set(directories.map((path) => path.slice(0, path.lastIndexOf("/") + 1)))];
+  if (roots.length !== 1)
+    throw new Error(
+      "Choose one AGI game folder with resource directories (LOGDIR or a v3 DIR file).",
+    );
+  const root = roots[0]!;
+  const files: Record<string, Uint8Array> = {};
+  for (const [path, data] of entries) {
+    if (!path.startsWith(root)) continue;
+    const name = path.slice(root.length);
+    // The shared playable vocabulary, plus the stored game tests.
+    if (isPlayableFileName(name) || name === "TESTS.JSON") files[name] = data;
+  }
+  if (!files["WORDS.TOK"]) throw new Error("The game is missing WORDS.TOK.");
+  const container = openContainer(new Map(Object.entries(files)));
+  // Validate the boot resource now. Some playable local games have dangling
+  // references to unused assets; preserve those bytes rather than refusing
+  // the whole game. Referenced resources are checked when the engine loads them.
+  const boot = container.getResource("logic", 0);
+  if (!boot) throw new Error("The game is missing its starting logic (logic 0).");
+  parseLogicResource(boot);
+  const words: [string, number][] = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [
+    word,
+    id,
+  ]);
+  const metadata = entries.get(`${root}GAME.JSON`);
+  if (metadata && metadata.length >= 16384) throw new Error("GAME.JSON is too large.");
+  let rawMetadata: unknown;
+  if (metadata) {
+    try {
+      rawMetadata = JSON.parse(decoder.decode(metadata));
+    } catch {
+      throw new Error(
+        "GAME.JSON contains invalid JSON. Obtain a fresh copy of the game or correct its metadata.",
+      );
+    }
+  }
+  const gameMetadata = metadata
+    ? readPublicMetadata(rawMetadata)
+    : { roomGeneration: false, workInProgress: false };
+  const projectBytes = entries.get(`${root}PROJECT.JSON`);
+  const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
+  const progress = project
+    ? readProgressEntries(entries, root, files, gameMetadata.profile)
+    : undefined;
+  // A corrupt or newer map must not sink the import: it is derived UI data,
+  // so the import goes on without it — and says so, because the next export
+  // will not carry it either.
+  let map: OpenedGame["map"];
+  let mapWarning: string | undefined;
+  const mapBytes = project ? entries.get(`${root}MAP.JSON`) : undefined;
+  if (mapBytes) {
+    try {
+      map = readMapArchive(mapBytes);
+    } catch (error) {
+      mapWarning = `The world map could not be read (${String(error).replace(/^Error: /, "")}) and was left out. Keep the original ZIP to keep it.`;
+    }
+  }
+  // The tape is part of the released project format: a corrupt or
+  // unsupported HISTORY.JSON is reported, not silently dropped — the import
+  // would otherwise claim a recording it never carried.
+  let history: OpenedGame["history"];
+  const historyBytes = project ? entries.get(`${root}HISTORY.JSON`) : undefined;
+  if (historyBytes) {
+    try {
+      history = readHistoryArchive(historyBytes);
+    } catch (error) {
+      throw new Error(
+        `HISTORY.JSON is not readable (${String(error).replace(/^Error: /, "")}). ` +
+          "Obtain a fresh copy of the project or remove the file to import without its play history.",
+        { cause: error },
+      );
+    }
+  }
+  let backupWarning: string | undefined;
+  const backupBytes = project ? entries.get(`${root}BACKUP.JSON`) : undefined;
+  if (backupBytes) {
+    try {
+      if (backupBytes.length > 16_384) throw new Error("oversize report");
+      const report: unknown = JSON.parse(decoder.decode(backupBytes));
+      if (
+        typeof report !== "object" ||
+        report === null ||
+        !("format" in report) ||
+        report.format !== "monotio.agi.backup" ||
+        !("version" in report) ||
+        report.version !== 1 ||
+        !("complete" in report) ||
+        report.complete !== true
+      )
+        backupWarning =
+          "This is an incomplete recovery backup. Keep the original ZIP and consult BACKUP.JSON for missing portions.";
+    } catch {
+      backupWarning = "The backup completeness report could not be read. Keep the original ZIP.";
+    }
+  }
+  if (project && entries.has(`${root}HISTORY-RECOVERY.JSON`))
+    backupWarning =
+      "This backup includes raw history recovery data that is not restored or included in later downloads. Keep the original ZIP for recovery.";
+  return {
+    files,
+    words,
+    ...gameMetadata,
+    ...(project ? { project } : {}),
+    ...(progress ? { progress } : {}),
+    ...(map ? { map } : {}),
+    ...(history ? { history } : {}),
+    ...(backupWarning ? { backupWarning } : {}),
+    ...(mapWarning ? { mapWarning } : {}),
+  };
+}

@@ -120,7 +120,7 @@ import {
   validateRecordedReplay,
   type RecordedHostCall,
 } from "../src/agent/recordedReplay.ts";
-import { buildRecordedTest } from "../app/src/gameRecording.ts";
+import { buildRecordedTest } from "../app/src/authoring/gameRecording.ts";
 import { buildObjectFile } from "../src/agent/agentState.ts";
 import { buildSound } from "../src/agent/tools.ts";
 

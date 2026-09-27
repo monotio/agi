@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { useEngineDebug } from "../src/useEngineDebug.ts";
-import type { EngineState } from "../src/useEngineTypes.ts";
-import type { WorkerLink } from "../src/useWorkerLink.ts";
-import type { DebugChannels } from "../src/workerProtocol.ts";
+import { useEngineDebug } from "../src/engine/useEngineDebug.ts";
+import type { EngineState } from "../src/engine/useEngineTypes.ts";
+import type { WorkerLink } from "../src/engine/useWorkerLink.ts";
+import type { DebugChannels } from "../src/worker/workerProtocol.ts";
 
 function harness() {
   const posted: { type: string; channels?: DebugChannels }[] = [];

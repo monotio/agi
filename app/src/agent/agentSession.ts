@@ -79,7 +79,7 @@ import { projectToolResult } from "../../../src/agent/toolTransport.ts";
 import { runGameTests } from "../../../src/agent/gameTests.ts";
 import { verifyPlanConnections } from "../../../src/agent/roomMap.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
-import { continuationTranscript } from "../projectArchive.ts";
+import { continuationTranscript } from "../archive/projectArchive.ts";
 
 /** Resource the remix turn wrote and the host must patch into the live game. */
 interface PatchedResource {

@@ -48,7 +48,7 @@ test("worker honors v10 pace while modal keys and pause remain responsive", asyn
         modalKind: string | null;
       }
       async function start(files: Record<string, number[]>) {
-        const worker = new Worker("/src/engine.worker.ts", { type: "module" });
+        const worker = new Worker("/src/worker/engine.worker.ts", { type: "module" });
         let id = 0;
         const pending = new Map<number, (state: WorkerState) => void>();
         let resolveBoot!: () => void;

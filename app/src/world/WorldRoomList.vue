@@ -7,7 +7,7 @@
  */
 import { computed, useTemplateRef } from "vue";
 import UiChip from "../ui/UiChip.vue";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
 import { roomPictureLabels, type RoomPictureLabels } from "./roomPictureLabels.ts";
 import type { RoomGraphNode } from "../../../src/agent/roomMap.ts";

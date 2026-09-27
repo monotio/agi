@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { inspectGame } from "../src/gameInspection.ts";
+import { inspectGame } from "../src/library/gameInspection.ts";
 import { readdirSync, readFileSync } from "node:fs";
-import { readGameFiles } from "../src/gameZip.ts";
+import { readGameFiles } from "../src/archive/gameZip.ts";
 import { fixtureSkip, fixtureDir, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 
 test("preview stops at an unanswered modal and leaves source resources untouched", () => {

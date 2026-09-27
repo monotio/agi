@@ -5,11 +5,11 @@ import {
   useWalkthroughController,
   type WalkthroughControllerContext,
   type WalkthroughUiState,
-} from "../src/useWalkthroughController.ts";
-import type { ReplayDriver, ReplayObservation } from "../src/replay.ts";
+} from "../src/walkthrough/useWalkthroughController.ts";
+import type { ReplayDriver, ReplayObservation } from "../src/walkthrough/replay.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
-import type { WorkerInbound } from "../src/workerProtocol.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
+import type { WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 const REVISION = "a".repeat(64);
 

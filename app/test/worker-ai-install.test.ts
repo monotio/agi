@@ -12,24 +12,27 @@ import assert from "node:assert/strict";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
 import { gameContainer } from "./worker-ctx.ts";
-import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
-import { useAutosaveController, autosaveKey } from "../src/useAutosaveController.ts";
-import { useWorkerLink } from "../src/useWorkerLink.ts";
+import {
+  useAuthoringController,
+  type PowerUpUiState,
+} from "../src/authoring/useAuthoringController.ts";
+import { useAutosaveController, autosaveKey } from "../src/saves/useAutosaveController.ts";
+import { useWorkerLink } from "../src/engine/useWorkerLink.ts";
 import { createWorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import {
   clearCachedGame,
   loadAuthoredGame,
   readHistoryLifetime,
   saveAuthoredGame,
-} from "../src/gameStorage.ts";
-import type { BootedGame, ProjectId } from "../src/gameTypes.ts";
-import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
+} from "../src/project/gameStorage.ts";
+import type { BootedGame, ProjectId } from "../src/project/gameTypes.ts";
+import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
-import type { WorkerInbound, WorkerPresentation } from "../src/workerProtocol.ts";
-import type { AwaitPatchedFn } from "../src/workerQueries.ts";
+import type { WorkerInbound, WorkerPresentation } from "../src/worker/workerProtocol.ts";
+import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
 import type { LlmConfig } from "../src/agent/llmClient.ts";
 import type { AgentHandler } from "../src/agent/hostRequests.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";

@@ -1,90 +1,90 @@
 id: no-constructor-parameter-properties
 snapshots:
-  "class Port { constructor(private readonly id: number) {} }":
+  'class Port { constructor(private readonly id: number) {} }':
     labels:
-      - source: "private readonly id: number"
-        style: primary
-        start: 25
-        end: 52
-      - source: constructor
-        style: secondary
-        start: 13
-        end: 24
-      - source: "constructor(private readonly id: number) {}"
-        style: secondary
-        start: 13
-        end: 56
-      - source: "(private readonly id: number)"
-        style: secondary
-        start: 24
-        end: 53
-      - source: private
-        style: secondary
-        start: 25
-        end: 32
-  "class Port { constructor(protected id?: number) {} }":
+    - source: 'private readonly id: number'
+      style: primary
+      start: 25
+      end: 52
+    - source: constructor
+      style: secondary
+      start: 13
+      end: 24
+    - source: 'constructor(private readonly id: number) {}'
+      style: secondary
+      start: 13
+      end: 56
+    - source: '(private readonly id: number)'
+      style: secondary
+      start: 24
+      end: 53
+    - source: private
+      style: secondary
+      start: 25
+      end: 32
+  'class Port { constructor(protected id?: number) {} }':
     labels:
-      - source: "protected id?: number"
-        style: primary
-        start: 25
-        end: 46
-      - source: constructor
-        style: secondary
-        start: 13
-        end: 24
-      - source: "constructor(protected id?: number) {}"
-        style: secondary
-        start: 13
-        end: 50
-      - source: "(protected id?: number)"
-        style: secondary
-        start: 24
-        end: 47
-      - source: protected
-        style: secondary
-        start: 25
-        end: 34
-  "class Port { constructor(public id: number, name: string) {} }":
+    - source: 'protected id?: number'
+      style: primary
+      start: 25
+      end: 46
+    - source: constructor
+      style: secondary
+      start: 13
+      end: 24
+    - source: 'constructor(protected id?: number) {}'
+      style: secondary
+      start: 13
+      end: 50
+    - source: '(protected id?: number)'
+      style: secondary
+      start: 24
+      end: 47
+    - source: protected
+      style: secondary
+      start: 25
+      end: 34
+  'class Port { constructor(public id: number, name: string) {} }':
     labels:
-      - source: "public id: number"
-        style: primary
-        start: 25
-        end: 42
-      - source: constructor
-        style: secondary
-        start: 13
-        end: 24
-      - source: "constructor(public id: number, name: string) {}"
-        style: secondary
-        start: 13
-        end: 60
-      - source: "(public id: number, name: string)"
-        style: secondary
-        start: 24
-        end: 57
-      - source: public
-        style: secondary
-        start: 25
-        end: 31
-  "class Port { constructor(readonly id: number) {} }":
+    - source: 'public id: number'
+      style: primary
+      start: 25
+      end: 42
+    - source: constructor
+      style: secondary
+      start: 13
+      end: 24
+    - source: 'constructor(public id: number, name: string) {}'
+      style: secondary
+      start: 13
+      end: 60
+    - source: '(public id: number, name: string)'
+      style: secondary
+      start: 24
+      end: 57
+    - source: public
+      style: secondary
+      start: 25
+      end: 31
+  'class Port { constructor(readonly id: number) {} }':
     labels:
-      - source: "readonly id: number"
-        style: primary
-        start: 25
-        end: 44
-      - source: constructor
-        style: secondary
-        start: 13
-        end: 24
-      - source: "constructor(readonly id: number) {}"
-        style: secondary
-        start: 13
-        end: 48
-      - source: "(readonly id: number)"
-        style: secondary
-        start: 24
-        end: 45
-      - source: readonly
-        style: secondary
-        start: 25
-        end: 33
+    - source: 'readonly id: number'
+      style: primary
+      start: 25
+      end: 44
+    - source: constructor
+      style: secondary
+      start: 13
+      end: 24
+    - source: 'constructor(readonly id: number) {}'
+      style: secondary
+      start: 13
+      end: 48
+    - source: '(readonly id: number)'
+      style: secondary
+      start: 24
+      end: 45
+    - source: readonly
+      style: secondary
+      start: 25
+      end: 33
