@@ -10,7 +10,7 @@
 import { shallowRef, type ShallowRef } from "vue";
 
 export const LESSONS_STORAGE_KEY = "monotio_agi.lessons";
-export const LESSON_CARDS_STORAGE_KEY = "monotio_agi.lessonCards";
+const LESSON_CARDS_STORAGE_KEY = "monotio_agi.lessonCards";
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 

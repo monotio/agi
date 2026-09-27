@@ -235,5 +235,3 @@ export function createCycle(ctx: WorkerContext) {
     startTimers,
   };
 }
-
-export type CycleModule = ReturnType<typeof createCycle>;

@@ -88,5 +88,3 @@ export function useStudioLeave(options: StudioLeaveOptions) {
 
   return { asking, discarding, ask, confirm, confirmReload, answer, unkept: options.unkept };
 }
-
-export type StudioLeave = ReturnType<typeof useStudioLeave>;

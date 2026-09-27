@@ -39,9 +39,9 @@ export const HISTORY_INFLIGHT_MAX = 4;
 export const HISTORY_SEGMENT_BYTE_LIMIT = 8 * 1024 * 1024;
 export const HISTORY_SEGMENT_EVENT_LIMIT = 25_000;
 
-export type HistoryPatchKind = "logic" | "picture" | "view" | "sound";
+type HistoryPatchKind = "logic" | "picture" | "view" | "sound";
 
-export interface HistoryCommittedResource {
+interface HistoryCommittedResource {
   kind: HistoryPatchKind;
   num: number;
   /** base64 resource payload. */
@@ -175,7 +175,7 @@ export interface HistorySyncMark {
 }
 
 /** Cycle-clock accumulators at a boundary (the host's time base is restored). */
-export interface HistoryClock {
+interface HistoryClock {
   remainder: number;
   increments: number;
   paused: boolean;

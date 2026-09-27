@@ -81,7 +81,7 @@ export class ResourceCommitError extends Error {
  * bytes. The edit is already saved by then; a missing ack becomes the
  * `install` failure and its reload, never an endless "Keeping…".
  */
-export const PATCH_ACK_TIMEOUT_MS = 10_000;
+const PATCH_ACK_TIMEOUT_MS = 10_000;
 
 export interface ResourceCommitResult {
   /** "unchanged": the bytes and source already matched — nothing was written. */
@@ -139,7 +139,7 @@ export interface RoomEdit {
 }
 
 /** One resource a commit writes and installs. */
-export interface ResourcePatch {
+interface ResourcePatch {
   readonly kind: PatchKind;
   readonly num: number;
   readonly payload: Uint8Array;

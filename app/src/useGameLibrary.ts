@@ -901,7 +901,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
 
 export type GameLibrary = ReturnType<typeof createGameLibrary>;
 
-export const gameLibraryKey: InjectionKey<GameLibrary> = Symbol("agi-game-library");
+const gameLibraryKey: InjectionKey<GameLibrary> = Symbol("agi-game-library");
 
 export function provideGameLibrary(lib: GameLibrary): void {
   provide(gameLibraryKey, lib);

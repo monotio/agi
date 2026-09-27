@@ -17,10 +17,10 @@ import {
 } from "vue";
 import { fitZoom, type Viewport } from "../../../src/studio/viewport.ts";
 
-export const MAX_ZOOM = 12;
+const MAX_ZOOM = 12;
 /** Space the stage keeps around the canvases and between split panes, in CSS pixels. */
-export const STAGE_INSET = 24;
-export const PANE_GAP = 16;
+const STAGE_INSET = 24;
+const PANE_GAP = 16;
 
 /** The integer zoom that fits `panes` side by side in a stage of the given size. */
 export function paneFitZoom(stageW: number, stageH: number, panes: number): number {

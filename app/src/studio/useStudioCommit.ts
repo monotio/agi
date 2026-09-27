@@ -10,12 +10,11 @@ import { readonly, ref, shallowRef } from "vue";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
 import {
   ResourceCommitError,
-  type PictureEdit,
   type ResourceCommitErrorCode,
   type ResourceCommitResult,
 } from "../resourceCommit.ts";
 
-export type { PictureEdit, ResourceCommitResult };
+export type { ResourceCommitResult };
 
 /** The last Keep's failure, worded for the Studio's error line. */
 export interface StudioCommitFailure {

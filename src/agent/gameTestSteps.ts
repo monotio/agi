@@ -39,7 +39,7 @@ export function directionForDelta(dx: number, dy: number): number {
 }
 
 /** Every step kind a stored game test or playtest scenario can perform. */
-export const STEP_ACTIONS = [
+const STEP_ACTIONS = [
   "command",
   "move",
   "enter",
@@ -51,21 +51,9 @@ export const STEP_ACTIONS = [
   "walkWaypoints",
   "walkPath",
 ] as const;
-export type StepAction = (typeof STEP_ACTIONS)[number];
+type StepAction = (typeof STEP_ACTIONS)[number];
 
-/** Named directions a `move` step accepts. */
-export const MOVE_DIRECTIONS = [
-  "up",
-  "up-right",
-  "right",
-  "down-right",
-  "down",
-  "down-left",
-  "left",
-  "up-left",
-] as const;
-
-export const DIRECTION_NAMES: Readonly<Record<number, string>> = {
+const DIRECTION_NAMES: Readonly<Record<number, string>> = {
   0: "stop",
   1: "up",
   2: "up-right",
@@ -119,7 +107,7 @@ export const DIRECTION_SYNONYMS: Readonly<Record<string, number>> = {
   "8": 8,
 };
 
-export function normalizeDirection(value: unknown, label: string): { name: string; num: number } {
+function normalizeDirection(value: unknown, label: string): { name: string; num: number } {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 8) {
     return { name: DIRECTION_NAMES[value] ?? "stop", num: value };
   }
@@ -132,7 +120,7 @@ export function normalizeDirection(value: unknown, label: string): { name: strin
   fail(`${label} must name a compass direction or an integer from 0 to 8.`);
 }
 
-export interface FlagAssertion {
+interface FlagAssertion {
   readonly id: number;
   readonly value: boolean;
 }
@@ -162,7 +150,7 @@ export interface ObjectAssertion {
   readonly active: boolean | null;
 }
 
-export interface ReachableAssertion {
+interface ReachableAssertion {
   readonly x: number;
   readonly y: number;
 }

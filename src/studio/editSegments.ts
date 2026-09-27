@@ -38,14 +38,14 @@ export interface Line {
 }
 
 /** A seam where the lines after it must see `expected` (up to the next `@end` for "item"). */
-export interface Seam {
+interface Seam {
   readonly expected: DrawState;
   readonly scope: "item" | "document";
 }
 
 export type Slot = Line | Seam;
 
-export const isLine = (slot: Slot): slot is Line => "text" in slot;
+const isLine = (slot: Slot): slot is Line => "text" in slot;
 
 export interface Context {
   readonly document: PictureDocument;

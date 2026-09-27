@@ -36,12 +36,12 @@ import { ruleFragmentText, type LogicDocument, type LogicRuleFragment } from "./
 /** A flag: a named binding (preferred) or a raw flag number. */
 export type FlagRef = string | number;
 
-export type Edge = "top" | "right" | "bottom" | "left";
+type Edge = "top" | "right" | "bottom" | "left";
 
 /** v2 edge codes, as write_room compiles them. */
-export const EDGE_CODES: Readonly<Record<Edge, number>> = { top: 1, right: 2, bottom: 3, left: 4 };
+const EDGE_CODES: Readonly<Record<Edge, number>> = { top: 1, right: 2, bottom: 3, left: 4 };
 
-export interface FlagCondition {
+interface FlagCondition {
   readonly flag: FlagRef;
   /** True: the flag must be set; false: clear. */
   readonly value: boolean;
@@ -54,7 +54,7 @@ export interface RuleBox {
   readonly y2: number;
 }
 
-export interface EdgeExitRule {
+interface EdgeExitRule {
   readonly kind: "exit";
   readonly edge: Edge;
   readonly destination: number;
@@ -64,7 +64,7 @@ export interface EdgeExitRule {
 }
 
 /** A doorway: entering the box goes to the destination. */
-export interface DoorExitRule {
+interface DoorExitRule {
   readonly kind: "exit";
   readonly edge: null;
   readonly box: RuleBox;
@@ -73,9 +73,9 @@ export interface DoorExitRule {
   readonly requiresFlag: FlagRef | null;
 }
 
-export type ExitRule = EdgeExitRule | DoorExitRule;
+type ExitRule = EdgeExitRule | DoorExitRule;
 
-export interface RegionRule {
+interface RegionRule {
   readonly kind: "region";
   readonly box: RuleBox;
   /** Set on the first cycle ego is inside; the rule fires once. */

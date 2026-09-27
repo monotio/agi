@@ -103,7 +103,7 @@ export interface ViewAssistScope {
 
 export type AssistScope = PictureAssistScope | ViewAssistScope;
 
-export type AssistConstraint =
+type AssistConstraint =
   | "stale-base"
   | "unknown-target"
   | "outside-target"
@@ -114,7 +114,7 @@ export type AssistConstraint =
   | "protected-loop"
   | "max-bytes";
 
-export interface AssistViolation {
+interface AssistViolation {
   readonly constraint: AssistConstraint;
   /** Plain words: what the candidate would break. */
   readonly message: string;
@@ -295,7 +295,7 @@ function shifted(mask: Uint8Array, dx: number, dy: number): Uint8Array {
  * the candidate moved or copied it by, and the cells the targets' bounded
  * commands own after the edit. A fill gets no cells of its own.
  */
-export function allowedCells(
+function allowedCells(
   before: CompiledDocument,
   after: CompiledDocument,
   scope: Pick<PictureAssistScope, "targetIds" | "allowedMask">,

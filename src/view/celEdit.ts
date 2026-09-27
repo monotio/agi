@@ -21,7 +21,7 @@ import {
   type ViewCel,
 } from "./view.ts";
 
-export function u16le(payload: Uint8Array, offset: number): number {
+function u16le(payload: Uint8Array, offset: number): number {
   return payload[offset]! | (payload[offset + 1]! << 8);
 }
 
@@ -38,7 +38,7 @@ export interface MetadataPlan {
   readonly controlHighs: readonly number[];
 }
 
-export function cloneCel(cel: ViewCel): BuildCelInput {
+function cloneCel(cel: ViewCel): BuildCelInput {
   return {
     width: cel.width,
     height: cel.height,

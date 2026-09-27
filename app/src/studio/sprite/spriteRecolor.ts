@@ -31,7 +31,7 @@ export function recolorEdit(
 }
 
 /** The displayed cels the edit reaches, loop then cel order. */
-export function recolorCels(document: SpriteDocument, edit: RecolorEdit): CelRef[] {
+function recolorCels(document: SpriteDocument, edit: RecolorEdit): CelRef[] {
   const reached = new Set<string>();
   const out: CelRef[] = [];
   const add = (loop: number, cel: number): void => {

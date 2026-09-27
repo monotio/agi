@@ -16,7 +16,6 @@ import {
 
 const MAP_PREFIX = "monotio_agi.map.";
 /** Where a project archive keeps the sidecar. */
-export const MAP_FILE = "MAP.JSON";
 /** Bytes, not just counts: a full journal with notes stays well under this. */
 export const MAX_MAP_BYTES = 2 * 1024 * 1024;
 

@@ -16,7 +16,7 @@ export interface SerializedSavedRect {
 }
 
 /** A parked modal window; fresh serials are assigned on restore. */
-export type SerializedModal =
+type SerializedModal =
   | { kind: "print"; saved: SerializedSavedRect; remainingMs: number | null; pauseClock: boolean }
   | {
       kind: "inventory";

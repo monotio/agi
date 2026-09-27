@@ -30,7 +30,7 @@ export const REFERENCE_PIXEL_LIMIT = 16 * 1024 * 1024;
 /** Stored references per project. */
 export const REFERENCE_COUNT_LIMIT = 16;
 /** Player-facing brief text. */
-export const REFERENCE_BRIEF_LIMIT = 2000;
+const REFERENCE_BRIEF_LIMIT = 2000;
 
 /** The presentation proportion a room reference is asked for (160x168 drawn double-wide). */
 export const ROOM_REFERENCE_ASPECT = 320 / 168;
@@ -40,7 +40,7 @@ export function mimeExtension(mime: string): string {
   return mime === "image/jpeg" ? "jpeg" : mime === "image/webp" ? "webp" : "png";
 }
 
-export interface ReferenceImage {
+interface ReferenceImage {
   /** The facing this pose row covers; undefined on a room reference. */
   readonly facing: SheetFacing | undefined;
   /** The upload's own bytes, base64 — sent to the model as-is. */
@@ -51,7 +51,7 @@ export interface ReferenceImage {
 }
 
 /** A converted character sheet waiting on the player's keep/revise call. */
-export interface StagedView {
+interface StagedView {
   /** The VIEW resource number it commits to on keep. */
   readonly num: number;
   /** Packed VIEW payload, base64 — `buildView(input)`. */
@@ -97,7 +97,7 @@ export interface DecodedImage extends SheetBitmap {
 }
 
 /** The upload's decoded bitmap as one stored image entry. */
-export function referenceImage(decoded: DecodedImage, facing?: SheetFacing): ReferenceImage {
+function referenceImage(decoded: DecodedImage, facing?: SheetFacing): ReferenceImage {
   return {
     facing,
     png: bytesToBase64(decoded.bytes),

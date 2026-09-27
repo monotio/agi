@@ -1,5 +1,5 @@
 /** Static anchor-space navigation. A move is one full cardinal or diagonal step. */
-export const NAVIGATION_DIRECTIONS = [
+const NAVIGATION_DIRECTIONS = [
   [0, -1],
   [1, -1],
   [1, 0],
@@ -118,7 +118,7 @@ class OpenSet {
   }
 }
 
-export function movementCost(clearance: number, options: SearchOptions): number {
+function movementCost(clearance: number, options: SearchOptions): number {
   const deficit = Math.max(0, options.desiredClearance - clearance);
   return 1 + options.clearanceWeight * deficit * deficit;
 }

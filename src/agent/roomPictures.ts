@@ -7,7 +7,7 @@ import type { AgiProfile } from "../runtime/profile.ts";
 import { scanContainerExits, type StaticRoomScan } from "./roomMap.ts";
 
 /** One picture a room's logic provably draws. */
-export interface RoomPicture {
+interface RoomPicture {
   readonly picture: number;
   /** The container holds this picture resource. */
   readonly exists: boolean;

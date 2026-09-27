@@ -36,7 +36,7 @@ import type { AgiProfile } from "../../runtime/profile.ts";
 import type { LogicRuleFragment } from "./logicDocument.ts";
 import type { RuleModel } from "./ruleModel.ts";
 
-export type ExitArrival =
+type ExitArrival =
   /** The destination's init block positions ego; `conditional` when another guard may skip it. */
   | {
       readonly source: "logic";
@@ -74,7 +74,7 @@ export interface ExitContract {
   readonly arrival: ExitArrival;
 }
 
-export const OPPOSITE_EDGE: Readonly<Record<EdgeSide, EdgeSide>> = {
+const OPPOSITE_EDGE: Readonly<Record<EdgeSide, EdgeSide>> = {
   top: "bottom",
   bottom: "top",
   left: "right",

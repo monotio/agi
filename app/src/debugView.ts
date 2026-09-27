@@ -11,8 +11,8 @@ import type { StagePick } from "./explodedPick.ts";
 import { EGA_PALETTE } from "./palette.ts";
 import { FRAME_HEIGHT, FRAME_WIDTH } from "./composite.ts";
 
-export const PIC_W = 160;
-export const PIC_H = 168;
+const PIC_W = 160;
+const PIC_H = 168;
 
 /**
  * Screen-tab view modes. "visual" is the game; "priority" is Sierra's

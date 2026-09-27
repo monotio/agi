@@ -91,7 +91,7 @@ export const PLANE_CONTROL = 2;
 /** Priority values 4..15: depth bands. */
 export const PLANE_DEPTH = 4;
 
-export interface PictureBox {
+interface PictureBox {
   x0: number;
   y0: number;
   x1: number;

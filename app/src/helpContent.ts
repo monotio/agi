@@ -5,11 +5,10 @@
  */
 
 /** Controls a Help topic can open; HelpGuide.vue decides which are available. */
-export type HelpAction =
-  "controls" | "map" | "hint" | "remix" | "ai-settings" | "create" | "add-game";
+type HelpAction = "controls" | "map" | "hint" | "remix" | "ai-settings" | "create" | "add-game";
 
 /** Open a Studio on one resource of the current game, switching to Create first. */
-export type HelpStudioAction =
+type HelpStudioAction =
   | { readonly kind: "openRoomStudio"; readonly picture: number }
   | { readonly kind: "openSpriteStudio"; readonly view: number };
 
@@ -17,7 +16,7 @@ export type HelpStudioAction =
 export type HelpRequest = { readonly kind: HelpAction } | HelpStudioAction;
 export type HelpActionKind = HelpRequest["kind"];
 
-export interface HelpTopic {
+interface HelpTopic {
   readonly id: string;
   readonly title: string;
   /** Paragraphs of plain text. */

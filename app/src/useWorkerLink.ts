@@ -23,7 +23,7 @@ import type {
 } from "./workerProtocol.ts";
 
 /** Controllers the wire dispatches to; useEngine fills it once each exists. */
-export interface WorkerLinkDeps {
+interface WorkerLinkDeps {
   resetScreenState(): void;
   cancelPrompt(): void;
   handleAutosave(msg: Extract<WorkerOutbound, { type: "autosave" }>): void;

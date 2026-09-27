@@ -17,7 +17,7 @@ import {
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 const PLANES: readonly PicturePlane[] = ["visual", "priority"];
 /** How many violating cells a violation lists. */
-export const VIOLATION_SAMPLE = 8;
+const VIOLATION_SAMPLE = 8;
 
 /** A compiled document together with the document it was compiled from. */
 export interface CompiledDocument extends CompiledPictureDocument {

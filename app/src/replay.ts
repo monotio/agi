@@ -14,7 +14,7 @@ export interface ReplayObservation {
   releaseGate: number;
 }
 
-export interface ReplayStatus {
+interface ReplayStatus {
   sessionId: number;
   requestId: number | null;
   observedTick: number;
@@ -87,7 +87,7 @@ export interface ReplayBatchOptions {
   onAcceptedInput?: (text: string) => void;
 }
 
-export interface ReplayAdvanceOptions {
+interface ReplayAdvanceOptions {
   sessionId?: number;
   seeking?: boolean;
   renderFinal?: boolean;

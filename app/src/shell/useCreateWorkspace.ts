@@ -264,30 +264,6 @@ export function useCreateWorkspace(): CreateWorkspace {
   return workspace;
 }
 
-/** The centre seam: open a Studio on a resource, or return to the live stage. */
-export function useCreateCenter(): CreateCenter {
-  const {
-    studio,
-    openStudio,
-    closeStudio,
-    reopenStudio,
-    guardStudio,
-    studioUnkept,
-    confirmStudioLeave,
-    studioFits,
-  } = useCreateWorkspace();
-  return {
-    studio,
-    openStudio,
-    closeStudio,
-    reopenStudio,
-    guardStudio,
-    studioUnkept,
-    confirmStudioLeave,
-    studioFits,
-  };
-}
-
 /** The centre seam where one is provided; Studio's harness runs without a workspace. */
 export function useOptionalCreateCenter(): CreateCenter | null {
   return inject(workspaceKey, null);

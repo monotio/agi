@@ -574,5 +574,3 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     exportCurrentGame,
   };
 }
-
-export type GameLifecycle = ReturnType<typeof useGameLifecycle>;

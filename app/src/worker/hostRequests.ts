@@ -358,5 +358,3 @@ export function createHostRequests(ctx: WorkerContext) {
     onReenter,
   };
 }
-
-export type HostRequestsModule = ReturnType<typeof createHostRequests>;

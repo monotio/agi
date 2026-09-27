@@ -45,8 +45,7 @@ export interface AssistTurn {
   readonly text: string;
 }
 
-export type AssistOutcome =
-  { readonly ok: true } | { readonly ok: false; readonly message: string };
+type AssistOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 export interface StudioAssistOptions {
   /** Null where no AI can run (the Studio harness). */

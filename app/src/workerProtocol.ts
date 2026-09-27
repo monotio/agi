@@ -529,7 +529,7 @@ export interface RoomTransitionNotice {
 }
 
 /** A history replay divergence as the wire carries it. */
-export interface HistoryViewDivergence {
+interface HistoryViewDivergence {
   at: { seq: number; tick: number; cycle: number };
   detail: string;
   expected?: string;
@@ -545,7 +545,7 @@ export type WorkerOutbound = WorkerControl | WorkerPresentation;
  * settles with. `flushed` is not here — the autosave controller owns its own
  * waiter table because a flush can outlive the caller's await (pagehide).
  */
-export interface WorkerQueryReplies {
+interface WorkerQueryReplies {
   state: Extract<WorkerControl, { type: "engineState" }>;
   objects: Extract<WorkerControl, { type: "objects" }>;
   frames: Extract<WorkerControl, { type: "frames" }>;

@@ -43,6 +43,7 @@ server is already running, give the browser tests their own port:
 | `npm --prefix app run e2e -- e2e/<file>.spec.ts`             | One Playwright spec                                                                                        |
 | `npm run lint:ast`                                           | ast-grep structural rules and suppression check                                                            |
 | `npm run eval:replay`                                        | Replay stored authoring failures without provider calls                                                    |
+| `npm run mutation`                                           | Stryker mutation report on `src/picture/` and `src/studio/`; on demand, writes `reports/mutation/`         |
 | `npm run build`                                              | Compile the engine and build the browser app                                                               |
 | `npm run check:bundle`                                       | Bundle budget for the Play boot path, after a build                                                        |
 

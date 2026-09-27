@@ -21,7 +21,7 @@ export interface RoomPictureLabels {
   readonly studioBlocked?: string | undefined;
 }
 
-export const RUNTIME_PICTURE = "picture chosen at runtime";
+const RUNTIME_PICTURE = "picture chosen at runtime";
 
 function roomList(rooms: readonly number[]): string {
   if (rooms.length === 1) return `room ${rooms[0]}`;

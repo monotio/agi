@@ -24,7 +24,7 @@ import type { StudioSelection } from "./useStudioSelection.ts";
 import type { StudioTools } from "./useStudioTools.ts";
 
 /** What the canvas does with a press when no tool takes it: select and drag. */
-export interface PointerFallback {
+interface PointerFallback {
   press(press: PanePress): void;
   drag(press: PanePress): void;
   release(press: PanePress): void;
@@ -253,5 +253,3 @@ export function useStudioInput(options: StudioInputOptions) {
     pointer,
   };
 }
-
-export type StudioInput = ReturnType<typeof useStudioInput>;

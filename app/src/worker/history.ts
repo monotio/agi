@@ -716,5 +716,3 @@ export function createHistory(ctx: WorkerContext) {
     onCancelRecording,
   };
 }
-
-export type HistoryModule = ReturnType<typeof createHistory>;

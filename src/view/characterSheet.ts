@@ -28,7 +28,7 @@ import { buildView, type BuildViewInput } from "./view.ts";
 export type SheetFacing = "right" | "left" | "down" | "up";
 
 /** The four-loop order — index in this list is the AGI loop number. */
-export const FACING_LOOP_ORDER: readonly SheetFacing[] = ["right", "left", "down", "up"];
+const FACING_LOOP_ORDER: readonly SheetFacing[] = ["right", "left", "down", "up"];
 
 const OPPOSITE: Record<SheetFacing, SheetFacing> = {
   right: "left",
