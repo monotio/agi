@@ -26,6 +26,7 @@ import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import type { ViewUsage } from "../../../src/studio/sprite/spriteUsage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
+import type { PreviewCycler } from "../studio/sprite/spriteView.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import { createPanels, type DockSide } from "./createDocks.ts";
 
@@ -83,6 +84,8 @@ export interface SpriteStudioRequest extends StudioRequestBase {
   readonly rooms: readonly SpriteRoom[];
   /** The game's cycle delay (v10) when Studio opened; the loop preview's pace. */
   readonly speed: number;
+  /** The live objects when Studio opened: whose cycle time paces the loop preview. */
+  readonly cyclers?: readonly PreviewCycler[] | undefined;
   /** The room's set.pri.base when known. */
   readonly priorityBase?: number | undefined;
   /** A staged character-sheet candidate: Keep goes through its reference's staged keep. */

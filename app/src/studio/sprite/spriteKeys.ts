@@ -13,7 +13,8 @@
  *   clears the selection
  * - `,` `.` the previous and next cel, `<` `>` the previous and next loop
  * - + - 0 zoom; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
- * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue)
+ * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
+ *   opens the key sheet (StudioKeySheet.vue)
  */
 
 const ARROWS: Record<string, readonly [number, number]> = {
@@ -47,6 +48,8 @@ export interface SpriteKeyActions {
   tool(key: string): boolean;
   /** `/`: focus the Ask box; false when there is none. */
   ask(): boolean;
+  /** `?`: the key sheet. */
+  keySheet(): void;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -95,6 +98,10 @@ export function spriteKey(event: KeyboardEvent, act: SpriteKeyActions): boolean 
   }
   if (event.altKey) return false;
   if (key === "/") return act.ask();
+  if (key === "?") {
+    act.keySheet();
+    return true;
+  }
   if (key === "Delete" || key === "Backspace") act.remove();
   else if (key === ",") act.step("cel", -1);
   else if (key === ".") act.step("cel", 1);

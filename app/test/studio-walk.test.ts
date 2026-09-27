@@ -38,9 +38,12 @@ import {
   edgeAt,
   entrySpot,
   outcomeTitle,
+  playTarget,
   refusedCell,
   resultPlace,
   walkDoors,
+  WALK_STATE_LABEL,
+  walkStateText,
 } from "../src/studio/walkView.ts";
 import { studioRoomSource, type StudioRoomSource } from "../src/world/studioSource.ts";
 
@@ -109,9 +112,9 @@ describe("walkView: doors and words", () => {
   it("words where a door leads and its two sides", () => {
     assert.equal(destinationLabel(2, ROOMS), "→ Green room");
     assert.equal(destinationLabel(7, ROOMS), "→ Room 7");
-    const none = new Set<number>();
+    const none = false;
     assert.deepEqual(doorStatus({ destination: 2, contract: contract({}) }, none), {
-      wayBack: "One-way",
+      wayBack: "One way: nothing there leads back",
       tested: "Not tested yet",
       testedOk: false,
     });
@@ -121,19 +124,46 @@ describe("walkView: doors and words", () => {
       testedBy: ["route"],
     });
     assert.deepEqual(doorStatus({ destination: 2, contract: back }, none), {
-      wayBack: "Way back: yes, via the east edge or a door or command",
+      wayBack: "Way back from there: the east edge or a door or a command",
       tested: "Tested ✓ (route)",
       testedOk: true,
     });
-    // A test walk that went to the room covers the door this session.
+    // A test walk attributed to this door, on the draft as it is, covers it.
     assert.equal(
-      doorStatus({ destination: 2, contract: contract({}) }, new Set([2])).tested,
+      doorStatus({ destination: 2, contract: contract({}) }, true).tested,
       "Tested ✓ (test walk)",
     );
     assert.equal(
       doorStatus({ destination: 2, contract: null }, none).wayBack,
       "Not in the room's logic until you Keep",
     );
+  });
+
+  it("says plainly what a test walk carries over from the game", () => {
+    assert.equal(WALK_STATE_LABEL, "Start with my current flags and variables");
+    assert.equal(walkStateText("live"), "Fresh room entry with your flags and variables");
+    assert.equal(walkStateText("fresh"), "Fresh room entry from a new game");
+  });
+
+  it("plays from where a walk ended, in the room it ended in", () => {
+    const walked = (over: Partial<RouteTestResult>): RouteTestResult => ({
+      reached: false,
+      outcome: "reached",
+      end: { x: 30, y: 140 },
+      room: 1,
+      steps: 1,
+      cycles: 1,
+      reason: "",
+      ...over,
+    });
+    const goal = { x: 50, y: 150 };
+    assert.deepEqual(playTarget(walked({ reached: true }), 1, goal), { room: 1, x: 30, y: 140 });
+    // Through a door: ego ended in room 2, at room 2's coordinates.
+    assert.deepEqual(
+      playTarget(walked({ outcome: "room_changed", room: 2, end: { x: 20, y: 150 } }), 1, goal),
+      { room: 2, x: 20, y: 150 },
+    );
+    assert.equal(playTarget(walked({ outcome: "start_blocked" }), 1, goal), null);
   });
 
   it("picks the nearest edge, counting a column twice", () => {
@@ -618,6 +648,105 @@ describe("test walks", () => {
     walk.again();
     await settle();
     assert.equal(walk.result.value?.state, "fresh");
+    rig.stop();
+  });
+
+  it("certifies only the door a walk went through, on the draft and state it ran on", async () => {
+    let release: () => void = () => {};
+    let hold = false;
+    const rig = walkRig({
+      liveState: async () => ({ flags: new Array(256).fill(0), vars: new Array(256).fill(0) }),
+      runner: async () => {
+        if (hold) await new Promise<void>((resolve) => (release = resolve));
+        return {
+          reached: false,
+          outcome: "room_changed",
+          end: { x: 20, y: 150 },
+          room: 2,
+          steps: 30,
+          cycles: 40,
+          reason: "Changed room",
+        };
+      },
+    });
+    const { walk } = rig;
+    const settle = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    };
+    const tested = (id: string) =>
+      doorStatus(
+        walk.doors.value.find((door) => door.id === id)!,
+        walk.tested.value.has(id),
+      ).testedOk;
+    // Two doors to the same room: the walk from 65,150 up to 65,110 crosses only door-1.
+    walk.addDoor({ x1: 60, y1: 122, x2: 72, y2: 127 });
+    walk.addDoor({ x1: 120, y1: 140, x2: 132, y2: 146 });
+    assert.deepEqual(
+      walk.doors.value.map((door) => door.destination),
+      [2, 2],
+    );
+    walk.clickWalk({ x: 65, y: 150 });
+    walk.clickWalk({ x: 65, y: 110 });
+    await settle();
+    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.door, "door-1");
+    assert.equal(tested("door-1"), true);
+    assert.equal(tested("door-2"), false, "a door to the same room is not certified");
+
+    // Another walk mode is another state preset: the evidence does not carry over.
+    walk.setUseLiveState(false);
+    assert.equal(tested("door-1"), false);
+    walk.setUseLiveState(true);
+    assert.equal(tested("door-1"), true);
+
+    // An edit makes a new draft: the result is stale and certifies nothing.
+    assert.equal(walk.setDestination("door-2", 1), true);
+    assert.equal(tested("door-1"), false);
+    assert.equal(walk.resultStale.value, true);
+    rig.logic.undo();
+    assert.equal(tested("door-1"), true, "back on the walked draft, its evidence holds");
+
+    // Clear forgets it.
+    walk.clearWalk();
+    assert.equal(tested("door-1"), false);
+
+    // A walk still running when the draft changes lands stale: it certifies nothing now.
+    hold = true;
+    walk.clickWalk({ x: 65, y: 150 });
+    walk.clickWalk({ x: 65, y: 110 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(walk.setDestination("door-2", 1), true);
+    release();
+    await settle();
+    assert.equal(walk.result.value?.door, "door-1");
+    assert.equal(walk.resultStale.value, true);
+    assert.equal(tested("door-1"), false);
+    rig.stop();
+  });
+
+  it("a room change no door explains reaches the room and certifies no door", async () => {
+    const rig = walkRig({
+      runner: async () => ({
+        reached: false,
+        outcome: "room_changed",
+        end: { x: 20, y: 150 },
+        room: 2,
+        steps: 3,
+        cycles: 5,
+        reason: "Changed room",
+      }),
+    });
+    const { walk } = rig;
+    walk.addDoor({ x1: 120, y1: 140, x2: 132, y2: 146 });
+    // From 40,140 to 60,150: nowhere near the door box.
+    walk.clickWalk({ x: 40, y: 140 });
+    walk.clickWalk({ x: 60, y: 150 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(walk.result.value?.title, "Reached room 2 (Green room)");
+    assert.equal(walk.result.value?.door, null);
+    assert.equal(walk.tested.value.size, 0);
     rig.stop();
   });
 

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import UiChip from "../ui/UiChip.vue";
-import UiIcon from "../ui/UiIcon.vue";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import type { FillExplanation } from "../../../src/studio/pictureQuery.ts";
 import { priorityMeaning } from "./studioView.ts";
@@ -31,7 +30,6 @@ const {
   pixel,
   pinned,
   fill,
-  trusted,
   editing = false,
   playhead,
   labelOf,
@@ -43,7 +41,6 @@ const {
   pixel: PixelInfo | null;
   pinned: boolean;
   fill: FillExplanation | undefined;
-  trusted: boolean;
   /** The selected item is being edited in the `editor` slot. */
   editing?: boolean;
   playhead: number;
@@ -176,13 +173,6 @@ const writer = (plane: PlanePixel): string =>
         </ol>
       </section>
     </template>
-
-    <section class="inspector__sec inspector__evidence">
-      <UiChip v-if="trusted" tone="ok" dot>Authored source · compiles exactly</UiChip>
-      <UiChip v-else dot>Disassembled from the stored bytes</UiChip>
-      <UiChip v-if="editing" tone="ok" dot>Edits checked on the decoded planes</UiChip>
-      <UiChip v-else><UiIcon name="lock" :size="12" />Read-only</UiChip>
-    </section>
   </aside>
 </template>
 
@@ -372,11 +362,5 @@ const writer = (plane: PlanePixel): string =>
   flex: none;
   min-width: 3.2em;
   color: var(--ink-3);
-}
-.inspector__evidence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  border-bottom: 0;
 }
 </style>

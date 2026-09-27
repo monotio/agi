@@ -1,14 +1,5 @@
 <script setup lang="ts">
-import {
-  computed,
-  inject,
-  onMounted,
-  onScopeDispose,
-  ref,
-  shallowRef,
-  useTemplateRef,
-  watch,
-} from "vue";
+import { computed, inject, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { createAgentSessionState } from "../../../src/agent/agentState.ts";
@@ -35,7 +26,6 @@ import {
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
-import { useOptionalCreateCenter } from "../shell/useCreateWorkspace.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
 import PixelInspector from "./PixelInspector.vue";
@@ -47,6 +37,7 @@ import StudioCanvasMenu, { type CanvasMenuItem } from "./StudioCanvasMenu.vue";
 import StudioContextBar from "./StudioContextBar.vue";
 import StudioItemEditor from "./StudioItemEditor.vue";
 import StudioKeepDialog from "./StudioKeepDialog.vue";
+import StudioKeySheet from "./StudioKeySheet.vue";
 import StudioLockNote from "./StudioLockNote.vue";
 import StudioLogicText from "./StudioLogicText.vue";
 import StudioSmallScreen from "./StudioSmallScreen.vue";
@@ -59,7 +50,10 @@ import StudioViewBar from "./StudioViewBar.vue";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 import type { RouteRunner } from "./routeRunner.ts";
+import { ROOM_EDIT_HINT, ROOM_PATH_HINT, ROOM_TOOL_HINTS, roomKeySheet } from "./studioHelp.ts";
+import { useStudioCalm } from "./useStudioCalm.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import {
@@ -95,8 +89,8 @@ import { useStudioFocus } from "./useStudioFocus.ts";
 import { useStudioInput } from "./useStudioInput.ts";
 import { useStudioDrag } from "./useStudioDrag.ts";
 import { useStudioEditing } from "./useStudioEditing.ts";
-import { useStudioKeep, type KeepFn, type KeepRecovery } from "./useStudioKeep.ts";
-import { useStudioLeave } from "./useStudioLeave.ts";
+import { useStudioKeep, type KeepFn } from "./useStudioKeep.ts";
+import { useStudioExit } from "./useStudioExit.ts";
 import { useStudioReadout } from "./useStudioReadout.ts";
 import { useStudioSelection } from "./useStudioSelection.ts";
 import { useStudioTools } from "./useStudioTools.ts";
@@ -371,11 +365,7 @@ const { viewport, zoom, dpr, fitted, stageWidth, zoomBy, zoomToFit } = useStudio
   stage,
   () => panes.value.length,
 );
-/**
- * A stage too narrow for the Walk legend beside the centred view bar (and,
- * from the same widths, a top bar without room for the size chip): the
- * legend folds into the bar and the footer carries the size.
- */
+/** A stage too narrow for the top bar's size chip: the footer carries the size. */
 const narrow = computed(() => stageWidth.value > 0 && stageWidth.value < 640);
 
 /** An AI proposal awaiting a verdict: compiled, with the cells it changes. */
@@ -660,15 +650,19 @@ const logicTextOpen = computed({
 });
 
 const RELOAD_FIRST = "Reload game first: the running game isn't the one you saved.";
-/** Play here: settle unkept changes, then the shell plays from the spot. */
-async function playHere(at: Point): Promise<void> {
+/**
+ * Play here: settle unkept changes, then the shell plays from the spot, in
+ * this room or, from a walk that went through a door, the room it ended in.
+ */
+async function playHere(at: Point | PlayHereTarget): Promise<void> {
   if (keeper.needsReload.value) return editing.say({ tone: "warn", text: RELOAD_FIRST });
-  if (!walk || walk.room < 1) {
+  const room = "room" in at ? at.room : (walk?.room ?? 0);
+  if (room < 1) {
     editing.say({ tone: "warn", text: "This picture isn't shown by a room the game can enter." });
     return;
   }
   if (!(await leave.confirm())) return;
-  emit("play-here", { room: walk.room, x: at.x, y: at.y });
+  emit("play-here", { room, x: at.x, y: at.y });
 }
 
 /** The canvas menu: at a cell, from a right-click or the Menu key. */
@@ -723,51 +717,17 @@ function seek(k: number): void {
   playhead.value = Math.min(total.value, Math.max(0, k));
 }
 
-/** Keep / Discard / Cancel before any way out of Studio, here or in the shell. */
-const leave = useStudioLeave({
-  unkept: () => room.dirty.value && !keeper.needsReload.value,
-  keep: () => keepChanges(),
-  discard: room.discard,
+/** Every way out of Studio, here or in the shell: Keep / Discard / Cancel first. */
+const exit = useStudioExit({
+  draft: room,
+  keeper,
+  say: (notice) => editing.say(notice),
+  keptNotice: () => lesson.keptNotice(subject.value),
+  keepFocus: () => keepFocus(),
+  close: () => emit("close"),
+  reopen: (fromStorage) => emit("reopen", fromStorage),
 });
-const center = useOptionalCreateCenter();
-if (center) onScopeDispose(center.guardStudio(leave));
-// The line the centre opened Studio with (the game was just reloaded from storage).
-const opening = () => center?.studio.value?.notice;
-watch(opening, (text) => text && editing.say({ tone: "ok", text }), { immediate: true });
-const dialog = leave.ask;
-async function requestClose(): Promise<void> {
-  if (await leave.confirm()) emit("close");
-}
-function discardChanges(): void {
-  leave.discarding.value = false;
-  draft.discard();
-  logic.discard();
-  editing.say({ tone: "ok", text: "Changes discarded." });
-}
-/** Keep the draft and say so; resolves whether it was kept. */
-async function keepChanges(): Promise<boolean> {
-  const kept = await keeper.keep();
-  // Keep disables itself once the draft is kept: the keys must not fall out of Studio.
-  keepFocus();
-  if (!kept) return false;
-  editing.say(lesson.keptNotice(subject.value));
-  return true;
-}
-async function recover(recovery: KeepRecovery): Promise<void> {
-  if (recovery === "retry") return void keepChanges();
-  // The draft was made on a game that moved on. Storage moved past the
-  // running game (a Keep elsewhere, or a saved edit the game never loaded):
-  // the game reloads from storage first, and the draft cannot come along.
-  await reopen(keeper.banner.value?.fromStorage === true);
-}
-/** Reopen Studio on the running game, or on the game reloaded from storage; the draft stays behind. */
-async function reopen(fromStorage: boolean): Promise<void> {
-  if (fromStorage && !(await leave.confirmReload())) return;
-  keeper.dismiss();
-  draft.discard();
-  logic.discard();
-  emit("reopen", fromStorage);
-}
+const { leave, dialog, requestClose, discardChanges, keepChanges, recover, reopen } = exit;
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 exposeStudioDraft(draft, () => logic.source.value);
@@ -778,6 +738,22 @@ const subject = computed(() =>
     : `PIC ${pictureNumber}`,
 );
 const changeTotal = room.changes;
+
+// ---- The calm canvas: help in the status bar, the side panels on Tab --------
+const calm = useStudioCalm();
+function toggleFocus(): void {
+  calm.toggleFocus();
+  input.spoken.value = calm.focus.value ? "Side panels hidden" : "Side panels shown";
+}
+const keySheet = computed(() => roomKeySheet(tools.tool.value));
+/** The status bar's line for the active tool (the editing keys while an item is selected). */
+const toolHint = computed(() => {
+  const tool = tools.tool.value;
+  if ((tool === "line" || tool === "polygon") && (tools.path.value?.points.length ?? 0) > 0)
+    return ROOM_PATH_HINT;
+  if (tool === "select" && editableId.value !== undefined) return ROOM_EDIT_HINT;
+  return ROOM_TOOL_HINTS[tool];
+});
 const notesOnly = computed(() => draft.notesOnly.value && !logic.dirty.value);
 
 const keys: StudioKeyActions = {
@@ -815,12 +791,14 @@ const keys: StudioKeyActions = {
   finish: tools.finish,
   ask: () => assistPanel.value?.focus() ?? false,
   insertPoint: insertPointAtCursor,
+  focusMode: toggleFocus,
+  keySheet: () => (calm.sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
   event.stopPropagation();
-  // An open confirmation or the logic text takes the keys it needs (Esc closes it) and nothing else runs.
-  if (dialog.value !== undefined || logicText.value !== undefined) return;
+  // An open confirmation, the logic text or the key sheet takes the keys it needs (Esc closes it) and nothing else runs.
+  if (dialog.value !== undefined || logicText.value !== undefined || calm.sheetOpen.value) return;
   if (
     (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) &&
     event.target === stage.value
@@ -842,6 +820,7 @@ function onKeyup(event: KeyboardEvent): void {
   <div
     ref="root"
     class="studio"
+    :class="{ 'is-focus': calm.focus.value }"
     data-testid="room-studio"
     tabindex="-1"
     role="region"
@@ -884,6 +863,7 @@ function onKeyup(event: KeyboardEvent): void {
       :loose="scene.loose"
       :hovered-id="hoveredId"
       :selected-id="selectedId"
+      :quiet-tag="lens === 'art' ? 'art' : undefined"
       @hover="selection.listHover.value = $event"
       @select="selectedId = $event"
     >
@@ -894,6 +874,27 @@ function onKeyup(event: KeyboardEvent): void {
           :held="assist.holds.value ? HOLD_TEXT : null"
       /></template>
     </SceneList>
+
+    <div
+      class="studio__options"
+      role="group"
+      aria-label="Tool and view options"
+      data-testid="studio-options-bar"
+    >
+      <StudioToolOptions
+        v-model:filled="tools.filled.value"
+        v-model:radius="tools.radius.value"
+        v-model:stipple="tools.stipple.value"
+        v-model:seed="tools.seed.value"
+        :tool="tools.tool.value"
+        :insertion="tools.insertion.value"
+        :commands="total"
+        :fill-why="tools.fillWhy.value"
+        @end="seek(total)"
+      />
+      <span class="studio__spacer"></span>
+      <StudioViewBar v-model:mode="mode" v-model:bands="showBands" :lens />
+    </div>
 
     <StudioToolRail
       :tool="tools.tool.value"
@@ -983,34 +984,13 @@ function onKeyup(event: KeyboardEvent): void {
           </StudioCanvas>
         </div>
       </div>
-      <StudioAssistCompare
-        v-if="proposal"
-        v-model="compare"
-        below-bar
-        :stale="assist.stale.value"
-      />
-      <StudioViewBar v-model:mode="mode" v-model:bands="showBands" :lens :fold-legend="narrow" />
+      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
       <StudioStageNotes
         :banner="keeper.banner.value"
         :notice="editing.notice.value"
-        :editing="editableId !== undefined && tools.tool.value === 'select'"
         @recover="recover"
         @hold="editing.hold"
       />
-      <StudioToolOptions
-        v-if="tools.tool.value !== 'select'"
-        v-model:filled="tools.filled.value"
-        v-model:radius="tools.radius.value"
-        v-model:stipple="tools.stipple.value"
-        v-model:seed="tools.seed.value"
-        :tool="tools.tool.value"
-        :insertion="tools.insertion.value"
-        :commands="total"
-        :fill-why="tools.fillWhy.value"
-        :points="tools.path.value?.points.length ?? 0"
-        @end="seek(total)"
-      />
-      <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
     </main>
 
     <DrawOrderScrubber
@@ -1030,7 +1010,6 @@ function onKeyup(event: KeyboardEvent): void {
       :pixel
       :pinned="selection.canvasCell.value === undefined && pinnedCell !== undefined"
       :fill
-      :trusted="model.trusted"
       :editing="editing.editable.value !== undefined"
       :playhead
       :label-of="labelOf"
@@ -1082,17 +1061,45 @@ function onKeyup(event: KeyboardEvent): void {
       </template>
     </PixelInspector>
 
-    <footer class="studio__status">
+    <footer class="studio__status" aria-label="Status bar">
       <span data-role="status">{{ status }}</span>
+      <span
+        class="studio__hint"
+        :class="{ 'is-tip': calm.tip.value }"
+        data-testid="studio-hint"
+        :data-tool="tools.tool.value"
+        >{{ calm.tip.value ?? toolHint }}</span
+      >
       <span class="studio__spacer"></span>
       <span v-if="narrow" data-testid="studio-size"
         >{{ draft.compiled.value.bytes.length }} B · {{ total }} cmds</span
       >
-      <span>AGI {{ profile.id }} profile</span>
-      <span>{{ model.trusted ? "authored source" : "disassembled" }}</span>
+      <span class="studio__meta">AGI {{ profile.id }}</span>
+      <span class="studio__meta">{{ model.trusted ? "authored source" : "disassembled" }}</span>
+      <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
+      <span class="studio__status-sep" aria-hidden="true"></span>
+      <UiIconButton
+        icon="panel-left"
+        label="Focus mode"
+        shortcut="Tab on the canvas"
+        aria-keyshortcuts="Tab"
+        :pressed="calm.focus.value"
+        data-testid="studio-focus-toggle"
+        @click="toggleFocus"
+      />
+      <UiIconButton
+        icon="help"
+        label="Keyboard shortcuts"
+        shortcut="?"
+        aria-keyshortcuts="?"
+        aria-haspopup="dialog"
+        data-testid="studio-keys-button"
+        @click="calm.sheetOpen.value = true"
+      />
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
 
+    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Room Studio" :sections="keySheet" />
     <StudioKeepDialog
       v-model:ask="dialog"
       :subject="subject"
@@ -1126,7 +1133,10 @@ function onKeyup(event: KeyboardEvent): void {
 .studio {
   position: relative;
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr) 92px 28px;
+  --studio-bar: var(--control-h);
+  grid-template-rows: 52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) 92px var(
+      --studio-bar
+    );
   /* The Scene list takes what the canvas can spare: at 1280 wide what still
      leaves it 200% zoom (640 + 2 × STAGE_INSET), more when wider. */
   grid-template-columns: clamp(208px, max(18vw, 100vw - 1040px), 300px) 48px minmax(0, 1fr) 300px;
@@ -1141,19 +1151,46 @@ function onKeyup(event: KeyboardEvent): void {
 .studio__top {
   grid-column: 1 / -1;
 }
+/* Focus mode: the Scene list and the inspector step aside for the canvas. */
+.studio.is-focus {
+  grid-template-columns: 0 48px minmax(0, 1fr) 0;
+}
+.studio.is-focus .studio__scene,
+.studio.is-focus .studio__inspector {
+  display: none;
+}
+@media (pointer: coarse) {
+  .studio {
+    --studio-bar: var(--control-h-touch);
+  }
+}
 .studio__scene {
-  grid-row: 2 / 4;
+  grid-row: 2 / 5;
   grid-column: 1;
   border-right: 1px solid var(--hairline);
 }
 /* The rail stops above the scrubber, which keeps the full width under it. */
 .studio__rail {
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 2;
+}
+/* The options bar docks over the rail and the canvas: nothing floats on the picture. */
+.studio__options {
+  position: relative;
+  z-index: var(--z-dock);
+  grid-row: 2;
+  grid-column: 2 / 4;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-1);
 }
 .studio__frame {
   position: relative;
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 3;
   min-width: 0;
   min-height: 0;
@@ -1185,19 +1222,20 @@ function onKeyup(event: KeyboardEvent): void {
   padding: var(--space-7);
 }
 .studio__scrubber {
-  grid-row: 3;
+  grid-row: 4;
   grid-column: 2 / 4;
 }
 .studio__inspector {
-  grid-row: 2 / 4;
+  grid-row: 2 / 5;
   grid-column: 4;
 }
 .studio__status {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: var(--space-5);
-  padding: 0 var(--space-4);
+  gap: var(--space-4);
+  min-width: 0;
+  padding: 0 var(--space-1) 0 var(--space-4);
   border-top: 1px solid var(--hairline);
   color: var(--ink-3);
   background: var(--surface-0);
@@ -1205,9 +1243,34 @@ function onKeyup(event: KeyboardEvent): void {
   white-space: nowrap;
 }
 .studio__status [data-role="status"] {
+  flex: 0 1 auto;
+  min-width: 12ch;
   overflow: hidden;
   color: var(--ink-2);
   text-overflow: ellipsis;
+}
+/* The active tool's one line of help: it gives way first when the bar is short. */
+.studio__hint {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+}
+.studio__hint.is-tip {
+  flex-shrink: 0;
+  color: var(--action);
+  font-weight: var(--weight-bold);
+}
+.studio__meta {
+  flex: none;
+}
+.studio__status-sep {
+  width: 1px;
+  height: var(--space-6);
+  background: var(--hairline);
 }
 .studio__spacer {
   flex: 1;

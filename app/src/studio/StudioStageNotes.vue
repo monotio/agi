@@ -1,20 +1,17 @@
 <script setup lang="ts">
 import UiButton from "../ui/UiButton.vue";
-import UiKbd from "../ui/UiKbd.vue";
 import type { StudioNotice } from "./useStudioNotice.ts";
 import type { KeepBanner, KeepRecovery } from "./useStudioKeep.ts";
 
 /**
  * The stage's messages: a failed Keep with the one recovery it allows, else
  * the last edit's notice (why it was refused, or that it was kept) with its
- * technical detail behind a disclosure, and the editing keys while an item
- * is selected.
+ * technical detail behind a disclosure. The editing keys are the status
+ * bar's line and the `?` sheet, never the stage's.
  */
-const { banner, notice, editing } = defineProps<{
+const { banner, notice } = defineProps<{
   banner: KeepBanner | null;
   notice: StudioNotice | null;
-  /** An editable item is selected: show the editing keys. */
-  editing: boolean;
 }>();
 const emit = defineEmits<{
   recover: [recovery: KeepRecovery];
@@ -58,31 +55,18 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
       <p>{{ notice.detail }}</p>
     </details>
   </div>
-  <dl v-if="editing" class="stage-hint" data-testid="studio-hint" aria-label="Editing keys">
-    <dt>Drag</dt>
-    <dd>move the item or a point</dd>
-    <dt><UiKbd>←↑→↓</UiKbd></dt>
-    <dd>nudge 1 px, <UiKbd>⇧</UiKbd> 8 px</dd>
-    <dt><UiKbd>⌥</UiKbd> + click</dt>
-    <dd>add a point to a line</dd>
-    <dt><UiKbd>⌥</UiKbd> + arrows</dt>
-    <dd>next item</dd>
-    <dt><UiKbd>[</UiKbd> <UiKbd>]</UiKbd></dt>
-    <dd>draw order</dd>
-  </dl>
 </template>
 
 <style scoped>
 .stage-note {
   position: absolute;
-  top: calc(var(--space-5) + var(--control-h));
+  top: var(--space-4);
   left: 50%;
   display: flex;
   align-items: center;
   gap: var(--space-4);
   width: max-content;
-  /* Clear of the Walk legend in the top-left corner. */
-  max-width: min(560px, calc(100% - 2 * 184px));
+  max-width: min(560px, calc(100% - 2 * var(--space-4)));
   margin: 0;
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--hairline-strong);
@@ -119,30 +103,5 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
 .stage-note--ok {
   border-color: var(--ok-line);
   color: var(--ok);
-}
-.stage-hint {
-  position: absolute;
-  bottom: var(--space-4);
-  left: var(--space-4);
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: var(--space-1) var(--space-3);
-  align-items: center;
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  color: var(--ink-3);
-  background: var(--surface-overlay);
-  font-size: var(--text-2xs);
-  white-space: nowrap;
-  pointer-events: none;
-}
-.stage-hint dt {
-  color: var(--ink-2);
-  text-align: right;
-}
-.stage-hint dd {
-  margin: 0;
 }
 </style>

@@ -171,14 +171,17 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   const crosshair = studio.locator('[data-role="key-cursor"]').last();
   const announce = studio.locator('[data-role="announce"]');
 
-  // Art lens, the rect tool, Filled: the keys are listed under the tool.
+  // Art lens, the rect tool, Filled: the ? sheet lists its keys, and Esc returns to the canvas.
   await page.keyboard.press("r");
   await studio.getByTestId("studio-tool-filled").press("Space");
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
-  await expect(studio.getByTestId("studio-tool-keys")).toContainText(
-    "Space or Enter starts, arrows size it, again finishes",
-  );
   await canvas.focus();
+  await page.keyboard.press("?");
+  const sheet = page.getByRole("dialog", { name: "Room Studio keys" });
+  await expect(sheet).toContainText("Click at the cursor: starts; arrows size it; again finishes");
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(canvas).toBeFocused();
   await expect(canvas).toHaveAttribute("aria-label", /arrow keys move the drawing cursor/i);
   // The cursor starts at the centre, 80,84: to 20,120.
   await repeat(page, "Shift+ArrowLeft", 7);
@@ -215,7 +218,7 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   await repeat(page, "Shift+ArrowRight", 10);
   await expect(announce).toHaveText("x 100 y 150");
   await page.keyboard.press("Enter");
-  await expect(studio.getByTestId("studio-tool-options")).toContainText("Backspace");
+  await expect(studio.getByTestId("studio-hint")).toContainText("Backspace");
   await expect(status).toHaveText("1 change");
   await page.keyboard.press("Enter");
   await expect(status).toHaveText("2 changes");

@@ -86,3 +86,10 @@ export function insertionText(index: number, commands: number): string {
   const where = index === 0 ? `first, before step 1` : `after step ${index}`;
   return `New shapes are drawn ${where} of ${commands} (use the draw order to change where).`;
 }
+
+/** insertionText for the options bar: where new shapes go, in a few words. */
+export function insertionShort(index: number, commands: number): string {
+  if (commands === 0) return "Draws first";
+  if (index >= commands) return `Draws last, after step ${commands}`;
+  return index === 0 ? `Draws first of ${commands}` : `Draws after step ${index} of ${commands}`;
+}

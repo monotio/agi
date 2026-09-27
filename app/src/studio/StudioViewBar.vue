@@ -5,17 +5,13 @@ import UiSegmented from "../ui/UiSegmented.vue";
 import { CONTROL_VALUES, patternOn, type StudioLens, type StudioViewMode } from "./studioView.ts";
 
 /**
- * The stage's view toggles: how the planes show (blend, split, priority
- * only) and the band guides under the Depth and Walk lenses, plus the Walk
- * lens's legend of control lines. On a narrow stage the legend folds into
- * the bar as a Legend toggle that opens it under the bar, so the two never
- * overlap.
+ * The Depth and Walk lenses' view toggles, docked at the right of the
+ * options bar: how the planes show (blend, split, priority only), the band
+ * guides, and under the Walk lens a Legend toggle that opens the control
+ * lines' legend under the bar, over the stage's corner, until it is put away.
+ * The Art lens shows only its visual plane and needs none of them.
  */
-const { lens, foldLegend = false } = defineProps<{
-  lens: StudioLens;
-  /** The stage is too narrow for the legend beside the bar. */
-  foldLegend?: boolean;
-}>();
+const { lens } = defineProps<{ lens: StudioLens }>();
 const mode = defineModel<StudioViewMode>("mode", { required: true });
 const bands = defineModel<boolean>("bands", { required: true });
 
@@ -25,21 +21,31 @@ const MODES = [
   { value: "priority", label: "Priority only" },
 ] as const;
 
-/** The folded legend is open under the bar. */
+/** The legend is open under the bar. */
 const legendOpen = ref(false);
 watch(
-  () => foldLegend,
+  () => lens,
   () => (legendOpen.value = false),
 );
+/** Esc inside the bar puts an open legend away before it reaches the studio. */
+function closeLegend(event: KeyboardEvent): void {
+  if (!legendOpen.value) return;
+  legendOpen.value = false;
+  event.stopPropagation();
+}
 </script>
 
 <template>
-  <div class="view-bar" role="toolbar" aria-label="View">
-    <UiSegmented v-if="lens !== 'art'" v-model="mode" size="sm" label="Planes" :options="MODES" />
+  <div
+    v-if="lens !== 'art'"
+    class="view-bar"
+    role="toolbar"
+    aria-label="View"
+    @keydown.esc="closeLegend"
+  >
+    <UiSegmented v-model="mode" size="sm" label="Planes" :options="MODES" />
     <UiButton
-      v-if="lens !== 'art'"
       variant="ghost"
-      size="sm"
       class="view-bar__toggle"
       :aria-pressed="bands"
       @click="bands = !bands"
@@ -47,10 +53,10 @@ watch(
       Bands
     </UiButton>
     <UiButton
-      v-if="lens === 'walk' && foldLegend"
+      v-if="lens === 'walk'"
       variant="ghost"
-      size="sm"
       class="view-bar__toggle"
+      trailing-icon="chevron-down"
       :aria-pressed="legendOpen"
       aria-controls="studio-control-legend"
       data-testid="studio-legend-toggle"
@@ -58,67 +64,63 @@ watch(
     >
       Legend
     </UiButton>
-    <span v-if="lens === 'art'" class="view-bar__note">Art lens · visual plane</span>
+    <figure
+      v-if="lens === 'walk' && legendOpen"
+      id="studio-control-legend"
+      class="view-legend"
+      data-role="control-legend"
+    >
+      <figcaption>Control lines</figcaption>
+      <div v-for="control in CONTROL_VALUES" :key="control.value" class="view-legend__row">
+        <svg viewBox="0 0 8 2" width="32" height="8" aria-hidden="true">
+          <rect
+            v-for="x in 8"
+            :key="x"
+            :x="x - 1"
+            y="0"
+            width="1"
+            height="2"
+            :style="{
+              fill: `var(--agi-${control.colour})`,
+              opacity: patternOn(control.pattern, x - 1, 0) ? 1 : 0.45,
+            }"
+          />
+        </svg>
+        <span>{{ control.value }} · {{ control.name }}</span>
+      </div>
+    </figure>
   </div>
-  <figure
-    v-if="lens === 'walk' && (!foldLegend || legendOpen)"
-    id="studio-control-legend"
-    class="view-legend"
-    :class="{ 'is-folded': foldLegend }"
-    data-role="control-legend"
-  >
-    <figcaption>Control lines</figcaption>
-    <div v-for="control in CONTROL_VALUES" :key="control.value" class="view-legend__row">
-      <svg viewBox="0 0 8 2" width="32" height="8" aria-hidden="true">
-        <rect
-          v-for="x in 8"
-          :key="x"
-          :x="x - 1"
-          y="0"
-          width="1"
-          height="2"
-          :style="{
-            fill: `var(--agi-${control.colour})`,
-            opacity: patternOn(control.pattern, x - 1, 0) ? 1 : 0.45,
-          }"
-        />
-      </svg>
-      <span>{{ control.value }} · {{ control.name }}</span>
-    </div>
-  </figure>
 </template>
 
 <style scoped>
 .view-bar {
-  position: absolute;
-  top: var(--space-4);
-  left: 50%;
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-0);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  background: var(--surface-overlay);
-  transform: translateX(-50%);
+  gap: var(--space-1);
 }
 .view-bar :deep(.ui-seg) {
   border: 0;
   background: transparent;
 }
-.view-bar__note {
-  padding: var(--space-1) var(--space-3);
-  color: var(--ink-3);
-  font-size: var(--text-xs);
+.view-bar :deep(.ui-seg__item) {
+  min-height: calc(var(--control-h) - 8px);
+  font-weight: var(--weight-bold);
+}
+.view-bar__toggle {
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
 }
 .view-bar__toggle[aria-pressed="true"] {
   color: var(--action);
   background: var(--action-soft);
 }
+/* Opened on purpose, it hangs under the bar's right end like a menu. */
 .view-legend {
   position: absolute;
-  top: var(--space-4);
-  left: var(--space-4);
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: var(--z-popover);
   display: grid;
   gap: var(--space-1);
   margin: 0;
@@ -126,15 +128,9 @@ watch(
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
   background: var(--surface-overlay);
-  font-size: var(--text-xs);
-}
-/* Folded, it opens under the bar's centre like a menu. */
-.view-legend.is-folded {
-  top: calc(2 * var(--space-4) + var(--control-h));
-  left: 50%;
-  z-index: 2;
   box-shadow: var(--shadow-pop);
-  transform: translateX(-50%);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 .view-legend figcaption {
   color: var(--ink-3);

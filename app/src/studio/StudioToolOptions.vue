@@ -1,63 +1,35 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
-import UiKbd from "../ui/UiKbd.vue";
 import type { FillExplanation } from "../../../src/studio/pictureQuery.ts";
-import { insertionText } from "./studioMessages.ts";
+import { ROOM_TOOL_NAMES } from "./studioHelp.ts";
+import { insertionShort, insertionText } from "./studioMessages.ts";
 import { isDrawingTool, type InsertionPoint, type StudioTool } from "./studioTools.ts";
 
 /**
- * The active tool's options and help, at the stage's lower left: how the
- * tool is used by pointer and by keyboard, Filled for rect and polygon, the brush pen, where in the
+ * The active tool's options, docked in the options bar above the canvas:
+ * the tool's name, Filled for rect and polygon, the brush pen, where in the
  * draw order new content goes (with a way to the end), and, for a fill that
- * would flood nothing, the AGI rule that says why.
+ * would flood nothing, the AGI rule that says why. How the tool is used by
+ * pointer and keys is the status bar's line and the `?` sheet, never here.
  */
 const {
   tool,
   insertion,
   commands,
   fillWhy = null,
-  points = 0,
 } = defineProps<{
   tool: StudioTool;
   insertion: InsertionPoint;
   /** Drawing commands in the picture. */
   commands: number;
   fillWhy?: FillExplanation | null;
-  /** Points of the line or polygon being clicked out. */
-  points?: number;
 }>();
 const emit = defineEmits<{ end: [] }>();
 const filled = defineModel<boolean>("filled", { required: true });
 const radius = defineModel<number>("radius", { required: true });
 const stipple = defineModel<boolean>("stipple", { required: true });
 const seed = defineModel<number>("seed", { required: true });
-const HELP: Record<StudioTool, string> = {
-  select: "",
-  point: "Drag a point's handle; the item itself stays put.",
-  line: "Click points; Enter or double-click finishes.",
-  rect: "Drag a rectangle; Shift keeps it square.",
-  polygon: "Click points; click the first point or press Enter to close.",
-  fill: "Click a seed: a colour fill floods white (15), a priority fill floods priority 4.",
-  brush: "Drag to place plot points, one per pixel.",
-  pipette: "Click to pick the colour and priority under the cursor.",
-  hand: "Drag to pan. Space pans with any tool.",
-  walk: "Click a start (or a door), then a goal: the game walks it for real.",
-  door: "Drag a door box on the floor: walking into it changes room.",
-  edge: "Click near an edge: walking off it changes room.",
-};
-/** What Space or Enter does at the keyboard cursor, per tool that takes one. */
-const KEY_CLICK: Partial<Record<StudioTool, string>> = {
-  line: "adds a point; Enter on the last point finishes",
-  polygon: "adds a point; Enter on the last point closes",
-  rect: "starts, arrows size it, again finishes",
-  fill: "places the seed",
-  brush: "puts the pen down or lifts it; arrows paint while it is down",
-  pipette: "picks",
-  walk: "sets the start, then the goal",
-  door: "starts the box, arrows size it, again adds the door",
-  edge: "adds an exit by the nearest edge",
-};
 const draws = computed(() => isDrawingTool(tool));
 const atEnd = computed(() => insertion.index >= commands);
 const whyText = computed(() => {
@@ -75,25 +47,19 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
 </script>
 
 <template>
-  <div class="tool-options" data-testid="studio-tool-options" :data-tool="tool">
-    <p class="tool-options__help">
-      {{ HELP[tool] }}
-      <template v-if="(tool === 'line' || tool === 'polygon') && points > 0">
-        <UiKbd>Backspace</UiKbd> removes a point, <UiKbd>Esc</UiKbd> cancels.
-      </template>
-    </p>
-    <p v-if="KEY_CLICK[tool]" class="tool-options__keys" data-testid="studio-tool-keys">
-      Keys on the canvas: <UiKbd>←↑→↓</UiKbd> move the cursor (<UiKbd>Shift</UiKbd> 8 px);
-      <UiKbd>Space</UiKbd> or <UiKbd>Enter</UiKbd> {{ KEY_CLICK[tool] }};
-      <UiKbd>Esc</UiKbd> cancels.
-    </p>
-    <div v-if="tool === 'rect' || tool === 'polygon'" class="tool-options__row">
-      <label class="tool-options__check">
-        <input v-model="filled" type="checkbox" data-testid="studio-tool-filled" />
-        Filled
-      </label>
-    </div>
-    <div v-if="tool === 'brush'" class="tool-options__row">
+  <div
+    class="tool-options"
+    role="group"
+    :aria-label="`${ROOM_TOOL_NAMES[tool]} options`"
+    data-testid="studio-tool-options"
+    :data-tool="tool"
+  >
+    <b class="tool-options__name">{{ ROOM_TOOL_NAMES[tool] }}</b>
+    <label v-if="tool === 'rect' || tool === 'polygon'" class="tool-options__toggle">
+      <input v-model="filled" type="checkbox" data-testid="studio-tool-filled" />
+      Filled
+    </label>
+    <template v-if="tool === 'brush'">
       <label class="tool-options__field">
         Pen {{ radius }}
         <input
@@ -105,7 +71,7 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
           data-testid="studio-brush-radius"
         />
       </label>
-      <label class="tool-options__check">
+      <label class="tool-options__toggle">
         <input v-model="stipple" type="checkbox" data-testid="studio-brush-stipple" />
         Stipple
       </label>
@@ -121,61 +87,70 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
           @change="seed = clampSeed(Number(($event.target as HTMLInputElement).value))"
         />
       </label>
-    </div>
-    <p v-if="draws" class="tool-options__at" data-testid="studio-insert-at">
-      <span>{{ insertionText(insertion.index, commands) }}</span>
-      <UiButton
-        v-if="!atEnd"
-        size="sm"
-        variant="ghost"
-        data-testid="studio-playhead-end"
-        @click="emit('end')"
-      >
-        Move playhead to end
-      </UiButton>
-    </p>
-    <p v-if="whyText" class="tool-options__why" role="status" data-testid="studio-fill-why">
-      {{ whyText }}
-    </p>
+    </template>
+    <span v-if="draws" class="tool-options__sep" aria-hidden="true"></span>
+    <span
+      v-if="draws"
+      class="tool-options__at"
+      :title="insertionText(insertion.index, commands)"
+      data-testid="studio-insert-at"
+      >{{ insertionShort(insertion.index, commands) }}</span
+    >
+    <UiButton
+      v-if="draws && !atEnd"
+      variant="ghost"
+      class="tool-options__end"
+      aria-label="Move playhead to end"
+      title="New shapes are drawn at the playhead: move it to the end to draw on top"
+      data-testid="studio-playhead-end"
+      @click="emit('end')"
+    >
+      → End
+    </UiButton>
+    <span
+      v-if="whyText"
+      class="tool-options__why"
+      role="status"
+      :title="whyText"
+      data-testid="studio-fill-why"
+      >{{ whyText }}</span
+    >
   </div>
 </template>
 
 <style scoped>
 .tool-options {
-  position: absolute;
-  bottom: var(--space-4);
-  left: var(--space-4);
-  display: grid;
-  gap: var(--space-2);
-  max-width: min(30rem, calc(100% - 20rem));
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  color: var(--ink-2);
-  background: var(--surface-overlay);
-  font-size: var(--text-xs);
-}
-.tool-options p {
-  margin: 0;
-}
-.tool-options__help {
-  color: var(--ink-2);
-}
-.tool-options__keys {
-  color: var(--ink-3);
-}
-.tool-options__row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
 }
-.tool-options__check,
+.tool-options__name {
+  min-width: 5.5rem;
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+}
+.tool-options__toggle,
 .tool-options__field {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius);
   color: var(--ink);
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+.tool-options__toggle:hover {
+  background: var(--surface-3);
+}
+.tool-options__toggle:has(input:checked) {
+  color: var(--action);
+  background: var(--action-soft);
 }
 .tool-options__number {
   width: 4.5rem;
@@ -186,18 +161,33 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
   background: var(--surface-2);
   font: inherit;
 }
+.tool-options__sep {
+  width: 1px;
+  height: var(--space-6);
+  background: var(--hairline-strong);
+}
 .tool-options__at {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   color: var(--ink-3);
-  font-family: var(--font-mono);
+  font: var(--text-xs) var(--font-mono);
+}
+.tool-options__end {
+  padding: 0 var(--space-3);
 }
 .tool-options__why {
-  padding: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--warn-line);
   border-radius: var(--radius-sm);
   color: var(--warn);
   background: var(--warn-soft);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+}
+@media (pointer: coarse) {
+  .tool-options__toggle,
+  .tool-options__field {
+    min-height: var(--control-h-touch);
+  }
 }
 </style>

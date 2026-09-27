@@ -20,6 +20,7 @@ import type { LogicRuleFragment } from "../../../src/studio/rules/logicDocument.
 import type { FlagRef, RuleBox, RuleModel } from "../../../src/studio/rules/ruleModel.ts";
 import type { ExitContract } from "../../../src/studio/rules/ruleUsage.ts";
 import { standVerdict, type WalkableInput } from "../../../src/studio/walkable.ts";
+import type { PlayHereTarget } from "../../../src/studio/playHere.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 
 export type { EdgeSide };
@@ -153,24 +154,30 @@ export function destinationLabel(
   return `→ ${title ? title : `Room ${destination}`}`;
 }
 
-/** The two-sided status in plain words: the way back, and whether a test covers it. */
+/**
+ * The two-sided status in plain words: the way back, and whether a test
+ * covers it. `walked` is whether a test walk went through this very door on
+ * the draft as it is now, in the walk's current state preset
+ * (useStudioWalk.ts `tested`).
+ */
 export function doorStatus(
   door: Pick<WalkDoor, "contract" | "destination">,
-  walked: ReadonlySet<number>,
+  walked: boolean,
 ): { wayBack: string; tested: string; testedOk: boolean } {
   const contract = door.contract;
-  const testedOk = contract?.status === "tested" || walked.has(door.destination);
+  const testedOk = contract?.status === "tested" || walked;
   const tested = testedOk
-    ? `Tested ✓ ${walked.has(door.destination) ? "(test walk)" : `(${contract!.testedBy.join(", ")})`}`
+    ? `Tested ✓ ${walked ? "(test walk)" : `(${contract!.testedBy.join(", ")})`}`
     : "Not tested yet";
   if (!contract || !contract.compiled)
     return { wayBack: "Not in the room's logic until you Keep", tested, testedOk };
-  if (contract.wayBack.length === 0) return { wayBack: "One-way", tested, testedOk };
-  const via = contract.wayBack
-    .map((edge) => (edge === null ? "a door or command" : `the ${EDGE_NAMES[edge]} edge`))
-    .filter((text, i, all) => all.indexOf(text) === i)
-    .join(" or ");
-  return { wayBack: `Way back: yes, via ${via}`, tested, testedOk };
+  if (contract.wayBack.length === 0)
+    return { wayBack: "One way: nothing there leads back", tested, testedOk };
+  const ways = contract.wayBack
+    .map((edge) => (edge === null ? "a door or a command" : `the ${EDGE_NAMES[edge]} edge`))
+    .filter((text, i, all) => all.indexOf(text) === i);
+  const list = ways.length > 1 ? `${ways.slice(0, -1).join(", ")} or ${ways.at(-1)}` : ways[0]!;
+  return { wayBack: `Way back from there: ${list}`, tested, testedOk };
 }
 
 /**
@@ -297,13 +304,15 @@ export function outcomeTitle(
   result: Pick<RouteTestResult, "outcome" | "room">,
   blockedBy: string | null,
   rooms: readonly { readonly room: number; readonly title: string }[],
+  /** A room change no door explains: the room was reached, no door went through. */
+  unattributed = false,
 ): string {
   const words: Record<RouteOutcome, () => string> = {
     reached: () => "Reached",
     blocked: () => `Blocked at ${blockedBy ?? "a barrier"}`,
     room_changed: () => {
       const title = rooms.find((room) => room.room === result.room)?.title;
-      return `Went to room ${result.room}${title ? ` (${title})` : ""}`;
+      return `${unattributed ? "Reached" : "Went to"} room ${result.room}${title ? ` (${title})` : ""}`;
     },
     modal: () => "A message stopped the walk",
     no_control: () => "The game took over the player's movement",
@@ -312,6 +321,86 @@ export function outcomeTitle(
     failed: () => "The walk did not run",
   };
   return words[result.outcome]();
+}
+
+/** The test walk's state switch: what it really carries into the throwaway game. */
+export const WALK_STATE_LABEL = "Start with my current flags and variables";
+
+/** The result card's line on the state a walk ran with. */
+export function walkStateText(state: "live" | "fresh"): string {
+  return state === "live"
+    ? "Fresh room entry with your flags and variables"
+    : "Fresh room entry from a new game";
+}
+
+/**
+ * Where Play here from a result card starts: where the walk ended, in the
+ * room it ended in (a walk through a door ends in the next room, at that
+ * room's coordinates); the goal when the engine reports no end. A start the
+ * player could not stand on offers none: its end is the room's own entry.
+ */
+export function playTarget(
+  result: Pick<RouteTestResult, "outcome" | "end" | "room">,
+  room: number,
+  goal: Point | null,
+): PlayHereTarget | null {
+  if (result.outcome === "start_blocked") return null;
+  const at = result.end ?? goal;
+  if (!at) return null;
+  return { room: result.outcome === "room_changed" ? result.room : room, x: at.x, y: at.y };
+}
+
+/**
+ * The door a walk that changed room went through: of the doors leading to
+ * the room it reached, the first whose box the walked route (`route`, from
+ * the start through the waypoints to the goal) enters, or the edge exit on
+ * the edge the goal lies against. Null when no door explains it (a room
+ * change by a command or script, or a route no door lies on): the walk then
+ * certifies no door.
+ */
+export function walkedDoor(
+  doors: readonly Pick<WalkDoor, "id" | "destination" | "box" | "edge" | "shape">[],
+  reached: number,
+  route: readonly Point[],
+  horizon: number,
+): string | null {
+  const leading = doors.filter((door) => door.destination === reached);
+  const cells: Point[] = [];
+  for (let i = 0; i < route.length; i++) {
+    const a = route[i]!;
+    const b = route[i + 1];
+    if (!b) {
+      cells.push(a);
+      break;
+    }
+    const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y), 1);
+    for (let k = 0; k < n; k++)
+      cells.push({
+        x: Math.round(a.x + ((b.x - a.x) * k) / n),
+        y: Math.round(a.y + ((b.y - a.y) * k) / n),
+      });
+  }
+  for (const cell of cells) {
+    const door = leading.find(
+      (candidate) =>
+        candidate.box &&
+        cell.x >= candidate.box.x1 &&
+        cell.x <= candidate.box.x2 &&
+        cell.y >= candidate.box.y1 &&
+        cell.y <= candidate.box.y2,
+    );
+    if (door) return door.id;
+  }
+  const goal = route.at(-1);
+  if (!goal) return null;
+  const near: Record<EdgeSide, boolean> = {
+    left: goal.x <= 2,
+    right: goal.x >= SCREEN_WIDTH - 3,
+    top: goal.y <= Math.max(0, horizon) + 2,
+    bottom: goal.y >= SCREEN_HEIGHT - 3,
+  };
+  const edges = leading.filter((door) => door.shape === "edge" && door.edge && near[door.edge]);
+  return edges.length === 1 ? edges[0]!.id : null;
 }
 
 /**
