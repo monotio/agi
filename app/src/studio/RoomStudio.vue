@@ -46,6 +46,8 @@ import StudioToolOptions from "./StudioToolOptions.vue";
 import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
 import StudioTopBar from "./StudioTopBar.vue";
+import SharePictureMenu from "./share/SharePictureMenu.vue";
+import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
@@ -202,6 +204,29 @@ const commitRoom =
   keepRoom ??
   engineApi?.commitRoomEdit ??
   (() => Promise.reject(new Error("Door changes can't be kept here.")));
+/**
+ * Share's caption and file name: the game, and the room by its title in the
+ * world plan or on the map (Studio's title, unless it only names the
+ * picture), else its number.
+ */
+const shareRoom = computed(() =>
+  shareRoomName(
+    [
+      walk?.authoring.world.rooms[String(walk.room)]?.title,
+      title === `PIC ${pictureNumber}` ? undefined : title,
+    ],
+    walk?.room ?? null,
+    title,
+  ),
+);
+const shareGame = computed(() => engineApi?.currentGame()?.title);
+const shareCaption = computed(() => ({
+  game: shareGame.value,
+  room: shareRoom.value,
+  commands: total.value,
+  bytes: draft.compiled.value.bytes.length,
+}));
+const shareFile = computed(() => shareFileBase(shareGame.value, shareRoom.value));
 /** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
 const lesson = useStudioLesson();
 
@@ -852,7 +877,16 @@ function onKeyup(event: KeyboardEvent): void {
       @redo="undoOrder.redo"
       @keep="keepChanges()"
       @discard="leave.discarding.value = true"
-    />
+    >
+      <template #share
+        ><SharePictureMenu
+          :picture="model.compiled"
+          :timeline="model.timeline"
+          :profile
+          :caption="shareCaption"
+          :file-base="shareFile"
+      /></template>
+    </StudioTopBar>
 
     <SceneList
       v-model:filter="filter"

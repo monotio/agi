@@ -129,8 +129,12 @@ export function encodePngRgb(width: number, height: number, rgb: Uint8Array): Ui
   return png;
 }
 
-/** Encode RGB pixels losslessly as an 8-bit indexed PNG when they use at most 256 colors. */
-export function encodePngPaletteRgb(width: number, height: number, rgb: Uint8Array): Uint8Array {
+/** An indexed image's palette and its PNG scanlines (filter byte 0, then indices), ready to deflate. */
+function indexedScanlines(
+  width: number,
+  height: number,
+  rgb: Uint8Array,
+): { palette: Uint8Array; raw: Uint8Array } {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
     throw new RangeError(`png: bad dimensions ${width}x${height}`);
   }
@@ -161,6 +165,11 @@ export function encodePngPaletteRgb(width: number, height: number, rgb: Uint8Arr
     raw[row] = 0;
     raw.set(indexes.subarray(y * width, (y + 1) * width), row + 1);
   }
+  return { palette: Uint8Array.from(palette), raw };
+}
+
+/** The indexed PNG file around a palette and a zlib stream of its scanlines. */
+function indexedPng(width: number, height: number, palette: Uint8Array, zlib: Uint8Array) {
   const ihdr = new Uint8Array(13);
   const view = new DataView(ihdr.buffer);
   view.setUint32(0, width);
@@ -170,8 +179,8 @@ export function encodePngPaletteRgb(width: number, height: number, rgb: Uint8Arr
   const parts = [
     new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", ihdr),
-    chunk("PLTE", Uint8Array.from(palette)),
-    chunk("IDAT", zlibStored(raw)),
+    chunk("PLTE", palette),
+    chunk("IDAT", zlib),
     chunk("IEND", new Uint8Array(0)),
   ];
   const png = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
@@ -181,6 +190,27 @@ export function encodePngPaletteRgb(width: number, height: number, rgb: Uint8Arr
     offset += part.length;
   }
   return png;
+}
+
+/** Encode RGB pixels losslessly as an 8-bit indexed PNG when they use at most 256 colors. */
+export function encodePngPaletteRgb(width: number, height: number, rgb: Uint8Array): Uint8Array {
+  const { palette, raw } = indexedScanlines(width, height, rgb);
+  return indexedPng(width, height, palette, zlibStored(raw));
+}
+
+/**
+ * `encodePngPaletteRgb`, compressed: `deflate` turns the scanlines into a
+ * zlib stream (RFC 1950, as IDAT requires). The host supplies it, e.g. the
+ * browser's CompressionStream("deflate"), so the core stays platform-free.
+ */
+export async function encodePngPaletteRgbDeflated(
+  width: number,
+  height: number,
+  rgb: Uint8Array,
+  deflate: (raw: Uint8Array) => Promise<Uint8Array>,
+): Promise<Uint8Array> {
+  const { palette, raw } = indexedScanlines(width, height, rgb);
+  return indexedPng(width, height, palette, await deflate(raw));
 }
 
 export interface SurfacePngOptions {
