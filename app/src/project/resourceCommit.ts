@@ -38,6 +38,7 @@ import {
   needsReload,
   requireSaved,
   ResourceCommitError,
+  type SavedBase,
 } from "./projectTransaction.ts";
 import { stagedRefusal, type StoredReference } from "../references/referenceArt.ts";
 import { gameStorageKey, type BootedGame } from "./gameTypes.ts";
@@ -309,13 +310,14 @@ export function createResourceCommit(
       let stored: CachedGameData | null = null;
       let lifetime: string | null = null;
       let conversation: GameConversation | undefined;
+      const savedBase: SavedBase = {
+        revision: baseRevision,
+        authoring: true,
+        message: `The project changed elsewhere since this game booted — reload it before keeping ${what}.`,
+        removedMessage: `The project was removed or changed elsewhere — reload it before keeping ${what}.`,
+      };
       if (!game.installed) {
-        ({ data: stored, lifetime } = await requireSaved(game, {
-          revision: baseRevision,
-          authoring: true,
-          message: `The project changed elsewhere since this game booted — reload it before keeping ${what}.`,
-          removedMessage: `The project was removed or changed elsewhere — reload it before keeping ${what}.`,
-        }));
+        ({ data: stored, lifetime } = await requireSaved(game, savedBase));
       } else {
         conversation = await loadGameConversation(conversationKey);
         if (!hydrateAuthoring(game, conversation?.authoringState)) throw staleAuthoring(what);
@@ -462,11 +464,16 @@ export function createResourceCommit(
             ? { requireNew: true }
             : { expectedGeneration: generationOf(stored!), expectedLifetime: lifetime },
         );
-        if (historyLifetime === null)
+        if (historyLifetime === null) {
+          // Refused over the record it read: another tab's save won the race
+          // (a Keep there at the same moment). The gate says so as `stale`,
+          // with the reload that continues; a retry would only refuse again.
+          if (targetId === game.projectId) await requireSaved(game, savedBase);
           throw new ResourceCommitError(
             "storage",
             `Browser storage could not save ${what}. The project may have changed elsewhere; reload it before trying again.`,
           );
+        }
       } else {
         try {
           await saveGameConversation(

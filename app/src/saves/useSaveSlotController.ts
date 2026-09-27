@@ -80,6 +80,9 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
       }
     }
     if (op === "saveWrite") {
+      // A removed project stores nothing: its saves would outlive it and
+      // resurface when the game is added again.
+      if (options.getBootedGame()?.removed) return "false";
       const key = activeSaveKey();
       try {
         return String(

@@ -19,11 +19,12 @@ import {
   clearAutosave,
   lastGameKey,
   readAutosave,
+  resumableAutosave,
   useAutosaveController,
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
 import { clearCachedGame } from "../project/gameStorage.ts";
-import { watchProjectWrites } from "../project/projectTransaction.ts";
+import { PROJECT_REMOVED_MESSAGE, watchProjectWrites } from "../project/projectTransaction.ts";
 import { clearGameSaves } from "../saves/gameSaves.ts";
 import { removeMapSidecar } from "../world/roomMapStore.ts";
 import type { BootedGame, Frame, ProjectId } from "../project/gameTypes.ts";
@@ -45,7 +46,7 @@ import type { HistoryBatch } from "../../../src/agent/history.ts";
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 
-export { autosaveKey, lastGameKey, readAutosave, writeAutosave };
+export { autosaveKey, lastGameKey, readAutosave, resumableAutosave, writeAutosave };
 export type { AutosaveRecord } from "../saves/useAutosaveController.ts";
 
 /**
@@ -115,6 +116,7 @@ export function useEngine(
     resumed: false,
     gameEnded: null,
     staleTab: false,
+    projectRemoved: false,
     recording: { active: false, starting: false, error: "" },
     historyPending: 0,
     historyUnsaved: null,
@@ -233,6 +235,22 @@ export function useEngine(
     state.staleTab = true;
   }
 
+  /**
+   * The running game's project was removed in another tab: nothing more is
+   * stored for it (BootedGame.removed) and no reload brings it back. The
+   * stage's one note says so with Download game and Back to games, and the
+   * Assistant says the same without a reload offer. The timeline it can
+   * no longer store is not owed: its retry banner goes.
+   */
+  function tellRemoved(): void {
+    logAgent("error", PROJECT_REMOVED_MESSAGE);
+    state.powerUp.error = PROJECT_REMOVED_MESSAGE;
+    state.powerUp.offerReload = false;
+    state.staleTab = false;
+    state.projectRemoved = true;
+    historyController.forgetRemovedGame();
+  }
+
   const autosaveController = useAutosaveController({
     state,
     getBootedGame: () => lifecycle.getBootedGame(),
@@ -248,6 +266,7 @@ export function useEngine(
       link.publishHook();
     },
     onBehindStorage: tellBehindStorage,
+    onRemoved: tellRemoved,
     logAgent,
     isInstalledGame: (target) => lifecycle.isInstalledGame(target),
     bootGame: (target) => lifecycle.bootGame(target),
@@ -257,10 +276,12 @@ export function useEngine(
   });
 
   // Another tab committing a newer revision of the running project marks it
-  // behind at once, not at its next refused write.
+  // behind at once, not at its next refused write; removing it stops every
+  // write for it.
   const stopWatchingWrites = watchProjectWrites({
     getBootedGame: () => lifecycle.getBootedGame(),
     onBehindStorage: tellBehindStorage,
+    onRemoved: tellRemoved,
   });
   if (getCurrentScope()) onScopeDispose(stopWatchingWrites);
 

@@ -98,6 +98,11 @@ export interface HistoryController {
   startNewTimeline(): Promise<void>;
   /** The unextendable stored tape as JSON of its records verbatim, or null. */
   readOldTimeline(): Promise<string | null>;
+  /**
+   * The running game's project was removed (BootedGame.removed): its
+   * timeline can never be stored, so nothing is owed or retried for it.
+   */
+  forgetRemovedGame(): void;
 }
 
 function knownProfile(id: string | null): ProfileId | undefined {
@@ -139,7 +144,7 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     const segment = writerSegment;
     const key = activeKey;
     const game = ctx.getBootedGame();
-    if (!segment || !game || gameStorageKey(game) !== key || blockedKey === key)
+    if (!segment || !game || game.removed || gameStorageKey(game) !== key || blockedKey === key)
       return Promise.resolve();
     const lease = `lease:${segment}`;
     const run = renewHistoryWriter(key, segment, game.historyLifetime)
@@ -204,6 +209,13 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     ctx.logAgent("log", message);
   }
 
+  function forgetRemovedGame(): void {
+    stopWriterRenewal();
+    unsaved.clear();
+    syncUnsaved();
+    ctx.state.historyRetry = null;
+  }
+
   function unblock(): void {
     blockedKey = null;
     ctx.state.historyBlocked = null;
@@ -256,6 +268,12 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
         }
       }
       if (!storageKey || game === null) return "refused";
+      // A removed project stores nothing: its batches are answered without
+      // storage, un-acked, as a blocked tape's are.
+      if (game.removed) {
+        forgetRemovedGame();
+        return "blocked";
+      }
       // A new session of the same game asks storage again, and says it again.
       if (blockedKey === storageKey && sessionOf(msg.batch.segment) !== blockedSession) unblock();
       if (blockedKey === storageKey) return "blocked";
@@ -390,5 +408,6 @@ export function useHistoryController(ctx: HistoryControllerContext): HistoryCont
     retrySave,
     startNewTimeline,
     readOldTimeline: readOldGameTimeline,
+    forgetRemovedGame,
   };
 }

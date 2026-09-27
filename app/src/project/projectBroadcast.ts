@@ -2,21 +2,32 @@
  * Cross-tab news of project writes. Every committed project write posts
  * `{ projectId, revision, generation }` on one BroadcastChannel, plus the
  * new authoring `fingerprint` when the write changed the authoring content
- * (a label, a lock, a binding). The message carries no data: storage stays
- * the source of truth and every project write stays conditional. What a
- * notice means for the running game is projectTransaction.ts's to decide.
+ * (a label, a lock, a binding); a removal posts `{ projectId, removed }`,
+ * naming the history lifetime it ended, so a tab running a later lifetime
+ * of the same id is not told its game is gone. The message carries no
+ * data: storage stays the source of truth and every project write stays
+ * conditional. What a notice means for the running game is
+ * projectTransaction.ts's to decide.
  * Where BroadcastChannel is missing (or throws), only this early notice is
  * lost; the conditional writes still refuse.
  */
 export const PROJECT_CHANNEL = "monotio_agi.projects";
 
-export interface ProjectWriteNotice {
+interface ProjectWriteNotice {
   readonly projectId: string;
   readonly revision: string;
   readonly generation: number;
   /** The authoring fingerprint the write left, present only when it changed. */
   readonly fingerprint?: string | undefined;
 }
+
+/** A project was removed; `removed` is the history lifetime that ended with it. */
+interface ProjectRemovalNotice {
+  readonly projectId: string;
+  readonly removed: string;
+}
+
+export type ProjectNotice = ProjectWriteNotice | ProjectRemovalNotice;
 
 /** The part of BroadcastChannel this module uses; tests pass a fake. */
 export interface NoticeChannel {
@@ -45,21 +56,25 @@ function sharedChannel(): NoticeChannel | null {
   return shared;
 }
 
-/** Tell other tabs a project write committed. Never throws. */
+/** Tell other tabs a project write (or removal) committed. Never throws. */
 export function announceProjectWrite(
-  notice: ProjectWriteNotice,
+  notice: ProjectNotice,
   channel: NoticeChannel | null = sharedChannel(),
 ): void {
   try {
-    channel?.postMessage({ ...notice } satisfies ProjectWriteNotice);
+    channel?.postMessage({ ...notice } satisfies ProjectNotice);
   } catch {
     /* another tab learns at its next conditional write instead */
   }
 }
 
-function readNotice(value: unknown): ProjectWriteNotice | null {
+function readNotice(value: unknown): ProjectNotice | null {
   if (!value || typeof value !== "object") return null;
-  const { projectId, revision, generation, fingerprint } = value as Record<string, unknown>;
+  const { projectId, revision, generation, fingerprint, removed } = value as Record<
+    string,
+    unknown
+  >;
+  if (typeof projectId === "string" && typeof removed === "string") return { projectId, removed };
   if (
     typeof projectId !== "string" ||
     typeof revision !== "string" ||
@@ -70,9 +85,9 @@ function readNotice(value: unknown): ProjectWriteNotice | null {
   return { projectId, revision, generation, ...(fingerprint !== undefined ? { fingerprint } : {}) };
 }
 
-/** Hear other tabs' project writes; malformed messages are dropped. Returns the unsubscribe. */
+/** Hear other tabs' project writes and removals; malformed ones are dropped. Returns the unsubscribe. */
 export function listenForProjectWrites(
-  listener: (notice: ProjectWriteNotice) => void,
+  listener: (notice: ProjectNotice) => void,
   channel: NoticeChannel | null = sharedChannel(),
 ): () => void {
   if (!channel) return () => {};

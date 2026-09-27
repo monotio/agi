@@ -242,7 +242,7 @@ for (const [kind, edit] of Object.entries(EDITS)) {
     // Without BroadcastChannel B hears nothing; storage alone must refuse.
     let told = 0;
     const stop = watchProjectWrites(
-      { getBootedGame: () => b.game, onBehindStorage: () => told++ },
+      { getBootedGame: () => b.game, onBehindStorage: () => told++, onRemoved: () => {} },
       null,
     );
     t.after(stop);
@@ -293,7 +293,7 @@ test("a tab that hears another tab's authoring edit is stale for authoring at on
   (channel as { unref?: () => void }).unref?.();
   let told = 0;
   const stop = watchProjectWrites(
-    { getBootedGame: () => b.game, onBehindStorage: () => told++ },
+    { getBootedGame: () => b.game, onBehindStorage: () => told++, onRemoved: () => {} },
     channel as unknown as NoticeChannel,
   );
   t.after(() => {

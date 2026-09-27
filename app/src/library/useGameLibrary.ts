@@ -10,6 +10,7 @@ import {
   lastGameKey,
   readAutosave,
   removeLibraryGame,
+  resumableAutosave,
   type AutosaveRecord,
 } from "../engine/useEngine.ts";
 import { gameStorageKey } from "../project/gameTypes.ts";
@@ -290,9 +291,9 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     return lib.source === "zip" || lib.source === "folder" ? "Imported copy" : null;
   }
 
+  /** Home's Continue: never for a removed project (its leftover is cleared). */
   function refreshPendingAutosave(): void {
-    const key = lastGameKey();
-    pendingAutosave.value = (key ? readAutosave(key) : null) ?? undefined;
+    pendingAutosave.value = resumableAutosave() ?? undefined;
   }
 
   /** Discard the resumed game's progress and boot it from the top. */

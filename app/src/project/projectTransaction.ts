@@ -19,7 +19,8 @@
  * 4. What may still write? `requireSaved` (and `writeOverSaved` around a
  *    write) refuses as `stale` unless storage still holds the edit's base in
  *    the game's lifetime; `needsReload` says the game may write nothing more
- *    over storage, and `watchProjectWrites` learns it from other tabs early.
+ *    over storage, and `watchProjectWrites` learns it from other tabs early;
+ *    a removed project (`markRemoved`) may be written nothing at all.
  *
  * Four identities, each with one job, never standing in for another:
  * - the resource revision names the playable bytes (gameMetadata.ts);
@@ -75,16 +76,23 @@ export class ResourceCommitError extends Error {
    * continues.
    */
   readonly behindStorage: boolean;
+  /**
+   * The stored project was removed (in another tab): no reload brings it
+   * back, and the message is PROJECT_REMOVED_MESSAGE. Always `stale` and
+   * `behindStorage` as well.
+   */
+  readonly removed: boolean;
   constructor(
     code: ResourceCommitErrorCode,
     message: string,
-    detail: { savedTo?: ProjectId | undefined; behindStorage?: boolean } = {},
+    detail: { savedTo?: ProjectId | undefined; behindStorage?: boolean; removed?: boolean } = {},
   ) {
     super(message);
     this.name = "ResourceCommitError";
     this.code = code;
     this.projectId = detail.savedTo;
-    this.behindStorage = detail.behindStorage === true;
+    this.behindStorage = detail.behindStorage === true || detail.removed === true;
+    this.removed = detail.removed === true;
   }
 }
 
@@ -327,6 +335,22 @@ export function markBehindStorage(game: BootedGame): boolean {
   return true;
 }
 
+/** What a tab running a removed project tells the player, wherever it says it. */
+export const PROJECT_REMOVED_MESSAGE =
+  "This game was removed in another tab. Download it to keep a copy, or go back to your games.";
+
+/**
+ * The running game's stored project was removed: it is behind storage for
+ * good, and nothing is stored for it any more (`BootedGame.removed`). True
+ * when this call made the mark, so callers tell the player once.
+ */
+export function markRemoved(game: BootedGame): boolean {
+  markBehindStorage(game);
+  if (game.removed) return false;
+  game.removed = true;
+  return true;
+}
+
 /** Nothing the running game holds may be written over storage any more; only a reload continues. */
 export function needsReload(game: BootedGame): boolean {
   return game.behindStorage === true || authoringBases.get(game)?.stale === true;
@@ -347,7 +371,10 @@ export interface SavedBase {
   readonly authoring: boolean;
   /** The refusal, in the words of the surface that asked. */
   readonly message: string;
-  /** The refusal when the project was removed or replaced; `message` otherwise. */
+  /**
+   * The refusal when the project was replaced (removed and added again);
+   * `message` otherwise. A removed one refuses with PROJECT_REMOVED_MESSAGE.
+   */
   readonly removedMessage?: string | undefined;
 }
 
@@ -364,9 +391,19 @@ export async function requireSaved(game: BootedGame, base: SavedBase): Promise<S
   await installing.get(game);
   const stale = (message = base.message) =>
     new ResourceCommitError("stale", message, { behindStorage: true });
+  const removed = () =>
+    new ResourceCommitError("stale", PROJECT_REMOVED_MESSAGE, { removed: true });
+  if (game.removed) throw removed();
   if (base.authoring && authoringBases.get(game)?.stale) throw stale();
   const saved = await readSaved(game.projectId!);
-  if (!saved || !lifetimeHolds(game.historyLifetime, saved.lifetime)) {
+  if (!saved) {
+    // No record at all: the project was removed, and no reload brings it
+    // back. The removal's notice (or the next checkpoint's lifetime check)
+    // tells the player once; this refusal says the same.
+    markBehindStorage(game);
+    throw removed();
+  }
+  if (!lifetimeHolds(game.historyLifetime, saved.lifetime)) {
     markBehindStorage(game);
     throw stale(base.removedMessage);
   }
@@ -398,13 +435,16 @@ export interface ProjectWriteWatch {
   readonly getBootedGame: () => BootedGame | null;
   /** The running game fell behind another tab's write; called once per game. */
   readonly onBehindStorage: () => void;
+  /** Another tab removed the running game's project; called once per game. */
+  readonly onRemoved: () => void;
 }
 
 /**
  * Apply other tabs' project writes to the running game at once, not at its
  * next refused write: another revision puts it behind storage, another
- * authoring fingerprint makes it stale for authoring writes. The player may
- * keep playing until they reload. Returns the unsubscribe.
+ * authoring fingerprint makes it stale for authoring writes, and a removal
+ * of the lifetime it runs in stops everything it stores. The player may
+ * keep playing until they reload or leave. Returns the unsubscribe.
  */
 export function watchProjectWrites(
   watch: ProjectWriteWatch,
@@ -412,7 +452,15 @@ export function watchProjectWrites(
 ): () => void {
   return listenForProjectWrites((notice) => {
     const game = watch.getBootedGame();
-    if (!game || game.installed || game.projectId !== notice.projectId || needsReload(game)) return;
+    if (!game || game.installed || game.projectId !== notice.projectId) return;
+    if ("removed" in notice) {
+      // Only the lifetime this game booted in: a later one of the same id
+      // (the game added again) is another project.
+      if (game.historyLifetime !== undefined && game.historyLifetime !== notice.removed) return;
+      if (markRemoved(game)) watch.onRemoved();
+      return;
+    }
+    if (needsReload(game)) return;
     if (notice.revision !== game.revision) markBehindStorage(game);
     const base = authoringBases.get(game);
     if (base && notice.fingerprint !== undefined && notice.fingerprint !== base.fingerprint)

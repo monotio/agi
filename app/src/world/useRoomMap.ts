@@ -409,6 +409,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   /** The storage target the loaded map belongs to; "" while nothing is loaded. */
   let loadedKey = "";
+  /** The game the map was loaded for: once its project is removed, nothing is stored. */
+  let loadedGame: BootedGame | null = null;
   /** Boot counter: persisted entries' max session + 1 each time the game boots. */
   let session = 0;
   /** The booted resource revision this session's entries bind to. */
@@ -581,7 +583,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   let unsavedTimer: ReturnType<typeof setTimeout> | undefined;
 
   function persist(): void {
-    if (!loadedKey || !storage) return;
+    // A removed project stores nothing; its map lives on in memory only.
+    if (!loadedKey || !storage || loadedGame?.removed) return;
     if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
       unsaved.value = false;
       unsavedRetries = 0;
@@ -628,6 +631,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       // discovery and start a new session — a stale frame can never bind.
       drainJournal();
       persist();
+      loadedGame = game;
       session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
       revision = game?.revision ?? "";
       pendingThumbs.clear();
@@ -636,6 +640,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     drainJournal();
     if (loadedKey) persist();
     loadedKey = key;
+    loadedGame = game;
     resetMapMemory();
     revision = game?.revision ?? "";
     if (key && storage) loadStoredSidecar(key);
@@ -698,6 +703,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     drainJournal();
     if (loadedKey) persist();
     loadedKey = "";
+    loadedGame = null;
     state.roomJournal.splice(0, state.roomJournal.length);
     resetMapMemory();
     session = 0;

@@ -17,7 +17,7 @@ import {
   useAuthoringController,
   type PowerUpUiState,
 } from "../src/authoring/useAuthoringController.ts";
-import { ResourceCommitError } from "../src/project/projectTransaction.ts";
+import { PROJECT_REMOVED_MESSAGE, ResourceCommitError } from "../src/project/projectTransaction.ts";
 import { useWorkerLink } from "../src/engine/useWorkerLink.ts";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
@@ -800,6 +800,80 @@ test("a Keep behind a project kept elsewhere reopens by reloading from storage",
     }),
     (e) => e instanceof ResourceCommitError && e.code === "stale" && e.behindStorage,
   );
+});
+
+test("a Keep that loses the race to another tab's Keep says reopen from storage, not retry", async (t) => {
+  const files = gameFiles();
+  const projectId = testProjectId("studio-keep-race");
+  const revision = await gameRevision(files);
+  await saveAuthoredGame(projectId, {
+    title: "Studio room",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  t.after(() => clearCachedGame(projectId));
+  // The other tab's Keep lands after this Keep read the record and before
+  // its conditional save: queued on the same project, it commits first.
+  const green = compile(["vis 2", "fill 80,80", "end"].join("\n"));
+  const elsewhere = openContainer(new Map(Object.entries(files)));
+  elsewhere.putResource("picture", 1, green);
+  let raced: Promise<boolean> | undefined;
+  const r = rig(
+    t,
+    files,
+    {
+      installed: false,
+      projectId,
+      title: "Studio room",
+      revision,
+      files,
+      words: [],
+      historyLifetime: await readHistoryLifetime(projectId),
+    },
+    {
+      drop: (msg) => {
+        if (msg.type === "exportFiles" && raced === undefined)
+          raced = updateAuthoredGameFiles(projectId, Object.fromEntries(elsewhere.files));
+        return false;
+      },
+    },
+  );
+  const loser = keeper(r, RED, revision);
+  assert.equal(await loser.keep(), false);
+  assert.equal(await raced, true);
+  // Retry would only refuse again: the one way on is the reload from storage.
+  assert.deepEqual(loser.banner.value, {
+    message: "The game changed since you opened Studio. Reopen to continue.",
+    recovery: "reopen",
+    fromStorage: true,
+  });
+  assert.equal(r.game().behindStorage, true);
+  assert.equal(patches(r).length, 0);
+  assert.deepEqual(storedPicture((await loadAuthoredGame(projectId))!.files), green);
+});
+
+test("a Keep on a project removed in another tab refuses as removed, with nothing written", async (t) => {
+  const { projectId, revision, r } = await authoredRig(t, "studio-removed-elsewhere");
+  await clearCachedGame(projectId);
+  const removed = (e: unknown) =>
+    e instanceof ResourceCommitError &&
+    e.code === "stale" &&
+    e.behindStorage &&
+    e.removed &&
+    e.message === PROJECT_REMOVED_MESSAGE;
+  const edit = { pictureNumber: 1, bytes: compile(RED), source: RED, baseRevision: revision };
+  // Found by the Keep itself (nothing heard): the game is behind for good.
+  await assert.rejects(r.controller.commitPictureEdit(edit), removed);
+  assert.equal(r.game().behindStorage, true);
+  // Heard from the removing tab: refused before storage is read.
+  r.game().removed = true;
+  await assert.rejects(r.controller.commitPictureEdit(edit), removed);
+  assert.equal(patches(r).length, 0);
+  assert.equal(await loadAuthoredGame(projectId), null, "the Keep never recreates the project");
+  // A stale refusal of a project that still exists is not a removal.
+  assert.equal(new ResourceCommitError("stale", "x", { behindStorage: true }).removed, false);
 });
 
 test("a worker that never acks the patch fails the Keep as an install, after a bounded wait", async (t) => {

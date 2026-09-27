@@ -57,6 +57,13 @@ export interface BootedGame {
    * fresh BootedGame without the mark.
    */
   behindStorage?: true | undefined;
+  /**
+   * The stored project this game runs was removed (in another tab). It is
+   * behind storage for good: no reload brings it back. Nothing — checkpoint,
+   * save slot, timeline, map or project write — is stored for it; the game
+   * plays on in memory and can still be downloaded.
+   */
+  removed?: true | undefined;
 }
 
 export interface InstalledGameDescriptor {
