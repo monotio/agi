@@ -353,7 +353,15 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     const rev = planRevisionNow();
     const durableAtIssue = state.planDurableRev;
     const ticket = ++planWriteTicket;
-    const ok = (await deps.onWorldEdited?.()) ?? true;
+    let ok: boolean;
+    try {
+      ok = (await deps.onWorldEdited?.()) ?? true;
+    } catch (error) {
+      // A newer save elsewhere: retrying cannot help, reloading the game can.
+      if (ticket === planWriteTicket)
+        planSaveError.value = error instanceof Error ? error.message : String(error);
+      return;
+    }
     if (ticket !== planWriteTicket) return; // a newer write owns the verdict
     if (!ok) {
       planSaveError.value =

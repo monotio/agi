@@ -763,6 +763,51 @@ export function updateAuthoredGameFiles(
 }
 
 /**
+ * Replace the project's files only while the record still holds `expected`:
+ * its stamped revision (every write stamps `library.revision` from the files,
+ * so no hash is taken here) and, when given, its history lifetime. A record
+ * that already holds `current` (the files' own revision) is left as it is.
+ * "stale" when the record moved elsewhere, "failed" when storage refused.
+ */
+export function updateAuthoredGameFilesAt(
+  projectId: ProjectId,
+  files: Record<string, Uint8Array>,
+  expected: { revision: ResourceRevision; current: ResourceRevision; lifetime?: string | null },
+): Promise<"saved" | "stale" | "failed"> {
+  return serializeWrite(projectId, async () => {
+    try {
+      let lifetime: string | null = null;
+      const data = await readBody(projectId, (value) => {
+        lifetime = value;
+      });
+      if (
+        !data ||
+        lifetime === null ||
+        (expected.lifetime !== undefined && expected.lifetime !== lifetime)
+      )
+        return "stale";
+      // The stamp is enough on every record this app writes; one without it
+      // (or with a stamp that disagrees) is judged by its files instead.
+      let stored = data.library?.revision;
+      if (stored !== expected.current && stored !== expected.revision)
+        stored = await gameRevision(data.files);
+      if (stored === expected.current) return "saved";
+      if (stored !== expected.revision) return "stale";
+      data.files = files;
+      if (files["WORDS.TOK"])
+        data.words = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
+      await writeBody(data, { expectedGeneration: data.generation, expectedLifetime: lifetime });
+      return "saved";
+    } catch (error) {
+      if (error instanceof ConcurrencyConflictError || error instanceof ProjectDeletedError)
+        return "stale";
+      console.error("Project autosave failed:", error);
+      return "failed";
+    }
+  });
+}
+
+/**
  * Write the project's reference-art list under the same generation check the
  * other project writes share. Reference bytes are project data: they never
  * join `files`, so a reference write cannot move the playable revision.

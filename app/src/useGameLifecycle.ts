@@ -5,7 +5,7 @@
  * getBootedGame.
  */
 import { continuationTranscript } from "./projectArchive.ts";
-import { detectKnownGame, gameRevision, updateBootedResources } from "./gameMetadata.ts";
+import { detectKnownGame, gameRevision } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import type { AgentSession, BootResources } from "./agent/agentSession.ts";
 import { loadAuthoringStack } from "./agent/authoringLoader.ts";
@@ -17,7 +17,6 @@ import {
   loadAuthoredGameWithHistoryLifetime,
   readHistoryLifetime,
   saveAuthoredGameWithLifetime,
-  updateAuthoredGameFiles,
 } from "./gameStorage.ts";
 import { gameStorageKey, type BootedGame, type CurrentGame, type ProjectId } from "./gameTypes.ts";
 import { projectId, requireProjectId } from "../../src/gameIdentity.ts";
@@ -559,14 +558,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     if (!data) throw new Error("The current game metadata is unavailable.");
     const files = await link.query("exportFiles");
     if (!files || booted !== game) throw new Error("The game changed during export. Try again.");
-    await updateBootedResources(game, files);
-    if (
-      !game.installed &&
-      !(await updateAuthoredGameFiles(game.projectId!, files).catch(() => false))
-    ) {
-      logAgent("error", "Browser storage could not save this world. Keep the downloaded ZIP.");
-    }
-    const assembled = authoring.assembleExportData(data, game, session, files);
+    // The download is the running game as it stands; storage is not written.
+    // Every resource write already saved its files before installing them,
+    // so a running game that differs from the record is behind it (a Keep
+    // it never loaded, a save from another tab), and writing its files back
+    // would roll that newer save back.
+    const words = files["WORDS.TOK"]
+      ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
+      : game.words;
+    const assembled = authoring.assembleExportData(data, { ...game, words }, session, files);
     const progressKey = gameStorageKey(game);
     return { data: assembled, progressKey };
   }

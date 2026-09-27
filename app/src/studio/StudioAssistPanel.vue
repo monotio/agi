@@ -37,6 +37,11 @@ const {
   collapsible?: boolean;
 }>();
 
+const emit = defineEmits<{
+  /** The request failed behind a newer save: reload the game from storage. */
+  reload: [];
+}>();
+
 const ai = inject(aiSettingsKey, null);
 const headingId = useId();
 const input = useTemplateRef("input");
@@ -284,14 +289,16 @@ defineExpose({ focus });
           <li v-for="(step, index) in assist.steps.value" :key="index">{{ step }}</li>
         </ol>
       </div>
-      <p
-        v-else-if="phase === 'failed'"
-        class="assist__warn"
-        role="alert"
-        data-testid="assist-error"
-      >
-        {{ assist.error.value }}
-      </p>
+      <template v-else-if="phase === 'failed'">
+        <p class="assist__warn" role="alert" data-testid="assist-error">
+          {{ assist.error.value }}
+        </p>
+        <div v-if="assist.behindStorage.value" class="assist__actions">
+          <UiButton size="sm" data-testid="assist-reload" @click="emit('reload')">
+            Reload game
+          </UiButton>
+        </div>
+      </template>
       <p v-else-if="OUTCOMES[phase]" class="assist__note" data-testid="assist-outcome">
         {{ OUTCOMES[phase] }}
       </p>

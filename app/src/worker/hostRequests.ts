@@ -82,8 +82,7 @@ export function createHostRequests(ctx: WorkerContext) {
     objects?: Uint8Array;
     tests?: Uint8Array;
   }): void {
-    for (const resource of patch.resources)
-      ctx.engine!.patchResource(resource.kind, resource.num, resource.payload);
+    ctx.engine!.patchResources(patch.resources);
     if (patch.words) {
       const entries = parseWordsTok(patch.words);
       ctx.boot.liveDictionary.clear();

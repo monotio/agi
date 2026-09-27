@@ -448,9 +448,54 @@ test("an unselected item may not be removed, re-kinded or relocked; the selectio
     itemId: "bridge",
     label: "Span",
     kind: "mixed",
-    locked: true,
   });
   assert.deepEqual(checkCandidate(before, renamed, scope), { ok: true, violations: [] });
+});
+
+test("a proposal never locks or unlocks an item, selected or new", () => {
+  const before = compile(BRIDGE_SOURCE);
+  const scope = walkScope(before);
+  const lockRule = 'but only the creator locks or unlocks items: leave "locked" out of setItemMeta';
+  // Locking the selection changes no pixel: the lock alone is refused.
+  assert.deepEqual(
+    checkCandidate(
+      before,
+      edit(before, { type: "setItemMeta", itemId: "bridge", locked: true }),
+      scope,
+    ).violations,
+    [{ constraint: "item-lock", message: `item 'bridge' ("Bridge") would be locked, ${lockRule}` }],
+  );
+  // A selected item the creator locked stays locked: unlocking it to move it is refused.
+  const locked = compile(BRIDGE_SOURCE.replace('"Bridge" art', '"Bridge" art locked'));
+  const unlockedAndMoved = edit(
+    locked,
+    { type: "setItemMeta", itemId: "bridge", locked: false },
+    { type: "moveItem", itemId: "bridge", dx: 0, dy: -1 },
+  );
+  assert.deepEqual(
+    checkCandidate(locked, unlockedAndMoved, walkScope(locked)).violations.filter(
+      (v) => v.constraint === "item-lock",
+    ),
+    [
+      {
+        constraint: "item-lock",
+        message: `item 'bridge' ("Bridge") would be unlocked, ${lockRule} and ask the creator to unlock it`,
+      },
+    ],
+  );
+  // A new item may not arrive locked.
+  const lockedCrossing = edit(before, walkRect(60, 99), {
+    type: "setItemMeta",
+    itemId: "crossing",
+    locked: true,
+  });
+  assert.deepEqual(checkCandidate(before, lockedCrossing, scope).violations, [
+    {
+      constraint: "item-lock",
+      message: `new item 'crossing' ("Crossing") would be locked, ${lockRule}`,
+    },
+  ]);
+  assert.deepEqual(checkCandidate(before, edit(before, walkRect(60, 99)), scope).violations, []);
 });
 
 test("without an allowedMask a target licenses only its own footprint on each plane", () => {

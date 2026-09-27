@@ -150,7 +150,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
         worker.postMessage({ type: "boot", files, words });
         await wait((message): message is Reply<"booted"> => message.type === "booted");
         await cycle(5); // The old key has been picked up in this live session.
-        for (const patch of turn.patched) worker.postMessage({ type: "patch", ...patch });
+        worker.postMessage({ type: "patch", resources: turn.patched });
         // Negative control: exactly the old broken transport. Logic arrives but
         // parser vocabulary and inventory files do not, so sparkle cannot fire.
         worker.postMessage({ type: "input", text: "sparkle" });

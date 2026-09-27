@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import * as storage from "../src/gameStorage.ts";
+import { gameRevision } from "../src/gameMetadata.ts";
 import { readGameSaves, writeGameSave } from "../src/gameSaves.ts";
 import { mapKey, writeMapSidecar } from "../src/roomMapStore.ts";
 import {
@@ -1103,4 +1104,44 @@ test("reconciling the index with history records present reads only project bodi
     "the tape survived the reconcile",
   );
   assert.ok(await loadProjectHistory(projectId), "the tape still reads back");
+});
+
+test("an autosave judges a record whose stamp drifted from its files by the files", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  const id = testProjectId("drifted-stamp");
+  await storage.saveAuthoredGame(id, {
+    title: "Drifted",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+  // The stored bytes moved without their stamp: the game booted from these
+  // bytes, so its autosave is not "changed elsewhere".
+  const body = indexedDbRecords.get("drifted-stamp") as Record<string, unknown>;
+  (body["files"] as Record<string, Uint8Array>)["VOL.0"] = Uint8Array.of(7);
+  indexedDbRecords.set("drifted-stamp", body);
+  const booted = await gameRevision({ "VOL.0": Uint8Array.of(7) });
+  const next = { "VOL.0": Uint8Array.of(9) };
+  assert.equal(
+    await storage.updateAuthoredGameFilesAt(id, next, {
+      revision: booted,
+      current: await gameRevision(next),
+    }),
+    "saved",
+  );
+  assert.deepEqual((await storage.loadAuthoredGame(id))?.files, next);
 });

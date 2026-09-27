@@ -57,6 +57,15 @@ export interface GameContainer {
    */
   putResource(kind: ResourceKind, num: number, payload: Uint8Array): void;
 
+  /**
+   * Add or replace several resources as one transaction: every replacement
+   * lands, or (on any refusal) none does. A later entry for the same
+   * resource wins.
+   */
+  putResources(
+    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[],
+  ): void;
+
   /** Replace auxiliary game metadata with an owned copy for live remix and export. */
   putFile(name: "WORDS.TOK" | "OBJECT" | "TESTS.JSON", payload: Uint8Array): void;
 

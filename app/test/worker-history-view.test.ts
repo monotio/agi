@@ -981,7 +981,7 @@ test("a take carries the authoring checkpoint belonging to the adopted position"
   tick(2);
   // A commit whose checkpoint never reached the tape: the patch lands with
   // no authoring event after it.
-  send({ type: "patch", kind: "picture", num: 2, payload: PICTURE_1 });
+  send({ type: "patch", resources: [{ kind: "picture", num: 2, payload: PICTURE_1 }] });
   tick(2);
   send({ type: "pause", paused: true });
   const recording = asRecording(collectSegments(h.control));

@@ -476,9 +476,13 @@ test("the full boundary matrix replays to the same observed state", () => {
   // boundary that moves patchGeneration onto the marks.
   send({
     type: "patch",
-    kind: "logic",
-    num: 12,
-    payload: assembleLogic("assignn(v63,42);return;", { dictionary: new Map() }).payload,
+    resources: [
+      {
+        kind: "logic",
+        num: 12,
+        payload: assembleLogic("assignn(v63,42);return;", { dictionary: new Map() }).payload,
+      },
+    ],
   });
   send({ type: "debugWrite", id: 9, flags: [[214, 1]] });
   tick(3);
