@@ -17,8 +17,8 @@
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.127.0",
-    "openai": "^7.19.0",
+    "@anthropic-ai/sdk": "^0.128.0",
+    "openai": "^7.22.0",
     "three": "^0.186.0",
     "vue": "^3.5.43"
   },
