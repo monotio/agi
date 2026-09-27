@@ -144,7 +144,9 @@ test("Open in Studio shows its picture in the centre and closing resumes the gam
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   await expect(studio.getByTestId("studio-picture")).toHaveText("PIC 5");
-  await expect(studio.getByTestId("studio-bytes")).toContainText(`${PIC_5.length} B`);
+  await expect(studio.getByTestId("studio-bytes")).toContainText(
+    `${PIC_5.length.toLocaleString("en-US")} bytes`,
+  );
   await expect(studio).toContainText("Great Hall");
   // The live stage waits hidden (never remounted) while Studio has the centre.
   await expect(page.locator(".game-surface:visible")).toHaveCount(0);

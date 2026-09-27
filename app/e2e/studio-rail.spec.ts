@@ -146,7 +146,9 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
     overlaps((await stage.view.boundingBox())!, (await stage.legend.boundingBox())!),
     "the open legend overlaps the view bar",
   ).toBe(false);
-  await expect(studio.getByTestId("studio-size")).toHaveText(/^\d+ B · \d+ cmds$/);
+  await expect(studio.getByTestId("studio-size")).toHaveText(
+    /^[\d,]+ bytes · [\d,]+ drawing commands$/,
+  );
   await page.screenshot({ path: test.info().outputPath("studio-walk-1024x600.png") });
   await page.keyboard.press("1");
   await studio.locator('[data-row="west-wall"]').click();

@@ -27,6 +27,7 @@ import StudioKeySheet from "../StudioKeySheet.vue";
 import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
+import { useFold } from "../useFold.ts";
 import StudioStageNotes from "../StudioStageNotes.vue";
 import StudioZoom from "../StudioZoom.vue";
 import { useStudioFocus } from "../useStudioFocus.ts";
@@ -512,6 +513,23 @@ function history(which: "undo" | "redo"): void {
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 const calm = useStudioCalm();
 const keySheet = spriteKeySheet();
+/**
+ * The options bar folds what it cannot fit, least used first: the backdrop,
+ * the grid and the baseline into More, then the "1 px" note, then the contact
+ * sheet into More. The tool's own options never run under the view's.
+ */
+const optionsBar = useTemplateRef("optionsBar");
+const optionsFold = useFold(optionsBar, 3, (bar) => {
+  const options = bar.querySelector<HTMLElement>(".sprite-options");
+  return !options || options.scrollWidth <= options.clientWidth;
+});
+const viewFold = computed(() => [0, 1, 1, 2][optionsFold.level.value] ?? 2);
+watch(
+  () => [tools.tool.value, color.value, sheet.value],
+  () => void optionsFold.refit(),
+  { flush: "post" },
+);
+
 /** The options bar's paint colour, for the tools that paint with it. */
 const paints = computed(() => ["pencil", "fill", "line", "rect"].includes(tools.tool.value));
 exposeSpriteDraft(draft);
@@ -594,6 +612,7 @@ const status = computed(() => {
     />
 
     <div
+      ref="optionsBar"
       class="sprite-studio__options"
       role="group"
       aria-label="Tool and view options"
@@ -617,7 +636,11 @@ const status = computed(() => {
         <span v-else-if="tools.tool.value === 'pipette'" class="sprite-options__note"
           >Picks the paint colour</span
         >
-        <span v-if="tools.tool.value !== 'recolor'" class="sprite-options__note">1 px</span>
+        <span
+          v-if="tools.tool.value !== 'recolor' && optionsFold.level.value < 2"
+          class="sprite-options__note"
+          >1 px</span
+        >
       </div>
       <span class="sprite-studio__spacer"></span>
       <SpriteViewBar
@@ -629,6 +652,7 @@ const status = computed(() => {
         v-model:baseline="showBaseline"
         v-model:backdrop="backdrop"
         :room-backdrop="backdropRoom?.room ?? null"
+        :fold="viewFold"
       />
     </div>
 
@@ -787,7 +811,7 @@ const status = computed(() => {
       }}</span>
       <span class="sprite-studio__spacer"></span>
       <span data-testid="sprite-bytes"
-        >VIEW {{ viewNumber }} · {{ draft.bytes.value.length.toLocaleString("en") }} B</span
+        >VIEW {{ viewNumber }} · {{ draft.bytes.value.length.toLocaleString("en") }} bytes</span
       >
       <span>AGI {{ profile.id }}</span>
       <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
@@ -860,9 +884,11 @@ const status = computed(() => {
 }
 .sprite-options {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-4);
   min-width: 0;
+  overflow: hidden;
   color: var(--ink-2);
   font-size: var(--text-sm);
   white-space: nowrap;

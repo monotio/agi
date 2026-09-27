@@ -181,7 +181,9 @@ Studio on the waving robot._
   leaving with unkept changes asks first.
 - **Test walks and doors** live in the Walk lens. A test walk runs the real game
   in a throwaway copy and reports Reached, Blocked at whatever was in the way,
-  the room it went to, or the message that stopped it. Door boxes and edge exits
+  the room it went to, or the message that stopped it. A goal on a door box or
+  an edge walks through it (to the edge, then one step across), and a door a
+  walk went through is marked tested. Door boxes and edge exits
   lead to other rooms; a door can follow its doorway art, so moving the art
   moves the door in the same Keep. Exits written in the room's own logic stay
   read-only. Right-click any spot and **Play here** jumps into the game there.

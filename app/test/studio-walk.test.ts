@@ -34,7 +34,9 @@ import { useUndoOrder } from "../src/studio/useUndoOrder.ts";
 import type { StudioNotice } from "../src/studio/useStudioNotice.ts";
 import {
   destinationLabel,
+  doorAtGoal,
   doorStatus,
+  doorTestNote,
   edgeAt,
   entrySpot,
   outcomeTitle,
@@ -242,6 +244,61 @@ describe("walkView: doors and words", () => {
     assert.equal(words("room_changed", 9), "Went to room 9");
     assert.equal(words("modal"), "A message stopped the walk");
     assert.equal(words("start_blocked"), "The start is not a spot the player can stand on");
+  });
+
+  it("a goal on a door box or against an edge exit aims the walk at that door", () => {
+    const doors = walkDoors(rules, [
+      contract({ rule: "door-1", destination: 2 }),
+      contract({ rule: "exit-south-1", edge: "bottom", destination: 3 }),
+      contract({ edge: "left", destination: 5 }),
+    ]);
+    const aimed = (x: number, y: number) => doorAtGoal(doors, { x, y }, 36)?.id ?? null;
+    assert.equal(aimed(125, 127), "door-1", "inside the box");
+    assert.equal(aimed(0, 130), "native-1", "on the west edge");
+    assert.equal(aimed(2, 90), "native-1", "within two columns of it");
+    assert.equal(aimed(3, 130), null);
+    assert.equal(aimed(80, 166), "exit-south-1");
+    assert.equal(aimed(159, 130), null, "no exit leaves by the east edge");
+    assert.equal(aimed(60, 140), null);
+  });
+
+  it("words a walk aimed at a door that did not go through it", () => {
+    const aimed = (outcome: RouteTestResult["outcome"], blocked: string | null = null) =>
+      outcomeTitle({ outcome, room: 1 }, blocked, ROOMS, false, "the west edge");
+    assert.equal(
+      aimed("blocked", "Rope barrier"),
+      "Couldn't reach the west edge from here: blocked at Rope barrier",
+    );
+    assert.equal(aimed("blocked"), "Couldn't reach the west edge from here");
+    assert.equal(
+      aimed("budget"),
+      "Couldn't reach the west edge from here: the walk ran out of time",
+    );
+    assert.equal(aimed("stayed"), "Reached the west edge, but the game stayed in this room");
+    assert.equal(aimed("reached"), "Reached the west edge, but the game stayed in this room");
+    assert.equal(aimed("room_changed"), "Went to room 1 (Door hall)");
+    assert.equal(aimed("modal"), "A message stopped the walk");
+  });
+
+  it("says how to test a door, or why the last walk did not", () => {
+    const edge = { shape: "edge" as const };
+    assert.equal(doorTestNote(edge, true, null), null);
+    assert.equal(
+      doorTestNote(edge, false, null),
+      "To test it: set a start with the test walk tool (T), then click this door as the goal.",
+    );
+    assert.equal(
+      doorTestNote(
+        edge,
+        false,
+        "Last test walk from 30,140: Couldn't reach the west edge from here.",
+      ),
+      "Last test walk from 30,140: Couldn't reach the west edge from here.",
+    );
+    assert.equal(
+      doorTestNote({ shape: "other" }, false, null),
+      "A test walk can't take an exit made by a command or script: play the game to test it.",
+    );
   });
 
   it("places a walk where it ended, or at the start it asked for when the engine refused it", () => {
@@ -750,6 +807,97 @@ describe("test walks", () => {
     rig.stop();
   });
 
+  it("a goal against an edge exit walks to that edge and steps across it", async () => {
+    let outcome: RouteTestResult = {
+      reached: true,
+      outcome: "room_changed",
+      end: { x: 150, y: 140 },
+      room: 2,
+      steps: 40,
+      cycles: 42,
+      reason: "Crossed",
+    };
+    const rig = walkRig({ runner: async () => outcome });
+    const { walk } = rig;
+    const settle = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    };
+    assert.equal(walk.addEdge("left"), true);
+    walk.selectDoor(null);
+    walk.clickWalk({ x: 40, y: 140 });
+    walk.aim.value = { x: 1, y: 135 };
+    assert.deepEqual(
+      walk.estimate.value?.path?.at(-1),
+      { x: 0, y: 135 },
+      "the estimate ends on the edge",
+    );
+    walk.clickWalk({ x: 1, y: 135 });
+    await settle();
+    const run = rig.runs.at(-1)!;
+    assert.deepEqual([run.to, run.cross], [{ x: 0, y: 135 }, "left"]);
+    assert.equal(walk.result.value?.title, "Went to room 2 (Green room)");
+    assert.equal(walk.result.value?.door, "exit-west-1");
+    assert.equal(walk.tested.value.has("exit-west-1"), true);
+
+    // A walk that does not get there says so, and the door says why it is untested.
+    walk.clearWalk();
+    outcome = { ...outcome, reached: false, outcome: "blocked", end: { x: 20, y: 122 }, room: 1 };
+    walk.clickWalk({ x: 40, y: 140 });
+    walk.clickWalk({ x: 0, y: 150 });
+    await settle();
+    assert.equal(
+      walk.result.value?.title.startsWith("Couldn't reach the west edge from here"),
+      true,
+    );
+    assert.equal(walk.tested.value.has("exit-west-1"), false);
+    assert.equal(
+      walk.doorNote("exit-west-1"),
+      `Last test walk from 40,140: ${walk.result.value?.title}.`,
+    );
+    rig.stop();
+  });
+
+  it("a goal on a door box aims at the floor inside it, or says no floor reaches it", async () => {
+    const rig = walkRig({
+      runner: async () => ({
+        reached: false,
+        outcome: "room_changed",
+        end: { x: 20, y: 150 },
+        room: 2,
+        steps: 20,
+        cycles: 22,
+        reason: "Changed room",
+      }),
+    });
+    const { walk } = rig;
+    const settle = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    };
+    // A box straddling the rope (y 121): its centre is on the wall, its floor from y 122.
+    walk.addDoor({ x1: 60, y1: 110, x2: 72, y2: 125 });
+    walk.clickWalk({ x: 66, y: 150 });
+    walk.clickWalk({ x: 66, y: 115 });
+    await settle();
+    assert.deepEqual(rig.runs.at(-1)!.to, { x: 66, y: 122 });
+    assert.equal(rig.runs.at(-1)!.cross, undefined);
+    assert.equal(walk.tested.value.has("door-1"), true);
+
+    // A box wholly beyond the rope: no floor in reach, no walk, and it says so.
+    walk.addDoor({ x1: 60, y1: 60, x2: 72, y2: 100 });
+    walk.clickWalk({ x: 66, y: 150 });
+    walk.clickWalk({ x: 66, y: 80 });
+    await settle();
+    assert.equal(rig.runs.length, 1, "no engine walk without a floor cell to aim at");
+    assert.equal(
+      walk.failure.value,
+      "Couldn't reach the door box from here: no floor in or at it is in reach of the start.",
+    );
+    assert.equal(walk.doorNote("door-2"), `Last test walk from 66,150: ${walk.failure.value}`);
+    rig.stop();
+  });
+
   it("walks the tutorial lab for real: from the west door to the lever plate", async () => {
     const tutorial = buildTutorial();
     const files = new Map(Object.entries(tutorial.files));
@@ -808,6 +956,21 @@ describe("test walks", () => {
     while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
     assert.equal(walk.result.value?.title, "Reached", walk.result.value?.result.reason ?? "");
     assert.deepEqual(walk.result.value?.result.end, { x: 30, y: 140 });
+
+    // A goal on the west edge: the engine walks there, steps across, and the
+    // room's own v2 check sends ego to the gallery. That certifies the door.
+    assert.equal(walk.tested.value.has(west.id), false);
+    walk.clickWalk({ x: 30, y: 140 });
+    walk.clickWalk({ x: 0, y: 130 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    while (walk.running.value) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(
+      walk.result.value?.title,
+      "Went to room 1 (Picture Gallery)",
+      walk.result.value?.result.reason ?? "",
+    );
+    assert.equal(walk.result.value?.door, west.id);
+    assert.equal(walk.tested.value.has(west.id), true);
     scope.stop();
   });
 });

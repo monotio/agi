@@ -34,6 +34,7 @@ import {
   DEFAULT_BACKDROP,
   feetWarning,
   parseBackdrop,
+  paceWords,
   previewPacing,
   type SpriteBackdrop,
   loopFacing,
@@ -532,6 +533,28 @@ describe("sprite view helpers", () => {
       cycleTime: 1,
       object: null,
     });
+  });
+
+  it("says the preview's pace in plain words: poses and game ticks, never cycles", () => {
+    const ego = { intervalMs: 300, cycleTime: 6, object: 0 };
+    assert.deepEqual(paceWords(ego, "game"), {
+      text: "The hero changes pose every 6 game ticks",
+      title:
+        "At game speed each pose shows for 300 ms: the hero changes pose every 6 game ticks, at the game's speed setting.",
+    });
+    assert.equal(
+      paceWords({ intervalMs: 50, cycleTime: 1, object: 3 }, "game").text,
+      "Object 3 changes pose every game tick",
+    );
+    const idle = paceWords({ intervalMs: 50, cycleTime: 1, object: null }, "game");
+    assert.equal(idle.text, "Not on screen now: a new pose every 50 ms");
+    assert.match(idle.title, /nothing on screen uses this view right now/);
+    assert.equal(paceWords(ego, "half").text, "Half speed: a new pose every 600 ms");
+    for (const pace of ["game", "half"] as const)
+      for (const pacing of [ego, { intervalMs: 50, cycleTime: 1, object: null }]) {
+        const words = paceWords(pacing, pace);
+        assert.doesNotMatch(`${words.text} ${words.title}`, /\bcycles?\b|\bego\b|a cel\b/);
+      }
   });
 
   it("a backdrop is view only: the cel and the view's bytes stay as they were", () => {

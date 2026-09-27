@@ -7,6 +7,7 @@ import type { StudioTool } from "./studioTools.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
 import {
   doorStatus,
+  doorTestNote,
   EDGE_NAMES,
   outcomeTone,
   playTarget,
@@ -22,7 +23,9 @@ import {
  * (what to click next, "Walking…", and the result card with Test again and
  * Play here), and the room's doors: a list, and for the selected door where
  * it leads, its condition, the art it follows, its box, and its two-sided
- * status. Native doors are read-only here and open as text instead. Every
+ * status, with how to test it (or why the last walk aimed at it did not go
+ * through). Doors written in the room's script are read-only here and open
+ * as text instead. Every
  * control is a plain form control, so the keyboard reaches all of it.
  */
 const { walk, tool, flags, items } = defineProps<{
@@ -48,6 +51,12 @@ const place = computed(() =>
 const selected = computed(() => walk.selectedDoor.value);
 const status = computed(() =>
   selected.value ? doorStatus(selected.value, walk.tested.value.has(selected.value.id)) : null,
+);
+/** How to test the selected door, or why the last walk aimed at it did not go through. */
+const testNote = computed(() =>
+  selected.value && status.value
+    ? doorTestNote(selected.value, status.value.testedOk, walk.doorNote(selected.value.id))
+    : null,
 );
 /** Play here from where the walk ended, in the room it ended in (walkView.ts `playTarget`). */
 const playSpot = computed<PlayHereTarget | null>(() =>
@@ -241,8 +250,17 @@ const roomChoices = computed(() => {
           >
             <span>{{ walk.labelOf(door) }}</span>
             <em>{{ describe(door) }}</em>
-            <UiChip v-if="!door.editable" :tone="door.planned ? 'warn' : 'neutral'">
-              {{ door.planned ? "planned" : "native" }}
+            <UiChip
+              v-if="!door.editable"
+              :tone="door.planned ? 'warn' : 'neutral'"
+              :title="
+                door.planned
+                  ? 'Planned: nothing in the room\'s script leads there yet'
+                  : 'Written in the room\'s script: change it as text'
+              "
+              data-testid="walk-door-kind"
+            >
+              {{ door.planned ? "planned" : "in script" }}
             </UiChip>
           </button>
         </li>
@@ -254,6 +272,9 @@ const roomChoices = computed(() => {
           <UiChip :tone="status?.testedOk ? 'ok' : 'neutral'" dot data-testid="door-tested">
             {{ status?.tested }}
           </UiChip>
+        </p>
+        <p v-if="testNote" class="walk-panel__note" data-testid="door-test-note">
+          {{ testNote }}
         </p>
         <template v-if="selected.editable">
           <label class="walk-panel__field">
@@ -358,8 +379,8 @@ const roomChoices = computed(() => {
         </template>
         <template v-else>
           <p class="walk-panel__note" data-testid="door-native">
-            {{ walk.labelOf(selected) }}: this exit is written in the room's own logic, which the
-            door tools can't change. Edit it as text, or ask the assistant.
+            {{ walk.labelOf(selected) }}: this exit is written in the room's script, which the door
+            tools can't change. Edit it as text, or ask the assistant.
           </p>
           <UiButton
             size="sm"
@@ -496,7 +517,8 @@ const roomChoices = computed(() => {
   cursor: pointer;
 }
 .walk-panel__door em {
-  flex: 1;
+  /* A long description wraps onto its own line rather than into a narrow column. */
+  flex: 1 1 9em;
   color: var(--ink-3);
   font-style: normal;
   font-size: var(--text-xs);
