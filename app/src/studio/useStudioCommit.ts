@@ -27,6 +27,19 @@ export interface StudioCommitFailure {
   readonly behindStorage?: boolean | undefined;
 }
 
+/**
+ * A stale refusal because the project was removed in another tab: reopening
+ * cannot help, so the Keep banner shows the transaction's own words. Read
+ * from a typed `reason: "removed"` on the error when the transaction sets
+ * one, else from the removed-project wording (projectTransaction.ts
+ * PROJECT_REMOVED_MESSAGE).
+ */
+function projectRemoved(error: ResourceCommitError): boolean {
+  if (error.code !== "stale") return false;
+  if ((error as { readonly reason?: unknown }).reason === "removed") return true;
+  return error.message.startsWith("This game was removed in another tab");
+}
+
 /** The Studio's wording for a refusal; the transaction's own text otherwise. */
 export function studioCommitFailure(error: unknown): StudioCommitFailure {
   if (!(error instanceof ResourceCommitError))
@@ -34,7 +47,9 @@ export function studioCommitFailure(error: unknown): StudioCommitFailure {
   if (error.code === "stale")
     return {
       code: "stale",
-      message: "The game changed since you opened Studio. Reopen to continue.",
+      message: projectRemoved(error)
+        ? error.message
+        : "The game changed since you opened Studio. Reopen to continue.",
       behindStorage: error.behindStorage,
     };
   return { code: error.code, message: error.message, projectId: error.projectId };

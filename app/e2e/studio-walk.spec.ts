@@ -162,6 +162,47 @@ test("Play here from the canvas menu; the lab's native doors are read-only", asy
   await expect.poll(() => egoAt(page)).toEqual([2, 70, 150]);
 });
 
+test("a test walk to the lab's west edge steps across it and certifies that exit", async ({
+  page,
+}) => {
+  await playTutorial(page);
+  const studio = await openRoomStudio(page, 2);
+  await page.keyboard.press("3");
+  const westEdge = studio.getByTestId("walk-door").filter({ hasText: "west edge" });
+  await expect(westEdge.getByTestId("walk-door-kind")).toHaveText("in script");
+  await westEdge.click();
+  const editor = studio.getByTestId("door-editor");
+  await expect(editor.getByTestId("door-tested")).toHaveText("Not tested yet");
+  await expect(editor.getByTestId("door-test-note")).toHaveText(
+    "To test it: set a start with the test walk tool (T), then click this door as the goal.",
+  );
+
+  // A goal on the west edge: the walk goes to the edge, steps across it, and
+  // the lab's own logic sends the player to the gallery.
+  await page.keyboard.press("t");
+  await clickCell(page, 30, 140);
+  await clickCell(page, 0, 130);
+  const card = studio.getByTestId("walk-result");
+  await expect(studio.getByTestId("walk-result-title")).toHaveText(
+    "Went to room 1 (Picture Gallery)",
+    { timeout: 30_000 },
+  );
+  await expect(card).toHaveAttribute("data-outcome", "room_changed");
+  await expect(studio.getByTestId("walk-result-end")).toHaveText(/ in room 1$/);
+  await expect(editor.getByTestId("door-tested")).toHaveText("Tested ✓ (test walk)");
+  await expect(editor.getByTestId("door-test-note")).toHaveCount(0);
+  await shot(page, "walk-edge-certified");
+
+  // The edge's arrow as the goal does the same.
+  await clickCell(page, 30, 140);
+  await expect(card).toHaveCount(0);
+  await studio.locator('[data-role="door"][data-destination="1"] polygon').click();
+  await expect(studio.getByTestId("walk-result-title")).toHaveText(
+    "Went to room 1 (Picture Gallery)",
+    { timeout: 30_000 },
+  );
+});
+
 test("a test walk from the keyboard alone", async ({ page }) => {
   await playTutorial(page);
   const studio = await openRoomStudio(page, 2);

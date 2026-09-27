@@ -112,6 +112,29 @@ export function previewPacing(
 }
 
 /**
+ * The preview's pace in plain words: one short line (the milliseconds of
+ * the game's own pace are in the title), and the whole sentence for its title. Game ticks are the interpreter's logic cycles; a pose is a
+ * cel. At half speed each pose shows twice as long.
+ */
+export function paceWords(
+  pacing: PreviewPacing,
+  pace: "game" | "half",
+): { readonly text: string; readonly title: string } {
+  const { intervalMs, cycleTime, object } = pacing;
+  const ms = Math.round(intervalMs);
+  const every = cycleTime === 1 ? "every game tick" : `every ${cycleTime} game ticks`;
+  const who = object === null ? null : object === 0 ? "the hero" : `object ${object}`;
+  const title =
+    who === null
+      ? `At game speed each pose shows for ${ms} ms: nothing on screen uses this view right now, so the preview changes pose every game tick.`
+      : `At game speed each pose shows for ${ms} ms: ${who} changes pose ${every}, at the game's speed setting.`;
+  if (pace === "half") return { text: `Half speed: a new pose every ${ms * 2} ms`, title };
+  if (who === null) return { text: `Not on screen now: a new pose every ${ms} ms`, title };
+  const lead = who.charAt(0).toUpperCase() + who.slice(1);
+  return { text: `${lead} changes pose ${every}`, title };
+}
+
+/**
  * What shows behind a cel's transparent pixels while drawing. View only:
  * the view's transparent colour is data and stays as it is; a backdrop is
  * never part of the view and never reaches the draft.

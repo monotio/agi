@@ -4,7 +4,7 @@ import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import SpriteThumb from "../../world/SpriteThumb.vue";
-import { previewPacing, type PreviewCycler } from "./spriteView.ts";
+import { paceWords, previewPacing, type PreviewCycler } from "./spriteView.ts";
 
 /**
  * The loop at game speed, and beside it the loop to check a fix against:
@@ -90,24 +90,14 @@ const panes = computed(() =>
     return [{ index, cel, label }];
   }),
 );
-/** Where the pace comes from, said plainly: one short line, and the whole sentence as its title. */
-const paceText = computed(() => {
-  const { intervalMs, cycleTime, object } = pacing.value;
-  if (pace.value === "step")
-    return `cel ${celTotal.value ? wrap(tick.value, celTotal.value) : 0} of ${celTotal.value} · ← → step`;
-  const ms = `${Math.round(interval.value)} ms a cel`;
-  if (pace.value === "half") return `${ms} · half of ${Math.round(intervalMs)} ms`;
-  if (object === null) return `${ms}: no object shows it now`;
-  const who = object === 0 ? "ego" : `object ${object}`;
-  return `${ms} · ${who}: every ${cycleTime} cycle${cycleTime === 1 ? "" : "s"}`;
-});
-const paceTitle = computed(() => {
-  const { intervalMs, cycleTime, object } = pacing.value;
-  const game = `Game speed: ${Math.round(intervalMs)} ms a cel`;
-  return object === null
-    ? `${game}, 1 cel per cycle (no object shows this view now).`
-    : `${game}: ${object === 0 ? "ego" : `object ${object}`} changes cel every ${cycleTime} cycle${cycleTime === 1 ? "" : "s"}, at the game's cycle delay.`;
-});
+/** Where the pace comes from, said plainly (spriteView.ts `paceWords`), the whole sentence as its title. */
+const words = computed(() => paceWords(pacing.value, pace.value === "half" ? "half" : "game"));
+const paceText = computed(() =>
+  pace.value === "step"
+    ? `cel ${celTotal.value ? wrap(tick.value, celTotal.value) : 0} of ${celTotal.value} · ← → step`
+    : words.value.text,
+);
+const paceTitle = computed(() => words.value.title);
 function onKey(event: KeyboardEvent): void {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
   event.preventDefault();

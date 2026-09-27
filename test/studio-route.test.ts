@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PROFILES } from "../src/runtime/profile.ts";
-import { planRoute, testRoute, type RouteInput } from "../src/studio/route.ts";
+import { planDoorRoute, planRoute, testRoute, type RouteInput } from "../src/studio/route.ts";
 import { buildTutorial } from "../games/adventure-department/game.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -87,6 +87,54 @@ describe("planRoute", () => {
   });
 });
 
+describe("planDoorRoute", () => {
+  const { to: _to, ...open } = route({});
+
+  it("an edge exit aims at the nearest floor cell on that edge, then steps across it", () => {
+    const west = planDoorRoute(open, { edge: "left" });
+    assert.deepEqual(west.to, { x: 0, y: 140 });
+    assert.equal(west.cross, "left");
+    assert.deepEqual(west.path?.at(-1), { x: 0, y: 140 });
+    // A 3-wide actor's right edge is the last column its anchor can take.
+    const east = planDoorRoute({ ...open, egoWidth: 3 }, { edge: "right" });
+    assert.deepEqual(east.to, { x: 157, y: 140 });
+    assert.equal(east.cross, "right");
+    const north = planDoorRoute(open, { edge: "top" });
+    assert.equal(north.to?.y, 37, "the first row below the horizon");
+    assert.equal(north.cross, "top");
+  });
+
+  it("a wall along the edge moves the aim to the floor that reaches it", () => {
+    // The west edge is wall except rows 150-160.
+    const priority = plane((set) => {
+      for (let y = 37; y < 168; y++) if (y < 150 || y > 160) set(0, 5, y, 0);
+    });
+    const plan = planDoorRoute({ ...open, priority }, { edge: "left" });
+    assert.equal(plan.to?.x, 0);
+    assert.ok(plan.to!.y >= 150 && plan.to!.y <= 160, `aimed at ${JSON.stringify(plan.to)}`);
+  });
+
+  it("a door box on the wall aims at the floor inside it, not its centre", () => {
+    // A barrier line at y 112; the box straddles it, its centre on the wall.
+    const priority = plane((set) => set(0, 159, 112, 0));
+    const box = { x1: 70, y1: 100, x2: 90, y2: 115 };
+    const plan = planDoorRoute({ ...open, from: { x: 80, y: 140 }, priority }, { box });
+    assert.equal(plan.cross, null);
+    assert.ok(plan.to, plan.reason);
+    assert.ok(plan.to.x >= 70 && plan.to.x <= 90 && plan.to.y >= 113 && plan.to.y <= 115);
+    assert.deepEqual(plan.path?.at(-1), plan.to);
+  });
+
+  it("a door no floor reaches has no aim, and says so", () => {
+    const priority = plane((set) => set(0, 159, 112, 0));
+    const box = { x1: 70, y1: 60, x2: 90, y2: 100 };
+    const plan = planDoorRoute({ ...open, priority }, { box });
+    assert.equal(plan.to, null);
+    assert.equal(plan.path, null);
+    assert.match(plan.reason, /no floor/i);
+  });
+});
+
 describe("testRoute on the tutorial", () => {
   const tutorial = buildTutorial();
   const game = new Map(Object.entries(tutorial.files));
@@ -129,6 +177,23 @@ describe("testRoute on the tutorial", () => {
     assert.deepEqual([...(result.frames?.[0]?.subarray(0, 4) ?? [])], [0x89, 0x50, 0x4e, 0x47]);
   });
 
+  it("room 2: a walk onto the west edge steps across it into the gallery", () => {
+    const stood = testRoute({ game, room: 2, from: { x: 30, y: 140 }, to: { x: 0, y: 130 } });
+    assert.equal(stood.outcome, "reached", "standing on the edge is not crossing it");
+    assert.equal(stood.room, 2);
+    const crossed = testRoute({
+      game,
+      room: 2,
+      from: { x: 30, y: 140 },
+      to: { x: 0, y: 130 },
+      cross: "left",
+    });
+    assert.equal(crossed.outcome, "room_changed", crossed.reason);
+    assert.equal(crossed.room, 1);
+    assert.equal(crossed.reached, true);
+    assert.match(crossed.reason, /west edge/);
+  });
+
   it("an unstandable start is refused before any walk", () => {
     const result = testRoute({ game, room: 1, from: { x: 78, y: 121 }, to: { x: 30, y: 140 } });
     assert.equal(result.outcome, "start_blocked");
@@ -165,6 +230,20 @@ describe("testRoute outcomes", () => {
     assert.equal(result.outcome, "room_changed", result.reason);
     assert.equal(result.room, 2);
     assert.equal(result.reached, false);
+  });
+
+  it("a step across an edge the room's logic ignores stays in the room", () => {
+    const result = testRoute({
+      game,
+      room: 1,
+      from: { x: 40, y: 110 },
+      to: { x: 0, y: 110 },
+      cross: "left",
+    });
+    assert.equal(result.outcome, "stayed", result.reason);
+    assert.equal(result.room, 1);
+    assert.equal(result.reached, false);
+    assert.deepEqual(result.end, { x: 0, y: 110 });
   });
 
   it("a window the walk opens stops it for input", () => {

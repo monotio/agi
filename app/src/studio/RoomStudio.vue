@@ -78,6 +78,7 @@ import {
   maskOutlinePath,
   PANE_LABELS,
   panesFor,
+  pictureSize,
   subtitleExtra,
   type StudioLens,
   type StudioViewMode,
@@ -398,12 +399,13 @@ const undoOrder = useUndoOrder([
 
 const stage = useTemplateRef("stage");
 const panes = computed(() => panesFor(lens.value, mode.value));
-const { viewport, zoom, dpr, fitted, stageWidth, zoomBy, zoomToFit } = useStudioViewport(
+const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
 );
-/** A stage too narrow for the top bar's size chip: the footer carries the size. */
-const narrow = computed(() => stageWidth.value > 0 && stageWidth.value < 640);
+/** The top bar folded some of the picture's size away: the footer says all of it. */
+const sizeFolded = ref(false);
+const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
 /** An AI proposal awaiting a verdict: compiled, with the cells it changes. */
 const proposal = computed(() => {
@@ -889,6 +891,7 @@ function onKeyup(event: KeyboardEvent): void {
       @redo="undoOrder.redo"
       @keep="keepChanges()"
       @discard="leave.discarding.value = true"
+      @fold="(level) => (sizeFolded = level > 0)"
     >
       <template #share
         ><SharePictureMenu
@@ -1117,11 +1120,20 @@ function onKeyup(event: KeyboardEvent): void {
         >{{ calm.tip.value ?? toolHint }}</span
       >
       <span class="studio__spacer"></span>
-      <span v-if="narrow" data-testid="studio-size"
-        >{{ draft.compiled.value.bytes.length }} B · {{ total }} cmds</span
-      >
+      <span v-if="sizeFolded" class="studio__meta" data-testid="studio-size" :title="size.full">{{
+        size.full
+      }}</span>
       <span class="studio__meta">AGI {{ profile.id }}</span>
-      <span class="studio__meta">{{ model.trusted ? "authored source" : "disassembled" }}</span>
+      <span
+        class="studio__meta"
+        data-testid="studio-source-kind"
+        :title="
+          model.trusted
+            ? 'Studio edits the picture text you kept: it builds exactly the picture in the game.'
+            : 'No kept picture text matches the game\'s picture, so Studio rebuilt its steps from the bytes. Keep once and it becomes your source.'
+        "
+        >{{ model.trusted ? "your source" : "rebuilt from the game's bytes" }}</span
+      >
       <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
       <span class="studio__status-sep" aria-hidden="true"></span>
       <UiIconButton

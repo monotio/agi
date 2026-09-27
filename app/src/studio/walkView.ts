@@ -306,21 +306,86 @@ export function outcomeTitle(
   rooms: readonly { readonly room: number; readonly title: string }[],
   /** A room change no door explains: the room was reached, no door went through. */
   unattributed = false,
+  /** The door the walk was aimed at ("the west edge"), when its goal was a door. */
+  aimed: string | null = null,
 ): string {
+  const missed = (why: string | null) =>
+    `Couldn't reach ${aimed} from here${why ? `: ${why}` : ""}`;
+  const stayed = () => (aimed ? `Reached ${aimed}, but the game stayed in this room` : "Reached");
   const words: Record<RouteOutcome, () => string> = {
-    reached: () => "Reached",
-    blocked: () => `Blocked at ${blockedBy ?? "a barrier"}`,
+    reached: stayed,
+    stayed,
+    blocked: () =>
+      aimed
+        ? missed(blockedBy && `blocked at ${blockedBy}`)
+        : `Blocked at ${blockedBy ?? "a barrier"}`,
     room_changed: () => {
       const title = rooms.find((room) => room.room === result.room)?.title;
       return `${unattributed ? "Reached" : "Went to"} room ${result.room}${title ? ` (${title})` : ""}`;
     },
     modal: () => "A message stopped the walk",
     no_control: () => "The game took over the player's movement",
-    budget: () => "The walk ran out of time",
+    budget: () => (aimed ? missed("the walk ran out of time") : "The walk ran out of time"),
     start_blocked: () => "The start is not a spot the player can stand on",
     failed: () => "The walk did not run",
   };
   return words[result.outcome]();
+}
+
+/**
+ * The door a test walk's goal aims at: a door box the goal lies in, else an
+ * edge exit whose edge the goal lies against (within two cells of it, the
+ * top edge measured from the horizon). A walk aimed at a door goes to the
+ * floor in it, or steps across the edge (route.ts `planDoorRoute`).
+ */
+export function doorAtGoal<T extends Pick<WalkDoor, "box" | "edge" | "shape">>(
+  doors: readonly T[],
+  goal: Point,
+  horizon: number,
+): T | null {
+  const box = doors.find(
+    (door) =>
+      door.box &&
+      goal.x >= door.box.x1 &&
+      goal.x <= door.box.x2 &&
+      goal.y >= door.box.y1 &&
+      goal.y <= door.box.y2,
+  );
+  if (box) return box;
+  const near = edgesNear(goal, horizon);
+  return doors.find((door) => door.shape === "edge" && door.edge && near[door.edge]) ?? null;
+}
+
+/** The edges a cell lies against: within two cells, the top measured from the horizon. */
+function edgesNear(cell: Point, horizon: number): Record<EdgeSide, boolean> {
+  return {
+    left: cell.x <= 2,
+    right: cell.x >= SCREEN_WIDTH - 3,
+    top: cell.y <= Math.max(0, horizon) + 2,
+    bottom: cell.y >= SCREEN_HEIGHT - 3,
+  };
+}
+
+/** A door a walk aims at, in the result card's words: "the west edge", "the door box". */
+export function aimName(door: Pick<WalkDoor, "edge" | "shape">): string {
+  return door.shape === "edge" && door.edge ? `the ${EDGE_NAMES[door.edge]} edge` : "the door box";
+}
+
+/**
+ * The line under a door's test status: nothing once tested; why the last
+ * walk aimed at it did not go through (`miss`); else how to test it. An exit
+ * made by a command or script has no place to walk to.
+ */
+export function doorTestNote(
+  door: Pick<WalkDoor, "shape">,
+  testedOk: boolean,
+  miss: string | null,
+): string | null {
+  if (testedOk) return null;
+  if (miss) return miss;
+  if (door.shape === "other")
+    return "A test walk can't take an exit made by a command or script: play the game to test it.";
+  return "To test it: set a start with the test walk tool (T), then click this door as the goal.";
 }
 
 /** The test walk's state switch: what it really carries into the throwaway game. */
@@ -393,12 +458,7 @@ export function walkedDoor(
   }
   const goal = route.at(-1);
   if (!goal) return null;
-  const near: Record<EdgeSide, boolean> = {
-    left: goal.x <= 2,
-    right: goal.x >= SCREEN_WIDTH - 3,
-    top: goal.y <= Math.max(0, horizon) + 2,
-    bottom: goal.y >= SCREEN_HEIGHT - 3,
-  };
+  const near = edgesNear(goal, horizon);
   const edges = leading.filter((door) => door.shape === "edge" && door.edge && near[door.edge]);
   return edges.length === 1 ? edges[0]!.id : null;
 }

@@ -560,7 +560,7 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
     studio.locator('[role="treeitem"][data-row] .scene-list__label').allTextContents();
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   expect((await rowLabels()).filter((label) => /^Element \d/.test(label))).toEqual([]);
-  await expect(studio.locator(".studio__status")).toContainText("authored source");
+  await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
   // A barrier nudged up one row: a Walk-kind edit the Depth lens allows.
   await page.keyboard.press("2");
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
@@ -578,5 +578,5 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   // The remix keeps the named objects with the kept edit.
   await panel.getByTestId("world-open-studio").click();
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
-  await expect(studio.locator(".studio__status")).toContainText("authored source");
+  await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
 });

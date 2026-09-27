@@ -9,10 +9,16 @@
  *   chosen, then runs `testRoute` on a throwaway copy of the game with the
  *   draft picture and logic in it, off the main thread. The result names
  *   what stopped it: the item under the refused cell.
- * - A walk that changes room certifies the one door it went through
- *   (walkView.ts `walkedDoor`), for the draft it ran on and the state it
- *   ran with: an edit, another state or Clear leaves the door untested
- *   again, and a walk the draft changed under certifies nothing now.
+ * - A goal on a door box, or against an edge exit, aims the walk at that
+ *   door (walkView.ts `doorAtGoal`, route.ts `planDoorRoute`): the floor
+ *   in the box, or the floor along the edge and one step across it, so the
+ *   engine's own edge trigger runs. A door no floor reaches says so.
+ * - A walk that changes room certifies the one door it went through (the
+ *   door it aimed at, else walkView.ts `walkedDoor`), for the draft it ran
+ *   on and the state it ran with: an edit, another state or Clear leaves
+ *   the door untested again, and a walk the draft changed under certifies
+ *   nothing now. A walk aimed at a door that did not go through leaves the
+ *   door a note saying why.
  * - Doors are the room's exits (walkView.ts): annotated rules are edited
  *   through the logic draft, one kernel rule edit per change; everything
  *   else is read-only. A door box that follows a picture item shows moved
@@ -23,7 +29,13 @@ import { computed, shallowRef, watch } from "vue";
 import { openContainer } from "../../../src/container/container.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import type { PictureDocument } from "../../../src/studio/pictureDocument.ts";
-import { planRoute, type RoutePlan, type RouteTestResult } from "../../../src/studio/route.ts";
+import {
+  planDoorRoute,
+  planRoute,
+  type RouteDoor,
+  type RoutePlan,
+  type RouteTestResult,
+} from "../../../src/studio/route.ts";
 import { RULE_EDIT_BLOCKERS } from "../../../src/studio/rules/logicDocument.ts";
 import type { FlagRef, RuleBox, RuleModel } from "../../../src/studio/rules/ruleModel.ts";
 import { roomExitContracts, type ExitContract } from "../../../src/studio/rules/ruleUsage.ts";
@@ -35,7 +47,9 @@ import { rectFrom } from "./studioTools.ts";
 import type { StudioNotice } from "./useStudioNotice.ts";
 import { toShown, toStored, type RoomLogicDraft } from "./useRoomLogicDraft.ts";
 import {
+  aimName,
   destinationLabel,
+  doorAtGoal,
   EDGE_NAMES,
   edgeAt,
   entrySpot,
@@ -88,6 +102,11 @@ export interface WalkResult {
 interface DoorEvidence {
   readonly version: string;
   readonly preset: string;
+}
+
+/** Why the last walk aimed at a door did not go through it, on that draft and state preset. */
+interface DoorMiss extends DoorEvidence {
+  readonly text: string;
 }
 
 /** A cheap fingerprint of byte arrays (FNV-1a), to tell one draft from another. */
@@ -237,6 +256,8 @@ export function useStudioWalk(options: StudioWalkOptions) {
   });
   /** Doors a test walk went through, by door, with the draft and state it ran on. */
   const evidence = shallowRef<ReadonlyMap<string, DoorEvidence>>(new Map());
+  /** Doors a test walk was aimed at and did not go through, with why. */
+  const misses = shallowRef<ReadonlyMap<string, DoorMiss>>(new Map());
   /** The draft a walk would run on now: the picture and the room's logic. */
   const draftVersion = computed(() => fingerprint(options.pictureBytes(), logic.bytes.value));
   /** A broken rule annotation (duplicated, nested or unterminated): the kernel refuses every edit. */
@@ -276,7 +297,9 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (options.frozen()) return refuse("This room is view only: its doors can't be changed.");
     if (options.paused?.()) return refuse("Accept or reject the AI's proposal first.");
     if (!logic.editable.value)
-      return refuse("This room's logic is native: change its exits as text, or ask the assistant.");
+      return refuse(
+        "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant.",
+      );
     const outcome = logic.apply(op, label);
     if (!outcome.ok) {
       onRefusal?.(outcome.error);
@@ -488,28 +511,51 @@ export function useStudioWalk(options: StudioWalkOptions) {
       if (proof.version === draftVersion.value && proof.preset === preset.value) out.add(id);
     return out;
   });
+  /** Why the last walk aimed at door `id` did not go through, on this draft and state; else null. */
+  function doorNote(id: string): string | null {
+    const miss = misses.value.get(id);
+    return miss && miss.version === draftVersion.value && miss.preset === preset.value
+      ? miss.text
+      : null;
+  }
   /** The result card shows a walk on another draft than the one on screen. */
   const resultStale = computed(
     () => result.value !== null && result.value.version !== draftVersion.value,
   );
   let run = 0;
 
-  /** The estimate from the start to the goal (or the cell being aimed at). */
-  const estimate = computed<RoutePlan | null>(() => {
-    const from = start.value;
+  /** A door picked as the goal on the canvas (its box or edge arrow). */
+  const pickedDoor = shallowRef<string | null>(null);
+  /** The door the goal (or the cell being aimed at) aims the walk at, if any. */
+  const goalDoor = computed(() => {
+    const picked = goal.value && doors.value.find((door) => door.id === pickedDoor.value);
+    if (picked) return picked;
     const to = goal.value ?? aim.value;
-    if (!from || !to) return null;
-    try {
-      return planRoute({
-        ...walkInput.value,
-        from,
-        to,
-        profile: options.profile(),
-      });
-    } catch {
-      return null;
-    }
+    return to ? doorAtGoal(doors.value, to, horizon.value) : null;
   });
+
+  /** A door as the route kernel aims at it. */
+  const routeDoor = (door: WalkDoor): RouteDoor | null =>
+    door.box ? { box: door.box } : door.shape === "edge" && door.edge ? { edge: door.edge } : null;
+
+  /**
+   * The estimate from the start to the goal (or the cell being aimed at);
+   * to the floor of the door the goal aims at, when it aims at one.
+   */
+  const estimate = computed<(RoutePlan & { to?: Point | null; cross?: EdgeSide | null }) | null>(
+    () => {
+      const from = start.value;
+      const to = goal.value ?? aim.value;
+      if (!from || !to) return null;
+      const input = { ...walkInput.value, from, profile: options.profile() };
+      const door = goalDoor.value && routeDoor(goalDoor.value);
+      try {
+        return door ? planDoorRoute(input, door, to) : planRoute({ ...input, to });
+      } catch {
+        return null;
+      }
+    },
+  );
 
   /** What a test walk step asks for next, in words. */
   const prompt = computed(() => {
@@ -523,8 +569,10 @@ export function useStudioWalk(options: StudioWalkOptions) {
   function clearWalk(): void {
     run++;
     evidence.value = new Map();
+    misses.value = new Map();
     start.value = null;
     goal.value = null;
+    pickedDoor.value = null;
     aim.value = null;
     result.value = null;
     failure.value = null;
@@ -536,6 +584,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     running.value = false;
     start.value = at;
     goal.value = null;
+    pickedDoor.value = null;
     result.value = null;
     failure.value = null;
     options.say({
@@ -547,14 +596,17 @@ export function useStudioWalk(options: StudioWalkOptions) {
   /** A click with the test walk tool: the start, then the goal (which runs the walk). */
   function clickWalk(at: Point): void {
     if (!start.value || goal.value) return setStart(at);
-    goal.value = at;
-    void runWalk();
+    walkTo(at);
   }
 
-  /** Walk from the start to `at` now (the canvas menu's "Test walk to here"). */
-  function walkTo(at: Point): void {
+  /**
+   * Walk from the start to `at` now (the canvas menu's "Test walk to here");
+   * `door`: a door clicked as the goal, which the walk aims at.
+   */
+  function walkTo(at: Point, door: string | null = null): void {
     if (!start.value) return void setStart(at);
     goal.value = at;
+    pickedDoor.value = door;
     void runWalk();
   }
 
@@ -603,7 +655,20 @@ export function useStudioWalk(options: StudioWalkOptions) {
     running.value = true;
     result.value = null;
     failure.value = null;
-    const path = estimate.value?.path;
+    const plan = estimate.value;
+    const aimedDoor = goalDoor.value && routeDoor(goalDoor.value) ? goalDoor.value : null;
+    const aimed = aimedDoor ? aimName(aimedDoor) : null;
+    /** The door the walk aimed at did not go through it: its note says why. */
+    const missed = (text: string, ranWith: string): void => {
+      if (!aimedDoor) return;
+      misses.value = new Map([
+        ...misses.value,
+        [
+          aimedDoor.id,
+          { version, preset: ranWith, text: `Last test walk from ${from.x},${from.y}: ${text}` },
+        ],
+      ]);
+    };
     try {
       let live: LiveGameState | null = null;
       if (useLiveState.value && options.liveState)
@@ -616,19 +681,30 @@ export function useStudioWalk(options: StudioWalkOptions) {
           Uint8Array.from(carried.vars, (v) => v.value),
         );
       const ranWith = carried ? `live:${liveSeen.value}` : "fresh";
+      // A walk aimed at a door goes to the floor the estimate found for it.
+      const target = aimedDoor ? (plan?.to ?? null) : to;
+      if (!target) {
+        failure.value = `Couldn't reach ${aimed} from here: no floor ${
+          aimedDoor?.box ? "in or at it" : "along it"
+        } is in reach of the start.`;
+        missed(failure.value, ranWith);
+        return;
+      }
+      const path = plan?.path;
       const walked = await runner({
         ...(carried ?? {}),
         files,
         profile: options.profile().id,
         room: room.value,
         from,
-        to,
+        to: target,
         ...(path && path.length > 2 ? { via: path.slice(1, -1) } : {}),
+        ...(aimedDoor && plan?.cross ? { cross: plan.cross } : {}),
       });
       if (mine !== run) return;
       let blockedBy: string | null = null;
       if (walked.outcome === "blocked") {
-        const cell = refusedCell(walkInput.value, walked.end, to);
+        const cell = refusedCell(walkInput.value, walked.end, target);
         blockedBy = cell ? (options.labelAt(cell.x, cell.y) ?? null) : null;
       }
       // A walk that left through a door tests that door's way out: that door
@@ -636,20 +712,25 @@ export function useStudioWalk(options: StudioWalkOptions) {
       let door: string | null = null;
       const left = walked.outcome === "room_changed" && walked.room !== room.value;
       if (left) {
-        door = walkedDoor(
-          doors.value,
-          walked.room,
-          [from, ...(path?.slice(1, -1) ?? []), to],
-          horizon.value,
-        );
+        door =
+          aimedDoor && aimedDoor.destination === walked.room
+            ? aimedDoor.id
+            : walkedDoor(
+                doors.value,
+                walked.room,
+                [from, ...(path?.slice(1, -1) ?? []), target],
+                horizon.value,
+              );
         if (door !== null)
           evidence.value = new Map([...evidence.value, [door, { version, preset: ranWith }]]);
       }
+      const title = outcomeTitle(walked, blockedBy, rooms.value, left && door === null, aimed);
+      if (aimedDoor && door !== aimedDoor.id) missed(`${title}.`, ranWith);
       result.value = {
         from,
         to,
         result: walked,
-        title: outcomeTitle(walked, blockedBy, rooms.value, left && door === null),
+        title,
         state: carried ? "live" : "fresh",
         door,
         version,
@@ -678,7 +759,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (!canEditDoors.value) {
       refuse(
         !logic.editable.value
-          ? "This room's logic is native: its exits change as text, or through the assistant."
+          ? "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant."
           : logicBlocked.value !== null
             ? "Fix the room's rule annotations as text first; door editing is off until then."
             : "This room is view only: its doors can't be changed.",
@@ -728,6 +809,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     selectedDoor,
     selectDoor: (id: string | null) => void (selectedDoorId.value = id),
     tested,
+    doorNote,
     resultStale,
     canEditDoors,
     /** The logic source's annotation problems; broken rules stop door editing. */
@@ -750,6 +832,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     goal,
     aim,
     estimate,
+    goalDoor,
     running,
     useLiveState,
     setUseLiveState: (on: boolean) => void (useLiveState.value = on),

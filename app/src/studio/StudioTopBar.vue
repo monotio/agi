@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, useTemplateRef, watch } from "vue";
 import UiChip from "../ui/UiChip.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { PAYLOAD_MAX_BYTES } from "../../../src/container/container.ts";
 import { MAX_PAYLOAD_BYTES } from "../../../src/agent/pictureTools.ts";
 import StudioDraftControls, { type DraftStatus } from "./StudioDraftControls.vue";
-import { byteMeter, type StudioLens } from "./studioView.ts";
+import { byteMeter, pictureSize, type StudioLens } from "./studioView.ts";
+import { useFold } from "./useFold.ts";
 
 /**
  * Room Studio's top bar: the way back to Create and what is open, the lens
@@ -14,6 +15,11 @@ import { byteMeter, type StudioLens } from "./studioView.ts";
  * (StudioDraftControls: undo and redo, the changes, Discard and Keep). The
  * `share` slot follows what is open, where the names give way to it: the
  * right side has no room left at 1024px.
+ *
+ * The draft controls never shrink and never run under the lens switch; the
+ * size meter takes the room they leave, folding its drawing commands and
+ * then itself away (`fold`: 0 whole, 1 bytes only, 2 hidden). The footer
+ * then says the whole size.
  */
 const {
   title,
@@ -53,6 +59,8 @@ const emit = defineEmits<{
   redo: [];
   keep: [];
   discard: [];
+  /** How much of the size meter is folded away: 0 none, 1 its commands, 2 all of it. */
+  fold: [level: number];
 }>();
 const lens = defineModel<StudioLens>("lens", { required: true });
 const LENSES = [
@@ -63,6 +71,14 @@ const LENSES = [
 const lenses = computed(() => LENSES.map((option) => ({ ...option, disabled: !!lensHeld })));
 const meter = computed(() => byteMeter(bytes, MAX_PAYLOAD_BYTES, PAYLOAD_MAX_BYTES));
 const picChip = computed(() => `PIC ${pictureNumber}`);
+const size = computed(() => pictureSize(bytes, commands));
+const sizeBox = useTemplateRef("sizeBox");
+const sizeFold = useFold(sizeBox, 2, (box) => {
+  const meter = box.firstElementChild as HTMLElement | null;
+  return !meter || meter.offsetWidth <= box.clientWidth;
+});
+watch(size, () => void sizeFold.refit());
+watch(sizeFold.level, (level) => emit("fold", level), { immediate: true });
 </script>
 
 <template>
@@ -83,23 +99,29 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
     />
     <div class="top-bar__meta">
       <UiChip v-if="diagnostics > 0" tone="warn" dot>{{ diagnostics }} annotation issues</UiChip>
-      <div
-        class="top-bar__meter"
-        :class="`is-${meter.tone}`"
-        role="meter"
-        aria-label="Picture size"
-        aria-valuemin="0"
-        :aria-valuemax="PAYLOAD_MAX_BYTES"
-        :aria-valuenow="bytes"
-        :aria-valuetext="`${bytes} bytes. ${meter.note}`"
-        :title="meter.note"
-        data-testid="studio-bytes"
-        :data-tone="meter.tone"
-      >
-        <span
-          >{{ bytes }} B<span class="top-bar__cmds"> · {{ commands }} cmds</span></span
+      <div ref="sizeBox" class="top-bar__size">
+        <div
+          v-if="sizeFold.level.value < 2"
+          class="top-bar__meter"
+          :class="`is-${meter.tone}`"
+          role="meter"
+          aria-label="Picture size"
+          aria-valuemin="0"
+          :aria-valuemax="PAYLOAD_MAX_BYTES"
+          :aria-valuenow="bytes"
+          :aria-valuetext="`${size.full}. ${meter.note}`"
+          :title="`${size.full}. ${meter.note}`"
+          data-testid="studio-bytes"
+          :data-tone="meter.tone"
         >
-        <i :style="{ width: `${Math.max(2, meter.fraction * 100)}%` }"></i>
+          <span
+            >{{ size.bytes
+            }}<span v-if="sizeFold.level.value === 0" class="top-bar__cmds">
+              · {{ size.commands }}</span
+            ></span
+          >
+          <i :style="{ width: `${Math.max(2, meter.fraction * 100)}%` }"></i>
+        </div>
       </div>
       <StudioDraftControls
         :status
@@ -121,7 +143,8 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
 <style scoped>
 .top-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  /* The right column never gets less than the draft controls need. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr);
   align-items: center;
   gap: var(--space-5);
   padding: 0 var(--space-4) 0 var(--space-3);
@@ -152,7 +175,14 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
   justify-content: flex-end;
   gap: var(--space-2);
   min-width: 0;
-  container: studio-meta / inline-size;
+}
+/* The meter's room: whatever the draft controls leave, never part of their minimum. */
+.top-bar__size {
+  display: flex;
+  flex: 1 1 0;
+  justify-content: flex-end;
+  min-width: 0;
+  container-type: inline-size;
 }
 
 .top-bar__meter {
@@ -185,18 +215,5 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
 }
 .top-bar__meter.is-danger i {
   background: var(--danger);
-}
-/* The size chip gives way to the draft controls, which never shrink: first
-   its command count (the chip is 131px beside their 369px), then all of it
-   (the footer then shows the size), so it never runs under the lens switch. */
-@container studio-meta (max-width: 507px) {
-  .top-bar__cmds {
-    display: none;
-  }
-}
-@container studio-meta (max-width: 447px) {
-  .top-bar__meter {
-    display: none;
-  }
 }
 </style>
