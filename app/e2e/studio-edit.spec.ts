@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -144,7 +144,7 @@ const studioFocused = (studio: Locator): Promise<boolean> =>
 
 async function storedFiles(page: Page): Promise<Map<string, Uint8Array>> {
   const files = await page.evaluate(async (id) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const game = await loadAuthoredGame(id);
     return Object.fromEntries(
@@ -421,7 +421,7 @@ test("Keep refuses as stale when the project changed elsewhere; Reopen reloads i
   elsewhere.putResource("picture", 9, PIC_5);
   const moved = await page.evaluate(
     async ([id, files]) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { updateAuthoredGameFiles } = await import(path);
       return updateAuthoredGameFiles(
         id,

@@ -3,8 +3,8 @@ import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { buildZip } from "../src/archive/zip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { configureAi, isolateStorage, openGameOptions, enterCreateMode } from "./engineProbe.ts";
 
 test("Download project resumes private history in a fresh browser; Download game has only playable resources", async ({
@@ -96,7 +96,7 @@ test("Download project resumes private history in a fresh browser; Download game
     await other.reload();
     await expect(other.getByTestId("btn-resume-cached")).toBeVisible();
     const restored = await other.evaluate(async () => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const store = await import(path);
       const meta = store.listCachedGames()[0];
       const body = await store.loadAuthoredGame(meta.projectId);
@@ -179,7 +179,7 @@ test("unavailable project storage cannot publish a library index", async ({ page
   });
   await page.goto("/");
   const result = await page.evaluate(async () => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const storage = await import(path);
     const saved = await storage.saveAuthoredGame("blocked", {
       title: "Cannot save",

@@ -8,8 +8,8 @@ import {
   readMapArchive,
   readMapSidecar,
   writeMapSidecar,
-} from "../src/roomMapStore.ts";
-import type { RoomMapSidecar } from "../src/useRoomMap.ts";
+} from "../src/world/roomMapStore.ts";
+import type { RoomMapSidecar } from "../src/world/useRoomMap.ts";
 
 function fakeStorage(initial: Record<string, string> = {}): {
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;

@@ -321,7 +321,7 @@ v21 when it closes. `obj.status.v` is a real modal window, not a log line.
 ### Text beyond ASCII
 
 The originals drew text with each machine's own font. This project draws it
-with its own 8×8 font (`app/src/font8x8.ts`) in the same 40 × 25 character
+with its own 8×8 font (`app/src/render/font8x8.ts`) in the same 40 × 25 character
 grid, so letter shapes are the project's, not Sierra's or IBM's.
 
 A scan of every logic message in the catalogued releases found these

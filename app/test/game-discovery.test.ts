@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveFixtureTarget } from "../src/gameDiscovery.ts";
-import type { InstalledGameDescriptor } from "../src/gameTypes.ts";
+import { resolveFixtureTarget } from "../src/library/gameDiscovery.ts";
+import type { InstalledGameDescriptor } from "../src/project/gameTypes.ts";
 
 test("resolveFixtureTarget resolves matching games by alias, hash, wordsSha256 or folder", () => {
   const games: InstalledGameDescriptor[] = [

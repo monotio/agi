@@ -6,7 +6,7 @@
  * version: an older release players still have stored, and its remixes, get
  * no lessons written for another.
  */
-import type { CachedGameMeta } from "../gameTypes.ts";
+import type { CachedGameMeta } from "../project/gameTypes.ts";
 import type { LessonSet } from "./types.ts";
 
 /** A catalog release, as the library records it (LibraryMetadata.catalog). */

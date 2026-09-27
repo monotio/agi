@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { encodePngRgb } from "../../src/picture/png.ts";
@@ -49,7 +49,7 @@ const draftBytes = async (page: Page): Promise<Uint8Array> =>
 
 async function storedFiles(page: Page, projectId: string): Promise<Map<string, Uint8Array>> {
   const files = await page.evaluate(async (id) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const game = await loadAuthoredGame(id);
     return Object.fromEntries(
@@ -411,7 +411,7 @@ test("a Keep refuses as stale when the project changed elsewhere, and reopens fr
   elsewhere.putResource("view", 9, elsewhere.getResource("view", 0)!);
   const moved = await page.evaluate(
     async ([id, files]) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { updateAuthoredGameFiles } = await import(path);
       return updateAuthoredGameFiles(
         id,
@@ -729,7 +729,7 @@ test("a staged character-sheet candidate opens in Sprite Studio, is repaired and
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
 
   const stored = await page.evaluate(async () => {
-    const { listCachedGames, loadAuthoredGame } = await import("/src/gameStorage.ts");
+    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     const id = listCachedGames()[0]!.projectId;
     const data = await loadAuthoredGame(id);
     return { id, staged: data?.references?.find((r) => r.kind === "character")?.staged ?? null };

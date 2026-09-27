@@ -2,7 +2,7 @@ import { getKnownGameByHash } from "../../src/games/knownGames.ts";
 import { expect, type Page } from "@playwright/test";
 import { AGI_KEY, NAV_KEYS } from "../../src/runtime/keys.ts";
 import type { Action } from "../../test/speedrun/runner.ts";
-import type { ReplayObservation, ReplayBatchResult } from "../src/replay.ts";
+import type { ReplayObservation, ReplayBatchResult } from "../src/walkthrough/replay.ts";
 import { isolateStorage, revealFoldedBoot } from "./engineProbe.ts";
 
 const KEYS: Record<number, string> = {

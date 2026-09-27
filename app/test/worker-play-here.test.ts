@@ -12,7 +12,7 @@ import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerPorts } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import type { WorkerControl, WorkerInbound } from "../src/workerProtocol.ts";
+import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 /** Room 1 plain; room 2 has a control-0 barrier across y=100 and an entry window. */
 function game() {

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fixtureDir, fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
-import { detectKnownGame, gameRevision } from "../src/gameMetadata.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { detectKnownGame, gameRevision } from "../src/project/gameMetadata.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import {
   KNOWN_GAMES,
@@ -11,9 +11,13 @@ import {
   getKnownGameByAlias,
   getKnownGameByRevision,
 } from "../../src/games/knownGames.ts";
-import { KNOWN_WALKTHROUGHS, hasWalkthrough, resolveWalkthrough } from "../src/walkthrough.ts";
-import { addLibraryGame } from "../src/gameLibrary.ts";
-import { loadAuthoredGame } from "../src/gameStorage.ts";
+import {
+  KNOWN_WALKTHROUGHS,
+  hasWalkthrough,
+  resolveWalkthrough,
+} from "../src/walkthrough/walkthrough.ts";
+import { addLibraryGame } from "../src/library/gameLibrary.ts";
+import { loadAuthoredGame } from "../src/project/gameStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 
 installIndexedDbFixture();

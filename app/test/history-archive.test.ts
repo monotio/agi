@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { stampBoot } from "../../src/agent/history.ts";
 import { test } from "node:test";
-import { readHistoryArchive } from "../src/historyArchive.ts";
+import { readHistoryArchive } from "../src/archive/historyArchive.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 
 const recording = {

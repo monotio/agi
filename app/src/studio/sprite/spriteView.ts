@@ -8,7 +8,7 @@
 import { TIMER_INCREMENT_MS } from "../../../../src/runtime/cycleClock.ts";
 import type { PixelChange } from "../../../../src/studio/sprite/spriteCels.ts";
 import type { SpriteCel, SpriteDocument } from "../../../../src/view/spriteDocument.ts";
-import { EGA_PALETTE } from "../../palette.ts";
+import { EGA_PALETTE } from "../../render/palette.ts";
 import { HOST_POLL_MS } from "../../worker/cycle.ts";
 
 export interface CelPoint {

@@ -13,7 +13,7 @@
 import { computed, onScopeDispose, shallowRef, toValue, watch, type MaybeRefOrGetter } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
-import type { PictureEdit } from "../resourceCommit.ts";
+import type { PictureEdit } from "../project/resourceCommit.ts";
 import {
   begin,
   cancel,

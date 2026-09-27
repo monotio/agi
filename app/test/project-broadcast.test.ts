@@ -4,10 +4,14 @@ import {
   PROJECT_CHANNEL,
   announceProjectWrite,
   type NoticeChannel,
-} from "../src/projectBroadcast.ts";
-import { watchProjectWrites } from "../src/projectTransaction.ts";
-import { clearCachedGame, renameAuthoredGame, saveAuthoredGame } from "../src/gameStorage.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+} from "../src/project/projectBroadcast.ts";
+import { watchProjectWrites } from "../src/project/projectTransaction.ts";
+import {
+  clearCachedGame,
+  renameAuthoredGame,
+  saveAuthoredGame,
+} from "../src/project/gameStorage.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 

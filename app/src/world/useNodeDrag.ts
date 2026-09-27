@@ -3,7 +3,7 @@
  * it travels a few pixels, so plain selection never dirties the layout) and
  * arrow-key nudges on a focused node, whose Enter or Space selects it.
  */
-import type { RoomMap } from "../useRoomMap.ts";
+import type { RoomMap } from "./useRoomMap.ts";
 
 export function useNodeDrag(deps: {
   map: Pick<RoomMap, "moveNode" | "previewNode">;

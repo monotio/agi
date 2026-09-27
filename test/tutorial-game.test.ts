@@ -12,8 +12,8 @@ import { createPictureSurface, SCREEN_WIDTH } from "../src/types.ts";
 import { buildView, parseView } from "../src/view/view.ts";
 import { parsePictureDocument, pictureCommandText } from "../src/studio/pictureDocument.ts";
 import { createHash } from "node:crypto";
-import { GAME_CATALOG } from "../app/src/gameCatalog.ts";
-import { gameRevision } from "../app/src/gameMetadata.ts";
+import { GAME_CATALOG } from "../app/src/library/gameCatalog.ts";
+import { gameRevision } from "../app/src/project/gameMetadata.ts";
 import {
   TUTORIAL_LOGIC_SOURCES,
   TUTORIAL_PICTURE_SOURCES,
@@ -292,8 +292,8 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "3bc186fe49f96e2b6c8452290439494b96f9e1c39f36dd68fac5f6321b19b6d4",
-    "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
+    "62f0651af38642b852fdf1efb1b7e1a3b1eb5dfbd7ce0b4aee91335a3793b8e8",
+    "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
   );
 });
 

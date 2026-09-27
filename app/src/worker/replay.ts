@@ -9,7 +9,7 @@
  */
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
-import type { ReplayObservation } from "../replay.ts";
+import type { ReplayObservation } from "../walkthrough/replay.ts";
 import type { Inbound, ReplaySnapshot, WorkerContext } from "./context.ts";
 import { resetSession } from "./session.ts";
 

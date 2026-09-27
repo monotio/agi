@@ -7,9 +7,9 @@
  * with its own card, titled with its release. Copies and remixes are new games
  * with their own identity and keep their own cards.
  */
-import type { CachedGameMeta } from "../gameStorage.ts";
-import type { GameCatalogEntry } from "../gameCatalog.ts";
-import type { InstalledGameDescriptor } from "../gameTypes.ts";
+import type { CachedGameMeta } from "../project/gameStorage.ts";
+import type { GameCatalogEntry } from "../library/gameCatalog.ts";
+import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
 
 /** The library copy Play stored for this catalog release, if any. */

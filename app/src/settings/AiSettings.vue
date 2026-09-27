@@ -1,0 +1,225 @@
+<script setup lang="ts">
+import { ref, useTemplateRef } from "vue";
+import UiButton from "../ui/UiButton.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
+import UiSelect from "../ui/UiSelect.vue";
+import { defaultModelEffort, modelEffortOptions } from "../../../src/agent/modelEffort.ts";
+import { copyAiSettings, type AiSettings, type AiSettingsProvider } from "./aiSettings.ts";
+
+const { settings, budgetUsd } = defineProps<{
+  settings: AiSettings;
+  models: Record<AiSettingsProvider, readonly { id: string; label: string }[]>;
+  allowStub: boolean;
+  saving: boolean;
+  error: string;
+  budgetUsd: number;
+}>();
+const emit = defineEmits<{
+  save: [settings: AiSettings, budgetUsd: number];
+  closed: [];
+}>();
+
+const dialog = useTemplateRef("dialog");
+const draft = ref(copyAiSettings(settings));
+const draftBudget = ref(budgetUsd);
+
+function show(): void {
+  draft.value = copyAiSettings(settings);
+  draftBudget.value = budgetUsd;
+  dialog.value?.showModal();
+}
+
+function close(): void {
+  dialog.value?.close();
+}
+
+function applyModelDefault(): void {
+  const profile = draft.value.profiles[draft.value.provider];
+  profile.effort = defaultModelEffort(profile.model);
+}
+
+function save(): void {
+  if (!Number.isFinite(draftBudget.value) || draftBudget.value <= 0) return;
+  emit("save", copyAiSettings(draft.value), draftBudget.value);
+}
+
+defineExpose({ show, close });
+</script>
+
+<template>
+  <dialog
+    ref="dialog"
+    class="ai-settings-dialog"
+    aria-labelledby="ai-settings-title"
+    data-testid="ai-settings-dialog"
+    @close="emit('closed')"
+  >
+    <form method="dialog" @submit.prevent="save">
+      <header>
+        <h2 id="ai-settings-title">AI settings</h2>
+        <UiIconButton icon="x" label="Cancel AI settings" :disabled="saving" @click="close" />
+      </header>
+      <label for="ai-provider">Provider</label>
+      <UiSelect id="ai-provider" v-model="draft.provider" block data-testid="provider-select">
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option v-if="allowStub" value="stub">Offline test provider</option>
+      </UiSelect>
+      <label for="ai-model">Model</label>
+      <UiSelect
+        id="ai-model"
+        v-model="draft.profiles[draft.provider].model"
+        block
+        data-testid="model-select"
+        @change="applyModelDefault"
+      >
+        <option v-for="option in models[draft.provider]" :key="option.id" :value="option.id">
+          {{ option.label }}
+        </option>
+      </UiSelect>
+      <template v-if="draft.provider !== 'stub'">
+        <label for="ai-effort">Reasoning effort</label>
+        <UiSelect
+          id="ai-effort"
+          v-model="draft.profiles[draft.provider].effort"
+          block
+          data-testid="effort-select"
+        >
+          <option
+            v-for="effort in modelEffortOptions(draft.profiles[draft.provider].model)"
+            :key="effort"
+            :value="effort"
+          >
+            {{ effort }}
+            {{
+              effort === defaultModelEffort(draft.profiles[draft.provider].model) ? "(default)" : ""
+            }}
+          </option>
+        </UiSelect>
+      </template>
+      <template v-if="draft.provider !== 'stub'">
+        <div class="field-label-row">
+          <label for="ai-api-key">API key</label>
+          <a
+            :href="
+              draft.provider === 'anthropic'
+                ? 'https://platform.claude.com/settings/keys'
+                : 'https://platform.openai.com/api-keys'
+            "
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Get an API key
+          </a>
+        </div>
+        <input
+          id="ai-api-key"
+          v-model="draft.profiles[draft.provider].apiKey"
+          type="password"
+          autocomplete="off"
+          placeholder="Paste your provider API key"
+          data-testid="api-key-input"
+        />
+        <p class="privacy-note" data-testid="api-key-note">
+          Saved in this browser and sent only to
+          {{ draft.provider === "anthropic" ? "Anthropic" : "OpenAI" }} with each request.
+        </p>
+      </template>
+      <label for="task-budget">Budget per task · USD</label>
+      <input
+        id="task-budget"
+        v-model.number="draftBudget"
+        type="number"
+        min="0.01"
+        step="0.01"
+        required
+        data-testid="task-budget"
+      />
+      <p class="budget-note">Maximum estimated spend for each creation or remix.</p>
+      <p v-if="error" class="dialog-error" role="alert">{{ error }}</p>
+      <footer>
+        <UiButton data-testid="ai-settings-cancel" :disabled="saving" @click="close">
+          Cancel
+        </UiButton>
+        <UiButton type="submit" variant="primary" data-testid="ai-settings-save" :disabled="saving">
+          {{ saving ? "Saving…" : "Save settings" }}
+        </UiButton>
+      </footer>
+    </form>
+  </dialog>
+</template>
+
+<style scoped>
+.ai-settings-dialog {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--action-line);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-dialog);
+  font-family: var(--font-sans);
+}
+.ai-settings-dialog::backdrop {
+  background: var(--scrim);
+}
+form {
+  display: grid;
+  gap: 8px;
+  padding: 22px;
+}
+header,
+footer,
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+h2,
+.privacy-note,
+.budget-note,
+.dialog-error {
+  margin: 0;
+}
+h2 {
+  color: var(--ink);
+  font-size: var(--text-xl);
+}
+.privacy-note,
+.budget-note {
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+label {
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+/* The connection form keeps touch-size controls at every pointer. */
+input,
+form :deep(.ui-select__control) {
+  min-height: var(--control-h-touch);
+}
+input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-sunken);
+  font: var(--text-md) / 1.4 var(--font-sans);
+}
+a {
+  color: var(--action);
+  font-size: var(--text-xs);
+}
+.dialog-error {
+  color: var(--danger);
+}
+footer {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+</style>

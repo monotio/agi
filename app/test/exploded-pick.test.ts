@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pickThroughLayers, type PickHit } from "../src/explodedPick.ts";
+import { pickThroughLayers, type PickHit } from "../src/inspector/explodedPick.ts";
 
 const PIC_W = 160;
 const PIC_H = 168;

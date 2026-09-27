@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import { testRevision } from "./identity.ts";
 import assert from "node:assert/strict";
-import { useTestRecorder, type TestRecorderState } from "../src/useTestRecorder.ts";
-import type { BootedGame } from "../src/useEngine.ts";
+import { useTestRecorder, type TestRecorderState } from "../src/authoring/useTestRecorder.ts";
+import type { BootedGame } from "../src/engine/useEngine.ts";
 import type { LlmConfig } from "../src/agent/llmClient.ts";
-import type { RecordingSnapshot } from "../src/gameRecording.ts";
+import type { RecordingSnapshot } from "../src/authoring/gameRecording.ts";
 
 function createMockState(
   overrides: Partial<{

@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 
 function syntheticGame(): Buffer {
   const game = createContainer();

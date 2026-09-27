@@ -10,15 +10,15 @@ import {
   stageCharacterView,
   stagedRefusal,
   type DecodedImage,
-} from "../src/referenceArt.ts";
-import { buildProjectZip, buildPublicGameZip } from "../src/projectArchive.ts";
-import { readGameZip } from "../src/gameZip.ts";
+} from "../src/references/referenceArt.ts";
+import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchive.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView, parseView } from "../../src/view/view.ts";
 import { openAiToolContent, anthropicToolContent } from "../../src/agent/toolTransport.ts";
-import { base64ToBytes } from "../src/bytes.ts";
-import type { CachedGameData } from "../src/gameTypes.ts";
+import { base64ToBytes } from "../src/project/bytes.ts";
+import type { CachedGameData } from "../src/project/gameTypes.ts";
 
 const IDENTITY = { project: testProjectId("demo"), revision: testRevision("rev-a") };
 const MOVED = { project: testProjectId("demo"), revision: testRevision("rev-b") };

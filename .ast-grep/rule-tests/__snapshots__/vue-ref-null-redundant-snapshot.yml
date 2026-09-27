@@ -3,14 +3,14 @@ snapshots:
   const el = ref<HTMLElement | null>(null);:
     fixed: const el = ref<HTMLElement>();
     labels:
-      - source: ref<HTMLElement | null>(null)
-        style: primary
-        start: 11
-        end: 40
+    - source: ref<HTMLElement | null>(null)
+      style: primary
+      start: 11
+      end: 40
   const game = ref<InstalledGame | null>(null);:
     fixed: const game = ref<InstalledGame>();
     labels:
-      - source: ref<InstalledGame | null>(null)
-        style: primary
-        start: 13
-        end: 44
+    - source: ref<InstalledGame | null>(null)
+      style: primary
+      start: 13
+      end: 44

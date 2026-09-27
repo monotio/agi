@@ -7,9 +7,9 @@
  * every debug channel it armed.
  */
 import { inject, provide, ref, watch, type InjectionKey } from "vue";
-import type { EngineApi } from "../engineContext.ts";
-import type { Presentation } from "../usePresentation.ts";
-import { latchIsStale, type DebugEvent, type LatchedPick, type PickPoint } from "../debugView.ts";
+import type { EngineApi } from "../engine/engineContext.ts";
+import type { Presentation } from "../play/usePresentation.ts";
+import { latchIsStale, type DebugEvent, type LatchedPick, type PickPoint } from "./debugView.ts";
 
 export interface InspectorStateReport {
   vars: number[];

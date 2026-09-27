@@ -41,7 +41,7 @@ import {
   previewPartner,
   swatchInk,
 } from "../src/studio/sprite/spriteView.ts";
-import { celRgba } from "../src/palette.ts";
+import { celRgba } from "../src/render/palette.ts";
 import { usageText } from "../../src/agent/viewUsage.ts";
 import { useSpriteDraft } from "../src/studio/sprite/useSpriteDraft.ts";
 import { useSpriteTools } from "../src/studio/sprite/useSpriteTools.ts";

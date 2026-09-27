@@ -286,7 +286,7 @@ async function bootCreatedGame(page: Page): Promise<void> {
 const storedLogic = (page: Page, room: number): Promise<string | undefined> =>
   page.evaluate(
     async ([id, num]) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { loadAuthoredGame } = await import(path);
       const game = await loadAuthoredGame(id);
       const logics = (game.authoringState?.sources?.logics ?? []) as [number, string][];

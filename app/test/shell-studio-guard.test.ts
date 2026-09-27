@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { reactive } from "vue";
-import type { EngineApi } from "../src/engineContext.ts";
-import type { ShellBridge } from "../src/shellBridge.ts";
+import type { EngineApi } from "../src/engine/engineContext.ts";
+import type { ShellBridge } from "../src/shell/shellBridge.ts";
 import { createShell } from "../src/shell/useShell.ts";
 
 /** A running game in Create, and a Studio guard whose answer the test sets. */

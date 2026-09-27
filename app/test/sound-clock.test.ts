@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SoundClock } from "../src/soundClock.ts";
+import { SoundClock } from "../src/worker/soundClock.ts";
 
 test("sound time advances at 60Hz independently of interpreter callback cadence", () => {
   const clock = new SoundClock(0);

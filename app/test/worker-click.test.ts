@@ -14,7 +14,7 @@ import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import type { WorkerControl, WorkerInbound } from "../src/workerProtocol.ts";
+import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 /** 1 loop, 1 cel: a solid width x height block of color 5. */
 function solidView(width: number, height: number): Uint8Array {

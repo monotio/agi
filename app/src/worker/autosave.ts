@@ -2,9 +2,9 @@
  * The autosave snapshot and the flush/checkpoint messages around it. Pure
  * functions of the worker context — importable under Node.
  */
-import { createProgressPreview, isBlackFrame } from "../progressPreview.ts";
-import { bytesToBase64 } from "../bytes.ts";
-import type { WorkerPresentation } from "../workerProtocol.ts";
+import { createProgressPreview, isBlackFrame } from "../saves/progressPreview.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
+import type { WorkerPresentation } from "./workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 /**

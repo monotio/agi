@@ -1,0 +1,7 @@
+id: no-nonnull-update
+valid:
+  - "counts[c] = counts[c]! + 1;"
+  - "filled++;"
+invalid:
+  - "counts[c]!++;"
+  - "--depth!;"

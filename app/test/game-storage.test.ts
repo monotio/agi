@@ -3,24 +3,24 @@ import { stampBoot } from "../../src/agent/history.ts";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
-import * as storage from "../src/gameStorage.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
-import { readGameSaves, writeGameSave } from "../src/gameSaves.ts";
-import { mapKey, writeMapSidecar } from "../src/roomMapStore.ts";
+import * as storage from "../src/project/gameStorage.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
+import { readGameSaves, writeGameSave } from "../src/saves/gameSaves.ts";
+import { mapKey, writeMapSidecar } from "../src/world/roomMapStore.ts";
 import {
   lastGameKey,
   readAutosave,
   removeLibraryGame,
   writeAutosave,
   type AutosaveRecord,
-} from "../src/useEngine.ts";
+} from "../src/engine/useEngine.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import {
   appendHistoryBatch,
   importGameHistory,
   loadProjectHistory,
   stageRetainedOriginal,
-} from "../src/historyStorage.ts";
+} from "../src/history/historyStorage.ts";
 import { testRevision } from "./identity.ts";
 
 const indexedDbRecords = installIndexedDbFixture();
@@ -621,7 +621,7 @@ test("a database open that finishes after being blocked closes its abandoned con
       },
     },
   });
-  const modulePath = "../src/gameStorage.ts?blocked-open";
+  const modulePath = "../src/project/gameStorage.ts?blocked-open";
   const fresh = await import(modulePath);
   assert.equal(
     await fresh.saveAuthoredGame("blocked", {
@@ -661,7 +661,7 @@ test("a database a newer app upgraded asks for a reload instead of a raw Version
       },
     },
   });
-  const modulePath = "../src/gameStorage.ts?newer-database";
+  const modulePath = "../src/project/gameStorage.ts?newer-database";
   const fresh = await import(modulePath);
   await assert.rejects(
     fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),

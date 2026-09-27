@@ -13,7 +13,7 @@
  * compact form opens zoomed out to fit the dock.
  */
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import {
   CAP_H,
   IMG_H,

@@ -5,7 +5,7 @@ import {
   loadWalkthrough,
   clearWalkthroughCache,
   type WalkthroughArtifact,
-} from "../src/walkthrough.ts";
+} from "../src/walkthrough/walkthrough.ts";
 import { requireProjectId, requireResourceRevision } from "../../src/gameIdentity.ts";
 
 const KQ1_IDENTITY = {

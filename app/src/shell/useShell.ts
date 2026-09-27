@@ -5,8 +5,8 @@
  * inject it.
  */
 import { computed, inject, provide, ref, type ComputedRef, type InjectionKey, type Ref } from "vue";
-import type { EngineApi } from "../engineContext.ts";
-import type { ShellBridge } from "../shellBridge.ts";
+import type { EngineApi } from "../engine/engineContext.ts";
+import type { ShellBridge } from "./shellBridge.ts";
 import { gameHash, parseGameHash, type ShellMode } from "./shellRoute.ts";
 import type { StudioLeaveGuard } from "./useCreateWorkspace.ts";
 

@@ -2,7 +2,7 @@ import { providerReply } from "../../test/provider-stream.ts";
 import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted options", async ({

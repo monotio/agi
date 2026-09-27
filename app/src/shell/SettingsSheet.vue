@@ -13,9 +13,9 @@ import { nextTick, onBeforeUnmount, ref, useTemplateRef } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSwitch from "../ui/UiSwitch.vue";
-import { useEngineApi } from "../engineContext.ts";
-import { useAiSettings } from "../useAiSettings.ts";
-import { useShellBridge } from "../shellBridge.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import { useAiSettings } from "../settings/useAiSettings.ts";
+import { useShellBridge } from "./shellBridge.ts";
 import { nextAudioMode, soundChipLabel, soundFamily } from "../audio/useAudioController.ts";
 import { useShell } from "./useShell.ts";
 

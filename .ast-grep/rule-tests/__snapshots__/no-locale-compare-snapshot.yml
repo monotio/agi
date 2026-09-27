@@ -2,13 +2,13 @@ id: no-locale-compare
 snapshots:
   entries.sort(([a], [b]) => a.localeCompare(b));:
     labels:
-      - source: a.localeCompare(b)
-        style: primary
-        start: 27
-        end: 45
+    - source: a.localeCompare(b)
+      style: primary
+      start: 27
+      end: 45
   title.localeCompare(other, "en");:
     labels:
-      - source: title.localeCompare(other, "en")
-        style: primary
-        start: 0
-        end: 32
+    - source: title.localeCompare(other, "en")
+      style: primary
+      start: 0
+      end: 32

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import AgentLogPanel from "./AgentLogPanel.vue";
-import AgentBubble from "./AgentBubble.vue";
-import GameHeader from "./GameHeader.vue";
-import AiSettingsDialog from "./AiSettings.vue";
-import SoundPreview from "./SoundPreview.vue";
-import WalkthroughBar from "./WalkthroughBar.vue";
-import PlayArea from "./PlayArea.vue";
+import AgentLogPanel from "./authoring/AgentLogPanel.vue";
+import AgentBubble from "./authoring/AgentBubble.vue";
+import GameHeader from "./shell/GameHeader.vue";
+import AiSettingsDialog from "./settings/AiSettings.vue";
+import SoundPreview from "./authoring/SoundPreview.vue";
+import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
+import PlayArea from "./play/PlayArea.vue";
 import AssistantStart from "./shell/AssistantStart.vue";
 import CreateDock from "./shell/CreateDock.vue";
 import UiButton from "./ui/UiButton.vue";
@@ -21,22 +21,22 @@ import {
   useTemplateRef,
   watch,
 } from "vue";
-import { useEngine, type AutosaveRecord } from "./useEngine.ts";
+import { useEngine, type AutosaveRecord } from "./engine/useEngine.ts";
 import { MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
-import { reconcileGameIndex } from "./gameStorage.ts";
+import { reconcileGameIndex } from "./project/gameStorage.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
-import { findInstalledFolder, gameStorageKey } from "./gameTypes.ts";
-import { useGameKeys } from "./useGameKeys.ts";
+import { findInstalledFolder, gameStorageKey } from "./project/gameTypes.ts";
+import { useGameKeys } from "./play/useGameKeys.ts";
 
-import { provideEngine } from "./engineContext.ts";
-import { createShellBridge, provideShellBridge } from "./shellBridge.ts";
-import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
-import { createGameLibrary, provideGameLibrary } from "./useGameLibrary.ts";
-import { createPresentation, providePresentation } from "./usePresentation.ts";
-import SetupPanel from "./SetupPanel.vue";
-import StaleTabNote from "./StaleTabNote.vue";
-import { nextViewportLayout } from "./viewportLayout.ts";
-import ReferenceUpload from "./ReferenceUpload.vue";
+import { provideEngine } from "./engine/engineContext.ts";
+import { createShellBridge, provideShellBridge } from "./shell/shellBridge.ts";
+import { createAiSettings, provideAiSettings } from "./settings/useAiSettings.ts";
+import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.ts";
+import { createPresentation, providePresentation } from "./play/usePresentation.ts";
+import SetupPanel from "./home/SetupPanel.vue";
+import StaleTabNote from "./play/StaleTabNote.vue";
+import { nextViewportLayout } from "./play/viewportLayout.ts";
+import ReferenceUpload from "./references/ReferenceUpload.vue";
 import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
@@ -103,7 +103,7 @@ provideEngine(engine);
 provideInspector(createInspector(engine, presentation));
 
 // The map's graph code loads only when the player opens it — never on boot.
-const WorldMap = defineAsyncComponent(() => import("./WorldMap.vue"));
+const WorldMap = defineAsyncComponent(() => import("./world/WorldMap.vue"));
 const RoomStudio = defineAsyncComponent(() => import("./studio/RoomStudio.vue"));
 const SpriteStudio = defineAsyncComponent(() => import("./studio/sprite/SpriteStudio.vue"));
 const mapOpen = engine.roomMap.open;

@@ -142,7 +142,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
     offset = start + size;
   }
   const cachedFiles = await page.evaluate(async () => {
-    const modulePath = "/src/gameStorage.ts";
+    const modulePath = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(modulePath);
     const cached = await loadAuthoredGame("custom");
     return Object.fromEntries(

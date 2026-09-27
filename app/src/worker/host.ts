@@ -5,7 +5,7 @@
 import { openContainer } from "../../../src/container/container.ts";
 import { HostWait, type EngineHost } from "../../../src/runtime/engine.ts";
 import { rngDraw } from "../../../src/runtime/rng.ts";
-import { bytesToBase64 } from "../bytes.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
 import type { WorkerContext } from "./context.ts";
 
 export function createEngineHost(ctx: WorkerContext): EngineHost {

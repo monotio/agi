@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { captureGameDrop } from "../src/gameDrop.ts";
+import { captureGameDrop } from "../src/library/gameDrop.ts";
 
 interface EntryLike {
   readonly isFile: boolean;

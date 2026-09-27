@@ -5,9 +5,9 @@
  * files (the room map's scan) and the live engine's cycle delay and priority
  * base, and reads the same view again when a refused Keep reopens it.
  */
-import { base64ToBytes } from "../bytes.ts";
-import { useEngineApi } from "../engineContext.ts";
-import type { StoredReference } from "../referenceArt.ts";
+import { base64ToBytes } from "../project/bytes.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import type { StoredReference } from "../references/referenceArt.ts";
 import { useCreateWorkspace, type SpriteStudioRequest } from "../shell/useCreateWorkspace.ts";
 import type { EngineStateReport, ScreenObjectState } from "../../../src/runtime/engine.ts";
 import { parseView } from "../../../src/view/view.ts";

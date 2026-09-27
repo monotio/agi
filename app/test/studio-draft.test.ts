@@ -15,8 +15,8 @@ import {
   useStudioDraft,
 } from "../src/studio/useStudioDraft.ts";
 import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
-import type { PictureEdit } from "../src/resourceCommit.ts";
-import { authoringFingerprint } from "../src/gameStorage.ts";
+import type { PictureEdit } from "../src/project/resourceCommit.ts";
+import { authoringFingerprint } from "../src/project/gameStorage.ts";
 
 /**
  * A white room: an art box outline, the red paint filling it, a grey wall

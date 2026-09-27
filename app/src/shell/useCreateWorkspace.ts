@@ -10,7 +10,7 @@
  * Folded docks are a per-viewer convenience kept in browser storage, never a
  * format: a blocked or corrupt entry falls back to open docks.
  */
-import type { AuthoringFingerprint } from "../gameStorage.ts";
+import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import {
   computed,
   inject,

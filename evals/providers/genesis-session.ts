@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { DEFAULT_TASK_BUDGET_USD } from "../../app/src/agent/agentRun.ts";
 import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
-import { buildProjectZip } from "../../app/src/projectArchive.ts";
+import { buildProjectZip } from "../../app/src/archive/projectArchive.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import { validateGenesis } from "../../src/agent/playtest.ts";
 import { RESOURCE_KINDS } from "../../src/types.ts";

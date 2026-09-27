@@ -1,4 +1,4 @@
-import type { OpenedGame } from "../../app/src/gameZip.ts";
+import type { OpenedGame } from "../../app/src/archive/gameZip.ts";
 import { serializeGameTests } from "../../src/agent/gameTestFormat.ts";
 import { TUTORIAL_GAME_TESTS } from "./tests.ts";
 import { createAuthoringState, resourceCacheHint } from "../../src/agent/authoringState.ts";
@@ -383,7 +383,7 @@ return;
 #message 7 "${hint("Exhibit 2 of 3. HELP. Try PULL LEVER.")}"
 #message 8 "${GRADUATION_MESSAGE}"
 #message 9 "A tin robot, fast asleep in its charging bay. Zzz. The lever on the wall says WAKE."
-#message 10 "The robot waves at you. Walk past him and he turns: his left-facing loop is a MIRROR of his right-facing one, so it costs no extra drawings."
+#message 10 "The robot waves at you. Walk past him and he turns: his left-facing loop starts as a MIRROR of his right-facing one, and a mirror costs no extra drawings."
 #message 11 "A big red lever on a steel plate. The label says WAKE. Try PULL LEVER."
 #message 12 "The lever points the other way now. A flag keeps it there, even if you leave and come back."
 #message 13 "The robot snores in little beeps. It's switched off."

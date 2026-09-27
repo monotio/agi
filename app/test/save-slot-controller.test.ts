@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { useSaveSlotController } from "../src/useSaveSlotController.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+import { useSaveSlotController } from "../src/saves/useSaveSlotController.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 
 function createMockStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();

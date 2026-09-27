@@ -7,7 +7,7 @@
 import { computed, type ComputedRef } from "vue";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import type { RoomGraphNode } from "../../../src/agent/roomMap.ts";
-import type { MapThumbnail, RoomMap } from "../useRoomMap.ts";
+import type { MapThumbnail, RoomMap } from "./useRoomMap.ts";
 
 let encodeCanvas: HTMLCanvasElement | null = null;
 

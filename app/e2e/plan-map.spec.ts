@@ -253,7 +253,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   await page.getByTestId("map-plan-retry").click();
   await expect(flag).toBeHidden();
   const stored = await page.evaluate(async () => {
-    const { listCachedGames, loadAuthoredGame } = await import("/src/gameStorage.ts");
+    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     const id = listCachedGames()[0]!.projectId;
     const data = await loadAuthoredGame(id);
     const authoring = data?.authoringState?.["authoring"] as

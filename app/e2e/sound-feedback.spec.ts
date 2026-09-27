@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { providerReply } from "../../test/provider-stream.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, enterCreateMode, openDeveloperActivity, textHook } from "./engineProbe.ts";
 
 type ProviderItem = {

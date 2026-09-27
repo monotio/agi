@@ -14,15 +14,15 @@
  * without its write controls.
  */
 import { computed, ref, useTemplateRef, watch } from "vue";
-import { useEngineApi } from "../engineContext.ts";
-import { usePresentation } from "../usePresentation.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import { usePresentation } from "../play/usePresentation.ts";
 import {
   describeDebugEvent,
   describeObject,
   formatTraceRecord,
   type DebugViewMode,
   type PickPoint,
-} from "../debugView.ts";
+} from "./debugView.ts";
 import { useInspector } from "./useInspector.ts";
 import UiSegmented from "../ui/UiSegmented.vue";
 import UiSwitch from "../ui/UiSwitch.vue";

@@ -4,8 +4,8 @@ import {
   STALE_SAVE_MESSAGE,
   useAuthoringController,
   type PowerUpUiState,
-} from "../src/useAuthoringController.ts";
-import { ResourceCommitError } from "../src/projectTransaction.ts";
+} from "../src/authoring/useAuthoringController.ts";
+import { ResourceCommitError } from "../src/project/projectTransaction.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import * as authoringStack from "../src/agent/authoringStack.ts";
 import {
@@ -23,14 +23,14 @@ import {
   readHistoryLifetime,
   updateAuthoredGameFiles,
   updateGameConversation,
-} from "../src/gameStorage.ts";
+} from "../src/project/gameStorage.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { createWorldDraft, draftAddRoom } from "../../src/agent/worldPlan.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
-import type { DecodedImage } from "../src/referenceArt.ts";
-import { base64ToBytes, bytesToBase64 } from "../src/bytes.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
+import type { DecodedImage } from "../src/references/referenceArt.ts";
+import { base64ToBytes, bytesToBase64 } from "../src/project/bytes.ts";
 import { resourceSetHint } from "../../src/agent/authoringState.ts";
 import type { HistoryBoot } from "../../src/agent/history.ts";
 import { pictureAssistScope } from "../../src/studio/assistScope.ts";
@@ -38,8 +38,8 @@ import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { BRIDGE_SOURCE } from "../../test/studioAssistFixtures.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
-import type { AwaitPatchedFn } from "../src/workerQueries.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
+import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
 
 const records = installIndexedDbFixture();
 

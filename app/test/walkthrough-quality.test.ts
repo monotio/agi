@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { validateWalkthroughArtifact } from "../src/walkthrough.ts";
+import { validateWalkthroughArtifact } from "../src/walkthrough/walkthrough.ts";
 
 // Route ceilings protect simulation savings without rerunning the games. Ending
 // semantics remain covered by cold-boot route and browser replay tests.

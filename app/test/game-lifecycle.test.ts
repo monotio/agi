@@ -4,7 +4,7 @@ import {
   HistoryUnsavedError,
   useGameLifecycle,
   type GameLifecycleOptions,
-} from "../src/useGameLifecycle.ts";
+} from "../src/engine/useGameLifecycle.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
 import {
@@ -13,10 +13,10 @@ import {
   saveAuthoredGame,
   updateAuthoredGameFiles,
   type CachedGameData,
-} from "../src/gameStorage.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
+} from "../src/project/gameStorage.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import { createContainer } from "../../src/container/container.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 
 installIndexedDbFixture();
 // The project index lives in localStorage; each test file runs in its own process.

@@ -8,11 +8,11 @@ import { parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
 import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
-import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
 import type { WorkerContext } from "./context.ts";
 import { resetSession } from "./session.ts";
-import type { BootMessage, WorkerInbound } from "../workerProtocol.ts";
+import type { BootMessage, WorkerInbound } from "./workerProtocol.ts";
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
   const control = ctx.ports.control;

@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
-import { buildPublicGameZip } from "../src/projectArchive.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 
 // A hosted catalog serves the public game, not the author's project files.
 const game = await readGameZip(buildPublicGameZip(buildTutorial()));

@@ -2,7 +2,7 @@ import { providerReply } from "../../test/provider-stream.ts";
 import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("Astra is the new-user default; Stop and budget pauses retain a staged remix", async ({
@@ -101,7 +101,7 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
     await page.getByTestId("agent-continue").click();
     await expect(page.getByTestId("agent-bubble")).toBeHidden();
     const words = await page.evaluate(async () => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { listCachedGames, loadAuthoredGame } = await import(path);
       return (await loadAuthoredGame(listCachedGames()[0].projectId)).words;
     });

@@ -3,7 +3,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { providerReply } from "../../test/provider-stream.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, isolateStorage, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("agent playtest reports bounded navigation through the browser without moving the live game", async ({

@@ -144,7 +144,7 @@ async function keepLabelInTabB(page: Page): Promise<void> {
 /** What storage holds for the project: its revision, its notes and its checkpoint's revision. */
 function stored(page: Page) {
   return page.evaluate(async (id) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const body = await loadAuthoredGame(id);
     const checkpoint = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${id}`) ?? "null");

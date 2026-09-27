@@ -1,7 +1,7 @@
 import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/gameZip.ts";
-import { buildZip } from "../src/zip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";

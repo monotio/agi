@@ -7,8 +7,8 @@
  * exploded view every mark is projected onto its priority band's layer.
  */
 import { onBeforeUnmount, useTemplateRef, watch } from "vue";
-import { useEngineApi } from "../engineContext.ts";
-import { usePresentation } from "../usePresentation.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import { usePresentation } from "../play/usePresentation.ts";
 import {
   cropFrameRgba,
   inspectPixel,
@@ -17,8 +17,8 @@ import {
   pickFromClient,
   pickVisualSource,
   type PickPoint,
-} from "../debugView.ts";
-import { EGA_PALETTE } from "../palette.ts";
+} from "./debugView.ts";
+import { EGA_PALETTE } from "../render/palette.ts";
 import { useInspector } from "./useInspector.ts";
 
 const { state } = useEngineApi();

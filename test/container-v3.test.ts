@@ -12,8 +12,8 @@ import {
   toggleMessageEncryption,
 } from "../src/logic/resource.ts";
 import { RESOURCE_KINDS, type ResourceKind } from "../src/types.ts";
-import { readGameZip } from "../app/src/gameZip.ts";
-import { buildZip } from "../app/src/zip.ts";
+import { readGameZip } from "../app/src/archive/gameZip.ts";
+import { buildZip } from "../app/src/archive/zip.ts";
 
 // Original synthetic records; offsets and expanded payloads are specified by hand.
 function record(stored: number[], expanded = stored.length, metadata = 0): Uint8Array {
