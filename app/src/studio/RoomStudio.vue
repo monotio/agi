@@ -182,7 +182,9 @@ const draft = useStudioDraft({
 });
 const doc = useStudioDocument(() => ({
   source: draft.source.value,
-  trusted: resolved.value.trusted,
+  // A Keep stores the draft's annotated text beside the bytes: from then on
+  // it is the picture's authored source, not a disassembly.
+  trusted: resolved.value.trusted || draft.kept.value.revision !== baseRevision,
   profile,
 }));
 const { model, playhead, total, surface } = doc;
@@ -365,10 +367,16 @@ const undoOrder = useUndoOrder([
 
 const stage = useTemplateRef("stage");
 const panes = computed(() => panesFor(lens.value, mode.value));
-const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
+const { viewport, zoom, dpr, fitted, stageWidth, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
 );
+/**
+ * A stage too narrow for the Walk legend beside the centred view bar (and,
+ * from the same widths, a top bar without room for the size chip): the
+ * legend folds into the bar and the footer carries the size.
+ */
+const narrow = computed(() => stageWidth.value > 0 && stageWidth.value < 640);
 
 /** An AI proposal awaiting a verdict: compiled, with the cells it changes. */
 const proposal = computed(() => {
@@ -981,7 +989,7 @@ function onKeyup(event: KeyboardEvent): void {
         below-bar
         :stale="assist.stale.value"
       />
-      <StudioViewBar v-model:mode="mode" v-model:bands="showBands" :lens />
+      <StudioViewBar v-model:mode="mode" v-model:bands="showBands" :lens :fold-legend="narrow" />
       <StudioStageNotes
         :banner="keeper.banner.value"
         :notice="editing.notice.value"
@@ -1003,11 +1011,6 @@ function onKeyup(event: KeyboardEvent): void {
         @end="seek(total)"
       />
       <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
-      <LessonCard
-        v-if="lesson.session.value"
-        :session="lesson.session.value"
-        :outcome="lesson.outcome.value"
-      />
     </main>
 
     <DrawOrderScrubber
@@ -1034,8 +1037,15 @@ function onKeyup(event: KeyboardEvent): void {
       @seek="seek"
       @select="selectedId = $event"
     >
-      <template v-if="lens === 'walk'" #lead>
+      <template #lead>
+        <!-- The lesson's card docks at the top of the inspector, never over the stage. -->
+        <LessonCard
+          v-if="lesson.session.value"
+          :session="lesson.session.value"
+          :outcome="lesson.outcome.value"
+        />
         <StudioWalkPanel
+          v-if="lens === 'walk'"
           v-model:tint="walkTint"
           :walk="walker"
           :tool="tools.tool.value"
@@ -1075,6 +1085,9 @@ function onKeyup(event: KeyboardEvent): void {
     <footer class="studio__status">
       <span data-role="status">{{ status }}</span>
       <span class="studio__spacer"></span>
+      <span v-if="narrow" data-testid="studio-size"
+        >{{ draft.compiled.value.bytes.length }} B · {{ total }} cmds</span
+      >
       <span>AGI {{ profile.id }} profile</span>
       <span>{{ model.trusted ? "authored source" : "disassembled" }}</span>
     </footer>

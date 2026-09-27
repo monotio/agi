@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, useTemplateRef } from "vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
 import { recolorCount, recolorEdit, type RecolorEdit, type RecolorScope } from "./spriteRecolor.ts";
+import { swatchInk } from "./spriteView.ts";
 
 /**
  * The recolour tool's popover: one colour becomes another over this cel,
@@ -81,9 +82,18 @@ const ready = computed(
     clash.value === null,
 );
 
+const root = useTemplateRef("root");
+
 function apply(): void {
   if (!ready.value || from.value === null || to.value === undefined) return;
   emit("apply", recolorEdit(scope.value, { loop, cel }, from.value, to.value, propagate));
+  // The spent button disables itself (no pixels of From are left): focus
+  // stays in the popover, on the From colour, rather than dropping out of Studio.
+  void nextTick(() =>
+    root.value
+      ?.querySelector<HTMLElement>('[data-testid="sprite-recolor-from"] [tabindex="0"]')
+      ?.focus(),
+  );
 }
 
 /** A swatch row's arrows: along the row (Up/Down by eight), Home/End, skipping disabled swatches. */
@@ -108,6 +118,7 @@ const tabStop = (chosen: number | null | undefined): number =>
 
 <template>
   <section
+    ref="root"
     class="recolor"
     role="group"
     aria-labelledby="sprite-recolor-title"
@@ -146,7 +157,9 @@ const tabStop = (chosen: number | null | undefined): number =>
           @click="row === 'from' ? (from = value) : (to = value)"
           @keydown="onSwatchKey($event, row, value)"
         >
-          <span>{{ value === transparent ? "∅" : value }}</span>
+          <span :style="{ color: swatchInk(value) }">{{
+            value === transparent ? "∅" : value
+          }}</span>
         </button>
       </div>
     </div>
@@ -228,13 +241,12 @@ const tabStop = (chosen: number | null | undefined): number =>
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+/* The label's colour is black or white per swatch (swatchInk), 4.5:1 or better. */
 .recolor__swatch span {
   position: absolute;
   bottom: 1px;
   left: 3px;
-  color: var(--ink);
   font: var(--text-2xs) / 1 var(--font-mono);
-  mix-blend-mode: difference;
 }
 .recolor__swatch:disabled {
   cursor: not-allowed;

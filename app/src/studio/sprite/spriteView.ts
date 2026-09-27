@@ -270,3 +270,22 @@ export function celRgba(
 export function celCount(document: SpriteDocument): number {
   return document.loops.reduce((sum, loop) => sum + loop.cels.length, 0);
 }
+
+/** WCAG relative luminance of an sRGB colour, 0..1. */
+function luminance([r, g, b]: readonly [number, number, number]): number {
+  const linear = (channel: number): number => {
+    const c = channel / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+/**
+ * The label colour for a swatch of AGI colour `colour`: the palette's black
+ * (0) or white (15), whichever contrasts more with it (at least 4.5:1 on
+ * each of the 16).
+ */
+export function swatchInk(colour: number): "var(--agi-0)" | "var(--agi-15)" {
+  const l = luminance(EGA_PALETTE[colour] ?? [0, 0, 0]);
+  return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? "var(--agi-0)" : "var(--agi-15)";
+}

@@ -162,7 +162,7 @@ const writer = (plane: PlanePixel): string =>
       </section>
       <section class="inspector__sec inspector__sec--grow">
         <h3>Commands <em>click to scrub there</em></h3>
-        <ol class="inspector__cmds">
+        <ol class="inspector__cmds" data-testid="inspector-commands">
           <li v-for="cmd in commands" :key="cmd.entry">
             <button
               type="button"

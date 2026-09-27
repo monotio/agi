@@ -389,3 +389,23 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
     [],
   );
 });
+
+test("a disassembled picture reads as authored source once kept: the kept text is stored", async ({
+  page,
+}) => {
+  await open(page, "demo&authored=0");
+  const footer = page.locator(".studio__status");
+  await expect(footer).toContainText("disassembled");
+  // A rect by keys: R, Space at the cursor, three cells right and down, Space.
+  await page.locator(".studio__stage").focus();
+  await page.keyboard.press("r");
+  await page.keyboard.press("Space");
+  for (const key of ["ArrowRight", "ArrowDown"])
+    for (let i = 0; i < 3; i++) await page.keyboard.press(key);
+  await page.keyboard.press("Space");
+  await expect(page.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await page.getByTestId("studio-keep").click();
+  await expect(page.getByTestId("studio-draft-status")).toHaveText("Kept");
+  await expect(footer).toContainText("authored source");
+  await expect(footer).not.toContainText("disassembled");
+});

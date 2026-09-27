@@ -447,4 +447,14 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
     timeout: 30_000,
   });
   await expect(studio.getByTestId("walk-result-title")).toHaveText("Blocked at Wall line");
+
+  // With a start set, a click on the door box makes it the goal: the walk
+  // runs into the box and through the (now open) door.
+  await studio.getByTestId("walk-live-state").check();
+  await clickCell(page, 108, 150);
+  await expect(studio.getByTestId("walk-result")).toHaveCount(0);
+  await clickCell(page, 108, 115);
+  await expect(studio.getByTestId("walk-result-title")).toHaveText("Went to room 2 (Green room)", {
+    timeout: 30_000,
+  });
 });

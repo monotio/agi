@@ -720,6 +720,124 @@ test("the refusal text leaves out what a locked plane already says, per plane", 
   );
 });
 
+/** A new art item `id` repeating the bridge's 24 rows dx,dy away, in colour `colour`. */
+const bridgeCopy = (id: string, dx: number, dy: number, colour = 6) => [
+  `# @item ${id} "${id}" art`,
+  `vis ${colour}`,
+  "pri off",
+  ...Array.from(
+    { length: 24 },
+    (_, i) => `line ${60 + dx},${118 + dy + i} ${99 + dx},${118 + dy + i}`,
+  ),
+  "# @end",
+];
+/** The bridge fixture with `lines` added after its last item. */
+const withBridge = (source: string, ...lines: string[]) =>
+  compile(source.replace("\nend\n", `\n${lines.join("\n")}\nend\n`));
+
+test("one copy of the selected item is licensed; a second is refused in words the model can act on", () => {
+  // The bridge is 40 x 24 = 960 cells of colour 6 at x 60..99, y 118..141,
+  // over sky 11. A copy 60 left and 100 up lands on x 0..39, y 18..41, one
+  // 60 right and 100 up on x 120..159, y 18..41: 960 sky cells each.
+  const before = compile(BRIDGE_SOURCE);
+  const scope = artScope(before, "bridge");
+  const one = withBridge(BRIDGE_SOURCE, ...bridgeCopy("left", -60, -100));
+  assert.deepEqual(checkCandidate(before, one, scope), { ok: true, violations: [] });
+  const two = withBridge(
+    BRIDGE_SOURCE,
+    ...bridgeCopy("left", -60, -100),
+    ...bridgeCopy("right", 60, -100),
+  );
+  const check = checkCandidate(before, two, scope);
+  assert.deepEqual(shape(check), [
+    ["extra-copy", "visual", 960, { x0: 120, y0: 18, x1: 159, y1: 41 }],
+  ]);
+  assert.equal(
+    assistRefusalText(check),
+    `new item 'right' ("right") would be a second copy of the selected "Bridge": 960 cells at 120,18..159,41 of the art (visual plane) outside the selection would change. An assist may move a selected item or copy it once, no more; drop the extra copies`,
+  );
+});
+
+test("a moved target has no copy left to make", () => {
+  // The bridge moves 100 up (x 60..99, y 18..41), and a copy of it lands 60
+  // left of that: its 960 cells are a second position.
+  const before = compile(BRIDGE_SOURCE);
+  const moved = BRIDGE_SOURCE.replace(
+    /line (\d+),(\d+) (\d+),\2\n/g,
+    (text, x1: string, y: string, x2: string) =>
+      x1 === "60" ? `line ${x1},${Number(y) - 100} ${x2},${Number(y) - 100}\n` : text,
+  );
+  const after = withBridge(moved, ...bridgeCopy("left", -60, -100));
+  assert.deepEqual(shape(checkCandidate(before, after, artScope(before, "bridge"))), [
+    ["extra-copy", "visual", 960, { x0: 0, y0: 18, x1: 39, y1: 41 }],
+  ]);
+});
+
+test("look-alikes in other colours get no licence: of six tiles of the bridge, one passes", () => {
+  // QA's tiles: the bridge's rows in colours 1..6 with top-left corners
+  // 0,0 / 40,0 / 80,0 / 120,0 / 0,30 / 40,60, none overlapping, all over
+  // sky. Only the colour-6 tile is the bridge copied; the other five are
+  // refused with their 960 cells each.
+  const before = compile(BRIDGE_SOURCE);
+  const corners = [
+    [0, 0],
+    [40, 0],
+    [80, 0],
+    [120, 0],
+    [0, 30],
+    [40, 60],
+  ] as const;
+  const after = withBridge(
+    BRIDGE_SOURCE,
+    ...corners.flatMap(([x, y], i) => bridgeCopy(`t${i + 1}`, x - 60, y - 118, i + 1)),
+  );
+  const check = checkCandidate(before, after, artScope(before, "bridge"));
+  assert.deepEqual(
+    shape(check),
+    corners
+      .slice(0, 5)
+      .map(([x, y]) => ["extra-copy", "visual", 960, { x0: x, y0: y, x1: x + 39, y1: y + 23 }]),
+  );
+  assert.ok(
+    assistRefusalText(check).startsWith(
+      `new item 't1' ("t1") copies the selected "Bridge" in other colours: 960 cells at 0,0..39,23 of the art (visual plane) outside the selection would change. A copy keeps the item's colours and pen; draw it in the same ones, or keep new drawing inside the selection; `,
+    ),
+  );
+});
+
+test("a copy that draws depth the selected art never drew is refused in the Walk lens", () => {
+  // Dot is a 3-cell colour-6 line at 10..12,10 with priority off. W repeats
+  // it at 100..102,100 with art off and priority 2: its 3 cells turn floor 4
+  // into signal 2, which the Walk lens itself would allow as control.
+  const sky = ['# @item sky "Sky" art', "vis 11", "fill 0,0", "# @end"];
+  const dot = ['# @item dot "Dot" art', "vis 6", "line 10,10 12,10", "# @end"];
+  const walk = ['# @item w "W" walk', "vis off", "pri 2", "line 100,100 102,100", "# @end"];
+  const before = picture(...sky, ...dot, "end");
+  const after = picture(...sky, ...dot, ...walk, "end");
+  const scope = pictureAssistScope({ num: 1, compiled: before, targetIds: ["dot"], lens: "walk" });
+  assert.deepEqual(shape(checkCandidate(before, after, scope)), [
+    ["extra-copy", "priority", 3, { x0: 100, y0: 100, x1: 102, y1: 100 }],
+  ]);
+});
+
+test("a duplicate as manual Duplicate makes it passes, a colour set before the item included", () => {
+  // East's colour 2 is set before its @item; the duplicate carries it.
+  const east = ["vis 2", '# @item east "East" art', "line 100,0 100,20", "# @end"];
+  const before = picture(...east, "end");
+  const after = edit(before, {
+    type: "duplicateItem",
+    itemId: "east",
+    dx: -50,
+    dy: 0,
+    newId: "west",
+    newLabel: "West",
+  });
+  assert.deepEqual(checkCandidate(before, after, artScope(before, "east")), {
+    ok: true,
+    violations: [],
+  });
+});
+
 function sprite(): SpriteDocument {
   return openSprite(ROBOT_VIEW, profile);
 }

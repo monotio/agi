@@ -93,7 +93,9 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
         data-testid="studio-bytes"
         :data-tone="meter.tone"
       >
-        <span>{{ bytes }} B · {{ commands }} cmds</span>
+        <span
+          >{{ bytes }} B<span class="top-bar__cmds"> · {{ commands }} cmds</span></span
+        >
         <i :style="{ width: `${Math.max(2, meter.fraction * 100)}%` }"></i>
       </div>
       <StudioDraftControls
@@ -147,7 +149,9 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
   justify-content: flex-end;
   gap: var(--space-2);
   min-width: 0;
+  container: studio-meta / inline-size;
 }
+
 .top-bar__meter {
   position: relative;
   display: grid;
@@ -178,5 +182,18 @@ const picChip = computed(() => `PIC ${pictureNumber}`);
 }
 .top-bar__meter.is-danger i {
   background: var(--danger);
+}
+/* The size chip gives way to the draft controls, which never shrink: first
+   its command count (the chip is 131px beside their 369px), then all of it
+   (the footer then shows the size), so it never runs under the lens switch. */
+@container studio-meta (max-width: 507px) {
+  .top-bar__cmds {
+    display: none;
+  }
+}
+@container studio-meta (max-width: 447px) {
+  .top-bar__meter {
+    display: none;
+  }
 }
 </style>

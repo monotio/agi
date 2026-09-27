@@ -355,6 +355,13 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
     "No pixels of colour 11, light cyan in this loop.",
   );
+  // The spent Recolour button leaves focus in the popover, on the From colour,
+  // so the keys go on from there: Esc closes it.
+  await expect(
+    recolor.getByTestId("sprite-recolor-from").getByRole("radio", { checked: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(recolor).toHaveCount(0);
 
   // Loop 0 is blue where it was cyan, and nothing else; loop 1 keeps its cyan as a separate copy.
   const recoloured = open(await draftBytes(page));
@@ -520,6 +527,13 @@ test.describe("on the harness", () => {
     await page.keyboard.press("Escape");
     await expect(sheet).toHaveCount(0);
     await expect(studio).toBeVisible();
+    // The view bar stays above the sheet: its toggle, pressed, closes it again.
+    const toggle = studio.getByTestId("sprite-sheet-toggle");
+    await toggle.click();
+    await expect(sheet).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await toggle.click();
+    await expect(sheet).toHaveCount(0);
     expect(
       await page.evaluate(
         () => (window as unknown as { spriteHarness: { closes: number } }).spriteHarness.closes,
