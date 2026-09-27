@@ -10,7 +10,7 @@ import { isolateStorage, savedGameCard, textHook, waitForAutosaveAfter } from ".
  * A game that answers QUIT the way a copy-protection or age check does: it
  * blanks the screen, then runs quit(1).
  */
-function quittingGameZip(): Buffer {
+function quittingGameFiles(): Map<string, Uint8Array> {
   const game = createContainer();
   // Picture 1 is a blue field; picture 2 is black from edge to edge.
   game.putResource("picture", 1, new Uint8Array([0xf0, 1, 0xf8, 0, 0, 0xff]));
@@ -30,13 +30,11 @@ function quittingGameZip(): Buffer {
       { dictionary },
     ).payload,
   );
-  return Buffer.from(
-    buildZip(
-      [...game.files]
-        .map(([name, data]) => ({ name, data }))
-        .concat([{ name: "WORDS.TOK", data: buildWordsTok([{ word: "quit", id: 1 }]) }]),
-    ),
-  );
+  return new Map([...game.files, ["WORDS.TOK", buildWordsTok([{ word: "quit", id: 1 }])]]);
+}
+
+function quittingGameZip(): Buffer {
+  return Buffer.from(buildZip([...quittingGameFiles()].map(([name, data]) => ({ name, data }))));
 }
 
 async function autosavePreview(page: Page): Promise<string | null> {
@@ -80,6 +78,33 @@ test("a game that quits lands Home saying so, keeps its last picture and can be 
   await expect(page.getByTestId("hero-primary")).toHaveText("Continue quitter");
   await expect(page.getByTestId("game-ended-continue")).toHaveCount(0);
 
+  await page.getByTestId("game-ended-play-again").click();
+  await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Type QUIT");
+  await expect(ended).toHaveCount(0);
+});
+
+test("a fixture-served game that quits offers Play again from its fixture", async ({ page }) => {
+  const files = quittingGameFiles();
+  await page.route("**/fixtures/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/fixtures/") return route.fulfill({ json: ["quitter"] });
+    if (path === "/fixtures/quitter/") return route.fulfill({ json: [...files.keys()] });
+    const bytes = files.get(path.split("/").at(-1)!);
+    return route.fulfill(
+      bytes
+        ? { body: Buffer.from(bytes), contentType: "application/octet-stream" }
+        : { status: 404 },
+    );
+  });
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("boot-quitter").click();
+  await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Type QUIT");
+  await page.getByTestId("input-line").fill("quit");
+  await page.getByTestId("input-line").press("Enter");
+
+  const ended = page.getByTestId("game-ended");
+  await expect(ended).toContainText("QUITTER · The game ended (it quit).");
   await page.getByTestId("game-ended-play-again").click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Type QUIT");
   await expect(ended).toHaveCount(0);

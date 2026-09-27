@@ -47,9 +47,10 @@ const screenEl = useTemplateRef("screenEl");
 const stageEl = useTemplateRef("stageEl");
 
 /**
- * The desktop stage fits the screen to whole multiples of the frame
- * (viewportLayout.ts). Touch layouts keep the phone rules in app.css, which
- * size the screen from the viewport instead.
+ * The desktop stage, in Play and in Create's centre column, fits the screen to
+ * a whole multiple of the frame, or to the largest fit when a whole step would
+ * leave much of the stage empty (viewportLayout.ts). Touch layouts keep the
+ * phone rules in app.css, which size the screen from the viewport instead.
  */
 const stageBox = ref<{ width: number; height: number }>();
 watch(stageEl, (el) => {
@@ -713,7 +714,7 @@ defineExpose({
 
 <style scoped>
 /* Desktop: the stage takes every row the bar and strip leave and centres the
-   screen on black; its size is the integer fit from the script. */
+   screen on black; its size is the fit from the script (stageScreenWidth). */
 .play-area:not(.with-touch) {
   flex: 1;
   min-width: 0;
@@ -850,10 +851,13 @@ defineExpose({
   }
 }
 
-/* One slim strip: transport first, hints after it, both quiet. */
+/* One slim strip: transport first, hints after it, both quiet. It is a
+   size container: its width, not the window's, decides whether the hint fits. */
 .play-strip {
   position: relative;
+  container: play-strip / inline-size;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-5);
   width: 100%;
@@ -915,9 +919,27 @@ defineExpose({
     opacity: 0.45;
   }
 }
+/* A strip too narrow for the hint's share beside the transport (Create's
+   centre column on a small laptop): the standing key help steps aside —
+   Help and Game controls keep it — and a caption asking for a key right now
+   takes its own row, so neither prints over the timeline. */
+@media (min-width: 901px) {
+  @container play-strip (max-width: 720px) {
+    .play-area:not(.with-touch) .play-hints {
+      flex: 0 1 auto;
+    }
+    .play-area:not(.with-touch) .input-help {
+      display: none;
+    }
+    .play-area:not(.with-touch) .play-hints:has(.caption) {
+      flex-basis: 100%;
+      justify-content: flex-start;
+      text-align: left;
+    }
+  }
+}
 @media (max-width: 900px) {
   .play-strip {
-    flex-wrap: wrap;
     gap: var(--space-2) var(--space-4);
     padding: var(--space-2) var(--space-4);
   }

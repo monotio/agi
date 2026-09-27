@@ -146,9 +146,30 @@ function onClose(): void {
 }
 .ui-dialog__foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--hairline);
+}
+/* A phone has no room for a row of buttons: they stack full width, in
+   reading order, so the safe choice (Cancel, first) is never pushed off an
+   edge. e2e/dialog-fit.spec.ts holds every dialog to this. */
+@media (max-width: 520px) {
+  .ui-dialog__head {
+    padding-left: var(--space-5);
+  }
+  .ui-dialog__body:not(.ui-dialog__body--flush) {
+    padding-inline: var(--space-5);
+  }
+  .ui-dialog__foot {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--space-4) var(--space-5);
+  }
+  .ui-dialog__foot > :slotted(*) {
+    width: 100%;
+    margin: 0;
+  }
 }
 </style>

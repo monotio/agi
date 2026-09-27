@@ -11,6 +11,7 @@ import UiChip from "../ui/UiChip.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiKbd from "../ui/UiKbd.vue";
 
 /**
  * Where the assistant is hosted: the Play drawer is Ask-only (remix lives in
@@ -267,6 +268,15 @@ async function onBubbleReload(): Promise<void> {
           :title="`${asking ? 'Read-only' : 'Paused'} · ${state.powerUp.room > 0 ? `room ${state.powerUp.room}` : '…'}`"
           >{{ asking ? "Read-only" : "Paused" }} ·
           {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
+        >
+        <!-- Play's Ask button steps away while the drawer is open: the drawer
+             names its own way back (hidden on touch, which has no Esc). -->
+        <UiKbd
+          v-if="surface === 'drawer' && !state.powerUp.busy"
+          class="agent-bubble-esc"
+          data-testid="agent-bubble-esc"
+          title="Esc goes back to the game"
+          >Esc</UiKbd
         >
         <UiIconButton
           v-if="!creatingRoom || !state.powerUp.busy"
@@ -534,6 +544,15 @@ async function onBubbleReload(): Promise<void> {
   color: var(--ink-3);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.agent-bubble-esc {
+  flex: none;
+}
+@media (hover: none) {
+  .agent-bubble-esc {
+    display: none;
+  }
 }
 
 /* The close button keeps a 44px hit area at every pointer size; negative

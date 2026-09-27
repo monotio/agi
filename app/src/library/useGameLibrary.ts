@@ -494,7 +494,11 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     return { stored, copy, title: entry?.title ?? game.title ?? title };
   }
 
-  /** The import notice: what was added, what came along, and what it is. */
+  /**
+   * The import notice, in plain words: what was added, what came along with
+   * it ("with its saved progress, map and history"), what storage refused,
+   * and what it is.
+   */
   function importedNotice(
     game: OpenedGame,
     { stored, copy, title }: { stored: ImportStorageReport | null; copy: boolean; title: string },
@@ -502,7 +506,14 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const added = copy
       ? `Added another copy of ${title} to your library`
       : `${title} added to your library`;
-    return `${added}${progressNote(game, stored)}.${workInProgressNote(game)}`;
+    const { kept, refused, unconfirmed, warnings } = importedParts(game, stored);
+    return [
+      `${added}${kept.length ? `, with its ${listed(kept)}` : ""}.`,
+      ...(refused.length ? [`Its ${listed(refused)} could not be stored.`] : []),
+      ...(unconfirmed.length ? [`Its ${listed(unconfirmed)} may not have been stored.`] : []),
+      ...warnings,
+      ...(workInProgressNote(game) ? [workInProgressNote(game)] : []),
+    ].join(" ");
   }
 
   /** An unfinished world this copy cannot grow stops at unbuilt rooms. */
@@ -510,39 +521,47 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     const unfinished = game.workInProgress === true || game.roomGeneration === true;
     const grows = game.project !== undefined && game.roomGeneration === true;
     return unfinished && !grows
-      ? " It is a work in progress: exits to rooms not built yet stop the game."
+      ? "It is a work in progress: exits to rooms not built yet stop the game."
       : "";
   }
 
+  /** "a", "a and b", "a, b and c". */
+  function listed(items: readonly string[]): string {
+    return items.length < 2
+      ? (items[0] ?? "")
+      : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  }
+
   /** What a project archive brought along besides the game — and what storage refused. */
-  function progressNote(game: OpenedGame, stored: ImportStorageReport | null): string {
-    const mapNote = game.map
-      ? ` (world map ${stored?.map ? "stored" : "could not be stored"})`
-      : game.mapWarning
-        ? ` (${game.mapWarning})`
-        : "";
-    const recoveryNote = game.backupWarning ? ` (${game.backupWarning})` : "";
-    const historyNote = game.history
-      ? ` (session tape ${stored?.history ? "stored" : "could not be stored"})`
-      : "";
-    if (!game.progress) return mapNote + historyNote + recoveryNote;
-    const parts = Object.keys(game.progress.saves).map((slot) => {
-      const status = stored?.slots.includes(Number(slot))
-        ? "stored"
-        : stored?.failedSlots.includes(Number(slot))
-          ? "could not be stored"
-          : "storage unconfirmed";
-      return `save slot ${slot} ${status}`;
-    });
-    if (game.progress.autosave) {
-      const status = stored?.autosave
-        ? "stored"
-        : stored
-          ? "could not be stored"
-          : "storage unconfirmed";
-      parts.push(`autosave ${status}`);
-    }
-    return (parts.length ? ` (${parts.join("; ")})` : "") + mapNote + historyNote + recoveryNote;
+  function importedParts(
+    game: OpenedGame,
+    stored: ImportStorageReport | null,
+  ): { kept: string[]; refused: string[]; unconfirmed: string[]; warnings: string[] } {
+    const kept: string[] = [];
+    const refused: string[] = [];
+    const unconfirmed: string[] = [];
+    const slots = Object.keys(game.progress?.saves ?? {}).map(Number);
+    const slotsIn = (list: readonly number[]) => slots.filter((slot) => list.includes(slot));
+    const saves = (numbers: readonly number[]) =>
+      numbers.length === 1
+        ? `save slot ${numbers[0]}`
+        : `save slots ${listed(numbers.map(String))}`;
+    const keptSlots = slotsIn(stored?.slots ?? []);
+    const refusedSlots = slotsIn(stored?.failedSlots ?? []);
+    const unknownSlots = slots.filter(
+      (slot) => !keptSlots.includes(slot) && !refusedSlots.includes(slot),
+    );
+    if (game.progress?.autosave)
+      (stored?.autosave ? kept : stored ? refused : unconfirmed).push("saved progress");
+    if (keptSlots.length) kept.push(saves(keptSlots));
+    if (refusedSlots.length) refused.push(saves(refusedSlots));
+    if (unknownSlots.length) unconfirmed.push(saves(unknownSlots));
+    if (game.map) (stored?.map ? kept : refused).push("map");
+    if (game.history) (stored?.history ? kept : refused).push("history");
+    const warnings = [game.mapWarning, game.backupWarning].filter(
+      (warning): warning is string => warning !== undefined,
+    );
+    return { kept, refused, unconfirmed, warnings };
   }
 
   async function onGameZip(file?: File): Promise<void> {

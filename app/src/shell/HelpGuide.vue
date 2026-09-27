@@ -207,10 +207,11 @@ h3 {
   .help-body {
     grid-template-columns: 1fr;
   }
+  /* Every section stays in view: the tabs wrap rather than scroll a
+     half-cut "About" off the edge. */
   .help-sections {
     position: static;
-    flex-direction: row;
-    overflow-x: auto;
+    flex-flow: row wrap;
   }
   .help-sections button {
     flex: 0 0 auto;

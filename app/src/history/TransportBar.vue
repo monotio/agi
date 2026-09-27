@@ -270,8 +270,8 @@ onUnmounted(() => {
               v-if="model.dropped > 0"
               class="transport-note"
               data-testid="history-dropped"
-              title="The tape outgrew its storage bound — playback starts at the oldest kept session"
-              >earlier tape dropped</span
+              title="The history outgrew its storage limit — playback starts at the oldest kept session"
+              >earlier history dropped</span
             >
           </span>
 
