@@ -6,9 +6,10 @@
  * Studio lessons (lessons/registry.ts) adds a section of them: each opens a
  * Studio on the lesson's resource, and shows whether its challenge is done.
  */
-import { computed, ref, useTemplateRef } from "vue";
+import { computed, ref } from "vue";
 import UiButton from "./ui/UiButton.vue";
 import UiChip from "./ui/UiChip.vue";
+import UiDialog from "./ui/UiDialog.vue";
 import { HELP_SECTIONS, type HelpActionKind, type HelpRequest } from "./helpContent.ts";
 import { useLessonBadges } from "./lessons/lessonStorage.ts";
 import type { LessonSet, StudioLesson } from "./lessons/types.ts";
@@ -21,7 +22,7 @@ const props = defineProps<{
 const emit = defineEmits<{ action: [request: HelpRequest]; lesson: [lesson: StudioLesson] }>();
 
 const LESSONS_SECTION = "lessons";
-const dialog = useTemplateRef("dialog");
+const shown = ref(false);
 const sectionId = ref(HELP_SECTIONS[0]!.id);
 const lessonSection = computed(() => sectionId.value === LESSONS_SECTION && props.lessons);
 const section = computed(
@@ -31,11 +32,11 @@ const completed = useLessonBadges().completed;
 
 function open(section?: string): void {
   if (section) sectionId.value = section;
-  dialog.value?.showModal();
+  shown.value = true;
 }
 
 function run(request: HelpRequest): void {
-  dialog.value?.close();
+  shown.value = false;
   emit("action", request);
 }
 
@@ -43,7 +44,7 @@ const studioKind = (lesson: StudioLesson): HelpActionKind =>
   lesson.open.studio === "room" ? "openRoomStudio" : "openSpriteStudio";
 
 function runLesson(lesson: StudioLesson): void {
-  dialog.value?.close();
+  shown.value = false;
   emit("lesson", lesson);
 }
 
@@ -51,16 +52,15 @@ defineExpose({ open });
 </script>
 
 <template>
-  <dialog
-    ref="dialog"
+  <UiDialog
+    v-model:open="shown"
+    title="Help"
+    size="lg"
     class="help-guide"
-    aria-labelledby="help-guide-title"
+    close-testid="help-guide-close"
+    close-label="Close Help"
     data-testid="help-guide"
   >
-    <header>
-      <h2 id="help-guide-title">Help</h2>
-      <UiButton data-testid="help-guide-close" @click="dialog?.close()">Close</UiButton>
-    </header>
     <div class="help-body">
       <nav class="help-sections" aria-label="Help sections">
         <button
@@ -129,91 +129,70 @@ defineExpose({ open });
         </section>
       </div>
     </div>
-  </dialog>
+  </UiDialog>
 </template>
 
 <style scoped>
-.help-guide {
-  background: var(--surface-1);
-  color: var(--ink);
-  border: 1px solid var(--action-line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-dialog);
-  padding: 0.75rem 1rem 1rem;
-  width: min(44rem, calc(100vw - 2rem));
-  max-height: min(85dvh, 40rem);
-  box-sizing: border-box;
-  display: none;
-  flex-direction: column;
-}
-.help-guide[open] {
-  display: flex;
-}
-.help-guide::backdrop {
-  background: var(--scrim);
-}
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
-}
-h2 {
-  margin: 0;
-  font-size: var(--text-lg);
+.help-guide.ui-dialog {
+  width: min(46rem, calc(100vw - 2rem));
 }
 .help-body {
   display: grid;
   grid-template-columns: 9.5rem 1fr;
-  gap: 1rem;
+  gap: var(--space-5);
   min-height: 0;
 }
 .help-sections {
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  align-self: start;
+  gap: var(--space-1);
 }
 .help-sections button {
-  min-height: var(--control-h);
-  padding: 0.5rem 0.75rem;
-  border: 1px solid transparent;
+  min-height: var(--control-h-sm);
+  padding: var(--space-2) var(--space-4);
+  border: 0;
   border-radius: var(--radius);
-  color: var(--ink);
+  color: var(--ink-2);
   background: transparent;
   text-align: left;
-  font: var(--text-md) / 1.3 var(--font-sans);
+  font: var(--weight-semibold) var(--text-sm) / 1.3 var(--font-sans);
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 .help-sections button:hover {
+  color: var(--ink);
   background: var(--surface-2);
 }
 .help-sections button[aria-current="true"] {
-  border-color: var(--action);
-  color: var(--action);
-  background: var(--surface-2);
+  color: var(--ink);
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
 .help-topics {
-  overflow-y: auto;
-  padding-right: 0.25rem;
+  min-width: 0;
 }
 .help-topic + .help-topic {
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
   border-top: 1px solid var(--hairline);
 }
 h3 {
-  margin: 0 0 0.35rem;
-  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+  font: var(--weight-semibold) var(--text-lg) / var(--leading-tight) var(--font-sans);
   color: var(--ink);
 }
 .help-topic p {
-  margin: 0 0 0.5rem;
+  margin: 0 0 var(--space-3);
   font: var(--text-md) / 1.55 var(--font-sans);
   color: var(--ink-2);
 }
 .help-show-me {
-  margin-top: 0.25rem;
+  margin-top: var(--space-1);
 }
 .help-lesson__title {
   display: flex;
@@ -229,6 +208,7 @@ h3 {
     grid-template-columns: 1fr;
   }
   .help-sections {
+    position: static;
     flex-direction: row;
     overflow-x: auto;
   }

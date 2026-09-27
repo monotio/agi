@@ -2,6 +2,8 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { AGI_KEY } from "../../src/runtime/keys.ts";
 import { FUNCTION_KEYS, ALT_LETTER_SCANS } from "./gameControls.ts";
+import UiIcon from "./ui/UiIcon.vue";
+import UiSelect from "./ui/UiSelect.vue";
 
 const { disabled, navigating, hold } = defineProps<{
   disabled: boolean;
@@ -157,7 +159,7 @@ onBeforeUnmount(() => {
       }}
     </p>
     <details class="extra-keys">
-      <summary>Keys</summary>
+      <summary><UiIcon name="keyboard" :size="16" />Keys</summary>
       <div class="key-grid">
         <button
           v-for="(code, label) in extraKeys"
@@ -171,11 +173,11 @@ onBeforeUnmount(() => {
       </div>
       <label class="modifier"
         >Letter keys
-        <select v-model="modifier" :disabled aria-label="Key modifier">
+        <UiSelect v-model="modifier" :disabled aria-label="Key modifier">
           <option value="none">Letters</option>
           <option value="ctrl">Ctrl + letter</option>
           <option value="alt">Alt + letter</option>
-        </select>
+        </UiSelect>
       </label>
       <div class="key-grid letters">
         <button
@@ -221,7 +223,6 @@ onBeforeUnmount(() => {
   gap: 5px;
 }
 button,
-select,
 summary {
   font: inherit;
   color: inherit;
@@ -265,10 +266,32 @@ button:disabled {
   margin: 8px 0;
   text-align: center;
 }
+/* More keys: a compact control, centred under the pad, not a full-width bar. */
+.extra-keys {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 summary {
-  padding: 9px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-touch);
+  box-sizing: border-box;
+  padding: 0 var(--space-5);
+  font-weight: var(--weight-semibold);
   cursor: pointer;
-  min-height: 24px;
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+.extra-keys[open] summary {
+  border-color: var(--action-line);
+  color: var(--action);
+}
+.extra-keys[open] > :not(summary) {
+  align-self: stretch;
 }
 .key-grid {
   display: grid;
@@ -281,10 +304,6 @@ summary {
   gap: 8px;
   align-items: center;
   margin-top: 12px;
-}
-select {
-  min-height: var(--control-h-touch);
-  padding: 6px;
 }
 .extra-keys[open] {
   max-height: 45vh;

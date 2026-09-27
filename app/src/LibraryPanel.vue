@@ -236,10 +236,15 @@ function startCreating(templateId: string): void {
 
     <footer class="shelf-notes">
       <p data-testid="verified-games-hint">
-        Verified to boot: King's Quest I–IV, Space Quest I–II, Police Quest I, Leisure Suit Larry I,
-        The Black Cauldron, Mixed-Up Mother Goose, Donald Duck's Playground, Gold Rush!, Manhunter
-        1–2, demopac4; the Amiga editions of King's Quest II, Space Quest I–II, Police Quest I, Gold
-        Rush! and Manhunter 2; and Space Quest II for the Apple IIgs.
+        Verified to boot: King's Quest, Space Quest, Police Quest and more.
+        <button
+          type="button"
+          class="shelf-notes__link"
+          data-testid="verified-games-help"
+          @click="bridge.openHelp('games')"
+        >
+          Full list
+        </button>
       </p>
       <p data-testid="fan-games-hint">
         No Sierra copies? Fans have made over a hundred free AGI games:
@@ -328,11 +333,24 @@ function startCreating(templateId: string): void {
   line-height: 1.5;
 }
 .shelf-notes p {
-  max-width: 72ch;
+  max-width: 80ch;
   margin: 0 0 var(--space-2);
 }
-.shelf-notes a {
+.shelf-notes a,
+.shelf-notes__link {
   color: var(--ink-2);
+}
+.shelf-notes__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.shelf-notes__link:hover {
+  color: var(--ink);
 }
 @media (pointer: coarse) {
   .shelf-hint {

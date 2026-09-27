@@ -24,6 +24,8 @@ import {
   type PickPoint,
 } from "../debugView.ts";
 import { useInspector } from "./useInspector.ts";
+import UiSegmented from "../ui/UiSegmented.vue";
+import UiSwitch from "../ui/UiSwitch.vue";
 
 const { viewOnly = false } = defineProps<{ viewOnly?: boolean }>();
 
@@ -52,13 +54,25 @@ const COLOR_NAMES = [
   "white",
 ];
 
-const MODES: { id: DebugViewMode; label: string; title: string }[] = [
+const MODES: readonly { id: DebugViewMode; label: string; title: string }[] = [
   { id: "visual", label: "Game", title: "Normal picture" },
   { id: "priority", label: "Priority", title: "Priority surface (Sierra show.pri.screen)" },
   { id: "blend", label: "Blend", title: "Depth ramp over the game; control lines hatch" },
   { id: "split", label: "Split", title: "Half game, half priority" },
   { id: "explode", label: "Layers", title: "Exploded priority layers (GPU, pointer parallax)" },
 ];
+
+/** The view choices as one segmented control; Layers needs the GPU stage. */
+const modeOptions = computed(() =>
+  MODES.map((m) => ({
+    value: m.id,
+    label: m.label,
+    testid: `dbg-mode-${m.id}`,
+    disabled: m.id === "explode" && !gpuBackend.value,
+    title: m.id === "explode" && !gpuBackend.value ? "Needs the GPU stage" : m.title,
+  })),
+);
+const modeNote = computed(() => MODES.find((m) => m.id === debugViewMode.value)?.title ?? "");
 
 function layerLabel(point: PickPoint): string {
   const b = point.layerBand;
@@ -141,42 +155,40 @@ watch(
 <template>
   <!-- ================= SCREEN ================= -->
   <section v-if="tab === 'screen'" class="dd-body">
-    <div class="dd-row dd-modes">
-      <button
-        v-for="m in MODES"
-        :key="m.id"
-        type="button"
-        class="dd-mode"
-        :class="{ on: debugViewMode === m.id }"
-        :aria-pressed="debugViewMode === m.id"
-        :disabled="m.id === 'explode' && !gpuBackend"
-        :title="m.id === 'explode' && !gpuBackend ? 'Needs the GPU stage' : m.title"
-        :data-testid="`dbg-mode-${m.id}`"
-        @click="debugViewMode = m.id"
-      >
-        {{ m.label }}
-      </button>
+    <div class="dd-group">
+      <p id="dd-view-caption" class="dd-caption">View</p>
+      <UiSegmented
+        v-model="debugViewMode"
+        label="Inspector view"
+        size="sm"
+        block
+        aria-describedby="dd-view-caption"
+        :options="modeOptions"
+      />
+      <p class="dd-note" data-testid="dbg-mode-note">{{ modeNote }}</p>
     </div>
-    <div class="dd-row">
-      <label class="dd-check">
-        <input
-          :checked="overlayOn"
-          type="checkbox"
-          data-testid="dbg-overlay-toggle"
-          @change="inspector.setOverlay(($event.target as HTMLInputElement).checked)"
-        />
-        Objects
-      </label>
-      <label class="dd-check">
-        <input
-          :checked="inspectArmed"
-          type="checkbox"
-          data-testid="dbg-inspect-toggle"
-          @change="inspector.setInspectArmed(($event.target as HTMLInputElement).checked)"
-        />
-        Inspect
-      </label>
-      <span v-if="inspectArmed" class="dd-hint">click the scene to latch a pick</span>
+    <div class="dd-group">
+      <p class="dd-caption">Overlays</p>
+      <UiSwitch
+        size="sm"
+        class="dd-switch"
+        data-testid="dbg-overlay-toggle"
+        :model-value="overlayOn"
+        @update:model-value="inspector.setOverlay($event)"
+      >
+        Object boxes<small>Outline every animated object</small>
+      </UiSwitch>
+      <UiSwitch
+        size="sm"
+        class="dd-switch"
+        data-testid="dbg-inspect-toggle"
+        :model-value="inspectArmed"
+        @update:model-value="inspector.setInspectArmed($event)"
+      >
+        Pick a pixel<small>{{
+          inspectArmed ? "Click the scene to latch a pick" : "Read colour, depth and owner"
+        }}</small>
+      </UiSwitch>
     </div>
 
     <div v-if="inspectArmed && hover?.point" class="dd-hover">
@@ -380,34 +392,26 @@ watch(
   gap: var(--space-3);
   margin: var(--space-2) 0;
 }
-.dd-modes {
+.dd-group {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: var(--space-1);
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
 }
-.dd-mode {
-  padding: var(--space-2) 0;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius);
-  color: var(--action);
-  background: transparent;
-  font: inherit;
+.dd-caption {
+  margin: 0;
+  color: var(--ink-3);
+  font: var(--weight-bold) var(--text-2xs) / 1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.dd-note {
+  margin: 0;
+  color: var(--ink-3);
   font-size: var(--text-2xs);
-  cursor: pointer;
 }
-.dd-mode:hover:not(:disabled) {
-  border-color: var(--action-hover);
-  color: var(--action-hover);
-  background: var(--surface-3);
-}
-.dd-mode.on {
-  border-color: var(--action);
-  color: var(--action-ink);
-  background: var(--action);
-}
-.dd-mode:disabled {
-  opacity: 0.45;
-  cursor: default;
+.dd-switch {
+  width: 100%;
+  min-height: var(--control-h-sm);
 }
 .dd-check {
   display: flex;

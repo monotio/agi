@@ -9,6 +9,8 @@
  */
 import { computed, ref, watch } from "vue";
 import UiButton from "./ui/UiButton.vue";
+import UiField from "./ui/UiField.vue";
+import UiIconButton from "./ui/UiIconButton.vue";
 import { useEngineApi } from "./engineContext.ts";
 import type { RoomGraphNode } from "../../src/agent/roomMap.ts";
 import type { PlanRoomEdit } from "./useRoomMap.ts";
@@ -94,17 +96,18 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
 </script>
 
 <template>
-  <div class="plan-editor" data-testid="map-plan-editor">
+  <section class="plan-editor" aria-label="Plan" data-testid="map-plan-editor">
+    <h4 class="plan-editor__title">Plan</h4>
     <template v-if="entry && edit">
-      <label class="plan-field">
-        Name
+      <UiField v-slot="{ id }" label="Name" dense>
         <input
+          :id
           v-model="edit.title.draft"
           maxlength="160"
           data-testid="plan-room-title"
           @change="commitField('title')"
         />
-      </label>
+      </UiField>
       <div
         v-if="edit.title.conflict !== null"
         class="plan-conflict"
@@ -113,27 +116,30 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
       >
         The plan now says “{{ edit.title.conflict }}”.
         <UiButton
+          size="sm"
           data-testid="plan-title-keep"
           @click="map.resolvePlanField(edit, 'title', 'mine')"
         >
           Keep mine
         </UiButton>
         <UiButton
+          size="sm"
+          variant="ghost"
           data-testid="plan-title-use-plan"
           @click="map.resolvePlanField(edit, 'title', 'plan')"
         >
           Use the plan's
         </UiButton>
       </div>
-      <label class="plan-field">
-        What happens here
+      <UiField v-slot="{ id }" label="What happens here" dense>
         <textarea
+          :id
           v-model="edit.brief.draft"
           rows="2"
           data-testid="plan-room-brief"
           @change="commitField('brief')"
         />
-      </label>
+      </UiField>
       <div
         v-if="edit.brief.conflict !== null"
         class="plan-conflict"
@@ -142,12 +148,15 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
       >
         The plan now says “{{ edit.brief.conflict }}”.
         <UiButton
+          size="sm"
           data-testid="plan-brief-keep"
           @click="map.resolvePlanField(edit, 'brief', 'mine')"
         >
           Keep mine
         </UiButton>
         <UiButton
+          size="sm"
+          variant="ghost"
           data-testid="plan-brief-use-plan"
           @click="map.resolvePlanField(edit, 'brief', 'plan')"
         >
@@ -155,181 +164,204 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         </UiButton>
       </div>
       <div class="plan-exits">
-        <h4>Planned exits</h4>
-        <p v-if="!planExits.length" class="map-none">None planned.</p>
-        <ul v-else>
+        <p class="plan-label">Planned exits</p>
+        <p v-if="!planExits.length" class="plan-none">None planned.</p>
+        <ul v-else class="plan-exit-list">
           <li v-for="[name, to] in planExits" :key="name">
-            {{ name }} → Room {{ to }}
-            <button
-              type="button"
-              class="plan-remove"
-              aria-label="Remove exit"
+            <span class="plan-exit-name">{{ name }}</span>
+            <span class="plan-exit-to">→ Room {{ to }}</span>
+            <UiIconButton
+              icon="trash"
+              size="sm"
+              :label="`Remove the ${name} exit`"
               :data-testid="`plan-exit-remove-${name}`"
               @click="map.removePlannedExit(node.room, name)"
-            >
-              ×
-            </button>
+            />
           </li>
         </ul>
-        <div class="plan-inline-form">
+        <form class="plan-inline-form" @submit.prevent="addExit">
           <input
             v-model="newExitName"
             maxlength="32"
-            placeholder="exit name"
+            placeholder="Exit name"
+            aria-label="New exit name"
             data-testid="plan-exit-name"
           />
           <input
             v-model="newExitTarget"
             maxlength="3"
-            placeholder="to room"
+            inputmode="numeric"
+            placeholder="Room #"
+            aria-label="Room the new exit leads to"
             data-testid="plan-exit-to"
           />
-          <UiButton data-testid="plan-exit-add" @click="addExit">Add</UiButton>
-        </div>
+          <UiButton type="submit" size="sm" icon="plus" data-testid="plan-exit-add">Add</UiButton>
+        </form>
       </div>
     </template>
-    <p v-else-if="!entry" class="map-none" data-testid="plan-not-planned">
+    <p v-else-if="!entry" class="plan-none" data-testid="plan-not-planned">
       This room is not in the plan.
     </p>
 
     <div class="plan-actions">
       <UiButton
         v-if="canBuild"
-        variant="primary"
+        size="sm"
+        icon="sparkles"
         data-testid="map-build-room"
         :disabled="map.buildingRoom.value !== undefined"
         @click="map.buildPlannedRoom(node.room)"
       >
         {{ building ? "Building…" : "Build this room" }}
       </UiButton>
-      <UiButton data-testid="map-add-room-toggle" @click="addOpen = !addOpen">
+      <UiButton
+        size="sm"
+        variant="ghost"
+        :icon="addOpen ? 'x' : 'plus'"
+        data-testid="map-add-room-toggle"
+        @click="addOpen = !addOpen"
+      >
         {{ addOpen ? "Cancel" : "Add a room off this one" }}
       </UiButton>
       <UiButton
         v-if="entry"
+        size="sm"
+        variant="ghost"
+        icon="trash"
         data-testid="map-remove-room"
         @click="map.removePlannedRoom(node.room)"
       >
         Remove from plan
       </UiButton>
     </div>
-    <div v-if="addOpen" class="plan-add-room">
-      <input
-        v-model="addTitle"
-        maxlength="160"
-        placeholder="Room title"
-        data-testid="plan-add-title"
-      />
-      <input
-        v-model="addExitName"
-        maxlength="32"
-        placeholder="exit name, e.g. north"
-        data-testid="plan-add-exit"
-      />
-      <textarea
-        v-model="addBrief"
-        rows="2"
-        placeholder="What happens there"
-        data-testid="plan-add-brief"
-      />
-      <UiButton variant="primary" data-testid="plan-add-room" @click="addRoom">Add room</UiButton>
-    </div>
+    <form v-if="addOpen" class="plan-add-room" @submit.prevent="addRoom">
+      <UiField v-slot="{ id }" label="Room name" dense>
+        <input :id v-model="addTitle" maxlength="160" data-testid="plan-add-title" />
+      </UiField>
+      <UiField v-slot="{ id }" label="Exit to it" hint="For example north" dense>
+        <input
+          :id
+          v-model="addExitName"
+          maxlength="32"
+          placeholder="north"
+          data-testid="plan-add-exit"
+        />
+      </UiField>
+      <UiField v-slot="{ id }" label="What happens there" dense>
+        <textarea :id v-model="addBrief" rows="2" data-testid="plan-add-brief" />
+      </UiField>
+      <UiButton type="submit" size="sm" variant="primary" data-testid="plan-add-room">
+        Add room
+      </UiButton>
+    </form>
     <p v-if="map.planError.value" class="plan-error" role="alert" data-testid="map-plan-error">
       {{ map.planError.value }}
     </p>
-  </div>
+  </section>
 </template>
 
 <style scoped>
+/* A section of the room inspector (WorldRoomDetail): same rhythm and type. */
 .plan-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--hairline-strong);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--hairline);
 }
-.plan-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: var(--text-xs);
+.plan-editor__title {
+  margin: 0;
   color: var(--ink-3);
+  font: var(--weight-bold) var(--text-2xs) / 1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
 }
-.plan-field input,
-.plan-field textarea,
-.plan-inline-form input,
-.plan-add-room input,
-.plan-add-room textarea {
-  background: var(--surface-0);
+.plan-exits {
+  display: grid;
+  gap: var(--space-2);
+}
+.plan-label {
+  margin: 0;
+  color: var(--ink-3);
+  font: var(--weight-semibold) var(--text-xs) / var(--leading-tight) var(--font-sans);
+}
+.plan-none {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.plan-exit-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.plan-exit-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.plan-exit-name {
+  font-weight: var(--weight-semibold);
+}
+.plan-exit-to {
+  flex: 1;
+  color: var(--ink-2);
+}
+.plan-inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px auto;
+  gap: var(--space-2);
+}
+.plan-inline-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-h-sm);
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius);
   color: var(--ink);
-  font-size: var(--text-sm);
-  padding: 6px 8px;
-  font-family: inherit;
+  background: var(--surface-sunken);
+  font: var(--text-sm) / var(--leading) var(--font-sans);
 }
-.plan-exits h4 {
-  margin: 0 0 4px;
-  font-size: var(--text-xs);
-  color: var(--ink-3);
-  font-weight: 600;
-}
-.plan-exits ul {
-  list-style: none;
-  margin: 0 0 6px;
-  padding: 0;
-  font-size: var(--text-sm);
-}
-.plan-exits li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-}
-.plan-remove {
-  background: none;
-  border: none;
-  color: var(--danger);
-  cursor: pointer;
-  font-size: var(--text-md);
-  padding: 0 4px;
-}
-.plan-inline-form {
-  display: flex;
-  gap: 6px;
-}
-.plan-inline-form input {
-  width: 90px;
+.plan-inline-form input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
 }
 .plan-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1) var(--space-2);
 }
 .plan-add-room {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  border: 1px dashed var(--hairline-strong);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius);
+  background: var(--surface-0);
+}
+.plan-add-room > .ui-btn {
+  justify-self: start;
 }
 .plan-error {
+  margin: 0;
   color: var(--danger);
   font-size: var(--text-xs);
-  margin: 0;
 }
 .plan-conflict {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: var(--text-xs);
-  color: var(--warn);
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
   border: 1px dashed var(--warn-line);
   border-radius: var(--radius);
-  padding: 6px 8px;
-  margin: 0;
+  color: var(--warn);
+  font-size: var(--text-xs);
 }
 </style>

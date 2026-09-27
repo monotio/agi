@@ -1,14 +1,20 @@
 <script setup lang="ts">
 /**
- * One room's details: what the evidence says about it, its exits and
- * entrances with their notes, recorded visits, the room note, and — on a
- * creator surface with a plan — the plan editor and reference art. The
- * window adds the room's picture; the World panel's compact card puts its
- * Studio actions in the `lead` slot. `viewOnly` (a phone's Create) keeps
- * the facts and drops every edit.
+ * One room's inspector, shaped like Studio's: a header with the room's name
+ * and its resource chips (the `chips` slot), the Studio actions (the `lead`
+ * slot, one primary), then its exits and entrances, the plan editor on a
+ * creator surface, the room note and recorded visits. Reference art is a
+ * secondary action; the evidence behind the room (visited, planned, named by
+ * a test…) folds under a plain-words Details disclosure. The window adds the
+ * room's picture. `viewOnly` (a phone's Create) keeps the facts and drops
+ * every edit.
  */
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import MapPlanEditor from "../MapPlanEditor.vue";
+import UiButton from "../ui/UiButton.vue";
+import UiField from "../ui/UiField.vue";
+import UiIcon from "../ui/UiIcon.vue";
+import UiIconButton from "../ui/UiIconButton.vue";
 import { useEngineApi } from "../engineContext.ts";
 import { EGA_RGB } from "../../../src/picture/png.ts";
 import { getOrExtractCheckpoints, loadWalkthrough, resolveWalkthrough } from "../walkthrough.ts";
@@ -158,6 +164,38 @@ function commitEdgeNote(e: RoomGraphEdge, value: string): void {
   map.setEdgeNote(e.from, e.to, e.label, value.trim());
 }
 
+/** The exit whose note is open for editing; one at a time. */
+const editingNote = ref<string>();
+watch(
+  () => node.room,
+  () => {
+    editingNote.value = undefined;
+  },
+);
+
+/** A connected room's name, for the exit list. */
+function roomTitle(room: number): string | undefined {
+  return graph.value.nodes.find((n) => n.room === room)?.title;
+}
+
+/**
+ * The evidence behind the room, in plain words, for the Details disclosure.
+ * The first fact doubles as its summary.
+ */
+const facts = computed(() => {
+  const out = [node.observed ? `Visited ${node.visits}×` : "Not visited"];
+  if (node.planned) out.push(node.authored ? "planned, and built" : "planned, not built yet");
+  else if (node.authored) out.push("built");
+  if (node.referenced) out.push("a stored game test names it");
+  if (node.playtested) out.push("a recorded playthrough reaches it");
+  if (node.picture) out.push("its picture is in the game");
+  if (node.variableExit) out.push("one exit is worked out while the game runs");
+  if (node.unknownCalls)
+    out.push("its logic calls another the map cannot read, so exits may be missing");
+  if (node.unknownSource) out.push("shared logic sends players here, so where from is unknown");
+  return out;
+});
+
 // ---- words -------------------------------------------------------------------
 
 const PROVENANCE_WORD: Record<string, string> = {
@@ -182,272 +220,415 @@ function edgeWord(edge: RoomGraphEdge): string {
 </script>
 
 <template>
-  <section class="map-detail" :class="{ compact }" data-testid="map-detail">
-    <h3>
-      <span class="map-detail-title"
-        >Room {{ node.room }}<template v-if="node.title"> — {{ node.title }}</template></span
-      >
-      <span v-if="currentRoom === node.room" class="map-current-tag">you are here</span>
-      <button
-        type="button"
-        class="map-detail-close"
-        aria-label="Dismiss room details"
+  <section class="room-inspector" :class="{ compact }" data-testid="map-detail">
+    <header class="ri-head">
+      <div class="ri-heading">
+        <p v-if="node.title || currentRoom === node.room" class="ri-eyebrow">
+          <span v-if="node.title">Room {{ node.room }}</span>
+          <span v-if="currentRoom === node.room" class="ri-here"
+            ><span class="ri-here__dot" aria-hidden="true"></span>you are here</span
+          >
+        </p>
+        <h3 class="ri-title">{{ node.title || `Room ${node.room}` }}</h3>
+      </div>
+      <UiIconButton
+        icon="x"
+        size="sm"
+        label="Dismiss room details"
         data-testid="map-detail-close"
         @click="map.select(undefined)"
-      >
-        ×
-      </button>
-    </h3>
-    <slot name="lead" />
+      />
+    </header>
+    <div v-if="$slots['chips']" class="ri-chips"><slot name="chips" /></div>
     <template v-if="!compact">
       <template v-if="thumbKind">
         <canvas
           ref="thumbCanvas"
-          class="map-thumb"
+          class="ri-thumb"
           width="320"
           height="168"
           data-testid="map-thumb"
         ></canvas>
-        <p v-if="thumbKind === 'static'" class="map-thumb-tag">static picture render</p>
-        <p v-else class="map-thumb-tag">observed frame</p>
+        <p class="ri-note">
+          {{ thumbKind === "static" ? "Static picture render" : "Frame seen in play" }}
+        </p>
       </template>
-      <p v-else class="map-thumb-tag" data-testid="map-no-thumb">
+      <p v-else class="ri-note" data-testid="map-no-thumb">
         No image yet — visit the room to capture one.
       </p>
     </template>
-    <p class="map-facts">
-      <span v-if="node.observed">Visited {{ node.visits }}×</span>
-      <span v-else>Not visited</span>
-      <template v-if="node.planned"> · planned</template>
-      <template v-if="node.referenced"> · named by a stored test</template>
-      <template v-if="node.playtested"> · reached in a recorded run</template>
-      <template v-if="node.authored"> · logic exists</template>
-      <template v-if="node.picture"> · picture exists</template>
-      <template v-if="node.variableExit"> · has a computed exit</template>
-      <template v-if="node.unknownCalls">
-        · calls an unresolved logic — exits may be incomplete</template
-      >
-      <template v-if="node.unknownSource"> · entered from a shared logic — source unknown</template>
-    </p>
-    <button
-      v-if="canPlan"
-      type="button"
-      class="ui-button ui-button--secondary map-attach-reference"
-      data-testid="map-attach-reference"
-      @click="openReferenceUpload(node.room)"
+    <div v-if="$slots['lead']" class="ri-lead"><slot name="lead" /></div>
+
+    <section
+      v-for="side in ['out', 'in'] as const"
+      :key="side"
+      class="ri-sec"
+      :aria-label="side === 'out' ? 'Exits' : 'Entrances'"
     >
-      Attach reference art
-    </button>
-    <div class="map-connections">
-      <div v-for="side in ['out', 'in'] as const" :key="side">
-        <h4>{{ side === "out" ? "Exits" : "Entrances" }}</h4>
-        <p v-if="!edges[side].length" class="map-none">
-          {{ side === "out" ? "No observed exit yet." : "Connection unknown." }}
-        </p>
-        <ul v-else>
-          <li v-for="(e, i) in edges[side]" :key="i">
-            <template v-if="side === 'out'">→ Room {{ e.to }}</template
-            ><template v-else>← Room {{ e.from }}</template> — {{ edgeWord(e) }}
-            <button
+      <h4 class="ri-sec__title">{{ side === "out" ? "Exits" : "Entrances" }}</h4>
+      <p v-if="!edges[side].length" class="ri-note">
+        {{ side === "out" ? "No observed exit yet." : "Connection unknown." }}
+      </p>
+      <ul v-else class="ri-list">
+        <li v-for="(e, i) in edges[side]" :key="i" class="ri-exit">
+          <UiIcon
+            class="ri-exit__icon"
+            :name="side === 'out' ? 'arrow-right' : 'arrow-left'"
+            :size="14"
+          />
+          <span class="ri-exit__main">
+            <span class="ri-exit__room"
+              >Room {{ side === "out" ? e.to : e.from
+              }}<span v-if="roomTitle(side === 'out' ? e.to : e.from)" class="ri-exit__name">
+                {{ roomTitle(side === "out" ? e.to : e.from) }}</span
+              ></span
+            >
+            <span class="ri-exit__how" :class="`ri-exit__how--${e.provenance}`">{{
+              edgeWord(e)
+            }}</span>
+            <span
+              v-if="edgeNoteDrafts[edgeKey(e)] && editingNote !== edgeKey(e)"
+              class="ri-exit__note"
+              >{{ edgeNoteDrafts[edgeKey(e)] }}</span
+            >
+          </span>
+          <span class="ri-exit__actions">
+            <UiIconButton
+              v-if="!viewOnly"
+              icon="message"
+              size="sm"
+              :label="edgeNoteDrafts[edgeKey(e)] ? 'Edit the note on this exit' : 'Add a note'"
+              :pressed="editingNote === edgeKey(e)"
+              @click="editingNote = editingNote === edgeKey(e) ? undefined : edgeKey(e)"
+            />
+            <UiIconButton
               v-if="canPlan && e.provenance === 'planned'"
-              type="button"
-              class="map-edge-remove"
-              aria-label="Remove planned exit"
+              icon="trash"
+              size="sm"
+              label="Remove planned exit"
               :data-testid="`edge-remove-${e.from}-${e.to}-${e.label ?? ''}`"
               @click="map.removePlannedExit(e.from, e.label!)"
-            >
-              ×
-            </button>
-            <input
-              v-if="!viewOnly"
-              class="map-edge-note"
-              :value="edgeNoteDrafts[edgeKey(e)]"
-              maxlength="500"
-              placeholder="note…"
-              :data-testid="`edge-note-${e.from}-${e.to}-${e.label ?? ''}`"
-              @change="commitEdgeNote(e, ($event.target as HTMLInputElement).value)"
             />
-          </li>
-        </ul>
-      </div>
-    </div>
-    <div v-if="visits.length" class="map-visits">
-      <h4>Visits</h4>
-      <ul>
-        <li v-for="v in visits" :key="`${v.session}:${v.seq}`">
-          {{ v.cause }}<template v-if="v.edge"> ({{ v.edge }})</template>
-          <template v-if="v.scoreDelta">
-            · score {{ v.scoreDelta > 0 ? "+" : "" }}{{ v.scoreDelta }}</template
-          >
-          <template v-if="v.gained.length"> · got {{ v.gained.join(", ") }}</template>
-          <template v-if="v.lost.length"> · lost {{ v.lost.join(", ") }}</template>
-          <button
-            v-if="v.history"
-            type="button"
-            class="map-visit-jump"
-            :data-testid="`map-visit-jump-${v.session}-${v.seq}`"
-            title="Travel to this visit on the recorded tape"
-            aria-label="Travel to this visit"
-            @click="jumpToVisit(v.history!)"
-          >
-            ⏮
-          </button>
+          </span>
+          <input
+            v-if="!viewOnly && editingNote === edgeKey(e)"
+            class="ri-exit__input"
+            :value="edgeNoteDrafts[edgeKey(e)]"
+            maxlength="500"
+            placeholder="A note about this exit"
+            :aria-label="`Note on the exit to room ${side === 'out' ? e.to : e.from}`"
+            :data-testid="`edge-note-${e.from}-${e.to}-${e.label ?? ''}`"
+            @change="commitEdgeNote(e, ($event.target as HTMLInputElement).value)"
+            @keydown.enter="editingNote = undefined"
+          />
         </li>
       </ul>
-    </div>
-    <label v-if="!viewOnly" class="map-note">
-      Note
-      <textarea
-        v-model="noteDraft"
-        rows="2"
-        maxlength="4000"
-        placeholder="A note about this room…"
-        data-testid="map-note"
-        @change="commitNote"
-      ></textarea>
-    </label>
-    <p v-else-if="noteDraft" class="map-facts">Note: {{ noteDraft }}</p>
-    <button
-      v-if="watchTarget"
-      type="button"
-      class="ui-button ui-button--secondary"
-      data-testid="map-watch"
-      @click="watchFromHere"
-    >
-      Watch from here<small>{{ watchTarget.label }}</small>
-    </button>
+    </section>
+
     <MapPlanEditor v-if="canPlan" :node="node" />
+
+    <section class="ri-sec" aria-label="Note">
+      <UiField v-if="!viewOnly" v-slot="{ id }" label="Note" dense>
+        <textarea
+          :id
+          v-model="noteDraft"
+          rows="2"
+          maxlength="4000"
+          placeholder="What to remember about this room"
+          data-testid="map-note"
+          @change="commitNote"
+        ></textarea>
+      </UiField>
+      <p v-else-if="noteDraft" class="ri-note">Note: {{ noteDraft }}</p>
+    </section>
+
+    <section v-if="visits.length" class="ri-sec" aria-label="Visits">
+      <h4 class="ri-sec__title">Visits</h4>
+      <ul class="ri-list">
+        <li v-for="v in visits" :key="`${v.session}:${v.seq}`" class="ri-visit">
+          <span class="ri-visit__text"
+            >{{ v.cause }}<template v-if="v.edge"> ({{ v.edge }})</template>
+            <template v-if="v.scoreDelta">
+              · score {{ v.scoreDelta > 0 ? "+" : "" }}{{ v.scoreDelta }}</template
+            >
+            <template v-if="v.gained.length"> · got {{ v.gained.join(", ") }}</template>
+            <template v-if="v.lost.length"> · lost {{ v.lost.join(", ") }}</template></span
+          >
+          <UiIconButton
+            v-if="v.history"
+            icon="rewind"
+            size="sm"
+            label="Travel to this visit"
+            :data-testid="`map-visit-jump-${v.session}-${v.seq}`"
+            @click="jumpToVisit(v.history!)"
+          />
+        </li>
+      </ul>
+    </section>
+
+    <div v-if="canPlan || watchTarget" class="ri-more">
+      <UiButton
+        v-if="watchTarget"
+        size="sm"
+        variant="ghost"
+        icon="play"
+        data-testid="map-watch"
+        @click="watchFromHere"
+      >
+        Watch from here<small class="ri-more__detail">{{ watchTarget.label }}</small>
+      </UiButton>
+      <UiButton
+        v-if="canPlan"
+        size="sm"
+        variant="ghost"
+        icon="image"
+        data-testid="map-attach-reference"
+        @click="openReferenceUpload(node.room)"
+      >
+        Attach reference art
+      </UiButton>
+    </div>
+
+    <details class="ri-details" data-testid="map-facts">
+      <summary>
+        <UiIcon class="ri-details__chevron" name="chevron-right" :size="14" />Details
+        <span class="ri-details__summary">{{ facts[0] }}</span>
+      </summary>
+      <ul class="ri-facts">
+        <li v-for="fact in facts" :key="fact">{{ fact }}</li>
+      </ul>
+    </details>
   </section>
 </template>
 
 <style scoped>
-.map-detail {
+/* The Studio inspector's shape: stacked sections on hairlines, small caps
+   headings, 32px controls, one filled action. */
+.room-inspector {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
+  min-width: 0;
+  color: var(--ink);
+  font: var(--text-sm) / var(--leading) var(--font-sans);
 }
-.map-detail.compact {
-  padding: var(--space-4);
+.room-inspector.compact {
+  overflow: hidden;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
-  background: var(--surface-2);
+  background: var(--surface-1);
 }
-.map-detail h3 {
+.ri-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
-  margin: 0;
-  font-size: var(--text-md);
+  padding: var(--space-4) var(--space-3) 0 var(--space-5);
 }
-.map-detail-title {
+.ri-heading {
+  flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
 }
-.map-detail-close {
-  margin-left: auto;
-  padding: var(--space-0) var(--space-3);
-  border: none;
-  border-radius: var(--radius-sm);
+.ri-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
   color: var(--ink-3);
-  background: none;
-  font-size: var(--text-lg);
-  line-height: 1;
-  cursor: pointer;
+  font: var(--weight-semibold) var(--text-2xs) / var(--leading) var(--font-mono);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
 }
-.map-detail-close:hover {
-  color: var(--ink);
-  background: var(--surface-3);
-}
-.map-current-tag {
+.ri-here {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--ok);
-  font-size: var(--text-xs);
-  font-weight: normal;
-  white-space: nowrap;
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
 }
-.map-thumb {
+.ri-here__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ri-title {
+  margin: var(--space-0) 0 0;
+  overflow-wrap: anywhere;
+  font: var(--weight-semibold) var(--text-lg) / var(--leading-tight) var(--font-sans);
+}
+.ri-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) 0;
+}
+.ri-lead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+}
+.ri-thumb {
   width: 320px;
-  max-width: 100%;
+  max-width: calc(100% - 2 * var(--space-5));
+  margin: var(--space-3) var(--space-5) 0;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
   background: var(--agi-0);
   image-rendering: pixelated;
 }
-.map-thumb-tag {
-  margin: calc(var(--space-1) * -1) 0 0;
-  color: var(--ink-3);
-  font-size: var(--text-2xs);
+.room-inspector > .ri-note {
+  padding: var(--space-1) var(--space-5) 0;
 }
-.map-facts,
-.map-none {
+.ri-note {
   margin: 0;
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
-.map-connections {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3) var(--space-7);
+.ri-sec {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--hairline);
 }
-.map-connections h4,
-.map-visits h4 {
-  margin: 0 0 var(--space-1);
+.ri-sec__title {
+  margin: 0;
+  color: var(--ink-3);
+  font: var(--weight-bold) var(--text-2xs) / 1 var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.ri-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ri-exit {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0 var(--space-2);
+}
+.ri-exit__icon {
+  margin-top: 3px;
+  color: var(--ink-3);
+}
+.ri-exit__main {
+  display: grid;
+  min-width: 0;
+}
+.ri-exit__room {
+  overflow: hidden;
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ri-exit__name {
+  margin-left: var(--space-2);
+  color: var(--ink-2);
+  font-weight: 400;
+}
+.ri-exit__how {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.ri-exit__how--observed {
+  color: var(--ok);
+}
+.ri-exit__how--planned {
+  color: var(--warn);
+}
+.ri-exit__note {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  font-style: italic;
+}
+.ri-exit__actions {
+  display: flex;
+  margin-top: calc(var(--space-2) * -1);
+}
+.ri-exit__input {
+  grid-column: 2 / -1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-h-sm);
+  margin: var(--space-1) 0 var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface-sunken);
+  font: var(--text-sm) / var(--leading) var(--font-sans);
+}
+.ri-exit__input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+}
+.ri-visit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   color: var(--ink-2);
   font-size: var(--text-xs);
 }
-.map-connections ul,
-.map-visits ul {
-  margin: 0;
-  padding-left: var(--space-5);
+.ri-visit__text {
+  min-width: 0;
+}
+.ri-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-3) 0;
+}
+.ri-more__detail {
+  margin-left: var(--space-2);
+  color: var(--ink-3);
+  font-weight: 400;
+}
+.ri-details {
+  padding: var(--space-2) var(--space-5) var(--space-4);
+  color: var(--ink-3);
   font-size: var(--text-xs);
 }
-.map-visit-jump {
-  margin-left: var(--space-2);
-  padding: 0 var(--space-1);
-  border: 1px solid var(--action-line);
-  border-radius: var(--radius-sm);
-  color: var(--action);
-  background: var(--action-soft);
-  font-size: var(--text-2xs);
-  line-height: 1.4;
+.ri-details summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-h-sm);
+  color: var(--ink-2);
+  font-weight: var(--weight-semibold);
   cursor: pointer;
+  list-style: none;
 }
-.map-visit-jump:hover {
-  border-color: var(--action);
-  color: var(--ink);
+.ri-details summary::-webkit-details-marker {
+  display: none;
 }
-.map-note {
-  font-size: var(--text-xs);
+.ri-details__chevron {
+  transition: transform var(--duration-fast) var(--ease-out);
 }
-.map-note textarea {
-  box-sizing: border-box;
-  width: 100%;
-  margin-top: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  color: inherit;
-  background: var(--surface-0);
-  font: inherit;
-  font-size: var(--text-sm);
+.ri-details[open] .ri-details__chevron {
+  transform: rotate(90deg);
 }
-.map-edge-remove {
-  padding: 0 var(--space-1);
-  border: none;
-  color: var(--danger);
-  background: none;
-  font-size: var(--text-sm);
-  cursor: pointer;
+.ri-details__summary {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-weight: 400;
 }
-.map-edge-note {
-  width: 110px;
-  margin-left: var(--space-2);
-  padding: var(--space-0) var(--space-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  background: var(--surface-0);
-  font-family: inherit;
-  font-size: var(--text-2xs);
+.ri-facts {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-7);
+}
+.ri-facts li::first-letter {
+  text-transform: uppercase;
 }
 </style>

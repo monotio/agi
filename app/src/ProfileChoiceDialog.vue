@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, useTemplateRef } from "vue";
 import UiButton from "./ui/UiButton.vue";
 import UiIconButton from "./ui/UiIconButton.vue";
+import UiSelect from "./ui/UiSelect.vue";
 import type { ProfileId } from "../../src/runtime/profile.ts";
 import {
   PROFILE_GROUPS,
@@ -80,7 +81,7 @@ function onDialogClose(): void {
       <p class="profile-picker-intro">You can change this later from the game's ⋯ menu.</p>
 
       <label for="profile-select">Interpreter profile</label>
-      <select id="profile-select" v-model="selected" data-testid="profile-picker-select">
+      <UiSelect id="profile-select" v-model="selected" block data-testid="profile-picker-select">
         <option v-if="choice.mode === 'library'" value="">
           Automatic{{ choice.detected ? ` (${choice.detected})` : "" }}
         </option>
@@ -90,7 +91,7 @@ function onDialogClose(): void {
             }}{{ opt.releases ? ` — ${opt.releases}` : "" }}
           </option>
         </optgroup>
-      </select>
+      </UiSelect>
 
       <footer>
         <UiButton data-testid="profile-picker-keep" @click="dismiss">
@@ -148,17 +149,6 @@ label {
   margin-top: 6px;
   color: var(--ink-2);
   font-size: var(--text-sm);
-}
-select {
-  width: 100%;
-  min-height: var(--control-h-touch);
-  box-sizing: border-box;
-  padding: 9px 11px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  background: var(--surface-sunken);
-  font: var(--text-md) / 1.4 var(--font-sans);
 }
 footer {
   display: flex;

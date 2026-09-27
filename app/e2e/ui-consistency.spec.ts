@@ -82,14 +82,11 @@ test("the hero and Save settings share the one filled primary; card actions stay
   for (const action of await page.locator(".agent-mode-switch button, .remix-close").all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }
-  // The bubble's send button still uses the legacy classes until AgentBubble
-  // migrates; the fill that marks it as the primary action already matches.
-  const send = await page.getByTestId("agent-bubble-send").evaluate(appearance);
-  expect({ color: send.color, background: send.background, radius: send.radius }).toEqual({
-    color: primary.color,
-    background: primary.background,
-    radius: primary.radius,
-  });
+  // The bubble's send button is the same primary as every other surface's.
+  await page.getByTestId("agent-bubble-input").fill("Make the mural brighter");
+  const send = page.getByTestId("agent-bubble-send");
+  await expect(send).toBeEnabled();
+  expect(await send.evaluate(appearance)).toEqual(primary);
   await page.screenshot({ animations: "disabled", path: test.info().outputPath("assistant.png") });
 });
 

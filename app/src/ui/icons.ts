@@ -16,6 +16,14 @@ export const ICONS = {
     ["path", { d: "m6 8 6 2 6-2" }],
     ["path", { d: "M12 10v4" }],
   ],
+  "arrow-left": [
+    ["path", { d: "m12 19-7-7 7-7" }],
+    ["path", { d: "M19 12H5" }],
+  ],
+  "arrow-right": [
+    ["path", { d: "M5 12h14" }],
+    ["path", { d: "m12 5 7 7-7 7" }],
+  ],
   brush: [
     ["path", { d: "m11 10 3 3" }],
     ["path", { d: "M6.5 21A3.5 3.5 0 1 0 3 17.5a2.62 2.62 0 0 1-.708 1.792A1 1 0 0 0 3 21z" }],
@@ -298,6 +306,7 @@ export const ICONS = {
     ["path", { d: "M3 14v1" }],
     ["path", { d: "M21 14v1" }],
   ],
+  message: [["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" }]],
   minus: [["path", { d: "M5 12h14" }]],
   move: [
     ["path", { d: "M12 2v20" }],

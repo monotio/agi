@@ -70,6 +70,13 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect.poll(() => requests).toBe(2);
+  // The panel closes on the forked copy, but the request stays in view, with
+  // the answer and where the change went — not the empty first-run state.
+  const lastTurn = page.getByTestId("assistant-last-turn");
+  await expect(lastTurn).toContainText("Rename the gallery");
+  await expect(lastTurn).toContainText("The gallery is remixed.");
+  await expect(page.getByTestId("assistant-fork-note")).toContainText("Adventure Department Remix");
+  await expect(page.getByTestId("create-read-only")).toHaveCount(0);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("REMIX GALLERY");
   await page.screenshot({ path: test.info().outputPath("remix-after.png") });
   const remixProjectId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));

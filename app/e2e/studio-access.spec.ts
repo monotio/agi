@@ -326,12 +326,12 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await bootGame(page);
+  // Developer activity is never on the page (Settings → Advanced opens it):
+  // nothing sits below the stage for Studio to hide.
   const activity = page.getByTestId("developer-activity-summary");
-  // Play keeps Developer activity off the page; Create's page holds it, hidden under Studio.
   await expect(activity).toHaveCount(0);
   const studio = await openStudio(page);
-  await expect(activity).toBeAttached();
-  await expect(activity).toBeHidden();
+  await expect(activity).toHaveCount(0);
   const scroll = () =>
     page.evaluate(() => {
       window.scrollTo(0, 500);
@@ -369,5 +369,5 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
 
   await studio.getByTestId("studio-close").click();
   await expect(studio).toHaveCount(0);
-  await expect(activity).toBeVisible();
+  await expect(activity).toHaveCount(0);
 });

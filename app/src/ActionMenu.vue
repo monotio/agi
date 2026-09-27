@@ -277,8 +277,16 @@ onBeforeUnmount(removeWindowListeners);
   box-shadow: var(--shadow-pop);
   visibility: hidden;
 }
+/* Shown once placed, with the motion recipe's menu entrance: a fade and a
+   2px move away from the trigger. */
 .action-menu__popup--positioned {
   visibility: visible;
+  animation: ui-menu-in var(--duration-fast) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-menu__popup--positioned {
+    animation: none;
+  }
 }
 .action-menu__popup :deep([role="separator"]) {
   height: 1px;

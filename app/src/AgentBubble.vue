@@ -8,7 +8,9 @@ import { useAiSettings } from "./useAiSettings.ts";
 import { prefetchAuthoringStack } from "./agent/authoringLoader.ts";
 import PendingReferences from "./PendingReferences.vue";
 import UiChip from "./ui/UiChip.vue";
+import UiButton from "./ui/UiButton.vue";
 import UiIcon from "./ui/UiIcon.vue";
+import UiIconButton from "./ui/UiIconButton.vue";
 
 /**
  * Where the assistant is hosted: the Play drawer is Ask-only (remix lives in
@@ -266,33 +268,30 @@ async function onBubbleReload(): Promise<void> {
           >{{ asking ? "Read-only" : "Paused" }} ·
           {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
         >
-        <button
+        <UiIconButton
           v-if="!creatingRoom || !state.powerUp.busy"
-          type="button"
+          icon="x"
+          label="Back to game"
+          shortcut="Esc"
           class="bubble-close remix-close"
           data-testid="agent-bubble-close"
-          aria-label="Back to game"
-          title="Back to game (Esc)"
           :disabled="state.powerUp.busy"
           @click="onPowerUp()"
-        >
-          <UiIcon name="x" :size="18" />
-        </button>
+        />
       </span>
     </header>
     <div v-if="!creatingRoom && !aiConfigured" class="ai-connect assistant-connect">
       <p>
         Connect your AI provider to ask about{{ surface === "dock" ? " or remix" : "" }} this game.
       </p>
-      <button
-        type="button"
-        class="ui-button ui-button--primary"
+      <UiButton
+        variant="primary"
         data-testid="connect-assistant-ai"
         :disabled="aiSettingsUnavailable"
         @click="openAiSettings($event, 'assistant')"
       >
         Connect AI
-      </button>
+      </UiButton>
     </div>
     <div
       v-if="!creatingRoom && state.powerUp.messages.length"
@@ -369,14 +368,9 @@ async function onBubbleReload(): Promise<void> {
         </div>
       </div>
       <div v-if="!followProgress" class="remix-follow-controls">
-        <button
-          type="button"
-          class="ui-button ui-button--secondary"
-          data-testid="remix-jump-latest"
-          @click="jumpToLatest"
-        >
+        <UiButton size="sm" data-testid="remix-jump-latest" @click="jumpToLatest">
           Jump to latest
-        </button>
+        </UiButton>
       </div>
     </details>
     <SoundPreview
@@ -422,25 +416,23 @@ async function onBubbleReload(): Promise<void> {
         :placeholder="asking ? 'Ask about this game…' : 'What would you like to change?'"
         @keydown="onPowerUpKey"
       ></textarea>
-      <button
+      <UiButton
         v-if="!asking"
-        type="button"
-        class="ui-button ui-button--secondary"
         data-testid="btn-record-test"
         title="Record a playtest — check that this part still works after changes"
         :disabled="state.powerUp.busy || state.recording.active || state.recording.starting"
         @click="onRecordPlaytest"
       >
         Playtest
-      </button>
-      <button
+      </UiButton>
+      <UiButton
         type="submit"
-        class="ui-button ui-button--primary"
+        variant="primary"
         data-testid="agent-bubble-send"
         :disabled="state.powerUp.busy || !powerUpLine.trim()"
       >
         {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
-      </button>
+      </UiButton>
       <p v-if="surface === 'dock'" class="agent-budget" data-testid="agent-budget">
         {{ asking ? "Ask" : "Remix" }} · budget ${{ taskBudget.toFixed(2) }} per task
       </p>
@@ -448,29 +440,26 @@ async function onBubbleReload(): Promise<void> {
     <!-- Playtest recording is editing tooling but needs no AI connection —
          it stays reachable while the provider prompt is all the bubble shows. -->
     <div v-if="!asking && !creatingRoom && state.powerUp.needsConfig" class="agent-bubble-tools">
-      <button
-        type="button"
-        class="ui-button ui-button--secondary"
+      <UiButton
         data-testid="btn-record-test"
         title="Record a playtest — check that this part still works after changes"
         :disabled="state.powerUp.busy || state.recording.active || state.recording.starting"
         @click="onRecordPlaytest"
       >
         Playtest
-      </button>
+      </UiButton>
     </div>
     <p v-if="state.powerUp.error" class="agent-bubble-error" data-testid="agent-bubble-error">
       {{ state.powerUp.error }}
     </p>
-    <button
+    <UiButton
       v-if="state.powerUp.offerReload"
-      type="button"
-      class="ui-button ui-button--secondary agent-bubble-reload"
+      class="agent-bubble-reload"
       data-testid="agent-bubble-reload"
       @click="onBubbleReload"
     >
       Reload game
-    </button>
+    </UiButton>
   </section>
 </template>
 
@@ -492,6 +481,16 @@ async function onBubbleReload(): Promise<void> {
   background: var(--surface-1);
   font: var(--text-md) / var(--leading) var(--font-sans);
   text-align: left;
+}
+
+/* The Play drawer slides in from the edge it docks to (motion.css). */
+.agent-bubble--drawer {
+  animation: ui-sheet-in-left var(--duration) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-bubble--drawer {
+    animation: none;
+  }
 }
 
 .agent-bubble-head {
@@ -540,22 +539,10 @@ async function onBubbleReload(): Promise<void> {
 /* The close button keeps a 44px hit area at every pointer size; negative
    margins keep the compact header row from growing. */
 .bubble-close {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
   min-width: var(--control-h-touch);
   min-height: var(--control-h-touch);
   margin: calc(var(--space-4) * -1) calc(var(--space-3) * -1) calc(var(--space-4) * -1) 0;
   padding: 0;
-  border: 0;
-  border-radius: var(--radius);
-  color: var(--ink-2);
-  background: none;
-  cursor: pointer;
-}
-.bubble-close:hover:not(:disabled) {
-  color: var(--ink);
-  background: var(--surface-3);
 }
 
 .agent-mode-switch {
@@ -619,7 +606,7 @@ async function onBubbleReload(): Promise<void> {
 .agent-activity summary {
   cursor: pointer;
 }
-.agent-bubble button:disabled {
+.agent-mode-switch button:disabled {
   opacity: 0.5;
   cursor: default;
 }

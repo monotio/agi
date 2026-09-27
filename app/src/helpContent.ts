@@ -182,6 +182,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         action: { kind: "add-game", label: "Add a game" },
       },
       {
+        id: "verified",
+        title: "Games verified to boot",
+        body: [
+          "PC: King's Quest I–IV, Space Quest I–II, Police Quest I, Leisure Suit Larry I, The Black Cauldron, Mixed-Up Mother Goose, Donald Duck's Playground, Gold Rush!, Manhunter 1–2 and demopac4.",
+          "Amiga: King's Quest II, Space Quest I–II, Police Quest I, Gold Rush! and Manhunter 2. Apple IIgs: Space Quest II.",
+          "Other editions and fan games often run too; the library says when it does not know a game.",
+        ],
+      },
+      {
         id: "share",
         title: "Export and share",
         body: [

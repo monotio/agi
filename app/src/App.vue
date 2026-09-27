@@ -6,9 +6,11 @@ import AiSettingsDialog from "./AiSettings.vue";
 import SoundPreview from "./SoundPreview.vue";
 import WalkthroughBar from "./WalkthroughBar.vue";
 import PlayArea from "./PlayArea.vue";
+import AssistantStart from "./shell/AssistantStart.vue";
 import CreateDock from "./shell/CreateDock.vue";
 import UiButton from "./ui/UiButton.vue";
 import UiDialog from "./ui/UiDialog.vue";
+import UiToast from "./ui/UiToast.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -210,11 +212,14 @@ const activityDocked = computed(
     !workspace.collapsed.right,
 );
 /**
- * Play shows the game and its bar only: Developer activity leaves the page
- * for a dialog that Settings → Advanced opens.
+ * Developer activity is off the page everywhere: Settings → Advanced opens
+ * it, as a dialog — or, in Create on a desktop, as the Activity tab.
  */
-const playing = computed(() => state.phase === "running" && !creating.value);
 const activitySheetOpen = ref(false);
+function openDeveloperActivity(): void {
+  if (creating.value && !phone.value) workspace.showPanel("activity");
+  else activitySheetOpen.value = true;
+}
 const assistantShown = computed(() =>
   phone.value
     ? sheetOpen.value && workspace.active.sheet === "assistant"
@@ -596,7 +601,7 @@ watch(
           workspace.confirmStudioLeave().then((go) => (go ? lib.onStartOver() : undefined))
         "
         @start-walkthrough="onStartWalkthrough"
-        @developer-activity="activitySheetOpen = true"
+        @developer-activity="openDeveloperActivity"
       >
         <WalkthroughBar
           v-if="state.walkthrough.active"
@@ -648,12 +653,24 @@ watch(
           :inspector-docked="creating"
         >
           <template #stage-actions>
+            <UiToast
+              v-if="playHereFromStudio.note.value"
+              tone="warn"
+              dismissible
+              data-testid="play-here-note"
+              @dismiss="playHereFromStudio.dismiss()"
+            >
+              {{ playHereFromStudio.note.value }}
+            </UiToast>
+            <StaleTabNote />
+          </template>
+          <template #strip-actions>
             <UiButton
               v-if="state.phase === 'running' && !creating"
               icon="sparkles"
               size="sm"
               class="ask-button"
-              aria-label="Ask"
+              :class="{ 'ask-button--away': state.powerUp.open }"
               data-testid="menu-assistant"
               :aria-expanded="state.powerUp.open"
               :title="
@@ -670,18 +687,6 @@ watch(
             >
               Ask
             </UiButton>
-            <p
-              v-if="playHereFromStudio.note.value"
-              class="play-here-note"
-              role="status"
-              data-testid="play-here-note"
-            >
-              {{ playHereFromStudio.note.value }}
-              <button type="button" aria-label="Dismiss" @click="playHereFromStudio.dismiss()">
-                ×
-              </button>
-            </p>
-            <StaleTabNote />
           </template>
         </PlayArea>
         <RoomStudio
@@ -747,31 +752,8 @@ watch(
             @toggle="workspace.toggleDock('right')"
           />
           <div v-show="!creating || assistantShown" class="assistant-host">
-            <div v-if="creating && !state.powerUp.open" class="assistant-start">
-              <p class="dock-note">
-                {{
-                  phone
-                    ? "Ask about this game. Editing needs a larger screen."
-                    : "Describe a change and the assistant edits this game’s real AGI resources. The game pauses while it works."
-                }}
-              </p>
-              <p
-                v-if="shell.readOnly.value && !phone"
-                class="dock-note"
-                data-testid="create-read-only"
-              >
-                This edition is read-only: your first edit makes your own remix copy.
-              </p>
-              <UiButton
-                variant="primary"
-                icon="sparkles"
-                data-testid="power-up"
-                :disabled="state.recording.active || state.historyView.active"
-                @click="shellBridge.togglePowerUp(phone ? 'ask' : 'remix')"
-              >
-                {{ phone ? "Ask" : "Ask or remix" }}
-              </UiButton>
-            </div>
+            <!-- Mounted through the turn, so it sees the panel open and close. -->
+            <AssistantStart v-if="creating" v-show="!state.powerUp.open" :phone />
             <AgentBubble :surface="creating && !phone ? 'dock' : 'drawer'" />
           </div>
         </aside>
@@ -801,15 +783,14 @@ watch(
       data-testid="latest-sound-preview"
     />
 
-    <AgentLogPanel v-if="!activityDocked && !playing" v-show="!studioOpen" />
     <UiDialog
-      v-if="playing"
+      v-if="!activityDocked"
       v-model:open="activitySheetOpen"
       title="Developer activity"
       size="lg"
       data-testid="developer-activity-sheet"
     >
-      <AgentLogPanel docked />
+      <AgentLogPanel @booted="activitySheetOpen = false" />
     </UiDialog>
 
     <ReferenceUpload v-if="state.phase === 'running'" />

@@ -6,5 +6,5 @@ defineProps<{ readOnly: boolean }>();
 </script>
 
 <template>
-  <AgentLogPanel docked />
+  <AgentLogPanel />
 </template>
