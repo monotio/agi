@@ -14,6 +14,7 @@ import BootCard from "../ui/BootCard.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
+import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { gameStorageKey } from "../project/gameTypes.ts";
@@ -24,7 +25,8 @@ import { formatRelativeTime } from "./relativeTime.ts";
 import { useNow } from "./useNow.ts";
 
 const { createOpen } = defineProps<{ createOpen: boolean }>();
-const { state } = useEngineApi();
+const { state, resumeAudio, startOver } = useEngineApi();
+const { llmConfig } = useAiSettings();
 const {
   pendingAutosave,
   savedGames,
@@ -34,8 +36,11 @@ const {
   catalogBusy,
   libraryActionBusy,
   libraryAutosaves,
+  localGames,
+  localAutosave,
   importBusy,
   onResumeAutosave,
+  onPlayLocalGame,
   onPlayLibraryGame,
   onStartLibraryGameOver,
   playCatalogGame,
@@ -64,30 +69,50 @@ const last = computed(() => {
   };
 });
 
-/** The game that just quit, with its library entry when it has one. */
+/**
+ * The game that just quit, with its library entry or, for a game the fixture
+ * server installed, its fixture — either one can be played again.
+ */
 const ended = computed(() => {
   const note = state.gameEnded;
   if (!note) return undefined;
   const game = savedGames.value.find((entry) => entry.projectId === note.projectId);
+  const installed = game
+    ? undefined
+    : localGames.value.find(
+        (entry) => gameStorageKey({ installed: true, ...entry }) === note.projectId,
+      );
   return {
     title: game ? shelfTitle(game, catalogEntries.value) : note.title,
     game,
-    saved: libraryAutosaves.value[note.projectId] !== undefined,
+    installed,
+    playable: game !== undefined || installed !== undefined,
+    saved: installed
+      ? localAutosave(installed) !== undefined
+      : libraryAutosaves.value[note.projectId] !== undefined,
     continued: last.value?.record.game.identity.project === note.projectId,
   };
 });
 
+/** Play again starts over: a fresh boot, past any progress saved before the quit. */
 function playAgain(): void {
-  const game = ended.value?.game;
-  if (!game) return;
-  void playGuarded(game.projectId, () =>
-    ended.value?.saved ? onStartLibraryGameOver(game) : onPlayLibraryGame(game),
-  );
+  const note = ended.value;
+  if (!note) return;
+  const { game, installed } = note;
+  if (game)
+    void playGuarded(game.projectId, () =>
+      note.saved ? onStartLibraryGameOver(game) : onPlayLibraryGame(game),
+    );
+  else if (installed && note.saved) {
+    resumeAudio();
+    startOver(gameStorageKey({ installed: true, ...installed }), llmConfig());
+  } else if (installed) void onPlayLocalGame(installed.folder ?? installed.hash);
 }
 
 function continueEnded(): void {
-  const game = ended.value?.game;
+  const { game, installed } = ended.value ?? {};
   if (game) void playGuarded(game.projectId, () => onPlayLibraryGame(game));
+  else if (installed) void onPlayLocalGame(installed.folder ?? installed.hash);
 }
 
 const tutorialScreen = computed(() => catalogOpenings.value[featuredCatalog.id]?.preview);
@@ -147,7 +172,7 @@ function onPrimary(): void {
         <span
           ><strong>{{ ended.title }}</strong> · The game ended (it quit).</span
         >
-        <template v-if="ended.game">
+        <template v-if="ended.playable">
           <UiButton
             size="sm"
             variant="ghost"

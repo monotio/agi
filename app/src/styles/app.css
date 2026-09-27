@@ -43,8 +43,9 @@
 /*
  * A running game gets the screen: the bar, the stage and the strip fill the
  * visible height (the tallest seen at this width, so a phone keyboard never
- * shrinks it). The stage in between fits the screen to whole multiples of the
- * frame (PlayArea.vue). Anything after the shell — developer activity, sound
+ * shrinks it). The stage in between fits the screen to a whole multiple of the
+ * frame, or to the largest fit when a whole step would waste the stage
+ * (PlayArea.vue). Anything after the shell — developer activity, sound
  * previews — sits below the fold.
  */
 .app-container.in-game {

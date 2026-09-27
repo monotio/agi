@@ -6,6 +6,7 @@ import { releaseName, shelfTitle } from "../src/home/shelfIdentity.ts";
 import { createThumbnailQueue } from "../src/home/thumbnailQueue.ts";
 import type { CachedGameMeta } from "../src/project/gameStorage.ts";
 import type { LibraryMetadata } from "../src/project/gameMetadata.ts";
+import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 
 const NOW = Date.UTC(2026, 8, 26, 12, 0, 0);
@@ -123,6 +124,23 @@ test("the current release and other stored games keep their stored title", () =>
   assert.equal(shelfTitle(current, GAME_CATALOG), "Adventure Department");
   assert.equal(shelfTitle(storedGame({ source: "remix" }), GAME_CATALOG), "Adventure Department");
   assert.equal(shelfTitle(storedGame(), GAME_CATALOG), "Adventure Department");
+});
+
+test("an imported, unchanged copy of an older release keeps its release name", () => {
+  // A 1.0 Project download added with Add game: its bytes are the released
+  // 1.0.0 tutorial, whatever the archive's provenance says.
+  const revision = getKnownGameByAlias("adventure-department-1.0")!.targetRevision!;
+  const imported = storedGame({ source: "zip", revision });
+  assert.equal(shelfTitle(imported, GAME_CATALOG), "Adventure Department 1.0");
+  // A renamed copy is the player's name; other bytes are another game.
+  assert.equal(shelfTitle({ ...imported, title: "My gallery" }, GAME_CATALOG), "My gallery");
+  assert.equal(shelfTitle(storedGame({ source: "zip" }), GAME_CATALOG), "Adventure Department");
+  // The current release's bytes need no release name.
+  const current = getKnownGameByAlias("adventure-department")!.targetRevision!;
+  assert.equal(
+    shelfTitle(storedGame({ source: "zip", revision: current }), GAME_CATALOG),
+    "Adventure Department",
+  );
 });
 
 test("releaseName shortens a release version for the shelf", () => {

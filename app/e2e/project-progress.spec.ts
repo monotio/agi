@@ -88,9 +88,11 @@ test("project import names each stored and refused progress entry", async ({ pag
     buffer: Buffer.from(archive),
   });
   const notice = page.getByTestId("game-import-ready");
-  await expect(notice).toContainText("save slot 1 stored");
-  await expect(notice).toContainText("save slot 7 could not be stored");
-  await expect(notice).toContainText("autosave could not be stored");
+  // One plain sentence for what came along, one for what storage refused.
+  await expect(notice).toHaveText(
+    "Storage report added to your library, with its save slot 1. " +
+      "Its saved progress and save slot 7 could not be stored.",
+  );
   const stored = await page.evaluate(async () => {
     const { listCachedGames } = await import("/src/project/gameStorage.ts");
     const { readGameSaves } = await import("/src/saves/gameSaves.ts");
@@ -167,7 +169,9 @@ test("the project archive moves the autosave to another browser; the game export
     const other = await fresh.newPage();
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles(savedPath);
-    await expect(other.getByText(/added to your library.*autosave stored/)).toBeVisible();
+    await expect(other.getByTestId("game-import-ready")).toContainText(
+      /added to your library, with its saved progress[^()]*\.$/,
+    );
     const resume = other.getByTestId("btn-resume-cached");
     await expect(resume).toHaveText("Resume");
     const projectId = await other.evaluate(async () => {

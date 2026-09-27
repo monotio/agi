@@ -32,21 +32,30 @@ const FRAME_WIDTH = 320;
 const MIN_INTEGER_SCALE = 2;
 
 /**
- * The desktop stage: the largest whole multiple of the 320-pixel frame width
- * whose screen fits the space left by the top bar and transport strip. With
- * square pixels (ratio 1.6) every frame pixel becomes an exact k×k block; the
- * Original 4:3 option (ratio 4/3) keeps the width a whole multiple and
- * stretches the height by 6/5, as the monitors of the day did. A stage too
- * small for 2× fits the screen fluidly instead.
+ * A whole step keeps the screen only while it fills this share of the area
+ * the largest fit would cover. Below it — 2× in a 780-pixel column fills 67% —
+ * the screen takes the largest fit instead: at 2× and up nearest-neighbour
+ * scaling stays crisp, and a small screen floating in a large stage does not.
+ */
+const MIN_WHOLE_STEP_FILL = 0.8;
+
+/**
+ * The desktop stage, in Play and in Create's centre column alike: the largest
+ * whole multiple of the 320-pixel frame width whose screen fits the space left
+ * by the top bar and transport strip, as long as it fills most of what fits.
+ * With square pixels (ratio 1.6) every frame pixel becomes an exact k×k block;
+ * the Original 4:3 option (ratio 4/3) stretches the height by 6/5, as the
+ * monitors of the day did. A stage too small for 2×, or one where the whole
+ * step would leave too much of it empty, fits the screen fluidly instead.
  */
 export function stageScreenWidth(
   available: number,
   availableHeight: number,
   ratio: number,
 ): number {
-  const width = Math.max(0, available);
-  const height = Math.max(0, availableHeight);
-  const scale = Math.floor(Math.min(width / FRAME_WIDTH, (height * ratio) / FRAME_WIDTH));
-  if (scale >= MIN_INTEGER_SCALE) return scale * FRAME_WIDTH;
-  return Math.floor(Math.min(width, height * ratio));
+  const fit = Math.floor(Math.max(0, Math.min(available, availableHeight * ratio)));
+  const whole = Math.floor(fit / FRAME_WIDTH) * FRAME_WIDTH;
+  const fill = fit > 0 ? (whole / fit) ** 2 : 0;
+  if (whole >= MIN_INTEGER_SCALE * FRAME_WIDTH && fill >= MIN_WHOLE_STEP_FILL) return whole;
+  return fit;
 }

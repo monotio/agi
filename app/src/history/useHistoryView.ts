@@ -1057,7 +1057,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (!view().active || recording === null) return;
     const idx = recording.segments.findIndex((s) => s.id === target.segment);
     if (idx < 0) {
-      view().error = "That visit's tape is no longer kept.";
+      view().error = "That visit's history is no longer kept.";
       return;
     }
     await seekTo(idx, target.tick);
@@ -1207,7 +1207,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     speedTitle: (speed) => `Watch at ${speed}×`,
     get readout() {
       const v = view();
-      if (v.loading) return "Opening the tape…";
+      if (v.loading) return "Opening the history…";
       if (v.active) {
         const total = flatTotal();
         const pct = total > 0 ? Math.round((flatPosition() / total) * 100) : 0;
@@ -1227,7 +1227,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (v.active) {
         buttons.push({
           testid: "btn-history-bookmark",
-          title: "Pin this moment on the tape",
+          title: "Pin this moment on the timeline",
           aria: "Bookmark this moment",
           icon: "bookmark",
           run: () => void addBookmark(),
@@ -1236,10 +1236,14 @@ export function useHistoryView(deps: HistoryViewDeps) {
           testid: "btn-history-watch",
           title: v.watching
             ? v.playing
-              ? "Pause the tape"
-              : "Keep watching the tape unfold"
+              ? "Pause the timeline"
+              : "Keep watching the timeline unfold"
             : "Watch the recording play out from here — taking control stays the main button",
-          label: v.watching ? (v.playing ? "Pause tape" : "Resume tape") : "Watch from here",
+          label: v.watching
+            ? v.playing
+              ? "Pause timeline"
+              : "Resume timeline"
+            : "Watch from here",
           variant: "secondary",
           run: toggleWatch,
         });
