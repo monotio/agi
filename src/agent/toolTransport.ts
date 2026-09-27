@@ -1,4 +1,5 @@
-import type { AgentToolImage, AgentToolResult, ToolDefinition } from "./tools.ts";
+import type { AgentToolImage, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 
 export interface ToolContent {
   text: string;

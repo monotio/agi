@@ -2,7 +2,8 @@
 // a browser fetches before a game's first frame, compressed as a host serves
 // them. It reads the chunk graph that app/vite.config.ts records beside the
 // production build, so no file name is hard-coded, and fails when a budget is
-// exceeded or when a Studio module has become part of the boot path.
+// exceeded or when a Studio or AI authoring module has become part of the
+// boot path.
 //
 //   npm run build && npm run check:bundle
 //   npm run check:bundle -- --warn    report only; `npm run build` uses this
@@ -33,16 +34,18 @@ interface Size {
 type Group = "entry" | "js" | "css" | "workers";
 
 /**
- * Budgets in bytes (gzip level 9, brotli quality 11). Each is the 1.1.0-rc.4
- * build's size, noted beside it, plus about 10% headroom, rounded. Raise one
+ * Budgets in bytes (gzip level 9, brotli quality 11). Each is a measured
+ * build's size, noted beside it, plus about 10% headroom, rounded: the entry
+ * and boot JavaScript as re-measured once the AI authoring stack moved behind
+ * a dynamic import, the CSS and workers from the 1.1.0-rc.4 build. Raise one
  * only on purpose, saying in the commit what grew and why it must load before
  * the first frame; moving the code behind a dynamic import comes first.
  */
 const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }> = {
-  // The entry chunk alone: measured 702.8 kB gzip, 561.2 kB brotli.
-  entry: { gzip: 775_000, brotli: 620_000 },
-  // Entry plus every chunk it imports statically: 753.4 kB gzip, 606.4 kB brotli.
-  js: { gzip: 830_000, brotli: 670_000 },
+  // The entry chunk alone: measured 455.7 kB gzip, 369.6 kB brotli.
+  entry: { gzip: 500_000, brotli: 405_000 },
+  // Entry plus every chunk it imports statically: 522.6 kB gzip, 429.5 kB brotli.
+  js: { gzip: 575_000, brotli: 472_000 },
   // The stylesheets of those chunks: 15.0 kB gzip, 13.1 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // Worker scripts those chunks start (the engine, catalog previews):
@@ -65,6 +68,21 @@ const GROUP_LABELS: Record<Group, string> = {
  */
 const STUDIO_MODULES = [/^app\/src\/studio\//, /^src\/studio\/rules\//, /^src\/studio\/route\.ts$/];
 const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
+
+/**
+ * The AI authoring stack loads on the first AI action, through the one
+ * dynamic import in app/src/agent/authoringLoader.ts: its lazy entry, the
+ * agent session and the stub agent, the LLM clients with the provider SDKs,
+ * the tool registry and prompts, and the Studio edit and sprite kernels the
+ * assist tools drive. A player who never uses AI never downloads it.
+ */
+const AUTHORING_MODULES = [
+  /^app\/src\/agent\/(authoringStack|agentSession|llmClient|stubAgent|studioAssist)\.ts$/,
+  /^src\/agent\/(tools|studioAssistTools|authoringTools|roomTools|pictureTools|prompt|playtest)\.ts$/,
+  /^src\/studio\/(editOperations|editValidation|pictureDocument|probe|lensRules|assistScope)\.ts$/,
+  /^src\/studio\/sprite\/(spriteOperations|spriteCels)\.ts$/,
+  /^app\/node_modules\/(openai|@anthropic-ai\/sdk)\//,
+];
 
 const dist = join(import.meta.dirname, "..", "app", "dist");
 const graphPath = join(dist, ".vite", "bundle-graph.json");
@@ -164,6 +182,12 @@ for (const chunk of boot)
       failures.push(
         `${module} is in the Play boot chunk ${chunk.file}; Studio code must load through a dynamic import.`,
       );
+for (const chunk of boot)
+  for (const module of new Set(chunk.modules))
+    if (AUTHORING_MODULES.some((pattern) => pattern.test(module)))
+      failures.push(
+        `${module} is in the Play boot chunk ${chunk.file}; the AI authoring stack must load through app/src/agent/authoringLoader.ts.`,
+      );
 for (const worker of workers)
   if (STUDIO_WORKERS.some((pattern) => pattern.test(worker)))
     failures.push(
@@ -178,5 +202,7 @@ if (failures.length > 0) {
   );
   if (!warnOnly) process.exit(1);
 } else {
-  console.log("\nBundle budget: Play boot path within budget; Studio stays lazy.");
+  console.log(
+    "\nBundle budget: Play boot path within budget; Studio and the AI authoring stack stay lazy.",
+  );
 }

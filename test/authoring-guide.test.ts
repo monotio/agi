@@ -1,12 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AUTHORING_GUIDE, readAuthoringGuide } from "../src/agent/authoringGuide.ts";
-import {
-  ASK_TOOLS,
-  AGENT_TOOLS,
-  createAgentSessionState,
-  executeAgentTool,
-} from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { ASK_TOOLS, AGENT_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
 import { AGI_SYSTEM_PROMPT, createGenesisPrompt } from "../src/agent/prompt.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 

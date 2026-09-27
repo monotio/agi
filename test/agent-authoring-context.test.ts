@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";

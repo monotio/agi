@@ -10,6 +10,24 @@ export const DEFAULT_MODELS: Record<ModelProvider, string> = {
   stub: "offline-stub",
 };
 
+/**
+ * The models the AI settings dialog offers, by provider. It lives beside the
+ * defaults, not in the LLM client, so the settings UI can list them without
+ * loading the provider SDKs on the Play boot path.
+ */
+export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[]> = {
+  anthropic: [
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
+  ],
+  openai: [
+    { id: "gpt-6-astra", label: "GPT-6 Astra" },
+    { id: "gpt-6-sol", label: "GPT-6 Sol" },
+    { id: "gpt-6-luna", label: "GPT-6 Luna" },
+  ],
+  stub: [{ id: "offline-stub", label: "Offline Deterministic Stub" }],
+};
+
 const REASONING_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const OPTIONAL_REASONING_LEVELS: readonly ModelEffort[] = ["none", ...REASONING_LEVELS];
 

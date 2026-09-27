@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
-import { buildObjectFile } from "../src/agent/tools.ts";
+import { buildObjectFile } from "../src/agent/agentState.ts";
 
 class Host implements EngineHost {
   keys: number[] = [];

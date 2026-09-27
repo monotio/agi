@@ -7,7 +7,8 @@ import {
   type SoundNoteInput,
   type SoundTrackInput,
 } from "./soundBuilder.ts";
-import type { AgentSessionState, AgentToolResult, ToolDefinition } from "./tools.ts";
+import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 import { parseSound } from "../sound/sound.ts";
 import { renderSoundPreview } from "../sound/preview.ts";
 import { soundFeedback, type SoundFeedbackOptions } from "./soundFeedback.ts";

@@ -11,7 +11,7 @@ import {
 } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
-import { createAgentSessionState } from "../../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../../src/agent/agentState.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import {
   itemHandles,

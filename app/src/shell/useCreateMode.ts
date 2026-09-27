@@ -8,6 +8,7 @@ import { defineAsyncComponent, onScopeDispose, watch, type ComputedRef, type Ref
 import ActivityPanel from "./ActivityPanel.vue";
 import InspectPanel from "../inspector/InspectPanel.vue";
 import { registerCreatePanel } from "./createDocks.ts";
+import { prefetchAuthoringStack } from "../agent/authoringLoader.ts";
 import type { CreateWorkspace } from "./useCreateWorkspace.ts";
 import type { EngineState } from "../useEngineTypes.ts";
 
@@ -32,6 +33,10 @@ export function useCreateMode(deps: {
   gameInput: () => Element | null | undefined;
 }) {
   const { state, workspace, creating, phone, debugOpen } = deps;
+
+  // Create's assistant and Studio Ask run on the authoring stack: warm it
+  // once Create opens, so the first request does not wait for the download.
+  watch(creating, (inCreate) => inCreate && prefetchAuthoringStack(), { immediate: true });
 
   // The map's graph code never loads on boot. It is fetched once a game runs,
   // while the browser is idle, and the World tab then holds the loaded panel

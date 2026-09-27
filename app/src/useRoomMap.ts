@@ -36,7 +36,7 @@ import {
   type WorldDraft,
   type WorldPlan,
 } from "../../src/agent/worldPlan.ts";
-import { parseGameTests } from "../../src/agent/gameTests.ts";
+import { parseGameTests } from "../../src/agent/gameTestFormat.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
 import { createPictureSurface } from "../../src/types.ts";

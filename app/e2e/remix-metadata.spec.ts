@@ -69,14 +69,15 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
   });
   await page.goto("/");
   const result = await page.evaluate(
-    async ({ toolsPath, wordsPath }) => {
+    async ({ toolsPath, agentStatePath, wordsPath }) => {
       const sessionPath = "/src/agent/agentSession.ts";
       const workerPath = "/src/engine.worker.ts?worker";
       const { AgentSession } = await import(sessionPath);
       const { default: EngineWorker } = await import(workerPath);
       const tools = await import(toolsPath);
+      const agentState = await import(agentStatePath);
       const { parseWordsTok } = await import(wordsPath);
-      const state = tools.createAgentSessionState();
+      const state = agentState.createAgentSessionState();
       const initial = [
         ["write_words", { words: ["look"] }],
         ["write_inventory_objects", { objects: [{ name: "Old key", startingRoom: 1 }] }],
@@ -180,6 +181,8 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
     },
     {
       toolsPath: "/@fs" + fileURLToPath(new URL("../../src/agent/tools.ts", import.meta.url)),
+      agentStatePath:
+        "/@fs" + fileURLToPath(new URL("../../src/agent/agentState.ts", import.meta.url)),
       wordsPath: "/@fs" + fileURLToPath(new URL("../../src/logic/words.ts", import.meta.url)),
     },
   );

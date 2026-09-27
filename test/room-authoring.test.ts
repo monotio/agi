@@ -125,7 +125,7 @@ test("a fresh stub session authors the requested room number after a reload", as
 });
 
 test("room inventory extends existing item identities without changing the live table", async () => {
-  const { buildObjectFile } = await import("../src/agent/tools.ts");
+  const { buildObjectFile } = await import("../src/agent/agentState.ts");
   const container = createContainer();
   const previous = buildObjectFile([{ name: "Old key", startingRoom: 1 }]);
   container.putFile("OBJECT", previous);

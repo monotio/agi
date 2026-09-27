@@ -2,11 +2,8 @@ import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import {
-  createAgentSessionState,
-  STUDIO_ASSIST_TASK_TOOLS,
-  type AgentSessionState,
-} from "../../src/agent/tools.ts";
+import { createAgentSessionState, type AgentSessionState } from "../../src/agent/agentState.ts";
+import { STUDIO_ASSIST_TASK_TOOLS } from "../../src/agent/tools.ts";
 import type { StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";

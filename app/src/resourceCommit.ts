@@ -5,7 +5,8 @@
  * The authoring controller owns the session and wires this in; the edit
  * descriptors below say what each Keep writes.
  */
-import { AgentSession } from "./agent/agentSession.ts";
+import type { AgentSession } from "./agent/agentSession.ts";
+import type { AuthoringLoader } from "./agent/authoringLoader.ts";
 import { gameRevision, type LibraryMetadata } from "./gameMetadata.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
 import { openContainer } from "../../src/container/container.ts";
@@ -14,7 +15,7 @@ import {
   type AuthoringState,
   type BindingKind,
 } from "../../src/agent/authoringState.ts";
-import { assembleAuthoredLogic, type AgentSourceStore } from "../../src/agent/tools.ts";
+import { assembleAuthoredLogic, type AgentSourceStore } from "../../src/agent/agentState.ts";
 import { sourceCompilesTo } from "../../src/picture/source.ts";
 import { roomDrawsPicture } from "../../src/agent/roomPictures.ts";
 import { roomBakesView, scanViewUsage } from "../../src/studio/sprite/spriteUsage.ts";
@@ -206,6 +207,8 @@ export interface ResourceCommitContext {
   readonly postSessionSnapshot: (author: AgentSession) => void;
   /** The commit landed everywhere; `author` is the live session, if any. */
   readonly onCommitted: (author: AgentSession | null) => void;
+  /** Loads the authoring stack, whose session records a Keep made without a live one. */
+  readonly loadAuthoring: AuthoringLoader;
 }
 
 export function createResourceCommit(
@@ -227,6 +230,7 @@ export function createResourceCommit(
     getSession,
     postSessionSnapshot,
     onCommitted,
+    loadAuthoring,
   } = ctx;
 
   /**
@@ -353,7 +357,7 @@ export function createResourceCommit(
         game.installed && !author ? await loadGameConversation(conversationKey) : undefined;
       const sourceSession =
         author ??
-        AgentSession.fromAuthoredData(
+        (await loadAuthoring()).AgentSession.fromAuthoredData(
           { provider: "stub", model: "offline-stub", apiKey: "" },
           () => {},
           exported,

@@ -7,7 +7,7 @@
  * opening window, the command solves the exhibit, and the expectations name
  * the flag, the score and the message the logic awards.
  */
-import type { GameTest } from "../../src/agent/gameTests.ts";
+import type { GameTest } from "../../src/agent/gameTestFormat.ts";
 
 const step = (
   action: "command" | "move" | "enter" | "wait",

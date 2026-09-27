@@ -53,9 +53,11 @@ model evaluations are described in [evals](evals/README.md).
 
 `npm run check:bundle` (in CI after the build) fails when the compressed
 JavaScript, CSS or workers loaded before a game's first frame outgrow their
-budgets, or when Studio code joins that path, and `app/e2e/perf-budgets.spec.ts`
-(tagged `@perf`; skip it with `--grep-invert @perf` where timing means nothing)
-bounds boot long tasks and Studio frame and input times. Change a budget only on
+budgets, or when Studio code or the AI authoring stack (loaded on the first AI
+action through `app/src/agent/authoringLoader.ts`) joins that path, and
+`app/e2e/perf-budgets.spec.ts` (tagged `@perf`; skip it with `--grep-invert
+@perf` where timing means nothing) bounds boot long tasks and Studio frame and
+input times. Change a budget only on
 purpose: edit it beside its measured value and give the reason in the commit.
 
 ### Editor setup

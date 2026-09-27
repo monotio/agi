@@ -27,7 +27,7 @@ import {
   type NavigationOutcome,
 } from "./navigationController.ts";
 import { resourceSetHint } from "./authoringState.ts";
-import type { AgentSessionState, AgentToolResult } from "./tools.ts";
+import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
 
 const DEFAULT_CYCLES = 600;
 /** The most logic cycles one scenario may run: a playtest's cycleBudget or a step's ticks. */

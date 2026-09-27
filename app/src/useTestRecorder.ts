@@ -1,4 +1,4 @@
-import { executeAgentTool } from "../../src/agent/tools.ts";
+import { loadAuthoringStack } from "./agent/authoringLoader.ts";
 import type { AgentSession } from "./agent/agentSession.ts";
 import type { LlmConfig } from "./agent/llmClient.ts";
 import {
@@ -160,6 +160,7 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
 
     const author = await options.getOrCreateSession(game, config);
+    const { executeAgentTool } = await loadAuthoringStack();
     const result = executeAgentTool(author.state, "write_game_tests", {
       mode: "merge",
       names: null,

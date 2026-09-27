@@ -5,6 +5,12 @@
 const LEGACY_CYCLE_MODULES =
   "^src/agent/(tools|authoringTools|roomTools)\\.ts$|^app/src/worker/(context|replay|historyView)\\.ts$";
 
+// Modules of the AI authoring stack that reach Studio kernels. The app loads
+// the stack through one dynamic import (app/src/agent/authoringLoader.ts), and
+// scripts/check-bundle-budget.ts fails a build that puts these on the Play
+// boot path, so their static edges into src/studio never reach it.
+const LAZY_AUTHORING_MODULES = "^src/agent/(studioAssistTools|pictureTools)\\.ts$";
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 export default {
   forbidden: [
@@ -55,17 +61,22 @@ export default {
       // import() (defineAsyncComponent in App.vue). Type-only imports are
       // erased at build time and exempt. Warning for now: app/src/world/*,
       // app/src/worker/playHere.ts, app/src/route.worker.ts,
-      // app/src/resourceCommit.ts and src/agent/* reach studio kernels
-      // statically, pulling them into the Play/worker bundles; untangling is
-      // not small or mechanical.
+      // and app/src/resourceCommit.ts reach studio kernels statically,
+      // pulling them into the Play/worker bundles; untangling is not small or
+      // mechanical. The lazy AI authoring stack (LAZY_AUTHORING_MODULES) is
+      // exempt as a source, and the walkable mask as a target: it is shared
+      // with click-to-walk and boots with Play, as the bundle check allows.
       name: "studio-reached-dynamically-only",
       severity: "warn",
       from: {
-        pathNot:
+        pathNot: [
           "^(?:app/src/studio/|src/studio/|test/|app/test/|app/e2e/|app/production/|evals/|games/|scripts/)",
+          LAZY_AUTHORING_MODULES,
+        ],
       },
       to: {
         path: "^(?:app/src/studio/|src/studio/)",
+        pathNot: "^src/studio/walkable\\.ts$",
         dependencyTypesNot: ["dynamic-import", "type-only"],
       },
     },

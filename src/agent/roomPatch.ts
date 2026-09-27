@@ -12,7 +12,7 @@ import { parseView } from "../view/view.ts";
 import { detectProfile, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
 
 import { validateRoomInventory } from "./inventory.ts";
-import { parseGameTests } from "./gameTests.ts";
+import { parseGameTests } from "./gameTestFormat.ts";
 
 export interface RoomPatch {
   objects?: Uint8Array;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { studioPictureSource } from "../src/world/studioSource.ts";
 

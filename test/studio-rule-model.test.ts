@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { assembleAuthoredLogic } from "../src/agent/tools.ts";
+import { assembleAuthoredLogic } from "../src/agent/agentState.ts";
 import { disassembleLogic } from "../src/logic/disassembler.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 import {

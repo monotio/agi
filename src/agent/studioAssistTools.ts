@@ -78,12 +78,8 @@ import {
   spriteSheetPng,
   type CelPair,
 } from "./studioAssistPreview.ts";
-import type {
-  AgentSessionState,
-  AgentToolImage,
-  AgentToolResult,
-  ToolDefinition,
-} from "./tools.ts";
+import type { AgentSessionState, AgentToolImage, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 /** AGI's power-on horizon (engine.ts), for the walkable estimate. */

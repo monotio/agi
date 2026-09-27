@@ -19,7 +19,7 @@
  * edit. Nothing here mutates the session: the caller commits the returned
  * source, bytes and bindings together.
  */
-import { assembleAuthoredLogic, type AgentSessionState } from "../../agent/tools.ts";
+import { assembleAuthoredLogic, type AgentSessionState } from "../../agent/agentState.ts";
 import { executeAuthoringTool } from "../../agent/authoringTools.ts";
 import { validateAuthoringState, type BindingKind } from "../../agent/authoringState.ts";
 import { normalizeAuthoredLogic } from "../../agent/logicText.ts";

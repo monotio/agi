@@ -10,7 +10,8 @@
  * phrased as guidance, not as engine facts.
  */
 
-import type { ToolDefinition, AgentToolResult } from "./tools.ts";
+import type { AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 
 export interface GuideTopic {
   readonly title: string;

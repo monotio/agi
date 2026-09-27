@@ -6,19 +6,21 @@ import { AgentRun } from "./agentRun.ts";
  */
 
 import {
-  ASK_TOOLS,
-  AUTHORING_TOOL_NAMES,
-  buildSound,
-  type SoundTrackInput,
   createAgentSessionState,
-  executeAgentTool,
-  executeAgentToolAsync,
-  STUDIO_ASSIST_TASK_TOOLS,
-  type AgentRuntimeDeps,
   type AgentSessionState,
   type AgentSourceStore,
   type AgentToolImage,
   type AgentToolResult,
+} from "../../../src/agent/agentState.ts";
+import {
+  ASK_TOOLS,
+  AUTHORING_TOOL_NAMES,
+  buildSound,
+  type SoundTrackInput,
+  executeAgentTool,
+  executeAgentToolAsync,
+  STUDIO_ASSIST_TASK_TOOLS,
+  type AgentRuntimeDeps,
 } from "../../../src/agent/tools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
 import {

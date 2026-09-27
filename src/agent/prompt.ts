@@ -19,7 +19,7 @@
  */
 
 import { PICTURE_SOURCE_DOC } from "../picture/source.ts";
-import type { AgentToolResult } from "./tools.ts";
+import type { AgentToolResult } from "./agentState.ts";
 
 export const AGI_SYSTEM_PROMPT = `You are the Game Master and Author for an authentic Sierra AGI (Adventure Game Interpreter) engine running live in the player's browser.
 
