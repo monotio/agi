@@ -408,7 +408,9 @@ random-number state is not among them. Restoring reads the blocks back, replays
 the resource-loading history, and resumes loaded logic at saved offsets. A
 successful restore or restart sets f12 or f6 and restarts logic 0 in the same
 cycle, abandoning the old script position. Restart keeps the random stream and
-the sound preference.
+the sound preference. The game signature that `set.game.id` sets names the save
+files and is part of the first block, so a restore brings it back; the save
+selector lists only files carrying the running game's signature.
 
 The engine writes authentic save images for authentic save and restore, and
 keeps its stronger host checkpoints (which also capture randomness and input)
@@ -417,7 +419,8 @@ as an ordinary message window.
 
 **Evidence:**
 [Original save and restart audit](#original-save-and-restart-audit),
-[Startup and reconstruction execution](#startup-and-reconstruction-execution)
+[Startup and reconstruction execution](#startup-and-reconstruction-execution),
+[Game signature across restore](#game-signature-across-restore)
 and [Restore error window](#restore-error-window).
 
 ### The memory report
@@ -2166,6 +2169,49 @@ Across the two builds the probe checks 204 controlled vectors: preserved I/O
 and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
+
+### Game signature across restore
+
+**Fact (GR1 3.002.149, static disassembly).** Input `gr1` under
+[Verified inputs](#verified-inputs); its data segment comes from `AGIDATA.OVL`
+(`914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804`).
+
+| Routine        | Offset | Behavior                                                                                                                                |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `set.game.id`  | 0x108c | copies the message into DS0x0002, at most 7 bytes including its NUL, then 0x5ede compares it with the built-in id and exits on mismatch |
+| save file name | 0x5f01 | formats `"%s%s%ssg.%d"` (DS0x1164) from directory, separator, DS0x0002 and slot                                                         |
+| slot candidate | 0x8ee4 | reads the 31-byte description, skips the block length, reads 7 bytes and compares them with DS0x0002 as NUL-terminated strings (0x50b0) |
+| selector scan  | 0x8b2c | save (0x73) shows all 12 slots, a rejected one blank; restore lists only accepted slots, else "There are no games to restore"           |
+| restore core   | 0x2856 | reads block 1 to DS0x0002 (see [the audit](#original-save-and-restart-audit)), the signature area included                              |
+
+So a successful restore replaces the running signature with the file's, and a
+file carrying another signature is neither listed for restore nor, since its
+name carries that other signature, overwritten by a save. A game sets the
+signature only when it runs `set.game.id`: KQ1's logic 0 does so only while v0
+is 0, on its boot pass (game bytecode), so after a restore the file is its only
+source.
+
+**Inference.** The other PC profiles share this: the spec gives every profile
+the same block-1 signature area and candidate check, and the Amiga and IIgs
+readers restore the region `set.game.id` writes
+([Save image](#save-image-fact),
+[Bounds, objects and the save image](#bounds-objects-and-the-save-image-fact)).
+
+**Engine contract.** `applyRestore` reinstates the signature from the image's
+first seven block-1 bytes, up to the first NUL, for `restore.game` and host
+resumes alike; the engine selector keeps the strict filter. The engine compares
+all seven bytes where the original stops at the NUL; the two agree on every
+image the engine writes, since it zero-pads the area. App storage keys saves by
+game and slot, not by the signature-stemmed name, so a save written under a
+wrong signature replaces the slot the original would have left alone. Images a
+resume wrote before this fix carry an all-zero signature: the game's own
+selector does not list them, as the original would not, and an autosave such a
+session wrote resumes unsigned until a restart runs the game's `set.game.id`
+again.
+
+**Tests:** `test/autosave.test.ts` (hand-computed signature bytes through a host
+resume), `test/kq1.test.ts` (KQ1 slots across a resume, fixture-gated) and
+`app/test/worker-save-signature.test.ts` (the worker boot resume and selector).
 
 ### 3-002-107-is-3-002-102
 
