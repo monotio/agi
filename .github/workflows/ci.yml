@@ -135,6 +135,12 @@ jobs:
         working-directory: app
         env:
           CI: "1"
+      # Timing budgets measure a quiet runner: after the shard, one worker.
+      - if: matrix.browser == 'chromium' && matrix.shard == '1/3'
+        run: npm run e2e:perf -- --reporter=list
+        working-directory: app
+        env:
+          CI: "1"
       - if: matrix.browser == 'webkit' && matrix.suite != 'desktop'
         run: npm --prefix app run e2e:phone -- --project=iphone-webkit --reporter=list
         env:

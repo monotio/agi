@@ -13,9 +13,9 @@ import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
  * Mac, alone and under the full suite's parallel load (numbers beside each
  * budget), so CI's slower two-worker headless runners still pass. Raise one
  * only on purpose, with the measurement and the reason in the commit. Tagged
- * @perf; where timing means nothing (a debugger, a software-rendered or
- * throttled machine), skip them with `npm --prefix app run e2e --
- * --grep-invert @perf`.
+ * @perf: the main suite leaves them out, and `npm --prefix app run e2e:perf`
+ * runs them alone on one worker, so no other test loads the machine they
+ * measure (CI runs them after the first Chromium shard).
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 // One test at a time in this file, so the specs do not load each other.

@@ -35,6 +35,7 @@ npm run check                                 # the gate: dep check, typecheck (
 npm test && npm run test:app                  # node:test under --experimental-strip-types
 node --test --experimental-strip-types test/<file>.test.ts   # one engine test file
 npm run test:e2e                              # Playwright on its own `vite --mode test` server
+npm --prefix app run e2e:perf                # timing budgets, alone on one worker
 npm --prefix app run e2e -- e2e/<file>.spec.ts               # one spec
 npm --prefix app run e2e:webkit-desktop                      # desktop Studio scenarios tagged @webkit-desktop, in WebKit
 npm run lint:ast                              # ast-grep structural rules and suppression check (part of check)
