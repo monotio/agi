@@ -141,14 +141,18 @@ test("a selected folder is checked, deduplicated with its ZIP, and can be copied
   try {
     await mkdir(folder);
     await Promise.all(files.map(({ name, data }) => writeFile(join(folder, name), data)));
+    // Add game is enabled again once an import has finished, profile offer included.
+    const addGame = page.getByRole("button", { name: "Add game", exact: true });
     await page.getByTestId("game-folder-input").setInputFiles(folder);
     const original = savedGameCard(page, "Folder Adventure");
     await expect(original.getByTestId("btn-resume-cached")).toBeEnabled();
+    await expect(addGame).toBeEnabled();
     await page.getByTestId("game-zip-input").setInputFiles({
       name: "same-resources.zip",
       mimeType: "application/zip",
       buffer: zip,
     });
+    await expect(addGame).toBeEnabled();
     await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
     await openLibraryActions(page, original);
     await page.getByTestId("copy-library-game").click();

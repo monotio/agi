@@ -201,3 +201,29 @@ test("ambiguous dropped roots display an error without changing the library", as
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(0);
   await expect(page.getByTestId("game-import-ready")).toHaveCount(0);
 });
+
+test("a drop while a game is being added says so and keeps the first import", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  const { zip } = dropGame();
+  // Two drops in one turn: the second lands while the first import is running.
+  await page.getByTestId("game-zip-drop").evaluate((target, zipBytes) => {
+    for (let i = 0; i < 2; i++) {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(
+        new File([Uint8Array.from(zipBytes)], "dropped-adventure.zip", {
+          type: "application/zip",
+        }),
+      );
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", {
+        value: { items: [], files: dataTransfer.files },
+      });
+      target.dispatchEvent(event);
+    }
+  }, zip);
+  await expect(page.getByTestId("game-zip-error")).toHaveText(
+    "A game is still being added. Drop this one again when it is ready.",
+  );
+  await expect(savedGameCard(page, "dropped-adventure")).toBeVisible();
+});

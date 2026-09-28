@@ -564,10 +564,14 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     return { kept, refused, unconfirmed, warnings };
   }
 
+  /** A drop that arrived while another game was being added. */
+  const BUSY_DROP = "A game is still being added. Drop this one again when it is ready.";
+  let droppedWhileBusy = false;
+
   async function onGameZip(file?: File): Promise<void> {
     if (!file || importBusy.value) return;
     importBusy.value = true;
-    importError.value = "";
+    importError.value = droppedWhileBusy ? BUSY_DROP : "";
     importNotice.value = "";
     try {
       if (file.size > MAX_GAME_ZIP_BYTES) throw new Error("Choose a game ZIP smaller than 128 MB.");
@@ -579,6 +583,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       importError.value = String(error).replace(/^Error: /, "");
     } finally {
       importBusy.value = false;
+      droppedWhileBusy = false;
       if (zipInput.value) zipInput.value.value = "";
     }
   }
@@ -591,7 +596,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     )
       return;
     importBusy.value = true;
-    importError.value = "";
+    importError.value = droppedWhileBusy ? BUSY_DROP : "";
     importNotice.value = "";
     try {
       const selected = files instanceof Map ? [...files.values()] : [...files];
@@ -616,12 +621,20 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       importError.value = String(error).replace(/^Error: /, "");
     } finally {
       importBusy.value = false;
+      droppedWhileBusy = false;
       if (folderInput.value) folderInput.value.value = "";
     }
   }
 
   async function onGameDrop(dataTransfer?: DataTransfer): Promise<void> {
-    if (!dataTransfer || importBusy.value) return;
+    if (!dataTransfer) return;
+    if (importBusy.value) {
+      // The Add game button waits while a game is added; a drop says so too,
+      // and the note outlasts the running import's own start.
+      droppedWhileBusy = true;
+      importError.value = BUSY_DROP;
+      return;
+    }
     importBusy.value = true;
     importError.value = "";
     importNotice.value = "";
@@ -634,6 +647,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       else await onGameFolder(dropped.files);
     } catch (error) {
       importBusy.value = false;
+      droppedWhileBusy = false;
       importError.value = String(error).replace(/^Error: /, "");
     }
   }
