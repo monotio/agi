@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { enterCreateMode, waitForRoom } from "./engineProbe.ts";
 
@@ -9,14 +9,6 @@ import { enterCreateMode, waitForRoom } from "./engineProbe.ts";
  * remembered per viewer; the Onion menu holds Before, After and how many
  * cels; and the mirror chip's Edit both edits the pair.
  */
-
-/** Screenshots go here when set, else to the test's output. */
-const SHOTS = process.env["AGI_STUDIO_SHOTS"];
-const shot = (page: Page, name: string) =>
-  page.screenshot({
-    path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`),
-    animations: "disabled",
-  });
 
 async function playTutorial(page: Page): Promise<void> {
   await page.goto("/");
@@ -92,7 +84,7 @@ for (const [width, height] of [
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       width,
     );
-    await shot(page, `sprite-${width}-pencil`);
+    await reviewShot(page, `sprite-${width}-pencil`);
 
     // A short window keeps the room itself behind Show; a tall one shows it at once.
     const room = studio.getByTestId("sprite-room-canvas");
@@ -140,7 +132,7 @@ test("the transparent colour's ⓘ says what it is, and Choose another… opens 
     "Pixels in this colour show the room behind the character. The eraser paints it.",
   );
   await pop.evaluate((element) => Promise.all(element.getAnimations().map((a) => a.finished)));
-  await shot(page, "sprite-transparent-explainer");
+  await reviewShot(page, "sprite-transparent-explainer");
   await pop.getByTestId("sprite-transparent-choose").click();
   await expect(pop).toHaveCount(0);
   await expect(studio.getByTestId("sprite-cel-details")).toHaveAttribute("aria-expanded", "true");

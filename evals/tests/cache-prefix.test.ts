@@ -18,10 +18,9 @@
  *   ask               anthropic   100%            96.1%
  *   ask               openai      100%            96.1%
  *
- * Stability below 100% means an earlier message was rewritten (the reference
- * view collapse the audit removed did exactly that: 74% on remix-references),
- * the tool catalog or its order changed, or the system prompt carried
- * per-request data. Watched failing by putting the time into the system
+ * Stability below 100% means an earlier message was rewritten, the tool
+ * catalog or its order changed, or the system prompt carried per-request
+ * data. Watched failing by putting the time into the system
  * prompt and by reversing the catalog: both drop stability to under 1%.
  */
 import assert from "node:assert/strict";

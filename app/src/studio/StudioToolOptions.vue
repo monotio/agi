@@ -61,18 +61,11 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
     <template v-if="tool === 'brush'">
       <label class="tool-options__field">
         Size {{ radius }}
-        <input
-          v-model.number="radius"
-          type="range"
-          min="0"
-          max="7"
-          aria-label="Brush size"
-          data-testid="studio-brush-radius"
-        />
+        <input v-model.number="radius" type="range" min="0" max="7" aria-label="Brush size" />
       </label>
       <span class="tool-options__with">
         <label class="tool-options__toggle">
-          <input v-model="stipple" type="checkbox" data-testid="studio-brush-stipple" />
+          <input v-model="stipple" type="checkbox" />
           Stipple
         </label>
         <UiExplain v-bind="explain('stipple')" />
@@ -85,7 +78,6 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
           max="239"
           :value="seed"
           class="tool-options__number"
-          data-testid="studio-brush-seed"
           @change="seed = clampSeed(Number(($event.target as HTMLInputElement).value))"
         />
       </label>

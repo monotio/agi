@@ -69,7 +69,7 @@ reference art, a room build, a Studio assist with a refused proposal, an Ask
 conversation) through the production `AgentSession` and the real Anthropic and
 OpenAI clients with a scripted model behind a mocked `fetch`, then compares each
 request with the one before it: the byte-identical prefix, where they diverge and
-why (tools, system text, a rewritten message, a collapsed image), and the share
+why (tools, system text, a rewritten message), and the share
 of the request a warm cache could serve. `tests/cache-prefix.test.ts` runs the
 same probe under `npm run eval:replay` and fails when a task's prefix stability
 drops below 100% or its cacheable share below the recorded floor. A live run

@@ -199,14 +199,7 @@ onBeforeUnmount(close);
           Cancel
         </UiButton>
         <template v-else-if="share?.step === 'ready'">
-          <UiButton
-            v-if="canShare"
-            icon="share"
-            data-testid="studio-share-system"
-            @click="shareFile"
-          >
-            Share…
-          </UiButton>
+          <UiButton v-if="canShare" icon="share" @click="shareFile">Share…</UiButton>
           <UiButton
             variant="primary"
             icon="download"

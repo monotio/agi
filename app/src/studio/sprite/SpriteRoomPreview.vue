@@ -193,12 +193,7 @@ function onKey(event: KeyboardEvent): void {
   >
     <header class="room-preview__head">
       <h3 id="room-preview-title">In room</h3>
-      <select
-        v-if="rooms.length > 1"
-        v-model.number="room"
-        aria-label="Room"
-        data-testid="sprite-room-picker"
-      >
+      <select v-if="rooms.length > 1" v-model.number="room" aria-label="Room">
         <option v-for="option in rooms" :key="option.room" :value="option.room">
           Room {{ option.room }}{{ option.title ? ` · ${option.title}` : "" }}
         </option>
@@ -234,7 +229,7 @@ function onKey(event: KeyboardEvent): void {
       <p class="room-preview__verdict" data-testid="sprite-room-verdict">
         {{ verdict.priority }} · {{ verdict.cover }} <UiExplain v-bind="explain('depth')" />
       </p>
-      <p v-if="verdict.footing" class="room-preview__warn" data-testid="sprite-room-footing">
+      <p v-if="verdict.footing" class="room-preview__warn">
         {{ verdict.footing }}
       </p>
     </template>

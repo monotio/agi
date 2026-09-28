@@ -115,7 +115,7 @@ defineExpose({ attachFile });
 </script>
 
 <template>
-  <div v-if="engine" class="ref-attach" data-testid="assist-references">
+  <div v-if="engine" class="ref-attach">
     <input
       ref="input"
       class="ref-attach__file"
@@ -151,9 +151,7 @@ defineExpose({ attachFile });
       </li>
     </ul>
     <ActionMenu v-if="offered.length && !off" label="Attach" test-id="assist-reference-menu">
-      <button type="button" role="menuitem" data-testid="assist-reference-upload" @click="choose">
-        Choose an image…
-      </button>
+      <button type="button" role="menuitem" @click="choose">Choose an image…</button>
       <div role="separator"></div>
       <button
         v-for="(reference, index) in offered"
@@ -175,12 +173,11 @@ defineExpose({ attachFile });
       icon="image"
       :disabled="off"
       :title="authored ? 'Attach a reference image' : NOT_AUTHORED"
-      data-testid="assist-reference-attach"
       @click="choose"
     >
       {{ busy ? "Attaching…" : "Attach" }}
     </UiButton>
-    <p v-if="error" class="ref-attach__error" role="alert" data-testid="assist-reference-error">
+    <p v-if="error" class="ref-attach__error" role="alert">
       {{ error }}
     </p>
   </div>

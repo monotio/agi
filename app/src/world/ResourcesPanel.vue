@@ -31,7 +31,7 @@ const blocked = computed(() =>
 </script>
 
 <template>
-  <div class="resources-panel" data-testid="resources-panel">
+  <div class="resources-panel">
     <h3 class="resources-panel__title">Views</h3>
     <p v-if="views.length === 0" class="resources-panel__empty">This game has no views.</p>
     <ul v-else class="resources-panel__list">

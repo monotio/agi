@@ -213,7 +213,6 @@ defineExpose({ chooseTransparent });
                 min="1"
                 :max="MAX_CEL_HEIGHT"
                 aria-label="Height in pixels"
-                data-testid="sprite-resize-height"
                 @keydown.esc="revertSize"
               />
             </label>
@@ -233,14 +232,13 @@ defineExpose({ chooseTransparent });
               ></button>
             </div>
           </div>
-          <p v-if="resizeWarning" class="cel-panel__warn" data-testid="sprite-resize-warning">
+          <p v-if="resizeWarning" class="cel-panel__warn">
             {{ resizeWarning }}
           </p>
           <UiButton
             size="sm"
             :disabled="frozen || !validSize || !resized"
             :title="resizeBlocked"
-            data-testid="sprite-resize-apply"
             @click="resize"
           >
             Resize to {{ width }} × {{ height }}
@@ -256,7 +254,6 @@ defineExpose({ chooseTransparent });
               size="sm"
               :disabled="frozen"
               :title="frozen ? PAUSED : 'Shift left'"
-              data-testid="sprite-shift-left"
               @click="emit('edit', { type: 'shiftCel', dx: -1, dy: 0 })"
             />
             <UiIconButton
@@ -265,7 +262,6 @@ defineExpose({ chooseTransparent });
               size="sm"
               :disabled="frozen"
               :title="frozen ? PAUSED : 'Shift up'"
-              data-testid="sprite-shift-up"
               @click="emit('edit', { type: 'shiftCel', dx: 0, dy: -1 })"
             />
             <UiIconButton
@@ -274,7 +270,6 @@ defineExpose({ chooseTransparent });
               size="sm"
               :disabled="frozen"
               :title="frozen ? PAUSED : 'Shift down'"
-              data-testid="sprite-shift-down"
               @click="emit('edit', { type: 'shiftCel', dx: 0, dy: 1 })"
             />
             <UiIconButton
@@ -283,7 +278,6 @@ defineExpose({ chooseTransparent });
               size="sm"
               :disabled="frozen"
               :title="frozen ? PAUSED : 'Shift right'"
-              data-testid="sprite-shift-right"
               @click="emit('edit', { type: 'shiftCel', dx: 1, dy: 0 })"
             />
           </div>
@@ -304,7 +298,7 @@ defineExpose({ chooseTransparent });
             </label>
             <label v-if="clash">
               Pixels using it become
-              <select v-model.number="remap" data-testid="sprite-transparent-remap">
+              <select v-model.number="remap">
                 <option
                   v-for="(name, value) in EGA_COLOUR_NAMES"
                   :key="value"
@@ -320,7 +314,6 @@ defineExpose({ chooseTransparent });
             size="sm"
             :disabled="frozen || transparent === cel.transparent || (clash && remap === undefined)"
             :title="transparentBlocked"
-            data-testid="sprite-transparent-apply"
             @click="applyTransparent"
           >
             Make {{ transparent }} transparent
@@ -329,9 +322,7 @@ defineExpose({ chooseTransparent });
 
         <dl class="cel-panel__facts">
           <dt>Mirror bit <UiExplain v-bind="explain('mirror-bit')" /></dt>
-          <dd data-testid="sprite-mirror-bit">
-            {{ cel.mirrorBit ? "on" : "off" }}{{ cel.mirrored ? " · shown flipped" : "" }}
-          </dd>
+          <dd>{{ cel.mirrorBit ? "on" : "off" }}{{ cel.mirrored ? " · shown flipped" : "" }}</dd>
           <dt>Feet <UiExplain v-bind="explain('feet')" /></dt>
           <dd data-testid="sprite-feet">{{ feet }}</dd>
         </dl>

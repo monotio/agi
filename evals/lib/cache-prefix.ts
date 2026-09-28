@@ -134,7 +134,6 @@ type DivergenceKind =
   | "append-only"
   | "tools list or order"
   | "system text"
-  | "reference view collapsed"
   | "message rewritten"
   | "random id or timestamp";
 
@@ -187,9 +186,6 @@ function classify(previous: PromptStream, current: PromptStream, offset: number)
   if (segment.label === "tools") return { kind: "tools list or order", ...excerpt };
   if (segment.label === "system" || segment.label === "instructions")
     return { kind: "system text", ...excerpt };
-  const window = current.text.slice(offset, segment.end + 400);
-  if (/left the conversation after \d+ turns/.test(window))
-    return { kind: "reference view collapsed", ...excerpt };
   if (RANDOM_LIKE.test(before) || RANDOM_LIKE.test(after))
     return { kind: "random id or timestamp", ...excerpt };
   return { kind: "message rewritten", ...excerpt };

@@ -157,7 +157,7 @@ function onDrop(event: DragEvent): void {
   if (file) void references.value?.attachFile(file);
 }
 
-/** Focus the box (the `/` key, the toolbar's Ask); false when it cannot take focus. */
+/** Focus the box (the `/` key, the options bar's Ask); false when it cannot take focus. */
 function focus(): boolean {
   unfolded.value = true;
   if (phase.value === "candidate") refining.value = true;
@@ -238,7 +238,7 @@ defineExpose({ focus });
         </ul>
         <slot name="scope" />
       </div>
-      <p v-else class="assist__note" data-testid="assist-empty">{{ empty }}</p>
+      <p v-else class="assist__note">{{ empty }}</p>
 
       <div v-if="blocked === 'connect'" class="assist__connect">
         <p>Connect AI to ask.</p>
@@ -259,7 +259,6 @@ defineExpose({ focus });
       <p
         v-else-if="blocked === 'frozen' && phase !== 'running'"
         class="assist__note assist__frozen"
-        data-testid="assist-frozen"
       >
         This {{ thing }} is view only right now. <UiExplain v-bind="explain('view-only')" />
       </p>
@@ -284,7 +283,7 @@ defineExpose({ focus });
           <UiIcon name="sparkles" :size="12" />{{ assist.status.value }}
         </p>
         <template v-if="assist.task.value?.status === 'paused'">
-          <p class="assist__warn" data-testid="assist-paused">{{ assist.task.value.reason }}</p>
+          <p class="assist__warn">{{ assist.task.value.reason }}</p>
           <div class="assist__actions">
             <UiButton size="sm" variant="primary" @click="assist.resume()">Continue</UiButton>
             <UiButton size="sm" variant="danger" @click="assist.stop()">Discard</UiButton>
@@ -352,9 +351,7 @@ defineExpose({ focus });
           <UiButton size="sm" icon="x" data-testid="assist-reject" @click="reject">
             Reject
           </UiButton>
-          <UiButton size="sm" variant="ghost" data-testid="assist-again" @click="again">
-            Ask again…
-          </UiButton>
+          <UiButton size="sm" variant="ghost" @click="again">Ask again…</UiButton>
         </div>
       </div>
 
@@ -410,7 +407,6 @@ defineExpose({ focus });
             type="submit"
             size="sm"
             icon="sparkles"
-            data-testid="assist-send"
             :disabled="blocked !== null || !text.trim()"
             :title="sendBlocked"
           >

@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page, Route } from "@playwright/test";
 import { providerReply } from "../../test/provider-stream.ts";
 import {
@@ -29,13 +29,6 @@ import { clipped } from "./studioFit.ts";
  * decoded here from the bytes read out of the page.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
-
-/** Screenshots go here when set (the rc.5 review set), else to the test's output. */
-const SHOTS = process.env["AGI_ASSIST_SHOTS"];
-const shot = (page: Page, name: string) =>
-  page.screenshot({
-    path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`),
-  });
 
 const PROJECT = testProjectId("studio-assist");
 /** The room draws picture 1 and stands a one-pixel ego in the sky; it names VIEW 1 too. */
@@ -187,7 +180,7 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   await studio
     .getByTestId("assist-input")
     .fill("Make this bridge walkable without changing the art");
-  await shot(page, "room-ask-box");
+  await reviewShot(page, "room-ask-box");
 
   const before = await draftBytes(page);
   const source = await draftSource(page);
@@ -213,12 +206,12 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   const controlLabels = studio.locator('[data-role="control-labels"] text');
   // After: the banks split into a left and a right barrier around the water.
   await expect(controlLabels).toHaveText(["water", "barrier", "barrier"]);
-  await shot(page, "room-candidate-after");
+  await reviewShot(page, "room-candidate-after");
   await compare.getByRole("radio", { name: "Before" }).click();
   // Before: the draft's water (79,130) and barrier (79,139) labels would
   // stack in one column 18 px apart at 2x; the smaller run's is left out.
   await expect(controlLabels).toHaveText(["water"]);
-  await shot(page, "room-candidate-before");
+  await reviewShot(page, "room-candidate-before");
   await compare.getByRole("radio", { name: "After" }).click();
   // The lens and the unlocks wait with the proposal: controls off, keys inert.
   const lensSwitch = studio.getByTestId("studio-lens");
@@ -241,7 +234,7 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   await expect(studio.getByTestId("studio-assist").getByTestId("studio-lock-chip")).toHaveText(
     "Art · Depth 4–15",
   );
-  await shot(page, "room-held-lens");
+  await reviewShot(page, "room-held-lens");
   // Nothing is applied before Accept.
   expect(await draftSource(page)).toBe(source);
 
@@ -281,7 +274,7 @@ test("Room Studio: a refused proposal shows in the activity, and the retry keeps
     "Refused: would change the art; trying again",
     "Proposed a change",
   ]);
-  await shot(page, "room-refusal-retry");
+  await reviewShot(page, "room-refusal-retry");
   await studio.getByTestId("assist-accept").click();
   await expect(studio.getByTestId("assist-outcome")).toBeVisible();
   const after = planes(await draftBytes(page));
@@ -346,7 +339,7 @@ test("Room Studio: a request behind a save made elsewhere writes nothing and off
     }, PROJECT),
     "nothing was written over the newer save",
   ).toBe(generation);
-  await shot(page, "room-assist-behind-storage");
+  await reviewShot(page, "room-assist-behind-storage");
   await studio.getByTestId("assist-reload").click();
   await expect(page.getByTestId("studio-notice")).toHaveText(
     "Loaded the latest saved version of this game.",
@@ -370,7 +363,7 @@ test("Sprite Studio: make the eyes blue on loop 1, accept, loop 0 unchanged", as
     "Cels 0, 1 · Loop 1",
     "Loop 0 protected",
   ]);
-  await shot(page, "sprite-ask-box");
+  await reviewShot(page, "sprite-ask-box");
   const original = openSprite(ROBOT_VIEW, DEFAULT_V2_PROFILE);
   await ask(page, studio, "Make the robot's eyes blue");
   await expect(studio.getByTestId("assist-candidate")).toBeVisible();
@@ -380,13 +373,13 @@ test("Sprite Studio: make the eyes blue on loop 1, accept, loop 0 unchanged", as
   await expect(studio.getByTestId("assist-reject")).toBeInViewport({ ratio: 1 });
   // The cel canvas outlines the changed pixel of the cel on show.
   await expect(studio.getByTestId("sprite-canvas")).toHaveAttribute("data-changed", "1");
-  await shot(page, "sprite-candidate-after");
+  await reviewShot(page, "sprite-candidate-after");
   await studio
     .getByTestId("sprite-options-bar")
     .getByTestId("assist-compare")
     .getByRole("radio", { name: "Before" })
     .click();
-  await shot(page, "sprite-candidate-before");
+  await reviewShot(page, "sprite-candidate-before");
   await studio.getByTestId("assist-accept").click();
   await expect(studio.getByTestId("assist-outcome")).toBeVisible();
   // The outcome reads whole: it fits its box or wraps.
@@ -480,7 +473,7 @@ test("Room Studio: Stop mid-run leaves the draft unchanged", async ({ page }) =>
     await expect(
       studio.getByTestId("studio-lens").getByRole("radio", { name: /Depth/ }),
     ).toBeDisabled();
-    await shot(page, "room-running");
+    await reviewShot(page, "room-running");
     await studio.getByTestId("assist-stop").click();
     await expect(studio.getByTestId("assist-outcome")).toHaveText(
       "Stopped. The draft is unchanged.",
@@ -531,7 +524,7 @@ test("Room Studio: an edit while the AI works makes its proposal stale", async (
       "Proposed a change",
     ]);
     await expect(studio.getByTestId("assist-status")).toHaveText("Finishing…");
-    await shot(page, "room-running-proposed");
+    await reviewShot(page, "room-running-proposed");
     // Undo still runs while editing waits: the draft moves under the request.
     await studio.locator(".studio__stage").focus();
     await page.keyboard.press("ControlOrMeta+z");
@@ -544,7 +537,7 @@ test("Room Studio: an edit while the AI works makes its proposal stale", async (
     );
     await expect(studio.getByTestId("assist-accept")).toBeDisabled();
     await expect(studio.getByTestId("assist-compare")).toContainText("Stale proposal");
-    await shot(page, "room-stale");
+    await reviewShot(page, "room-stale");
     await studio.getByTestId("assist-reject").click();
     expect(await draftSource(page)).toBe(source);
   } finally {
@@ -609,5 +602,5 @@ test("Room Studio: a fill spilling out of the selection is refused in the activi
   expect(refusal).toContain(
     "the Puddle fill would spill outside the selection (19,120 cells); close the outline or keep the fill seed inside it",
   );
-  await shot(page, "room-spill-refusal");
+  await reviewShot(page, "room-spill-refusal");
 });

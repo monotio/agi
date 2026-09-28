@@ -21,7 +21,7 @@
  * - the tool rail's letters (studioTools.ts TOOL_SHORTCUTS: V A L R P F B I, the
  *   Walk view's T D E, which open it first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
- * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
+ * - `/` focuses Ask (StudioAssistPanel.vue); `?`
  *   opens the key sheet (StudioKeySheet.vue)
  * - Cmd+\ (Ctrl+\ off a Mac) toggles focus mode, which hides the side
  *   panels; Tab and Shift+Tab only ever move focus

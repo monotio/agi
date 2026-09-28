@@ -4,7 +4,9 @@ import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { IconName } from "../ui/icons.ts";
+import UiExplain from "../ui/UiExplain.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
+import { explain } from "./studioTerms.ts";
 import type { StudioEditing } from "./useStudioEditing.ts";
 
 /**
@@ -200,6 +202,10 @@ function pick(value: number | null): void {
             @click="action.run"
             >{{ action.text }}</UiButton
           >
+          <UiExplain
+            v-if="action.id === 'combine' || action.id === 'ungroup'"
+            v-bind="explain(action.id === 'combine' ? 'group' : 'ungroup')"
+          />
         </span>
         <UiIconButton
           v-else
@@ -257,6 +263,8 @@ function pick(value: number | null): void {
 .selection-bar__wrap {
   position: relative;
   display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .selection-bar__picker {
   position: absolute;

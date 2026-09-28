@@ -130,8 +130,8 @@ import { useUndoOrder } from "./useUndoOrder.ts";
  * the playhead; the actor probe stands a VIEW from the game's `files` on the
  * draft; every way out settles unkept changes first (useStudioLeave). The
  * Walk view (useStudioWalk) adds test walks, Play here and the room's doors,
- * whose logic edits keep together with the picture in one transaction. "Ask
- * about this selection" (useStudioAssist) has the game's AI propose a change
+ * whose logic edits keep together with the picture in one transaction. Ask
+ * (useStudioAssist) has the game's AI propose a change
  * to the selected items, previewed on the canvas and accepted as one undo step.
  * Several items can be selected (useStudioSelection) and moved, copied,
  * deleted or grouped together (and a group ungrouped); the selection's actions dock in the
@@ -344,7 +344,7 @@ const keeper = useStudioKeep({
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
 
-// ---- Ask about this selection ----------------------------------------------
+// ---- Ask -------------------------------------------------------------------
 const aiSettings = inject(aiSettingsKey, null);
 const assistHost: StudioAssistHost | null =
   engineApi && aiSettings
@@ -704,7 +704,7 @@ const rename = computed(() =>
 /** Group: the dialog, and what lies between the selected items. */
 const combineOpen = ref(false);
 const combineGap = computed(() => editing.between.value);
-function makeOneItem(name: string): void {
+function groupSelection(name: string): void {
   if (editing.combine(name)) combineOpen.value = false;
 }
 /** The dialog's offer: select the items drawn between the chosen ones too. */
@@ -1382,7 +1382,6 @@ function onKeyup(event: KeyboardEvent): void {
         shortcut="⌘\"
         aria-keyshortcuts="Meta+Backslash Control+Backslash"
         :pressed="calm.focus.value"
-        data-testid="studio-focus-toggle"
         @click="toggleFocus"
       />
       <UiIconButton
@@ -1421,7 +1420,7 @@ function onKeyup(event: KeyboardEvent): void {
       :count="editing.targets.value.length"
       :between="combineGap.between.map((item) => item.label)"
       :loose="combineGap.looseCommands.length > 0"
-      @make="makeOneItem"
+      @make="groupSelection"
       @include="includeBetween"
     />
     <StudioCanvasMenu

@@ -344,16 +344,18 @@ function onFilterKeydown(event: KeyboardEvent): void {
           <template v-if="matches !== null">{{ matches.length }} of {{ itemTotal }} items</template>
           <template v-else>{{ itemTotal }} {{ itemTotal === 1 ? "item" : "items" }}</template>
         </span>
-        <UiButton
-          v-if="groupable"
-          variant="ghost"
-          size="sm"
-          class="scene-list__group"
-          shortcut="⌘G"
-          data-testid="scene-group"
-          @click="emit('group')"
-          >Group</UiButton
-        >
+        <span v-if="groupable" class="scene-list__with">
+          <UiButton
+            variant="ghost"
+            size="sm"
+            class="scene-list__group"
+            shortcut="⌘G"
+            data-testid="scene-group"
+            @click="emit('group')"
+            >Group</UiButton
+          >
+          <UiExplain v-bind="explain('group')" />
+        </span>
       </div>
     </template>
   </UiPanel>
@@ -573,6 +575,11 @@ function onFilterKeydown(event: KeyboardEvent): void {
 .scene-list__foot {
   color: var(--ink-3);
   font-size: var(--text-xs);
+}
+.scene-list__with {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .scene-list__group {
   color: var(--ink-2);

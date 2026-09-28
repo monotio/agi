@@ -88,7 +88,7 @@ export type SpriteKeepFn = (
  * (SpriteContactSheet.vue). Keys are handled at the root and stopped
  * (spriteKeys.ts), so none reach the game, and focus never falls out of the
  * studio while it is open; every way out settles unkept changes first
- * (useStudioLeave), as in Room Studio. "Ask about this selection"
+ * (useStudioLeave), as in Room Studio. Ask
  * (useStudioAssist) has the game's AI propose a change to the selected cel
  * or loop, previewed on the canvas and accepted as one undo step.
  */
@@ -170,7 +170,7 @@ watch(
   },
 );
 
-// ---- Ask about this selection ----------------------------------------------
+// ---- Ask -------------------------------------------------------------------
 const engineApi = inject(engineKey, null);
 const aiSettings = inject(aiSettingsKey, null);
 const assistHost: StudioAssistHost | null =
@@ -806,7 +806,6 @@ const status = computed(() => {
             size="sm"
             label="Ask about"
             :options="ASK_SCOPES"
-            data-testid="assist-scope"
           />
         </template>
       </StudioAssistPanel>

@@ -1,7 +1,7 @@
 /**
  * Representative multi-turn tasks for the cache probe, on the tutorial game
- * (games/adventure-department). Each scenario is a list of app-level turns —
- * the same AgentSession calls the shell makes — with a scripted model per
+ * (games/adventure-department). Each scenario is a list of app-level turns (the
+ * same AgentSession calls the shell makes) with a scripted model per
  * turn for the dry run. A live run plays the same turns with a real model.
  *
  *   remix-references  two Remix turns with a room plate attached (manifest,

@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
 import { ROOM_GROUP_HINT } from "../src/studio/studioHelp.ts";
@@ -11,13 +11,6 @@ import { ROOM_GROUP_HINT } from "../src/studio/studioHelp.ts";
  * sideways or runs out of its column. The lock is a chip by the lens tabs.
  * Details opened stays open for this viewer, across a reopened Studio.
  */
-
-const SHOTS = process.env["AGI_STUDIO_SHOTS"];
-const shot = (page: Page, name: string) =>
-  page.screenshot({
-    path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`),
-    animations: "disabled",
-  });
 
 async function openRoomOne(page: Page): Promise<Locator> {
   await isolateStorage(page);
@@ -135,7 +128,7 @@ for (const [width, height] of [
       /^x 35 y 50 · colour \d+ · depth \d+( · step \d+)?$/,
     );
     await page.mouse.move(box.x + box.width + 40, box.y);
-    await shot(page, `room-${width}-selection`);
+    await reviewShot(page, `room-${width}-selection`);
   });
 }
 

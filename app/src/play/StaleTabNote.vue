@@ -55,6 +55,6 @@ async function reload(): Promise<void> {
     @dismiss="state.staleTab = false"
   >
     This game changed in another tab. Reload game to continue from the saved version.
-    <UiButton size="sm" data-testid="stale-tab-reload" @click="reload">Reload game</UiButton>
+    <UiButton size="sm" @click="reload">Reload game</UiButton>
   </UiToast>
 </template>

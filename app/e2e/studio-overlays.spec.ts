@@ -31,7 +31,7 @@ function strays(root: Locator, pictures: string): Promise<string[]> {
     for (const element of root.querySelectorAll<HTMLElement>("*")) {
       const style = getComputedStyle(element);
       if (style.position !== "absolute" && style.position !== "fixed") continue;
-      // The stage and the panes hold the picture: they are its frame, not over it.
+      // The stage and the panes hold the picture: they frame it.
       if (element.querySelector(pictures)) continue;
       if (style.pointerEvents === "none" || style.visibility === "hidden") continue;
       const text = element.innerText?.trim();
