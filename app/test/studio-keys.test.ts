@@ -19,6 +19,7 @@ function actions(drawing: boolean) {
     seek: () => calls.push("seek"),
     zoom: () => calls.push("zoom"),
     step: (direction: number) => calls.push(`step ${direction}`),
+    extend: (direction: number) => calls.push(`extend ${direction}`),
     nudge: (dx: number, dy: number) => calls.push(`nudge ${dx},${dy}`),
     cursor: (dx: number, dy: number) => (drawing ? calls.push(`cursor ${dx},${dy}`) > 0 : false),
     click: (enter: boolean) => (drawing ? calls.push(enter ? "click enter" : "click") > 0 : false),
@@ -159,4 +160,18 @@ test("Alt+Enter on the canvas adds a point where the cursor stands, as Alt+click
     calls.filter((call) => call === "insert point"),
     ["insert point"],
   );
+});
+
+test("Shift+Alt+arrows on the canvas grow the selection to the next or previous item", () => {
+  const { act, calls } = actions(false);
+  assert.equal(studioKey(key("ArrowDown", CANVAS, { altKey: true, shiftKey: true }), act), true);
+  assert.equal(studioKey(key("ArrowRight", CANVAS, { altKey: true, shiftKey: true }), act), true);
+  assert.equal(studioKey(key("ArrowUp", CANVAS, { altKey: true, shiftKey: true }), act), true);
+  assert.equal(studioKey(key("ArrowLeft", CANVAS, { altKey: true }), act), true);
+  // Off the canvas the arrows belong to the widget that has focus.
+  assert.equal(
+    studioKey(key("ArrowDown", ELSEWHERE, { altKey: true, shiftKey: true }), act),
+    false,
+  );
+  assert.deepEqual(calls, ["extend 1", "extend 1", "extend -1", "step -1"]);
 });

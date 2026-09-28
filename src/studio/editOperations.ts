@@ -13,16 +13,25 @@
  * the edited item before its `@end`, or loose where a removed item stood. A
  * moved or duplicated item likewise gets, right after its `@item`, the state
  * its own lines inherited at their original place.
+ *
+ * `applyEdits` applies several operations as ONE edit (the Studio's
+ * multi-selection moves, copies and deletes several items as one undo
+ * step): each operation applies to the result of the one before, and the
+ * batch is refused whole when any of them is. A batch of moves rewrites
+ * every member's lines in a single pass.
  */
 
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
 import { compilePictureSource, PictureSourceSyntaxError } from "../picture/source.ts";
 import {
+  itemRun,
   parsePictureDocument,
+  PICTURE_ITEM_ID,
   pictureItemAtLine,
   PICTURE_ITEM_KINDS,
   serializePictureDocument,
   type PictureDocument,
+  type PictureItem,
   type PictureItemKind,
 } from "./pictureDocument.ts";
 import type { PicturePlane } from "./pictureQuery.ts";
@@ -128,6 +137,18 @@ export type EditOperation =
       readonly label: string;
     }
   | {
+      /**
+       * Make neighbouring items one item: one `@item` over their lines, the
+       * commands in draw order, so the bytes never change. Refused when
+       * another item or a loose command is drawn between them.
+       */
+      readonly type: "combineItems";
+      readonly itemIds: readonly string[];
+      /** The new item's id: unused, or one of the members'. */
+      readonly id: string;
+      readonly label: string;
+    }
+  | {
       readonly type: "setItemMeta";
       readonly itemId: string;
       readonly label?: string;
@@ -142,15 +163,23 @@ export interface EditOptions {
   readonly profile?: AgiProfile;
 }
 
-function moveItem(ctx: Context, itemId: string, dx: number, dy: number): EditResult {
-  requireIntegers({ dx, dy });
-  const item = editableItem(ctx, itemId);
-  refuseCopiesOf(ctx, item, "moving");
-  const slots = inputLines(ctx, 1, ctx.lines.length).map((line) =>
-    inItem(item, line.from!)
-      ? { ...line, text: translateLine(line.text, line.from!, dx, dy) }
-      : line,
-  );
+type Move = Extract<EditOperation, { type: "moveItem" }>;
+
+/** Move each item by its own offset in one pass: moves rewrite lines in place, never add any. */
+function moveItems(ctx: Context, moves: readonly Move[]): EditResult {
+  const offsets = new Map<PictureItem, Move>();
+  for (const move of moves) {
+    requireIntegers({ dx: move.dx, dy: move.dy });
+    const item = editableItem(ctx, move.itemId);
+    if (offsets.has(item)) throw new EditRefusal(`item '${item.id}' is in the batch twice`);
+    refuseCopiesOf(ctx, item, "moving");
+    offsets.set(item, move);
+  }
+  const slots = inputLines(ctx, 1, ctx.lines.length).map((line) => {
+    const item = pictureItemAtLine(ctx.document, line.from!);
+    const move = item && offsets.get(item);
+    return move ? { ...line, text: translateLine(line.text, line.from!, move.dx, move.dy) } : line;
+  });
   return finish(slots, ctx);
 }
 
@@ -415,6 +444,58 @@ function insertPlot(ctx: Context, op: Extract<EditOperation, { type: "insertPlot
   return insertItem(ctx, op.atLine, { ...op, kind: kindFor(op.visual, op.priority) }, body);
 }
 
+function combineItems(
+  ctx: Context,
+  op: Extract<EditOperation, { type: "combineItems" }>,
+): EditResult {
+  const ids = [...new Set(op.itemIds)];
+  if (ids.length < 2) throw new EditRefusal("making one item needs at least two items");
+  for (const id of ids) findItem(ctx, id);
+  const { members, between, looseCommands } = itemRun(ctx.document, ids);
+  const first = members[0]!;
+  const last = members.at(-1)!;
+  const blocker = between[0];
+  if (blocker) {
+    const before = members.filter((item) => item.openLine < blocker.openLine).at(-1)!;
+    const after = members.find((item) => item.openLine > blocker.openLine)!;
+    throw new EditRefusal(
+      `'${before.id}' and '${after.id}' are not next to each other in the draw order: '${blocker.id}' is drawn between them`,
+    );
+  }
+  const loose = looseCommands[0];
+  if (loose !== undefined) {
+    const before = members.filter((item) => item.closeLine < loose).at(-1)!;
+    const after = members.find((item) => item.openLine > loose)!;
+    throw new EditRefusal(
+      `line ${loose} draws between '${before.id}' and '${after.id}' outside any item`,
+    );
+  }
+  for (const id of ids) editableItem(ctx, id);
+  if (!PICTURE_ITEM_ID.test(op.id)) {
+    throw new EditRefusal(`item id '${op.id}' must match ${PICTURE_ITEM_ID.source}`);
+  }
+  if (ctx.document.items.some((item) => item.id === op.id && !ids.includes(item.id))) {
+    throw new EditRefusal(`item id '${op.id}' is already used`);
+  }
+  if (op.label.trim().length === 0) throw new EditRefusal("an item needs a non-empty label");
+  const kinds = new Set(members.map((item) => item.kind));
+  const kind = kinds.size === 1 ? first.kind : "mixed";
+  /** The members' own `@item` and `@end` lines, which the one new pair replaces. */
+  const directives = new Set(members.flatMap((item) => [item.openLine, item.closeLine]));
+  return finish(
+    [
+      ...inputLines(ctx, 1, first.openLine - 1),
+      newLine(ctx, directive(op.id, op.label, kind, false)),
+      ...inputLines(ctx, first.openLine + 1, last.closeLine - 1).filter(
+        (line) => !directives.has(line.from!),
+      ),
+      newLine(ctx, "# @end"),
+      ...inputLines(ctx, last.closeLine + 1, ctx.lines.length),
+    ],
+    ctx,
+  );
+}
+
 function setItemMeta(
   ctx: Context,
   op: Extract<EditOperation, { type: "setItemMeta" }>,
@@ -436,7 +517,7 @@ function setItemMeta(
 function dispatch(ctx: Context, op: EditOperation): EditResult {
   switch (op.type) {
     case "moveItem":
-      return moveItem(ctx, op.itemId, op.dx, op.dy);
+      return moveItems(ctx, [op]);
     case "setPoint":
       return setPoint(ctx, op.line, op.pointIndex, op.x, op.y);
     case "insertPoint":
@@ -457,6 +538,8 @@ function dispatch(ctx: Context, op: EditOperation): EditResult {
       return insertPlot(ctx, op);
     case "setItemMeta":
       return setItemMeta(ctx, op);
+    case "combineItems":
+      return combineItems(ctx, op);
   }
 }
 
@@ -469,6 +552,37 @@ export function applyEdit(
   document: PictureDocument,
   op: EditOperation,
   options?: EditOptions,
+): EditResult {
+  return withContext(document, options, (ctx) => dispatch(ctx, op));
+}
+
+/**
+ * Apply several edits as one: each to the result of the one before, the
+ * whole batch refused (with the first refusal) when any one is. A batch of
+ * moves only runs in one pass. `changedLines` are the last edit's; an
+ * empty batch returns the document as it is.
+ */
+export function applyEdits(
+  document: PictureDocument,
+  ops: readonly EditOperation[],
+  options?: EditOptions,
+): EditResult {
+  if (ops.length === 0) return { document, changedLines: [] };
+  if (ops.every((op): op is Move => op.type === "moveItem"))
+    return withContext(document, options, (ctx) => moveItems(ctx, ops));
+  let result: EditResult = { document, changedLines: [] };
+  for (const op of ops) {
+    result = applyEdit(result.document, op, options);
+    if ("error" in result) return result;
+  }
+  return result;
+}
+
+/** Parse, compile and run `run` on the document's edit context, turning refusals into errors. */
+function withContext(
+  document: PictureDocument,
+  options: EditOptions | undefined,
+  run: (ctx: Context) => EditResult,
 ): EditResult {
   const profile = options?.profile ?? DEFAULT_V2_PROFILE;
   const source = serializePictureDocument(document);
@@ -487,7 +601,7 @@ export function applyEdit(
       eol,
       compiled,
     };
-    return dispatch(ctx, op);
+    return run(ctx);
   } catch (error) {
     if (error instanceof EditRefusal) return { error: error.message };
     if (error instanceof PictureSourceSyntaxError) {

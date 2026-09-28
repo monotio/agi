@@ -129,6 +129,32 @@ function diffCells(a: Uint8Array, b: Uint8Array): string[] {
   return out;
 }
 
+test("Room Studio: Ask about several selected items holds the request to all of them", async ({
+  page,
+}) => {
+  await bootAssistGame(page);
+  const studio = await openRoomStudio(page);
+  await selectBridge(page, studio);
+  await studio.locator('[data-row="river"]').click({ modifiers: ["Shift"] });
+  await expect(studio.getByTestId("selection-name")).toHaveText("2 items selected");
+  await studio.getByTestId("assist-connect").click();
+  const dialog = page.getByTestId("ai-settings-dialog");
+  await dialog.getByTestId("provider-select").selectOption("stub");
+  await dialog.getByTestId("ai-settings-save").click();
+  await expect(dialog).toBeHidden();
+  // Both items, in draw order: each is a target with its own licence.
+  await expect(studio.getByTestId("assist-chip").first()).toHaveText("Only: River, Bridge");
+  // The docked Ask focuses the box, as `/` does.
+  await studio.getByTestId("selection-ask").click();
+  await expect(studio.getByTestId("assist-input")).toBeFocused();
+  await ask(page, studio, "Make this bridge walkable without changing the art");
+  await expect(studio.getByTestId("assist-candidate")).toBeVisible();
+  // The proposal is held to, and summarised against, both targets.
+  await expect(studio.getByTestId("assist-changes")).toHaveText(
+    /^\d+ depth cells inside River, Bridge$/,
+  );
+});
+
 /** The bank cells under the bridge (x 60..99, rows 120 and 139) turned from barrier to water. */
 const BANKS_TO_WATER = [120, 139].flatMap((y) =>
   Array.from({ length: 40 }, (_, k) => `${60 + k},${y}:0>3`),
@@ -152,7 +178,7 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
     "Art is locked",
     "Depth values locked (Walk view)",
   ]);
-  // `/` on the canvas focuses the box; the ctx bar's Ask does too.
+  // `/` on the canvas focuses the box; the options bar's Ask does too.
   await studio.locator(".studio__stage").focus();
   await page.keyboard.press("/");
   await expect(studio.getByTestId("assist-input")).toBeFocused();

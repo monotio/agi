@@ -173,6 +173,10 @@ Studio on the waving robot._
 - **Editing** works on items: drag one or its points, nudge it with the arrow
   keys, change its colour, priority or draw order, duplicate or delete it.
   Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
+  Shift+click, a group row, a Shift+drag box or Shift+Alt+arrows select several
+  items, which then move, copy and delete together as one step, so an imported
+  bush's outline and fill stay together; Make one item names neighbours as one
+  item without changing a byte.
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the scrubber's point in the draw order, and a ghost actor shows whether a
   character would stand in front of the scene or behind it.
@@ -188,7 +192,7 @@ Studio on the waving robot._
   moves the door in the same Keep. Exits written in the room's own logic stay
   read-only. Right-click any spot and **Play here** jumps into the game there.
 - **Ask about this selection** has your connected AI change only the selected
-  item: "make this bridge walkable without changing the art". Its proposal shows
+  items: "make this bridge walkable without changing the art". Its proposal shows
   on the canvas, Before or After, with the changed cells outlined. The app's own
   checks hold it to the selection and the lens's locks, and Accept makes it one
   undo step.

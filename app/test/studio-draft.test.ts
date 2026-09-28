@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ref } from "vue";
+import { effectScope, ref } from "vue";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
 import { nearestInsertion } from "../../src/studio/editPoints.ts";
 import { useStudioDrag } from "../src/studio/useStudioDrag.ts";
+import { useStudioEditing } from "../src/studio/useStudioEditing.ts";
 import {
   changeCount,
   draftPictureEdit,
@@ -343,5 +344,211 @@ describe("useStudioDrag", () => {
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.gesturing.value, false);
     assert.equal(draft.history.value.past.length, 0);
+  });
+});
+
+describe("several items as one", () => {
+  const both = (dx: number, dy: number) => [move("box", dx, dy), move("paint", dx, dy)];
+
+  it("moves a batch as one undo step, the fill with its outline", () => {
+    const { draft } = setup("art");
+    assert.equal(draft.apply(both(4, -2), "Nudge 2 items").ok, true);
+    assert.equal(line(draft, 3), "rect 14,8 34,28");
+    assert.equal(line(draft, 7), "fill 24,18");
+    assert.deepEqual(
+      draft.history.value.past.map((step) => step.label),
+      ["Nudge 2 items"],
+    );
+    assert.equal(draft.undo(), true);
+    assert.equal(draft.source.value, SOURCE);
+    // The outline alone, 20 px right, leaves the paint's seed outside: the red floods the room.
+    const alone = draft.apply(move("box", 20, 0), "Move Box");
+    assert.ok(!alone.ok && alone.refusal.kind === "lock");
+    assert.equal(alone.refusal.message, "This would change another object's art.");
+    assert.equal(draft.apply(both(20, 0), "Move 2 items").ok, true);
+  });
+
+  it("refuses the whole batch when one member breaks a lens lock", () => {
+    const { draft } = setup("depth");
+    const outcome = draft.apply([move("occ", 0, 1), move("box", 0, 1)], "Nudge 2 items");
+    assert.ok(!outcome.ok && outcome.refusal.kind === "lock");
+    assert.equal(
+      outcome.refusal.message,
+      "This would change the art, which is locked in the Depth lens.",
+    );
+    assert.equal(draft.source.value, SOURCE, "the occluder did not move either");
+    assert.equal(draft.history.value.past.length, 0);
+  });
+
+  function editingRig(ids: string[] = ["box", "paint"]) {
+    const { draft } = setup("art");
+    const selectedId = ref<string | undefined>();
+    const selection = { ids };
+    const scope = effectScope();
+    const editing = scope.run(() =>
+      useStudioEditing({
+        draft,
+        selectedId,
+        itemIds: () => selection.ids,
+        selectItems: (next) => void (selection.ids = [...next]),
+        frozen: () => false,
+      }),
+    )!;
+    return { draft, editing, selection, scope };
+  }
+
+  it("nudges, duplicates and deletes the selection, each as one step", () => {
+    const { draft, editing, selection, scope } = editingRig();
+    assert.equal(editing.several.value, true);
+    assert.equal(editing.nudge(4, -2), true);
+    assert.equal(editing.nudge(0, 8), true);
+    assert.equal(line(draft, 3), "rect 14,16 34,36");
+    assert.deepEqual(
+      draft.history.value.past.map((step) => step.label),
+      ["Nudge 2 items", "Nudge 2 items"],
+    );
+    assert.equal(draft.undo() && draft.undo(), true);
+
+    assert.equal(editing.duplicate(), true);
+    assert.deepEqual(selection.ids, ["box-copy", "paint-copy"], "the copies are selected");
+    assert.deepEqual(
+      draft.document.value.items.map((item) => item.id),
+      ["box", "box-copy", "paint", "paint-copy", "occ", "edge"],
+    );
+    assert.equal(draft.history.value.past.length, 1);
+    assert.equal(draft.undo(), true);
+
+    selection.ids = ["box", "paint"];
+    assert.equal(editing.remove(), true);
+    assert.deepEqual(selection.ids, []);
+    assert.deepEqual(
+      draft.document.value.items.map((item) => item.id),
+      ["occ", "edge"],
+    );
+    assert.deepEqual(
+      draft.history.value.past.map((step) => step.label),
+      ["Delete 2 items"],
+    );
+    assert.equal(draft.undo(), true);
+    assert.equal(draft.source.value, SOURCE);
+
+    // Draw order moves one item at a time.
+    selection.ids = ["box", "paint"];
+    assert.equal(editing.reorder(1), false);
+    assert.equal(
+      editing.notice.value?.text,
+      "Draw order changes one item at a time: select just one.",
+    );
+    scope.stop();
+  });
+
+  it("makes the selection one named item without changing a byte", () => {
+    const { draft, editing, selection, scope } = editingRig();
+    const bytes = draft.compiled.value.bytes;
+    assert.equal(editing.combine("Red box"), true);
+    assert.deepEqual(selection.ids, ["red-box"]);
+    assert.deepEqual(
+      draft.document.value.items.map((item) => [item.id, item.label, item.kind]),
+      [
+        ["red-box", "Red box", "art"],
+        ["occ", "Occluder", "depth"],
+        ["edge", "Floor edge", "walk"],
+      ],
+    );
+    assert.deepEqual(draft.compiled.value.bytes, bytes);
+    assert.deepEqual([draft.changes.value, draft.notesOnly.value], [1, true]);
+    assert.deepEqual(
+      draft.history.value.past.map((step) => step.label),
+      ["Make one item Red box"],
+    );
+    // Not neighbours: the box and the occluder have the paint between them.
+    selection.ids = ["red-box", "edge"];
+    assert.equal(editing.combine("Group"), false);
+    assert.equal(
+      editing.notice.value?.text,
+      "Only neighbours in the draw order can be made one item: select the items between them too.",
+    );
+    scope.stop();
+  });
+
+  it("drags the whole selection from any member's body, as one step, keeping it selected", () => {
+    const { draft } = setup("art");
+    const frames: (() => void)[] = [];
+    const drag = useStudioDrag({
+      draft,
+      editableId: () => undefined,
+      editableIds: () => ["box", "paint"],
+      pick: () => assert.fail("a press on the selection keeps it"),
+      onSelection: ({ x, y }) => x >= 10 && x <= 30 && y >= 10 && y <= 30,
+      labelOf: (id) => id,
+      report: (outcome) => assert.equal(outcome.ok, true),
+      frame: (callback) => frames.push(callback),
+      cancelFrame: () => {},
+    });
+    const event = {} as PointerEvent;
+    const at = (x: number, y: number) => ({ event, cell: { x, y }, handle: undefined });
+    drag.press(at(20, 20));
+    drag.drag(at(24, 18));
+    frames.shift()!();
+    assert.match(draft.preview.value!.source, /fill 24,18/);
+    drag.release(at(24, 18));
+    assert.equal(line(draft, 3), "rect 14,8 34,28");
+    assert.equal(line(draft, 7), "fill 24,18");
+    assert.deepEqual(
+      draft.history.value.past.map((step) => step.label),
+      ["Move 2 items"],
+    );
+  });
+
+  it("a click on the selection without a drag selects just the item clicked", () => {
+    const { draft } = setup("art");
+    const picked: { x: number; y: number }[] = [];
+    const drag = useStudioDrag({
+      draft,
+      editableId: () => undefined,
+      editableIds: () => ["box", "paint"],
+      pick: (cell) => void picked.push(cell),
+      onSelection: () => true,
+      labelOf: (id) => id,
+      report: () => {},
+      frame: () => 0,
+      cancelFrame: () => {},
+    });
+    const at = { event: {} as PointerEvent, cell: { x: 20, y: 20 }, handle: undefined };
+    drag.press(at);
+    assert.deepEqual(picked, [], "the press keeps the selection for a drag");
+    drag.release(at);
+    assert.deepEqual(picked, [{ x: 20, y: 20 }]);
+    assert.equal(draft.history.value.past.length, 0);
+  });
+
+  it("Shift+click toggles the item under the pointer; Shift+drag draws a marquee", () => {
+    const { draft } = setup("art");
+    const toggled: { x: number; y: number }[] = [];
+    const boxes: unknown[] = [];
+    const drag = useStudioDrag({
+      draft,
+      editableId: () => "box",
+      pick: () => assert.fail("Shift never replaces the selection"),
+      onSelection: () => true,
+      labelOf: (id) => id,
+      report: () => {},
+      extend: (cell) => void toggled.push(cell),
+      marquee: (box) => void boxes.push(box),
+      frame: () => 0,
+      cancelFrame: () => {},
+    });
+    const shift = { shiftKey: true } as PointerEvent;
+    const at = (x: number, y: number) => ({ event: shift, cell: { x, y }, handle: undefined });
+    drag.press(at(20, 20));
+    drag.release(at(20, 20));
+    assert.deepEqual(toggled, [{ x: 20, y: 20 }]);
+    drag.press(at(40, 30));
+    drag.drag(at(5, 50));
+    assert.deepEqual(drag.marqueeBox.value, { x1: 5, y1: 30, x2: 40, y2: 50 });
+    drag.release(at(5, 50));
+    assert.deepEqual(boxes, [{ x1: 5, y1: 30, x2: 40, y2: 50 }]);
+    assert.equal(drag.marqueeBox.value, undefined);
+    assert.equal(draft.history.value.past.length, 0, "selecting edits nothing");
   });
 });

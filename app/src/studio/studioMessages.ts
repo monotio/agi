@@ -56,6 +56,12 @@ const PLAIN: readonly (readonly [
   [/is inside item/, () => "New shapes can't go inside another object. Move the playhead first."],
   [/continues the command on line/, () => "This would split a drawing command in two."],
   [/in progress/, () => "Finish the current edit first."],
+  [
+    /not next to each other in the draw order|draws between .* outside any item/,
+    () =>
+      "Only neighbours in the draw order can be made one item: select the items between them too.",
+  ],
+  [/needs at least two items/, () => "Select two items or more to make one item."],
 ];
 
 /** The creator's sentence for kernel refusal `error` of `op`. */

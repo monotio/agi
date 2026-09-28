@@ -3,10 +3,10 @@ import type { Locator, Page } from "@playwright/test";
 import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
 
 /**
- * The calm canvas on the real app: nothing covers the picture but what the
- * artist is handling (the selection's bar, a menu), at three window sizes;
- * the tool's options dock in a bar above the canvas and its help in the
- * status bar; `?` lists every key and Esc puts the list away; ⌘\ (Ctrl+\
+ * The calm canvas on the real app: nothing covers the picture, not even the
+ * selection's actions, at three window sizes; the tool's options and the
+ * selection's actions dock in a bar above the canvas, folding into More
+ * rather than running out of it, and the tool's help sits in the status bar; `?` lists every key and Esc puts the list away; ⌘\ (Ctrl+\
  * off a Mac) hides the side panels while Tab and Shift+Tab only move focus; and
  * Sprite Studio's drawing backdrop is view only, never the view's bytes.
  */
@@ -69,7 +69,7 @@ for (const [width, height] of [
   [1280, 720],
   [1024, 600],
 ] as const) {
-  test(`at ${width}×${height} nothing covers the picture or the cel but what is being handled`, async ({
+  test(`at ${width}×${height} nothing covers the picture or the cel, an item selected or not`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -77,7 +77,16 @@ for (const [width, height] of [
     const studio = await openRoomStudio(page, 2);
     const stage = studio.getByRole("group", { name: /^Canvas/ });
     const pane = studio.locator(".studio-pane").last();
-    const allowed = ".studio-pane, [data-testid='studio-context-bar']";
+    // The picture's own layers: its pixels, its overlays in picture coordinates (selection,
+    // handles, the tools' marks, the Walk lens's doors). Nothing else, however it is nested.
+    const allowed =
+      ".studio-pane__pixels, .studio-pane__overlay, .tool-overlay, .walk-overlay, .ghost";
+    const bar = studio.getByTestId("studio-options-bar");
+    /** The options bar fits its width: what it cannot show folds into More. */
+    const barFits = () =>
+      bar.evaluate((element) =>
+        [element, ...element.children].every((child) => child.scrollWidth <= child.clientWidth + 1),
+      );
 
     // Art lens: an item selected, the rect tool with its options (the owner's case).
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
@@ -85,15 +94,23 @@ for (const [width, height] of [
     await page.keyboard.press("r");
     await expect(studio.getByTestId("studio-tool-filled")).toBeVisible();
     expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
-    // Select with the item: its bar is what the artist handles, and only it may sit on the picture.
+    // Select with the item: its actions dock in the options bar, off the picture.
     await page.keyboard.press("v");
-    await expect(studio.getByTestId("studio-context-bar")).toBeVisible();
+    await expect(studio.getByTestId("studio-hint")).toHaveText(/^Arrows nudge/);
     expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
+    await expect(bar.getByTestId("studio-selection-bar")).toBeVisible();
+    await expect(bar.getByTestId("selection-name")).toHaveText(/^West doorway/);
+    await expect(bar.getByTestId("selection-priority")).toBeVisible();
+    await expect.poll(barFits).toBe(true);
+    // Ask is in the bar or, short of room, in its More menu.
+    const ask = bar.getByTestId("selection-ask");
+    if (!(await ask.isVisible())) await expect(bar.getByTestId("selection-more")).toBeVisible();
     // Depth and Walk: the view switch and the legend toggle sit in the options bar.
     for (const lens of ["2", "3"]) {
       await page.keyboard.press(lens);
       await expect(studio.getByRole("toolbar", { name: "View" })).toBeVisible();
       expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
+      await expect.poll(barFits).toBe(true);
     }
     await studio.getByTestId("studio-close").click();
     await expect(studio).toBeHidden();

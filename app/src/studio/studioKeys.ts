@@ -8,8 +8,9 @@
  *   thing per press (a menu, what a tool is drawing, a selected door, a tool
  *   other than Select, the selection's bar, a drag), then goes back to Create
  *   (in a text field, Esc leaves the field instead)
- * - on the focused canvas: arrows nudge the selected item 1 px (Shift: 8),
- *   Alt+arrows step through items (Up/Left previous, Down/Right next); with a
+ * - on the focused canvas: arrows nudge the selection 1 px (Shift: 8),
+ *   Alt+arrows step through items (Up/Left previous, Down/Right next) and
+ *   Shift+Alt+arrows grow or shrink the selection by the next item; with a
  *   drawing tool or the pipette the arrows move the keyboard cursor instead
  *   (Shift: 8) and Space or Enter clicks at it (useStudioInput.ts)
  * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; `[` `]` move back/forward
@@ -48,6 +49,8 @@ export interface StudioKeyActions {
   seek(to: "first" | "last" | -1 | 1): void;
   zoom(step: 1 | -1 | "fit"): void;
   step(direction: 1 | -1): void;
+  /** Shift+Alt+arrow: add the next (+1) or previous (-1) item to the selection. */
+  extend(direction: 1 | -1): void;
   nudge(dx: number, dy: number): void;
   /** An arrow for the drawing cursor; false when the tool takes none (the arrows nudge). */
   cursor(dx: number, dy: number): boolean;
@@ -125,7 +128,7 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   const arrow = ARROWS[key];
   if (arrow !== undefined) {
     if (!act.onCanvas(event.target)) return false;
-    if (event.altKey) act.step(arrow[0] + arrow[1] > 0 ? 1 : -1);
+    if (event.altKey) (event.shiftKey ? act.extend : act.step)(arrow[0] + arrow[1] > 0 ? 1 : -1);
     else {
       const far = event.shiftKey ? NUDGE_FAR : 1;
       if (!act.cursor(arrow[0] * far, arrow[1] * far)) act.nudge(arrow[0] * far, arrow[1] * far);

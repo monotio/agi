@@ -301,8 +301,8 @@ describe("useStudioTools", () => {
     assert.equal(draft.document.value.items.at(-1)!.label, "Depth rect 1");
   });
 
-  it("explains a fill that would flood nothing and inserts nothing; a white seed fills", () => {
-    const { draft, tools, press } = setup("art");
+  it("explains a fill that would flood nothing and inserts nothing; a white seed fills", async () => {
+    const { draft, doc, tools, press } = setup("art");
     tools.setTool("fill");
     tools.setValues({ visual: 2 });
     tools.press(press(80, 50));
@@ -310,6 +310,13 @@ describe("useStudioTools", () => {
     assert.equal(tools.fillWhy.value?.value, 7);
     assert.equal(tools.fillWhy.value?.plane, "visual");
     assert.equal(tools.fillWhy.value?.line, 4);
+    // The reason held where the scrubber stood: moving it lets go of the reason.
+    doc.playhead.value = 0;
+    await nextTick();
+    assert.equal(tools.fillWhy.value, null);
+    doc.playhead.value = doc.total.value;
+    tools.press(press(80, 50));
+    assert.equal((tools.fillWhy.value as { value: number } | null)?.value, 7);
     tools.press(press(80, 140));
     assert.equal(tools.fillWhy.value, null);
     assert.equal(draft.compiled.value.visual[at(80, 140)], 2);

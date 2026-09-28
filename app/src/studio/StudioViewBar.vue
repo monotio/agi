@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiIcon from "../ui/UiIcon.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { CONTROL_VALUES, patternOn, type StudioLens, type StudioViewMode } from "./studioView.ts";
 
@@ -9,9 +11,10 @@ import { CONTROL_VALUES, patternOn, type StudioLens, type StudioViewMode } from 
  * options bar: how the planes show (blend, split, priority only), the band
  * guides, and under the Walk lens a Legend toggle that opens the control
  * lines' legend under the bar, over the stage's corner, until it is put away.
- * The Art lens shows only its visual plane and needs none of them.
+ * The Art lens shows only its visual plane and needs none of them. Short of
+ * room (`fold` 3 and up) they all fold into one View menu.
  */
-const { lens } = defineProps<{ lens: StudioLens }>();
+const { lens, fold = 0 } = defineProps<{ lens: StudioLens; fold?: number }>();
 const mode = defineModel<StudioViewMode>("mode", { required: true });
 const bands = defineModel<boolean>("bands", { required: true });
 
@@ -43,8 +46,34 @@ function closeLegend(event: KeyboardEvent): void {
     aria-label="View"
     @keydown.esc="closeLegend"
   >
-    <UiSegmented v-model="mode" size="sm" label="Planes" :options="MODES" />
+    <ActionMenu v-if="fold >= 3" label="View" test-id="studio-view-more">
+      <button
+        v-for="choice in MODES"
+        :key="choice.value"
+        type="button"
+        role="menuitemradio"
+        :aria-checked="mode === choice.value"
+        @click="mode = choice.value"
+      >
+        <UiIcon name="check" :size="16" class="view-more__check" />{{ choice.label }}
+      </button>
+      <div role="separator"></div>
+      <button type="button" role="menuitemcheckbox" :aria-checked="bands" @click="bands = !bands">
+        <UiIcon name="check" :size="16" class="view-more__check" />Bands
+      </button>
+      <button
+        v-if="lens === 'walk'"
+        type="button"
+        role="menuitemcheckbox"
+        :aria-checked="legendOpen"
+        @click="legendOpen = !legendOpen"
+      >
+        <UiIcon name="check" :size="16" class="view-more__check" />Legend
+      </button>
+    </ActionMenu>
+    <UiSegmented v-else v-model="mode" size="sm" label="Planes" :options="MODES" />
     <UiButton
+      v-if="fold < 3"
       variant="ghost"
       class="view-bar__toggle"
       :aria-pressed="bands"
@@ -53,7 +82,7 @@ function closeLegend(event: KeyboardEvent): void {
       Bands
     </UiButton>
     <UiButton
-      v-if="lens === 'walk'"
+      v-if="lens === 'walk' && fold < 3"
       variant="ghost"
       class="view-bar__toggle"
       trailing-icon="chevron-down"
@@ -110,6 +139,9 @@ function closeLegend(event: KeyboardEvent): void {
 .view-bar__toggle {
   padding: 0 var(--space-3);
   font-size: var(--text-sm);
+}
+[aria-checked="false"] > .view-more__check {
+  visibility: hidden;
 }
 .view-bar__toggle[aria-pressed="true"] {
   color: var(--action);
