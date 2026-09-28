@@ -432,3 +432,114 @@ test("a propagated recolor reaching the unselected mirror is refused", async () 
   ]);
   assert.match(result.error ?? "", /loop 0, cel 0 is not selected, but 1 pixel of it would change/);
 });
+
+/**
+ * A rect over cells that already hold its value, or under art that covers it,
+ * draws the same planes: the candidate would add bytes and show no diff.
+ */
+const sameRender = (atLine: number, shape: Record<string, unknown>, lens: "walk" | "art") => {
+  const compiled = compileEditDocument(
+    parsePictureDocument(BRIDGE_SOURCE).document,
+    DEFAULT_V2_PROFILE,
+  );
+  const assist = createStudioAssist({
+    scope: pictureAssistScope({ num: 1, compiled, targetIds: ["bridge"], lens }),
+    draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
+    lens,
+  });
+  const insert = op("pictureOps", {
+    type: "insertShape",
+    atLine,
+    shape: { color: null, priority: null, filled: true, points: null, kind: "rect", ...shape },
+    id: "no-op",
+    label: "No-op",
+    kind: lens,
+  });
+  return { assist, insert };
+};
+
+test("a candidate that draws the same pixels is refused, and an earlier candidate stays", async () => {
+  const state = session();
+  // Open floor (4) over the sky rows 118..119 under the bridge, which are 4
+  // already: the plate-horizon pattern, a walk rect that changes no cell.
+  const equal = sameRender(AFTER_BRIDGE, { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 }, "walk");
+  const refused = await propose(state, equal.assist, [equal.insert]);
+  assert.equal(refused.success, false);
+  assert.match(
+    refused.error ?? "",
+    /^Refused; nothing was proposed: the operations draw the same pixels as the draft \(visual and priority planes unchanged, \+\d+ bytes\)\. Propose a change that alters the requested plane within the selection, or reply with one sentence explaining why none can work within the selection and locks\. There is no candidate yet\. 3 proposals left in this request\.$/,
+  );
+  assert.deepEqual(
+    (refused.details!["violations"] as { constraint: string }[]).map((v) => v.constraint),
+    ["no-change"],
+  );
+  assert.equal(equal.assist.candidate?.candidateId, undefined);
+  assert.deepEqual([equal.assist.proposals, equal.assist.refusals], [1, 1]);
+  // After a real candidate, a no-op neither replaces it nor survives.
+  assert.equal((await propose(state, equal.assist, [crossing])).success, true);
+  const again = await propose(state, equal.assist, [equal.insert]);
+  assert.match(again.error ?? "", /draw the same pixels.*Candidate c2 is still the one/);
+  assert.equal(equal.assist.candidate?.candidateId, "c2");
+
+  // Art the bridge paints over: a colour-2 rect inserted before the bridge
+  // item, inside its 60..99 x 118..141 block, is fully covered.
+  const covered = sameRender(12, { color: 2, x1: 70, y1: 120, x2: 89, y2: 139 }, "art");
+  const hidden = await propose(state, covered.assist, [covered.insert]);
+  assert.match(hidden.error ?? "", /draw the same pixels as the draft/);
+  assert.equal(covered.assist.candidate, null);
+});
+
+test("a label or kind change is a candidate though it draws the same pixels", async () => {
+  const state = session();
+  const { assist } = sameRender(AFTER_BRIDGE, {}, "walk");
+  const meta = op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "Old bridge" });
+  const renamed = await propose(state, assist, [meta]);
+  assert.equal(renamed.success, true, renamed.error ?? "");
+  assert.deepEqual(renamed.details!["changed"], {
+    visual: { cells: 0, bbox: null },
+    priority: { cells: 0, bbox: null },
+  });
+  // Paired with drawing that changes nothing, the drawing is the proposal.
+  const { insert } = sameRender(
+    AFTER_BRIDGE,
+    { priority: 4, x1: 60, y1: 118, x2: 99, y2: 119 },
+    "walk",
+  );
+  const mixed = await propose(state, assist, [
+    op("pictureOps", { type: "setItemMeta", itemId: "bridge", label: "New bridge" }),
+    insert,
+  ]);
+  assert.match(mixed.error ?? "", /draw the same pixels as the draft/);
+  assert.equal(assist.candidate?.candidateId, "c1");
+});
+
+test("a sprite edit that changes no pixel is refused; a mirror split or transparent key is not", async () => {
+  const state = session();
+  const assist = robotAssist();
+  // No pixel of loop 1 is colour 5: the kernel returns the same payload.
+  const recolor = await propose(state, assist, [
+    op("spriteOps", { type: "recolor", recolorScope: "cels", cels: loop1, from: 5, to: 1 }),
+  ]);
+  const unchanged =
+    /^Refused; nothing was proposed: the operations draw the same pixels as the draft \(every cel unchanged\)\. Propose a change that alters the selected cels within the selection/;
+  assert.match(recolor.error ?? "", unchanged);
+  // The eye (x 2, y 1 of loop 1 cel 0, displayed mirrored) blue and back:
+  // the payload changes (loop 1 splits from its mirror), the cels do not.
+  const eye = (color: number) =>
+    op("spriteOps", { type: "setPixels", loop: 1, cel: 0, changes: [{ x: 2, y: 1, color }] });
+  const reverted = await propose(state, assist, [eye(1), eye(12)]);
+  assert.match(reverted.error ?? "", unchanged);
+  assert.deepEqual(
+    (reverted.details!["violations"] as { constraint: string }[]).map((v) => v.constraint),
+    ["no-change"],
+  );
+  assert.equal(assist.candidate, null);
+  const unlink = await propose(state, assist, [op("spriteOps", { type: "unlinkMirror", loop: 1 })]);
+  assert.equal(unlink.success, true, unlink.error ?? "");
+  assert.match(unlink.message ?? "", /Changed: metadata only\./);
+  const key = await propose(state, assist, [
+    op("spriteOps", { type: "setTransparent", loop: 1, cel: 0, color: 5 }),
+  ]);
+  assert.equal(key.success, true, key.error ?? "");
+  assert.deepEqual([assist.proposals, assist.refusals], [4, 2]);
+});

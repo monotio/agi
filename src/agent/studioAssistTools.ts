@@ -377,7 +377,7 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "propose_edit",
     description:
-      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget. Returns a candidateId with a before | after | diff image, or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
+      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget; a candidate that draws the same pixels as the draft is refused unless its ops are only setItemMeta, setTransparent or unlinkMirror. Returns a candidateId with a before | after | diff image, or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1112,6 +1112,31 @@ function refusal(
   };
 }
 
+/**
+ * Operations that are edits in their own right though they draw nothing: a
+ * picture item's label or kind (setItemMeta; the Studio's item list and
+ * lenses read them), a cel's transparent colour where no opaque pixel uses
+ * the new one (setTransparent; it frees the old colour for opaque use) and a
+ * mirror split (unlinkMirror; the loops can then differ). Every other
+ * operation exists to change pixels, so a candidate that uses one yet draws
+ * the same pixels as the draft only adds bytes: it is refused (noChange).
+ */
+const NON_PIXEL_OPS: readonly string[] = ["setItemMeta", "setTransparent", "unlinkMirror"];
+
+/**
+ * The refusal of a candidate that renders like the draft: nothing for the
+ * creator to accept, whatever its bytes or annotations.
+ */
+function noChange(assist: StudioAssist, unchanged: string, requested: string): AgentToolResult {
+  return refusal(
+    assist,
+    `the operations draw the same pixels as the draft (${unchanged}). Propose a change that alters ${requested} within the selection, or reply with one sentence explaining why none can work within the selection and locks`,
+    [{ constraint: "no-change", message: unchanged }],
+  );
+}
+
+const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
+
 function proposePicture(
   session: AgentSessionState,
   assist: StudioAssist,
@@ -1144,17 +1169,26 @@ function proposePicture(
     for (const id of creates) allowed.add(id);
   }
   const source = serializePictureDocument(document);
-  if (source === serializePictureDocument(before.document))
-    return refusal(assist, "the operations change nothing", []);
   const after = compileEditDocument(document, session.profile);
-  const check = checkCandidate(before.compiled, after, scope);
-  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
-  const candidateId = `c${assist.proposals}`;
-  const previewPng = pictureAssistPreviewPng(before.compiled, after);
   const changed = {
     visual: countMask(changedMask(before.compiled.visual, after.visual)),
     priority: countMask(changedMask(before.compiled.priority, after.priority)),
   };
+  if (
+    source === serializePictureDocument(before.document) ||
+    (changed.visual.cells === 0 &&
+      changed.priority.cells === 0 &&
+      !ops.every((op) => NON_PIXEL_OPS.includes(op.type)))
+  )
+    return noChange(
+      assist,
+      `visual and priority planes unchanged, ${signed(after.bytes.length - before.compiled.bytes.length)} bytes`,
+      "the requested plane",
+    );
+  const check = checkCandidate(before.compiled, after, scope);
+  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
+  const candidateId = `c${assist.proposals}`;
+  const previewPng = pictureAssistPreviewPng(before.compiled, after);
   const area = selectionArea(before.compiled, scope.targetIds);
   const walk = walkRelevant(scope)
     ? (() => {
@@ -1180,7 +1214,7 @@ function proposePicture(
   };
   return {
     success: true,
-    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${after.bytes.length - before.compiled.bytes.length >= 0 ? "+" : ""}${after.bytes.length - before.compiled.bytes.length}).\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_edit again to replace it, or reply with one sentence describing the change.`,
+    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${signed(after.bytes.length - before.compiled.bytes.length)}).\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_edit again to replace it, or reply with one sentence describing the change.`,
     details: {
       ok: true,
       candidateId,
@@ -1220,10 +1254,6 @@ function proposeView(
     document = result.document;
     for (const loop of result.isolated) isolated.add(loop);
   }
-  if (draftRevision({ kind: "view", payload: document.payload }) === draftRevision(draft))
-    return refusal(assist, "the operations change nothing", []);
-  const check = checkCandidate(before, document, scope);
-  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
   const changedCels: { loop: number; cel: number; pixels: number }[] = [];
   const loops = Math.max(before.loops.length, document.loops.length);
   const pairs: CelPair[] = [];
@@ -1249,6 +1279,15 @@ function proposeView(
       if (pairs.length < MAX_SHEET_ROWS) pairs.push({ before: a, after: b });
     }
   }
+  if (
+    draftRevision({ kind: "view", payload: document.payload }) === draftRevision(draft) ||
+    (changedCels.length === 0 &&
+      before.loops.length === document.loops.length &&
+      !ops.every((op) => NON_PIXEL_OPS.includes(op.type)))
+  )
+    return noChange(assist, "every cel unchanged", "the selected cels");
+  const check = checkCandidate(before, document, scope);
+  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
   const previewPng = spriteSheetPng(
     pairs.length ? pairs : [{ before: undefined, after: undefined }],
     true,

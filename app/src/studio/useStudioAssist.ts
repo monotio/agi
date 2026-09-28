@@ -97,6 +97,8 @@ export function refusalWords(violations: readonly Violation[]): string {
         return ["would change a protected loop"];
       case "max-bytes":
         return ["would be too big"];
+      case "no-change":
+        return ["would change nothing"];
       case "stale-base":
         return ["the draft changed"];
       case "unknown-target":

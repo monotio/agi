@@ -59,7 +59,7 @@ The creator is editing ${kind} ${num} in ${studio}${focus.lens ? ` (${focus.lens
 
 "${instruction.trim()}"
 
-You may change only the selection. Call read_edit_context, then propose_edit with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses changes outside the selection, on a locked plane or protected loop, or over the byte budget: read the refusal, fix that, and propose again. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
+You may change only the selection. Call read_edit_context, then propose_edit with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses changes outside the selection, on a locked plane or protected loop, or over the byte budget, and a candidate that draws the same pixels as the draft: read the refusal, fix that, and propose again. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
 }
 
 type Scenario = "walkable" | "eyes" | "bad" | "impossible" | "reference" | "none";
