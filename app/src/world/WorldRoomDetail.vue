@@ -54,7 +54,7 @@ const edges = computed(() => ({
   in: graph.value.edges.filter((e) => e.from !== node.room && e.to === node.room),
 }));
 
-/** A visit's tape position: open the transport (paused) at that moment. */
+/** A visit's tape position: open the transport at that moment. */
 function jumpToVisit(hist: { segment: string; seq: number; tick: number }): void {
   map.closeMap();
   void engine.historyView.jumpToVisit({ segment: hist.segment, tick: hist.tick });

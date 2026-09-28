@@ -96,7 +96,7 @@ export interface TransportExtras {
    * The timeline's right-hand endpoint: the parked live session. `here` is
    * true while the surface already IS live (running or parked at LIVE).
    */
-  readonly live: { testid: string; here: boolean; run(): void } | undefined;
+  readonly live: { testid: string; here: boolean; title: string; run(): void } | undefined;
   /** Speed-group testid prefix, e.g. "walkthrough-speed-" → `…-4`. */
   readonly speedTestid: string;
   /** Source-scoped class on the active speed/story-pause button. */

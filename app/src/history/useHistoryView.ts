@@ -2,9 +2,14 @@
  * The host half of the always-visible transport. While the game runs the
  * bar shows the live session pinned at the timeline's LIVE endpoint; the
  * recording's newest moment tracks play automatically from batch traffic —
- * no tape load. A timeline touch pauses the engine, a scrub into the tape
- * opens the view session (a scratch engine replaying while the live one
- * stays parked), and the LIVE endpoint restores the parked surface still
+ * no tape load. A scrub into the tape parks the live engine and opens the
+ * view session (a scratch engine replaying while the live one stays
+ * parked); the LIVE endpoint closes it again.
+ *
+ * Every seek keeps the player's intent: what was playing when the gesture
+ * began plays on from where it lands, and what was paused stays paused. A
+ * scrub from running live play opens the tape watching; LIVE from a tape
+ * being watched resumes live play; paused either way, the surface stays
  * paused until Resume releases only the transport's own hold.
  *
  * Resume from here adopts the viewed moment immediately: the departing
@@ -242,7 +247,18 @@ export function useHistoryView(deps: HistoryViewDeps) {
   let recording: HistoryRecording | null = null;
   let bookmarks: HistoryBookmark[] = [];
   let watchTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped by every stop: a Watch step still awaiting its reply ends there. */
+  let watchSerial = 0;
   let seekSerial = 0;
+  /**
+   * The seek gesture's intent: whether the surface plays once the gesture
+   * lands. Read from the surface when a run of seeks begins — Watch playing
+   * on an open tape, live play not parked otherwise — and applied when its
+   * last seek lands after the pointer lifts. Null between gestures, so the
+   * many seeks of one drag, and those queued while the tape opens, all
+   * keep the intent the gesture started with.
+   */
+  let playAfterSeek: boolean | null = null;
   /**
    * The open session's generation: close and reset invalidate every awaited
    * continuation still in flight, so a late start/seek reply can neither
@@ -275,6 +291,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     outlineKey = "";
     scrubAxis = null;
     pendingOpenSeek = null;
+    playAfterSeek = null;
     openSerial++;
     seekSerial++;
     Object.assign(view(), freshHistoryView());
@@ -370,6 +387,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
 
   function stopWatch(): void {
     view().playing = false;
+    watchSerial++;
     if (watchTimer !== null) {
       clearTimeout(watchTimer);
       watchTimer = null;
@@ -459,20 +477,50 @@ export function useHistoryView(deps: HistoryViewDeps) {
     deps.resumeEngine("transport");
   }
 
+  /** A seek gesture starts: keep what the surface was doing, once. */
+  function beginSeek(): void {
+    if (playAfterSeek !== null) return;
+    const v = view();
+    playAfterSeek = v.active || v.loading ? v.watching && v.playing : !v.parked;
+  }
+
   /**
-   * The LIVE endpoint: an open view closes and the parked live surface
-   * returns — still paused under the transport's hold. During live play a
-   * press here pauses, consistently with a timeline click at the end.
+   * The gesture's last seek has landed: play on if it began playing. Waits
+   * while the pointer is down or a seek or open is still in flight — the
+   * newest landing, or the pointer lifting, settles it. A seek that failed
+   * or landed on a divergence holds where it is.
+   */
+  function settleSeek(): void {
+    const v = view();
+    if (playAfterSeek === null || v.scrubbing || v.seeking || v.loading) return;
+    const play = playAfterSeek;
+    playAfterSeek = null;
+    if (!play || v.error !== "") return;
+    if (!v.active) resumeLive();
+    else if (v.diverged === null) {
+      v.watching = true;
+      playHistory();
+    }
+  }
+
+  /**
+   * The LIVE endpoint. From the tape, the view closes and live play returns
+   * the way the gesture found the tape: running if it was playing, parked
+   * under the transport's hold if it was paused. At LIVE already it changes
+   * nothing — running play keeps running, a parked game stays parked.
    */
   function goLive(): void {
     const v = view();
-    if (v.active || v.loading) {
-      deps.pauseEngine("transport");
-      v.parked = true;
-      closeHistory();
-      return;
-    }
-    pauseAtLive();
+    if (!v.active && !v.loading) return;
+    beginSeek();
+    const play = playAfterSeek;
+    deps.pauseEngine("transport");
+    v.parked = true;
+    closeHistory();
+    // The gesture outlives the view it closed: a drag still under the
+    // pointer settles when it lifts.
+    playAfterSeek = play;
+    settleSeek();
   }
 
   /** Escape/leave: the view closes and live play resumes in one step. */
@@ -585,10 +633,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
     v.active = false;
     v.loading = false;
     v.seeking = false;
-    v.scrubbing = false;
     v.watching = false;
     recordingAxis = [];
     pendingOpenSeek = null;
+    playAfterSeek = null;
     // The outline picks up the loaded tape's exact extents — the live axis
     // stays honest after a look back.
     if (recording !== null)
@@ -601,13 +649,18 @@ export function useHistoryView(deps: HistoryViewDeps) {
     deps.resumeEngine("history");
   }
 
-  /** Scrub to a recorded position; a newer seek supersedes one in flight. */
+  /**
+   * Scrub to a recorded position; a newer seek supersedes one in flight.
+   * Watch pauses while the seek replays and plays on from the landing if it
+   * was playing when the gesture began; a paused tape stays paused.
+   */
   async function seekTo(segment: number, tick: number): Promise<void> {
     const v = view();
     if (!v.active || recording === null) return;
     const seg = recording.segments[segment];
     if (seg === undefined) return;
     tick = Math.max(0, Math.min(tick, segmentExtent(seg)));
+    beginSeek();
     stopWatch();
     v.error = "";
     v.seeking = true;
@@ -622,26 +675,24 @@ export function useHistoryView(deps: HistoryViewDeps) {
         v.error = error instanceof Error ? error.message : String(error);
     } finally {
       if (mine === seekSerial) v.seeking = false;
+      settleSeek();
     }
   }
 
-  /**
-   * The flat-axis seek the timeline dispatches. While the view is closed a
-   * scrub first parks the live session, then opens the tape and lands at
-   * the same absolute position the gesture meant; the tape's end is always
-   * the LIVE endpoint, not the last recorded tick.
-   */
   /** The newest seek asked for while the tape was still opening. */
   let pendingOpenSeek: { globalTick: number; at: ReturnType<typeof flatLocate> } | null = null;
 
   /**
-   * The flat-axis seek the timeline dispatches. While the view is closed a
-   * scrub first parks the live session, then opens the tape and lands at
-   * the same absolute position the gesture meant; the tape's end is always
-   * the LIVE endpoint, not the last recorded tick.
+   * The flat-axis seek the timeline dispatches; the tape's end is always the
+   * LIVE endpoint, not the last recorded tick. While the view is closed a
+   * seek into the tape parks the live session, opens the tape and lands at
+   * the same absolute position the gesture meant — watching from there if
+   * live play was running, paused if it was parked. A seek to LIVE from
+   * live play changes nothing.
    */
   async function dispatchSeek(globalTick: number, at = flatLocate(globalTick)): Promise<void> {
     const v = view();
+    beginSeek();
     const mine = ++seekSerial;
     if (v.loading) {
       // The open is in flight: keep only the newest request — the gesture's
@@ -649,28 +700,32 @@ export function useHistoryView(deps: HistoryViewDeps) {
       pendingOpenSeek = { globalTick, at };
       return;
     }
-    if (v.active) {
-      if (at === "live") goLive();
-      else {
-        const index = recordingIndex(at.segment);
-        if (index >= 0) await seekTo(index, at.tick);
+    try {
+      if (v.active) {
+        if (at === "live") goLive();
+        else {
+          const index = recordingIndex(at.segment);
+          if (index >= 0) await seekTo(index, at.tick);
+        }
+        return;
       }
-      return;
-    }
-    const emptyAxis = flatTotal() === 0;
-    pauseAtLive();
-    // "live" on a populated axis is the endpoint — park without opening. An
-    // empty axis cannot tell LIVE from the tape: the click still opens,
-    // surfacing a stored tape, an unreadable one, or nothing recorded.
-    if (at === "live" && flatTotal() > 0) return;
-    await openHistory();
-    // A newer request consumed during the open already dispatched itself.
-    if (seekSerial !== mine || !v.active) return;
-    const landed = emptyAxis ? flatLocate(globalTick) : at;
-    if (landed === "live") goLive();
-    else {
-      const index = recordingIndex(landed.segment);
-      if (index >= 0) await seekTo(index, landed.tick);
+      // "live" on a populated axis is where live play already is. An empty
+      // axis cannot tell LIVE from the tape: the click still opens,
+      // surfacing a stored tape, an unreadable one, or nothing recorded.
+      if (at === "live" && flatTotal() > 0) return;
+      const emptyAxis = flatTotal() === 0;
+      pauseAtLive();
+      await openHistory();
+      // A newer request consumed during the open already dispatched itself.
+      if (seekSerial !== mine || !v.active) return;
+      const landed = emptyAxis ? flatLocate(globalTick) : at;
+      if (landed === "live") goLive();
+      else {
+        const index = recordingIndex(landed.segment);
+        if (index >= 0) await seekTo(index, landed.tick);
+      }
+    } finally {
+      settleSeek();
     }
   }
 
@@ -678,7 +733,8 @@ export function useHistoryView(deps: HistoryViewDeps) {
    * Step to the next mark in `dir` (+1/-1) on the sorted mark lane. The
    * viewed position is a flat tick: a seek lands at tick granularity, so
    * marks sharing a tick are indistinguishable — the comparison is strict
-   * so the mark under the viewed point is "current", never "next".
+   * so the mark under the viewed point is "current", never "next". A step
+   * is a seek: playing stays playing, paused stays paused.
    */
   async function stepMark(dir: 1 | -1): Promise<void> {
     const v = view();
@@ -716,6 +772,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
   async function watchStep(): Promise<void> {
     const v = view();
     if (!v.playing || !v.active || recording === null) return;
+    // A step still awaiting its reply when Watch stops — a seek, Pause —
+    // ends with that reply: a later Watch runs its own loop, never two.
+    const mine = watchSerial;
+    const stop = (): void => {
+      if (mine === watchSerial) v.playing = false;
+    };
     const seg = recording.segments[v.segment];
     const extent = seg ? segmentExtent(seg) : 0;
     if (v.tick >= extent) {
@@ -729,11 +791,12 @@ export function useHistoryView(deps: HistoryViewDeps) {
           );
           applyReport(reply);
         } catch {
-          v.playing = false;
+          stop();
           return;
         }
+        if (mine !== watchSerial) return;
       } else {
-        v.playing = false;
+        stop();
         return;
       }
     }
@@ -742,13 +805,14 @@ export function useHistoryView(deps: HistoryViewDeps) {
       const reply = await deps.query("historyViewAdvance", { ticks }, 30_000);
       applyReport(reply);
       if (reply.diverged !== null || reply.error !== null) {
-        v.playing = false;
+        stop();
         return;
       }
     } catch {
-      v.playing = false;
+      stop();
       return;
     }
+    if (mine !== watchSerial) return;
     watchTimer = setTimeout(() => void watchStep(), 100);
   }
 
@@ -1050,17 +1114,27 @@ export function useHistoryView(deps: HistoryViewDeps) {
     await saveHistoryBookmark(gameStorageKey(game), bookmark, game.historyLifetime);
   }
 
-  /** A map visit's jump target: open the transport if needed, then seek. */
+  /**
+   * A map visit's jump target: open the transport if needed, then seek. The
+   * map's own hold is not the player's choice — the intent is live play's
+   * from before the map opened: running opens the tape watching from the
+   * visit, parked by the player opens it paused.
+   */
   async function jumpToVisit(target: { segment: string; tick: number }): Promise<void> {
     if (deps.state.walkthrough.active) return;
-    if (!view().active) await openHistory();
-    if (!view().active || recording === null) return;
-    const idx = recording.segments.findIndex((s) => s.id === target.segment);
-    if (idx < 0) {
-      view().error = "That visit's history was dropped.";
-      return;
+    beginSeek();
+    try {
+      if (!view().active) await openHistory();
+      if (!view().active || recording === null) return;
+      const idx = recording.segments.findIndex((s) => s.id === target.segment);
+      if (idx < 0) {
+        view().error = "That visit's history was dropped.";
+        return;
+      }
+      await seekTo(idx, target.tick);
+    } finally {
+      settleSeek();
     }
-    await seekTo(idx, target.tick);
   }
 
   /** A selected mark names a room — highlight it when the map is open. */
@@ -1129,6 +1203,8 @@ export function useHistoryView(deps: HistoryViewDeps) {
             marks: lane.marks.map((mark) => ({ ...mark })),
           }))
         : null;
+      // A drag whose last seek landed under the pointer settles as it lifts.
+      if (!active) settleSeek();
     },
     step: (dir) => void stepMark(dir),
     clickMark: (mark) => {
@@ -1197,6 +1273,13 @@ export function useHistoryView(deps: HistoryViewDeps) {
         testid: "history-live",
         get here() {
           return !view().active;
+        },
+        get title() {
+          const v = view();
+          if (!v.active) return "The current game";
+          return v.watching && v.playing
+            ? "Back to the current game"
+            : "Back to the current game, paused until you resume";
         },
         run: goLive,
       };
