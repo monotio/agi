@@ -107,7 +107,7 @@ function addStandaloneRoom(): void {
         {{ storageError }}
       </span>
       <span v-if="unsaved" class="map-unsaved" data-testid="map-unsaved">
-        Map data is not saved — retrying in the background.
+        Map data is not saved yet. Retrying in the background.
         <UiButton size="sm" variant="ghost" @click="map.retrySave()">Retry now</UiButton>
       </span>
       <span

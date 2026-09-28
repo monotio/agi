@@ -196,7 +196,7 @@ export function referenceAgentImages(reference: StoredReference): AgentToolImage
         (reference.kind === "room" ? `room ${reference.target}` : `view ${reference.target}`) +
         (image.facing !== undefined ? `, ${image.facing}-facing pose row` : "") +
         (reference.brief ? ` — ${reference.brief}` : "") +
-        ". Encode it into native resources with the authoring tools; the reference decides look and composition, never walkable space or exits.",
+        ". Encode it into native resources with the authoring tools; the reference sets look and composition, and you decide walkable space and exits.",
     };
   });
 }
@@ -209,7 +209,7 @@ export function stagedRefusal(reference: StoredReference, current: GameIdentity)
     reference.attachedAt.project !== current.project ||
     reference.attachedAt.revision !== current.revision
   )
-    return "The game's resources changed since this reference was attached — attach a fresh copy to keep its staged view.";
+    return "The game's resources changed since this reference was attached. Attach a fresh copy to keep its staged view.";
   return null;
 }
 

@@ -578,7 +578,7 @@ test("the map defaults to the play experience — no plan, no plan actions", asy
   );
   // Plan reads and writes refuse on the play surface.
   assert.equal(map.plannedEntry(2), null);
-  assert.match(map.renamePlannedRoom(1, "Meadow") ?? "", /creator action/);
+  assert.match(map.renamePlannedRoom(1, "Meadow") ?? "", /Edit the plan from the map in Create/);
   assert.equal(session.state.authoring.world.rooms["1"]?.title, "Hall");
   await map.buildPlannedRoom(2); // a no-op refusal — never a thrown plan write
   assert.equal(map.buildingRoom.value, undefined);

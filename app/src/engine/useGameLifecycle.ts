@@ -547,7 +547,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           return;
         }
         throw new Error(
-          "This saved game is no longer available. Import it again or choose a catalog game.",
+          "This saved game is missing from this browser. Import it again or choose a catalog game.",
         );
       }
 

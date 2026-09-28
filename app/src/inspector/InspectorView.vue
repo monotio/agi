@@ -56,10 +56,10 @@ const COLOR_NAMES = [
 
 const MODES: readonly { id: DebugViewMode; label: string; title: string }[] = [
   { id: "visual", label: "Game", title: "Normal picture" },
-  { id: "priority", label: "Priority", title: "Priority surface (Sierra show.pri.screen)" },
-  { id: "blend", label: "Blend", title: "Depth ramp over the game; control lines hatch" },
-  { id: "split", label: "Split", title: "Half game, half priority" },
-  { id: "explode", label: "Layers", title: "Exploded priority layers (GPU, pointer parallax)" },
+  { id: "priority", label: "Priority", title: "Depth values" },
+  { id: "blend", label: "Blend", title: "Depth shading over the game, with control lines hatched" },
+  { id: "split", label: "Split", title: "Half game, half depth values" },
+  { id: "explode", label: "Layers", title: "Depth layers that tilt with the pointer" },
 ];
 
 /** The view choices as one segmented control; Layers needs the GPU stage. */

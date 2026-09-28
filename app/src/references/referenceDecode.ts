@@ -28,7 +28,7 @@ function encode(canvas: HTMLCanvasElement, mime: string): Promise<Uint8Array> {
 export async function decodeReferenceFile(file: Blob): Promise<DecodedImage> {
   if (file.size > REFERENCE_BYTE_LIMIT)
     throw new Error(
-      `That image is ${(file.size / 1024 / 1024).toFixed(1)} MB — the reference limit is ${REFERENCE_BYTE_LIMIT / 1024 / 1024} MB.`,
+      `That image is ${(file.size / 1024 / 1024).toFixed(1)} MB; the reference limit is ${REFERENCE_BYTE_LIMIT / 1024 / 1024} MB.`,
     );
   if (file.type !== "image/png" && file.type !== "image/jpeg" && file.type !== "image/webp")
     throw new Error("Choose a PNG, JPEG or WebP reference image.");
@@ -36,12 +36,12 @@ export async function decodeReferenceFile(file: Blob): Promise<DecodedImage> {
   try {
     bitmap = await createImageBitmap(file);
   } catch {
-    throw new Error("That file could not be decoded as an image — PNG, JPEG or WebP work.");
+    throw new Error("That file could not be decoded as an image. Choose a PNG, JPEG or WebP file.");
   }
   try {
     if (bitmap.width * bitmap.height > REFERENCE_PIXEL_LIMIT)
       throw new Error(
-        `That image is ${bitmap.width}x${bitmap.height} — the reference limit is 4096x4096 pixels.`,
+        `That image is ${bitmap.width}x${bitmap.height}; the reference limit is 4096x4096 pixels.`,
       );
     // A larger upload reaches the model as a copy fitted to provider limits.
     const scale = Math.min(1, PROVIDER_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));

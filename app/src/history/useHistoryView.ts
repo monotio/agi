@@ -128,20 +128,20 @@ function batchExtent(batch: HistoryBatch): number {
 }
 
 const VIA_LABELS: Record<string, string> = {
-  boot: "Started here",
-  edge: "Walked",
-  logic: "Moved",
-  restore: "Restored a save",
-  restart: "Restarted",
-  reenter: "Re-entered after a remix",
-  jump: "Arrived",
+  boot: "started here",
+  edge: "walked in",
+  logic: "moved",
+  restore: "restored a save",
+  restart: "restarted",
+  reenter: "re-entered after a remix",
+  jump: "arrived",
 };
 
 function roomMarkLabel(room: number, via: string, edge?: string): string {
-  const lead = VIA_LABELS[via] ?? "Arrived";
+  const lead = VIA_LABELS[via] ?? "arrived";
   const how =
     via === "edge" && edge ? `through the ${edge} edge` : via === "logic" ? "by the game" : "";
-  return `${lead} — room ${room}${how ? ` ${how}` : ""}`;
+  return `Room ${room}: ${lead}${how ? ` ${how}` : ""}`;
 }
 
 function roomMark(m: HistoryRoomMark, segment: number): HistoryViewMark {
@@ -515,7 +515,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       bookmarks = await loadHistoryBookmarks(key);
       if (mine !== openSerial) return;
       if (recording === null || recording.segments.length === 0) {
-        v.error = "Nothing is recorded yet — play a little first.";
+        v.error = "Nothing is recorded yet. Play a little first.";
         return;
       }
       v.marks = buildMarks(recording, bookmarks);
@@ -841,7 +841,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       // state belonging to the adopted bytes — an uncertain or failed install
       // keeps the hold rather than let a turn run against a different revision.
       const session = deps.getSession();
-      session?.holdAdoption(`${verb} is adopting a session — authoring resumes when it lands.`);
+      session?.holdAdoption(`${verb} is adopting a session. Authoring resumes when it lands.`);
       // A failure before the adoption is even asked is definite: the worker
       // still runs the departing session, so the hold releases and the staged
       // candidate — if the stage write landed before throwing — is left for
@@ -855,7 +855,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       }
       if (departing.boot === null) {
         session?.releaseAdoption();
-        v.error = "The paused session can't be kept — a game prompt is still open.";
+        v.error = "The paused session can't be kept while a game prompt is open.";
         return false;
       }
       const candidate = {
@@ -888,7 +888,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         closeHistory();
         pauseAtLive();
         await refreshMeta(key);
-        view().error = `${verb}'s outcome is uncertain (${String(error)}) — the kept session is held for recovery.`;
+        view().error = `${verb}'s outcome is uncertain (${String(error)}). The kept session is held for recovery.`;
         return false;
       }
       if (!reply.ok) {
@@ -910,7 +910,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         closeHistory();
         pauseAtLive();
         await refreshMeta(key);
-        view().error = `${verb}'s reply carried no adopted state — authoring is held until the next adoption.`;
+        view().error = `${verb}'s reply carried no adopted state. Authoring is held until the next adoption.`;
         return true;
       }
       try {
@@ -919,7 +919,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         closeHistory();
         pauseAtLive();
         await refreshMeta(key);
-        view().error = `${verb} adopted the session, but its authoring state could not be installed (${String(error)}) — authoring is held until the next adoption.`;
+        view().error = `${verb} adopted the session, but its authoring state could not be installed (${String(error)}). Authoring is held until the next adoption.`;
         return true;
       }
       try {
@@ -928,7 +928,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         closeHistory();
         pauseAtLive();
         await refreshMeta(key);
-        view().error = `The session was kept but its record could not be saved (${String(error)}) — the copy stays queued for recovery.`;
+        view().error = `The session was kept but its record could not be saved (${String(error)}). The copy stays queued for recovery.`;
         deps.logAgent("log", `history: ${verb} adopted; the kept session's promotion is pending`);
         return true;
       }
@@ -1057,7 +1057,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     if (!view().active || recording === null) return;
     const idx = recording.segments.findIndex((s) => s.id === target.segment);
     if (idx < 0) {
-      view().error = "That visit's history is no longer kept.";
+      view().error = "That visit's history was dropped.";
       return;
     }
     await seekTo(idx, target.tick);
@@ -1163,7 +1163,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           testid: "btn-history-resume",
           icon: "play" as const,
           label: "Resume from here",
-          title: "Continue playing from this moment — the current session is kept as a branch",
+          title: "Play on from this moment; the current session stays as a branch",
           aria: "Resume from here",
           disabled: !v.canResume || v.diverged !== null || v.seeking,
           run: () => void resumeFromHere(),
@@ -1238,7 +1238,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
             ? v.playing
               ? "Pause the timeline"
               : "Keep watching the timeline unfold"
-            : "Watch the recording play out from here — taking control stays the main button",
+            : "Watch the recording play out from here",
           label: v.watching
             ? v.playing
               ? "Pause timeline"
@@ -1251,7 +1251,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (v.branches > 0)
         buttons.push({
           testid: "btn-undo-rewind",
-          title: "Restore the session kept by the last rewind; the current one is kept instead",
+          title: "Restore the session the last rewind kept; the current one is kept in its place",
           label: "Undo rewind",
           variant: "secondary",
           run: () => void undoRewind(),
@@ -1263,7 +1263,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (view().pendingSwaps === 0) return undefined;
       return {
         testid: "history-pending-swap",
-        text: "A kept session is still being recovered — play continues normally.",
+        text: "Recovering a kept session. Play continues as usual.",
         buttons: [],
       };
     },
@@ -1274,7 +1274,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       if (v.diverged !== null)
         errors.push({
           testid: "history-diverged",
-          text: "This moment can't be restored — the recording stops agreeing with itself here.",
+          text: "This moment can't be restored: the recording diverges here.",
           details: v.diverged.detail,
         });
       return errors;

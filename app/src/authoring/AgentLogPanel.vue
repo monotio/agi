@@ -125,18 +125,27 @@ async function copyDebugBundle(): Promise<void> {
         v-for="entry in state.agentLog.slice(-50)"
         :key="entry.id"
         class="agent-entry"
-        :class="[entry.kind, { expandable: Boolean(entry.data) }]"
-        @click="entry.data ? toggleLogEntry(entry.id) : null"
+        :class="entry.kind"
       >
-        <div class="agent-entry-row">
+        <button
+          v-if="entry.data"
+          type="button"
+          class="agent-entry-row agent-entry-row--expandable"
+          :aria-expanded="expandedLogIds.has(entry.id)"
+          @click="toggleLogEntry(entry.id)"
+        >
           <span class="agent-kind">{{ entry.kind }}</span>
           <span class="agent-detail">{{ entry.detail }}</span>
-          <span v-if="entry.data" class="agent-expand-toggle">
+          <span class="agent-expand-toggle">
             <UiIcon
               :name="expandedLogIds.has(entry.id) ? 'chevron-up' : 'chevron-down'"
               :size="12"
             />{{ expandedLogIds.has(entry.id) ? "collapse" : "inspect" }}
           </span>
+        </button>
+        <div v-else class="agent-entry-row">
+          <span class="agent-kind">{{ entry.kind }}</span>
+          <span class="agent-detail">{{ entry.detail }}</span>
         </div>
         <pre v-if="entry.data && expandedLogIds.has(entry.id)" class="agent-data-preview">{{
           JSON.stringify(entry.data, null, 2)
@@ -201,14 +210,22 @@ async function copyDebugBundle(): Promise<void> {
   font-family: var(--font-mono);
 }
 
-.agent-entry.expandable {
-  cursor: pointer;
-}
-
 .agent-entry-row {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
+}
+
+/* A row with data is a button: the whole line toggles its preview. */
+.agent-entry-row--expandable {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
 }
 
 .agent-entry .agent-kind {

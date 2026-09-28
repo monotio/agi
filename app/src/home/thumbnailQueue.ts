@@ -37,7 +37,7 @@ export function createThumbnailQueue(limit: number): ThumbnailQueue {
       waiting.push(() => {
         if (signal?.aborted) {
           requests.delete(key);
-          reject(new DOMException("The thumbnail is no longer needed.", "AbortError"));
+          reject(new DOMException("The thumbnail request was cancelled.", "AbortError"));
           return;
         }
         active++;

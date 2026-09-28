@@ -266,7 +266,7 @@ test("a vanished saved game fails locally without contacting a provider", async 
     if (key) localStorage.removeItem(key);
   });
   await card.getByTestId("btn-resume-cached").click();
-  await expect(page.getByTestId("error-panel")).toContainText("no longer available");
+  await expect(page.getByTestId("error-panel")).toContainText("is missing from this browser");
   expect(providerCalls).toBe(0);
 });
 

@@ -188,8 +188,9 @@ function roomTitle(room: number): string | undefined {
  */
 const facts = computed(() => {
   const out = [node.observed ? `Visited ${node.visits}×` : "Not visited"];
-  if (node.planned) out.push(node.authored ? "planned, and built" : "planned, not built yet");
-  else if (node.authored) out.push("built");
+  if (node.planned) out.push("planned");
+  if (node.authored) out.push("built");
+  else if (node.planned) out.push("not built yet");
   if (node.referenced) out.push("a stored game test names it");
   if (node.playtested) out.push("a recorded playthrough reaches it");
   if (node.picture) out.push("its picture is in the game");
@@ -258,7 +259,7 @@ function edgeWord(edge: RoomGraphEdge): string {
         </p>
       </template>
       <p v-else class="ri-note" data-testid="map-no-thumb">
-        No image yet — visit the room to capture one.
+        No image yet. Visit the room to capture one.
       </p>
     </template>
     <div v-if="$slots['lead']" class="ri-lead"><slot name="lead" /></div>

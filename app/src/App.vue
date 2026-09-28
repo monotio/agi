@@ -673,11 +673,7 @@ watch(
               :class="{ 'ask-button--away': state.powerUp.open }"
               data-testid="menu-assistant"
               :aria-expanded="state.powerUp.open"
-              :title="
-                state.powerUp.open
-                  ? 'Back to game (Esc)'
-                  : 'Ask about this game — answers without changing it'
-              "
+              :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask about this game'"
               :disabled="
                 (state.powerUp.mode === 'room' && state.powerUp.open) ||
                 state.recording.active ||

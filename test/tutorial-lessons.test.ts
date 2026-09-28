@@ -134,7 +134,7 @@ describe("Adventure Department lessons", () => {
         ),
       );
       assert.equal(verdict.ok, false);
-      assert.equal(verdict.hint, "Only the sun should change — this also changed Cottage.");
+      assert.equal(verdict.hint, "Only the sun should change, and this also changed Cottage.");
     });
 
     it("fails a change to another object alone", () => {
@@ -166,7 +166,7 @@ describe("Adventure Department lessons", () => {
         }),
       );
       assert.equal(verdict.ok, false);
-      assert.equal(verdict.hint, "Only the sun should change — this also added a new shape.");
+      assert.equal(verdict.hint, "Only the sun should change, and this also added a new shape.");
     });
 
     it("fails a copy of the sun", () => {
@@ -189,7 +189,7 @@ describe("Adventure Department lessons", () => {
       assert.equal(verdict.ok, false);
       assert.equal(
         verdict.hint,
-        "The sun needs to stay in the sky — change its colour, size or place.",
+        "The sun needs to stay in the sky. Change its colour, size or place.",
       );
     });
 

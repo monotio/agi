@@ -96,7 +96,7 @@ export function projectThumbnail(game: CachedGameMeta): ThumbnailSource {
     key: `project:${game.projectId}:${game.generation ?? 0}:${game.library?.revision ?? ""}`,
     async render() {
       const data = await loadAuthoredGame(game.projectId);
-      if (!data) throw new Error("This game is no longer in your library.");
+      if (!data) throw new Error("This game is missing from your library.");
       return (await previewGame(data, data.library?.profile)).preview;
     },
   };

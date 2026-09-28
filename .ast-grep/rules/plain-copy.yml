@@ -1,0 +1,51 @@
+# Plain copy (AGENTS.md, Code conventions): UI text says what a thing is or
+# does. Two documents, one per parser: string literals in TypeScript (and the
+# <script setup> of a .vue), and template text and attribute values in a .vue.
+id: plain-copy-literal
+language: ts
+severity: error
+message: >-
+  Say plainly what the thing is or does: state the positive, and turn a dash
+  aside into a colon, a semicolon or two sentences
+note: |
+  Flagged: " — " asides, "no longer", "rather than", "instead of", ", not "
+  and "never". Use a colon, a semicolon or two sentences; state the
+  positive. Status lines such as "Not built yet" or "No changes" pass.
+  A literal that is exactly " — " is a separator code joins two parts with.
+  BAD:  title: "Ask about this game — answers without changing it"
+  GOOD: title: "Ask about this game"
+files:
+  - app/src/**
+  - games/adventure-department/lessons.ts
+ignores:
+  - app/src/agent/**
+  # STUDIO LANE: delete the next line once the Studio copy lands (and its twin below).
+  - app/src/studio/**
+rule:
+  kind: string_fragment
+  regex: "(?i) — |no longer|rather than|instead of|, not |\\bnever\\b"
+  not:
+    regex: "^ — $"
+---
+id: plain-copy-template
+language: html
+severity: error
+message: >-
+  Say plainly what the thing is or does: state the positive, and turn a dash
+  aside into a colon, a semicolon or two sentences
+note: |
+  The template twin of plain-copy-literal: text and attribute values in a
+  .vue template, including the string literals of bound expressions.
+  BAD:  <p>Staged — inspect</p>
+  GOOD: <p>Proposed</p>
+files:
+  - app/src/**/*.vue
+ignores:
+  - app/src/agent/**
+  # STUDIO LANE: delete the next line once the Studio copy lands (and its twin above).
+  - app/src/studio/**
+rule:
+  any:
+    - kind: text
+    - kind: attribute_value
+  regex: "(?i) — |no longer|rather than|instead of|, not |\\bnever\\b"

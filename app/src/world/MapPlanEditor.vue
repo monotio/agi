@@ -210,6 +210,11 @@ const building = computed(() => map.buildingRoom.value === props.node.room);
         icon="sparkles"
         data-testid="map-build-room"
         :disabled="map.buildingRoom.value !== undefined"
+        :title="
+          map.buildingRoom.value === undefined
+            ? undefined
+            : `Room ${map.buildingRoom.value} is building`
+        "
         @click="map.buildPlannedRoom(node.room)"
       >
         {{ building ? "Building…" : "Build this room" }}

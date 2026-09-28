@@ -261,9 +261,7 @@ function openDetails(): void {
           @click="onExportLibraryGame(game, true)"
         >
           <span
-            >Download game…<small
-              >For development: editing work, saved progress and history — a ZIP file</small
-            ></span
+            >Download game…<small>ZIP for development: editing work, saves and history</small></span
           >
         </button>
         <button
@@ -275,8 +273,7 @@ function openDetails(): void {
         >
           <span
             >Export game…<small
-              >For publishing: playable game without private editing work or play history — a ZIP
-              file</small
+              >ZIP for publishing: the playable game and its public details</small
             ></span
           >
         </button>

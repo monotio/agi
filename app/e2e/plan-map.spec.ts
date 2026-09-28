@@ -150,7 +150,7 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await expect(page.getByTestId("map-room-2")).toHaveCount(0);
   await expect(page.getByTestId("map-room-3")).toHaveCount(0);
   await expect(map).not.toContainText("planned");
-  await expect(map).not.toContainText("named in logic");
+  await expect(map).not.toContainText("in code");
   await expect(page.getByTestId("map-add-room")).toHaveCount(0);
   // Even the visited room's detail carries no plan editor.
   await page.getByTestId("map-room-1").click();

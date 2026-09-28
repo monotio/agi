@@ -122,11 +122,11 @@ export function verifyMuralObject(input: LessonVerifyInput): Verdict {
     return fail("Make this change in Room Studio, so it can see which object you changed.");
   const after = parsePictureDocument(input.afterSource).document;
   if (!after.items.some((item) => item.id === SUN))
-    return fail("The sun needs to stay in the sky — change its colour, size or place.");
+    return fail("The sun needs to stay in the sky. Change its colour, size or place.");
   const changed = changedItems(before, after);
   // A new object (a drawn shape, a copy) counts as a change of its own.
   if (changed.some((id) => !before.items.some((item) => item.id === id)))
-    return fail("Only the sun should change — this also added a new shape.");
+    return fail("Only the sun should change, and this also added a new shape.");
   const others = changed.filter((id) => id !== SUN);
   if (others.length > 0) {
     const names = others.map((id) => labelOf([after, before], id)).join(", ");
@@ -134,7 +134,7 @@ export function verifyMuralObject(input: LessonVerifyInput): Verdict {
     const what = `${removed ? "removed" : "changed"} ${names}`;
     return fail(
       changed.includes(SUN)
-        ? `Only the sun should change — this also ${what}.`
+        ? `Only the sun should change, and this also ${what}.`
         : `Only the sun should change, but this ${what}. Undo that, then change the sun.`,
     );
   }
@@ -309,7 +309,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
       ],
       open: { studio: "sprite", view: ROBOT_VIEW, loop: 1, cel: 0 },
       challenge: {
-        prompt: "Give the left-facing robot a different eye colour, without changing loop 0.",
+        prompt: "Give the left-facing robot a different eye colour. Loop 0 stays as it is.",
         verify: verifyMirrorEdit,
       },
     },

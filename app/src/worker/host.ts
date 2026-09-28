@@ -38,7 +38,7 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
         }
         if (ctx.replay.historyReplay)
           throw new Error(
-            "Recorded reseed lane exhausted — replay drew a clock word the tape never carried.",
+            "Recorded reseed lane exhausted: replay drew a clock word missing from the recording.",
           );
         // A walkthrough replay has no recorded lane; the tick-derived
         // word keeps the scratch session deterministic.
