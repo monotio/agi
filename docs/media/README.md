@@ -31,12 +31,12 @@ the game ran to its goal.
 
 ![A test walk in the Walk lens that reports Reached](room-studio-walk.png)
 
-Ask about this selection on the river-crossing fixture from the Studio assist
-tests: the proposal with its changed cells outlined, Before and After, and the
-summary above Accept and Reject. The stub provider scripts the model's side;
+Ask on the river-crossing fixture from the Studio assist tests: the proposal
+with its changed cells outlined, Before and After, and the summary above Accept
+and Reject. The stub provider scripts the model's side;
 the app's checks and the candidate are real.
 
-![Ask about this selection with a proposal ready](studio-ask.png)
+![Ask with a proposal ready](studio-ask.png)
 
 Sprite Studio on the tutorial's waving robot, whose loop 1 mirrors loop 0: the
 cel canvas, the loops × cels timeline, the loop previews and the robot standing

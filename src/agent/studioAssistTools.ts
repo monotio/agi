@@ -620,6 +620,8 @@ function opItems(
     case "insertFill":
     case "insertPlot":
       return { edits: [], creates: [op.id] };
+    case "combineItems":
+      return { edits: [...op.itemIds], creates: [op.id] };
     default:
       return { edits: [op.itemId], creates: [] };
   }

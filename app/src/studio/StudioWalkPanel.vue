@@ -2,8 +2,11 @@
 import { computed, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
+import UiExplain from "../ui/UiExplain.vue";
+import { explain } from "./studioTerms.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { StudioTool } from "./studioTools.ts";
+import { CONTROL_VALUES, patternOn } from "./studioView.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
 import {
   doorStatus,
@@ -19,7 +22,8 @@ import {
 } from "./walkView.ts";
 
 /**
- * The Walk view's side panel: the walkable estimate's legend, the test walk
+ * The Walk view's side panel: the walkable estimate and the walk lines'
+ * legend, the test walk
  * (what to click next, "Walking…", and the result card with Test again and
  * Play here), and the room's doors: a list, and for the selected door where
  * it leads, its condition, the art it follows, its box, and its two-sided
@@ -43,6 +47,10 @@ const emit = defineEmits<{
   text: [line: number | null];
 }>();
 const tint = defineModel<boolean>("tint", { default: true });
+/** Why the door fields are off, on each of them. */
+const DOORS_OFF =
+  "Door editing is off while the room is view only, a proposal waits, or its rules need fixing as text.";
+const doorsOff = computed(() => (walk.canEditDoors.value ? undefined : DOORS_OFF));
 
 const result = computed(() => walk.result.value);
 const place = computed(() =>
@@ -125,13 +133,41 @@ const roomChoices = computed(() => {
     <section class="walk-panel__sec">
       <h3>Walk</h3>
       <label class="walk-panel__check">
-        <input v-model="tint" type="checkbox" data-testid="walk-tint-toggle" />
+        <input v-model="tint" type="checkbox" />
         <i class="walk-panel__swatch" aria-hidden="true"></i>
-        <span>Where the player can stand <em>(estimate)</em></span>
+        <span>Floor <em>(estimate)</em></span>
+        <UiExplain v-bind="explain('floor-estimate')" />
       </label>
-      <p class="walk-panel__note">
-        From ego's size and the control lines; only a test walk says where the game really goes.
-      </p>
+      <div
+        class="walk-panel__legend"
+        data-role="control-legend"
+        role="list"
+        aria-label="Walk lines"
+      >
+        <span
+          v-for="control in CONTROL_VALUES"
+          :key="control.value"
+          class="walk-panel__line"
+          role="listitem"
+        >
+          <svg viewBox="0 0 8 2" width="24" height="6" aria-hidden="true">
+            <rect
+              v-for="x in 8"
+              :key="x"
+              :x="x - 1"
+              y="0"
+              width="1"
+              height="2"
+              :style="{
+                fill: `var(--agi-${control.colour})`,
+                opacity: patternOn(control.pattern, x - 1, 0) ? 1 : 0.45,
+              }"
+            />
+          </svg>
+          {{ control.value }} · {{ control.name }}
+        </span>
+        <UiExplain v-bind="explain('walk-lines')" />
+      </div>
     </section>
 
     <section class="walk-panel__sec" data-role="test-walk">
@@ -143,10 +179,9 @@ const roomChoices = computed(() => {
           icon="footprints"
           shortcut="T"
           :aria-pressed="tool === 'walk'"
-          data-testid="walk-tool"
           @click="emit('tool', tool === 'walk' ? 'select' : 'walk')"
         >
-          {{ tool === "walk" ? "Choosing" : "Start" }}
+          {{ tool === "walk" ? "Choosing…" : "Start" }}
         </UiButton>
       </h3>
       <label class="walk-panel__check">
@@ -157,14 +192,15 @@ const roomChoices = computed(() => {
           @change="walk.setUseLiveState(($event.target as HTMLInputElement).checked)"
         />
         <span>{{ WALK_STATE_LABEL }}</span>
+        <UiExplain v-bind="explain('game-state')" />
       </label>
-      <p class="walk-panel__prompt" aria-live="polite" data-testid="walk-prompt">
+      <p class="walk-panel__prompt" aria-live="polite">
         {{
           walk.running.value
             ? "Walking…"
             : tool === "walk"
               ? walk.prompt.value
-              : "Press T, then click a start and a goal (or use the arrow keys and Space)."
+              : "Press T, click a start, then a goal."
         }}
       </p>
       <p
@@ -172,9 +208,7 @@ const roomChoices = computed(() => {
         class="walk-panel__note"
         data-testid="walk-estimate"
       >
-        {{
-          walk.estimate.value.path ? "Dashed: the estimated route." : "The estimate finds no route."
-        }}
+        {{ walk.estimate.value.path ? "Dashed line: the guess." : "The guess finds no route." }}
       </p>
       <div
         v-if="result"
@@ -187,11 +221,7 @@ const roomChoices = computed(() => {
         <p class="walk-panel__note" data-testid="walk-result-state">
           {{ walkStateText(result.state) }}
         </p>
-        <p
-          v-if="walk.resultStale.value"
-          class="walk-panel__note is-stale"
-          data-testid="walk-result-stale"
-        >
+        <p v-if="walk.resultStale.value" class="walk-panel__note is-stale">
           The room changed since this walk: Test again to check it.
         </p>
         <dl>
@@ -201,7 +231,7 @@ const roomChoices = computed(() => {
           <dd data-testid="walk-result-end">{{ place?.text }}</dd>
         </dl>
         <details>
-          <summary>What the engine said</summary>
+          <summary>Engine detail</summary>
           <p>{{ result.result.reason }}</p>
         </details>
         <div class="walk-panel__actions">
@@ -225,19 +255,16 @@ const roomChoices = computed(() => {
     </section>
 
     <section class="walk-panel__sec" data-role="doors">
-      <h3>Doors <em>D draws a door box · E adds an edge exit</em></h3>
+      <h3>Doors</h3>
       <p
         v-for="problem in walk.logicDiagnostics.value"
         :key="`${problem.line}:${problem.code}`"
         class="walk-panel__fail"
         role="alert"
-        data-testid="door-rule-problem"
       >
         {{ ruleProblemText(problem) }}
       </p>
-      <p v-if="walk.doors.value.length === 0" class="walk-panel__note">
-        This room has no exits yet.
-      </p>
+      <p v-if="walk.doors.value.length === 0" class="walk-panel__note">No exits yet.</p>
       <ul v-else class="walk-panel__doors" aria-label="Doors">
         <li v-for="door in walk.doors.value" :key="door.id">
           <button
@@ -253,16 +280,15 @@ const roomChoices = computed(() => {
             <UiChip
               v-if="!door.editable"
               :tone="door.planned ? 'warn' : 'neutral'"
-              :title="
-                door.planned
-                  ? 'Planned: nothing in the room\'s script leads there yet'
-                  : 'Written in the room\'s script: change it as text'
-              "
               data-testid="walk-door-kind"
             >
-              {{ door.planned ? "planned" : "in script" }}
+              {{ door.planned ? "Planned" : "In script" }}
             </UiChip>
           </button>
+          <UiExplain
+            v-if="!door.editable"
+            v-bind="explain(door.planned ? 'door-planned' : 'door-script')"
+          />
         </li>
       </ul>
 
@@ -315,19 +341,18 @@ const roomChoices = computed(() => {
               aria-label="New flag name for the door's condition"
               :disabled="!walk.canEditDoors.value"
             />
-            <UiButton size="sm" type="submit" :disabled="!walk.canEditDoors.value">Use</UiButton>
+            <UiButton size="sm" type="submit" :disabled="!walk.canEditDoors.value" :title="doorsOff"
+              >Use</UiButton
+            >
           </form>
-          <p
-            v-if="walk.flagError.value"
-            class="walk-panel__fail"
-            role="alert"
-            data-testid="door-flag-error"
-          >
+          <p v-if="walk.flagError.value" class="walk-panel__fail" role="alert">
             {{ walk.flagError.value }}
           </p>
           <template v-if="selected.box">
             <label class="walk-panel__field">
-              <span>Follows</span>
+              <span class="walk-panel__with"
+                >Follows <UiExplain v-bind="explain('follows')"
+              /></span>
               <select
                 class="walk-panel__input"
                 :value="selected.item ?? ''"
@@ -341,10 +366,6 @@ const roomChoices = computed(() => {
                 </option>
               </select>
             </label>
-            <p class="walk-panel__note">
-              Or drag the round handle on the door box onto the art. Moving that art moves the door
-              when you Keep.
-            </p>
             <div class="walk-panel__box" role="group" aria-label="Door box">
               <label v-for="[field, name] in BOX_FIELDS" :key="field">
                 <span>{{ name }}</span>
@@ -368,6 +389,7 @@ const roomChoices = computed(() => {
               icon="trash"
               data-testid="door-remove"
               :disabled="!walk.canEditDoors.value"
+              :title="doorsOff"
               @click="walk.removeDoor(selected.id)"
             >
               Remove
@@ -379,8 +401,7 @@ const roomChoices = computed(() => {
         </template>
         <template v-else>
           <p class="walk-panel__note" data-testid="door-native">
-            {{ walk.labelOf(selected) }}: this exit is written in the room's script, which the door
-            tools can't change. Edit it as text, or ask the assistant.
+            {{ walk.labelOf(selected) }} is written in the room's script.
           </p>
           <UiButton
             size="sm"
@@ -402,6 +423,11 @@ const roomChoices = computed(() => {
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--hairline);
+}
+.walk-panel__with {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .walk-panel__sec h3 {
   display: flex;
@@ -441,6 +467,20 @@ const roomChoices = computed(() => {
   margin: 0;
   color: var(--ink-3);
   font-size: var(--text-2xs);
+}
+/* The walk lines' legend: one row of the four control values. */
+.walk-panel__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--text-2xs);
+}
+.walk-panel__line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
 }
 .walk-panel__note.is-stale {
   color: var(--warn);

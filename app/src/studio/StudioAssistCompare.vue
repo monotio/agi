@@ -2,15 +2,12 @@
 import UiSegmented from "../ui/UiSegmented.vue";
 
 /**
- * The canvas's before/after switch while an AI proposal awaits a verdict:
- * the canvas (and every preview drawn from it) shows the draft as it is or
- * with the proposal applied; the changed cells stay outlined either way.
+ * The canvas's before/after switch while an AI proposal awaits a verdict,
+ * docked in the options bar above the canvas: the canvas (and every
+ * preview drawn from it) shows the draft as it is or with the proposal
+ * applied; the changed cells stay outlined either way.
  */
-const { stale = false, belowBar = false } = defineProps<{
-  stale?: boolean;
-  /** The frame has a view bar at its top: sit under it. */
-  belowBar?: boolean;
-}>();
+const { stale = false } = defineProps<{ stale?: boolean }>();
 const mode = defineModel<"before" | "after">({ required: true });
 const OPTIONS = [
   { value: "before", label: "Before" },
@@ -19,13 +16,7 @@ const OPTIONS = [
 </script>
 
 <template>
-  <div
-    class="compare"
-    :class="{ 'compare--below-bar': belowBar }"
-    role="group"
-    aria-label="AI proposal"
-    data-testid="assist-compare"
-  >
+  <div class="compare" role="group" aria-label="AI proposal" data-testid="assist-compare">
     <span class="compare__label">{{ stale ? "Stale proposal" : "AI proposal" }}</span>
     <UiSegmented v-model="mode" size="sm" label="Show the canvas" :options="OPTIONS" />
     <span class="compare__key"><i aria-hidden="true"></i>changed</span>
@@ -34,23 +25,11 @@ const OPTIONS = [
 
 <style scoped>
 .compare {
-  position: absolute;
-  top: var(--space-3);
-  left: 50%;
-  z-index: var(--z-popover);
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-lg);
-  background: var(--surface-overlay);
-  box-shadow: var(--shadow-pop);
-  transform: translateX(-50%);
   white-space: nowrap;
-}
-.compare--below-bar {
-  top: calc(var(--control-h) + var(--space-5));
 }
 .compare__label {
   color: var(--ink-2);

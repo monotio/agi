@@ -8,7 +8,7 @@
  *
  * Framework-free TypeScript, runs directly with Node >= 22.6:
  *   node --experimental-strip-types evals/genesis-cli.ts --template knights-trial --provider stub
- *   node --experimental-strip-types evals/genesis-cli.ts --template knights-trial --provider openai --model gpt-6-sol
+ *   node --experimental-strip-types evals/genesis-cli.ts --template knights-trial --provider openai --model gpt-6-sol --live --budget-usd 5
  *
  * --max-turns N (default 100) guards a paid run against a loop that never
  * finishes; --trace and --out choose where the trace and game files go.
@@ -29,7 +29,9 @@ import {
 } from "../src/agent/toolTransport.ts";
 import { validateGenesis } from "../src/agent/playtest.ts";
 import { createGenesisPrompt, AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
-import { DEFAULT_MODELS } from "../src/agent/modelEffort.ts";
+import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
+import { assertLiveRun } from "./lib/live-guard.ts";
+import { requestCost } from "./lib/usage.ts";
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -128,6 +130,8 @@ interface CliArgs {
   tracePath: string;
   /** A runaway guard for a paid run, not a target: recorded Genesis runs took 15 to 37 turns. */
   maxTurns: number;
+  /** The paid run's cap, charged per request at the model's rates; absent for the stub. */
+  budgetUsd?: number;
 }
 
 function parseCliArgs(): CliArgs {
@@ -168,6 +172,18 @@ function parseCliArgs(): CliArgs {
   if (!Number.isInteger(maxTurns) || maxTurns < 1)
     throw new Error("--max-turns must be a positive integer.");
 
+  let budgetUsd: number | undefined;
+  if (provider !== "stub") {
+    if (!MODEL_CAPABILITIES[model]?.price)
+      throw new Error(`No price is known for ${model}, so --budget-usd could not be enforced.`);
+    budgetUsd = assertLiveRun({
+      live: options["live"] === "true",
+      budgetUsd: options["budget-usd"] === undefined ? undefined : Number(options["budget-usd"]),
+      plan: `genesis on ${template} with ${provider} ${model}`,
+      offline: "--provider stub",
+    });
+  }
+
   return {
     template,
     provider,
@@ -176,7 +192,16 @@ function parseCliArgs(): CliArgs {
     ...(outDir === undefined ? {} : { outDir }),
     tracePath,
     maxTurns,
+    ...(budgetUsd === undefined ? {} : { budgetUsd }),
   };
+}
+
+/** Stop a paid run once its requests have cost the cap. */
+function chargeBudget(args: CliArgs, spent: number, usage: Parameters<typeof requestCost>[1]) {
+  const total = spent + (requestCost(args.model, usage) ?? 0);
+  if (args.budgetUsd !== undefined && total >= args.budgetUsd)
+    throw new Error(`Budget reached: $${total.toFixed(4)} of $${args.budgetUsd} spent.`);
+  return total;
 }
 
 function loadTemplateText(nameOrPath: string): string {
@@ -358,6 +383,7 @@ async function runOpenAiGenesis(
   const input: OpenAI.Responses.ResponseInputItem[] = [{ role: "user", content: prompt }];
   const sessionId = crypto.randomUUID();
 
+  let spent = 0;
   let turn = 0;
   while (turn < args.maxTurns && !session.genesisComplete) {
     turn++;
@@ -383,6 +409,12 @@ async function runOpenAiGenesis(
       type: "model_output",
       payload: response,
       durationMs: performance.now() - requestedAt,
+    });
+    spent = chargeBudget(args, spent, {
+      input: response.usage?.input_tokens ?? 0,
+      output: response.usage?.output_tokens ?? 0,
+      cachedInput: response.usage?.input_tokens_details?.cached_tokens ?? 0,
+      cacheWriteInput: response.usage?.input_tokens_details?.cache_write_tokens ?? 0,
     });
     if (response.status && response.status !== "completed")
       throw new Error(
@@ -482,6 +514,7 @@ async function runAnthropicGenesis(
 
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
 
+  let spent = 0;
   let turn = 0;
   while (turn < args.maxTurns && !session.genesisComplete) {
     turn++;
@@ -501,6 +534,15 @@ async function runAnthropicGenesis(
       type: "model_output",
       payload: response,
       durationMs: performance.now() - requestedAt,
+    });
+    spent = chargeBudget(args, spent, {
+      input:
+        response.usage.input_tokens +
+        (response.usage.cache_read_input_tokens ?? 0) +
+        (response.usage.cache_creation_input_tokens ?? 0),
+      output: response.usage.output_tokens,
+      cachedInput: response.usage.cache_read_input_tokens ?? 0,
+      cacheWriteInput: response.usage.cache_creation_input_tokens ?? 0,
     });
     if (
       response.stop_reason &&

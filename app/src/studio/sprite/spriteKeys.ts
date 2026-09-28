@@ -5,15 +5,16 @@
  * default of what they handle); the rest are studio shortcuts:
  *
  * - the rail's letters (useSpriteTools.ts SPRITE_TOOL_KEYS: B E G L R M I C,
- *   and H to flip); Esc cancels a stroke or selection, closes the contact
- *   sheet or the recolour tool, then leaves Studio. In a text field Esc is
- *   the field's (it reverts or leaves the field) and never leaves Studio
+ *   and H to flip); Esc cancels a stroke or selection, or closes the contact
+ *   sheet or the recolour tool; with nothing in hand it does nothing, and
+ *   Studio closes by its × button. In a text field Esc is the field's (it
+ *   reverts or leaves the field)
  * - on the focused canvas: arrows move the cursor 1 px (Shift: 8), or the
  *   selection (Alt: a copy); Space or Enter clicks at the cursor; Delete
  *   clears the selection
  * - `,` `.` the previous and next cel, `<` `>` the previous and next loop
  * - + - 0 zoom; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
- * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
+ * - `/` focuses Ask (StudioAssistPanel.vue); `?`
  *   opens the key sheet (StudioKeySheet.vue)
  */
 
@@ -32,7 +33,6 @@ export interface SpriteKeyActions {
   onCanvas(target: EventTarget | null): boolean;
   /** Esc: cancel a stroke, drop the selection or close a panel first; true when it did. */
   dismiss(): boolean;
-  close(): void;
   /** An arrow on the canvas: (dx, dy), `alt` held. */
   arrow(dx: number, dy: number, alt: boolean): void;
   /** Space or Enter on the canvas. */
@@ -70,8 +70,9 @@ export function spriteKey(event: KeyboardEvent, act: SpriteKeyActions): boolean 
     (event.target as HTMLElement).blur();
     return true;
   }
+  // Esc only lets go: with nothing in hand it does nothing, and Studio stays open.
   if (key === "Escape") {
-    if (!act.dismiss()) act.close();
+    act.dismiss();
     return true;
   }
   if (command && !event.altKey) {

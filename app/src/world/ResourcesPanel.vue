@@ -20,11 +20,18 @@ const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const sprites = useSpriteStudio();
 const views = computed(() => viewScan(engine.roomMap.resources.value).views);
-const blocked = computed(() => workspace.studio.value !== null || !workspace.studioFits.value);
+/** Why every Open is off, or undefined when Sprite Studio can open. */
+const blocked = computed(() =>
+  workspace.studio.value !== null
+    ? "A Studio is already open"
+    : workspace.studioFits.value
+      ? undefined
+      : "Sprite Studio needs a larger screen",
+);
 </script>
 
 <template>
-  <div class="resources-panel" data-testid="resources-panel">
+  <div class="resources-panel">
     <h3 class="resources-panel__title">Views</h3>
     <p v-if="views.length === 0" class="resources-panel__empty">This game has no views.</p>
     <ul v-else class="resources-panel__list">
@@ -44,7 +51,8 @@ const blocked = computed(() => workspace.studio.value !== null || !workspace.stu
         </span>
         <UiButton
           size="sm"
-          :disabled="blocked || !entry.thumb"
+          :disabled="blocked !== undefined || !entry.thumb"
+          :title="entry.thumb ? blocked : 'This view does not decode'"
           :aria-label="`Open VIEW ${entry.view} in Sprite Studio`"
           :data-testid="`resources-open-${entry.view}`"
           @click="sprites.open(entry.view)"

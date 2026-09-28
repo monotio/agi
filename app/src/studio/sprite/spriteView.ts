@@ -8,6 +8,7 @@
 import { TIMER_INCREMENT_MS } from "../../../../src/runtime/cycleClock.ts";
 import type { PixelChange } from "../../../../src/studio/sprite/spriteCels.ts";
 import type { SpriteCel, SpriteDocument } from "../../../../src/view/spriteDocument.ts";
+import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
 import { HOST_POLL_MS } from "../../worker/cycle.ts";
 
@@ -24,7 +25,7 @@ export interface CelRect {
   readonly height: number;
 }
 
-const FACINGS = ["Right-facing", "Left-facing", "Front-facing", "Back-facing"];
+const FACINGS = ["Right", "Left", "Front", "Back"];
 
 /**
  * The facing the interpreter's motion picks a loop for: loops 0 and 1 face
@@ -374,4 +375,22 @@ function luminance([r, g, b]: readonly [number, number, number]): number {
 export function swatchInk(colour: number): "var(--agi-0)" | "var(--agi-15)" {
   const l = luminance(EGA_PALETTE[colour] ?? [0, 0, 0]);
   return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? "var(--agi-0)" : "var(--agi-15)";
+}
+
+/**
+ * The top bar's usage chip: up to three rooms or logics by number ("Rooms 1,
+ * 2, 3"), more by count ("7 rooms"); its tooltip has them all (usageText).
+ * Logic that picks views at runtime may use the view elsewhere too: the
+ * chip then ends in "…".
+ */
+export function usageChip(usage: ViewUsage): string {
+  const { rooms, logics, dynamic } = usage;
+  const more = dynamic ? " …" : "";
+  const list = (noun: string, numbers: readonly number[]): string =>
+    numbers.length > 3
+      ? `${numbers.length} ${noun}s`
+      : `${noun[0]!.toUpperCase()}${noun.slice(1)}${numbers.length === 1 ? "" : "s"} ${numbers.join(", ")}`;
+  if (rooms.length > 0) return list("room", rooms) + more;
+  if (logics.length > 0) return list("logic", logics) + more;
+  return dynamic ? "Chosen at runtime" : usageText(usage);
 }

@@ -7,12 +7,12 @@
  * (`ok`), how many proposals were refused, rounds, tokens and cost.
  *
  *   npm run eval:studio -- --provider anthropic --model claude-opus-5-5 \
- *     --budget-usd 2 [--case all|plate-horizon,rope-walkable,ledger-depth,robot-eyes] \
+ *     --live --budget-usd 2 [--case all|plate-horizon,rope-walkable,ledger-depth,robot-eyes] \
  *     [--effort medium] [--repeats 1] [--out evals/results/studio-assist]
  *   npm run eval:studio -- --dry-run      # the deterministic stub, no key, no spend
  *
  * Keys come from ANTHROPIC_API_KEY / OPENAI_API_KEY. A live run refuses to
- * start without --budget-usd, or for a model without a price in
+ * start without both --live and --budget-usd, or for a model without a price in
  * MODEL_CAPABILITIES, since spend could not be enforced. The cap covers the
  * whole invocation: each run's session gets the remaining allowance as its
  * task budget, so AgentRun stops before any request the allowance cannot
@@ -53,6 +53,8 @@ import { openSprite } from "../src/view/spriteDocument.ts";
 import { walkableMask } from "../src/runtime/walkable.ts";
 import type { AgiProfile } from "../src/runtime/profile.ts";
 import { parseView } from "../src/view/view.ts";
+import { assertLiveRun } from "./lib/live-guard.ts";
+import { requestCost } from "./lib/usage.ts";
 
 /** The tutorial rooms' horizon (set.horizon(112) in every room logic). */
 const HORIZON = 112;
@@ -217,6 +219,7 @@ interface Args {
   budgetUsd?: number;
   repeats: number;
   dryRun: boolean;
+  live: boolean;
   out: string;
 }
 
@@ -226,12 +229,17 @@ function parseArgs(argv: string[]): Args {
     provider: "stub",
     repeats: 1,
     dryRun: false,
+    live: false,
     out: "evals/results/studio-assist",
   };
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i]!;
     if (key === "--dry-run") {
       args.dryRun = true;
+      continue;
+    }
+    if (key === "--live") {
+      args.live = true;
       continue;
     }
     const value = argv[++i];
@@ -252,13 +260,15 @@ function parseArgs(argv: string[]): Args {
   if (!Number.isInteger(args.repeats) || args.repeats < 1 || args.repeats > 5)
     throw new Error("--repeats must be an integer from 1 to 5.");
   if (args.provider !== "stub") {
-    if (args.budgetUsd === undefined || !Number.isFinite(args.budgetUsd) || args.budgetUsd <= 0)
-      throw new Error(
-        "A live provider run needs --budget-usd <cap in USD>; it is enforced from provider usage. Use --dry-run for the offline stub.",
-      );
     const model = args.model ?? DEFAULT_MODELS[args.provider];
     if (!MODEL_CAPABILITIES[model]?.price)
       throw new Error(`No price is known for ${model}, so --budget-usd could not be enforced.`);
+    args.budgetUsd = assertLiveRun({
+      live: args.live,
+      budgetUsd: args.budgetUsd,
+      plan: `the Studio assist cases ${args.cases.join(", ")} with ${args.provider} ${model}`,
+      offline: "--dry-run",
+    });
   }
   return args;
 }
@@ -281,22 +291,6 @@ function configFor(args: Args, budgetUsd: number): LlmConfig {
     budgetUsd,
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
   };
-}
-
-/** USD for one request's usage at the model's rates; null without a price. */
-function requestCost(model: string, usage: LlmUsage): number | null {
-  const rate = MODEL_CAPABILITIES[model]?.price;
-  if (!rate) return null;
-  const long = rate.longContext && usage.input > 272000;
-  const input = rate.input * (long ? 2 : 1);
-  const cacheRead = (rate.cacheRead ?? rate.input * 0.1) * (long ? 2 : 1);
-  const output = rate.output * (long ? 1.5 : 1);
-  const reads = Math.min(usage.input, usage.cachedInput);
-  const writes = Math.min(usage.input - reads, usage.cacheWriteInput);
-  return (
-    ((usage.input - reads - writes) * input + reads * cacheRead + writes * input * 1.25) / 1e6 +
-    (usage.output * output) / 1e6
-  );
 }
 
 interface RunReport {

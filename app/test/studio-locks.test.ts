@@ -225,9 +225,7 @@ describe("the Walk lens keeps depth values 4–15", () => {
       { type: "setItemColor", itemId: "edge", plane: "priority", value: 12 },
       "walk",
     ).verdict;
-    assert.deepEqual(messages(painted), [
-      "This would change depth values 4–15, which are locked in the Walk lens.",
-    ]);
+    assert.deepEqual(messages(painted), ["The Walk lens draws walk lines 0–3 only."]);
     assert.match(painted.violations[0]!.detail, /^Depth values 4–15 are locked in the Walk lens/);
     const moved = check(scene, { type: "moveItem", itemId: "deep", dx: 1, dy: 0 }, "walk").verdict;
     assert.equal(moved.ok, false);
@@ -274,9 +272,6 @@ describe("refusalText", () => {
       art.verdict.violations.map((v) => v.rule),
       ["locked-plane", "outside-mask"],
     );
-    assert.equal(
-      refusalText(art.verdict).message,
-      "This would change the depth, which is locked in the Art lens.",
-    );
+    assert.equal(refusalText(art.verdict).message, "Depth is locked in the Art lens.");
   });
 });

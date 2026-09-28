@@ -11,8 +11,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { MODEL_IDS } from "./providers.ts";
-import { DEFAULT_TASK_BUDGET_USD } from "../../app/src/agent/agentRun.ts";
 import type { EffortProvider, EffortStage } from "../providers/genesis-session.ts";
+import { assertLiveEnv, LiveRunRefused } from "../lib/live-guard.ts";
 
 const models: ReadonlyArray<readonly [EffortProvider, string]> = [
   ["openai", MODEL_IDS.gpt6Astra],
@@ -58,8 +58,17 @@ interface EffortTest {
   vars: { caseName: string; templateText: string; repeat: number };
 }
 
+// Keys alone start nothing: the lanes need EVAL_LIVE=1 and EVAL_EFFORT_RUN_BUDGET_USD.
+let budgetUsd: number | null = null;
+try {
+  budgetUsd = assertLiveEnv(process.env, "EVAL_EFFORT_RUN_BUDGET_USD", "the effort lanes");
+} catch (error) {
+  if (!(error instanceof LiveRunRefused)) throw error;
+  console.error(`[evals] ${error.message}`);
+}
+
 const providers: EffortLane[] = [];
-for (const [provider, model] of models) {
+for (const [provider, model] of budgetUsd === null ? [] : models) {
   const key =
     provider === "openai" ? process.env["OPENAI_API_KEY"] : process.env["ANTHROPIC_API_KEY"];
   if (!key) continue;
@@ -73,7 +82,7 @@ for (const [provider, model] of models) {
         provider,
         model,
         lane,
-        budgetUsd: Number(process.env["EVAL_EFFORT_RUN_BUDGET_USD"] ?? DEFAULT_TASK_BUDGET_USD),
+        budgetUsd,
         ...(process.env["EVAL_EFFORT_TIMEOUT_MS"]
           ? { timeoutMs: Number(process.env["EVAL_EFFORT_TIMEOUT_MS"]) }
           : {}),
@@ -83,7 +92,9 @@ for (const [provider, model] of models) {
   }
 }
 if (providers.length === 0)
-  console.error("[evals] effort: no provider lanes; set OPENAI_API_KEY and/or ANTHROPIC_API_KEY");
+  console.error(
+    "[evals] effort: no provider lanes; set OPENAI_API_KEY and/or ANTHROPIC_API_KEY, EVAL_LIVE=1 and EVAL_EFFORT_RUN_BUDGET_USD",
+  );
 
 const tests: EffortTest[] = [];
 for (const caseName of cases) {

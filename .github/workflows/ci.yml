@@ -93,23 +93,27 @@ jobs:
       matrix:
         include:
           - browser: chromium
-            shard: "1/3"
-            label: "chromium 1/3"
+            shard: "1/4"
+            label: "chromium 1/4"
             artifact: "chromium-1"
           - browser: chromium
-            shard: "2/3"
-            label: "chromium 2/3"
+            shard: "2/4"
+            label: "chromium 2/4"
             artifact: "chromium-2"
           - browser: chromium
-            shard: "3/3"
-            label: "chromium 3/3"
+            shard: "3/4"
+            label: "chromium 3/4"
             artifact: "chromium-3"
+          - browser: chromium
+            shard: "4/4"
+            label: "chromium 4/4"
+            artifact: "chromium-4"
           - browser: webkit
             shard: ""
             label: "webkit"
             artifact: "webkit"
           # Desktop Studio in WebKit: the scenarios tagged @webkit-desktop
-          # (app/playwright.webkit.config.ts): six scenarios.
+          # (app/playwright.webkit.config.ts).
           - browser: webkit
             suite: desktop
             shard: ""
@@ -136,7 +140,7 @@ jobs:
         env:
           CI: "1"
       # Timing budgets measure a quiet runner: after the shard, one worker.
-      - if: matrix.browser == 'chromium' && matrix.shard == '1/3'
+      - if: matrix.browser == 'chromium' && matrix.shard == '1/4'
         run: npm run e2e:perf -- --reporter=list
         working-directory: app
         env:

@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, shallowRef, useTemplateRef } from "vue";
-import UiIcon from "../../ui/UiIcon.vue";
+import UiExplain from "../../ui/UiExplain.vue";
 import { sameDisplay, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import { mirroredCel } from "../../../../src/studio/sprite/spriteCels.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import SpriteThumb from "../../world/SpriteThumb.vue";
+import { explain } from "../studioTerms.ts";
 import { aliasGroup, loopFacing } from "./spriteView.ts";
 
 /**
- * The loops × cels timeline. Each loop is a row of its cels; a loop that
+ * The loops and their cels. Each loop is a row of its cels; a loop that
  * shares another's data block (a mirror) is a hatched linked row with a
- * "mirror of N" chip. Cels are added, duplicated, reordered, flipped and
+ * "⇋ mirrors N" chip (the first carries the mirror ⓘ). Cels are added, duplicated, reordered, flipped and
  * deleted, and loops added, duplicated, deleted, unlinked and linked, from
  * the context menu (right-click, the Menu key or Shift+F10) or keys on the
  * focused cel; dragging a cel reorders it within its loop and Alt-drag
@@ -48,6 +49,8 @@ const loops = computed(() =>
     cels: entry.cels,
   })),
 );
+/** The first mirror loop's row: its chip carries the one mirror ⓘ of the timeline. */
+const firstMirror = computed(() => document.loops.findIndex((entry) => entry.alias !== null));
 
 function focusCel(target: number, index: number): void {
   void nextTick(() =>
@@ -199,6 +202,8 @@ interface MenuItem {
   readonly label: string;
   readonly hint?: string;
   readonly disabled?: boolean;
+  /** Why the item is off, on its tooltip. */
+  readonly why?: string;
   readonly danger?: boolean;
   /** The item turns the menu into the loop picker instead of closing it. */
   readonly picks?: boolean;
@@ -254,6 +259,10 @@ function onMenuFocusOut(event: FocusEvent): void {
 }
 
 /** The loop picker: every loop (a move skips the cel's own), then Back. */
+/** Why the timeline's edits are off, on their tooltips. */
+const PAUSED = "Editing waits while the view is view only or an AI proposal is open";
+const ONE_CEL = "A loop keeps at least one cel";
+
 function loopPicker(l: number, c: number, pick: "copy" | "move"): MenuItem[][] {
   const loops = document.loops.flatMap((_, target) => {
     if (pick === "move" && target === l) return [];
@@ -289,13 +298,21 @@ const menuItems = computed<MenuItem[][]>(() => {
         label: "Move to loop…",
         picks: true,
         disabled: count === 1 || document.loops.length === 1,
+        why: count === 1 ? ONE_CEL : "The view has one loop",
         run: () => pickLoop("move"),
       },
-      { label: "Move cel left", hint: "⌥←", disabled: c === 0, run: () => moveCel(l, c, c - 1) },
+      {
+        label: "Move cel left",
+        hint: "⌥←",
+        disabled: c === 0,
+        why: "This cel is first",
+        run: () => moveCel(l, c, c - 1),
+      },
       {
         label: "Move cel right",
         hint: "⌥→",
         disabled: c >= count - 1,
+        why: "This cel is last",
         run: () => moveCel(l, c, c + 1),
       },
       {
@@ -307,6 +324,7 @@ const menuItems = computed<MenuItem[][]>(() => {
         hint: "Del",
         danger: true,
         disabled: count === 1,
+        why: ONE_CEL,
         run: () => deleteCel(l, c),
       },
     ]);
@@ -328,8 +346,8 @@ const menuItems = computed<MenuItem[][]>(() => {
   ];
   if (aliasGroup(document, l).length > 1)
     loopItems.push({
-      label: "Unlink mirror (make a separate copy)",
-      run: () => edit({ type: "unlinkMirror", loop: l }, "Unlink mirror"),
+      label: "Stop mirroring",
+      run: () => edit({ type: "unlinkMirror", loop: l }, "Stop mirroring"),
     });
   for (const other of document.loops.keys()) {
     if (other === l || aliasGroup(document, l).includes(other)) continue;
@@ -338,14 +356,15 @@ const menuItems = computed<MenuItem[][]>(() => {
       entry.cels.length === mirrored.length &&
       entry.cels.every((one, index) => sameDisplay(one, mirrored[index]!));
     loopItems.push({
-      label: exact ? `Link as mirror of loop ${other}` : `Replace with mirror of loop ${other}`,
-      run: () => edit({ type: "linkMirror", loop: l, of: other, force: !exact }, "Link mirror"),
+      label: exact ? `Mirror loop ${other}` : `Replace with loop ${other} flipped`,
+      run: () => edit({ type: "linkMirror", loop: l, of: other, force: !exact }, "Mirror loop"),
     });
   }
   loopItems.push({
     label: "Delete loop",
     danger: true,
     disabled: document.loops.length === 1,
+    why: "A view keeps at least one loop",
     run: () => {
       edit({ type: "deleteLoop", loop: l }, "Delete loop");
       select(Math.max(0, Math.min(l, document.loops.length - 2)), 0, true);
@@ -387,11 +406,8 @@ function onMenuKey(event: KeyboardEvent): void {
     data-testid="sprite-timeline"
   >
     <header class="timeline__head">
-      <h3 id="timeline-title">Loops × cels</h3>
-      <span>
-        Drag cels to reorder · Alt-drag copies · Right-click or Menu key: duplicate, copy or move to
-        a loop, flip, delete, link
-      </span>
+      <h3 id="timeline-title">Loops <UiExplain v-bind="explain('loops')" /></h3>
+      <span>Right-click a cel for more</span>
     </header>
     <div class="timeline__rows" role="grid" aria-labelledby="timeline-title">
       <div
@@ -410,13 +426,11 @@ function onMenuKey(event: KeyboardEvent): void {
         >
           <b>Loop {{ row.index }}</b>
           <span v-if="row.facing">{{ row.facing }}</span>
-          <span
-            v-if="row.alias !== null"
-            class="timeline__chip"
-            :data-testid="`sprite-loop-${row.index}-mirror`"
-          >
-            <UiIcon name="link" :size="12" />mirror of {{ row.alias }}
-          </span>
+          <span v-if="row.alias !== null" class="timeline__chip"
+            ><span :data-testid="`sprite-loop-${row.index}-mirror`"
+              ><span aria-hidden="true">⇋ </span>mirrors {{ row.alias }}</span
+            ><UiExplain v-if="row.index === firstMirror" v-bind="explain('mirror')"
+          /></span>
           <button
             type="button"
             class="timeline__more"
@@ -445,6 +459,7 @@ function onMenuKey(event: KeyboardEvent): void {
               class="timeline__cel"
               :class="{ 'is-selected': row.index === loop && index === cel }"
               :aria-label="`Loop ${row.index}, cel ${index}`"
+              title="Drag to reorder · ⌥-drag copies · right-click for more"
               :aria-pressed="row.index === loop && index === cel"
               :tabindex="row.index === loop && index === cel ? 0 : -1"
               :data-loop="row.index"
@@ -468,6 +483,7 @@ function onMenuKey(event: KeyboardEvent): void {
             class="timeline__add"
             :aria-label="`Add a blank cel to loop ${row.index}`"
             :disabled="frozen"
+            :title="frozen ? PAUSED : `Add a blank cel to loop ${row.index}`"
             :data-drop-loop="row.index"
             :data-drop-at="row.cels.length"
             :class="{
@@ -507,6 +523,7 @@ function onMenuKey(event: KeyboardEvent): void {
           role="menuitem"
           :class="{ 'is-danger': item.danger }"
           :disabled="item.disabled || frozen"
+          :title="frozen ? PAUSED : item.disabled ? item.why : undefined"
           @click="runItem(item)"
         >
           <span>{{ item.label }}</span>
@@ -533,6 +550,9 @@ function onMenuKey(event: KeyboardEvent): void {
   padding: var(--space-3) var(--space-4) var(--space-2);
 }
 .timeline__head h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   margin: 0;
   color: var(--ink-3);
   font: var(--weight-semibold) var(--text-2xs) / var(--leading) var(--font-sans);
@@ -579,7 +599,7 @@ function onMenuKey(event: KeyboardEvent): void {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-1) 0 var(--space-2);
   border: 1px solid var(--action-line);
   border-radius: var(--radius-pill);
   color: var(--action);

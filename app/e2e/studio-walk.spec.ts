@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
@@ -25,13 +25,6 @@ import {
  * kept sends the player to the new room.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
-
-/** Screenshots go here when set (the rc.4 review set), else to the test's output. */
-const SHOTS = process.env["AGI_WALK_SHOTS"];
-const shot = (page: Page, name: string) =>
-  page.screenshot({
-    path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`),
-  });
 
 async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -92,7 +85,7 @@ test("a test walk in the lab reaches the lever plate; the gallery's rope blocks 
   await page.keyboard.press("3");
   await expect(studio.locator('[data-role="walkable-tint"]')).toBeVisible();
   await expect(studio.getByTestId("walk-panel")).toContainText("estimate");
-  await shot(page, "walk-tint");
+  await reviewShot(page, "walk-tint");
 
   await page.keyboard.press("t");
   // The west door's arrow: the walk starts where the player comes in from the gallery.
@@ -103,11 +96,11 @@ test("a test walk in the lab reaches the lever plate; the gallery's rope blocks 
     timeout: 30_000,
   });
   await expect(studio.getByTestId("walk-result-end")).toHaveText("30,140");
-  await shot(page, "walk-reached");
+  await reviewShot(page, "walk-reached");
 
   // The gallery: from its doorway straight at the mural, into the velvet rope.
   await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
+  await studio.getByTestId("studio-close").click();
   await expect(studio).toBeHidden();
   const gallery = await openRoomStudio(page, 1);
   await page.keyboard.press("3");
@@ -122,7 +115,7 @@ test("a test walk in the lab reaches the lever plate; the gallery's rope blocks 
   const endX = Number(await end.getAttribute("data-x"));
   const endY = Number(await end.getAttribute("data-y"));
   expect(endY).toBeGreaterThan(121);
-  await shot(page, "walk-blocked");
+  await reviewShot(page, "walk-blocked");
 
   // Play here from where the walk stopped: Studio closes and the live game
   // stands ego on that spot, in Play.
@@ -144,7 +137,7 @@ test("Play here from the canvas menu; the lab's native doors are read-only", asy
   await expect(editor.getByTestId("door-destination")).toHaveCount(0);
   await expect(editor.getByTestId("door-way-back")).toContainText("Way back from there: ");
   await expect(editor.getByTestId("door-way-back")).toContainText("the east edge");
-  await shot(page, "door-two-sided");
+  await reviewShot(page, "door-two-sided");
   await editor.getByTestId("door-edit-text").click();
   const text = page.getByTestId("logic-text");
   await expect(text).toBeVisible();
@@ -169,7 +162,7 @@ test("a test walk to the lab's west edge steps across it and certifies that exit
   const studio = await openRoomStudio(page, 2);
   await page.keyboard.press("3");
   const westEdge = studio.getByTestId("walk-door").filter({ hasText: "west edge" });
-  await expect(westEdge.getByTestId("walk-door-kind")).toHaveText("in script");
+  await expect(westEdge.getByTestId("walk-door-kind")).toHaveText("In script");
   await westEdge.click();
   const editor = studio.getByTestId("door-editor");
   await expect(editor.getByTestId("door-tested")).toHaveText("Not tested yet");
@@ -191,7 +184,7 @@ test("a test walk to the lab's west edge steps across it and certifies that exit
   await expect(studio.getByTestId("walk-result-end")).toHaveText(/ in room 1$/);
   await expect(editor.getByTestId("door-tested")).toHaveText("Tested ✓ (test walk)");
   await expect(editor.getByTestId("door-test-note")).toHaveCount(0);
-  await shot(page, "walk-edge-certified");
+  await reviewShot(page, "walk-edge-certified");
 
   // The edge's arrow as the goal does the same.
   await clickCell(page, 30, 140);
@@ -382,7 +375,12 @@ test("a door box bound to the doorway moves with it in one Keep; an edge exit re
   await expect(editor.getByTestId("door-way-back")).toHaveText("One way: nothing there leads back");
 
   // Move the doorway 20 px west by pointer: the door box moves with it as it drags.
-  await studio.getByTestId("studio-unlock").click();
+  await studio
+    .locator(".top-bar__lens")
+    .getByTestId("studio-lock-chip")
+    .locator("[data-term]")
+    .click();
+  await page.getByTestId("explain-pop").getByTestId("studio-unlock").click();
   await studio.locator('[data-row="doorway"]').click();
   const [sx, sy] = await cell(page, 120, 110);
   const perCell = ((await page.locator(".studio-pane").last().boundingBox())!.height / 168) * 2;
@@ -391,11 +389,11 @@ test("a door box bound to the doorway moves with it in one Keep; an edge exit re
   for (let k = 1; k <= 5; k++) await page.mouse.move(sx - 4 * k * perCell, sy);
   const doorBox = studio.locator('[data-role="door"] rect').first();
   await expect(doorBox).toHaveAttribute("x", "102");
-  await shot(page, "door-follows-drag");
+  await reviewShot(page, "door-follows-drag");
   await page.mouse.up();
   await doorBox.click();
   await expect(editor.getByTestId("door-box-x1")).toHaveValue("102");
-  await shot(page, "door-selected");
+  await reviewShot(page, "door-selected");
 
   // One Keep writes the picture and the moved door together.
   await studio.getByTestId("studio-keep").click();
@@ -449,7 +447,7 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
   // The live game has not pressed the plate: the walk passes the shut door into the wall.
   await expect(studio.getByTestId("walk-live-state")).toBeChecked();
   await expect(studio.getByTestId("walk-live-state").locator("xpath=..")).toHaveText(
-    "Start with my current flags and variables",
+    "Use my game state",
   );
   await page.keyboard.press("t");
   await clickCell(page, 108, 150);
@@ -483,7 +481,7 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
   await expect(studio.getByTestId("walk-result-state")).toHaveText(
     "Fresh room entry with your flags and variables",
   );
-  await shot(page, "walk-live-state");
+  await reviewShot(page, "walk-live-state");
 
   // From a fresh start the flag is clear again and the door stays shut.
   await studio.getByTestId("walk-live-state").uncheck();

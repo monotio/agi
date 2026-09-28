@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, seeStudioTours, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import type { StudioHarnessProbe } from "../src/studio/harness.ts";
 
 /**
@@ -99,6 +100,7 @@ for (const deviceScaleFactor of [1, 2]) {
       viewport: { width: 1440, height: 900 },
     });
     const page = await context.newPage();
+    await seeStudioTours(page);
     await open(page, "demo");
     const zoomLevel = page.getByRole("group", { name: "Zoom" });
     const zooms: string[] = [];
@@ -137,7 +139,7 @@ for (const deviceScaleFactor of [1, 2]) {
       "true",
     );
     await expect(page.locator('[data-role="announce"]')).toHaveText(
-      "Bench occluder, depth, 18 commands",
+      "Bench occluder, depth, 18 steps",
     );
     await context.close();
   });
@@ -278,12 +280,13 @@ test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab 
 
 test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {
   await open(page, "demo");
-  const lens = (name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
+  const lens = (name: string) =>
+    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
   await lens("Walk").click();
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
   // Bands shows only under Depth and Walk: after "1" hides it, keys still land in the studio.
-  await page.getByRole("button", { name: "Bands" }).click();
+  await page.getByRole("button", { name: "Bands", exact: true }).click();
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("2");
@@ -298,7 +301,7 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
 
 test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({ page }) => {
   await open(page, "1");
-  const slider = page.getByRole("slider", { name: "Draw order playhead" });
+  const slider = page.getByRole("slider", { name: "Draw order", exact: true });
   const total = Number(await slider.getAttribute("aria-valuemax"));
   // The playhead counts drawing commands: every compiled span but the closing end.
   expect(total).toBe(
@@ -318,7 +321,7 @@ test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({
   await page.mouse.move(box.x + (box.width * k) / total, box.y + box.height / 2, { steps: 4 });
   await page.mouse.up();
   await expect(slider).toHaveAttribute("aria-valuenow", String(k));
-  await expect(page.locator(".scrubber__label")).toContainText(`#${k} of ${total}`);
+  await expect(page.getByTestId("scrubber-step")).toHaveText(`Step ${k} of ${total}`);
 
   const mismatches = await page.locator(".studio-pane canvas").evaluate((element, count) => {
     const canvas = element as HTMLCanvasElement;
@@ -365,20 +368,21 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
         seen.push(`${type}:${(event as KeyboardEvent).key}`),
       );
   });
-  const lens = (name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
+  const lens = (name: string) =>
+    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
   await page.keyboard.press("3");
   await expect(lens("Walk")).toHaveAttribute("aria-checked", "true");
-  // The legend folds into the options bar: opened on purpose, it lists the control lines.
-  await expect(page.locator('[data-role="control-legend"]')).toHaveCount(0);
-  await page.getByTestId("studio-legend-toggle").click();
-  await expect(page.locator('[data-role="control-legend"]')).toContainText("0 · barrier");
+  // The Walk panel lists the walk lines, off the picture.
+  await expect(page.locator('.studio__inspector [data-role="control-legend"]')).toContainText(
+    "0 · barrier",
+  );
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
 
-  const slider = page.getByRole("slider", { name: "Draw order playhead" });
+  const slider = page.getByRole("slider", { name: "Draw order", exact: true });
   const total = Number(await slider.getAttribute("aria-valuemax"));
   await page.keyboard.press(",");
   await expect(slider).toHaveAttribute("aria-valuenow", String(total - 1));
@@ -396,7 +400,12 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
     [],
   );
 
+  // Esc with nothing in hand stays in Studio: the × closes it.
   await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
+    0,
+  );
+  await page.getByTestId("studio-close").click();
   expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
     1,
   );
@@ -405,12 +414,12 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   );
 });
 
-test("a picture rebuilt from the game's bytes reads as your source once kept: the kept text is stored", async ({
+test("a picture rebuilt from the game's bytes reads as its own source once kept: the kept text is stored", async ({
   page,
 }) => {
   await open(page, "demo&authored=0");
   const source = page.getByTestId("studio-source-kind");
-  await expect(source).toHaveText("rebuilt from the game's bytes");
+  await expect(source).toHaveText("Rebuilt");
   // A rect by keys: R, Space at the cursor, three cells right and down, Space.
   await page.locator(".studio__stage").focus();
   await page.keyboard.press("r");
@@ -421,5 +430,5 @@ test("a picture rebuilt from the game's bytes reads as your source once kept: th
   await expect(page.getByTestId("studio-draft-status")).toHaveText("1 change");
   await page.getByTestId("studio-keep").click();
   await expect(page.getByTestId("studio-draft-status")).toHaveText("Kept");
-  await expect(source).toHaveText("your source");
+  await expect(source).toHaveCount(0);
 });

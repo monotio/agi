@@ -24,6 +24,13 @@ const center = useOptionalCreateCenter();
 const open = computed(() => center?.studioFits.value === false);
 const changes = computed(() => draft.changes.value);
 const dialog = useTemplateRef("dialog");
+/** Why Keep is off, on its button. */
+const keepBlocked = computed(() => {
+  if (keeper.canKeep.value) return undefined;
+  if (keeper.busy.value) return "Keeping the changes";
+  if (keeper.needsReload.value) return "Reload the game to keep";
+  return "Finish or cancel the drawing gesture first";
+});
 
 async function keep(): Promise<void> {
   if (await keeper.keep()) emit("close");
@@ -58,12 +65,8 @@ watch(
     @keypress.stop
   >
     <div class="small-screen__card">
-      <h2 id="studio-small-screen-title" class="small-screen__title">
-        {{ name }} needs a larger screen
-      </h2>
-      <p class="small-screen__text">
-        Your unkept changes are safe — widen the window or rotate back to continue.
-      </p>
+      <h2 id="studio-small-screen-title" class="small-screen__title">{{ name }} needs more room</h2>
+      <p class="small-screen__text">Your changes are safe. Widen the window or rotate back.</p>
       <p class="small-screen__meta">
         {{ changes }} unkept {{ changes === 1 ? "change" : "changes" }}
       </p>
@@ -78,6 +81,7 @@ watch(
         <UiButton
           variant="primary"
           :disabled="!keeper.canKeep.value"
+          :title="keepBlocked"
           :autofocus="keeper.canKeep.value"
           data-testid="studio-small-keep"
           @click="keep"

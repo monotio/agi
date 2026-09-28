@@ -6,19 +6,22 @@
  *
  * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc lets go of one
  *   thing per press (a menu, what a tool is drawing, a selected door, a tool
- *   other than Select, the selection's bar, a drag), then goes back to Create
- *   (in a text field, Esc leaves the field instead)
- * - on the focused canvas: arrows nudge the selected item 1 px (Shift: 8),
- *   Alt+arrows step through items (Up/Left previous, Down/Right next); with a
+ *   other than Select, the selection's bar, a drag) and with nothing in hand
+ *   does nothing: Studio closes by its × button (in a text field, Esc leaves
+ *   the field instead)
+ * - on the focused canvas: arrows nudge the selection 1 px (Shift: 8),
+ *   Alt+arrows step through items (Up/Left previous, Down/Right next) and
+ *   Shift+Alt+arrows grow or shrink the selection by the next item; with a
  *   drawing tool or the pipette the arrows move the keyboard cursor instead
  *   (Shift: 8) and Space or Enter clicks at it (useStudioInput.ts)
- * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; `[` `]` move back/forward
+ * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; Cmd/Ctrl+G group,
+ *   Shift+Cmd/Ctrl+G ungroup; `[` `]` move back/forward
  *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo;
  *   Insert adds a point to the selected line where the cursor is nearest it
  * - the tool rail's letters (studioTools.ts TOOL_SHORTCUTS: V A L R P F B I, the
  *   Walk view's T D E, which open it first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
- * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
+ * - `/` focuses Ask (StudioAssistPanel.vue); `?`
  *   opens the key sheet (StudioKeySheet.vue)
  * - Cmd+\ (Ctrl+\ off a Mac) toggles focus mode, which hides the side
  *   panels; Tab and Shift+Tab only ever move focus
@@ -41,13 +44,14 @@ const NUDGE_FAR = 8;
 export interface StudioKeyActions {
   /** Whether the canvas has focus (arrows act on it only then). */
   onCanvas(target: EventTarget | null): boolean;
-  /** Esc: close a popover or drag first; true when it did. */
+  /** Esc: let go of one thing (a menu, a drawing, a door, a tool, a drag); true when it did. */
   dismiss(): boolean;
-  close(): void;
   lens(lens: StudioLens): void;
   seek(to: "first" | "last" | -1 | 1): void;
   zoom(step: 1 | -1 | "fit"): void;
   step(direction: 1 | -1): void;
+  /** Shift+Alt+arrow: add the next (+1) or previous (-1) item to the selection. */
+  extend(direction: 1 | -1): void;
   nudge(dx: number, dy: number): void;
   /** An arrow for the drawing cursor; false when the tool takes none (the arrows nudge). */
   cursor(dx: number, dy: number): boolean;
@@ -55,6 +59,10 @@ export interface StudioKeyActions {
   click(enter: boolean): boolean;
   remove(): void;
   duplicate(): void;
+  /** Cmd/Ctrl+G: group the selected items (the Group dialog). */
+  group(): void;
+  /** Shift+Cmd/Ctrl+G: ungroup the selected item. */
+  ungroup(): void;
   reorder(step: 1 | -1): void;
   undo(): void;
   redo(): void;
@@ -90,8 +98,9 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     (event.target as HTMLElement).blur();
     return true;
   }
+  // Esc only lets go: with nothing in hand it does nothing, and Studio stays open.
   if (key === "Escape") {
-    if (!act.dismiss()) act.close();
+    act.dismiss();
     return true;
   }
   // Focus mode: the backslash character, whatever keys a layout (AltGr,
@@ -118,6 +127,7 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
     if (lower === "z") (event.shiftKey ? act.redo : act.undo)();
     else if (lower === "y" && event.ctrlKey) act.redo();
     else if (lower === "d") act.duplicate();
+    else if (lower === "g") (event.shiftKey ? act.ungroup : act.group)();
     else return false;
     return true;
   }
@@ -125,7 +135,7 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   const arrow = ARROWS[key];
   if (arrow !== undefined) {
     if (!act.onCanvas(event.target)) return false;
-    if (event.altKey) act.step(arrow[0] + arrow[1] > 0 ? 1 : -1);
+    if (event.altKey) (event.shiftKey ? act.extend : act.step)(arrow[0] + arrow[1] > 0 ? 1 : -1);
     else {
       const far = event.shiftKey ? NUDGE_FAR : 1;
       if (!act.cursor(arrow[0] * far, arrow[1] * far)) act.nudge(arrow[0] * far, arrow[1] * far);

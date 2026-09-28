@@ -113,7 +113,7 @@ const helpActions = computed<HelpActionKind[]>(() => {
  */
 const helpLessons = shallowRef<LessonSet | undefined>();
 let helpLessonsAsked = 0;
-function openHelp(section?: string): void {
+function openHelp(section?: string, topic?: string): void {
   const game = state.phase === "running" ? currentGame() : null;
   const release =
     game && !game.installed
@@ -131,7 +131,7 @@ function openHelp(section?: string): void {
     .then((set) => {
       if (asked === helpLessonsAsked) helpLessons.value = set;
     });
-  helpGuide.value?.open(section);
+  helpGuide.value?.open(section, topic);
 }
 bridge.openHelp = openHelp;
 
@@ -442,7 +442,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="state.leaving"
           @click="onEjectGame('abandonHistory')"
         >
-          Leave without this session's timeline
+          Leave anyway
         </UiButton>
         <UiButton variant="primary" size="sm" data-testid="eject-stay" @click="historyExit = false">
           Stay
@@ -476,12 +476,7 @@ async function onRecordSave(): Promise<void> {
         <UiButton size="sm" data-testid="history-new-timeline" @click="confirmNewTimeline = true">
           Start a new timeline
         </UiButton>
-        <UiButton
-          size="sm"
-          variant="ghost"
-          data-testid="history-old-download"
-          @click="onDownloadOldTimeline"
-        >
+        <UiButton size="sm" variant="ghost" @click="onDownloadOldTimeline">
           Download the old timeline
         </UiButton>
       </template>

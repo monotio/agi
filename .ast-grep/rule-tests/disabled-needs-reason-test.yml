@@ -1,0 +1,13 @@
+id: disabled-needs-reason
+valid:
+  - '<UiButton :disabled="!built" :title="built ? undefined : ''Build the room first''">Open</UiButton>'
+  - '<button :disabled="!fits" :aria-describedby="fits ? undefined : ''too-small''">Open</button>'
+  - '<UiButton :disabled="state.busy">Send</UiButton>'
+  - '<UiButton :disabled="saving || leaving">Keep</UiButton>'
+  - '<UiButton @click="open">Open</UiButton>'
+  - '<UiChip :disabled="!built">Open</UiChip>'
+invalid:
+  - '<UiButton :disabled="!built" @click="open">Open</UiButton>'
+  - '<UiIconButton icon="pencil" label="Edit" :disabled="studioOpen" />'
+  - "<button disabled>Open</button>"
+  - '<button :disabled="!fits" aria-label="Open">Open</button>'

@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, useTemplateRef } from "vue";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
+import UiButton from "../ui/UiButton.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
 import { depthValuesLocked, lockedPlanes, PLANE_NAMES, type LensUnlocks } from "./studioLocks.ts";
+import { explain } from "./studioTerms.ts";
 import { DEFAULT_BAND, type CurrentValues } from "./studioTools.ts";
 import { CONTROL_VALUES, patternOn, priorityMeaning, type StudioLens } from "./studioView.ts";
 
 /**
- * The values new content draws with, under the tool rail: a colour swatch
- * and a priority swatch, each opening its picker. A plane the lens locks
- * shows as locked; the Walk lens picks among the four control lines, the
- * Depth lens can follow the band under the cursor.
+ * The values new shapes draw with, under the tool rail: an Art swatch and a
+ * Depth swatch, each named under it and opening its picker. A plane the lens
+ * locks says so, with Unlock for now; the Walk lens picks among the four walk
+ * lines, the Depth lens can match the band under the cursor. The picker opens to the
+ * rail's left, over the Scene list and away from the picture, when that
+ * column has room for it (focus mode hides it: then it opens to the right).
  */
 const {
   lens,
@@ -24,32 +29,49 @@ const {
   values: CurrentValues;
   cursorY?: number | undefined;
 }>();
-const emit = defineEmits<{ values: [patch: Partial<CurrentValues>] }>();
+const emit = defineEmits<{
+  values: [patch: Partial<CurrentValues>];
+  unlocks: [next: LensUnlocks];
+}>();
 
 const open = ref<"visual" | "priority">();
 const locked = computed(() => lockedPlanes(lens, unlocks));
-const LENS_NAMES: Record<StudioLens, string> = { art: "Art", depth: "Depth", walk: "Walk" };
 const lockNote = (plane: "visual" | "priority"): string =>
-  `${PLANE_NAMES[plane]} is locked in the ${LENS_NAMES[lens]} lens.`;
-/** Walk offers control lines only while depth values are locked there. */
+  `${PLANE_NAMES[plane]} is locked. New shapes leave it as it is.`;
+function unlock(plane: "visual" | "priority"): void {
+  emit("unlocks", { ...unlocks, [plane]: true });
+  open.value = undefined;
+}
+/** Walk offers walk lines only while depth values are locked there. */
 const controlsOnly = computed(() => depthValuesLocked(lens, unlocks));
 
 const band = computed(() => (cursorY === undefined ? DEFAULT_BAND : priorityForY(cursorY)));
 const priorityShown = computed(() => (values.priority === "band" ? band.value : values.priority));
 const visualText = computed(() =>
-  values.visual === null
-    ? "Colour off"
-    : `Colour ${values.visual}, ${EGA_COLOUR_NAMES[values.visual]}`,
+  values.visual === null ? "Art off" : `Art ${values.visual}, ${EGA_COLOUR_NAMES[values.visual]}`,
 );
 const priorityText = computed(() => {
   const value = priorityShown.value;
-  if (value === null) return "Priority off";
-  const meaning = `Priority ${value}, ${priorityMeaning(value)}`;
+  if (value === null) return "Depth off";
+  const meaning = `Depth ${value}, ${priorityMeaning(value)}`;
   return values.priority === "band" ? `${meaning} (the band under the cursor)` : meaning;
 });
 
+/** The picker's narrowest and widest, in CSS pixels (17rem). */
+const POP_MIN = 180;
+const POP_MAX = 272;
+/** The gap between the picker and the rail, and the picker and the window's edge. */
+const POP_GAP = 12;
+const root = useTemplateRef("root");
+/** Where the picker opens: over the Scene list when it fits there, with its width. */
+const side = ref<{ left: boolean; width: number }>({ left: false, width: POP_MAX });
 function toggle(plane: "visual" | "priority"): void {
   open.value = open.value === plane ? undefined : plane;
+  const room = (root.value?.getBoundingClientRect().left ?? 0) - 2 * POP_GAP;
+  side.value =
+    room >= POP_MIN
+      ? { left: true, width: Math.min(POP_MAX, room) }
+      : { left: false, width: POP_MAX };
 }
 function pick(patch: Partial<CurrentValues>): void {
   emit("values", patch);
@@ -58,13 +80,18 @@ function pick(patch: Partial<CurrentValues>): void {
 </script>
 
 <template>
-  <div class="values" data-testid="studio-current-values" @keydown.esc.stop="open = undefined">
+  <div
+    ref="root"
+    class="values"
+    data-testid="studio-current-values"
+    @keydown.esc.stop="open = undefined"
+  >
     <button
       type="button"
       class="values__swatch"
       :class="{ 'is-off': values.visual === null, 'is-open': open === 'visual' }"
       :style="values.visual === null ? undefined : { background: `var(--agi-${values.visual})` }"
-      :aria-label="`New content: ${visualText}. Change`"
+      :aria-label="`New shapes: ${visualText}. Change`"
       :aria-expanded="open === 'visual'"
       :title="visualText"
       data-testid="studio-value-visual"
@@ -73,40 +100,45 @@ function pick(patch: Partial<CurrentValues>): void {
     >
       <span v-if="values.visual === null">off</span>
     </button>
+    <span class="values__name" aria-hidden="true">Art</span>
     <button
       type="button"
       class="values__swatch values__swatch--priority"
       :class="{ 'is-off': priorityShown === null, 'is-open': open === 'priority' }"
-      :aria-label="`New content: ${priorityText}. Change`"
+      :aria-label="`New shapes: ${priorityText}. Change`"
       :aria-expanded="open === 'priority'"
       :title="priorityText"
       data-testid="studio-value-priority"
       :data-value="values.priority ?? 'off'"
       @click="toggle('priority')"
     >
-      {{ priorityShown ?? "off" }}<small v-if="values.priority === 'band'">band</small>
+      {{ priorityShown ?? "off" }}<small v-if="values.priority === 'band'">here</small>
     </button>
+    <span class="values__name" aria-hidden="true">Depth</span>
 
     <div
       v-if="open"
       class="values__pop"
+      :class="{ 'is-left': side.left }"
+      :style="{ width: `${side.width}px` }"
       role="dialog"
-      :aria-label="open === 'visual' ? 'Colour for new content' : 'Priority for new content'"
+      :aria-label="open === 'visual' ? 'Art for new shapes' : 'Depth for new shapes'"
     >
-      <p class="values__title">{{ open === "visual" ? "Colour" : "Priority" }} for new content</p>
-      <p v-if="locked.includes(open)" class="values__note">
-        {{ lockNote(open) }} New content leaves it off; unlock it in the Scene list to draw on it.
-      </p>
+      <p class="values__title">{{ open === "visual" ? "Art" : "Depth" }} for new shapes</p>
+      <template v-if="locked.includes(open)">
+        <p class="values__note">{{ lockNote(open) }}</p>
+        <UiButton size="sm" @click="unlock(open)">Unlock for now</UiButton>
+      </template>
       <template v-else-if="open === 'visual'">
         <StudioValuePicker
           plane="visual"
-          label="Colour for new content"
+          label="Art for new shapes"
           :value="values.visual"
           @pick="pick({ visual: $event })"
         />
       </template>
       <template v-else-if="controlsOnly">
-        <div class="values__controls" role="radiogroup" aria-label="Control line for new content">
+        <div class="values__controls" role="radiogroup" aria-label="Walk line for new shapes">
           <button
             v-for="control in CONTROL_VALUES"
             :key="control.value"
@@ -134,23 +166,27 @@ function pick(patch: Partial<CurrentValues>): void {
             <span>{{ control.value }} · {{ control.name }}</span>
           </button>
         </div>
-        <p class="values__note">Depth values 4–15 are locked in the Walk lens.</p>
+        <p class="values__note values__with">
+          Walk lines 0–3 only <UiExplain v-bind="explain('walk-lines')" />
+        </p>
       </template>
       <template v-else>
-        <button
-          v-if="lens === 'depth'"
-          type="button"
-          role="radio"
-          class="values__control"
-          :aria-checked="values.priority === 'band'"
-          data-value="band"
-          @click="pick({ priority: 'band' })"
-        >
-          <span>Band under the cursor · now {{ band }}</span>
-        </button>
+        <span v-if="lens === 'depth'" class="values__with">
+          <button
+            type="button"
+            role="radio"
+            class="values__control"
+            :aria-checked="values.priority === 'band'"
+            data-value="band"
+            @click="pick({ priority: 'band' })"
+          >
+            <span>Match the band here · {{ band }}</span>
+          </button>
+          <UiExplain v-bind="explain('bands')" />
+        </span>
         <StudioValuePicker
           plane="priority"
-          label="Priority for new content"
+          label="Depth for new shapes"
           :value="values.priority === 'band' ? undefined : values.priority"
           @pick="pick({ priority: $event })"
         />
@@ -180,6 +216,22 @@ function pick(patch: Partial<CurrentValues>): void {
   font: var(--weight-semibold) var(--text-2xs) / 1 var(--font-mono);
   cursor: pointer;
 }
+.values__name {
+  margin-bottom: var(--space-1);
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+}
+/* A very short window keeps the rail's room for its tools: the swatches name themselves on hover. */
+@media (max-height: 540px) {
+  .values__name {
+    display: none;
+  }
+}
+.values__with {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
 .values__swatch small {
   font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
@@ -201,12 +253,15 @@ function pick(patch: Partial<CurrentValues>): void {
   z-index: var(--z-popover);
   display: grid;
   gap: var(--space-2);
-  width: 17rem;
   padding: var(--space-3);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
   box-shadow: var(--shadow-pop);
+}
+.values__pop.is-left {
+  right: calc(100% + var(--space-3));
+  left: auto;
 }
 .values__title {
   margin: 0;

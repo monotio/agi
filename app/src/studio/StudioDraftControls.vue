@@ -2,8 +2,10 @@
 import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { explain } from "./studioTerms.ts";
 import { changeCount } from "./useStudioDraft.ts";
 
 /** Where the draft stands, for the status chip. */
@@ -50,6 +52,9 @@ const chip = computed(() =>
     ? { tone: "action" as const, text: changeCount(changes, notesOnly) }
     : STATUS[status],
 );
+/** Why undo or redo is off, on its tooltip. */
+const historyBlocked = (which: "undo" | "redo"): string =>
+  status === "reload" ? "Reload the game to edit" : `Nothing to ${which}`;
 </script>
 
 <template>
@@ -59,6 +64,7 @@ const chip = computed(() =>
     shortcut="⌘Z"
     size="sm"
     :disabled="!canUndo"
+    :title="canUndo ? 'Undo (⌘Z)' : historyBlocked('undo')"
     data-testid="studio-undo"
     @click="emit('undo')"
   />
@@ -68,16 +74,19 @@ const chip = computed(() =>
     shortcut="⇧⌘Z"
     size="sm"
     :disabled="!canRedo"
+    :title="canRedo ? 'Redo (⇧⌘Z)' : historyBlocked('redo')"
     data-testid="studio-redo"
     @click="emit('redo')"
   />
   <UiChip :tone="chip.tone" dot data-testid="studio-draft-status" :data-status="status">
     <UiIcon v-if="status === 'view-only'" name="lock" :size="12" />{{ chip.text }}
+    <UiExplain v-if="status === 'view-only'" v-bind="explain('view-only')" />
   </UiChip>
   <UiButton
     variant="ghost"
     size="sm"
     :disabled="changes === 0 || status === 'keeping'"
+    :title="status === 'keeping' ? 'Keeping the changes' : changes === 0 ? 'No changes' : undefined"
     data-testid="studio-discard"
     @click="emit('discard')"
   >
@@ -87,7 +96,7 @@ const chip = computed(() =>
     variant="primary"
     size="sm"
     :disabled="!canKeep"
-    :title="keepTitle"
+    :title="keepTitle ?? 'Keep saves your changes into the game'"
     data-testid="studio-keep"
     @click="emit('keep')"
   >
@@ -95,8 +104,7 @@ const chip = computed(() =>
   </UiButton>
   <UiIconButton
     icon="x"
-    label="Close studio"
-    shortcut="Esc"
+    label="Close"
     size="sm"
     data-testid="studio-close"
     @click="emit('close')"

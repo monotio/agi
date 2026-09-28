@@ -107,7 +107,7 @@ export function walkDoors(
     // A native rule's exit is listed with its rule above.
     if (doors.some((door) => !door.editable && door.contract === contract)) continue;
     n++;
-    const where = contract.edge ? `the ${EDGE_NAMES[contract.edge]} edge` : "a command or script";
+    const where = contract.edge ? `the ${EDGE_NAMES[contract.edge]} edge` : "the room's script";
     doors.push({
       id: `native-${n}`,
       shape: contract.edge ? "edge" : "other",
@@ -170,11 +170,11 @@ export function doorStatus(
     ? `Tested ✓ ${walked ? "(test walk)" : `(${contract!.testedBy.join(", ")})`}`
     : "Not tested yet";
   if (!contract || !contract.compiled)
-    return { wayBack: "Not in the room's logic until you Keep", tested, testedOk };
+    return { wayBack: "Written into the room when you Keep", tested, testedOk };
   if (contract.wayBack.length === 0)
     return { wayBack: "One way: nothing there leads back", tested, testedOk };
   const ways = contract.wayBack
-    .map((edge) => (edge === null ? "a door or a command" : `the ${EDGE_NAMES[edge]} edge`))
+    .map((edge) => (edge === null ? "a door or the script" : `the ${EDGE_NAMES[edge]} edge`))
     .filter((text, i, all) => all.indexOf(text) === i);
   const list = ways.length > 1 ? `${ways.slice(0, -1).join(", ")} or ${ways.at(-1)}` : ways[0]!;
   return { wayBack: `Way back from there: ${list}`, tested, testedOk };
@@ -384,12 +384,12 @@ export function doorTestNote(
   if (testedOk) return null;
   if (miss) return miss;
   if (door.shape === "other")
-    return "A test walk can't take an exit made by a command or script: play the game to test it.";
+    return "Exits made by the room's script run in play: play the game to test this one.";
   return "To test it: set a start with the test walk tool (T), then click this door as the goal.";
 }
 
 /** The test walk's state switch: what it really carries into the throwaway game. */
-export const WALK_STATE_LABEL = "Start with my current flags and variables";
+export const WALK_STATE_LABEL = "Use my game state";
 
 /** The result card's line on the state a walk ran with. */
 export function walkStateText(state: "live" | "fresh"): string {

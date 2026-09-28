@@ -50,11 +50,11 @@ export function patternOn(pattern: ControlValue["pattern"], x: number, y: number
 
 /** Each pane's accessible name. */
 export const PANE_LABELS: Record<PaneLayer, string> = {
-  art: "Picture, visual plane",
-  depth: "Picture with the priority plane blended over it",
-  "depth-only": "Priority plane",
-  walk: "Picture dimmed, with control lines",
-  "walk-only": "Control lines on the priority plane",
+  art: "Picture",
+  depth: "Picture with its depth blended over it",
+  "depth-only": "Depth",
+  walk: "Picture dimmed, with its walk lines",
+  "walk-only": "Walk lines",
 };
 
 /** The subtitle's parts that add something beyond the title and the PIC chip. */
@@ -172,6 +172,21 @@ export function maskBox(mask: Uint8Array): MaskBox | null {
     if (y > maxY) maxY = y;
   }
   return maxX < 0 ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+
+/** Whether `mask` has a set cell and every one lies inside `box` (inclusive): a marquee's catch. */
+export function insideBox(
+  mask: Uint8Array,
+  box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number },
+): boolean {
+  const b = maskBox(mask);
+  return (
+    b !== null &&
+    b.x >= box.x1 &&
+    b.y >= box.y1 &&
+    b.x + b.width - 1 <= box.x2 &&
+    b.y + b.height - 1 <= box.y2
+  );
 }
 
 const cell = (mask: Uint8Array, x: number, y: number): boolean =>
@@ -389,16 +404,16 @@ export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number
 export interface PictureSize {
   /** "1,148 bytes" */
   readonly bytes: string;
-  /** "219 drawing commands" */
+  /** "219 steps" */
   readonly commands: string;
-  /** "1,148 bytes · 219 drawing commands" */
+  /** "1,148 bytes · 219 steps" */
   readonly full: string;
 }
 
 export function pictureSize(bytes: number, commands: number): PictureSize {
   const n = (value: number): string => value.toLocaleString("en-US");
   const size = `${n(bytes)} ${bytes === 1 ? "byte" : "bytes"}`;
-  const drawing = `${n(commands)} drawing ${commands === 1 ? "command" : "commands"}`;
+  const drawing = `${n(commands)} ${commands === 1 ? "step" : "steps"}`;
   return { bytes: size, commands: drawing, full: `${size} · ${drawing}` };
 }
 

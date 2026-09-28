@@ -29,17 +29,13 @@ function refusal(op: EditOperation): [technical: string, plain: string] {
 }
 
 describe("plainKernelRefusal", () => {
-  it("says which way a move would leave the picture, without coordinates", () => {
+  it("says a move would leave the picture, without coordinates", () => {
     const [technical, plain] = refusal({ type: "moveItem", itemId: "edge", dx: 0, dy: -1 });
     assert.match(technical, /moving by 0,-1 puts line 3 off the surface at 0,-1/);
-    assert.equal(plain, "Can't move it further up — it would leave the picture.");
-    assert.equal(
-      refusal({ type: "moveItem", itemId: "edge", dx: -1, dy: 0 })[1],
-      "Can't move it further left — it would leave the picture.",
-    );
+    assert.equal(plain, "The picture ends there.");
     assert.equal(
       refusal({ type: "moveItem", itemId: "edge", dx: -1, dy: -1 })[1],
-      "Can't move it there — it would leave the picture.",
+      "The picture ends there.",
     );
     assert.equal(
       refusal({
@@ -50,14 +46,14 @@ describe("plainKernelRefusal", () => {
         newId: "copy",
         newLabel: "Copy",
       })[1],
-      "The copy can't go there — it would leave the picture.",
+      "The copy would leave the picture.",
     );
   });
 
   it("words points, short-step lines and locked objects plainly", () => {
     assert.equal(
       refusal({ type: "setPoint", line: 3, pointIndex: 0, x: -2, y: 0 })[1],
-      "Can't put the point there — it would leave the picture.",
+      "The point would leave the picture.",
     );
     const [technical, plain] = refusal({ type: "setPoint", line: 6, pointIndex: 1, x: 90, y: 80 });
     assert.match(technical, /rel delta 1 would be 10,0, outside -7\.\.7/);
@@ -83,14 +79,14 @@ describe("insertionText", () => {
   it("names the step new shapes follow, in 1-based steps", () => {
     assert.equal(
       insertionText(7, 303),
-      "New shapes are drawn after step 7 of 303 (use the draw order to change where).",
+      "New shapes go after step 7 of 303; the steps after them paint over them.",
     );
     assert.equal(
       insertionText(0, 12),
-      "New shapes are drawn first, before step 1 of 12 (use the draw order to change where).",
+      "New shapes go first, before step 1 of 12; the steps after them paint over them.",
     );
-    assert.equal(insertionText(12, 12), "New shapes are drawn last, after step 12.");
-    assert.equal(insertionText(0, 0), "New shapes are drawn first.");
+    assert.equal(insertionText(12, 12), "New shapes go last, after step 12, on top of everything.");
+    assert.equal(insertionText(0, 0), "New shapes are the first steps.");
   });
 });
 
@@ -105,5 +101,32 @@ describe("kernelDetail", () => {
     );
     // An id the document lacks stays as it was.
     assert.equal(kernelDetail("no item 'gone'", document), "no item 'gone'");
+  });
+});
+
+describe("plainKernelRefusal of Group and Ungroup", () => {
+  const combine = (itemIds: string[]): EditOperation => ({
+    type: "combineItems",
+    itemIds,
+    id: "group",
+    label: "Group",
+  });
+  it("asks for neighbours, and for two items", () => {
+    assert.equal(
+      refusal(combine(["edge", "held"]))[1],
+      "Group takes neighbours in the draw order. Include the items between them.",
+    );
+    assert.equal(refusal(combine(["edge"]))[1], "Select two items or more to group.");
+    const [technical] = refusal(combine(["edge", "held"]));
+    assert.equal(
+      kernelDetail(technical, document),
+      '"Edge" and "Held" are not next to each other in the draw order: "Step" is drawn between them',
+    );
+  });
+  it("says an item of one drawing element has no parts", () => {
+    assert.equal(
+      refusal({ type: "ungroupItem", itemId: "edge" })[1],
+      "This item is one drawing element: it has no parts to ungroup.",
+    );
   });
 });

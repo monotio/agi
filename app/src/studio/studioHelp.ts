@@ -16,7 +16,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   polygon: "Polygon",
   fill: "Fill",
   brush: "Brush",
-  pipette: "Pick colour",
+  pipette: "Pipette",
   hand: "Hand",
   walk: "Test walk",
   door: "Door box",
@@ -25,16 +25,16 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
 
 /** The status bar's one line for the active Room Studio tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
-  select: "Click an item to select it · drag to move · ⌥-click adds a point",
+  select: "Click an item · ⇧-click adds one · drag moves · ⌥-click adds a point",
   point: "Drag a point's handle · the item itself stays put",
   line: "Click points · Enter or double-click finishes",
   rect: "Drag a rectangle · Shift keeps it square",
   polygon: "Click points · click the first point or Enter closes",
-  fill: "Click a seed · colour floods white (15), priority floods 4",
+  fill: "Click where the fill starts · it spreads over white",
   brush: "Drag to place plot points, one per pixel",
-  pipette: "Click to pick the colour and priority under the cursor",
+  pipette: "Click to pick the colour and depth under the cursor",
   hand: "Drag to pan · Space pans with any tool",
-  walk: "Click a start (or a door), then a goal: the game walks it",
+  walk: "Click a start, then a goal · the game walks it",
   door: "Drag a door box on the floor",
   edge: "Click near an edge: walking off it changes room",
 };
@@ -42,8 +42,12 @@ export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
 /** While a line or polygon has points, the status line says how to take them back. */
 export const ROOM_PATH_HINT = "Backspace removes a point · Esc cancels";
 
-/** With an item selected under Select: the editing keys. */
-export const ROOM_EDIT_HINT = "Arrows nudge 1 px (⇧ 8) · ⌥+arrows next item · [ ] draw order";
+/** With an item (or several) selected under Select: the editing keys. */
+export const ROOM_EDIT_HINT = "Arrows nudge (⇧ 8 px) · ⌥ arrows next item · [ ] order";
+
+/** With several items selected: how they move, at the foot of the inspector. */
+export const ROOM_GROUP_HINT =
+  "Drag or arrows move them together (⇧ 8 px) · [ ] reorder one at a time";
 
 export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
   pencil: "Pencil",
@@ -52,13 +56,13 @@ export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
   line: "Line",
   rect: "Rectangle",
   select: "Select",
-  pipette: "Pick colour",
+  pipette: "Pipette",
   recolor: "Recolour",
 };
 
 export const SPRITE_TOOL_HINTS: Record<SpriteTool, string> = {
-  pencil: "Drag to paint · Space puts the pen down at the cursor",
-  eraser: "Drag to erase to transparency",
+  pencil: "Drag to paint · Space: pen down at the cursor",
+  eraser: "Drag to paint ∅ transparent",
   fill: "Click to flood the area under the cursor",
   line: "Drag a line, or Space at each end",
   rect: "Drag a rectangle, or Space at each corner",
@@ -82,7 +86,7 @@ const ROOM_CLICK: Partial<Record<StudioTool, string>> = {
   line: "adds a point; on the last point, finishes",
   polygon: "adds a point; on the last point, closes",
   rect: "starts; arrows size it; again finishes",
-  fill: "places the seed",
+  fill: "fills from there",
   brush: "puts the pen down or lifts it",
   pipette: "picks",
   walk: "sets the start, then the goal",
@@ -99,9 +103,9 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: ["V"], does: "Select and move" },
         { keys: ["A"], does: "Points only" },
         { keys: ["L", "R", "P"], does: "Line, rectangle, polygon" },
-        { keys: ["F", "B", "I"], does: "Fill, brush, pick colour" },
+        { keys: ["F", "B", "I"], does: "Fill, brush, pipette" },
         { keys: ["T", "D", "E"], does: "Test walk, door box, edge exit (Walk lens)" },
-        { keys: ["G"], does: "Actor probe" },
+        { keys: ["G"], does: "Ghost" },
         { keys: ["H"], does: "Hand; hold Space to pan with any tool" },
       ],
     },
@@ -115,11 +119,14 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
               { keys: ["Backspace"], does: "Remove the last point" },
             ]
           : [
-              { keys: ["←↑→↓"], does: "Nudge the selected item 1 px (⇧ 8 px)" },
+              { keys: ["←↑→↓"], does: "Nudge the selection 1 px (⇧ 8 px)" },
               { keys: ["⌥ ←↑→↓"], does: "Previous or next item" },
+              { keys: ["⇧ ⌥ ←↑→↓"], does: "Add the previous or next item to the selection" },
+              { keys: ["⇧ click"], does: "Add an item to the selection, or take it away" },
+              { keys: ["⇧ drag"], does: "Select the items inside a box" },
               { keys: ["⌥ click", "Insert"], does: "Add a point to the selected line" },
             ]),
-        { keys: ["Esc"], does: "Let go of one thing per press, then leave Studio" },
+        { keys: ["Esc"], does: "Cancel one thing per press" },
         { keys: ["⌘ \\"], does: "Hide or show the side panels (focus mode)" },
         { keys: ["Menu", "⇧ F10"], does: "Canvas menu: Play here, test walks" },
       ],
@@ -127,11 +134,13 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
     {
       title: "Edit",
       rows: [
-        { keys: ["Delete"], does: "Delete the selected item" },
-        { keys: ["⌘ D"], does: "Duplicate" },
-        { keys: ["[", "]"], does: "Move back or forward in draw order" },
+        { keys: ["Delete"], does: "Delete the selection" },
+        { keys: ["⌘ D"], does: "Duplicate the selection" },
+        { keys: ["⌘ G"], does: "Group the selected items" },
+        { keys: ["⇧ ⌘ G"], does: "Ungroup the selected group" },
+        { keys: ["[", "]"], does: "Move one item back or forward in draw order" },
         { keys: ["⌘ Z", "⇧ ⌘ Z"], does: "Undo, redo" },
-        { keys: ["/"], does: "Ask about this selection" },
+        { keys: ["/"], does: "Ask about the selection" },
       ],
     },
     {
@@ -154,7 +163,7 @@ export function spriteKeySheet(): KeySection[] {
       rows: [
         { keys: ["B", "E", "G"], does: "Pencil, eraser, fill" },
         { keys: ["L", "R"], does: "Line, rectangle" },
-        { keys: ["M", "I"], does: "Select, pick colour" },
+        { keys: ["M", "I"], does: "Select, pipette" },
         { keys: ["C"], does: "Recolour" },
         { keys: ["H"], does: "Flip the selection, else the cel" },
       ],
@@ -165,10 +174,10 @@ export function spriteKeySheet(): KeySection[] {
         { keys: ["←↑→↓"], does: "Move the cursor (⇧ 8 px), or the selection (⌥ copies)" },
         {
           keys: ["Space", "Enter"],
-          does: "Click at the cursor: pen down and up, a corner, a seed",
+          does: "Click at the cursor: pen down and up, a corner, where a fill starts",
         },
         { keys: ["Delete"], does: "Clear the selection" },
-        { keys: ["Esc"], does: "Cancel, drop the selection, close a panel, then leave" },
+        { keys: ["Esc"], does: "Cancel, drop the selection or close a panel" },
       ],
     },
     {
@@ -178,7 +187,7 @@ export function spriteKeySheet(): KeySection[] {
         { keys: ["<", ">"], does: "Previous or next loop" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },
         { keys: ["⌘ Z", "⇧ ⌘ Z"], does: "Undo, redo" },
-        { keys: ["/"], does: "Ask about this selection" },
+        { keys: ["/"], does: "Ask about the cel or loop" },
         { keys: ["?"], does: "This list" },
       ],
     },

@@ -21,15 +21,14 @@ npm run dev
 ```
 
 The app opens at `http://localhost:5199/`. Without an AI key,
-`npm --prefix app run dev -- --mode test --port 5199` runs the same app with
-the offline stub provider the browser tests use; add `-- --port N` to the app
-script, not the root one, to choose another port. The repository has two package
-roots: the root holds the engine, tests and scripts, and `app/` the Vue shell.
-A third, `evals/`, holds the evaluation runners; its own package adds only
-promptfoo, which the live comparisons need (`npm --prefix evals install`).
-After switching branches or pulling dependency updates, run `npm ci` in both;
-`npm run check` verifies installed dependencies against both manifests before
-it tests anything.
+`npm --prefix app run dev -- --mode test --port 5199` runs the same app with the
+offline stub provider the browser tests use; to choose another port, pass
+`-- --port N` to this app script. The repository has two package roots: the root
+holds the engine, tests and scripts, and `app/` the Vue shell. A third,
+`evals/`, holds the evaluation runners; its own package adds only promptfoo,
+which the live comparisons need (`npm --prefix evals install`). After switching
+branches or pulling dependency updates, run `npm ci` in both; `npm run check`
+verifies installed dependencies against both manifests before it tests anything.
 
 For browser tests, install Chromium once with
 `npm --prefix app exec -- playwright install chromium`, and WebKit too for the
@@ -56,19 +55,21 @@ server is already running, give the browser tests their own port:
 | `npm run media:capture`                                      | Recapture the README and `docs/media` images from the real app and agent tools; on demand, stub provider                                                          |
 
 The full gate takes a few minutes. Playwright runs Vite in `test` mode with a
-deterministic stub provider, so browser tests never call a paid provider. Live
-model evaluations are described in [evals](evals/README.md).
+deterministic stub provider, so browser tests run offline at no cost. Live
+model evaluations are described in [evals](evals/README.md). A paid run takes
+both `--live` and `--budget-usd` on the command line (`EVAL_LIVE=1` and a budget
+variable for the promptfoo lanes).
 
-`npm run check:bundle` — run after `npm run build`, and failing in CI — fails
-when the compressed JavaScript, CSS or workers loaded before a game's first
-frame outgrow their budgets, or when Studio code or the AI authoring stack
-(loaded on the first AI action through `app/src/agent/authoringLoader.ts`)
-joins that path, and `app/e2e/perf-budgets.spec.ts` bounds boot long tasks
-and Studio frame and input times. Its tests are tagged `@perf`: `npm --prefix
-app run e2e` leaves them out, and `npm --prefix app run e2e:perf` runs them
-alone on one worker, since a machine busy with other tests is not the
-machine they measure. Change a budget only on purpose: edit it
-beside its measured value and give the reason in the commit.
+`npm run check:bundle` runs after `npm run build` and fails, in CI too, when the
+compressed JavaScript, CSS or workers loaded before a game's first frame outgrow
+their budgets, or when Studio code or the AI authoring stack (loaded on the
+first AI action through `app/src/agent/authoringLoader.ts`) joins that path, and
+`app/e2e/perf-budgets.spec.ts` bounds boot long tasks and Studio frame and input
+times. Its tests are tagged `@perf`: `npm --prefix app run e2e` leaves them out,
+and `npm --prefix app run e2e:perf` runs them alone on one worker, so no other
+test shares the machine they measure; CI runs them after the first of its four
+Chromium shards. Change a budget only on purpose: edit it beside its measured
+value and give the reason in the commit.
 
 ### Editor setup
 
@@ -133,8 +134,8 @@ each folder holds one responsibility:
 
 Three boundaries carry every feature. The Vue shell on the main thread owns the
 page; the engine worker owns the interpreter and its clock; the engine in
-`src/` is plain TypeScript with no platform access. The AI authoring stack is
-not on that path at all: `authoringLoader.ts` imports it on the first AI action.
+`src/` is plain TypeScript with no platform access. The AI authoring stack
+loads on demand: `authoringLoader.ts` imports it on the first AI action.
 
 ```mermaid
 flowchart LR
@@ -194,14 +195,14 @@ flowchart LR
 
 **A Room Studio edit becomes bytes**
 
-1. `useStudioDocument.ts` opens the picture as annotated source (`src/studio/pictureDocument.ts`): items are comment blocks, so annotations never change the bytes.
+1. `useStudioDocument.ts` opens the picture as annotated source (`src/studio/pictureDocument.ts`): items are comment blocks, so annotations leave the bytes unchanged.
 2. A gesture on `StudioCanvas.vue` reaches `useStudioInput.ts` and then `useStudioDrag.ts`, `useStudioEditing.ts` or `useStudioTools.ts`.
-3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source.
+3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source; several selected items take a batch (`applyEdits`), checked and undone as one edit.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
 5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`).
 6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `project/resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `project/projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`project/gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
 
-**Where authority lives.** Each of these is a check in code, not a prompt:
+**Where authority lives.** Each of these is a check in code:
 
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
@@ -252,12 +253,12 @@ selected interpreter profile.
 When a game depends on behavior the specification leaves open, or builds
 disagree, the original interpreter is the reference.
 [Interpreter compatibility](docs/fidelity.md) collects what is known and how it
-was established; its appendices describe the tooling for inventorying,
-decoding, disassembling and probing an interpreter you supply locally. Record a
-new finding there with its build, binary hash, addresses and conclusion, label
-facts and inferences, and cite the entry's heading from code comments instead of
-repeating offsets. Keep decoded binaries and disassembly with your local
-fixtures; they are never committed.
+was established; its appendices describe the tooling for inventorying, decoding,
+disassembling and probing an interpreter you supply locally. Record a new
+finding there with its build, binary hash, addresses and conclusion, label facts
+and inferences, and cite the entry's heading from code comments; the offsets
+stay in the entry. Keep decoded binaries and disassembly with your local
+fixtures, outside the repository.
 
 ## Tests
 
@@ -295,5 +296,4 @@ Describe the player-visible result or developer capability, then how you
 validated it. Include the interpreter profile for compatibility changes. Update
 the public docs when behavior changes, and credit any external specification or
 asset. Contribute only code and assets you have the right to distribute under
-the project's license; commercial game data belongs in local fixtures, never in
-a contribution.
+the project's license; commercial game data belongs in local fixtures.

@@ -366,7 +366,7 @@ function rowPlane(row: Pick<SceneRow, "kind">, lens: StudioLens): PicturePlane {
 }
 
 /** The plane the canvas is read from under `lens`, and the fallback. */
-export function lensPlanes(lens: StudioLens): readonly [PicturePlane, PicturePlane] {
+function lensPlanes(lens: StudioLens): readonly [PicturePlane, PicturePlane] {
   return lens === "art" ? ["visual", "priority"] : ["priority", "visual"];
 }
 

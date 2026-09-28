@@ -35,7 +35,7 @@ npm run check                                 # the gate: dep check, typecheck (
 npm test && npm run test:app                  # node:test under --experimental-strip-types
 node --test --experimental-strip-types test/<file>.test.ts   # one engine test file
 npm run test:e2e                              # Playwright on its own `vite --mode test` server
-npm --prefix app run e2e:perf                # timing budgets, alone on one worker
+npm --prefix app run e2e:perf                 # timing budgets, alone on one worker
 npm --prefix app run e2e -- e2e/<file>.spec.ts               # one spec
 npm --prefix app run e2e:webkit-desktop                      # desktop Studio scenarios tagged @webkit-desktop, in WebKit
 npm run lint:ast                              # ast-grep structural rules and suppression check (part of check)
@@ -71,6 +71,9 @@ only for released formats and keep their original fixtures.
   `app/test/game-library.test.ts`) and profile ids (pinned in
   `test/profile.test.ts`). Hashes and canonical serializations order by code
   point, never by locale.
+
+Releases flow through `release/X.Y` and reach `main`, which deploys, only by
+pull request (docs/hosting.md, "Release branches").
 
 Local release plans stay uncommitted and must not be referenced by committed
 code, comments or documentation.
@@ -146,6 +149,9 @@ code, comments or documentation.
   non-string keys. No one-expression wrapper functions unless the name is a public
   contract.
 - Renderer and bytecode expectations are hand-computed, never snapshot-then-trust.
+- UI copy says plainly what a thing is or does. Headings and labels name it in one
+  or two calm words; body text is brief and positive. The `plain-copy-*` ast-grep
+  rules flag definitions by negation and dash asides.
 
 ## Method
 

@@ -1,20 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiPanel from "../ui/UiPanel.vue";
+import { explain } from "./studioTerms.ts";
 import { labelParts, type LabelParts } from "./studioView.ts";
 import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./useStudioDocument.ts";
 
 /**
  * The Scene list: a tree of items in draw order (automatic groups of
  * consecutive look-alike items, then their members; a long list first folds
- * into draw-order sections), then the loose lines as Unassigned. Arrow keys
+ * into draw-order sections), then the loose steps under Loose. Arrow keys
  * move a cursor that also hovers (so the canvas highlights it), Right and Left
- * open and close a section or group, Enter selects. The filter narrows to a
+ * open and close a section or group, Enter selects; Shift+click or
+ * Shift+Enter adds a row's items to the selection or takes them away, and a
+ * group row selects all its members. The filter narrows to a
  * flat list of matching items. A label too long for the column ellipsizes in
  * its middle, so the numbers that tell rows apart stay (studioView.ts
- * `labelParts`); the whole label is its tooltip.
+ * `labelParts`); the whole label is its tooltip. The footer counts the
+ * items and, with two or more selected, offers Group.
  */
 const {
   branches,
@@ -22,8 +27,9 @@ const {
   matches,
   loose,
   hoveredId,
-  selectedId,
+  selectedIds,
   quietTag = undefined,
+  groupable = false,
 } = defineProps<{
   branches: readonly SceneBranch[];
   /** Draw-order sections over `branches`; empty for a short list. */
@@ -33,11 +39,19 @@ const {
   /** The Unassigned row, when there are loose lines (and it matches the filter). */
   loose: SceneRow | undefined;
   hoveredId: string | undefined;
-  selectedId: string | undefined;
+  /** The selected rows: one item or group, or several items. */
+  selectedIds: readonly string[];
   /** A tag that says nothing in this lens (`art` in the Art lens): rows leave it out. */
   quietTag?: string | undefined;
+  /** Two items or more are selected and may be grouped. */
+  groupable?: boolean;
 }>();
-const emit = defineEmits<{ hover: [id: string | undefined]; select: [id: string] }>();
+/** `extend`: Shift was held, so the row's items join the selection or leave it. */
+const emit = defineEmits<{
+  hover: [id: string | undefined];
+  select: [id: string, extend: boolean];
+  group: [];
+}>();
 const filter = defineModel<string>("filter", { required: true });
 
 /** Above this many items, groups start closed. Sections always do. */
@@ -117,10 +131,9 @@ const entries = computed<(Entry & { label: LabelParts })[]>(() => {
   if (loose) out.push({ row: loose, level: 1 });
   return out.map((entry) => ({
     ...entry,
-    label: labelParts(entry.row === loose ? "Loose lines" : entry.row.label),
+    label: labelParts(entry.row === loose ? "Loose steps" : entry.row.label),
   }));
 });
-const itemEntries = computed(() => entries.value.filter((entry) => entry.row !== loose));
 const allOpen = computed(() => folds.value.every((fold) => expanded.value.has(fold.id)));
 
 const optionId = (id: string): string => `${listId}-${id.replace(/[^a-z0-9_-]/g, "_")}`;
@@ -159,7 +172,7 @@ watch(
 );
 // A canvas click or an arrow step selects the finest item: open its section and group.
 watch(
-  () => selectedId,
+  () => selectedIds.at(-1),
   (id) => {
     if (id !== undefined && matches === null) setOpen(ancestors(id), true);
     reveal(id);
@@ -178,7 +191,7 @@ function moveTo(index: number): void {
 }
 function onKeydown(event: KeyboardEvent): void {
   const rows = entries.value;
-  const from = rows.findIndex((entry) => entry.row.id === (cursor.value ?? selectedId));
+  const from = rows.findIndex((entry) => entry.row.id === (cursor.value ?? selectedIds.at(-1)));
   const at = rows[from];
   if (event.key === "ArrowDown") moveTo(from < 0 ? 0 : from + 1);
   else if (event.key === "ArrowUp") moveTo(from < 0 ? rows.length - 1 : from - 1);
@@ -193,7 +206,7 @@ function onKeydown(event: KeyboardEvent): void {
     const parent = at.parent;
     moveTo(rows.findIndex((entry) => entry.row.id === parent));
   } else if ((event.key === "Enter" || event.key === " ") && cursor.value !== undefined)
-    emit("select", cursor.value);
+    emit("select", cursor.value, event.shiftKey);
   else return;
   event.preventDefault();
 }
@@ -212,7 +225,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
 <template>
   <UiPanel title="Scene" flush class="scene-list">
     <template #actions>
-      <span class="scene-list__meta">draw order ↓</span>
+      <span class="scene-list__meta">Order <UiExplain v-bind="explain('order')" /></span>
       <UiButton
         v-if="folds.length > 0 && matches === null"
         variant="ghost"
@@ -230,7 +243,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
         v-model="filter"
         type="search"
         class="scene-list__input"
-        placeholder="Filter items"
+        placeholder="Filter"
         aria-label="Filter items"
         @keydown="onFilterKeydown"
       />
@@ -241,18 +254,16 @@ function onFilterKeydown(event: KeyboardEvent): void {
       class="scene-list__rows"
       role="tree"
       aria-label="Scene items in draw order"
+      aria-multiselectable="true"
       tabindex="0"
       :aria-activedescendant="cursor === undefined ? undefined : optionId(cursor)"
       @keydown="onKeydown"
       @blur="onBlur"
       @pointerleave="emit('hover', undefined)"
     >
-      <li v-if="itemEntries.length > 0" class="scene-list__heading" role="presentation">
-        <span>Items</span><span>{{ matches?.length ?? itemTotal }}</span>
-      </li>
       <template v-for="entry in entries" :key="entry.row.id">
         <li v-if="entry.row === loose" class="scene-list__heading" role="presentation">
-          <span>Unassigned</span>
+          <span>Loose</span><UiExplain v-bind="explain('loose')" />
         </li>
         <li
           :id="optionId(entry.row.id)"
@@ -266,10 +277,13 @@ function onFilterKeydown(event: KeyboardEvent): void {
           role="treeitem"
           :aria-level="entry.level"
           :aria-expanded="entry.fold ? expanded.has(entry.fold.id) : undefined"
-          :aria-selected="entry.row.id === selectedId"
+          :aria-selected="
+            selectedIds.includes(entry.row.id) ||
+            (entry.parent !== undefined && selectedIds.includes(entry.parent))
+          "
           :data-row="entry.row.id"
           @pointerenter="emit('hover', entry.row.id)"
-          @click="emit('select', entry.row.id)"
+          @click="emit('select', entry.row.id, $event.shiftKey)"
         >
           <span
             v-if="entry.fold"
@@ -310,10 +324,14 @@ function onFilterKeydown(event: KeyboardEvent): void {
             :title="`Kind: ${entry.row.kind}`"
             >{{ entry.row.tag }}</span
           >
-          <span class="scene-list__count" :title="`${entry.row.entries.length} commands`">{{
-            entry.row.entries.length
-          }}</span>
-          <UiIcon v-if="entry.row.locked" name="lock" :size="12" class="scene-list__lock" />
+          <span
+            class="scene-list__count"
+            :title="`${entry.row.entries.length} ${entry.row.entries.length === 1 ? 'step' : 'steps'}`"
+            >{{ entry.row.entries.length }}</span
+          >
+          <span v-if="entry.row.locked" class="scene-list__lock" title="Locked item"
+            ><UiIcon name="lock" :size="12"
+          /></span>
         </li>
       </template>
       <li v-if="entries.length === 0" class="scene-list__empty" role="presentation">
@@ -321,18 +339,24 @@ function onFilterKeydown(event: KeyboardEvent): void {
       </li>
     </ul>
     <template #footer>
-      <span class="scene-list__foot" data-role="scene-count">
-        <template v-if="matches !== null">{{ matches.length }} of {{ itemTotal }} items</template>
-        <template v-else-if="sections.length > 0"
-          >{{ itemTotal }} items · {{ sections.length }} sections</template
-        >
-        <template v-else
-          >{{ itemTotal }} items<template v-if="folds.length > 0">
-            in {{ branches.length }} rows</template
-          ></template
-        >
-      </span>
-      <slot name="notice" />
+      <div class="scene-list__footer">
+        <span class="scene-list__foot" data-role="scene-count">
+          <template v-if="matches !== null">{{ matches.length }} of {{ itemTotal }} items</template>
+          <template v-else>{{ itemTotal }} {{ itemTotal === 1 ? "item" : "items" }}</template>
+        </span>
+        <span v-if="groupable" class="scene-list__with">
+          <UiButton
+            variant="ghost"
+            size="sm"
+            class="scene-list__group"
+            shortcut="⌘G"
+            data-testid="scene-group"
+            @click="emit('group')"
+            >Group</UiButton
+          >
+          <UiExplain v-bind="explain('group')" />
+        </span>
+      </div>
     </template>
   </UiPanel>
 </template>
@@ -348,8 +372,11 @@ function onFilterKeydown(event: KeyboardEvent): void {
   overflow: hidden;
 }
 .scene-list__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--ink-3);
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 .scene-list__all {
@@ -387,6 +414,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
 .scene-list__rows {
   flex: 1;
   min-height: 0;
+  container-type: inline-size;
   margin: 0;
   padding: 0 0 var(--space-3);
   overflow-y: auto;
@@ -398,7 +426,8 @@ function onFilterKeydown(event: KeyboardEvent): void {
 }
 .scene-list__heading {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-5) var(--space-1);
   color: var(--ink-3);
   font: var(--weight-bold) var(--text-2xs) var(--font-sans);
@@ -408,7 +437,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
 .scene-list__row {
   position: relative;
   display: grid;
-  grid-template-columns: 12px 12px minmax(0, 1fr) auto 28px 12px;
+  grid-template-columns: 12px 12px minmax(8ch, 1fr) auto 28px 12px;
   align-items: center;
   gap: var(--space-2);
   height: 30px;
@@ -416,6 +445,8 @@ function onFilterKeydown(event: KeyboardEvent): void {
   color: var(--ink-2);
   font-size: var(--text-sm);
   cursor: pointer;
+  /* Shift+click extends the item selection and leaves the text alone. */
+  user-select: none;
 }
 .scene-list__row > * {
   grid-row: 1;
@@ -512,15 +543,45 @@ function onFilterKeydown(event: KeyboardEvent): void {
 }
 .scene-list__lock {
   grid-column: 6;
+  display: grid;
   color: var(--ink-3);
+}
+/* A narrow list (1024 wide) keeps the names: the counts and chips go first. */
+@container (max-width: 232px) {
+  .scene-list__row {
+    grid-template-columns: 12px 12px minmax(8ch, 1fr) 12px;
+  }
+  .scene-list__count,
+  .scene-list__tag,
+  .scene-list__swatches {
+    display: none;
+  }
+  .scene-list__lock {
+    grid-column: 4;
+  }
 }
 .scene-list__empty {
   padding: var(--space-4) var(--space-5);
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
+.scene-list__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--control-h-sm);
+}
 .scene-list__foot {
   color: var(--ink-3);
   font-size: var(--text-xs);
+}
+.scene-list__with {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.scene-list__group {
+  color: var(--ink-2);
 }
 </style>

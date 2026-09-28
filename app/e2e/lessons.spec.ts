@@ -145,7 +145,7 @@ test("the Help guide lists the three lessons; the mural wants one object changed
 
   // The cottage too: only the sun may change since the lesson opened, so the hint names it.
   await nudge(page, studio, "cottage", 1);
-  await keep(studio, "Kept PIC 4. Only the sun should change — this also changed Cottage.");
+  await keep(studio, "Kept PIC 4. Only the sun should change, and this also changed Cottage.");
   expect(await storedBadges(page)).toEqual([MURAL]);
 
   await studio.getByTestId("studio-close").click();
@@ -163,8 +163,8 @@ test("the robot lesson wants only the left facing repainted, and its card folds 
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   expect(await spriteBytes(page)).toEqual(VIEW_2);
-  await expect(studio.getByTestId("sprite-bytes")).toContainText("VIEW 2");
-  await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveText(/mirror of 0/);
+  await expect(studio.getByTestId("sprite-title")).toHaveText("VIEW 2");
+  await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveText(/mirrors 0/);
   const card = studio.getByTestId("lesson-card");
   await expect(card).toContainText("One robot, two directions");
   await expectDocked(
@@ -267,10 +267,10 @@ test("the archive lesson is met by following its card, docked beside the stage",
   await probe.click();
   await expect(handle).toHaveCount(0);
 
-  // 4. Counter depth's last command: new shapes are drawn there, before the
-  // walk barriers drawn after it.
+  // 4. Counter depth's last step: new shapes are drawn there, before the
+  // walk barriers drawn after it. The steps list lives under Details.
   await expect(steps.nth(3)).toContainText(
-    "Click Counter depth in the list, then its last command under Commands",
+    "Click Counter depth in the list, then its last step under Details › Steps",
   );
   const shipped = parsePictureDocument(TUTORIAL_PICTURES[3]!).document;
   const counter = shipped.items.find(({ id }) => id === "counter-depth")!;
@@ -278,14 +278,15 @@ test("the archive lesson is met by following its card, docked beside the stage",
     ({ line }) => line < counter.closeLine,
   ).length;
   await studio.locator('[data-row="counter-depth"]').click();
+  await studio.getByTestId("inspector-details").click();
   await studio.getByTestId("inspector-commands").getByRole("button").last().click();
-  const playhead = studio.getByRole("slider", { name: "Draw order playhead" });
+  const playhead = studio.getByRole("slider", { name: "Draw order", exact: true });
   await expect(playhead).toHaveAttribute("aria-valuenow", String(drawn));
 
   // The challenge: a filled rectangle at depth 11 over the stand.
   await expect(card).toContainText("Draw a filled rectangle of depth 11 over the ledger stand");
   await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-insert-at")).toContainText(`after step ${drawn} of`);
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText(`After step ${drawn}`);
   await studio.getByTestId("studio-tool-filled").check();
   const values = studio.getByTestId("studio-current-values");
   await values.getByTestId("studio-value-priority").click();

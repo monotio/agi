@@ -1,4 +1,5 @@
 import { nextTick, onWatcherCleanup, shallowRef, watch, type Ref, type ShallowRef } from "vue";
+import { TARGET_PROPERTY } from "../ui/explain.ts";
 
 /**
  * A bar that folds what it cannot fit: level 0 shows everything, and each
@@ -6,7 +7,9 @@ import { nextTick, onWatcherCleanup, shallowRef, watch, type Ref, type ShallowRe
  * place shows it). On every resize of `box` it starts from 0 and folds one
  * level at a time until `fits` holds for the laid-out bar, so the folds
  * follow the real widths of its words and controls, never a guessed
- * breakpoint. Call `refit` when the content changes without a resize.
+ * breakpoint. An explainer's invisible target reaching past an edge is not
+ * overflow: it is off while `fits` measures. Call `refit` when the content
+ * changes without a resize.
  */
 export function useFold(
   box: Readonly<Ref<HTMLElement | null | undefined>>,
@@ -17,12 +20,20 @@ export function useFold(
   let fitting: Promise<void> | null = null;
   let again = false;
 
+  function measure(element: HTMLElement): boolean {
+    element.style.setProperty(TARGET_PROPERTY, "0");
+    try {
+      return fits(element);
+    } finally {
+      element.style.removeProperty(TARGET_PROPERTY);
+    }
+  }
   async function run(): Promise<void> {
     do {
       again = false;
       level.value = 0;
       await nextTick();
-      while (level.value < levels && box.value && !fits(box.value)) {
+      while (level.value < levels && box.value && !measure(box.value)) {
         level.value++;
         await nextTick();
       }

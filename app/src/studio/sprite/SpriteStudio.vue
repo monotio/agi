@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, inject, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { StudioFocus } from "../../../../src/agent/studioAssistTools.ts";
 import { viewAssistScope } from "../../../../src/studio/assistScope.ts";
 import { openSprite, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
@@ -13,6 +13,7 @@ import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.
 import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
 import { aiSettingsKey } from "../../settings/useAiSettings.ts";
+import UiExplain from "../../ui/UiExplain.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import LessonCard from "../../lessons/LessonCard.vue";
@@ -24,11 +25,13 @@ import StudioAssistCompare from "../StudioAssistCompare.vue";
 import StudioAssistPanel from "../StudioAssistPanel.vue";
 import StudioKeepDialog from "../StudioKeepDialog.vue";
 import StudioKeySheet from "../StudioKeySheet.vue";
+import StudioTour from "../StudioTour.vue";
 import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
+import { useStudioTour } from "../useStudioTour.ts";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
 import { useFold } from "../useFold.ts";
-import StudioStageNotes from "../StudioStageNotes.vue";
+import StudioStatusNotice from "../StudioStatusNotice.vue";
 import StudioZoom from "../StudioZoom.vue";
 import { useStudioFocus } from "../useStudioFocus.ts";
 import { useStudioKeep } from "../useStudioKeep.ts";
@@ -37,6 +40,7 @@ import { useStudioNotice } from "../useStudioNotice.ts";
 import { useStudioViewport } from "../useStudioViewport.ts";
 import { useStudioAssist, type StudioAssistHost } from "../useStudioAssist.ts";
 import { changedPixels, viewChangeSummary, viewScopeChips } from "../studioAssistText.ts";
+import { explain } from "../studioTerms.ts";
 import SpriteCanvas, { type OnionSkin } from "./SpriteCanvas.vue";
 import SpriteCelPanel, { type CelEdit } from "./SpriteCelPanel.vue";
 import SpriteContactSheet from "./SpriteContactSheet.vue";
@@ -57,6 +61,7 @@ import {
   celCount,
   feetWarning,
   parseBackdrop,
+  usageChip,
   previewPartner,
   type PreviewCycler,
   type RoomBackdrop,
@@ -83,7 +88,7 @@ export type SpriteKeepFn = (
  * (SpriteContactSheet.vue). Keys are handled at the root and stopped
  * (spriteKeys.ts), so none reach the game, and focus never falls out of the
  * studio while it is open; every way out settles unkept changes first
- * (useStudioLeave), as in Room Studio. "Ask about this selection"
+ * (useStudioLeave), as in Room Studio. Ask
  * (useStudioAssist) has the game's AI propose a change to the selected cel
  * or loop, previewed on the canvas and accepted as one undo step.
  */
@@ -151,10 +156,10 @@ const startCel = Math.max(
 );
 const loop = ref(startLoop);
 const cel = ref(startCel);
-/** The loop whose linked group is edited together ("Edit loop N instead"); null copies on write. */
+/** The loop whose linked group is edited together (Edit both); null copies on write. */
 const linkedEdit = shallowRef<number | null>(null);
 const color = ref(11);
-const { notice, say, hold } = useStudioNotice();
+const { notice, say, dismiss: dismissNotice } = useStudioNotice();
 
 // A structural edit, undo or a new base can take the selected loop or cel away.
 watch(
@@ -165,7 +170,7 @@ watch(
   },
 );
 
-// ---- Ask about this selection ----------------------------------------------
+// ---- Ask -------------------------------------------------------------------
 const engineApi = inject(engineKey, null);
 const aiSettings = inject(aiSettingsKey, null);
 const assistHost: StudioAssistHost | null =
@@ -181,8 +186,8 @@ const assistHost: StudioAssistHost | null =
 /** What an Ask is about: the selected cel, or every cel of its loop. */
 const askScope = ref<"cel" | "loop">("loop");
 const ASK_SCOPES = [
-  { value: "cel", label: "This cel" },
-  { value: "loop", label: "Whole loop" },
+  { value: "cel", label: "Cel", title: "Ask about this cel" },
+  { value: "loop", label: "Loop", title: "Ask about every cel of this loop" },
 ] as const;
 const askCels = computed(() => {
   const cels = draft.document.value.loops[loop.value]?.cels ?? [];
@@ -264,6 +269,7 @@ const assistChips = computed(() => {
     : viewScopeChips({ targetCels: askCels.value, protectedLoops: askProtected.value });
 });
 const assistPanel = useTemplateRef("assistPanel");
+const celPanel = useTemplateRef("celPanel");
 
 const currentCel = computed(() => shown.value.loops[loop.value]?.cels[cel.value]);
 const group = computed(() => aliasGroup(draft.document.value, loop.value));
@@ -475,7 +481,7 @@ const onion = computed<OnionSkin[]>(() => {
 });
 const CANVAS_LABEL =
   "Canvas. Arrow keys move the cursor 1 pixel (Shift: 8), or the selection; Space or Enter clicks at the cursor; Escape cancels; question mark lists every key.";
-const PEN_DOWN = "Pen down — Space to lift";
+const PEN_DOWN = "Pen down: Space lifts it";
 const spoken = computed(() => {
   const point = tools.cursor.value;
   const at = tools.keyboard.value && point ? `x ${point.x} y ${point.y}` : "";
@@ -512,6 +518,9 @@ function history(which: "undo" | "redo"): void {
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 const calm = useStudioCalm();
+/** The first-run tour: once per viewer, silent while a lesson's card is open. */
+const tour = useStudioTour("sprite", { lesson: () => lesson.session.value !== null });
+onMounted(() => void tour.offer());
 const keySheet = spriteKeySheet();
 /**
  * The options bar folds what it cannot fit, least used first: the backdrop,
@@ -525,7 +534,7 @@ const optionsFold = useFold(optionsBar, 3, (bar) => {
 });
 const viewFold = computed(() => [0, 1, 1, 2][optionsFold.level.value] ?? 2);
 watch(
-  () => [tools.tool.value, color.value, sheet.value],
+  () => [tools.tool.value, color.value, sheet.value, proposal.value !== null],
   () => void optionsFold.refit(),
   { flush: "post" },
 );
@@ -537,7 +546,6 @@ exposeSpriteDraft(draft);
 const keys: SpriteKeyActions = {
   onCanvas: (target) => target === stage.value,
   dismiss: () => tools.cancel() || closeSheet() || tools.closeRecolor(),
-  close: () => void requestClose(),
   arrow: tools.arrow,
   click: tools.click,
   remove: () => void tools.clearSelection(),
@@ -563,10 +571,12 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 const description = computed(() => draft.document.value.description ?? title ?? "");
+/** A tool change hands the status line back to the tool's hint (before anything it says). */
+watch(tools.tool, () => say(null), { flush: "sync" });
 const status = computed(() => {
   const point = tools.cursor.value;
   const at = currentCel.value;
-  if (!point || !at) return `loop ${loop.value} · cel ${cel.value}`;
+  if (!point || !at) return `Loop ${loop.value} · cel ${cel.value}`;
   const value = at.pixels[point.y * at.width + point.x];
   const colour =
     value === undefined || value === at.transparent
@@ -593,8 +603,10 @@ const status = computed(() => {
       class="sprite-studio__top"
       :view-number="viewNumber"
       :description
-      :usage="usageText(usage)"
+      :usage="usageChip(usage)"
+      :usage-full="usageText(usage)"
       :dynamic="usage.dynamic"
+      :shared="usage.rooms.length > 0"
       :loops="shown.loops.length"
       :cels="celCount(shown)"
       :status="keeper.status.value"
@@ -626,22 +638,22 @@ const status = computed(() => {
         :data-tool="tools.tool.value"
       >
         <b class="sprite-options__name">{{ SPRITE_TOOL_NAMES[tools.tool.value] }}</b>
-        <span v-if="paints" class="sprite-options__colour">
+        <span v-if="paints" class="sprite-options__colour" :title="`Colour ${color}`">
           <i :style="{ background: `var(--agi-${color})` }" aria-hidden="true"></i>
-          Colour {{ color }} · {{ EGA_COLOUR_NAMES[color] }}
+          {{ color }} {{ EGA_COLOUR_NAMES[color] }}
         </span>
-        <span v-else-if="tools.tool.value === 'eraser'" class="sprite-options__note"
-          >Writes the transparent colour ∅ {{ currentCel?.transparent }}</span
-        >
-        <span v-else-if="tools.tool.value === 'pipette'" class="sprite-options__note"
-          >Picks the paint colour</span
-        >
+        <span
+          v-else-if="tools.tool.value === 'eraser'"
+          class="sprite-options__note sprite-options__erase"
+          >Paints ∅ transparent <UiExplain v-bind="explain('transparent')"
+        /></span>
         <span
           v-if="tools.tool.value !== 'recolor' && optionsFold.level.value < 2"
           class="sprite-options__note"
           >1 px</span
         >
       </div>
+      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
       <span class="sprite-studio__spacer"></span>
       <SpriteViewBar
         v-model:sheet="sheet"
@@ -711,8 +723,6 @@ const status = computed(() => {
         @apply="(op) => edit(op, 'Recolour')"
         @close="tools.closeRecolor()"
       />
-      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
-      <StudioStageNotes :banner="keeper.banner.value" :notice @recover="recover" @hold="hold" />
     </main>
 
     <SpriteTimeline
@@ -732,31 +742,35 @@ const status = computed(() => {
         v-if="lesson.session.value"
         :session="lesson.session.value"
         :outcome="lesson.outcome.value"
+        @tour="tour.start()"
       />
       <SpritePalette
         v-model="color"
+        data-testid="sprite-palette"
         :transparent="currentCel?.transparent ?? 0"
         @erase="
           tools.setTool('eraser');
-          say({ tone: 'ok', text: 'The transparent colour cannot be painted: the eraser is on.' });
+          say({ tone: 'ok', text: 'The eraser is on: it paints the transparent colour.' });
         "
+        @choose="celPanel?.chooseTransparent()"
       />
       <SpriteCelPanel
         v-if="currentCel"
+        ref="celPanel"
         :cel="currentCel"
         :loop
         :index="cel"
         :frozen="editsBlocked()"
         @edit="celEdit"
-      />
-      <SpriteMirrorNote
-        :document="draft.document.value"
-        :loop
-        :propagate="propagates(loop)"
-        :isolated="draft.isolated.value"
-        :rooms="usage.rooms"
-        @propagate="setPropagate"
-      />
+      >
+        <SpriteMirrorNote
+          :document="draft.document.value"
+          :loop
+          :propagate="propagates(loop)"
+          :isolated="draft.isolated.value"
+          @propagate="setPropagate"
+        />
+      </SpriteCelPanel>
       <SpritePreview
         :document="shown"
         :loop
@@ -778,11 +792,11 @@ const status = computed(() => {
         ref="assistPanel"
         :assist
         :chips="assistChips"
-        hint="To change the scope, pick another cel or loop on the timeline."
         :changes="assistChanges"
+        :reference-target="{ kind: 'view', num: viewNumber }"
         @reload="reopen(true)"
         noun="view"
-        empty="Select a cel on the timeline to ask the AI about it."
+        empty="Select a cel to ask about it."
         collapsible
       >
         <template #scope>
@@ -792,7 +806,6 @@ const status = computed(() => {
             size="sm"
             label="Ask about"
             :options="ASK_SCOPES"
-            data-testid="assist-scope"
           />
         </template>
       </StudioAssistPanel>
@@ -806,12 +819,21 @@ const status = computed(() => {
         data-testid="sprite-pen-down"
         >{{ PEN_DOWN }}</span
       >
+      <!-- A notice or a failed Keep takes the hint's place, off the cel. -->
+      <StudioStatusNotice
+        v-else-if="keeper.banner.value || notice"
+        :banner="keeper.banner.value"
+        :notice
+        @recover="recover"
+        @dismiss="dismissNotice"
+        @close="keeper.dismiss"
+      />
       <span v-else class="sprite-studio__hint" data-testid="sprite-hint">{{
         SPRITE_TOOL_HINTS[tools.tool.value]
       }}</span>
       <span class="sprite-studio__spacer"></span>
       <span data-testid="sprite-bytes"
-        >VIEW {{ viewNumber }} · {{ draft.bytes.value.length.toLocaleString("en") }} bytes</span
+        >{{ draft.bytes.value.length.toLocaleString("en") }} bytes</span
       >
       <span>AGI {{ profile.id }}</span>
       <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
@@ -826,8 +848,14 @@ const status = computed(() => {
       />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
+    <StudioTour :tour :stage name="Sprite Studio" />
 
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Sprite Studio" :sections="keySheet" />
+    <StudioKeySheet
+      v-model:open="calm.sheetOpen.value"
+      name="Sprite Studio"
+      :sections="keySheet"
+      @tour="tour.start()"
+    />
     <StudioKeepDialog
       v-model:ask="dialog"
       :subject="`VIEW ${viewNumber}`"
@@ -848,7 +876,7 @@ const status = computed(() => {
   --studio-bar: var(--control-h);
   grid-template-rows:
     52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) minmax(150px, 30%)
-    var(--studio-bar);
+    minmax(var(--studio-bar), auto);
   grid-template-columns: 48px minmax(0, 1fr) 300px;
   width: 100%;
   height: 100%;
@@ -866,8 +894,9 @@ const status = computed(() => {
     --studio-bar: var(--control-h-touch);
   }
 }
+/* The rail runs down beside the timeline too: every tool has room at 1024×600. */
 .sprite-studio__rail {
-  grid-row: 3;
+  grid-row: 3 / 5;
   grid-column: 1;
 }
 /* The options bar docks over the rail and the canvas: nothing floats on the cel. */
@@ -915,6 +944,13 @@ const status = computed(() => {
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
+.sprite-options__erase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
 .sprite-studio__frame {
   position: relative;
   grid-row: 3;
@@ -935,11 +971,6 @@ const status = computed(() => {
 .sprite-studio__stage:focus-visible {
   box-shadow: inset 0 0 0 2px var(--focus);
 }
-/* The recolour popover owns the stage's left column (12px + 256px); the
-   notice recentres in what remains so the two never overlap. */
-.sprite-studio__frame--recolor :deep(.stage-note) {
-  left: calc(50% + 134px);
-}
 /* The inset matches STAGE_INSET in useStudioViewport.ts. */
 .sprite-studio__canvas {
   margin: auto;
@@ -947,7 +978,7 @@ const status = computed(() => {
 }
 .sprite-studio__timeline {
   grid-row: 4;
-  grid-column: 1 / 3;
+  grid-column: 2;
 }
 .sprite-studio__panel {
   grid-row: 2 / 5;
@@ -971,17 +1002,14 @@ const status = computed(() => {
 .sprite-studio__status [data-role="status"] {
   color: var(--ink-2);
 }
+/* The tool's help wraps onto a second line when the bar is short. */
 .sprite-studio__hint {
-  min-width: 0;
-  overflow: hidden;
+  min-width: 16ch;
   color: var(--ink-3);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
-  text-overflow: ellipsis;
-}
-.sprite-studio__hint.is-pen {
-  color: var(--action);
-  font-weight: var(--weight-bold);
+  line-height: 1.2;
+  white-space: normal;
 }
 .sprite-studio__spacer {
   flex: 1;

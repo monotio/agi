@@ -247,6 +247,7 @@ function onLeave(): void {
       :data-width="cel.width"
       :data-height="cel.height"
       :data-zoom="zoom"
+      :data-onion="onion.length"
       :data-changed="changed ? changed.reduce((sum, bit) => sum + bit, 0) : undefined"
       :style="{ width: `${width}px`, height: `${height}px` }"
       @pointerdown="onDown"
@@ -257,7 +258,7 @@ function onLeave(): void {
       @pointerleave="onLeave"
     ></canvas>
     <div v-if="baseline" class="sprite-canvas__baseline" data-testid="sprite-baseline">
-      <span>baseline · feet</span>
+      <span>feet</span>
     </div>
   </div>
 </template>

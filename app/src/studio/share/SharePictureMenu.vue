@@ -140,6 +140,7 @@ onBeforeUnmount(close);
         role="menuitem"
         data-testid="studio-share-clip"
         :disabled="!type"
+        :title="type ? undefined : 'This browser can\'t record video'"
         @click="clip"
       >
         <UiIcon name="film" :size="18" />
@@ -198,14 +199,7 @@ onBeforeUnmount(close);
           Cancel
         </UiButton>
         <template v-else-if="share?.step === 'ready'">
-          <UiButton
-            v-if="canShare"
-            icon="share"
-            data-testid="studio-share-system"
-            @click="shareFile"
-          >
-            Share…
-          </UiButton>
+          <UiButton v-if="canShare" icon="share" @click="shareFile">Share…</UiButton>
           <UiButton
             variant="primary"
             icon="download"

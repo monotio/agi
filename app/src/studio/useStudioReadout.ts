@@ -5,16 +5,15 @@
  * and the status line. Derived only; nothing here edits.
  */
 
-import { computed, toValue, type MaybeRefOrGetter } from "vue";
+import { computed } from "vue";
 import { pictureCommandText } from "../../../src/studio/pictureDocument.ts";
-import { priorityMeaning, tickFor, type StudioLens } from "./studioView.ts";
-import { lensPlanes, type StudioDocument } from "./useStudioDocument.ts";
+import { tickFor } from "./studioView.ts";
+import type { StudioDocument } from "./useStudioDocument.ts";
 import type { StudioSelection } from "./useStudioSelection.ts";
 
 export function useStudioReadout(options: {
   readonly doc: StudioDocument;
   readonly selection: StudioSelection;
-  readonly lens: MaybeRefOrGetter<StudioLens>;
 }) {
   const { doc, selection } = options;
   const { model, playhead, total } = doc;
@@ -25,12 +24,13 @@ export function useStudioReadout(options: {
   };
   /** One tick per drawing command; the closing `end` draws nothing and gets none. */
   const ticks = computed(() => model.value.timeline.slice(0, total.value).map(tickFor));
+  /** The last drawn command: the item it belongs to, and its text. */
   const current = computed(() => {
     const entry = model.value.timeline[playhead.value - 1];
-    if (!entry) return "";
+    if (!entry) return { item: "", text: "" };
     const owner =
       entry.itemId === undefined ? undefined : model.value.rows.find((r) => r.id === entry.itemId);
-    return `${commandText(playhead.value - 1)}${owner ? ` · ${owner.label}` : ""}`;
+    return { item: owner?.label ?? "", text: commandText(playhead.value - 1) };
   });
 
   /** The values the selected row's drawing commands use on a plane, ascending. */
@@ -68,15 +68,13 @@ export function useStudioReadout(options: {
   });
   const labelOf = (id: string): string =>
     [...model.value.rows, ...model.value.folds].find((row) => row.id === id)?.label ?? id;
+  /** The pixel in plain words: where, its colour and depth, and the step that last drew it. */
   const status = computed(() => {
     const info = pixel.value;
-    if (!info) return "Point at the picture to read a pixel";
-    const plane = info[lensPlanes(toValue(options.lens))[0]];
-    const by =
-      plane.entry === null
-        ? "not drawn"
-        : `last written by #${plane.entry + 1} ${plane.text ?? ""}`;
-    return `x ${info.x}  y ${info.y} · visual ${info.visual.value} · priority ${info.priority.value} (${priorityMeaning(info.priority.value)}) · ${by}`;
+    if (!info) return "Point at a pixel";
+    const writer = info.visual.entry ?? info.priority.entry;
+    const step = writer === null ? "" : ` · step ${writer + 1}`;
+    return `x ${info.x} y ${info.y} · colour ${info.visual.value} · depth ${info.priority.value}${step}`;
   });
 
   return { ticks, current, drawn, single, commands, pixel, fill, labelOf, status };

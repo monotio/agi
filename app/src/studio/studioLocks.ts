@@ -38,7 +38,9 @@ export { depthValuesLocked, lockedPlanes, NO_UNLOCKS, type LensUnlocks };
 export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
   const locked = lockedPlanes(lens, unlocks);
   const reason = (plane: PicturePlane): string | null =>
-    locked.includes(plane) ? `locked in the ${lens} lens` : null;
+    locked.includes(plane)
+      ? `${PLANE_NAMES[plane]} is locked in the ${lensName(lens)} lens.`
+      : null;
   return {
     visual: reason("visual"),
     priority: reason("priority"),
@@ -147,7 +149,7 @@ export function checkStudioEdit(
       ? {
           rule,
           plane,
-          message: `This would change the ${name}, which is locked in the ${lensName(lens)} lens.`,
+          message: `${PLANE_NAMES[plane]} is locked in the ${lensName(lens)} lens.`,
           detail: `${PLANE_NAMES[plane]} is locked in the ${lensName(lens)} lens: ${where(count, bbox)} would change.`,
           count,
           bbox,
@@ -167,7 +169,7 @@ export function checkStudioEdit(
     violations.push({
       rule: depth.constraint,
       plane: depth.plane,
-      message: "This would change depth values 4–15, which are locked in the Walk lens.",
+      message: "The Walk lens draws walk lines 0–3 only.",
       detail: `Depth values 4–15 are locked in the Walk lens: ${where(depth.count, depth.bbox)} would change.`,
       count: depth.count,
       bbox: depth.bbox,

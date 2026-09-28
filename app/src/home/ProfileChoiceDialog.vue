@@ -8,6 +8,7 @@ import {
   PROFILE_GROUPS,
   formatProfileResolution,
   type ProfileChoiceState,
+  type ProfileOptionGroup,
 } from "../library/profileChoice.ts";
 
 /**
@@ -36,6 +37,12 @@ const current = computed(() =>
 );
 
 onMounted(() => dialog.value?.showModal());
+
+/** An option's line: its id, marked when detected, then the releases that ship it. */
+function optionLabel(option: ProfileOptionGroup["options"][number]): string {
+  const id = option.id === choice.detected ? `${option.id} (default)` : option.id;
+  return option.releases ? `${id} — ${option.releases}` : id;
+}
 
 function save(): void {
   settled = true;
@@ -87,8 +94,7 @@ function onDialogClose(): void {
         </option>
         <optgroup v-for="group in PROFILE_GROUPS" :key="group.label" :label="group.label">
           <option v-for="opt in group.options" :key="opt.id" :value="opt.id">
-            {{ opt.id }}{{ opt.id === choice.detected ? " (default)" : ""
-            }}{{ opt.releases ? ` — ${opt.releases}` : "" }}
+            {{ optionLabel(opt) }}
           </option>
         </optgroup>
       </UiSelect>

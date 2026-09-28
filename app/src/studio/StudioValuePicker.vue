@@ -5,9 +5,9 @@ import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
 import { priorityMeaning } from "./studioView.ts";
 
 /**
- * One plane's value for an item: the 16 AGI colours (visual) or priority
- * values 0–15 (0–3 are control lines), plus "off", which stops the item
- * drawing on that plane. A radio group; `value` undefined means the item
+ * One plane's value for an item: the 16 AGI colours (art) or depth values
+ * 0–15 (AGI's priority; 0–3 are walk lines, named on their tooltips), plus
+ * "off", which stops the item drawing on that plane. A radio group; `value` undefined means the item
  * draws several values and none is checked.
  */
 const {
@@ -32,7 +32,7 @@ const options = computed(() =>
     name:
       plane === "visual"
         ? `Colour ${v}, ${EGA_COLOUR_NAMES[v]}`
-        : `Priority ${v}, ${priorityMeaning(v)}`,
+        : `Depth ${v}, ${priorityMeaning(v)}${v < 4 ? " walk line" : ""}`,
   })),
 );
 
@@ -71,8 +71,8 @@ function pick(next: number | null): void {
       role="radio"
       class="value-picker__cell value-picker__off"
       :aria-checked="value === null"
-      :aria-label="`${plane === 'visual' ? 'Colour' : 'Priority'} off: draw nothing on this plane`"
-      title="Off: draw nothing on this plane"
+      :aria-label="`${plane === 'visual' ? 'Art' : 'Depth'} off: draw no ${plane === 'visual' ? 'art' : 'depth'}`"
+      :title="`Off: draw no ${plane === 'visual' ? 'art' : 'depth'}`"
       :disabled="disabled"
       data-value="off"
       @click="pick(null)"

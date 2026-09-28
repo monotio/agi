@@ -124,7 +124,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   const downloadPromise = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
   // A growing world says what a published copy of it is before it is exported.
-  await expect(page.getByTestId("export-work-in-progress")).toContainText("Work in progress");
+  await expect(page.getByTestId("export-work-in-progress")).toContainText("work in progress");
   await page.getByTestId("btn-export-game").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");

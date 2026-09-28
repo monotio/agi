@@ -47,6 +47,7 @@ const {
   flash = null,
   changed = null,
   movable = false,
+  marquee = null,
 } = defineProps<{
   layer: PaneLayer;
   visual: Uint8Array;
@@ -68,6 +69,8 @@ const {
   changed?: MaskPaths | null;
   /** The selection can be dragged: the pointer shows it. */
   movable?: boolean;
+  /** A Shift+drag's box being drawn, in logical cells (inclusive). */
+  marquee?: { x1: number; y1: number; x2: number; y2: number } | null;
 }>();
 const emit = defineEmits<{
   hover: [cell: ViewportPoint | undefined];
@@ -273,6 +276,16 @@ function onLeave(): void {
           vector-effect="non-scaling-stroke"
         />
       </g>
+      <rect
+        v-if="marquee"
+        class="studio-pane__marquee"
+        data-role="marquee"
+        :x="marquee.x1"
+        :y="marquee.y1"
+        :width="marquee.x2 - marquee.x1 + 1"
+        :height="marquee.y2 - marquee.y1 + 1"
+        vector-effect="non-scaling-stroke"
+      />
       <g v-if="changed" data-role="changed">
         <path class="studio-pane__changed-fill" :d="changed.fill" />
         <path
@@ -407,6 +420,13 @@ function onLeave(): void {
   fill: none;
   stroke: var(--action);
   stroke-width: 2px;
+}
+.studio-pane__marquee {
+  fill: var(--action);
+  fill-opacity: 0.08;
+  stroke: var(--action);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
 }
 .studio-pane__changed-fill {
   fill: var(--ok);

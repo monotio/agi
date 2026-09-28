@@ -169,7 +169,7 @@ export interface ResourceEdit {
 function staleAuthoring(what: string): ResourceCommitError {
   return new ResourceCommitError(
     "stale",
-    `This game's authoring changed elsewhere — reload it before keeping ${what}.`,
+    `This game's authoring changed elsewhere. Reload it before keeping ${what}.`,
     { behindStorage: true },
   );
 }
@@ -299,7 +299,7 @@ export function createResourceCommit(
       )
         throw new ResourceCommitError(
           "stale",
-          `The game changed since ${what} was made — reopen it before keeping ${what}.`,
+          `The game changed since ${what} was made. Reopen it before keeping ${what}.`,
           { behindStorage: needsReload(game) },
         );
       await getAutosaveWrite();
@@ -313,8 +313,8 @@ export function createResourceCommit(
       const savedBase: SavedBase = {
         revision: baseRevision,
         authoring: true,
-        message: `The project changed elsewhere since this game booted — reload it before keeping ${what}.`,
-        removedMessage: `The project was removed or changed elsewhere — reload it before keeping ${what}.`,
+        message: `The project changed elsewhere since this game booted. Reload it before keeping ${what}.`,
+        removedMessage: `The project was removed or changed elsewhere. Reload it before keeping ${what}.`,
       };
       if (!game.installed) {
         ({ data: stored, lifetime } = await requireSaved(game, savedBase));
@@ -324,8 +324,7 @@ export function createResourceCommit(
       }
       const resolved = edit.resolve(stored);
       const worker = getWorker();
-      if (!worker)
-        throw new ResourceCommitError("stale", "The running game is no longer available.");
+      if (!worker) throw new ResourceCommitError("stale", "The running game has closed.");
       const moved = () =>
         getBootedGame() !== game || getSession() !== author || getWorker() !== worker;
       const exported = await query("exportFiles");
@@ -602,10 +601,7 @@ export function stagedViewEdit(
     resolve: (stored) => {
       const reference = stored?.references?.find((r) => r.id === id);
       if (!reference)
-        throw new ResourceCommitError(
-          "stale",
-          "That reference is no longer attached to this project.",
-        );
+        throw new ResourceCommitError("stale", "That reference was detached from this project.");
       const refusal = stagedRefusal(reference, {
         project: game.projectId!,
         revision: game.revision,

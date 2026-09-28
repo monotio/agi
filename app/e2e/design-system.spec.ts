@@ -259,7 +259,7 @@ test("the Inspect tab groups its views as one segmented control with a caption",
     "aria-checked",
     "true",
   );
-  await expect(page.getByTestId("dbg-mode-note")).toContainText("Priority surface");
+  await expect(page.getByTestId("dbg-mode-note")).toContainText("Depth values");
   await expect(page.getByTestId("dbg-overlay-toggle")).toHaveRole("switch");
   await expect(page.getByTestId("dbg-inspect-toggle")).toHaveRole("switch");
 });

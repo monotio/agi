@@ -41,6 +41,7 @@ import {
   moveSelectionChanges,
   previewPartner,
   swatchInk,
+  usageChip,
 } from "../src/studio/sprite/spriteView.ts";
 import { celRgba } from "../src/render/palette.ts";
 import { usageText } from "../../src/agent/viewUsage.ts";
@@ -113,7 +114,7 @@ describe("useSpriteDraft", () => {
     assert.equal(refused.ok, false);
     assert.match(
       !refused.ok ? refused.refusal.message : "",
-      /would also change loop 1, outside the loop you are editing/,
+      /would also change loop 1\. Turn on Edit both to allow it\./,
     );
     assert.equal(draft.document.value, original);
     const outcome = draft.apply(
@@ -149,7 +150,7 @@ describe("useSpriteDraft", () => {
     assert.equal(outcome.ok, false);
     assert.equal(
       !outcome.ok && outcome.refusal.message,
-      "The transparent colour can't be painted. Use the eraser to make pixels transparent.",
+      "That is the transparent colour. The eraser paints it.",
     );
     assert.equal(draft.changes.value, 0);
   });
@@ -437,7 +438,6 @@ describe("spriteKeys", () => {
   const actions = (log: string[], canvas = true): SpriteKeyActions => ({
     onCanvas: () => canvas,
     dismiss: () => false,
-    close: () => log.push("close"),
     arrow: (dx, dy, alt) => log.push(`arrow ${dx},${dy}${alt ? " alt" : ""}`),
     click: () => log.push("click"),
     remove: () => log.push("remove"),
@@ -475,7 +475,6 @@ describe("spriteKeys", () => {
       "tool b",
       "ask",
       "tool q",
-      "close",
     ]);
   });
 
@@ -492,9 +491,9 @@ describe("spriteKeys", () => {
     assert.equal(spriteKey(key({ key: "Escape", target: field("SELECT") }), act), true);
     assert.equal(spriteKey(key({ key: "b", target: field("INPUT") }), act), false);
     assert.deepEqual(log, ["blur INPUT", "blur SELECT"]);
-    // Off the field, Esc dismisses first and then closes.
+    // Off the field, Esc dismisses; with nothing to dismiss, Studio stays open.
     assert.equal(spriteKey(key({ key: "Escape" }), act), true);
-    assert.deepEqual(log.slice(2), ["dismiss", "close"]);
+    assert.deepEqual(log.slice(2), ["dismiss"]);
   });
 
   it("leaves arrows, Space and Enter to the focused control off the canvas", () => {
@@ -626,7 +625,7 @@ describe("sprite view helpers", () => {
   it("names facings, pairs the preview and words usage", () => {
     assert.deepEqual(
       [0, 1, 2, 3].map((loop) => loopFacing(loop, 4)),
-      ["Right-facing", "Left-facing", "Front-facing", "Back-facing"],
+      ["Right", "Left", "Front", "Back"],
     );
     assert.equal(loopFacing(2, 3), undefined);
     assert.equal(loopFacing(0, 1), undefined);
@@ -639,6 +638,15 @@ describe("sprite view helpers", () => {
     );
     assert.equal(usageText({ rooms: [], logics: [0], dynamic: false }), "Used by logic 0");
     assert.equal(usageText({ rooms: [], logics: [], dynamic: false }), "Not used by any logic");
+    // The top bar's chip names up to three and counts more; its tooltip lists them all.
+    const rooms = [1, 2, 4, 5, 7, 9, 12];
+    assert.equal(usageChip({ rooms, logics: [], dynamic: false }), "7 rooms");
+    assert.equal(usageChip({ rooms: [1, 2, 3], logics: [], dynamic: false }), "Rooms 1, 2, 3");
+    assert.equal(usageChip({ rooms: [5], logics: [5], dynamic: false }), "Room 5");
+    assert.equal(usageChip({ rooms: [5], logics: [5], dynamic: true }), "Room 5 …");
+    assert.equal(usageChip({ rooms: [], logics: [0, 3], dynamic: false }), "Logics 0, 3");
+    assert.equal(usageChip({ rooms: [], logics: [], dynamic: true }), "Chosen at runtime");
+    assert.equal(usageChip({ rooms: [], logics: [], dynamic: false }), "Not used by any logic");
   });
 
   it("fits a cel at the largest whole zoom that leaves room for the baseline", () => {
@@ -655,7 +663,7 @@ describe("sprite view helpers", () => {
     );
     assert.equal(
       plainSpriteRefusal("loop 3's cels are not exact mirror images of loop 1's; pass force"),
-      "Loop 3 is not an exact mirror of loop 1; replace it to link them.",
+      "Loop 3 differs from loop 1 flipped. Replace it to mirror.",
     );
     assert.equal(plainSpriteRefusal("something new"), "The view can't be changed that way.");
   });

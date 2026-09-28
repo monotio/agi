@@ -410,7 +410,7 @@ export function createHistoryView(
       return;
     }
     if (drive.diverged !== null) {
-      refuse(`the tape diverged: ${drive.diverged.detail}`);
+      refuse(`the recording diverged: ${drive.diverged.detail}`);
       return;
     }
     if (drive.error !== null) {

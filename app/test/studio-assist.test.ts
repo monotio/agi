@@ -220,7 +220,7 @@ describe("useStudioAssist", () => {
     await studio.assist.ask("bad: repaint the bridge, then make it walkable");
     assert.deepEqual(studio.assist.steps.value, [
       "Read the selection",
-      "Refused: would change the art — trying again",
+      "Refused: would change the art; trying again",
       "Proposed a change",
     ]);
     assert.equal(studio.assist.candidate.value?.candidateId, "c2");
@@ -529,7 +529,7 @@ describe("assist words", () => {
         entry("error", "[Studio] propose_edit -> Refused", refused),
         entry("request", "[Studio] propose_edit"),
       ]),
-      ["Reading the selection…", "Refused: would change the depth — trying again", "Proposing…"],
+      ["Reading the selection…", "Refused: would change the depth; trying again", "Proposing…"],
     );
   });
 
@@ -537,19 +537,18 @@ describe("assist words", () => {
     assert.equal(numberList([3, 0, 1, 2, 5]), "0–3, 5");
     assert.equal(numberList([0, 1]), "0, 1");
     assert.deepEqual(
-      pictureScopeChips({
-        labels: ["Bench occluder"],
-        lockedPlanes: ["visual"],
-        depthValuesLocked: true,
-      }).map((chip) => chip.text),
-      ["Only: Bench occluder", "Art is locked", "Depth values locked (Walk view)"],
+      pictureScopeChips(["Bench occluder"]).map((chip) => chip.text),
+      ["Bench occluder"],
     );
+    assert.deepEqual(pictureScopeChips(["Bench", "Bench shadow", "Sign"]), [
+      { text: "These 3 items", lock: false, title: "Bench, Bench shadow, Sign" },
+    ]);
     assert.deepEqual(
       viewScopeChips({
         targetCels: [0, 1, 2, 3].map((cel) => ({ loop: 1, cel })),
         protectedLoops: [0],
       }).map((chip) => chip.text),
-      ["Only loop 1, cels 0–3", "Loop 0 protected"],
+      ["Cels 0–3 · Loop 1", "Loop 0 protected"],
     );
     const plane = (fill: number) => new Uint8Array(160 * 168).fill(fill);
     const after = { visual: plane(1), priority: plane(4) };
@@ -623,16 +622,16 @@ describe("assist words", () => {
       "No pixels change (only the picture's notes)",
     );
     assert.deepEqual(walkableWords({ before: 880, after: 960 }), {
-      line: "Where the player can stand (estimate): 880 → 960 cells in the selection",
+      line: "Floor (estimate): 880 → 960 cells in the selection",
       unchanged: null,
     });
     assert.deepEqual(walkableWords({ before: 0, after: 0 }), {
-      line: "Where the player can stand (estimate): 0 → 0 cells in the selection",
-      unchanged: "This doesn't change where the player can stand.",
+      line: "Floor (estimate): 0 → 0 cells in the selection",
+      unchanged: "The floor stays as it was.",
     });
     assert.equal(
       walkableWords({ before: 2, after: 1 }).line,
-      "Where the player can stand (estimate): 2 → 1 cell in the selection",
+      "Floor (estimate): 2 → 1 cell in the selection",
     );
     const robot = openSprite(ROBOT_VIEW, DEFAULT_V2_PROFILE);
     const blue = applySpriteEdit(robot, {

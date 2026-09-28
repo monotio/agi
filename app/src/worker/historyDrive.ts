@@ -595,7 +595,7 @@ export function openHistoryDrive(
       if (event !== null && engine.readLeanState().terminated) {
         fail(
           { seq: event.seq, tick: event.tick, cycle: event.cycle },
-          `recorded event unreachable: replay cannot advance past tick ${replay.tick} — engine terminated`,
+          `recorded event unreachable: replay cannot advance past tick ${replay.tick}: the engine terminated`,
         );
         return halt();
       }

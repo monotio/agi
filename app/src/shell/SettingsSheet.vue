@@ -253,9 +253,7 @@ defineExpose({ toggle, close, open });
           @click="act(() => emit('export-zip', true))"
         >
           <span
-            >Download game…<small
-              >For development: editing work, saved progress and history — a ZIP file</small
-            ></span
+            >Download game…<small>ZIP for development: editing work, saves and history</small></span
           >
         </button>
         <button
@@ -267,13 +265,12 @@ defineExpose({ toggle, close, open });
         >
           <span v-if="currentGame()?.workInProgress"
             >Export game…<small data-testid="export-work-in-progress"
-              >Work in progress: exits to rooms not built yet stop the game — a ZIP file</small
+              >ZIP, work in progress: exits to unbuilt rooms stop the game</small
             ></span
           >
           <span v-else
             >Export game…<small
-              >For publishing: playable game without private editing work or play history — a ZIP
-              file</small
+              >ZIP for publishing: the playable game and its public details</small
             ></span
           >
         </button>

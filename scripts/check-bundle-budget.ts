@@ -78,8 +78,9 @@ const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
  * assist tools drive. A player who never uses AI never downloads it.
  */
 const AUTHORING_MODULES = [
-  /^app\/src\/agent\/(authoringStack|agentSession|llmClient|stubAgent|studioAssist)\.ts$/,
-  /^src\/agent\/(tools|studioAssistTools|authoringTools|roomTools|pictureTools|prompt|playtest)\.ts$/,
+  /^app\/src\/agent\/(authoringStack|agentSession|llmClient|stubAgent|studioAssist|referenceStub)\.ts$/,
+  /^app\/src\/references\/referenceHandles\.ts$/,
+  /^src\/agent\/(tools|studioAssistTools|authoringTools|roomTools|pictureTools|referenceTools|prompt|playtest)\.ts$/,
   /^src\/studio\/(editOperations|editValidation|pictureDocument|probe|lensRules|assistScope)\.ts$/,
   /^src\/studio\/sprite\/(spriteOperations|spriteCels)\.ts$/,
   /^app\/node_modules\/(openai|@anthropic-ai\/sdk)\//,

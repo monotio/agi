@@ -33,7 +33,15 @@ export interface LlmConfig {
   /** Isolated evaluation override; ordinary app requests use the shipped prompt. */
   systemPrompt?: string;
   budgetUsd?: number;
+  /**
+   * With the stub provider, a scripted model instead of the offline author
+   * (referenceStub.ts): tests and the reference eval's dry run.
+   */
+  stubScript?: ReferenceStubScript;
 }
+
+/** The scripted reference scenarios: one views a region and uses it, one never looks. */
+export type ReferenceStubScript = "reference-region" | "reference-never";
 
 interface ToolCallItem {
   id: string;
@@ -74,6 +82,8 @@ export interface LlmRequestTelemetry {
   /** ms for the complete provider response. */
   responseMs: number;
   usage?: LlmUsage;
+  /** Share of this request's input served from the provider's prompt cache. */
+  cacheHitShare?: number;
   /** True when the stream ended early or errored — usage may be partial, not exact. */
   usageIncomplete: boolean;
   /** Tool-result text bytes and image stats the model was sent before this request. */
@@ -142,6 +152,11 @@ function openAiUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): 
   };
 }
 
+/** Cached input over total input; undefined until a request reports input. */
+function cacheHitShare(usage: LlmUsage): number | undefined {
+  return usage.input > 0 ? Math.min(1, usage.cachedInput / usage.input) : undefined;
+}
+
 /** FNV-1a fingerprint: cheap, dependency-free identity for static request sections. */
 function fnv1a(text: string): string {
   let hash = 0x811c9dc5;
@@ -196,14 +211,6 @@ export interface UnifiedConversation {
   getUsage?(): LlmUsage;
 }
 
-/**
- * Creates an Anthropic multi-turn conversation with strict prompt caching.
- * One explicit checkpoint ends the static prefix (Anthropic's cache order is
- * tools -> system -> messages, so the system-block marker covers the catalog);
- * the top-level cache_control rolls an automatic breakpoint over the tail.
- * Transcript history is strictly append-only and carries no cache annotations —
- * markers are transport metadata applied to the outbound request only.
- */
 function getDevBaseUrl(path: string): string | undefined {
   if (
     typeof import.meta !== "undefined" &&
@@ -218,6 +225,28 @@ function getDevBaseUrl(path: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Creates an Anthropic multi-turn conversation with strict prompt caching.
+ * Anthropic's cache order is tools -> system -> messages, so two of the four
+ * breakpoints do the whole job: one explicit marker on the system block ends
+ * the static prefix (the catalog and the prompt, identical for every
+ * session) and the top-level cache_control rolls an automatic breakpoint over
+ * the growing tail. The static marker keeps a 1-hour entry because a player
+ * often plays for more than five minutes between turns: it costs 2x instead
+ * of 1.25x to write once an hour and saves a full re-write of the catalog and
+ * prompt on every turn that follows a pause. The tail stays on the default
+ * 5-minute entry, refreshed by every request of a turn (a longer entry must
+ * precede a shorter one, and this order satisfies that). No marker sits
+ * between them: a breakpoint mid-history would only duplicate the automatic
+ * one within its 20-block lookback.
+ *
+ * Transcript history is strictly append-only and carries no cache
+ * annotations — markers are transport metadata applied to the outbound
+ * request only. Nothing rewrites an earlier message: a rewrite invalidates
+ * every cached block after it, and on models with preserved thinking it is
+ * a history edit the API may reject. evals/cache-probe.ts measures the prefix
+ * each request shares with its predecessor.
+ */
 export function createAnthropicConversation(
   config: LlmConfig,
   initialTranscript?: unknown[],
@@ -298,7 +327,7 @@ export function createAnthropicConversation(
             {
               type: "text",
               text: config.systemPrompt ?? AGI_SYSTEM_PROMPT,
-              cache_control: { type: "ephemeral" },
+              cache_control: { type: "ephemeral", ttl: "1h" },
             },
           ],
           tools,
@@ -342,6 +371,7 @@ export function createAnthropicConversation(
     const response = await (run ? run.request(send) : send());
 
     const usage = anthropicUsage(response.usage);
+    const hitShare = cacheHitShare(usage);
     const telemetry: LlmRequestTelemetry = {
       provider: "anthropic",
       model: response.model ?? config.model,
@@ -352,6 +382,7 @@ export function createAnthropicConversation(
       ...(firstEventMs !== undefined ? { timeToFirstEventMs: firstEventMs } : {}),
       responseMs,
       usage,
+      ...(hitShare === undefined ? {} : { cacheHitShare: hitShare }),
       usageIncomplete,
       toolResultTextBytes: toolContent.textBytes,
       imageCount: toolContent.imageCount,
@@ -451,8 +482,12 @@ export function createAnthropicConversation(
 
 /**
  * Creates an OpenAI multi-turn conversation using the modern Responses API
- * with a stable cache routing key and automatic cache breakpoints.
- * Transcript history is strictly append-only.
+ * with a stable cache routing key and automatic cache breakpoints, plus an
+ * explicit breakpoint at every turn's tail (see appendToolResults). The tool
+ * catalog is advertised whole for the life of the conversation; a task's
+ * narrower list travels as `tool_choice.allowed_tools`, which restricts what
+ * the model may call without changing the cached tool definitions. Transcript
+ * history is strictly append-only: nothing rewrites an earlier item.
  */
 export function createOpenAiConversation(
   config: LlmConfig,
@@ -584,6 +619,7 @@ export function createOpenAiConversation(
     const response = await (run ? run.request(send) : send());
 
     const usage = openAiUsage(response.usage);
+    const hitShare = cacheHitShare(usage);
     const telemetry: LlmRequestTelemetry = {
       provider: "openai",
       model: response.model ?? config.model,
@@ -594,6 +630,7 @@ export function createOpenAiConversation(
       ...(firstEventMs !== undefined ? { timeToFirstEventMs: firstEventMs } : {}),
       responseMs,
       usage,
+      ...(hitShare === undefined ? {} : { cacheHitShare: hitShare }),
       usageIncomplete,
       toolResultTextBytes: toolContent.textBytes,
       imageCount: toolContent.imageCount,

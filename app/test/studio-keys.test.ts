@@ -14,16 +14,18 @@ function actions(drawing: boolean) {
   const act = {
     onCanvas: (target: EventTarget | null) => target === (CANVAS as unknown),
     dismiss: () => false,
-    close: () => calls.push("close"),
     lens: () => calls.push("lens"),
     seek: () => calls.push("seek"),
     zoom: () => calls.push("zoom"),
     step: (direction: number) => calls.push(`step ${direction}`),
+    extend: (direction: number) => calls.push(`extend ${direction}`),
     nudge: (dx: number, dy: number) => calls.push(`nudge ${dx},${dy}`),
     cursor: (dx: number, dy: number) => (drawing ? calls.push(`cursor ${dx},${dy}`) > 0 : false),
     click: (enter: boolean) => (drawing ? calls.push(enter ? "click enter" : "click") > 0 : false),
     remove: () => calls.push("remove"),
     duplicate: () => calls.push("duplicate"),
+    group: () => calls.push("group"),
+    ungroup: () => calls.push("ungroup"),
     reorder: () => calls.push("reorder"),
     undo: () => calls.push("undo"),
     redo: () => calls.push("redo"),
@@ -117,7 +119,7 @@ test("Enter on the canvas without a drawing cursor still finishes", () => {
   assert.deepEqual(calls, ["finish"]);
 });
 
-test("Esc in a text field leaves the field, not Studio; elsewhere it closes", () => {
+test("Esc in a text field leaves the field; elsewhere, with nothing in hand, it does nothing", () => {
   const { act, calls } = actions(false);
   const field = Object.assign(Object.create(HTMLElement.prototype) as HTMLElement, {
     tagName: "INPUT",
@@ -127,7 +129,7 @@ test("Esc in a text field leaves the field, not Studio; elsewhere it closes", ()
   assert.equal(studioKey(key("Escape", field), act), true);
   assert.deepEqual(calls, ["blur"]);
   assert.equal(studioKey(key("Escape", ELSEWHERE), act), true);
-  assert.deepEqual(calls, ["blur", "close"]);
+  assert.deepEqual(calls, ["blur"]);
 });
 
 test("/ focuses the Ask box from anywhere but a text field", () => {
@@ -159,4 +161,31 @@ test("Alt+Enter on the canvas adds a point where the cursor stands, as Alt+click
     calls.filter((call) => call === "insert point"),
     ["insert point"],
   );
+});
+
+test("Shift+Alt+arrows on the canvas grow the selection to the next or previous item", () => {
+  const { act, calls } = actions(false);
+  assert.equal(studioKey(key("ArrowDown", CANVAS, { altKey: true, shiftKey: true }), act), true);
+  assert.equal(studioKey(key("ArrowRight", CANVAS, { altKey: true, shiftKey: true }), act), true);
+  assert.equal(studioKey(key("ArrowUp", CANVAS, { altKey: true, shiftKey: true }), act), true);
+  assert.equal(studioKey(key("ArrowLeft", CANVAS, { altKey: true }), act), true);
+  // Off the canvas the arrows belong to the widget that has focus.
+  assert.equal(
+    studioKey(key("ArrowDown", ELSEWHERE, { altKey: true, shiftKey: true }), act),
+    false,
+  );
+  assert.deepEqual(calls, ["extend 1", "extend 1", "extend -1", "step -1"]);
+});
+
+test("Cmd/Ctrl+G groups and Shift+Cmd/Ctrl+G ungroups; plain G stays the probe's letter", () => {
+  const { act, calls } = actions(false);
+  assert.equal(studioKey(key("g", CANVAS, { metaKey: true }), act), true);
+  assert.equal(studioKey(key("G", CANVAS, { metaKey: true, shiftKey: true }), act), true);
+  assert.equal(studioKey(key("g", ELSEWHERE, { ctrlKey: true }), act), true);
+  assert.equal(studioKey(key("G", ELSEWHERE, { ctrlKey: true, shiftKey: true }), act), true);
+  assert.deepEqual(calls, ["group", "ungroup", "group", "ungroup"]);
+  // Duplicate and focus mode keep their chords.
+  assert.equal(studioKey(key("d", CANVAS, { metaKey: true }), act), true);
+  assert.equal(studioKey(key("\\", CANVAS, { metaKey: true }), act), true);
+  assert.deepEqual(calls.slice(4), ["duplicate", "focus mode"]);
 });

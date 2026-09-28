@@ -112,8 +112,8 @@ const STUDIO = "[Studio] ";
 
 /**
  * The request's activity from its log entries, compactly: reading the
- * selection, each proposal and each refusal ("Refused: would change the art
- * — trying again" when another proposal followed).
+ * selection, each proposal and each refusal ("Refused: would change the art;
+ * trying again" when another proposal followed).
  */
 export function assistSteps(entries: readonly AgentLogEntry[]): string[] {
   const steps: { text: string; refused: boolean }[] = [];
@@ -139,7 +139,7 @@ export function assistSteps(entries: readonly AgentLogEntry[]): string[] {
     }
   }
   return steps.map(({ text, refused }, index) =>
-    refused && index < steps.length - 1 ? `${text} — trying again` : text,
+    refused && index < steps.length - 1 ? `${text}; trying again` : text,
   );
 }
 
@@ -203,7 +203,7 @@ export function useStudioAssist(options: StudioAssistOptions) {
     const last = steps.value.at(-1);
     if (task.value?.status === "paused") return task.value.reason;
     if (last?.endsWith("…")) return last;
-    if (last?.startsWith("Refused")) return `${last} — trying again`;
+    if (last?.startsWith("Refused")) return `${last}; trying again`;
     if (progress?.phase === "thinking") return "Thinking…";
     if (progress?.phase === "text") return "Writing…";
     return last ? "Finishing…" : "Waiting for the model…";
@@ -216,7 +216,11 @@ export function useStudioAssist(options: StudioAssistOptions) {
     return `$${Math.max(0, state.budget - state.spent).toFixed(2)} of $${state.budget.toFixed(2)} left`;
   });
 
-  async function ask(text: string): Promise<void> {
+  /**
+   * Send `text` about the selection; `referenceIds` names stored reference
+   * art the creator attached, which rides the request as handles.
+   */
+  async function ask(text: string, referenceIds: readonly string[] = []): Promise<void> {
     const instruction = text.trim();
     const host = options.host();
     if (!instruction || running.value || !host || blocked.value !== null) return;
@@ -238,7 +242,9 @@ export function useStudioAssist(options: StudioAssistOptions) {
     phase.value = "running";
     const id = ++runId;
     try {
-      const result = await host.run({ instruction, focus });
+      const result = await host.run(
+        referenceIds.length ? { instruction, focus, referenceIds } : { instruction, focus },
+      );
       if (id !== runId) return;
       reply.value = result.text;
       thread.value = [...thread.value, { role: "ai", text: result.text }];

@@ -6,8 +6,8 @@ import type { SpriteTool } from "./useSpriteTools.ts";
 
 /**
  * The tool rail on the canvas's left edge: the drawing tools, the eraser and
- * the recolour, the paint colour, the selection, the pipette and the flip,
- * each with its key.
+ * the recolour, the paint colour, the selection, the pipette and the flip;
+ * each tooltip is its name and key ("Line · L").
  */
 const { frozen, color } = defineProps<{
   /** Drawing is blocked: the tools that change pixels are disabled. */
@@ -26,22 +26,18 @@ interface RailTool {
 }
 const DRAW: readonly RailTool[] = [
   { id: "pencil", icon: "pencil", label: "Pencil", key: "B", draws: true },
-  { id: "eraser", icon: "eraser", label: "Eraser (writes transparency)", key: "E", draws: true },
+  { id: "eraser", icon: "eraser", label: "Eraser", key: "E", draws: true },
   { id: "fill", icon: "fill", label: "Fill", key: "G", draws: true },
   { id: "line", icon: "line", label: "Line", key: "L", draws: true },
   { id: "rect", icon: "rect", label: "Rectangle", key: "R", draws: true },
-  {
-    id: "recolor",
-    icon: "palette",
-    label: "Recolour: one colour to another in the cel, loop or view",
-    key: "C",
-    draws: true,
-  },
+  { id: "recolor", icon: "palette", label: "Recolour", key: "C", draws: true },
 ];
 const PICK: readonly RailTool[] = [
-  { id: "select", icon: "marquee", label: "Select: move, copy, flip or delete", key: "M" },
-  { id: "pipette", icon: "pipette", label: "Pick colour", key: "I" },
+  { id: "select", icon: "marquee", label: "Select", key: "M" },
+  { id: "pipette", icon: "pipette", label: "Pipette", key: "I" },
 ];
+/** Why the drawing tools are off, on their tooltips. */
+const PAUSED = "Drawing waits while the view is view only or an AI proposal is open";
 </script>
 
 <template>
@@ -53,6 +49,7 @@ const PICK: readonly RailTool[] = [
         :shortcut="entry.key"
         :pressed="tool === entry.id"
         :disabled="entry.draws && frozen"
+        :title="entry.draws && frozen ? PAUSED : `${entry.label} · ${entry.key}`"
         :data-tool="entry.id"
         @click="tool = entry.id"
       />
@@ -64,7 +61,6 @@ const PICK: readonly RailTool[] = [
       role="img"
       :aria-label="`Colour ${color}, ${EGA_COLOUR_NAMES[color]}`"
       :title="`Colour ${color}, ${EGA_COLOUR_NAMES[color]}`"
-      data-testid="sprite-rail-colour"
     ></span>
     <span class="sprite-rail__sep" aria-hidden="true"></span>
     <div v-for="entry in PICK" :key="entry.id" class="sprite-rail__tool">
@@ -73,6 +69,7 @@ const PICK: readonly RailTool[] = [
         :label="entry.label"
         :shortcut="entry.key"
         :pressed="tool === entry.id"
+        :title="`${entry.label} · ${entry.key}`"
         :data-tool="entry.id"
         @click="tool = entry.id"
       />
@@ -81,9 +78,10 @@ const PICK: readonly RailTool[] = [
     <div class="sprite-rail__tool">
       <UiIconButton
         icon="flip"
-        label="Flip horizontally (the selection, else the cel)"
+        label="Flip"
         shortcut="H"
         :disabled="frozen"
+        :title="frozen ? PAUSED : 'Flip · H (selection, else the cel)'"
         data-tool="flip"
         @click="emit('flip')"
       />

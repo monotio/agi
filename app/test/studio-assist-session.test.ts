@@ -181,7 +181,8 @@ test("a provider turn offers only the Studio task tools and is denied anything e
   const choice = bodies[0]!["tool_choice"] as { tools: { name: string }[] };
   assert.deepEqual(
     choice.tools.map((tool) => tool.name),
-    [...STUDIO_ASSIST_TASK_TOOLS],
+    // A request without reference art is not offered view_reference.
+    [...STUDIO_ASSIST_TASK_TOOLS].filter((name) => name !== "view_reference"),
   );
   assert.match(
     JSON.stringify(bodies[1]!["input"]),

@@ -183,6 +183,29 @@ export function roomReference(
   };
 }
 
+/**
+ * A view's reference image as Studio's Ask attaches it: one image for the
+ * character the view draws, stored as a character reference without a pose
+ * manifest or staged VIEW (the shape a kept sheet already has, less its
+ * manifest), so released project records read it unchanged.
+ */
+export function viewReference(
+  id: string,
+  target: number,
+  brief: string,
+  attachedAt: GameIdentity,
+  decoded: DecodedImage,
+): StoredReference {
+  return {
+    id,
+    kind: "character",
+    target,
+    brief,
+    images: [referenceImage(decoded)],
+    attachedAt,
+  };
+}
+
 /** The reference as provider image blocks — the upload's own bytes per image. */
 export function referenceAgentImages(reference: StoredReference): AgentToolImage[] {
   return reference.images.map((image) => {
@@ -196,7 +219,7 @@ export function referenceAgentImages(reference: StoredReference): AgentToolImage
         (reference.kind === "room" ? `room ${reference.target}` : `view ${reference.target}`) +
         (image.facing !== undefined ? `, ${image.facing}-facing pose row` : "") +
         (reference.brief ? ` — ${reference.brief}` : "") +
-        ". Encode it into native resources with the authoring tools; the reference decides look and composition, never walkable space or exits.",
+        ". Encode it into native resources with the authoring tools; the reference sets look and composition, and you decide walkable space and exits.",
     };
   });
 }
@@ -209,7 +232,7 @@ export function stagedRefusal(reference: StoredReference, current: GameIdentity)
     reference.attachedAt.project !== current.project ||
     reference.attachedAt.revision !== current.revision
   )
-    return "The game's resources changed since this reference was attached — attach a fresh copy to keep its staged view.";
+    return "The game's resources changed since this reference was attached. Attach a fresh copy to keep its staged view.";
   return null;
 }
 

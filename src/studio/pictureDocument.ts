@@ -8,6 +8,18 @@
  * Items are flat and cover consecutive source lines; lines outside items are
  * loose. A malformed directive is reported and otherwise read as a plain
  * comment, as is the `@end` of a rejected `@item`.
+ *
+ * Several items become one (Group) only as a run of neighbours: one
+ * `@item` over their lines, so the commands keep their draw order and the
+ * bytes never change. Items drawn between them, or loose commands, would
+ * have to move in the draw order (changing the picture) or join without
+ * being chosen, so `itemRun` names them and the edit refuses (see the
+ * `combineItems` operation in editOperations.ts). Each member's own item
+ * stays inside the group as plain comments, which Ungroup (`ungroupItem`)
+ * turns back into the items they were:
+ *
+ *   # part <id> "<label>" <kind>                             a member's start
+ *   # end part                                               its end
  */
 
 export type PictureItemKind = "art" | "depth" | "walk" | "mixed";
@@ -54,6 +66,32 @@ export interface StudioDiagnostic {
 export const PICTURE_ITEM_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 
 const DIRECTIVE = /^#\s*@(item|end)(?=\s|$)(.*)$/;
+const PART = /^#\s*part\s+(\S+)\s+("(?:[^"\\]|\\.)*")\s+(art|depth|walk|mixed)$/;
+const PART_END = /^#\s*end part$/;
+
+/** A grouped member's start comment. */
+export const partLine = (id: string, label: string, kind: PictureItemKind): string =>
+  `# part ${id} ${JSON.stringify(label)} ${kind}`;
+/** A grouped member's end comment. */
+export const PART_END_LINE = "# end part";
+
+/** A group's member marker on this line: its start (id, label, kind) or its end. */
+export function groupPart(
+  line: string,
+): { id: string; label: string; kind: PictureItemKind } | "end" | undefined {
+  const text = line.trim();
+  if (PART_END.test(text)) return "end";
+  const match = PART.exec(text);
+  if (!match || !PICTURE_ITEM_ID.test(match[1]!)) return undefined;
+  let label: unknown;
+  try {
+    label = JSON.parse(match[2]!);
+  } catch {
+    return undefined;
+  }
+  if (typeof label !== "string" || label.trim().length === 0) return undefined;
+  return { id: match[1]!, label, kind: match[3] as PictureItemKind };
+}
 const LABEL = /^"(?:[^"\\]|\\.)*"/;
 
 /** The line with its comment and surrounding whitespace removed. */
@@ -199,4 +237,37 @@ export function pictureItemAtLine(
   line: number,
 ): PictureItem | undefined {
   return document.items.find((item) => item.openLine < line && line < item.closeLine);
+}
+
+/** Where items to be made one lie in the draw order, and what breaks their run. */
+export interface ItemRun {
+  /** The members in draw order. */
+  readonly members: readonly PictureItem[];
+  /** Items drawn between the first and last member that are not members. */
+  readonly between: readonly PictureItem[];
+  /** 1-based loose lines holding a command between the first and last member. */
+  readonly looseCommands: readonly number[];
+}
+
+/**
+ * The run from the first to the last of `ids` in draw order, and what lies
+ * between them that is not one of them. Ids the document lacks are skipped.
+ */
+export function itemRun(document: PictureDocument, ids: readonly string[]): ItemRun {
+  const chosen = new Set(ids);
+  const members = document.items.filter((item) => chosen.has(item.id));
+  const first = members[0];
+  const last = members.at(-1);
+  if (!first || !last) return { members, between: [], looseCommands: [] };
+  const between = document.items.filter(
+    (item) =>
+      !chosen.has(item.id) && item.openLine > first.openLine && item.openLine < last.openLine,
+  );
+  const looseCommands: number[] = [];
+  for (let line = first.closeLine + 1; line < last.openLine; line++) {
+    const text = document.lines[line - 1] ?? "";
+    if (!pictureItemAtLine(document, line) && !isPictureDirective(text))
+      if (pictureCommandText(text).length > 0) looseCommands.push(line);
+  }
+  return { members, between, looseCommands };
 }

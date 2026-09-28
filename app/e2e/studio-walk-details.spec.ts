@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
 
@@ -8,13 +8,6 @@ import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
  * put ego, and Esc lets go of a selected door before it leaves Studio.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
-
-/** Screenshots go here when set (the review set), else to the test's output. */
-const SHOTS = process.env["AGI_WALK_SHOTS"];
-const shot = (page: Page, name: string) =>
-  page.screenshot({
-    path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`),
-  });
 
 async function openTutorialStudio(page: Page, room: number): Promise<Locator> {
   await isolateStorage(page);
@@ -57,10 +50,10 @@ test("a start inside a wall: the card names the asked start, not the room's entr
   await expect(card).not.toContainText("18,151");
   // The engine's end is the room's entry spot, not a place the creator chose.
   await expect(studio.getByTestId("walk-play-here")).toHaveCount(0);
-  await shot(page, "walk-start-blocked");
+  await reviewShot(page, "walk-start-blocked");
 });
 
-test("Esc with a door selected lets go of the door; the next Esc leaves Studio", async ({
+test("Esc with a door selected lets go of the door; the next Esc stays in Studio", async ({
   page,
 }) => {
   const studio = await openTutorialStudio(page, 2);
@@ -79,7 +72,9 @@ test("Esc with a door selected lets go of the door; the next Esc leaves Studio",
   );
   await expect(studio).toBeVisible();
 
-  // Nothing is left to let go of, and nothing is unkept: Esc returns to Create.
+  // Nothing is left to let go of: Esc stays in Studio, and the × returns to Create.
   await page.keyboard.press("Escape");
+  await expect(studio).toBeVisible();
+  await studio.getByTestId("studio-close").click();
   await expect(studio).toBeHidden();
 });

@@ -1,13 +1,18 @@
 /**
- * A Studio's stage notice (StudioStageNotes): one short sentence that says
- * what an edit did or why it was refused, with its technical detail. It
- * clears itself after a while, except while its details are open.
+ * A Studio's notice (StudioStatusNotice): one short sentence that says what
+ * an edit did or why it was refused, with its technical detail and at most
+ * one step to take (Unlock for now after a lock refusal). It lives in
+ * the status line, off the picture, until it is dismissed, an edit clears
+ * it, or the tool changes.
  */
 
-import { onScopeDispose, shallowRef } from "vue";
+import { shallowRef } from "vue";
 
-/** How long a notice stays up. */
-const NOTICE_MS = 5000;
+/** The one step a notice offers: "Unlock for now" after a lock refusal. */
+export interface NoticeAction {
+  readonly label: string;
+  readonly run: () => void;
+}
 
 export interface StudioNotice {
   readonly tone: "warn" | "ok";
@@ -15,24 +20,16 @@ export interface StudioNotice {
   readonly text: string;
   /** The technical account, behind a Details disclosure. */
   readonly detail?: string | undefined;
+  readonly action?: NoticeAction | undefined;
 }
 
 export function useStudioNotice() {
   const notice = shallowRef<StudioNotice | null>(null);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  onScopeDispose(() => clearTimeout(timer));
 
+  /** Show a notice; null clears it. */
   function say(next: StudioNotice | null): void {
-    clearTimeout(timer);
     notice.value = next;
-    if (next) timer = setTimeout(() => (notice.value = null), NOTICE_MS);
   }
 
-  /** Keep the notice up while its details are open; the countdown restarts when they close. */
-  function hold(open: boolean): void {
-    if (open) clearTimeout(timer);
-    else say(notice.value);
-  }
-
-  return { notice, say, hold };
+  return { notice, say, dismiss: () => say(null) };
 }

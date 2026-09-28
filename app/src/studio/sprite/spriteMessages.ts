@@ -11,7 +11,7 @@ import type { SpriteValidation } from "../../../../src/studio/sprite/spriteValid
 const PLAIN: readonly (readonly [RegExp, (match: RegExpMatchArray) => string])[] = [
   [
     /is the cel's transparent colour/,
-    () => "The transparent colour can't be painted. Use the eraser to make pixels transparent.",
+    () => "That is the transparent colour. The eraser paints it.",
   ],
   [/cannot delete the last cel/, () => "A loop needs at least one cel. Delete the loop instead."],
   [/cannot delete the view's last loop/, () => "A view needs at least one loop."],
@@ -19,14 +19,14 @@ const PLAIN: readonly (readonly [RegExp, (match: RegExpMatchArray) => string])[]
   [/already has the maximum (\d+) loops/, (m) => `A view holds at most ${m[1]} loops.`],
   [
     /loop (\d+)'s cels are not exact mirror images of loop (\d+)'s/,
-    (m) => `Loop ${m[1]} is not an exact mirror of loop ${m[2]}; replace it to link them.`,
+    (m) => `Loop ${m[1]} differs from loop ${m[2]} flipped. Replace it to mirror.`,
   ],
   [/already shares loop (\d+)'s data block/, (m) => `This loop already mirrors loop ${m[1]}.`],
-  [/does not share its data block/, () => "This loop is not linked to another loop."],
+  [/does not share its data block/, () => "This loop has its own cels."],
   [/a loop cannot mirror itself/, () => "A loop cannot mirror itself."],
   [
     /no stored orientation can display|shares loop \d+'s data block but its cels differ/,
-    () => "The VIEW format cannot store linked loops that differ like this.",
+    () => "Mirrored loops stay exact flips of each other.",
   ],
   [/opaque pixels already use colour (\d+)/, (m) => `Pixels already use colour ${m[1]}.`],
   [/must be an integer in/, () => "That value is out of range for this cel."],
@@ -57,5 +57,5 @@ export function validationRefusal(check: SpriteValidation): string {
   ].sort((a, b) => a - b);
   return reached.length === 0
     ? "This edit would change more than the loop you are editing."
-    : `This edit would also change ${list(reached)}, outside the loop you are editing.`;
+    : `This would also change ${list(reached)}. Turn on Edit both to allow it.`;
 }

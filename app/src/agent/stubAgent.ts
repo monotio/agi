@@ -115,9 +115,8 @@ export class StubAgent implements AgentHandler {
   }
 
   /**
-   * Deterministic remix turn: the offline twin of the LLM live-patch loop
-   *. It runs the REAL assembler and returns a
-   * real patched logic resource, so the e2e proves the whole path — freeze,
+   * Deterministic remix turn: the offline twin of the LLM live-patch loop.
+   * It runs the REAL assembler and returns a real patched logic resource, so the e2e proves the whole path — freeze,
    * patch, room re-entry, resume — with no API key in sight.
    *
    * The one instruction it understands is a sign: anything containing "sign"

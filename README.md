@@ -29,7 +29,7 @@ no account, no API key and no Sierra files.
 ![Adventure Department in Play: the apprentice has just painted the gallery's mural, and the status line reads Mural fixed! Next exhibit: go EAST.](docs/media/tutorial-gallery.png)
 
 - **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
-  The files stay in your browser's storage and are never uploaded. The app
+  The files stay in your browser's storage. The app
   recognises the edition, picks the matching interpreter and checks that the
   game opens.
 - **Watch a playthrough.** Verified releases come with a recorded completion
@@ -81,16 +81,16 @@ A few things worth knowing:
 - **The picture** fills a 4:3 frame, the way a monitor of the day stretched the
   320 × 200 screen. **Settings → Original 4:3** turns that off for square
   pixels.
-- **Text** uses this project's own 8 × 8 font in the original character grid,
-  not each machine's built-in font. It covers English text and the box drawing
-  the Sierra games print; other characters show blank.
+- **Text** uses this project's own 8 × 8 font in the original character grid. It
+  covers English text and the box drawing the Sierra games print; other
+  characters show blank.
 - **Fan-made games** run too. If the app cannot tell which interpreter a game
   needs, it asks. [Testing](docs/testing.md#testing-compatibility) lists the
   exact editions and builds.
 
-Commercial games are not included: bring your own copies, and they stay in your
-browser. No copies? Fans have made over a hundred free AGI games since the late
-nineties, collected on the
+Bring your own copies of commercial games; they stay in your browser. No copies?
+Fans have made over a hundred free AGI games since the late nineties, collected
+on the
 [AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List)
 and in the
 [SCI Programming community's game list](https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads).
@@ -109,14 +109,15 @@ OpenAI or Anthropic API key, and click **Create adventure**.
 | [Polyester Nights](games/polyester-nights/SKILL.md)     | A middle-aged lounge lizard tries his luck for one more night.       |
 
 The agent plans the world and builds the opening room: artwork, characters and
-game logic. When you walk into a room that does not exist yet, play pauses
+game logic. When you walk into a room that is still unbuilt, play pauses
 while the agent writes it. Along the way you can:
 
 - plan on the world map in Create's World panel: rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
 - use **Ask** in Play for hints and questions that leave the game untouched,
   or **Remix** in Create to change it, including any game you imported;
-- attach reference images for rooms and character sprites;
+- attach reference images for rooms and character sprites: the agent gets a
+  thumbnail of each and looks closer at the parts it needs;
 - preview the game's sounds as WAV clips.
 
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
@@ -142,9 +143,10 @@ it, and ask for revisions when something is off.
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
 are billed to your account; each task starts with an estimated $5 budget that
-you can change. What the agent writes comes from your provider's model and is
-not reviewed by the app, so play a game through before you share it, especially
-with children. [Security](SECURITY.md) covers storage and data flow, and
+you can change. Each request extends the one before it, so the provider's
+prompt cache serves the conversation so far at its lower cache-read price. What
+the agent writes comes from your provider's model and is not reviewed by the
+app, so play a game through before you share it, especially with children. [Security](SECURITY.md) covers storage and data flow, and
 [adventure briefs](games/README.md) covers writing your own templates.
 
 ## Edit every room by hand
@@ -157,13 +159,13 @@ its picture opens in **Room Studio** and its views in **Sprite Studio**.
 <p align="center">
   <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>
   <a href="docs/media/room-studio-walk.png"><img src="docs/media/room-studio-walk.png" width="49%" alt="The Walk lens on the tutorial's Sprite Lab: the walkable tint, doors labelled Picture Gallery and Priority Archive, and a test walk from the west door that reports Reached"></a>
-  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Ask about this selection on a bridge over a river: the proposed change outlined on the canvas with Before and After, the AI's summary, and Accept and Reject"></a>
+  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Ask on a bridge over a river: the proposed change outlined on the canvas with Before and After, the AI's summary, and Accept and Reject"></a>
   <a href="docs/media/sprite-studio.png"><img src="docs/media/sprite-studio.png" width="49%" alt="Sprite Studio on the tutorial's waving robot: the cel canvas, the loops and cels timeline with a mirrored loop, loop previews and the robot standing in its room"></a>
 </p>
 
 _Left to right, top to bottom: Room Studio with the velvet rope selected, a test
-walk across the Sprite Lab, a proposal from Ask about this selection, and Sprite
-Studio on the waving robot._
+walk across the Sprite Lab, a proposal from Ask, and Sprite Studio on the
+waving robot._
 
 - **Room Studio** shows a room's picture under three lenses: Art for what the
   player sees, Depth for how far away each part sits, and Walk for the lines that
@@ -173,11 +175,15 @@ Studio on the waving robot._
 - **Editing** works on items: drag one or its points, nudge it with the arrow
   keys, change its colour, priority or draw order, duplicate or delete it.
   Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
+  Shift+click, a group row, a Shift+drag box or Shift+Alt+arrows select several
+  items, which then move, copy and delete together as one step, so an imported
+  bush's outline and fill stay together; Group (⌘G) names neighbours as one
+  item without changing a byte, and Ungroup (⇧⌘G) splits it again.
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the scrubber's point in the draw order, and a ghost actor shows whether a
   character would stand in front of the scene or behind it.
-- **Keep** saves the picture into the game. Each lens locks the planes it is not
-  about until you unlock them, every change can be undone, even after Keep, and
+- **Keep** saves the picture into the game. Each lens locks the other planes
+  until you unlock them, every change can be undone, even after Keep, and
   leaving with unkept changes asks first.
 - **Test walks and doors** live in the Walk lens. A test walk runs the real game
   in a throwaway copy and reports Reached, Blocked at whatever was in the way,
@@ -187,18 +193,23 @@ Studio on the waving robot._
   lead to other rooms; a door can follow its doorway art, so moving the art
   moves the door in the same Keep. Exits written in the room's own logic stay
   read-only. Right-click any spot and **Play here** jumps into the game there.
-- **Ask about this selection** has your connected AI change only the selected
-  item: "make this bridge walkable without changing the art". Its proposal shows
-  on the canvas, Before or After, with the changed cells outlined. The app's own
-  checks hold it to the selection and the lens's locks, and Accept makes it one
-  undo step.
+- **Ask** has your connected AI change only the selected items: "make this
+  bridge walkable without changing the art". Attach reference art (a file, a
+  drop or a saved image) and the AI can look at it while it works. Its proposal
+  shows on the canvas, Before or After, with the changed cells outlined. The
+  app's own checks hold it to the selection and the lens's locks, and Accept
+  makes it one undo step.
 - **Sprite Studio** edits a view's loops and cels. Open it from a room's views,
   the Resources tab or a staged character sheet, draw with the pixel tools, and
   reorder, duplicate and flip cels on a loops × cels timeline. The previews play
   the loop at the game's speed and stand it in a room at its real depth. Editing
   a loop that mirrors another makes it a separate copy, so fixing one facing
-  never changes the other unless you ask. Ask works here too, on the selected
+  leaves the other as it is unless you ask. Ask works here too, on the selected
   cel or its whole loop, with every other loop protected.
+- **Explainers** sit beside the Studios' terms: each ⓘ says in one sentence
+  what the control does and links to its Help topic. Each Studio shows a
+  three-step tour the first time it opens, and **Tour** in its `?` key list
+  plays it again.
 
 ## Save and share
 
@@ -212,8 +223,8 @@ app saves as you play, so **Resume** picks up where you left off.
 | **Download game…**   | A ZIP of the game plus its authoring conversation, images, source descriptions, world notes, stored tests, map, session history, saved games and autosave. |
 
 Either ZIP opens again with **Add game**, in any browser. A game without a
-declared license keeps an unknown license: exports never inherit this
-repository's MIT license.
+declared license keeps an unknown license in its exports; the MIT license covers
+this repository's own code and assets.
 
 ## Thirty years later
 
@@ -292,6 +303,10 @@ repository is arranged so that neither has to be taken at its word.
 - **Tests that are tested.** [Mutation testing](stryker.config.mjs), run on
   demand, checks that the picture and Studio kernels' tests catch deliberate
   bugs.
+- **Paid runs by consent.** An eval runner calls a provider only with both
+  `--live` and `--budget-usd` on the command line, and `npm run eval:cache`
+  checks offline that every request keeps the one before it as its prefix, so
+  the prompt cache keeps working.
 - **Measured models.** The [Genesis benchmark](evals/benchmarks/genesis/1.0.0/README.md)
   gives five models the same briefs and publishes every run, its cost and the
   game it made.

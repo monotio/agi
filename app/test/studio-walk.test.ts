@@ -108,7 +108,7 @@ describe("walkView: doors and words", () => {
     assert.deepEqual(doors[0]!.box, { x1: 120, y1: 124, x2: 133, y2: 130 });
     assert.equal(doors[0]!.line, 1);
     assert.equal(doors[2]!.label, "Leaves by the west edge");
-    assert.equal(doors[3]!.label, "Planned exit by a command or script");
+    assert.equal(doors[3]!.label, "Planned exit by the room's script");
   });
 
   it("words where a door leads and its two sides", () => {
@@ -126,7 +126,7 @@ describe("walkView: doors and words", () => {
       testedBy: ["route"],
     });
     assert.deepEqual(doorStatus({ destination: 2, contract: back }, none), {
-      wayBack: "Way back from there: the east edge or a door or a command",
+      wayBack: "Way back from there: the east edge or a door or the script",
       tested: "Tested ✓ (route)",
       testedOk: true,
     });
@@ -137,12 +137,12 @@ describe("walkView: doors and words", () => {
     );
     assert.equal(
       doorStatus({ destination: 2, contract: null }, none).wayBack,
-      "Not in the room's logic until you Keep",
+      "Written into the room when you Keep",
     );
   });
 
   it("says plainly what a test walk carries over from the game", () => {
-    assert.equal(WALK_STATE_LABEL, "Start with my current flags and variables");
+    assert.equal(WALK_STATE_LABEL, "Use my game state");
     assert.equal(walkStateText("live"), "Fresh room entry with your flags and variables");
     assert.equal(walkStateText("fresh"), "Fresh room entry from a new game");
   });
@@ -297,7 +297,7 @@ describe("walkView: doors and words", () => {
     );
     assert.equal(
       doorTestNote({ shape: "other" }, false, null),
-      "A test walk can't take an exit made by a command or script: play the game to test it.",
+      "Exits made by the room's script run in play: play the game to test this one.",
     );
   });
 

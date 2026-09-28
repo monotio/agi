@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import UiButton from "../../ui/UiButton.vue";
+import UiExplain from "../../ui/UiExplain.vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { explain } from "../studioTerms.ts";
 import { swatchInk } from "./spriteView.ts";
 
 /**
  * The fixed AGI palette with the edited cel's transparent colour marked ∅,
  * in two short rows of eight so the previews below stay in view. A radio
- * group: arrows move between colours. The transparent colour cannot
- * be painted; choosing it turns the eraser on instead. It is the view's
- * data (what the game leaves see-through), not the drawing backdrop, which
- * the options bar sets and which is never saved.
+ * group: arrows move between colours. Choosing the transparent colour turns
+ * the eraser on, which paints it. The heading's "∅ transparent ⓘ" says what
+ * it is and offers "Choose another…" (`choose`), which opens the cel's
+ * Details at its transparent colour. It is the view's data (what the game
+ * leaves see-through); the drawing backdrop is the options bar's, and stays
+ * out of the view.
  */
 const { transparent } = defineProps<{ transparent: number }>();
-const emit = defineEmits<{ erase: [] }>();
+const emit = defineEmits<{ erase: []; choose: [] }>();
 const color = defineModel<number>({ required: true });
 const COLOURS = Array.from({ length: 16 }, (_, index) => index);
 /** The swatch Tab lands on: the paint colour, never the transparent one. */
@@ -42,13 +47,28 @@ function onKey(event: KeyboardEvent, value: number): void {
 </script>
 
 <template>
-  <section class="sprite-palette" aria-labelledby="sprite-palette-title">
+  <section
+    class="sprite-palette"
+    aria-labelledby="sprite-palette-title"
+    data-testid="sprite-palette"
+  >
     <header class="sprite-palette__head">
       <h3 id="sprite-palette-title">Palette</h3>
-      <span
-        data-testid="sprite-transparent"
-        title="The cel's transparent colour is part of the view: the game shows what is behind it. The Backdrop above the canvas only changes what you see while drawing."
-        >∅ = {{ transparent }} · in-game transparent</span
+      <span class="sprite-palette__transparent" data-testid="sprite-transparent"
+        >∅ transparent
+        <UiExplain v-bind="explain('transparent')">
+          <template #action="{ close }">
+            <UiButton
+              size="sm"
+              data-testid="sprite-transparent-choose"
+              @click="
+                close();
+                emit('choose');
+              "
+              >Choose another…</UiButton
+            >
+          </template>
+        </UiExplain></span
       >
     </header>
     <div class="sprite-palette__grid" role="radiogroup" aria-labelledby="sprite-palette-title">
@@ -81,12 +101,12 @@ function onKey(event: KeyboardEvent, value: number): void {
 .sprite-palette {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-5) var(--space-4);
   border-bottom: 1px solid var(--hairline);
 }
 .sprite-palette__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
 }
@@ -97,9 +117,12 @@ function onKey(event: KeyboardEvent, value: number): void {
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
-.sprite-palette__head span {
+.sprite-palette__transparent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--ink-3);
-  font: var(--text-2xs) var(--font-mono);
+  font-size: var(--text-xs);
 }
 .sprite-palette__grid {
   display: grid;

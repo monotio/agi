@@ -11,8 +11,16 @@ import {
 } from "../../../src/studio/editPoints.ts";
 import type { StudioFocus } from "../../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, selectionArea } from "../../../src/studio/assistScope.ts";
-import { compileEditDocument, footprintMask } from "../../../src/studio/editValidation.ts";
-import { parsePictureDocument } from "../../../src/studio/pictureDocument.ts";
+import {
+  compileEditDocument,
+  footprintMask,
+  unionMask,
+} from "../../../src/studio/editValidation.ts";
+import {
+  groupPart,
+  parsePictureDocument,
+  pictureItemAtLine,
+} from "../../../src/studio/pictureDocument.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
@@ -26,43 +34,53 @@ import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
+import GhostReadout from "./GhostReadout.vue";
 import PixelInspector from "./PixelInspector.vue";
 import SceneList from "./SceneList.vue";
 import StudioAssistCompare from "./StudioAssistCompare.vue";
 import StudioAssistPanel from "./StudioAssistPanel.vue";
 import StudioCanvas, { type MaskPaths } from "./StudioCanvas.vue";
 import StudioCanvasMenu, { type CanvasMenuItem } from "./StudioCanvasMenu.vue";
-import StudioContextBar from "./StudioContextBar.vue";
+import StudioCombineDialog from "./StudioCombineDialog.vue";
+import StudioGroupEditor from "./StudioGroupEditor.vue";
 import StudioItemEditor from "./StudioItemEditor.vue";
+import StudioItemPoints from "./StudioItemPoints.vue";
+import StudioLockChip from "./StudioLockChip.vue";
 import StudioKeepDialog from "./StudioKeepDialog.vue";
 import StudioKeySheet from "./StudioKeySheet.vue";
-import StudioLockNote from "./StudioLockNote.vue";
 import StudioLogicText from "./StudioLogicText.vue";
+import StudioSelectionBar from "./StudioSelectionBar.vue";
 import StudioSmallScreen from "./StudioSmallScreen.vue";
-import StudioStageNotes from "./StudioStageNotes.vue";
+import StudioStatusNotice from "./StudioStatusNotice.vue";
 import StudioToolOptions from "./StudioToolOptions.vue";
 import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
+import StudioValuePicker from "./StudioValuePicker.vue";
 import StudioTopBar from "./StudioTopBar.vue";
+import StudioTour from "./StudioTour.vue";
 import SharePictureMenu from "./share/SharePictureMenu.vue";
 import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { fillFix, fillNotice } from "./fillAdvice.ts";
 import type { RouteRunner } from "./routeRunner.ts";
-import { ROOM_EDIT_HINT, ROOM_PATH_HINT, ROOM_TOOL_HINTS, roomKeySheet } from "./studioHelp.ts";
+import {
+  ROOM_EDIT_HINT,
+  ROOM_GROUP_HINT,
+  ROOM_PATH_HINT,
+  ROOM_TOOL_HINTS,
+  roomKeySheet,
+} from "./studioHelp.ts";
+import { explain } from "./studioTerms.ts";
 import { useStudioCalm } from "./useStudioCalm.ts";
+import { useStudioTour } from "./useStudioTour.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
-import {
-  depthValuesLocked,
-  lensItemLocks,
-  lockedPlanes,
-  NO_UNLOCKS,
-  type LensUnlocks,
-} from "./studioLocks.ts";
+import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
 import {
   changedCells,
   labelList,
@@ -73,7 +91,7 @@ import { HOLD_TEXT, useStudioAssist, type StudioAssistHost } from "./useStudioAs
 import {
   bandGuides,
   controlLabels,
-  maskBox,
+  insideBox,
   maskFillPath,
   maskOutlinePath,
   PANE_LABELS,
@@ -92,6 +110,7 @@ import { useStudioDrag } from "./useStudioDrag.ts";
 import { useStudioEditing } from "./useStudioEditing.ts";
 import { useStudioKeep, type KeepFn } from "./useStudioKeep.ts";
 import { useStudioExit } from "./useStudioExit.ts";
+import { useFold } from "./useFold.ts";
 import { useStudioReadout } from "./useStudioReadout.ts";
 import { useStudioSelection } from "./useStudioSelection.ts";
 import { useStudioTools } from "./useStudioTools.ts";
@@ -111,9 +130,12 @@ import { useUndoOrder } from "./useUndoOrder.ts";
  * the playhead; the actor probe stands a VIEW from the game's `files` on the
  * draft; every way out settles unkept changes first (useStudioLeave). The
  * Walk view (useStudioWalk) adds test walks, Play here and the room's doors,
- * whose logic edits keep together with the picture in one transaction. "Ask
- * about this selection" (useStudioAssist) has the game's AI propose a change
+ * whose logic edits keep together with the picture in one transaction. Ask
+ * (useStudioAssist) has the game's AI propose a change
  * to the selected items, previewed on the canvas and accepted as one undo step.
+ * Several items can be selected (useStudioSelection) and moved, copied,
+ * deleted or grouped together (and a group ungrouped); the selection's actions dock in the
+ * options bar above the canvas, so nothing covers the picture.
  */
 const {
   pictureNumber,
@@ -192,9 +214,10 @@ const selection = useStudioSelection({
   allRows: () => [...model.value.rows, ...model.value.folds],
   rowAt: (x, y) => doc.rowAtForLens(x, y, lens.value),
   membersOf: (id) => model.value.folds.find((fold) => fold.id === id)?.members,
+  items: () => model.value.document.items.map((item) => item.id),
 });
 const { hoveredId, selectedId, selectedRow, pinnedCell } = selection;
-const readout = useStudioReadout({ doc, selection, lens });
+const readout = useStudioReadout({ doc, selection });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
 /** The engine, when Studio runs in the app (the harness supplies its own Keep). */
 const engineApi = inject(engineKey, null);
@@ -321,7 +344,7 @@ const keeper = useStudioKeep({
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
 
-// ---- Ask about this selection ----------------------------------------------
+// ---- Ask -------------------------------------------------------------------
 const aiSettings = inject(aiSettingsKey, null);
 const assistHost: StudioAssistHost | null =
   engineApi && aiSettings
@@ -333,14 +356,10 @@ const assistHost: StudioAssistHost | null =
         log: () => engineApi.state.agentLog,
       }
     : null;
-/** The selected items an Ask is about: the item, or a group's members. */
+/** The selected items an Ask is about: the item, a group's members, or several items. */
 const askTargets = computed<string[]>(() => {
-  const id = selectedId.value;
-  if (id === undefined) return [];
   const items = new Set(draft.document.value.items.map((item) => item.id));
-  if (items.has(id)) return [id];
-  const members = model.value.folds.find((fold) => fold.id === id)?.members ?? [];
-  return members.filter((member) => items.has(member));
+  return selection.itemIds.value.filter((id) => items.has(id));
 });
 const itemLabel = (id: string): string =>
   draft.document.value.items.find((item) => item.id === id)?.label ?? id;
@@ -380,7 +399,34 @@ const assist = useStudioAssist({
 });
 /** Edits wait while a request runs or its proposal awaits a verdict. */
 const editsBlocked = (): boolean => frozen() || assist.holds.value;
-const editing = useStudioEditing({ draft, selectedId, frozen, paused: () => assist.holds.value });
+const editing = useStudioEditing({
+  draft,
+  selectedId,
+  itemIds: () => selection.itemIds.value,
+  selectItems: selection.selectItems,
+  frozen,
+  paused: () => assist.holds.value,
+  offer: (check) => {
+    const rules = check.violations.map((violation) => violation.rule);
+    const [plane] = lockedPlanes(lens.value, unlocks.value);
+    if (rules.includes("locked-plane") && plane)
+      return { label: "Unlock for now", run: () => unlockNow({ [plane]: true }) };
+    if (rules.includes("walk-depth"))
+      return { label: "Allow depth", run: () => unlockNow({ depthInWalk: true }) };
+    return undefined;
+  },
+});
+/** A lock refusal's step: the lock opens for this session and the notice says so. */
+function unlockNow(patch: Partial<LensUnlocks>): void {
+  if (assist.holds.value) return;
+  unlocks.value = { ...unlocks.value, ...patch };
+  editing.say({ tone: "ok", text: "Unlocked for now. Try it again." });
+  keepFocus();
+}
+/** The selected items the creator may edit now, when there are several. */
+const editableIds = computed(() =>
+  editing.several.value ? editing.editableItems.value.map((item) => item.id) : [],
+);
 /** Cmd+Z undoes the newest change of the picture or the doors. */
 const undoOrder = useUndoOrder([
   {
@@ -403,8 +449,6 @@ const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
 );
-/** The top bar folded some of the picture's size away: the footer says all of it. */
-const sizeFolded = ref(false);
 const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
 /** An AI proposal awaiting a verdict: compiled, with the cells it changes. */
@@ -448,26 +492,23 @@ const assistChanges = computed(() => {
 /** What the request is held to: the asked scope while it is open, else the selection's. */
 const assistChips = computed(() => {
   const scope = assist.holds.value ? assist.asked.value?.scope : undefined;
-  if (scope?.kind === "picture")
-    return pictureScopeChips({
-      labels: scope.targetIds.map(itemLabel),
-      lockedPlanes: scope.lockedPlanes,
-      depthValuesLocked: depthValuesLocked(scope.lens, scope.unlocks),
-    });
-  return pictureScopeChips({
-    labels: askTargets.value.map(itemLabel),
-    lockedPlanes: lockedPlanes(lens.value, unlocks.value),
-    depthValuesLocked: depthValuesLocked(lens.value, unlocks.value),
-  });
+  return pictureScopeChips(
+    (scope?.kind === "picture" ? scope.targetIds : askTargets.value).map(itemLabel),
+  );
 });
 const assistPanel = useTemplateRef("assistPanel");
 const editableId = computed(() => editing.editable.value?.id);
+/** The selection's cells on the canvas: while a drag previews, the moving items' footprints. */
 const selectionMask = computed(() => {
-  const id = selectedId.value;
-  if (id === undefined) return null;
+  const ids = selection.selectedIds.value;
+  if (ids.length === 0) return null;
   const preview = draft.preview.value;
-  if (preview && id === editableId.value) return footprintMask(preview.compiled, id, "both");
-  return doc.rowMask(id, lens.value);
+  const moving = editableId.value !== undefined ? [editableId.value] : editableIds.value;
+  if (preview && moving.length > 0)
+    return unionMask(...moving.map((id) => footprintMask(preview.compiled, id, "both")));
+  return ids.length === 1
+    ? doc.rowMask(ids[0]!, lens.value)
+    : unionMask(...ids.map((id) => doc.rowMask(id, lens.value)));
 });
 const pathsOf = (mask: Uint8Array | null): MaskPaths | null =>
   mask && { fill: maskFillPath(mask), outline: maskOutlinePath(mask) };
@@ -478,9 +519,23 @@ function insertionNear(id: string, cell: Point): PointInsertion | undefined {
     ? insertion
     : undefined;
 }
+/** A Shift+drag's box: the items all of whose cells lie in it join the selection. */
+function selectInside(box: { x1: number; y1: number; x2: number; y2: number }): void {
+  const caught = draft.document.value.items
+    .map((item) => item.id)
+    .filter((id) => insideBox(doc.rowMask(id, lens.value), box));
+  selection.selectItems([...selection.itemIds.value, ...caught]);
+  input.spoken.value =
+    caught.length === 0
+      ? "No item lies wholly inside the box"
+      : `${selection.itemIds.value.length} items selected`;
+}
 const drag = useStudioDrag({
   draft,
   editableId: () => editableId.value,
+  editableIds: () => editableIds.value,
+  extend: (cell) => selection.pick(cell, true),
+  marquee: selectInside,
   pick: selection.pick,
   onSelection: ({ x, y }) => selectionMask.value?.[y * 160 + x] === 1,
   labelOf: (id) => editing.item.value?.label ?? id,
@@ -612,22 +667,108 @@ function insertPointAtCursor(): boolean {
 const guides = computed(() => (showBands.value && lens.value !== "art" ? bandGuides() : null));
 const labels = computed(() => (lens.value === "walk" ? controlLabels(shown.value.priority) : null));
 
-/** The contextual toolbar sits above the selection (below it near the top), inside the pane. */
-const ctxOpen = ref(false);
-const ctxAt = computed(() => {
-  const mask = selectionMask.value;
-  const hidden =
-    editableId.value === undefined || drag.dragging.value || !mask || tools.drawing.value;
-  const box = hidden ? null : maskBox(mask);
-  if (!box) return null;
-  const { zoom: z, pixelAspect } = viewport.value;
-  const above = box.y * z - 44;
-  return {
-    left: `${Math.max(0, Math.min(box.x * pixelAspect * z, 160 * pixelAspect * z - 360))}px`,
-    top: `${above >= 4 ? above : (box.y + box.height) * z + 8}px`,
-  };
+/** The selection's priority picker in the options bar is open. */
+const priorityOpen = ref(false);
+/** The Select tool has something to act on: the selection's actions dock in the options bar. */
+const selectionBar = computed(
+  () =>
+    tools.tool.value === "select" &&
+    selectedRow.value !== undefined &&
+    editing.editableItems.value.length > 0,
+);
+watch(selectionBar, (shown) => {
+  if (!shown) priorityOpen.value = false;
 });
 const itemLocks = computed(() => lensItemLocks(lens.value, unlocks.value));
+/** How many parts the selected item was grouped from here, when it was. */
+const groupParts = computed(() => {
+  const target = editing.item.value;
+  if (!target || !editing.grouped.value) return undefined;
+  return draft.document.value.lines.slice(target.openLine, target.closeLine - 1).filter((line) => {
+    const part = groupPart(line);
+    return part !== undefined && part !== "end";
+  }).length;
+});
+/** What Details adds for the selection: an item's points, or depth for several. */
+const detailsMore = computed(() => {
+  if (editing.several.value) return editing.editableItems.value.length > 1 ? "Depth" : "";
+  return editing.editable.value && handleList.value.length > 0 ? "Points" : "";
+});
+/** Renames the one selected item, while it can be edited. */
+const rename = computed(() =>
+  editing.editable.value && !editing.several.value
+    ? (label: string) => editing.setMeta({ label })
+    : undefined,
+);
+
+/** Group: the dialog, and what lies between the selected items. */
+const combineOpen = ref(false);
+const combineGap = computed(() => editing.between.value);
+function groupSelection(name: string): void {
+  if (editing.combine(name)) combineOpen.value = false;
+}
+/** The dialog's offer: select the items drawn between the chosen ones too. */
+function includeBetween(): void {
+  const gap = combineGap.value;
+  selection.selectItems([...selection.itemIds.value, ...gap.between.map((item) => item.id)]);
+}
+function openCombine(): void {
+  if (editing.editableItems.value.length > 1) combineOpen.value = true;
+  else if (editing.editableItems.value.length === 1)
+    editing.say({ tone: "warn", text: "Select two items or more to group them." });
+}
+
+/** The fill tool's notice: what the spot holds, why, and the step where it is still white. */
+const fillAdvice = computed(() => {
+  const why = tools.fillWhy.value;
+  if (!why) return null;
+  const { document, compiled } = model.value;
+  const fix = fillFix(
+    why,
+    tools.insertion.value.index,
+    { document, spans: compiled.spans },
+    doc.compiledAt,
+  );
+  const owner = why.line === null ? null : (pictureItemAtLine(document, why.line)?.label ?? null);
+  return { notice: fillNotice(why, owner, fix), fix };
+});
+/**
+ * "Draw before …": the scrubber goes where the spot is still white, and
+ * Filled goes on: an outline alone there would keep the later fill out of
+ * its inside (another item's art, which the checks refuse), while a filled
+ * rectangle or polygon paints its inside itself.
+ */
+function applyFillFix(): void {
+  const fix = fillAdvice.value?.fix;
+  if (!fix) return;
+  seek(fix.step);
+  tools.filled.value = true;
+  editing.say({
+    tone: "ok",
+    text: `New shapes now go before ${fix.before}. Filled is on: draw a rectangle or polygon there.`,
+  });
+  keepFocus();
+}
+
+/** The options bar folds what it cannot fit: see StudioSelectionBar and StudioToolOptions. */
+const optionsBar = useTemplateRef("optionsBar");
+const optionsFold = useFold(optionsBar, 4, (bar) =>
+  [bar, ...bar.children].every((element) => element.scrollWidth <= element.clientWidth + 1),
+);
+watch(
+  () => [
+    tools.tool.value,
+    selectionBar.value,
+    selectedRow.value?.label,
+    editing.several.value,
+    fillAdvice.value?.notice.summary,
+    lens.value,
+    proposal.value !== null,
+    tools.insertion.value.index,
+  ],
+  () => void optionsFold.refit(),
+  { flush: "post" },
+);
 
 // ---- The Walk view ----------------------------------------------------------
 const walkTint = ref(true);
@@ -641,9 +782,12 @@ watch(tools.cursor, (cell) => {
     walker.aim.value = cell ?? null;
 });
 /** Picking a picture item leaves the door editor, and picking a door leaves the item. */
-watch(selectedId, (id) => {
-  if (id !== undefined) walker.selectedDoorId.value = null;
-});
+watch(
+  () => selection.selectedIds.value.length,
+  (count) => {
+    if (count > 0) walker.selectedDoorId.value = null;
+  },
+);
 watch(walker.selectedDoorId, (id) => {
   if (id !== null) selectedId.value = undefined;
 });
@@ -706,7 +850,26 @@ async function playHere(at: Point | PlayHereTarget): Promise<void> {
 
 /** The canvas menu: at a cell, from a right-click or the Menu key. */
 const menu = shallowRef<{ at: { x: number; y: number }; cell: Point } | null>(null);
+/** The selection's actions, at the pointer: the same ones the options bar docks. */
+const selectionMenu = computed<CanvasMenuItem[]>(() =>
+  editing.editableItems.value.length === 0
+    ? []
+    : [
+        { id: "duplicate", label: "Duplicate" },
+        ...(editing.several.value ? [] : [{ id: "priority", label: "Depth…" }]),
+        { id: "delete", label: "Delete" },
+        ...(editing.several.value
+          ? [{ id: "combine", label: "Group…" }]
+          : [{ id: "ungroup", label: "Ungroup" }]),
+        {
+          id: "ask",
+          label: "Ask about the selection",
+          ...(assistHost ? {} : { disabled: true, title: "AI edits need the game's assistant" }),
+        },
+      ],
+);
 const menuItems = computed<CanvasMenuItem[]>(() => [
+  ...selectionMenu.value,
   {
     id: "play",
     label: "Play here",
@@ -722,7 +885,10 @@ const menuItems = computed<CanvasMenuItem[]>(() => [
       ]
     : []),
 ]);
+/** A right-click off the selection selects what is under it first, as a click would. */
 function openMenu(cell: Point, at: { x: number; y: number }): void {
+  if (selectionMask.value?.[cell.y * 160 + cell.x] !== 1 && tools.tool.value === "select")
+    selection.pick(cell);
   menu.value = { cell, at };
 }
 /** The Menu key or Shift+F10 on the canvas: the menu at the keyboard cursor. */
@@ -742,7 +908,13 @@ function pickMenu(id: string): void {
   menu.value = null;
   keepFocus();
   if (!cell) return;
-  if (id === "play") void playHere(cell);
+  if (id === "duplicate") editing.duplicate();
+  else if (id === "delete") editing.remove();
+  else if (id === "priority") priorityOpen.value = true;
+  else if (id === "combine") openCombine();
+  else if (id === "ungroup") editing.ungroup();
+  else if (id === "ask") assistPanel.value?.focus();
+  else if (id === "play") void playHere(cell);
   else if (id === "walk-from") {
     pickTool("walk");
     walker.setStart(cell);
@@ -780,6 +952,9 @@ const changeTotal = room.changes;
 
 // ---- The calm canvas: help in the status bar, the side panels on ⌘\ ----------
 const calm = useStudioCalm();
+/** The first-run tour: once per viewer, silent while a lesson's card is open. */
+const tour = useStudioTour("room", { lesson: () => lesson.session.value !== null });
+onMounted(() => void tour.offer());
 function toggleFocus(): void {
   calm.toggleFocus();
   input.spoken.value = calm.focus.value ? "Side panels hidden" : "Side panels shown";
@@ -790,10 +965,12 @@ const toolHint = computed(() => {
   const tool = tools.tool.value;
   if ((tool === "line" || tool === "polygon") && (tools.path.value?.points.length ?? 0) > 0)
     return ROOM_PATH_HINT;
-  if (tool === "select" && editableId.value !== undefined) return ROOM_EDIT_HINT;
+  if (tool === "select" && editing.editableItems.value.length > 0) return ROOM_EDIT_HINT;
   return ROOM_TOOL_HINTS[tool];
 });
 const notesOnly = computed(() => draft.notesOnly.value && !logic.dirty.value);
+/** A tool change hands the status line back to the tool's hint (before anything it says). */
+watch(tools.tool, () => editing.say(null), { flush: "sync" });
 
 const keys: StudioKeyActions = {
   onCanvas: (target) => target === stage.value,
@@ -806,11 +983,10 @@ const keys: StudioKeyActions = {
     // A selected door lets go first, outline and panel together.
     if (walker.selectedDoorId.value !== null) walker.selectDoor(null);
     else if (tools.tool.value !== "select") tools.setTool("select");
-    else if (ctxOpen.value) ctxOpen.value = false;
+    else if (priorityOpen.value) priorityOpen.value = false;
     else if (!drag.abort()) return false;
     return true;
   },
-  close: () => void requestClose(),
   // The lens and the unlocks wait with the request: Accept applies the terms it was asked under.
   lens: (next) => {
     if (!assist.holds.value) lens.value = next;
@@ -818,11 +994,14 @@ const keys: StudioKeyActions = {
   seek: (to) => seek(to === "first" ? 0 : to === "last" ? total.value : playhead.value + to),
   zoom: (step) => (step === "fit" ? zoomToFit() : zoomBy(step)),
   step: (direction) => selection.step(direction),
+  extend: (direction) => void selection.extend(direction),
   nudge: editing.nudge,
   cursor: input.move,
   click: input.click,
   remove: () => tools.backspace() || editing.remove(),
   duplicate: editing.duplicate,
+  group: openCombine,
+  ungroup: () => void editing.ungroup(),
   reorder: editing.reorder,
   undo: undoOrder.undo,
   redo: undoOrder.redo,
@@ -837,7 +1016,13 @@ const keys: StudioKeyActions = {
 function onKeydown(event: KeyboardEvent): void {
   event.stopPropagation();
   // An open confirmation, the logic text or the key sheet takes the keys it needs (Esc closes it) and nothing else runs.
-  if (dialog.value !== undefined || logicText.value !== undefined || calm.sheetOpen.value) return;
+  if (
+    dialog.value !== undefined ||
+    logicText.value !== undefined ||
+    calm.sheetOpen.value ||
+    combineOpen.value
+  )
+    return;
   if (
     (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) &&
     event.target === stage.value
@@ -871,6 +1056,7 @@ function onKeyup(event: KeyboardEvent): void {
   >
     <StudioTopBar
       v-model:lens="lens"
+      v-model:unlocks="unlocks"
       class="studio__top"
       :title
       :picture-number="pictureNumber"
@@ -891,7 +1077,6 @@ function onKeyup(event: KeyboardEvent): void {
       @redo="undoOrder.redo"
       @keep="keepChanges()"
       @discard="leave.discarding.value = true"
-      @fold="(level) => (sizeFolded = level > 0)"
     >
       <template #share
         ><SharePictureMenu
@@ -906,31 +1091,45 @@ function onKeyup(event: KeyboardEvent): void {
     <SceneList
       v-model:filter="filter"
       class="studio__scene"
+      data-testid="studio-scene"
       :branches="model.branches"
       :sections="model.sections"
       :matches="scene.matches"
       :loose="scene.loose"
       :hovered-id="hoveredId"
-      :selected-id="selectedId"
+      :selected-ids="selection.selectedIds.value"
       :quiet-tag="lens === 'art' ? 'art' : undefined"
+      :groupable="editing.editableItems.value.length > 1"
       @hover="selection.listHover.value = $event"
-      @select="selectedId = $event"
-    >
-      <template #notice
-        ><StudioLockNote
-          v-model:unlocks="unlocks"
-          :lens
-          :held="assist.holds.value ? HOLD_TEXT : null"
-      /></template>
-    </SceneList>
+      @select="(id, extend) => (extend ? selection.toggle(id) : (selectedId = id))"
+      @group="openCombine"
+    />
 
     <div
+      ref="optionsBar"
       class="studio__options"
       role="group"
       aria-label="Tool and view options"
       data-testid="studio-options-bar"
     >
+      <StudioSelectionBar
+        v-if="selectionBar && selectedRow"
+        v-model:open="priorityOpen"
+        :label="selectedRow.label"
+        :several="editing.several.value"
+        :priority="single('priority')"
+        :priority-locked="itemLocks.priority"
+        :depth-values-locked="itemLocks.depthValues"
+        :edit="editing"
+        :askable="assistHost !== null"
+        :grouped="editing.grouped.value"
+        :fold="optionsFold.level.value"
+        @ask="assistPanel?.focus()"
+        @combine="openCombine"
+        @ungroup="editing.ungroup()"
+      />
       <StudioToolOptions
+        v-else
         v-model:filled="tools.filled.value"
         v-model:radius="tools.radius.value"
         v-model:stipple="tools.stipple.value"
@@ -938,11 +1137,19 @@ function onKeyup(event: KeyboardEvent): void {
         :tool="tools.tool.value"
         :insertion="tools.insertion.value"
         :commands="total"
-        :fill-why="tools.fillWhy.value"
+        :notice="fillAdvice?.notice ?? null"
+        :fold="optionsFold.level.value"
         @end="seek(total)"
+        @fix="applyFillFix"
       />
+      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
       <span class="studio__spacer"></span>
-      <StudioViewBar v-model:mode="mode" v-model:bands="showBands" :lens />
+      <StudioViewBar
+        v-model:mode="mode"
+        v-model:bands="showBands"
+        :lens
+        :fold="optionsFold.level.value"
+      />
     </div>
 
     <StudioToolRail
@@ -959,6 +1166,7 @@ function onKeyup(event: KeyboardEvent): void {
       @update:tool="pickTool"
       @probe="ghost.toggle()"
       @values="tools.setValues"
+      @unlocks="(next) => !assist.holds.value && (unlocks = next)"
     />
     <main class="studio__frame">
       <div
@@ -990,7 +1198,8 @@ function onKeyup(event: KeyboardEvent): void {
             :ghost="insertGhost"
             :flash="flashPaths"
             :changed="changedPaths"
-            :movable="editableId !== undefined && tools.tool.value === 'select'"
+            :movable="editing.editableItems.value.length > 0 && tools.tool.value === 'select'"
+            :marquee="drag.marqueeBox.value ?? null"
             @hover="input.pointer.hover"
             @press="input.pointer.press"
             @drag="input.pointer.drag"
@@ -1015,36 +1224,18 @@ function onKeyup(event: KeyboardEvent): void {
               v-if="index === 0"
               :probe="ghost"
               :viewport
-              :describe-cell="describeCell"
               @pointerdown.stop
               @pointermove.stop
-            />
-            <StudioContextBar
-              v-if="ctxAt && index === panes.length - 1"
-              v-model:open="ctxOpen"
-              :style="ctxAt"
-              :priority="single('priority')"
-              :priority-locked="itemLocks.priority"
-              :depth-values-locked="itemLocks.depthValues"
-              :edit="editing"
-              :askable="assistHost !== null"
-              @ask="assistPanel?.focus()"
             />
           </StudioCanvas>
         </div>
       </div>
-      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
-      <StudioStageNotes
-        :banner="keeper.banner.value"
-        :notice="editing.notice.value"
-        @recover="recover"
-        @hold="editing.hold"
-      />
     </main>
 
     <DrawOrderScrubber
       v-model="playhead"
       class="studio__scrubber"
+      data-testid="studio-scrubber"
       :ticks
       :marked="selectedRow?.entries ?? []"
       :command="current"
@@ -1059,19 +1250,26 @@ function onKeyup(event: KeyboardEvent): void {
       :pixel
       :pinned="selection.canvasCell.value === undefined && pinnedCell !== undefined"
       :fill
-      :editing="editing.editable.value !== undefined"
+      :editing="!!editing.editable.value && !editing.several.value"
+      :more="detailsMore"
       :playhead
       :label-of="labelOf"
+      :rename
+      :parts="groupParts"
+      :foot="editing.several.value && editing.editableItems.value.length > 1 ? ROOM_GROUP_HINT : ''"
       @seek="seek"
       @select="selectedId = $event"
     >
       <template #lead>
-        <!-- The lesson's card docks at the top of the inspector, never over the stage. -->
+        <!-- The lesson's card docks at the top of the inspector, off the stage. -->
         <LessonCard
           v-if="lesson.session.value"
           :session="lesson.session.value"
           :outcome="lesson.outcome.value"
+          @tour="tour.start()"
         />
+        <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
+        <GhostReadout v-if="ghost.active.value" :probe="ghost" :describe-cell="describeCell" />
         <StudioWalkPanel
           v-if="lens === 'walk'"
           v-model:tint="walkTint"
@@ -1085,15 +1283,45 @@ function onKeyup(event: KeyboardEvent): void {
         />
       </template>
       <template #editor>
+        <StudioGroupEditor
+          v-if="editing.several.value && editing.editableItems.value.length > 1"
+          :edit="editing"
+          @combine="openCombine"
+        />
         <StudioItemEditor
-          v-if="editing.editable.value"
+          v-else-if="editing.editable.value"
           :item="editing.editable.value"
           :visual="single('visual')"
           :priority="single('priority')"
-          :handles="handleList"
           :locks="itemLocks"
           :edit="editing"
+          :grouped="editing.grouped.value"
+          @ungroup="editing.ungroup()"
         />
+      </template>
+      <template #more>
+        <StudioItemPoints
+          v-if="editing.editable.value && !editing.several.value"
+          :handles="handleList"
+          :edit="editing"
+          :locked="editing.editable.value.locked"
+        />
+        <section
+          v-else-if="editing.several.value && editing.editableItems.value.length > 1"
+          class="studio__depth-all"
+          data-role="depth-all"
+        >
+          <h3>Depth for all <UiExplain v-bind="explain('depth')" /></h3>
+          <StudioValuePicker
+            plane="priority"
+            label="Depth for all"
+            :value="single('priority')"
+            :disabled="itemLocks.priority !== null"
+            :title="itemLocks.priority ?? undefined"
+            :allowed="(v) => !itemLocks.depthValues || v < 4"
+            @pick="editing.setColour('priority', $event)"
+          />
+        </section>
       </template>
       <template #assist>
         <StudioAssistPanel
@@ -1101,18 +1329,36 @@ function onKeyup(event: KeyboardEvent): void {
           ref="assistPanel"
           :assist
           :chips="assistChips"
-          hint="To change the scope, select another item or group, or unlock a plane in the Scene footer."
           :changes="assistChanges"
+          :reference-target="walk && walk.room > 0 ? { kind: 'room', num: walk.room } : null"
           @reload="reopen(true)"
           noun="picture"
-          empty="Select an item on the canvas or in the Scene list to ask the AI about it."
-        />
+          empty="Select an item to ask about it."
+        >
+          <template #scope>
+            <StudioLockChip
+              v-model:unlocks="unlocks"
+              :lens
+              :held="assist.holds.value ? HOLD_TEXT : null"
+            />
+          </template>
+        </StudioAssistPanel>
       </template>
     </PixelInspector>
 
     <footer class="studio__status" aria-label="Status bar">
-      <span data-role="status">{{ status }}</span>
+      <span data-role="status" data-testid="studio-status">{{ status }}</span>
+      <!-- A notice or a failed Keep takes the hint's place, off the picture. -->
+      <StudioStatusNotice
+        v-if="keeper.banner.value || editing.notice.value"
+        :banner="keeper.banner.value"
+        :notice="editing.notice.value"
+        @recover="recover"
+        @dismiss="editing.dismiss"
+        @close="keeper.dismiss"
+      />
       <span
+        v-else
         class="studio__hint"
         :class="{ 'is-tip': calm.tip.value }"
         data-testid="studio-hint"
@@ -1120,20 +1366,14 @@ function onKeyup(event: KeyboardEvent): void {
         >{{ calm.tip.value ?? toolHint }}</span
       >
       <span class="studio__spacer"></span>
-      <span v-if="sizeFolded" class="studio__meta" data-testid="studio-size" :title="size.full">{{
-        size.full
-      }}</span>
+      <span class="studio__meta" data-testid="studio-size">{{ size.full }}</span>
       <span class="studio__meta">AGI {{ profile.id }}</span>
       <span
-        class="studio__meta"
+        v-if="!model.trusted"
+        class="studio__meta studio__source"
         data-testid="studio-source-kind"
-        :title="
-          model.trusted
-            ? 'Studio edits the picture text you kept: it builds exactly the picture in the game.'
-            : 'No kept picture text matches the game\'s picture, so Studio rebuilt its steps from the bytes. Keep once and it becomes your source.'
-        "
-        >{{ model.trusted ? "your source" : "rebuilt from the game's bytes" }}</span
-      >
+        >Rebuilt <UiExplain v-bind="explain('rebuilt')"
+      /></span>
       <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
       <span class="studio__status-sep" aria-hidden="true"></span>
       <UiIconButton
@@ -1142,12 +1382,12 @@ function onKeyup(event: KeyboardEvent): void {
         shortcut="⌘\"
         aria-keyshortcuts="Meta+Backslash Control+Backslash"
         :pressed="calm.focus.value"
-        data-testid="studio-focus-toggle"
         @click="toggleFocus"
       />
       <UiIconButton
         icon="help"
-        label="Keyboard shortcuts"
+        label="Keys"
+        title="Keys · ?"
         shortcut="?"
         aria-keyshortcuts="?"
         aria-haspopup="dialog"
@@ -1156,8 +1396,14 @@ function onKeyup(event: KeyboardEvent): void {
       />
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
+    <StudioTour :tour :stage name="Room Studio" />
 
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Room Studio" :sections="keySheet" />
+    <StudioKeySheet
+      v-model:open="calm.sheetOpen.value"
+      name="Room Studio"
+      :sections="keySheet"
+      @tour="tour.start()"
+    />
     <StudioKeepDialog
       v-model:ask="dialog"
       :subject="subject"
@@ -1169,6 +1415,14 @@ function onKeyup(event: KeyboardEvent): void {
       @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
     />
     <StudioSmallScreen name="Room Studio" :draft="room" :keeper @close="emit('close')" />
+    <StudioCombineDialog
+      v-model:open="combineOpen"
+      :count="editing.targets.value.length"
+      :between="combineGap.between.map((item) => item.label)"
+      :loose="combineGap.looseCommands.length > 0"
+      @make="groupSelection"
+      @include="includeBetween"
+    />
     <StudioCanvasMenu
       v-if="menu"
       :at="menu.at"
@@ -1192,9 +1446,10 @@ function onKeyup(event: KeyboardEvent): void {
   position: relative;
   display: grid;
   --studio-bar: var(--control-h);
-  grid-template-rows: 52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) 92px var(
-      --studio-bar
-    );
+  /* The status bar grows a line when its readout and hint wrap. */
+  grid-template-rows:
+    52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) 92px
+    minmax(var(--studio-bar), auto);
   /* The Scene list takes what the canvas can spare: at 1280 wide what still
      leaves it 200% zoom (640 + 2 × STAGE_INSET), more when wider. */
   grid-template-columns: clamp(208px, max(18vw, 100vw - 1040px), 300px) 48px minmax(0, 1fr) 300px;
@@ -1291,31 +1546,32 @@ function onKeyup(event: KeyboardEvent): void {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
-  padding: 0 var(--space-1) 0 var(--space-4);
+  padding: var(--space-0) var(--space-1) var(--space-0) var(--space-4);
   border-top: 1px solid var(--hairline);
   color: var(--ink-3);
   background: var(--surface-0);
   font: var(--text-2xs) var(--font-mono);
   white-space: nowrap;
 }
+/* The readout and the tool's help share what the bar leaves, wrapping onto a
+   second line when short of room; the readout gives way first. */
 .studio__status [data-role="status"] {
-  flex: 0 1 auto;
-  min-width: 12ch;
-  overflow: hidden;
+  flex: 0 3 auto;
+  min-width: 22ch;
   color: var(--ink-2);
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  white-space: normal;
 }
-/* The active tool's one line of help: it gives way first when the bar is short. */
 .studio__hint {
-  flex: 0 1000 auto;
-  min-width: 0;
-  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 28ch;
   color: var(--ink-3);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  white-space: normal;
 }
 .studio__hint.is-tip {
   flex-shrink: 0;
@@ -1324,6 +1580,35 @@ function onKeyup(event: KeyboardEvent): void {
 }
 .studio__meta {
   flex: none;
+}
+.studio__depth-all {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+}
+.studio__depth-all h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.studio__source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+/* The size the top bar folded away: it wraps before the readout and hint must. */
+.studio__meta[data-testid="studio-size"] {
+  flex: 0 1 auto;
+  min-width: 12ch;
+  line-height: 1.2;
+  text-align: right;
+  white-space: normal;
 }
 .studio__status-sep {
   width: 1px;

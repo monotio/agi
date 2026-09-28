@@ -168,10 +168,12 @@ test("Anthropic keeps the full catalog and an annotation-free transcript across 
     const messages = JSON.stringify(request["messages"]);
     assert.ok(!messages.includes("cache_control"), "history is never annotated");
   }
-  // One explicit checkpoint at the end of the static prefix, plus the
-  // top-level automatic breakpoint that rolls over the conversation tail.
+  // One explicit checkpoint at the end of the static prefix, kept for an
+  // hour so a pause between turns does not re-write the catalog and prompt,
+  // plus the top-level automatic 5-minute breakpoint that rolls over the
+  // conversation tail (a longer entry must precede a shorter one).
   const system = requests[0]?.["system"] as { cache_control?: unknown }[];
-  assert.deepEqual(system[0]?.cache_control, { type: "ephemeral" });
+  assert.deepEqual(system[0]?.cache_control, { type: "ephemeral", ttl: "1h" });
   assert.deepEqual(requests[0]?.["cache_control"], { type: "ephemeral" });
 });
 

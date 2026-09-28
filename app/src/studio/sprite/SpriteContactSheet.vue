@@ -64,7 +64,7 @@ function onKey(event: KeyboardEvent, l: number, c: number): void {
     aria-labelledby="sprite-sheet-title"
     data-testid="sprite-contact-sheet"
   >
-    <h3 id="sprite-sheet-title" class="sheet__title">Contact sheet · choose a cel to edit it</h3>
+    <h3 id="sprite-sheet-title" class="sheet__title">All cels</h3>
     <div class="sheet__rows" role="grid" aria-labelledby="sprite-sheet-title">
       <div
         v-for="row in rows"
