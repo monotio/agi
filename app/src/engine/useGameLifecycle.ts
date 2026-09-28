@@ -221,6 +221,29 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
   }
 
   /**
+   * Seal this session's timeline before its worker dies: end the open
+   * segment and wait until every batch it still owes storage is durable.
+   * The open batch lives only in the worker, so anything that replaces or
+   * stops the worker (Exit, Start over) seals first or loses it. Throws
+   * HistoryUnsavedError when the tail cannot be made durable.
+   */
+  async function sealHistory(): Promise<void> {
+    // A reply certifies that every queued history batch is durable. A
+    // timeout says nothing about worker health: preserve its recovery bytes.
+    // Commits already in flight settle first: one may be the refusal that
+    // says the tape can never be stored.
+    await options.drainHistoryCommits();
+    // A removed project's timeline can never be stored: nothing is owed.
+    if (state.historyBlocked || booted?.removed) return;
+    try {
+      await link.query("historyEnd", {}, 10_000);
+      await options.drainHistoryCommits();
+    } catch {
+      if (!state.historyBlocked) throw new HistoryUnsavedError();
+    }
+  }
+
+  /**
    * Leave the game: save it, then wait until this session's timeline is
    * durable. `abandonUnsaved` leaves without the latest progress checkpoint,
    * `abandonHistory` without the timeline. A timeline storage can never
@@ -280,23 +303,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       options.resumeEngine("eject");
       throw error;
     }
-    // A reply certifies that every queued history batch is durable. A
-    // timeout says nothing about worker health: preserve its recovery bytes.
-    // Commits already in flight settle first: one may be the refusal that
-    // says the tape can never be stored.
-    await options.drainHistoryCommits();
-    // A removed project's timeline can never be stored: nothing is owed.
-    if (!ejectOptions?.abandonHistory && !state.historyBlocked && !booted?.removed) {
-      try {
-        await link.query("historyEnd", {}, 10_000);
-        await options.drainHistoryCommits();
-      } catch {
-        if (!state.historyBlocked) {
-          state.leaving = false;
-          options.resumeEngine("eject");
-          throw new HistoryUnsavedError();
-        }
-      }
+    try {
+      if (ejectOptions?.abandonHistory) await options.drainHistoryCommits();
+      else await sealHistory();
+    } catch (error) {
+      state.leaving = false;
+      options.resumeEngine("eject");
+      throw error;
     }
     state.leaving = false;
     options.abortWalkthrough();
@@ -661,6 +674,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     finishAuthoredBoot,
     bootAgentGame,
     ejectGame,
+    sealHistory,
     gameQuit,
     isInstalledGame,
     currentGame,

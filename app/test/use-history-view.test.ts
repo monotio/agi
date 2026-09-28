@@ -1378,45 +1378,80 @@ const STARTED_OVER: HistoryRecording = {
 
 const startedOverMarks = <T extends { label: string }>(marks: readonly T[]): T[] =>
   marks.filter((m) => m.label === "Started over");
+const fromTheBeginningMarks = <T extends { label: string }>(marks: readonly T[]): T[] =>
+  marks.filter((m) => m.label === "Started from the beginning");
+const markAt = (m: { payload?: unknown }): [number, number] => [
+  (m.payload as HistoryViewMark).segment,
+  (m.payload as HistoryViewMark).tick,
+];
 
-test("the open tape marks a Start over, never a first boot, a rollover or a Continue", async () => {
+// The tape records no cause for a fresh boot: a Start over, a Play with no
+// checkpoint and a reload that could not resume all boot the same way. Only
+// a Start over this tab made is called one.
+test("the open tape marks where a session began from the beginning, never a first boot, a rollover or a Continue", async () => {
   await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
   const { state, view } = makeHarness();
   await view.openHistory();
-  const marks = startedOverMarks(state.historyView.marks);
+  assert.deepEqual(startedOverMarks(state.historyView.marks), [], "the cause is unknown");
+  const marks = fromTheBeginningMarks(state.historyView.marks);
   assert.deepEqual(
     marks.map((m) => [m.segment, m.tick, m.kind]),
     [[3, 0, "restart"]],
   );
   // Laid out on the timeline where the fresh session begins.
-  const lane = startedOverMarks(view.transport.marks);
+  const lane = fromTheBeginningMarks(view.transport.marks);
   assert.equal(lane.length, 1);
   assert.equal(lane[0]!.kind, "restart");
   assert.equal(lane[0]!.percent, (62 / view.transport.totalTicks) * 100);
 });
 
-test("the live timeline marks a stored Start over and one the batches just began", async () => {
+test("the live timeline calls only this tab's Start over one", async () => {
   await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
   const { view } = makeHarness();
-  // Start over again: the new session's boot batch arrives before the stored
-  // outline has loaded, so its lane is first on the axis for a moment.
+  view.expectStartOver();
+  // The worker is replaced between the Start over and its boot.
+  view.resetHistoryView();
+  // The new session's boot batch arrives before the stored outline has
+  // loaded, so its lane is first on the axis for a moment.
   view.observeBatch({ ...batch("sS.5", [4]), boot: BOOT });
-  assert.equal(startedOverMarks(view.transport.marks).length, 0, "no earlier lane is known yet");
+  assert.equal(view.transport.marks.filter((m) => m.kind === "restart").length, 0);
   await flushSeeks();
-  const marks = startedOverMarks(view.transport.marks);
-  assert.deepEqual(
-    marks.map((m) => [(m.payload as HistoryViewMark).segment, (m.payload as HistoryViewMark).tick]),
-    [
-      [3, 0],
-      [4, 0],
-    ],
-  );
-  // A resumed session's boot is no Start over.
+  assert.deepEqual(startedOverMarks(view.transport.marks).map(markAt), [[4, 0]]);
+  assert.deepEqual(fromTheBeginningMarks(view.transport.marks).map(markAt), [[3, 0]]);
+  // A resumed session's boot is no fresh start.
   view.observeBatch({
     ...batch("sS.6", [2]),
     boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sS.5", seq: 0, tick: 4 } }),
   });
-  assert.equal(startedOverMarks(view.transport.marks).length, 2);
+  // A later fresh boot with no Start over — a reload that could not resume.
+  view.observeBatch({ ...batch("sS.7", [2]), boot: BOOT });
+  assert.deepEqual(startedOverMarks(view.transport.marks).map(markAt), [[4, 0]]);
+  assert.deepEqual(fromTheBeginningMarks(view.transport.marks).map(markAt), [
+    [3, 0],
+    [6, 0],
+  ]);
+});
+
+test("the open tape keeps calling this tab's Start over one; a withdrawn one names nothing", async () => {
+  await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view } = makeHarness();
+  // A Start over that booted nothing is withdrawn before any boot arrives.
+  view.expectStartOver();
+  view.expectStartOver(false);
+  view.observeBatch({ ...batch("sS.9", [4]), boot: BOOT });
+  await flushSeeks();
+  assert.deepEqual(startedOverMarks(view.transport.marks), []);
+  view.resetHistoryView();
+  // sS.4's boot batch, from a Start over this tab made.
+  view.expectStartOver();
+  view.observeBatch({ ...batch("sS.4", [4]), boot: BOOT });
+  await view.openHistory();
+  assert.deepEqual(
+    state.historyView.marks
+      .filter((m) => m.kind === "restart")
+      .map((m) => [m.segment, m.tick, m.label]),
+    [[3, 0, "Started over"]],
+  );
 });
 
 test("Undo start over resumes the earlier session where it ended and keeps playing", async () => {
