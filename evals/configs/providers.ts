@@ -5,6 +5,7 @@
  */
 
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
+import { assertLiveEnv, LiveRunRefused } from "../lib/live-guard.ts";
 import {
   anthropicToolDefinitions,
   type AnthropicToolDefinition,
@@ -57,6 +58,14 @@ export function providerMatrix({
   includeAnthropic = true,
 }: ProviderMatrixOptions = {}): ProviderLane[] {
   const env = process.env;
+  // Keys alone start nothing: the lanes need EVAL_LIVE=1 and a budget.
+  try {
+    assertLiveEnv(env, "EVAL_RUN_BUDGET_USD", "the promptfoo genesis lanes");
+  } catch (error) {
+    if (!(error instanceof LiveRunRefused)) throw error;
+    console.error(`[evals] ${error.message}`);
+    return [];
+  }
   const hasOpenAi = Boolean(env["OPENAI_API_KEY"]);
   const hasAnthropic = Boolean(env["ANTHROPIC_API_KEY"]);
 

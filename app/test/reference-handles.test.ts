@@ -2,9 +2,9 @@
  * Reference art by handle at the session level: what a turn with stored
  * references sends to the provider (a manifest and one contact strip, never
  * the full images), a region the model views with view_reference, the
- * image's collapse two turns later and its re-fetch, the scripted stub
- * scenarios, and the character-sheet reference's handles. Provider requests
- * are read from the real OpenAI transport with fetch mocked.
+ * viewed image staying in the append-only transcript across later turns, the
+ * scripted stub scenarios, and the character-sheet reference's handles.
+ * Provider requests are read from the real OpenAI transport with fetch mocked.
  */
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
@@ -185,34 +185,32 @@ test("a remix turn with three references sends manifests and one strip, and view
   assert.match(JSON.stringify(output), /Colours here: blue 50%, light cyan 50%/);
 });
 
-test("a viewed reference collapses after two turns and can be viewed again", async (t) => {
+test("a viewed reference stays in the transcript across later turns, unrewritten", async (t) => {
   const stored = references();
   const id = referenceArtId(base64ToBytes(stored[0]!.images[0]!.png));
   const bodies = scriptProvider(t, [
     call("v1", { id, size: "small", region: null, grid: null }),
     say("Seen."),
     say("Still here."),
-    call("v2", { id, size: "small", region: null, grid: null }),
-    say("Seen again."),
+    say("Still here too."),
   ]);
   const session = sessionWith(MODEL, stored);
   await session.runPowerUp("Look at the harbour.", 3, { referenceIds: ["ref-harbour"] });
   const small = { width: 256, height: 160 };
-  // Turn 2 is the first user message after the view: the image is still there.
+  const viewed = bodies[1]!.input.find((item) => item["type"] === "function_call_output")!;
+  assert.deepEqual(imageSizes(viewed), [small]);
+  // Two player messages later the request still carries the exact same
+  // item: a rewrite would invalidate every cached block after it, and the
+  // cached image costs a fraction of re-sending the history without it.
   await session.runPowerUp("Anything else?", 3);
-  assert.deepEqual(imageSizes(bodies[2]!.input).slice(-1), [small]);
-  assert.doesNotMatch(JSON.stringify(bodies[2]!.input), /call view_reference again/);
-  // Turn 3 is the second: it collapses to its caption and a line saying how to look again.
   await session.runPowerUp("Check the harbour once more.", 3);
-  const third = JSON.stringify(bodies[3]!.input);
-  assert.deepEqual(imageSizes(bodies[3]!.input), [{ width: 208, height: 72 }], "only the strip");
-  assert.match(third, new RegExp(`Reference ${id} viewed at small \\(256x160 of 640x400\\)`));
-  assert.match(third, /left the conversation after 2 turns; call view_reference again/);
-  // The re-fetch returns the image again.
-  const refetched = bodies[4]!.input.at(-1);
-  assert.deepEqual(imageSizes(refetched), [small]);
-  // The stored transcript holds the collapsed form too.
-  assert.match(JSON.stringify(session.getTranscript()), /call view_reference again/);
+  const third = bodies[3]!.input;
+  assert.deepEqual(
+    third.find((item) => item["type"] === "function_call_output"),
+    viewed,
+  );
+  assert.doesNotMatch(JSON.stringify(third), /left the conversation/);
+  assert.doesNotMatch(JSON.stringify(session.getTranscript()), /left the conversation/);
 });
 
 test("a turn without references neither lists nor runs view_reference", async (t) => {
@@ -327,7 +325,7 @@ test("stored references keep their handles through storage, and the pose row is 
   assert.equal(referenceSource([...stored, copy], [], decodePng)!.art.length, 3);
 });
 
-test("the Anthropic transcript collapses a viewed reference on the second user message after it", async (t) => {
+test("the Anthropic transcript keeps a viewed reference on later user messages", async (t) => {
   const requests: { messages: unknown[] }[] = [];
   t.mock.method(globalThis, "fetch", async (_input: unknown, init?: RequestInit) => {
     requests.push(JSON.parse(String(init?.body)));
@@ -344,6 +342,21 @@ test("the Anthropic transcript collapses a viewed reference on the second user m
   });
   const caption =
     "Reference art-0123456789 viewed at small (256x160 of 640x400). art-0123456789 · Room plate";
+  const viewed = {
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: "t1",
+        is_error: false,
+        content: [
+          { type: "text", text: "{}" },
+          { type: "text", text: caption },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+        ],
+      },
+    ],
+  };
   const conversation = createAnthropicConversation(
     { provider: "anthropic", model: "test", apiKey: "placeholder" },
     [
@@ -352,33 +365,14 @@ test("the Anthropic transcript collapses a viewed reference on the second user m
         role: "assistant",
         content: [{ type: "tool_use", id: "t1", name: "view_reference", input: {} }],
       },
-      {
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: "t1",
-            is_error: false,
-            content: [
-              { type: "text", text: "{}" },
-              { type: "text", text: caption },
-              { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
-            ],
-          },
-        ],
-      },
+      viewed,
       { role: "assistant", content: [{ type: "text", text: "Seen." }] },
     ],
   );
   await conversation.sendUserMessage("Anything else?");
-  assert.match(JSON.stringify(requests[0]!.messages), /"type":"image"/);
   await conversation.sendUserMessage("Once more.");
-  const result = (requests[1]!.messages[2] as { content: { content: unknown[] }[] }).content[0]!;
-  assert.deepEqual(result.content, [
-    { type: "text", text: "{}" },
-    {
-      type: "text",
-      text: `${caption} The image left the conversation after 2 turns; call view_reference again to see it.`,
-    },
-  ]);
+  // The earlier messages are byte-identical in both requests: the second
+  // request extends the first, so its cached prefix holds.
+  assert.deepEqual(requests[1]!.messages.slice(0, 5), requests[0]!.messages);
+  assert.deepEqual(requests[1]!.messages[2], viewed);
 });

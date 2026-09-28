@@ -14,6 +14,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { MODEL_IDS } from "./providers.ts";
+import { assertLiveEnv, LiveRunRefused } from "../lib/live-guard.ts";
 import type * as PictureRunner from "../picture-fidelity.ts";
 
 const RUNNER = pathToFileURL(resolve(import.meta.dirname, "../picture-fidelity.ts")).href;
@@ -28,6 +29,15 @@ function lane(vendor: string, model: string) {
 
 function providers() {
   const list = [];
+  // Keys alone start nothing: the live lanes need EVAL_LIVE=1 and a budget,
+  // which lib/picture-provider.ts charges the runner's usage against.
+  try {
+    assertLiveEnv(process.env, "EVAL_RUN_BUDGET_USD", "the promptfoo picture lanes");
+  } catch (error) {
+    if (!(error instanceof LiveRunRefused)) throw error;
+    console.error(`[evals] ${error.message}`);
+    return [lane("fake", "fake")];
+  }
   if (process.env["OPENAI_API_KEY"]) {
     list.push(lane("openai", MODEL_IDS.gpt6Sol), lane("openai", MODEL_IDS.gpt6Astra));
   } else console.error("[evals] picture: skipping OpenAI lanes (OPENAI_API_KEY not set)");

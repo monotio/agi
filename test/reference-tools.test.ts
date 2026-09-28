@@ -18,9 +18,7 @@ import {
 } from "../src/agent/tools.ts";
 import { REFERENCE_WORKING_EDGE, splitToolResult } from "../src/agent/toolTransport.ts";
 import {
-  collapsedReferenceView,
   fitWithin,
-  isReferenceViewCaption,
   referenceArtId,
   referenceManifest,
   referenceUnderFetch,
@@ -150,7 +148,7 @@ describe("view_reference", () => {
       const png = pngPixels(result.images![0]!.png);
       assert.deepEqual([png.width, png.height], [width, height], size);
       assert.deepEqual(result.details?.["output"], { width, height });
-      assert.ok(isReferenceViewCaption(result.images![0]!.caption));
+      assert.match(result.images![0]!.caption, /^Reference art-[0-9a-f]{10} viewed at /);
       assertNoImageData(splitToolResult(result).text);
     }
   });
@@ -243,17 +241,6 @@ describe("availability", () => {
       withReferences(ASK_TOOLS, undefined),
       ASK_TOOLS.filter((name) => name !== "view_reference"),
     );
-  });
-});
-
-describe("collapse", () => {
-  it("keeps the manifest line and the view, and says how to look again", async () => {
-    const result = await view({ id: ID_A, size: "small" });
-    const caption = result.images![0]!.caption;
-    const collapsed = collapsedReferenceView(caption);
-    assert.ok(collapsed.startsWith(caption));
-    assert.match(collapsed, /call view_reference again/);
-    assert.ok(!isReferenceViewCaption("Contact sheet, visual plane"));
   });
 });
 
