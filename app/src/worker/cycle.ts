@@ -172,6 +172,7 @@ export function createCycle(ctx: WorkerContext) {
         room: scalars.room,
         egoX: scalars.egoX,
         egoY: scalars.egoY,
+        delay: ctx.engine.vars[10]!,
       });
     }
     if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)

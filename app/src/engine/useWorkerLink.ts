@@ -56,6 +56,10 @@ interface WorkerLinkDeps {
   getReplayDriver(): ReplayDriver;
   /** The game ran quit: leave for Home and say so there. */
   gameQuit(): void;
+  /** The live game's cycle heartbeat — the Start over note counts game time from it. */
+  observeCycle?(msg: Extract<WorkerOutbound, { type: "cycle" }>): void;
+  /** A live room transition — entering another room closes the Start over note. */
+  observeRoom?(msg: Extract<WorkerOutbound, { type: "roomTransition" }>): void;
 }
 
 /**
@@ -405,12 +409,14 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         hook.egoX = msg.egoX;
         hook.egoY = msg.egoY;
         if (typeof window !== "undefined") window.__AGI_TEXT__ = hook;
+        deps.observeCycle?.(msg);
       },
       roomTransition: (msg) => {
         // The world map's raw observations. Superseded sessions are already
         // dropped by the sessionId ingress filter; a replaced worker's late
         // traffic never reaches this handler.
         state.roomJournal.push(msg);
+        deps.observeRoom?.(msg);
         if (state.roomJournal.length > 4000)
           state.roomJournal.splice(0, state.roomJournal.length - 4000);
       },

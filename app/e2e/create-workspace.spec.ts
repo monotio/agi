@@ -6,6 +6,8 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import {
   cacheGame,
   enterCreateMode,
+  isolateStorage,
+  openWorldRoom,
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
@@ -96,20 +98,13 @@ test("the World panel maps rooms to the pictures their logic draws", async ({ pa
   // The docked map is a creator view of the running game: it never pauses.
   const cycle = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
-
-  await expect(panel.getByTestId("map-room-pic-1")).toHaveText("PIC 5 · shared");
-  await expect(panel.getByTestId("map-room-pic-2")).toHaveText("PIC 5 · shared");
-  await expect(panel.getByTestId("map-room-pic-3")).toHaveText("runtime");
-  await expect(panel.getByTestId("map-room-pic-4")).toHaveText("PIC 7");
-  await expect(panel.getByTestId("map-room-pic-6")).toHaveText("plan");
-  await expect(panel.getByTestId("map-room-1")).toContainText("visited");
-  await expect(panel.getByTestId("map-room-6")).toContainText("planned · not built");
   // Graph nodes carry real thumbnails, not placeholders.
   await expect(panel.locator(".map-node .node-thumb").first()).toBeVisible();
 
-  // The card describes the room the game is in until another is picked.
+  // Entering Create opens the card of the room the game is in.
   const detail = panel.getByTestId("map-detail");
   await expect(detail).toContainText("Castle Gate");
+  await expect(panel.getByTestId("map-room-list")).toBeHidden();
   await expect(panel.getByTestId("world-room-pictures")).toContainText(
     "PIC 5 · shared with room 2",
   );
@@ -117,11 +112,22 @@ test("the World panel maps rooms to the pictures their logic draws", async ({ pa
   await expect(panel.getByTestId("world-play-here")).toHaveCount(0);
   await expect(panel.locator("[title='Coming in a later update']")).toHaveCount(0);
 
-  await panel.getByTestId("map-room-3").click();
+  // All rooms lists each room with the picture its logic draws.
+  await panel.getByTestId("world-all-rooms").click();
+  await expect(panel.getByTestId("map-room-pic-1")).toBeVisible();
+  await expect(panel.getByTestId("map-room-pic-1")).toHaveText("PIC 5 · shared");
+  await expect(panel.getByTestId("map-room-pic-2")).toHaveText("PIC 5 · shared");
+  await expect(panel.getByTestId("map-room-pic-3")).toHaveText("runtime");
+  await expect(panel.getByTestId("map-room-pic-4")).toHaveText("PIC 7");
+  await expect(panel.getByTestId("map-room-pic-6")).toHaveText("plan");
+  await expect(panel.getByTestId("map-room-1")).toContainText("visited");
+  await expect(panel.getByTestId("map-room-6")).toContainText("planned · not built");
+
+  await openWorldRoom(panel, 3);
   await expect(panel.getByTestId("world-room-pictures")).toContainText("picture chosen at runtime");
   await expect(panel.getByTestId("world-open-studio")).toBeDisabled();
   await expect(panel.getByTestId("world-studio-blocked")).toContainText("chosen at runtime");
-  await panel.getByTestId("map-room-6").click();
+  await openWorldRoom(panel, 6);
   await expect(panel.getByTestId("world-open-studio")).toBeDisabled();
   await expect(panel.getByTestId("world-studio-blocked")).toContainText("not built yet");
 
@@ -132,13 +138,108 @@ test("the World panel maps rooms to the pictures their logic draws", async ({ pa
   await expect(panel).toBeVisible();
 });
 
+test("Expand opens the world plan over the panel; zoomed out, exit words keep to the room in view", async ({
+  page,
+}) => {
+  await bootWorkspaceGame(page);
+  await enterCreateMode(page);
+  const panel = page.getByTestId("world-panel");
+  await expect(panel.getByTestId("map-detail")).toContainText("Castle Gate");
+
+  // At 100% every exit word shows; zoomed out (51%) only the selected
+  // room's: Castle Gate's "north", not the Great Hall's "down".
+  const words = () =>
+    panel.locator(".edge-label").evaluateAll((els) => els.map((e) => e.textContent?.trim()).sort());
+  await panel.getByTestId("map-zoom-level").click();
+  await expect.poll(words).toEqual(["down", "north"]);
+  for (let i = 0; i < 3; i++) await panel.getByTestId("map-zoom-out").click();
+  await expect(panel.getByTestId("map-zoom-level")).toHaveText("51%");
+  await expect.poll(words).toEqual(["north"]);
+
+  const expand = panel.getByRole("button", { name: "Expand", exact: true });
+  await expect(expand).toHaveAttribute("title", "Expand");
+  await expand.click();
+  const map = page.getByTestId("world-map");
+  await expect(map).toBeVisible();
+  // The create experience with the plan editable, on the same selection.
+  await expect(map.getByRole("heading", { name: "Map" })).toBeVisible();
+  await expect(map.getByTestId("btn-world-plan")).toHaveText("Plan");
+  await expect(map.getByTestId("btn-world-plan")).toHaveAttribute("aria-checked", "true");
+  await expect(map.getByTestId("map-detail")).toContainText("Castle Gate");
+  await map.getByTestId("world-all-rooms").click();
+  await expect(map.getByTestId("map-add-room")).toBeVisible();
+  // The window may switch to the discovered map; the panel keeps its plan view.
+  await map.getByTestId("btn-world-discovered").click();
+  await expect(map.getByTestId("btn-world-discovered")).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await expect(map).toHaveCount(0);
+  await expect(expand).toBeFocused();
+  await expect(panel.locator(".map-legend")).toContainText("planned");
+});
+
+test("the World panel opens on the player's room, follows them, and drills in and out", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  const walk = async (direction: string, room: number) => {
+    await page.getByTestId("input-line").fill(direction);
+    await page.getByTestId("input-line").press("Enter");
+    await waitForRoom(page, room);
+  };
+  await enterCreateMode(page);
+  const panel = page.getByTestId("world-panel");
+  const list = panel.getByTestId("map-room-list");
+  const heading = panel.getByTestId("map-detail").getByRole("heading", { level: 3 });
+  const row = (room: number) => panel.getByTestId(`map-room-${room}`).getByRole("button");
+
+  // Entering Create shows the card of the room the player stands in.
+  await expect(heading).toHaveText("Room 1");
+  await expect(list).toBeHidden();
+  // Walking on moves the card along.
+  await walk("east", 2);
+  await expect(heading).toHaveText("Room 2");
+
+  // All rooms returns to the list, the room just shown in view and focused.
+  await panel.getByRole("button", { name: "All rooms" }).click();
+  await expect(list).toBeVisible();
+  await expect(panel.getByTestId("map-detail")).toHaveCount(0);
+  await expect(row(2)).toBeFocused();
+  await expect(row(2)).toBeInViewport();
+
+  // Picking another room stops following: its card stays while the player walks.
+  await row(3).click();
+  await expect(heading).toHaveText("Room 3");
+  await expect(heading).toBeFocused();
+  await walk("west", 1);
+  await expect(heading).toHaveText("Room 3");
+  // A graph node switches the card straight to its room.
+  await panel.getByTestId("map-node-2").click();
+  await expect(heading).toHaveText("Room 2");
+
+  // Esc inside the card returns to the list.
+  await heading.focus();
+  await page.keyboard.press("Escape");
+  await expect(list).toBeVisible();
+  await expect(row(2)).toBeFocused();
+  expect((await textHook(page)).room, "Esc stays with the panel").toBe(1);
+
+  // Picking the room marked "you are here" follows the player again.
+  await row(1).click();
+  await expect(heading).toHaveText("Room 1");
+  await walk("east", 2);
+  await expect(heading).toHaveText("Room 2");
+});
+
 test("Open in Studio shows its picture in the centre and closing resumes the game", async ({
   page,
 }) => {
   await bootWorkspaceGame(page);
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-studio").click();
 
   const studio = page.getByTestId("room-studio");
@@ -174,7 +275,7 @@ test("Room Studio takes the whole workspace and closing restores the docks as th
   const right = page.getByTestId("create-dock-right");
   const panel = page.getByTestId("world-panel");
   await page.getByTestId("dock-tab-activity").click();
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-studio").click();
 
   const studio = page.getByTestId("room-studio");

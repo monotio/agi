@@ -1,6 +1,6 @@
 import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 import { STUDIO_TERMS, type StudioTerm } from "../src/studio/studioTerms.ts";
 
 /**
@@ -25,7 +25,7 @@ async function playTutorial(page: Page): Promise<void> {
 
 async function openRoomOne(page: Page): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -164,7 +164,7 @@ test("Room Studio's chrome says depth, walk lines and steps", async ({ page }) =
 test("Sprite Studio: every explainer says its sentence and gives Esc back", async ({ page }) => {
   await playTutorial(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

@@ -225,3 +225,32 @@ test("lifting the pointer after a scrub wakes a runner parked on the scrub gate"
     controller.abort();
   }
 });
+
+test("a seek on a finished walkthrough lands paused at the new position", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ARTIFACT,
+  })) as unknown as typeof fetch;
+  const { state, driver, restoreCalls, controller } = harness();
+  try {
+    void controller.startWalkthrough("kq1");
+    await flush();
+    // The run reached the end: nothing is playing any more.
+    state.walkthrough.status = "completed";
+    state.walkthrough.tick = 1500;
+    driver.latest = fakeObservation(1500);
+    await controller.seekToTick(700);
+    await flush();
+    assert.equal(restoreCalls.at(-1)?.tick, 700, "the seek restores near its target");
+    assert.equal(state.walkthrough.status, "paused", "a finished run is not playing");
+    assert.equal(controller.transport.play.aria, "Play", "the play button plays from here");
+
+    // Play from there, then the end's Replay still restarts from the top.
+    controller.toggleWalkthroughPause();
+    assert.equal(state.walkthrough.status, "playing");
+  } finally {
+    globalThis.fetch = originalFetch;
+    controller.abort();
+  }
+});

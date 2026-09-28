@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, waitForRoom, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * Room Studio's tool rail fits its column. The Walk lens adds three tools,
@@ -23,7 +23,7 @@ async function openLabStudio(page: Page): Promise<Locator> {
   await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

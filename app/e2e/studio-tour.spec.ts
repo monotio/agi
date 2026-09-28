@@ -1,6 +1,6 @@
 import { expect, reviewShot, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, openGameOptions, waitForRoom } from "./engineProbe.ts";
+import { enterCreateMode, openGameOptions, waitForRoom, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * The Studios' first-run tour on the real app (useStudioTour.ts,
@@ -27,7 +27,7 @@ async function playTutorial(page: Page): Promise<void> {
 
 async function openRoomStudio(page: Page, room = 1): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId(`map-room-${room}`).click();
+  await openWorldRoom(panel, room);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -36,7 +36,7 @@ async function openRoomStudio(page: Page, room = 1): Promise<Locator> {
 
 async function openSpriteStudio(page: Page): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

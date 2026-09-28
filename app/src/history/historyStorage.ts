@@ -1044,27 +1044,60 @@ export async function loadRetainedBranches(storageKey: string): Promise<Retained
 }
 
 /**
+ * A boot that starts the game from its beginning: it continues no earlier
+ * segment and restores no checkpoint. After an earlier segment of the same
+ * tape, that is a Start over (or a Play with no checkpoint to resume).
+ */
+export function startsFresh(boot: Pick<HistoryBoot, "resumedFrom" | "image">): boolean {
+  return boot.resumedFrom === undefined && boot.image === undefined;
+}
+
+/** Each segment's opening batch — the one whose record carries its boot. */
+function openingBatches(manifest: HistoryManifest): string[] {
+  const keys: string[] = [];
+  for (const segment of manifest.segments) {
+    const committed = manifest.committed[segment.id] ?? [];
+    if (committed.length > 0)
+      keys.push(batchKey(manifest.projectId, segment.id, Math.min(...committed)));
+  }
+  return keys;
+}
+
+/**
  * The transport's flattened live axis: per-segment extent and room marks
- * from the manifest alone — no tape bytes. Segments written before the
- * manifest tracked these report extent 0 and no marks; their real shape
- * arrives when the view opens the tape.
+ * from the manifest, and whether each segment starts fresh from its opening
+ * batch's boot — no other tape bytes. Segments written before the manifest
+ * tracked extents report extent 0 and no marks; their real shape arrives
+ * when the view opens the tape.
  */
 export async function loadTapeOutline(storageKey: string): Promise<{
-  segments: { id: string; extent: number; marks: HistoryRoomMark[] }[];
+  segments: { id: string; extent: number; marks: HistoryRoomMark[]; fresh: boolean }[];
   dropped: number;
   /** Kept recovery branches and unsettled swap candidates, counted only. */
   branches: number;
   pending: number;
 } | null> {
-  const { head } = await readTape(storageKey, () => []);
+  const { key, head, records } = await readTape(storageKey, openingBatches);
   const manifest = readManifest(head);
   if (manifest === null) return null;
-  return {
-    segments: manifest.segments.map((s) => ({
+  const boot = (id: string): StoredBoot | undefined => {
+    const committed = manifest.committed[id] ?? [];
+    if (committed.length === 0) return undefined;
+    const record = records.get(batchKey(key, id, Math.min(...committed))) as
+      StoredBatch | undefined;
+    return record?.boot;
+  };
+  const segments = manifest.segments.map((s) => {
+    const opening = boot(s.id);
+    return {
       id: s.id,
       extent: s.extent ?? 0,
       marks: s.marks ?? [],
-    })),
+      fresh: opening !== undefined && startsFresh(opening),
+    };
+  });
+  return {
+    segments,
     dropped: manifest.recording.dropped ?? 0,
     branches: manifest.branches?.length ?? 0,
     pending: manifest.staged?.length ?? 0,

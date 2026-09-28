@@ -7,6 +7,7 @@ import {
   screenText,
   textHook,
   waitForRoom,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -36,8 +37,8 @@ async function createAdventure(page: Page): Promise<void> {
 }
 
 async function openMap(page: Page): Promise<void> {
-  // The plan surface is the creator entry — "World map" is the player's
-  // discovered-rooms view and shows no plan.
+  // The plan surface is the creator entry — "Discovered" is the player's
+  // view and shows no plan.
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
@@ -104,7 +105,7 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
   await expect(page.getByTestId("map-room-1")).toBeVisible();
   await expect(page.getByTestId("map-room-2")).toContainText("The Hall");
   await expect(page.getByTestId("map-room-3")).toContainText("The Vault");
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("map-detail")).toContainText("planned");
   await page.screenshot({ path: "test-results/plan-map-created.png" });
 });
@@ -112,7 +113,7 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
 test("Attach reference art opens the upload over the open world plan", async ({ page }) => {
   await createAdventure(page);
   await openMap(page);
-  await page.getByTestId("map-room-1").click();
+  await openWorldRoom(page.getByTestId("world-map"), 1);
 
   // The map is a native modal on the top layer; a plain positioned overlay
   // would land behind it. The upload must be a top-layer dialog itself.
@@ -145,7 +146,8 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   // The plan entry is the in-dialog switch — the player menu carries no
   // creator surface.
   await expect(page.getByTestId("btn-world-plan")).toBeVisible();
-  await expect(map).toContainText("World map");
+  await expect(map.getByRole("heading", { name: "Map" })).toBeVisible();
+  await expect(page.getByTestId("btn-world-discovered")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("map-room-1")).toBeVisible();
   await expect(page.getByTestId("map-room-2")).toHaveCount(0);
   await expect(page.getByTestId("map-room-3")).toHaveCount(0);
@@ -153,7 +155,7 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await expect(map).not.toContainText("in code");
   await expect(page.getByTestId("map-add-room")).toHaveCount(0);
   // Even the visited room's detail carries no plan editor.
-  await page.getByTestId("map-room-1").click();
+  await openWorldRoom(page.getByTestId("world-map"), 1);
   await expect(page.getByTestId("plan-room-title")).toHaveCount(0);
   await page.screenshot({ path: "test-results/world-map-player.png" });
   await page.getByTestId("map-close").click();
@@ -163,9 +165,13 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
   await expect(map).toBeVisible();
-  await expect(map).toContainText("World plan");
+  await expect(page.getByTestId("btn-world-plan")).toHaveText("Plan");
+  await expect(page.getByTestId("btn-world-plan")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("map-room-2")).toContainText("The Hall");
   await expect(page.getByTestId("map-room-3")).toContainText("The Vault");
+  // The room picked earlier still shows; its list, with Add a room, is one step back.
+  await expect(map.getByTestId("map-detail")).toHaveAttribute("data-room", "1");
+  await map.getByTestId("world-all-rooms").click();
   await expect(page.getByTestId("map-add-room")).toBeVisible();
   await page.screenshot({ path: "test-results/world-map-creator.png" });
 });
@@ -176,7 +182,7 @@ test("editing a planned node and walking into it builds the edited version", asy
   // Rename the planned east neighbor and give it a brief — the edits commit
   // against the live world while the game is paused under the map.
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   const title = page.getByTestId("plan-room-title");
   await expect(title).toHaveValue("The Hall");
   await title.fill("The Gallery");
@@ -198,7 +204,7 @@ test("editing a planned node and walking into it builds the edited version", asy
   // World state kept the edits: the built node's plan entry still reads The
   // Gallery and its planned exits are the ones the player saw on the map.
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
   await expect(page.getByTestId("plan-room-brief")).toHaveValue("A long gallery of portraits.");
   await expect(page.getByTestId("map-detail")).toContainText("west");
@@ -224,7 +230,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   });
   await createAdventure(page);
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   const title = page.getByTestId("plan-room-title");
   await expect(title).toHaveValue("The Hall");
 
@@ -242,7 +248,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   await page.getByTestId("map-close").click();
   await expect(page.getByTestId("world-map")).toBeHidden();
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
   await expect(flag).toBeVisible();
 
@@ -268,7 +274,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   await page.getByTestId("btn-resume-cached").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
 });
 
@@ -280,7 +286,7 @@ test("the plan surface stays usable on a phone and under reduced motion", async 
 
   // The room list leads on a small screen; the plan editor is reachable.
   await expect(page.getByTestId("map-room-list")).toBeVisible();
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Hall");
 
   // Nothing animates under reduced motion.
@@ -310,7 +316,7 @@ test("a running authored game extends from a planned map node", async ({ page })
   await openMap(page);
 
   // Room 2 is in the plan but not yet authored: it offers "Build this room".
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   const detail = page.getByTestId("map-detail");
   await expect(detail).toContainText("planned");
   await page.getByTestId("map-build-room").click();
@@ -357,7 +363,7 @@ test("a planned exit the source room lacks becomes a real route when built", asy
 
   // Building the planned node rewrites room 2's logic in the same commit.
   await openMap(page);
-  await page.getByTestId("map-room-3").click();
+  await openWorldRoom(page.getByTestId("world-map"), 3);
   await expect(page.getByTestId("map-detail")).toContainText("planned");
   await page.getByTestId("map-build-room").click();
   await expect(page.getByTestId("agent-panel")).toContainText("authored room 3", {

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { loadGame } from "./game-fixture.ts";
 import { createHash } from "node:crypto";
 import {
@@ -10,6 +10,7 @@ import {
   findFixture,
   fixtureDir,
   fixtureReadiness,
+  folderEntries,
   fixtureSkip,
   hasFixture,
   KNOWN_GAME_HASH,
@@ -301,6 +302,13 @@ test("a dirs installation is discovered as a v3 combined edition with an empty p
     writeFileSync(join(dir, name), new Uint8Array());
   }
   assert.equal(fixtureSkip(target), false);
+});
+
+test("a folder that disappears during a scan is left out", () => {
+  const gone = mkdtempSync(fixtureDir("vanished-").slice(0, -1));
+  rmSync(gone, { recursive: true, force: true });
+  assert.equal(folderEntries(gone), null);
+  assert.deepEqual(folderEntries(dirname(gone)), readdirSync(dirname(gone)));
 });
 
 test("a plain edition outranks project exports that share its vocabulary hash", (t) => {

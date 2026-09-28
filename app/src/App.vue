@@ -35,6 +35,7 @@ import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.
 import { createPresentation, providePresentation } from "./play/usePresentation.ts";
 import SetupPanel from "./home/SetupPanel.vue";
 import StaleTabNote from "./play/StaleTabNote.vue";
+import StartOverNote from "./play/StartOverNote.vue";
 import { nextViewportLayout } from "./play/viewportLayout.ts";
 import ReferenceUpload from "./references/ReferenceUpload.vue";
 import { createShell, provideShell } from "./shell/useShell.ts";
@@ -192,6 +193,7 @@ const playHereFromStudio = usePlayHereFromStudio({
 const { onDockKey } = useCreateMode({
   state,
   workspace,
+  roomMap: engine.roomMap,
   creating,
   phone,
   debugOpen,
@@ -354,8 +356,11 @@ function releaseMovement(): void {
 }
 
 function onTakeControl(): void {
+  // A paused walkthrough hands over a paused game: the play bar's Resume starts it.
+  const paused = state.walkthrough.status === "paused";
   releaseMovement();
-  stopWalkthrough(true);
+  void stopWalkthrough(true);
+  if (paused) engine.historyView.pauseAtLive();
   nextTick(() => {
     playArea.value?.focusInput();
   });
@@ -663,6 +668,9 @@ watch(
               {{ playHereFromStudio.note.value }}
             </UiToast>
             <StaleTabNote />
+          </template>
+          <template #screen-notes>
+            <StartOverNote />
           </template>
           <template #strip-actions>
             <UiButton

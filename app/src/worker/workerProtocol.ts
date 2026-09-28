@@ -501,7 +501,11 @@ export type WorkerPresentation =
   | { type: "soundEnabled"; enabled: boolean }
   | { type: "controls"; controls: GameControlBinding[] }
   | { type: "inputEdit"; text: string }
-  | { type: "cycle"; cycle: number; room: number; egoX: number; egoY: number }
+  /**
+   * The liveness heartbeat: completed cycles, the room and ego's position,
+   * and the game's cycle delay (v10) so the host can tell game time.
+   */
+  | { type: "cycle"; cycle: number; room: number; egoX: number; egoY: number; delay: number }
   | { type: "waitingForKey"; waiting: boolean }
   | { type: "soundPaused"; paused: boolean }
   | { type: "sound"; soundNum: number }

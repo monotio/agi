@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * Share in Room Studio on the real app: the tutorial's room 2, the Sprite
@@ -18,7 +18,7 @@ async function openRoom2(page: Page): Promise<Locator> {
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

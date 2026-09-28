@@ -59,7 +59,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "The map",
         body: [
           "The map draws the rooms you have visited and the exits between them, and adds the rooms the game's own logic mentions as you explore. Pin a note to any room to remember what you found there.",
-          "In Create the same map docks in the World panel, next to the room list and the picture each room draws.",
+          "In Create the same map docks in the World panel, above a list of the rooms and the picture each one draws. It opens on the room you are in and follows you until you pick another; All rooms goes back to the list. Expand, beside Fit, opens the map in a full window; Esc closes it.",
         ],
         action: { kind: "map", label: "Open the map" },
       },
@@ -69,6 +69,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           "The game's own Save and Restore work as they always did: most Sierra games save with F5 and restore with F7. The app also autosaves, so Resume picks up where you stopped.",
           "Every session records itself. Drag the timeline under the game to look back, then Resume from here to play on from that moment. Undo rewind takes you back if you went too far.",
+          "Start over keeps your earlier sessions: Undo start over, offered just after, returns to where you left off, and after that the Started over mark on the timeline is the way back.",
         ],
       },
       {

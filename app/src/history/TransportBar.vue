@@ -223,11 +223,7 @@ onUnmounted(() => {
           :class="{ 'transport-live-btn--here': model.live.here }"
           :data-testid="model.live.testid"
           :aria-pressed="model.live.here"
-          :title="
-            model.live.here
-              ? 'The current game'
-              : 'Back to the current game, paused until you resume'
-          "
+          :title="model.live.title"
           @click="
             model.live!.run();
             releaseFocus($event);

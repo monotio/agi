@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
  * Create mode's World panel: the world map docked beside the live game. A
- * small graph with real thumbnails, the rooms with their status and the
- * picture each one draws, and a card for the selected room with its plan
- * actions and the Studio entry points: Room Studio on its picture (each of
- * them, when the room overlays one on another), Sprite Studio on each VIEW
- * its logic uses. Unlike the window it never pauses the game; the room →
- * picture facts come from the static scan (roomPictureUse), never from the
- * room number.
+ * small graph with real thumbnails over either the rooms, with their status
+ * and the picture each one draws, or the selected room's card: its plan
+ * actions and the Studio entry points, Room Studio on its picture (each of
+ * them, when the room overlays one on another) and Sprite Studio on each VIEW
+ * its logic uses. Picking a room drills into its card; "All rooms" returns.
+ * Unlike the window it never pauses the game; the room → picture facts come
+ * from the static scan (roomPictureUse), never from the room number.
  */
 import { computed, onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
@@ -18,6 +18,7 @@ import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
 import { roomPictureLabels } from "./roomPictureLabels.ts";
 import { roomViews } from "./studioSource.ts";
+import { useRoomDrill } from "./useRoomDrill.ts";
 import { useRoomStudio } from "./useRoomStudio.ts";
 import { useSpriteStudio } from "./useSpriteStudio.ts";
 import WorldGraph from "./WorldGraph.vue";
@@ -31,6 +32,8 @@ const map = engine.roomMap;
 const workspace = useCreateWorkspace();
 const viewOnly = workspace.viewOnly;
 const graphView = useTemplateRef("graphView");
+const panelEl = useTemplateRef("panelEl");
+const detailView = useTemplateRef("detailView");
 
 // The dock is a creator surface: plan intent and technical status show. The
 // window sets its own experience whenever it opens.
@@ -40,18 +43,31 @@ onMounted(() => {
 onUnmounted(() => {
   if (!map.open.value) map.experience.value = "play";
 });
-
-const selectedNode = computed(
-  () => map.graph.value.nodes.find((n) => n.room === map.selected.value) ?? null,
-);
-// Nothing picked yet: the card describes the room the game is in.
+// Expand opens the window over the dock; the window can switch to the
+// discovered map, so the dock takes its own view back when it closes.
 watch(
-  () => map.currentRoom.value,
-  (room) => {
-    if (map.selected.value === undefined && room !== null && room > 0) map.select(room);
+  () => map.open.value,
+  (open) => {
+    if (!open) map.experience.value = "create";
+  },
+);
+
+// While the selection follows the player (entering Create, or picking the
+// room marked "you are here"), the card moves with each room they walk into.
+watch(
+  () => [map.currentRoom.value, map.followsPlayer.value] as const,
+  ([room, follows]) => {
+    if (follows && room !== null && room > 0 && map.selected.value !== room) map.select(room);
   },
   { immediate: true },
 );
+
+const { selectedNode, pickFromList, showAllRooms, onDetailKeydown } = useRoomDrill({
+  map,
+  root: panelEl,
+  detail: detailView,
+  pick: pickRoom,
+});
 
 const pictures = computed(() => {
   const node = selectedNode.value;
@@ -83,7 +99,7 @@ function pickRoom(room: number): void {
 
 function addStandaloneRoom(): void {
   const result = map.addPlannedRoom(null, "New room", "", "");
-  if (result.room !== undefined) pickRoom(result.room);
+  if (result.room !== undefined) pickFromList(result.room);
 }
 
 const rooms = useRoomStudio();
@@ -100,7 +116,7 @@ function openInStudio(picture: number): void {
 </script>
 
 <template>
-  <div class="world-panel" data-testid="world-panel">
+  <div ref="panelEl" class="world-panel" data-testid="world-panel">
     <p v-if="map.storageError.value" class="world-alert" role="alert" data-testid="map-error">
       {{ map.storageError.value }}
     </p>
@@ -120,19 +136,39 @@ function openInStudio(picture: number): void {
       </UiButton>
     </p>
     <WorldGraph ref="graphView" compact />
-    <WorldRoomList compact @pick="pickRoom" />
+    <div v-show="!selectedNode" class="world-rooms">
+      <WorldRoomList compact @pick="pickFromList" />
+      <UiButton
+        v-if="map.canPlan.value && !viewOnly"
+        icon="plus"
+        size="sm"
+        variant="ghost"
+        class="world-add-room"
+        data-testid="map-add-room"
+        @click="addStandaloneRoom"
+      >
+        Add a room
+      </UiButton>
+    </div>
     <UiButton
-      v-if="map.canPlan.value && !viewOnly"
-      icon="plus"
+      v-if="selectedNode"
+      icon="chevron-left"
       size="sm"
       variant="ghost"
-      class="world-add-room"
-      data-testid="map-add-room"
-      @click="addStandaloneRoom"
+      class="world-back"
+      data-testid="world-all-rooms"
+      @click="showAllRooms"
     >
-      Add a room
+      All rooms
     </UiButton>
-    <WorldRoomDetail v-if="selectedNode" :node="selectedNode" compact :view-only="viewOnly">
+    <WorldRoomDetail
+      v-if="selectedNode"
+      ref="detailView"
+      :node="selectedNode"
+      compact
+      :view-only="viewOnly"
+      @keydown="onDetailKeydown"
+    >
       <template #chips>
         <UiChip v-if="pictures" class="world-chip" :tone="pictures.tone">{{
           pictures.chip
@@ -252,7 +288,13 @@ function openInStudio(picture: number): void {
   color: var(--danger);
   font-size: var(--text-xs);
 }
-.world-add-room {
+.world-rooms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.world-add-room,
+.world-back {
   align-self: flex-start;
 }
 .world-chip {

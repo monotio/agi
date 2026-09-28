@@ -7,7 +7,13 @@ import { buildWordsTok } from "../../src/logic/words.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
 import { createPictureSurface } from "../../src/types.ts";
-import { cacheGame, enterCreateMode, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  cacheGame,
+  enterCreateMode,
+  textHook,
+  waitForCycles,
+  openWorldRoom,
+} from "./engineProbe.ts";
 
 /**
  * Several Room Studio items as one, end to end on the real app: a stored
@@ -108,7 +114,7 @@ async function bootGame(page: Page): Promise<void> {
 async function openStudio(page: Page): Promise<Locator> {
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

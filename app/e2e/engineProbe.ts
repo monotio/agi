@@ -453,6 +453,20 @@ export async function openInspector(page: Page): Promise<void> {
  * Show the running game in Create mode, where the assistant's Ask and Remix
  * surface (the `power-up` entry) lives. Play mode offers the Ask drawer only.
  */
+/**
+ * Show one room's card in Create's World panel as a user does: back to All
+ * rooms when another card shows (entering Create shows the player's room),
+ * then the room's row.
+ */
+export async function openWorldRoom(panel: Locator, room: number): Promise<void> {
+  const back = panel.getByTestId("world-all-rooms");
+  await expect(async () => {
+    if (await back.isVisible()) await back.click();
+    await panel.getByTestId(`map-room-${room}`).click({ timeout: 2_000 });
+  }).toPass();
+  await expect(panel.getByTestId("map-detail")).toHaveAttribute("data-room", String(room));
+}
+
 export async function enterCreateMode(page: Page): Promise<void> {
   const create = page.getByRole("radio", { name: "Create", exact: true });
   if ((await create.getAttribute("aria-checked")) !== "true") await create.click();

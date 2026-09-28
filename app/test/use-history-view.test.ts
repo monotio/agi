@@ -4,12 +4,18 @@
  * position is "current", so next must pass it — and Resume-from-here's swap
  * is staged: the departing session only joins the kept-branch list once the
  * worker acknowledges the take. Interrupted swaps never ask the player to
- * vote; provable ones settle from tape evidence on the next open.
+ * vote; provable ones settle from tape evidence on the next open. Every
+ * seek keeps the player's intent: playing before it, playing after it;
+ * paused before, paused after.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { reactive } from "vue";
-import { useHistoryView, freshHistoryView } from "../src/history/useHistoryView.ts";
+import {
+  useHistoryView,
+  freshHistoryView,
+  type HistoryViewMark,
+} from "../src/history/useHistoryView.ts";
 import {
   HISTORY_FORMAT_VERSION,
   type HistoryBatch,
@@ -65,7 +71,7 @@ function segment(
   };
 }
 
-/** Two marks share tick 4 in segment 0; segment 1 starts a new run. */
+/** Two marks share tick 4 in segment 0; segment 1 continues it in a new run. */
 const RECORDING: HistoryRecording = {
   version: HISTORY_FORMAT_VERSION,
   identity: { project: testProjectId("history-view"), revision: testRevision("history-view") },
@@ -78,7 +84,10 @@ const RECORDING: HistoryRecording = {
       [5, 4, 3],
       [9, 8, 5],
     ]),
-    segment("sX.2", [[2, 1, 4]]),
+    {
+      ...segment("sX.2", [[2, 1, 4]]),
+      boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sX.1", seq: 9, tick: 8 } }),
+    },
   ],
 };
 
@@ -109,6 +118,8 @@ function makeHarness(opts?: {
   /** Query types whose replies are held until `release(type, reply)` runs. */
   defer?: string[];
   startError?: string;
+  /** The drive reports a divergence when it lands here. */
+  divergeAt?: (segment: number, tick: number) => boolean;
 }) {
   const state = reactive({
     phase: "running",
@@ -134,6 +145,7 @@ function makeHarness(opts?: {
     if (!held.get(type)?.length) throw new Error(`${type} never arrived`);
   };
   const seqAt = opts?.seqAt ?? ((_s: number, t: number) => t);
+  const head = { segment: 0, tick: 0 };
   // The session-side leg of a swap: the fake AgentSession tracks its
   // adoption hold; the fake adoptSession records each install.
   const sessionState = { hold: null as string | null };
@@ -181,9 +193,19 @@ function makeHarness(opts?: {
           held.set(type, list);
         });
       if (type === "state") return {};
-      if (type === "historyViewStart" || type === "historyViewSeek") {
-        const segment = Number(extra?.["segment"] ?? 0);
-        const tick = Number(extra?.["tick"] ?? 0);
+      if (
+        type === "historyViewStart" ||
+        type === "historyViewSeek" ||
+        type === "historyViewAdvance"
+      ) {
+        // The scratch session's head: a start or seek places it, Watch's
+        // paced advance moves it on.
+        if (type === "historyViewAdvance") head.tick += Number(extra?.["ticks"] ?? 0);
+        else {
+          head.segment = Number(extra?.["segment"] ?? 0);
+          head.tick = Number(extra?.["tick"] ?? 0);
+        }
+        const { segment, tick } = head;
         if (type === "historyViewSeek") seeks.push({ segment, tick });
         return {
           type: "historyView",
@@ -198,7 +220,9 @@ function makeHarness(opts?: {
           score: 0,
           modal: null,
           canResume: true,
-          diverged: null,
+          diverged: opts?.divergeAt?.(segment, tick)
+            ? { at: { segment, seq: 0, tick }, detail: "sync digest differs" }
+            : null,
           error: type === "historyViewStart" ? (opts?.startError ?? null) : null,
         };
       }
@@ -247,6 +271,7 @@ function makeHarness(opts?: {
     pauses,
     release,
     waitHeld,
+    heldCount: (type: string): number => held.get(type)?.length ?? 0,
     sessionState,
     adoptions,
   };
@@ -411,6 +436,13 @@ test("Resume from here keeps the departing session as a branch — no confirmati
   assert.equal(branches.length, 2, "both rewinds are kept");
   assert.equal(branches[1]!.boot.rng, 42, "the departing session joined the list");
   assert.equal(v.branches, 2);
+  // An ordinary rewind's undo keeps its name.
+  const redo = view.transport.trailing.find((b) => b.testid === "btn-undo-rewind");
+  assert.equal(redo?.label, "Undo rewind");
+  assert.equal(
+    redo?.title,
+    "Restore the session the last rewind kept; the current one is kept in its place",
+  );
 });
 
 test("an acknowledged take promotes the staged session to a branch", async () => {
@@ -965,4 +997,499 @@ test("history holds the authoring reservation through an awaited worker adoption
   release("historyRetain", { boot: null });
   await taking;
   assert.equal(state.powerUp.busy, false);
+});
+
+/**
+ * A tape long enough for Watch to be seen moving: 300 ticks in the first
+ * segment (marks at 100 and 300), 200 in the second (a mark at its end).
+ * The live axis built from the same shape is 500 ticks, LIVE at 500.
+ */
+const LONG: HistoryRecording = {
+  ...RECORDING,
+  segments: [
+    segment("sX.1", [
+      [1, 100, 2],
+      [2, 300, 3],
+    ]),
+    segment("sX.2", [[3, 200, 4]]),
+  ],
+};
+
+async function longHarness(
+  t: { after: (fn: () => void) => void },
+  opts?: Parameters<typeof makeHarness>[0],
+) {
+  await importGameHistory("view-test", { recording: LONG }, LONG.identity);
+  const h = makeHarness(opts);
+  // Watch keeps stepping on a timer; the test's end stops it.
+  t.after(() => h.view.resetHistoryView());
+  h.view.observeBatch(batch("sX.1", [100, 300]));
+  h.view.observeBatch(batch("sX.2", [200]));
+  // The stored outline fills in the room marks the batches do not carry.
+  await flushSeeks();
+  return h;
+}
+
+async function flushSeeks(): Promise<void> {
+  for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0));
+}
+
+/** The Watch button's label: "Pause timeline" while the tape plays. */
+function watchLabel(view: ReturnType<typeof makeHarness>["view"]): string | undefined {
+  return view.transport.trailing.find((b) => b.testid === "btn-history-watch")?.label;
+}
+
+/** Whether the viewed position moves over a short window. */
+async function tapeMoves(view: ReturnType<typeof makeHarness>["view"]): Promise<boolean> {
+  const from = view.transport.tick;
+  await new Promise((r) => setTimeout(r, 350));
+  return view.transport.tick > from;
+}
+
+/** A tape playing under Watch — the state a seek gesture starts from. */
+async function watching(view: ReturnType<typeof makeHarness>["view"]): Promise<void> {
+  await view.openHistory({ segment: 0, tick: 50 });
+  view.toggleWatch();
+  assert.equal(watchLabel(view), "Pause timeline");
+}
+
+test("a seek on a playing tape keeps it playing from the new position", async (t) => {
+  const { view } = await longHarness(t);
+  await watching(view);
+  await view.dispatchSeek(150);
+  await flushSeeks();
+  assert.equal(watchLabel(view), "Pause timeline", "Watch resumes where the seek landed");
+  assert.equal(await tapeMoves(view), true, "the tape plays on from the new position");
+  assert.ok(view.transport.tick >= 150);
+});
+
+test("a seek on a paused tape keeps it paused at the new position", async (t) => {
+  const { view } = await longHarness(t);
+  await view.openHistory({ segment: 0, tick: 50 });
+  await view.dispatchSeek(150);
+  await flushSeeks();
+  assert.equal(view.transport.tick, 150);
+  assert.equal(watchLabel(view), "Watch from here");
+  assert.equal(await tapeMoves(view), false, "the tape holds at the new position");
+
+  // Paused mid-Watch is paused too.
+  view.toggleWatch();
+  view.toggleWatch();
+  assert.equal(watchLabel(view), "Resume timeline");
+  await view.dispatchSeek(200);
+  await flushSeeks();
+  assert.equal(watchLabel(view), "Resume timeline");
+  assert.equal(await tapeMoves(view), false);
+});
+
+test("a drag keeps the intent it started with, and plays only once the pointer lifts", async (t) => {
+  const { view, seeks } = await longHarness(t);
+  await watching(view);
+  const model = view.transport;
+  model.scrubDown(10);
+  model.scrubMove(30);
+  await new Promise((r) => setTimeout(r, 400));
+  model.scrubMove(40);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.ok(seeks.length >= 2, "the drag sought on its way");
+  assert.equal(await tapeMoves(view), false, "the tape holds under the pointer");
+  model.scrubUp(40);
+  await flushSeeks();
+  assert.deepEqual(seeks.at(-1), { segment: 0, tick: 200 }, "the drag's final position");
+  assert.equal(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), true, "the tape plays on after the drag");
+});
+
+test("a drag across a paused tape leaves it paused", async (t) => {
+  const { view } = await longHarness(t);
+  await view.openHistory({ segment: 0, tick: 50 });
+  const model = view.transport;
+  model.scrubDown(10);
+  model.scrubMove(40);
+  await new Promise((r) => setTimeout(r, 400));
+  model.scrubUp(40);
+  await flushSeeks();
+  assert.equal(model.tick, 200);
+  assert.equal(watchLabel(view), "Watch from here");
+  assert.equal(await tapeMoves(view), false);
+});
+
+test("a timeline click during live play opens the tape playing at that moment", async (t) => {
+  const { state, view } = await longHarness(t);
+  await view.dispatchSeek(150);
+  await flushSeeks();
+  assert.equal(
+    state.historyView.active,
+    true,
+    `the view opened — error: ${state.historyView.error}`,
+  );
+  assert.equal(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), true, "the tape plays from the clicked moment");
+});
+
+test("a timeline click on a paused game opens the tape paused at that moment", async (t) => {
+  const { state, view } = await longHarness(t);
+  view.pauseAtLive();
+  await view.dispatchSeek(150);
+  await flushSeeks();
+  assert.equal(state.historyView.active, true);
+  assert.equal(view.transport.tick, 150);
+  assert.equal(watchLabel(view), "Watch from here");
+  assert.equal(await tapeMoves(view), false);
+});
+
+test("LIVE at the live end changes nothing: running play runs, a parked game stays parked", async (t) => {
+  const { state, view, pauses } = await longHarness(t);
+  const v = state.historyView;
+  const model = view.transport;
+
+  await view.dispatchSeek(500);
+  model.live?.run();
+  await flushSeeks();
+  assert.equal(v.parked, false, "live play keeps running");
+  assert.deepEqual(pauses, [], "nothing paused the engine");
+  assert.equal(model.play.testid, "btn-transport-pause");
+
+  view.pauseAtLive();
+  await view.dispatchSeek(500);
+  model.live?.run();
+  await flushSeeks();
+  assert.equal(v.parked, true, "the parked game stays parked");
+  assert.equal(v.active, false);
+  assert.equal(model.play.testid, "btn-transport-resume");
+});
+
+test("LIVE from a playing tape resumes live play", async (t) => {
+  const { state, view } = await longHarness(t);
+  const v = state.historyView;
+  const model = view.transport;
+  await watching(view);
+  model.live?.run();
+  assert.equal(v.active, false);
+  assert.equal(v.parked, false, "live play resumes");
+  assert.equal(model.play.testid, "btn-transport-pause");
+
+  // The same through a timeline click at the right end.
+  await watching(view);
+  await view.dispatchSeek(500);
+  await flushSeeks();
+  assert.equal(v.active, false);
+  assert.equal(v.parked, false);
+  assert.equal(model.play.testid, "btn-transport-pause");
+});
+
+test("LIVE from a paused tape returns to the game still paused", async (t) => {
+  const { state, view } = await longHarness(t);
+  const v = state.historyView;
+  const model = view.transport;
+  await view.openHistory({ segment: 0, tick: 50 });
+  await view.dispatchSeek(500);
+  await flushSeeks();
+  assert.equal(v.active, false);
+  assert.equal(v.parked, true);
+  assert.equal(model.play.testid, "btn-transport-resume");
+});
+
+test("a drag from a playing tape to LIVE resumes live play only once the pointer lifts", async (t) => {
+  const { state, view } = await longHarness(t);
+  const v = state.historyView;
+  const model = view.transport;
+  await watching(view);
+  model.scrubDown(40);
+  model.scrubMove(100);
+  await new Promise((r) => setTimeout(r, 400));
+  await flushSeeks();
+  assert.equal(v.active, false, "the drag reached LIVE");
+  assert.equal(v.parked, true, "live play waits for the pointer");
+  model.scrubUp(100);
+  await flushSeeks();
+  assert.equal(v.parked, false, "live play resumes");
+  assert.equal(model.play.testid, "btn-transport-pause");
+});
+
+test("stepping between marks keeps a playing tape playing and a paused one paused", async (t) => {
+  const { view } = await longHarness(t);
+  await watching(view);
+  await view.stepMark(1);
+  await flushSeeks();
+  assert.equal(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), true);
+
+  view.toggleWatch();
+  assert.equal(watchLabel(view), "Resume timeline");
+  await view.stepMark(1);
+  await flushSeeks();
+  assert.equal(watchLabel(view), "Resume timeline");
+  assert.equal(await tapeMoves(view), false);
+});
+
+test("stepping back from LIVE keeps live play's intent: playing opens playing, parked opens paused", async (t) => {
+  const { state, view } = await longHarness(t);
+  await view.stepMark(-1);
+  await flushSeeks();
+  assert.equal(state.historyView.active, true);
+  assert.equal(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), true);
+
+  view.closeHistory();
+  view.pauseAtLive();
+  await view.stepMark(-1);
+  await flushSeeks();
+  assert.equal(state.historyView.active, true);
+  assert.equal(view.transport.tick, 300);
+  assert.equal(await tapeMoves(view), false);
+});
+
+for (const parked of [false, true])
+  test(`seeks queued while the tape opens keep the intent of a ${parked ? "parked" : "running"} game`, async (t) => {
+    const { state, view, seeks, release, waitHeld } = await longHarness(t, {
+      defer: ["historyViewStart"],
+    });
+    if (parked) view.pauseAtLive();
+    void view.dispatchSeek(100);
+    await waitHeld("historyViewStart");
+    void view.dispatchSeek(150);
+    release("historyViewStart", {
+      type: "historyView",
+      id: 0,
+      final: true,
+      generation: 7,
+      segment: 1,
+      tick: 200,
+      seq: 3,
+      cycle: 200,
+      room: 4,
+      score: 0,
+      modal: null,
+      canResume: true,
+      diverged: null,
+      error: null,
+    });
+    for (let i = 0; i < 50 && seeks.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+    await flushSeeks();
+    assert.equal(state.historyView.active, true);
+    assert.deepEqual(seeks[0], { segment: 0, tick: 150 });
+    assert.equal(watchLabel(view), parked ? "Watch from here" : "Pause timeline");
+    assert.equal(await tapeMoves(view), !parked);
+  });
+
+test("a seek that lands on a divergence holds there even when the tape was playing", async (t) => {
+  const { view, release, waitHeld } = await longHarness(t, { defer: ["historyViewSeek"] });
+  await watching(view);
+  const seeking = view.dispatchSeek(150);
+  await waitHeld("historyViewSeek");
+  release("historyViewSeek", {
+    type: "historyView",
+    id: 0,
+    final: true,
+    generation: 7,
+    segment: 0,
+    tick: 140,
+    seq: 1,
+    cycle: 140,
+    room: 2,
+    score: 0,
+    modal: null,
+    canResume: false,
+    diverged: { at: { segment: "sX.1", seq: 1, tick: 140 }, detail: "digest mismatch" },
+    error: null,
+  });
+  await seeking;
+  await flushSeeks();
+  assert.notEqual(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), false);
+});
+
+test("a seek during a Watch step leaves one Watch loop running, not two", async (t) => {
+  const { view, release, waitHeld, heldCount } = await longHarness(t, {
+    defer: ["historyViewAdvance"],
+  });
+  await watching(view);
+  // Watch's first step is awaiting its reply when the seek lands and Watch
+  // resumes with a step of its own.
+  await waitHeld("historyViewAdvance");
+  await view.dispatchSeek(150);
+  await flushSeeks();
+  assert.equal(heldCount("historyViewAdvance"), 2, "the stale step and the resumed one");
+  const report = (tick: number) => ({
+    type: "historyView",
+    id: 0,
+    final: true,
+    generation: 7,
+    segment: 0,
+    tick,
+    seq: tick,
+    cycle: tick,
+    room: 2,
+    score: 0,
+    modal: null,
+    canResume: true,
+    diverged: null,
+    error: null,
+  });
+  release("historyViewAdvance", report(156));
+  await new Promise((r) => setTimeout(r, 180));
+  assert.equal(heldCount("historyViewAdvance"), 1, "a single loop steps on");
+  release("historyViewAdvance", report(162));
+});
+
+test("a map jump from running play opens the tape watching from the visit", async (t) => {
+  // The map's own hold is a modal pause, not the player's choice: only the
+  // transport's parked hold says the player paused.
+  const { state, view } = await longHarness(t);
+  await view.jumpToVisit({ segment: "sX.1", tick: 150 });
+  await flushSeeks();
+  assert.equal(state.historyView.active, true);
+  assert.equal(watchLabel(view), "Pause timeline");
+  assert.equal(await tapeMoves(view), true, "the tape plays on from the visit");
+});
+
+test("a map jump from a paused game opens the tape paused at the visit", async (t) => {
+  const { state, view } = await longHarness(t);
+  view.pauseAtLive();
+  await view.jumpToVisit({ segment: "sX.1", tick: 150 });
+  await flushSeeks();
+  assert.equal(state.historyView.active, true);
+  assert.equal(view.transport.tick, 150);
+  assert.equal(watchLabel(view), "Watch from here");
+  assert.equal(await tapeMoves(view), false);
+});
+
+/**
+ * A game's sessions across a Start over: the first boot, a rollover that
+ * continues it, a Continue from the autosave, then Start over — a fresh
+ * boot after earlier sessions. Only that last one is a Start over.
+ */
+const STARTED_OVER: HistoryRecording = {
+  ...RECORDING,
+  segments: [
+    segment("sS.1", [[1, 4, 2]], { seq: 3, tick: 12, cycle: 12, reason: "boot" }),
+    {
+      ...segment("sS.2", [[1, 2, 3]], { seq: 2, tick: 20, cycle: 20, reason: "boot" }),
+      boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sS.1", seq: 3, tick: 12 } }),
+    },
+    {
+      ...segment("sS.3", [[0, 0, 3]], { seq: 1, tick: 30, cycle: 30, reason: "boot" }),
+      boot: stampBoot({ ...BOOT, image: "AAAA" }),
+    },
+    segment("sS.4", [[0, 0, 1]]),
+  ],
+};
+
+const startedOverMarks = <T extends { label: string }>(marks: readonly T[]): T[] =>
+  marks.filter((m) => m.label === "Started over");
+
+test("the open tape marks a Start over, never a first boot, a rollover or a Continue", async () => {
+  await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view } = makeHarness();
+  await view.openHistory();
+  const marks = startedOverMarks(state.historyView.marks);
+  assert.deepEqual(
+    marks.map((m) => [m.segment, m.tick, m.kind]),
+    [[3, 0, "restart"]],
+  );
+  // Laid out on the timeline where the fresh session begins.
+  const lane = startedOverMarks(view.transport.marks);
+  assert.equal(lane.length, 1);
+  assert.equal(lane[0]!.kind, "restart");
+  assert.equal(lane[0]!.percent, (62 / view.transport.totalTicks) * 100);
+});
+
+test("the live timeline marks a stored Start over and one the batches just began", async () => {
+  await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { view } = makeHarness();
+  // Start over again: the new session's boot batch arrives before the stored
+  // outline has loaded, so its lane is first on the axis for a moment.
+  view.observeBatch({ ...batch("sS.5", [4]), boot: BOOT });
+  assert.equal(startedOverMarks(view.transport.marks).length, 0, "no earlier lane is known yet");
+  await flushSeeks();
+  const marks = startedOverMarks(view.transport.marks);
+  assert.deepEqual(
+    marks.map((m) => [(m.payload as HistoryViewMark).segment, (m.payload as HistoryViewMark).tick]),
+    [
+      [3, 0],
+      [4, 0],
+    ],
+  );
+  // A resumed session's boot is no Start over.
+  view.observeBatch({
+    ...batch("sS.6", [2]),
+    boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sS.5", seq: 0, tick: 4 } }),
+  });
+  assert.equal(startedOverMarks(view.transport.marks).length, 2);
+});
+
+test("Undo start over resumes the earlier session where it ended and keeps playing", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view, takes } = makeHarness();
+  const v = state.historyView;
+  view.observeBatch(batch("sS.4", [4]));
+  assert.equal(await view.undoStartOver(), true, `the undo landed — error: ${v.error}`);
+  // The session before the Start over, at the end of its recording.
+  assert.deepEqual(
+    takes.map((take) => [take["segment"], take["tick"]]),
+    [[2, 30]],
+  );
+  assert.equal(v.active, false);
+  assert.equal(v.parked, false, "the game was playing, so it plays on");
+  // The short fresh session stays on the tape as history but is not kept as
+  // a branch: no Undo rewind offers it back.
+  assert.equal(v.branches, 0, "the branch count is what it was before the start over");
+  assert.deepEqual(await loadRetainedBranches(key), []);
+  assert.equal(await loadTapeOutline(key).then((o) => o?.pending), 0, "no copy left staged");
+  assert.equal(
+    view.transport.trailing.some((b) => b.testid === "btn-undo-rewind"),
+    false,
+    "no undo or redo button follows",
+  );
+});
+
+test("Undo start over on a paused game leaves the earlier session paused", async () => {
+  await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view, takes } = makeHarness();
+  const v = state.historyView;
+  view.observeBatch(batch("sS.4", [4]));
+  view.pauseAtLive();
+  assert.equal(await view.undoStartOver(), true, `the undo landed — error: ${v.error}`);
+  assert.equal(takes.length, 1);
+  assert.equal(v.active, false);
+  assert.equal(v.parked, true, "the game was paused, so it stays paused");
+  assert.equal(view.transport.play.label, "Resume");
+});
+
+test("an earlier session that diverges at its end is not restored and nothing changes", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view, takes } = makeHarness({ divergeAt: (segment) => segment === 2 });
+  const v = state.historyView;
+  view.observeBatch(batch("sS.4", [4]));
+  assert.equal(await view.undoStartOver(), false);
+  assert.equal(takes.length, 0, "no session was swapped");
+  assert.equal(v.active, false, "the tape closed again");
+  assert.equal(v.parked, false, "the running game runs on");
+  assert.equal(v.diverged, null);
+  assert.equal(
+    v.error,
+    "Couldn't undo start over: the earlier session's recording can't be replayed to its end. Nothing changed.",
+  );
+  assert.deepEqual(await loadRetainedBranches(key), []);
+});
+
+test("Undo start over says so when the earlier session was dropped from the tape", async () => {
+  await importGameHistory(
+    "view-test",
+    { recording: { ...STARTED_OVER, segments: [STARTED_OVER.segments[3]!], dropped: 3 } },
+    STARTED_OVER.identity,
+  );
+  const { state, view, takes } = makeHarness();
+  const v = state.historyView;
+  view.pauseAtLive();
+  assert.equal(await view.undoStartOver(), false);
+  assert.equal(takes.length, 0);
+  assert.equal(v.parked, true, "a paused game stays paused");
+  assert.match(
+    v.error,
+    /^Couldn't undo start over: the earlier session was dropped from the timeline/,
+  );
 });

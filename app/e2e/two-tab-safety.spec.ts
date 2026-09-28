@@ -13,6 +13,7 @@ import {
   openGameOptions,
   textHook,
   waitForCycles,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -106,7 +107,7 @@ async function keepInTabB(page: Page): Promise<Locator> {
   await resume(tabB);
   await enterCreateMode(tabB);
   const panel = tabB.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = tabB.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -128,7 +129,7 @@ async function keepLabelInTabB(page: Page): Promise<void> {
   await resume(tabB);
   await enterCreateMode(tabB);
   const panel = tabB.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = tabB.getByTestId("room-studio");
   await expect(studio).toBeVisible();

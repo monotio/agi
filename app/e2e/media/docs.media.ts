@@ -16,6 +16,7 @@ import {
   textHook,
   waitForCycles,
   waitForRoom,
+  openWorldRoom,
 } from "../engineProbe.ts";
 
 /**
@@ -77,7 +78,7 @@ async function playTutorial(page: Page): Promise<void> {
 
 /**
  * The tutorial from its recorded walkthrough: paused, sought to checkpoint
- * `index`, then played from there. The new session's transport has no marks
+ * `index`, taken over and resumed. The new session's transport has no marks
  * yet and fills once its first batch lands, the same on every run.
  */
 async function takeControlAt(page: Page, index: number): Promise<void> {
@@ -94,6 +95,8 @@ async function takeControlAt(page: Page, index: number): Promise<void> {
   await settled(page);
   await page.getByTestId("btn-walkthrough-take-control").click();
   await expect(page.getByTestId("walkthrough-bar")).toBeHidden();
+  // A paused walkthrough hands over a paused game; Resume plays on from here.
+  await page.getByTestId("btn-transport-resume").click();
   await expect(page.locator(".play-strip .transport-progress-fill")).toHaveAttribute(
     "style",
     /width: 100%/,
@@ -105,7 +108,7 @@ async function takeControlAt(page: Page, index: number): Promise<void> {
 async function openRoomStudio(page: Page, room: number): Promise<Locator> {
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId(`map-room-${room}`).click();
+  await openWorldRoom(panel, room);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -252,7 +255,7 @@ test("sprite-studio", async ({ page }) => {
   await playTutorial(page);
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-sprite-2").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

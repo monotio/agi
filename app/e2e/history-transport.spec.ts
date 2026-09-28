@@ -10,6 +10,7 @@ import {
   waitForAutosaveAfter,
   waitForCycles,
   openInspector,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
@@ -70,6 +71,12 @@ async function bootTapeGame(page: Page): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
+/** Pause live play from the play bar — a seek from here keeps the tape still. */
+async function pauseLive(page: Page): Promise<void> {
+  await page.getByTestId("btn-transport-pause").click();
+  await expect.poll(async () => (await viewState(page))?.parked).toBe(true);
+}
+
 /**
  * The inspector's flag write — the same drive the world-map spec uses. The
  * inspector opens from Settings > Advanced, so the game stays in Play mode.
@@ -104,8 +111,9 @@ async function viewState(page: Page): Promise<ViewState | null> {
 }
 
 /**
- * A timeline click during live play: the transport pauses first, then opens
- * the tape and lands at the clicked position — the agreed entry gesture.
+ * A timeline click: the transport parks live play, then opens the tape and
+ * lands at the clicked position — the agreed entry gesture. From running
+ * live play the tape plays on from there; from a paused game it opens paused.
  */
 async function scrubToTape(page: Page, fraction: number): Promise<void> {
   const timeline = page.getByTestId("history-timeline");
@@ -138,6 +146,8 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await pause.click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect.poll(async () => (await viewState(page))?.parked).toBe(true);
+  // Paused at LIVE, Resume carries the state: no card floats over the game.
+  await expect(page.locator(".transport-secondary:visible")).toHaveCount(0);
   await page.getByTestId("btn-transport-resume").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
@@ -146,7 +156,9 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await waitForCycles(page, 3);
 
-  // Clicking near the tape's start pauses live, then lands near the boot.
+  // From a paused game, a click near the tape's start lands near the boot
+  // and holds there.
+  await pauseLive(page);
   await scrubToTape(page, 0.05);
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect(page.getByTestId("history-pos")).toContainText("Room");
@@ -188,6 +200,92 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await waitForCycles(page, 2);
 });
 
+/** The settled tape position once the newest seek has landed. */
+async function landedTick(page: Page): Promise<number> {
+  await expect
+    .poll(async () => {
+      const v = await viewState(page);
+      return v !== null && v.active && !v.seeking && !v.loading;
+    })
+    .toBe(true);
+  return (await viewState(page))!.tick;
+}
+
+/** The tape plays on from where the seek landed. */
+async function tapePlaysOn(page: Page): Promise<void> {
+  const from = await landedTick(page);
+  await expect.poll(async () => (await viewState(page))!.tick).toBeGreaterThan(from);
+  await expect(page.getByTestId("btn-history-watch")).toHaveText(/Pause timeline/);
+}
+
+/** The tape holds where the seek landed. */
+async function tapeHolds(page: Page): Promise<void> {
+  const from = await landedTick(page);
+  await page.waitForTimeout(600);
+  expect((await viewState(page))!.tick, "the tape holds at the landing").toBe(from);
+  await expect(page.getByTestId("btn-history-watch")).not.toHaveText(/Pause timeline/);
+}
+
+/** A click, then a drag, then a step between marks — each one a seek. */
+async function seekThreeWays(page: Page, then: (page: Page) => Promise<void>): Promise<void> {
+  const timeline = page.getByTestId("history-timeline");
+  const box = (await timeline.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await timeline.click({ position: { x: box.width * 0.12, y: box.height / 2 } });
+  await then(page);
+  await page.mouse.move(box.x + box.width * 0.1, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.3, y, { steps: 8 });
+  await page.mouse.move(box.x + box.width * 0.22, y, { steps: 4 });
+  await page.mouse.up();
+  await then(page);
+  await page.keyboard.press("ArrowLeft");
+  await then(page);
+}
+
+test("a seek keeps a playing surface playing and a paused one paused", async ({ page }) => {
+  await isolateStorage(page);
+  await bootTapeGame(page);
+  await writeFlag(page, 6);
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  // A tape long enough that Watch is still playing through every check.
+  await waitForCycles(page, 160, 30_000);
+  const live = page.getByTestId("history-live");
+
+  // LIVE while live play runs changes nothing.
+  await live.click();
+  await expect(page.getByTestId("btn-transport-pause")).toBeVisible();
+  await waitForCycles(page, 3);
+
+  // Playing: a click from live play opens the tape watching, and every seek
+  // inside it plays on from where it lands.
+  await scrubToTape(page, 0.3);
+  await tapePlaysOn(page);
+  await seekThreeWays(page, tapePlaysOn);
+  expect((await textHook(page)).paused, "live play stays parked under the tape").toBe(true);
+  // LIVE from a playing tape resumes live play.
+  await live.click();
+  await expect.poll(async () => (await viewState(page))?.active).toBe(false);
+  await expect(page.getByTestId("btn-transport-pause")).toBeVisible();
+  await waitForCycles(page, 3);
+
+  // Paused: the tape opens paused, and every seek holds where it lands.
+  await pauseLive(page);
+  await scrubToTape(page, 0.3);
+  await tapeHolds(page);
+  await seekThreeWays(page, tapeHolds);
+  // LIVE from a paused tape returns to the game, still paused.
+  await live.click();
+  await expect.poll(async () => (await viewState(page))?.active).toBe(false);
+  await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
+  const held = (await textHook(page)).cycle;
+  await page.waitForTimeout(600);
+  expect((await textHook(page)).cycle, "the game stays paused").toBe(held);
+  // LIVE again on the parked game changes nothing.
+  await live.click();
+  await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
+});
+
 test("Resume from here continues from the viewed moment; Undo rewind restores the kept session", async ({
   page,
 }) => {
@@ -199,6 +297,8 @@ test("Resume from here continues from the viewed moment; Undo rewind restores th
 
   // Scrub into room 1 before the transition — past the tape's opening tick,
   // which precedes the first drawn frame and is legitimately unrestorable.
+  // Paused first, so the tape holds the viewed moment.
+  await pauseLive(page);
   await scrubToTape(page, 0.2);
   await expect.poll(async () => (await viewState(page))?.room, { timeout: 20_000 }).toBe(1);
 
@@ -238,6 +338,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   // Open and close the tape once: the open's drain commits the recorded tail
   // before the corruption lands. Keep LIVE paused so later anchors cannot
   // invalidate the deliberately corrupted replay interval.
+  await pauseLive(page);
   await scrubToTape(page, 0.5);
   await page.getByTestId("history-live").click();
   await expect.poll(async () => (await viewState(page))?.active).toBe(false);
@@ -454,6 +555,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
 
   // Seal and commit the tail so a record exists to reject.
+  await pauseLive(page);
   await scrubToTape(page, 0.5);
   await page.getByTestId("history-live").click();
   await page.getByTestId("btn-transport-resume").click();
@@ -512,16 +614,29 @@ test("a map visit jumps straight to its moment on the tape", async ({ page }) =>
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await waitForCycles(page, 3);
 
-  await openWorldMap(page);
-  await page.getByTestId("map-room-1").click();
-  const jump = page.locator("[data-testid^='map-visit-jump-']").first();
-  await expect(jump).toBeVisible();
-  await jump.click();
+  const jumpToRoom1 = async (): Promise<void> => {
+    await openWorldMap(page);
+    await openWorldRoom(page.getByTestId("world-map"), 1);
+    const jump = page.locator("[data-testid^='map-visit-jump-']").first();
+    await expect(jump).toBeVisible();
+    await jump.click();
+    // The map hands over to the transport at the visit's recorded tick.
+    await expect(page.getByTestId("world-map")).toBeHidden();
+    await expect.poll(async () => (await viewState(page))?.active).toBe(true);
+  };
 
-  // The map hands over to the transport, parked at the visit's recorded tick.
-  await expect(page.getByTestId("world-map")).toBeHidden();
-  await expect.poll(async () => (await viewState(page))?.active).toBe(true);
+  // The map's own hold is not the player's pause: from running play the
+  // tape opens watching from the visit.
+  await jumpToRoom1();
+  await tapePlaysOn(page);
+  await page.getByTestId("history-live").click();
+  await expect(page.getByTestId("btn-transport-pause")).toBeVisible();
+
+  // Paused by the player, it opens paused at the visit.
+  await pauseLive(page);
+  await jumpToRoom1();
   await expect.poll(async () => (await viewState(page))!.room, { timeout: 20_000 }).toBe(1);
+  await tapeHolds(page);
 });
 
 /** The element hit-tested at Ask's centre is Ask itself: nothing floats over it. */
@@ -550,6 +665,7 @@ for (const viewport of [
     await expect(page.getByTestId("menu-assistant")).toBeVisible();
 
     // Watch from here: the card a scrub opens.
+    await pauseLive(page);
     await scrubToTape(page, 0.2);
     await expect(page.getByTestId("btn-history-watch")).toBeVisible();
     expect(await askUncovered(page), "Watch from here leaves Ask clear").toBe(true);

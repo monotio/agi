@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, waitForRoom, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * The Studios in small windows: a small laptop's 1024×600, a 900 px wide
@@ -63,7 +63,7 @@ for (const viewport of [
     await page.emulateMedia({ reducedMotion: "reduce" });
     await playTutorial(page);
     const panel = page.getByTestId("world-panel");
-    await panel.getByTestId("map-room-2").click();
+    await openWorldRoom(panel, 2);
     await panel.getByTestId("world-open-studio").click();
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
@@ -145,7 +145,7 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   await page.setViewportSize({ width: 1024, height: 600 });
   await playTutorial(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

@@ -57,6 +57,21 @@ export function clearFixtureCache(): void {
  * Scan games/ subfolders, hashing WORDS.TOK (and OBJECT) to discover fixtures
  * by content hash regardless of local folder name.
  */
+/**
+ * A folder's entries, or null when it disappeared after the listing named it.
+ * Test files run in parallel processes and some create and remove temporary
+ * folders under games/, so a scan can meet a folder that is already gone.
+ */
+export function folderEntries(path: string): string[] | null {
+  try {
+    return readdirSync(path);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
+    throw err;
+  }
+}
+
 export function scanFixtures(): {
   byWordsHash: Map<string, DiscoveredFixture[]>;
   byDirName: Map<string, DiscoveredFixture>;
@@ -73,7 +88,8 @@ export function scanFixtures(): {
       if (folder.startsWith(".")) continue;
       const folderPath = join(gamesRoot, folder);
       if (!statSync(folderPath, { throwIfNoEntry: false })?.isDirectory()) continue;
-      const fileList = readdirSync(folderPath);
+      const fileList = folderEntries(folderPath);
+      if (fileList === null) continue;
       const names = new Map<string, string>();
       for (const name of fileList) names.set(name.toLowerCase(), name);
 
@@ -324,7 +340,11 @@ export function fixtureSkip(
   try {
     fixture = findFixture(query);
   } catch (err) {
-    return (err as Error).message;
+    // An ambiguous query is a setup the contributor resolves; any other error
+    // is a failure, and reporting it as a skip would hide it.
+    const message = (err as Error).message;
+    if (message.startsWith("Ambiguous fixture query")) return message;
+    throw err;
   }
   const dir = fixture ? fixture.dir : fixtureDir(query);
   const onDisk = fixtureFiles(query);

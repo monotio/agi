@@ -786,6 +786,123 @@ test.describe("Walkthrough UI", () => {
       })
       .toBe("completed");
     await expect(page.getByTestId("walkthrough-score")).toHaveText("Score: 30");
+
+    // A finished run is not playing: a seek lands paused, and Play plays on
+    // from there.
+    const walk = () =>
+      page.evaluate(() => {
+        const w = window.__AGI_STATE__!.walkthrough;
+        return { tick: w.tick, status: w.status, seeking: w.seeking };
+      });
+    const timeline = page.getByTestId("walkthrough-timeline");
+    const box = (await timeline.boundingBox())!;
+    await timeline.click({ position: { x: box.width * 0.3, y: box.height / 2 } });
+    await expect.poll(async () => (await walk()).seeking, { timeout: 45_000 }).toBe(false);
+    await expect.poll(async () => (await walk()).status).toBe("paused");
+    const landed = (await walk()).tick;
+    await page.waitForTimeout(600);
+    expect((await walk()).tick, "the walkthrough holds at the landing").toBe(landed);
+    const button = page.getByTestId("btn-walkthrough-pause");
+    await expect(button).toHaveAttribute("aria-label", "Play");
+    await button.click();
+    await expect.poll(async () => (await walk()).tick).toBeGreaterThan(landed);
+    expect((await walk()).status).toBe("playing");
+  });
+
+  test("taking control of a paused walkthrough hands over a paused game", async ({ page }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+    await openCardMenu(page, "game-actions-adventure-department");
+    await page.getByTestId("catalog-run-walkthrough").click();
+    await expect(page.getByTestId("walkthrough-bar")).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.tick ?? 0), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(40);
+
+    await page.getByTestId("btn-walkthrough-pause").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
+      .toBe("paused");
+    await page.getByTestId("btn-walkthrough-take-control").click();
+    await expect(page.getByTestId("walkthrough-bar")).toBeHidden();
+
+    // The live game waits under the play bar's own pause, with Resume offered.
+    const resume = page.getByTestId("btn-transport-resume");
+    await expect(resume).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.paused)).toBe(true);
+    const held = await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0);
+    await page.waitForTimeout(600);
+    expect(await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0)).toBe(held);
+
+    await resume.click();
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0), { timeout: 5_000 })
+      .toBeGreaterThan(held);
+  });
+
+  test("a seek keeps a playing walkthrough playing and a paused one paused", async ({ page }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+    await openCardMenu(page, "game-actions-adventure-department");
+    await page.getByTestId("catalog-run-walkthrough").click();
+    await expect(page.getByTestId("walkthrough-bar")).toBeVisible({ timeout: 30_000 });
+    const walk = () =>
+      page.evaluate(() => {
+        const w = window.__AGI_STATE__!.walkthrough;
+        return { tick: w.tick, status: w.status, seeking: w.seeking };
+      });
+    await expect.poll(async () => (await walk()).tick, { timeout: 30_000 }).toBeGreaterThan(40);
+
+    const button = page.getByTestId("btn-walkthrough-pause");
+    const timeline = page.getByTestId("walkthrough-timeline");
+    const landed = async (): Promise<number> => {
+      await expect.poll(async () => (await walk()).seeking, { timeout: 45_000 }).toBe(false);
+      return (await walk()).tick;
+    };
+    const playsOn = async (): Promise<void> => {
+      const from = await landed();
+      await expect.poll(async () => (await walk()).tick).toBeGreaterThan(from);
+      expect((await walk()).status).toBe("playing");
+      await expect(button).toHaveAttribute("aria-label", "Pause");
+    };
+    const holds = async (): Promise<void> => {
+      const from = await landed();
+      await page.waitForTimeout(600);
+      const after = await walk();
+      expect(after.tick, "the walkthrough holds at the landing").toBe(from);
+      expect(after.status).toBe("paused");
+      await expect(button).toHaveAttribute("aria-label", "Play");
+    };
+    const drag = async (from: number, to: number): Promise<void> => {
+      const box = (await timeline.boundingBox())!;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(box.x + box.width * from, y);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * to, y, { steps: 8 });
+      await page.mouse.up();
+    };
+    // Every seek surface: a forward and a backward drag, a checkpoint mark
+    // and a keyboard step.
+    const seekEveryWay = async (then: () => Promise<void>): Promise<void> => {
+      await drag(0.1, 0.35);
+      await then();
+      await drag(0.35, 0.15);
+      await then();
+      await clickTimelineMark(page, page.getByTestId("walkthrough-marker-1"));
+      await then();
+      await timeline.focus();
+      await page.keyboard.press("ArrowRight");
+      await then();
+      await page.keyboard.press("ArrowLeft");
+      await then();
+    };
+
+    await seekEveryWay(playsOn);
+    await button.click();
+    await expect.poll(async () => (await walk()).status).toBe("paused");
+    await seekEveryWay(holds);
   });
 
   test("dragging timeline thumb to the end of kq1 silences audio and stops playback cleanly", async ({

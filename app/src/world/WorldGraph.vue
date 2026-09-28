@@ -10,9 +10,11 @@
  * a real focusable element, pinch/drag free, and zero dependency surface.
  *
  * Shared by the world-map window and the Create mode's World panel; the
- * compact form opens zoomed out to fit the dock.
+ * compact form opens zoomed out to fit the dock, and its Expand button opens
+ * the window over it.
  */
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
+import UiIcon from "../ui/UiIcon.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import {
   CAP_H,
@@ -20,6 +22,7 @@ import {
   NODE_H,
   NODE_W,
   edgeGeometry,
+  edgeLabelShown,
   edgeTooltip,
   nodeLabel,
 } from "./graphGeometry.ts";
@@ -207,6 +210,18 @@ const edgeGeoms = computed(() => {
 });
 const nodeThumbs = useNodeThumbs(map, () => graph.value.nodes);
 
+// Zoomed out, exit words show only around the rooms the user is looking at.
+const hovered = ref<number>();
+const focused = ref<number>();
+const roomsInView = computed(
+  () =>
+    new Set(
+      [selected.value, hovered.value, focused.value].filter(
+        (room): room is number => room !== undefined,
+      ),
+    ),
+);
+
 const { onNodePointerDown, onNodePointerMove, onNodePointerUp, onNodeKeydown } = useNodeDrag({
   map,
   positionOf: (room) => positioned.value.get(room),
@@ -272,6 +287,17 @@ defineExpose({ selectRoom });
         >
           Fit
         </button>
+        <button
+          v-if="compact"
+          type="button"
+          class="map-zoom-btn map-expand"
+          data-testid="map-expand"
+          aria-label="Expand"
+          title="Expand"
+          @click="map.openMap({ experience: 'create' })"
+        >
+          <UiIcon name="expand" :size="12" />
+        </button>
       </span>
     </div>
     <div
@@ -329,7 +355,12 @@ defineExpose({ selectRoom });
             :d="geom.d"
             :marker-end="`url(#map-arrow-${geom.edge.provenance})`"
           />
-          <text v-if="geom.showLabel" class="edge-label" :x="geom.lx" :y="geom.ly">
+          <text
+            v-if="edgeLabelShown(geom, zoom, roomsInView)"
+            class="edge-label"
+            :x="geom.lx"
+            :y="geom.ly"
+          >
             {{ geom.edge.label }}
           </text>
         </g>
@@ -350,6 +381,10 @@ defineExpose({ selectRoom });
           :aria-label="`Room ${node.room}${node.title ? `, ${node.title}` : ''}`"
           :data-testid="`map-node-${node.room}`"
           @click="selectRoom(node.room)"
+          @pointerenter="hovered = node.room"
+          @pointerleave="hovered = undefined"
+          @focus="focused = node.room"
+          @blur="focused = undefined"
           @keydown="onNodeKeydown($event, node.room)"
           @pointerdown="onNodePointerDown($event, node.room)"
           @pointermove="onNodePointerMove"
@@ -450,6 +485,10 @@ defineExpose({ selectRoom });
 }
 .map-zoom-level {
   min-width: 44px;
+}
+.map-expand {
+  display: inline-grid;
+  place-items: center;
 }
 .map-graph-scroll {
   flex: 1 1 auto;

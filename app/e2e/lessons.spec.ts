@@ -15,6 +15,7 @@ import {
   observe,
   openGameOptions,
   waitForRoom,
+  openWorldRoom,
 } from "./engineProbe.ts";
 import { seedTutorial10 } from "./tutorialRelease.ts";
 
@@ -217,7 +218,7 @@ test("the robot lesson wants only the left facing repainted, and its card folds 
 
   // From the World panel, room 1 offers both pictures it draws; no lesson rides along.
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await expect(panel.getByTestId("world-open-studio")).toHaveText("Open PIC 1");
   await shot(page, "world-panel-room-pictures");
   await panel.getByTestId("world-open-studio-4").click();

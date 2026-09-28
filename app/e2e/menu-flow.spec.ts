@@ -52,7 +52,8 @@ test("the featured opening image does not move the controls below it", async ({ 
   for (const width of [390, 700]) {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
-    await page.route("**/games/adventure-department/game.ts*", async (route) => {
+    const opening = "**/games/adventure-department/game.ts*";
+    await page.route(opening, async (route) => {
       await held;
       await route.continue();
     });
@@ -65,7 +66,8 @@ test("the featured opening image does not move the controls below it", async ({ 
     await expect(card.getByRole("img")).toBeVisible();
     const after = await page.getByTestId("catalog-play-adventure-department").boundingBox();
     expect(after!.y - before!.y, `${width}px`).toBe(0);
-    await page.unrouteAll();
+    // Only this hold: the empty fixture list from beforeEach stays in place.
+    await page.unroute(opening);
   }
 });
 

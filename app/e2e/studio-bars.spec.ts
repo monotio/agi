@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * At 1024 wide, each part of Studio's top bars and options bars keeps to
@@ -74,7 +74,7 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
     seen.push(...(await overlaps(bar)).map((pair) => `${name}: ${pair}`));
   };
 
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
@@ -86,7 +86,7 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   await look("room walk options", studio.getByTestId("studio-options-bar"));
   await studio.getByTestId("studio-close").click();
 
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const sprite = page.getByTestId("sprite-studio");
   await sprite.getByTestId("sprite-stage").focus();
@@ -129,7 +129,7 @@ function hiddenTools(rail: Locator): Promise<string[]> {
 test("at 1024×600 every rail tool is on screen or behind a chevron", async ({ page }) => {
   await playTutorial(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   const rail = studio.getByRole("toolbar", { name: "Tools" });
@@ -141,7 +141,7 @@ test("at 1024×600 every rail tool is on screen or behind a chevron", async ({ p
   }
   await studio.getByTestId("studio-close").click();
 
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const sprite = page.getByTestId("sprite-studio");
   seen.push(

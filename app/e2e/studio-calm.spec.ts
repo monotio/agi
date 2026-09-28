@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 import { TARGET_PROPERTY } from "../src/ui/explain.ts";
 
 /**
@@ -22,7 +22,7 @@ async function playTutorial(page: Page): Promise<void> {
 
 async function openRoomStudio(page: Page, room: number): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId(`map-room-${room}`).click();
+  await openWorldRoom(panel, room);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -31,7 +31,7 @@ async function openRoomStudio(page: Page, room: number): Promise<Locator> {
 
 async function openApprentice(page: Page): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

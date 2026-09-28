@@ -11,6 +11,7 @@ import { registerCreatePanel } from "./createDocks.ts";
 import { prefetchAuthoringStack } from "../agent/authoringLoader.ts";
 import type { CreateWorkspace } from "./useCreateWorkspace.ts";
 import type { EngineState } from "../engine/useEngineTypes.ts";
+import type { RoomMap } from "../world/useRoomMap.ts";
 
 /** Keys typed here are text, never dock shortcuts: the game's input line included. */
 function isTextEntry(target: EventTarget | null, gameInput: Element | null | undefined): boolean {
@@ -25,6 +26,7 @@ function isTextEntry(target: EventTarget | null, gameInput: Element | null | und
 export function useCreateMode(deps: {
   state: EngineState;
   workspace: CreateWorkspace;
+  roomMap: Pick<RoomMap, "followsPlayer">;
   /** A game is running in Create mode. */
   creating: ComputedRef<boolean>;
   /** The phone's portrait touch layout: one view-only sheet instead of docks. */
@@ -37,6 +39,10 @@ export function useCreateMode(deps: {
   // Create's assistant and Studio Ask run on the authoring stack: warm it
   // once Create opens, so the first request does not wait for the download.
   watch(creating, (inCreate) => inCreate && prefetchAuthoringStack(), { immediate: true });
+  // Each entry to Create opens the World panel on the room the player is in.
+  watch(creating, (inCreate) => {
+    if (inCreate) deps.roomMap.followsPlayer.value = true;
+  });
 
   // The map's graph code never loads on boot. It is fetched once a game runs,
   // while the browser is idle, and the World tab then holds the loaded panel
