@@ -73,6 +73,37 @@ function held(page: Page) {
   }, PROJECT);
 }
 
+interface WorkerOffers {
+  /** Checkpoints the game offered its host to store. */
+  autosave: number;
+  /** Timeline batches the game offered its host to store. */
+  historyBatch: number;
+}
+
+/** Count what the game's worker offers the page to store, from the page's first script. */
+async function countWorkerOffers(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const offers: WorkerOffers = { autosave: 0, historyBatch: 0 };
+    Object.assign(window, { workerOffers: offers });
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", ({ data }: MessageEvent) => {
+          if (data.type === "autosave") offers.autosave++;
+          if (data.type === "historyBatch") offers.historyBatch++;
+        });
+      }
+    };
+  });
+}
+
+function workerOffers(page: Page): Promise<WorkerOffers> {
+  return page.evaluate(() => ({
+    ...(window as unknown as { workerOffers: WorkerOffers }).workerOffers,
+  }));
+}
+
 test("a game removed in another tab stops storing, says so once, and never comes back to Home", async ({
   page,
 }) => {
@@ -106,6 +137,7 @@ test("a game removed in another tab stops storing, says so once, and never comes
   // Tab B plays it until it has a checkpoint.
   const tabB = await page.context().newPage();
   await keepDetectedProfile(tabB);
+  await countWorkerOffers(tabB);
   await tabB.goto("/");
   await tabB.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(tabB)).room).toBe(1);
@@ -125,10 +157,23 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await expect(note).toContainText(REMOVED);
   await expect(tabB.getByTestId("stale-tab-note")).toHaveCount(0);
 
-  // B plays on past several checkpoint intervals; nothing is stored for the
-  // game, and no "saving is retrying" banner stands for a timeline it can't store.
+  // B plays on while its game offers two more checkpoints and more timeline;
+  // nothing is stored for the game, and no "saving is retrying" banner
+  // stands for a timeline it can't store.
   const cycle = (await textHook(tabB)).cycle;
-  await tabB.waitForTimeout(12_000);
+  const offered = await workerOffers(tabB);
+  await expect
+    .poll(
+      async () => {
+        const now = await workerOffers(tabB);
+        return {
+          checkpoints: now.autosave - offered.autosave >= 2,
+          timeline: now.historyBatch > offered.historyBatch,
+        };
+      },
+      { timeout: 30_000 },
+    )
+    .toEqual({ checkpoints: true, timeline: true });
   expect((await textHook(tabB)).cycle).toBeGreaterThan(cycle);
   expect(await held(tabB)).toEqual({ record: false, keys: [], lastGame: null });
   await expect(tabB.getByTestId("history-unsaved")).toHaveCount(0);

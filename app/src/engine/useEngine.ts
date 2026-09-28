@@ -471,14 +471,28 @@ export function useEngine(
 
   /**
    * Start over, and when the game's timeline already holds a session to go
-   * back to, the note that offers Undo start over. The check reads the tape
-   * before the fresh boot adds its own segment.
+   * back to, the note that offers Undo start over. A running session is
+   * sealed first, as Exit seals it, so Undo returns to its last moment; the
+   * check then reads the tape before the fresh boot adds its own segment.
    */
   async function startOver(targetKey: string, config: LlmConfig): Promise<void> {
+    const running = lifecycle.getBootedGame() !== null ? link.getWorker() : null;
+    if (running) {
+      pauseEngine("startOver");
+      await lifecycle.sealHistory().catch((error: unknown) => {
+        logAgent("error", `Start over could not save the session's timeline: ${String(error)}`);
+      });
+    }
     const earlier = await loadTapeOutline(targetKey)
       .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
       .catch(() => false);
+    // Only this tab knows the fresh boot it is about to make is a Start over.
+    historyView.expectStartOver();
     await autosaveController.startOver(targetKey, config);
+    const rebooted = link.getWorker() !== running && state.phase !== "error";
+    if (!rebooted) historyView.expectStartOver(false);
+    // No boot replaced the sealed worker: it plays on under a new segment.
+    if (running && link.getWorker() === running) resumeEngine("startOver");
     if (earlier && state.phase !== "error" && lifecycle.getBootedGame() !== null)
       startOverNote.show();
   }
