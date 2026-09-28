@@ -237,8 +237,26 @@ function bundleGraph(): Plugin {
   };
 }
 
+/**
+ * Stamps `<meta name="agi-build">` into index.html: the commit SHA CI builds
+ * (GITHUB_SHA), or `local` for any other build. scripts/verify-deploy.ts
+ * compares it with the deployed commit. It holds nothing but the public commit
+ * id, so one commit always builds the same page.
+ */
+function buildIdentity(): Plugin {
+  const commit = process.env["GITHUB_SHA"];
+  if (commit !== undefined && !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(commit))
+    throw new Error(`GITHUB_SHA is not a commit id: ${JSON.stringify(commit)}`);
+  return {
+    name: "agi-build-identity",
+    transformIndexHtml: () => [
+      { tag: "meta", attrs: { name: "agi-build", content: commit ?? "local" }, injectTo: "head" },
+    ],
+  };
+}
+
 export default defineConfig({
-  plugins: [vue(), fixtureServer(), bundleGraph()],
+  plugins: [vue(), fixtureServer(), bundleGraph(), buildIdentity()],
   server: {
     proxy: {
       "/api/openai": {
