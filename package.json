@@ -20,6 +20,7 @@
     "dev": "npm --prefix app run dev -- --port 5199",
     "build": "tsc -p tsconfig.json && npm --prefix app run build && npm run check:bundle -- --warn",
     "check:bundle": "node --experimental-strip-types scripts/check-bundle-budget.ts",
+    "verify:deploy": "node --experimental-strip-types scripts/verify-deploy.ts",
     "test": "node --test --experimental-strip-types 'test/*.test.ts'",
     "test:app": "node --test --experimental-strip-types 'app/test/*.test.ts'",
     "test:e2e": "npm --prefix app run e2e",
