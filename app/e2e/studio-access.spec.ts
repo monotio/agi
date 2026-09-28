@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, seeStudioTours, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
@@ -294,6 +294,7 @@ test("rotating a touch screen to its short landscape or portrait layout keeps th
     viewport: { width: 1180, height: 820 },
   });
   const page = await context.newPage();
+  await seeStudioTours(page);
   await page.addInitScript(() => localStorage.setItem("monotio_agi.touchControls", "on"));
   await bootGame(page);
   const studio = await openStudio(page);
