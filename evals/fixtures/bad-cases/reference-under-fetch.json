@@ -1,0 +1,13 @@
+{
+  "name": "reference-under-fetch",
+  "description": "The player attached a room plate; the model wrote the room's picture and said it matches the sketch without ever calling view_reference, working from the 64-pixel thumbnail alone. The tool log shows no view of the attached id, so the turn is flagged. The claim half is read from the reply text; the paid eval (npm run eval:references) grades the same rule per run and scores the match itself.",
+  "referenceTurn": {
+    "attached": ["art-3f9a01c2d4"],
+    "calls": [
+      { "tool": "read_room_context", "args": { "room": 3 }, "success": true },
+      { "tool": "write_picture", "args": { "room": 3 }, "success": true }
+    ],
+    "text": "Room 3 now matches your harbour sketch."
+  },
+  "expectedUnviewed": ["art-3f9a01c2d4"]
+}

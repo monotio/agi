@@ -466,6 +466,10 @@ test("every catalog tool produces bounded binary-free transport on real success 
     spriteOps: null,
   });
   cases["read_edit_context"] = { good: { images: true }, bad: { images: "yes" } };
+  cases["view_reference"] = {
+    good: { id: "art-0123456789", size: "small", region: null, grid: true },
+    bad: { id: "art-0000000000", size: "small", region: null, grid: null },
+  };
   cases["propose_edit"] = {
     good: proposal(draftRevision({ kind: "picture", source: BRIDGE_SOURCE })),
     bad: proposal("picture-1-00000000"),
@@ -490,6 +494,22 @@ test("every catalog tool produces bounded binary-free transport on real success 
   const deps = {
     allowedTools: AGENT_TOOLS.map((tool) => tool.name),
     studio,
+    references: {
+      art: [
+        {
+          id: "art-0123456789",
+          label: "Room plate",
+          target: { kind: "room" as const, num: 1 },
+          note: "",
+          attached: true,
+          pixels: () => ({
+            width: 320,
+            height: 200,
+            rgba: new Uint8Array(320 * 200 * 4).fill(200),
+          }),
+        },
+      ],
+    },
     frames: {
       read: async () => [
         {
@@ -538,6 +558,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "reserve_binding",
     "run_game_tests",
     "update_world",
+    "view_reference",
     "write_game_tests",
     "write_inventory_objects",
     "write_logic_source",

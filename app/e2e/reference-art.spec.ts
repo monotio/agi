@@ -13,11 +13,21 @@ import {
 
 /**
  * The player-supplied art path end to end: the upload dialog decodes a real
- * PNG, stores it as project data, ships it to the provider as an image block,
- * converts a pose row into a staged VIEW the player keeps into the running
- * game, and detaches on request. Boot uses the offline stub author; the chat
- * turn is intercepted at the OpenAI transport to prove the bytes ride along.
+ * PNG, stores it as project data, sends it to the provider as a handle (a
+ * manifest line and one contact strip of thumbnails, never the upload
+ * itself), converts a pose row into a staged VIEW the player keeps into the
+ * running game, and detaches on request. Boot uses the offline stub author;
+ * the chat turn is intercepted at the OpenAI transport.
  */
+
+/** PNG width and height of every image block in a provider request body. */
+function requestImageSizes(body: string): number[][] {
+  return [...body.matchAll(/data:image\/png;base64,([A-Za-z0-9+/=]+)/g)].map((match) => {
+    const png = Buffer.from(match[1]!, "base64");
+    // IHDR: width and height are the big-endian words at bytes 16 and 20.
+    return [png.readUInt32BE(16), png.readUInt32BE(20)];
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await isolateStorage(page);
@@ -140,7 +150,7 @@ async function storedProject(page: Page): Promise<{
   });
 }
 
-test("reference art uploads, rides the agent turn as an image, and stages a VIEW", async ({
+test("reference art uploads, rides the agent turn as a handle, and stages a VIEW", async ({
   page,
 }, testInfo) => {
   test.setTimeout(120_000);
@@ -164,7 +174,7 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   await bootAgentGame(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
 
-  // --- Room reference: attach, then send to the agent as an image block. ---
+  // --- Room reference: attach, then send to the agent as a handle. ---
   await openBubbleAndUpload(page);
   await page.getByTestId("reference-room-file").setInputFiles({
     name: "dock.png",
@@ -181,10 +191,13 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   await page.getByTestId("reference-send").click();
   await expect(page.getByTestId("reference-upload")).toBeHidden();
   await expect.poll(() => requests.length, { timeout: 15_000 }).toBeGreaterThan(0);
-  const sent = requests.find((body) => body.includes("input_image"));
-  expect(sent, "the provider request carries the uploaded image block").toBeTruthy();
-  expect(sent).toContain("data:image/png;base64,");
-  expect(sent).toContain("harbour");
+  const sent = requests.find((body) => body.includes("### REFERENCE ART"));
+  expect(sent, "the provider request carries the reference manifest").toBeTruthy();
+  expect(sent).toMatch(
+    /art-[0-9a-f]{10} · Room plate · room \d+ · 64x40 · [^"]*attached to this request · note: \\"a harbour at dawn\\"/,
+  );
+  // One 64-pixel thumbnail in a 4-pixel gutter, not the 64x40 upload itself.
+  expect(requestImageSizes(sent!)).toEqual([[72, 72]]);
 
   // --- Character reference: convert a pose row, stage, keep into view 0. ---
   const cyanBefore = await canvasCyanCount(page);
@@ -248,10 +261,12 @@ test("reference art uploads, rides the agent turn as an image, and stages a VIEW
   expect((await storedProject(page)).references?.length).toBe(1);
 });
 
-test("a large room reference reaches the model within provider image limits", async ({ page }) => {
-  // Uploads went to the provider byte for byte. Anthropic rejects an image
-  // side over 2000 px once a request carries more than 20 images, which a long
-  // authoring conversation soon does, so the model's copy is fitted to it.
+test("a large room reference is stored at the working size and sent as a thumbnail", async ({
+  page,
+}) => {
+  // An upload is downscaled at intake to 1024 px on its longest edge, the
+  // size view_reference shows in full; the turn itself carries only a
+  // manifest line and a thumbnail.
   test.setTimeout(120_000);
   const requests: string[] = [];
   await page.route("**/api/openai/v1/responses", async (route) => {
@@ -283,11 +298,17 @@ test("a large room reference reaches the model within provider image limits", as
   await expect(page.getByTestId("reference-attached")).toBeVisible();
   await page.getByTestId("reference-send").click();
   await expect.poll(() => requests.length, { timeout: 15_000 }).toBeGreaterThan(0);
-  const sent = requests.find((body) => body.includes("input_image"))!;
-  const data = /data:image\/png;base64,([A-Za-z0-9+/=]+)/.exec(sent)![1]!;
-  const png = Buffer.from(data, "base64");
-  // IHDR: width and height are the big-endian words at bytes 16 and 20.
-  expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([2000, 250]);
+  const sent = requests.find((body) => body.includes("### REFERENCE ART"))!;
+  expect(sent).toMatch(/art-[0-9a-f]{10} · Room plate · room \d+ · 1024x128 · /);
+  // The thumbnail fits 64x64: 64x8 centred in a 72x72 strip cell.
+  expect(requestImageSizes(sent)).toEqual([[72, 72]]);
+  const stored = await page.evaluate(async () => {
+    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
+    const data = await loadAuthoredGame(listCachedGames()[0]!.projectId);
+    const image = data!.references![0]!.images[0]!;
+    return [image.width, image.height];
+  });
+  expect(stored).toEqual([1024, 128]);
 });
 
 test("oversized, corrupt and unusable uploads each fail with a reason", async ({ page }) => {
@@ -335,7 +356,7 @@ test("oversized, corrupt and unusable uploads each fail with a reason", async ({
     .toBeGreaterThan(cycle);
 });
 
-test("JPEG and WebP attachments survive closing upload and ride only the next ordinary chat", async ({
+test("JPEG and WebP attachments survive closing upload and are attached only to the next ordinary chat", async ({
   page,
 }, testInfo) => {
   test.setTimeout(120_000);
@@ -391,7 +412,12 @@ test("JPEG and WebP attachments survive closing upload and ride only the next or
     await page.getByTestId("agent-bubble-input").fill("Use the attached room reference.");
     await page.getByTestId("agent-bubble-input").press("Enter");
     await expect.poll(() => requests.length).toBeGreaterThan(previous);
-    expect(requests[previous]).toContain(`data:${mime};base64,${encoded[mime]}`);
+    // The request names the art by handle, marked attached; the upload's own
+    // bytes stay in the project.
+    expect(requests[previous]).toMatch(
+      /Room plate · room 1 · 32x20 · [^"]*attached to this request/,
+    );
+    expect(requests[previous]).not.toContain(encoded[mime]!);
     await expect(page.getByTestId("agent-pending-references")).toBeHidden();
     if (mime === "image/webp") {
       await expect(page.getByTestId("agent-mode-ask")).toHaveAttribute("aria-pressed", "true");

@@ -53,6 +53,7 @@ import { openSprite } from "../src/view/spriteDocument.ts";
 import { walkableMask } from "../src/runtime/walkable.ts";
 import type { AgiProfile } from "../src/runtime/profile.ts";
 import { parseView } from "../src/view/view.ts";
+import { requestCost } from "./lib/usage.ts";
 
 /** The tutorial rooms' horizon (set.horizon(112) in every room logic). */
 const HORIZON = 112;
@@ -281,22 +282,6 @@ function configFor(args: Args, budgetUsd: number): LlmConfig {
     budgetUsd,
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
   };
-}
-
-/** USD for one request's usage at the model's rates; null without a price. */
-function requestCost(model: string, usage: LlmUsage): number | null {
-  const rate = MODEL_CAPABILITIES[model]?.price;
-  if (!rate) return null;
-  const long = rate.longContext && usage.input > 272000;
-  const input = rate.input * (long ? 2 : 1);
-  const cacheRead = (rate.cacheRead ?? rate.input * 0.1) * (long ? 2 : 1);
-  const output = rate.output * (long ? 1.5 : 1);
-  const reads = Math.min(usage.input, usage.cachedInput);
-  const writes = Math.min(usage.input - reads, usage.cacheWriteInput);
-  return (
-    ((usage.input - reads - writes) * input + reads * cacheRead + writes * input * 1.25) / 1e6 +
-    (usage.output * output) / 1e6
-  );
 }
 
 interface RunReport {
