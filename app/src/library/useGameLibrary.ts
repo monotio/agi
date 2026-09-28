@@ -729,7 +729,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     libraryActionBusy.value = true;
     try {
       const game = await loadAuthoredGame(selected);
-      if (!game) throw new Error("This game is no longer in your library. Import it again.");
+      if (!game) throw new Error("This game is missing from your library. Import it again.");
       const opening = await previewGame(game, game.library?.profile);
       const revision = game.library?.revision ?? (await gameRevision(game.files));
       if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))

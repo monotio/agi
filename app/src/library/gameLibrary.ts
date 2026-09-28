@@ -168,7 +168,7 @@ export async function addLibraryGame(
 /** Copies keep provenance but have independent resources, history and save slots. */
 export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> {
   const original = await loadAuthoredGame(projectId);
-  if (!original) throw new Error("This game is no longer in your library. Import it again.");
+  if (!original) throw new Error("This game is missing from your library. Import it again.");
   let id: ProjectId;
   do id = requireProjectId(`remix-${crypto.randomUUID()}`);
   while (await loadAuthoredGame(id));

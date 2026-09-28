@@ -34,7 +34,7 @@ export function createPlayHere(ctx: WorkerContext) {
     };
     const engine = ctx.engine;
     if (!engine || ctx.replay.replay || ctx.view.drive)
-      return reply(false, "Play here needs a live game, not a replay or history view.");
+      return reply(false, "Play here needs the live game. Leave the replay or history view first.");
     const problem = playHereProblem(msg);
     if (problem !== null) return reply(false, problem);
     if (engine.textModeActive) return reply(false, "The game is showing its text screen.");

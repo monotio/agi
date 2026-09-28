@@ -385,7 +385,7 @@ defineExpose({ selectRoom });
       <span class="edge edge-observed">—</span> walked
       <template v-if="map.experience.value === 'create'">
         · <span class="edge edge-planned">- -</span> planned ·
-        <span class="edge edge-static">…</span> named in logic
+        <span class="edge edge-static">…</span> in code
       </template>
     </p>
   </section>

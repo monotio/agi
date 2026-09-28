@@ -105,7 +105,7 @@ export interface TransportExtras {
   /** Position readout, e.g. "Room 4 · 62% · replaying…". */
   readonly readout: string | undefined;
   readonly posTestid: string | undefined;
-  /** >0 shows the "earlier tape dropped" note. */
+  /** >0 shows the "earlier history dropped" note. */
   readonly dropped: number;
   /** Buttons after the speed group (bookmark, resume cluster). */
   readonly trailing: readonly TransportButton[];

@@ -145,7 +145,7 @@ test("the Help guide lists the three lessons; the mural wants one object changed
 
   // The cottage too: only the sun may change since the lesson opened, so the hint names it.
   await nudge(page, studio, "cottage", 1);
-  await keep(studio, "Kept PIC 4. Only the sun should change — this also changed Cottage.");
+  await keep(studio, "Kept PIC 4. Only the sun should change, and this also changed Cottage.");
   expect(await storedBadges(page)).toEqual([MURAL]);
 
   await studio.getByTestId("studio-close").click();

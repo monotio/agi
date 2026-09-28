@@ -1,0 +1,11 @@
+id: plain-copy-template
+valid:
+  - "<button>Review staged</button>"
+  - '<button title="Ask about this game">Ask</button>'
+  - "<p>Not built yet</p>"
+  - "<!-- An aside — in a comment -->"
+invalid:
+  - "<button>Staged — inspect</button>"
+  - '<button title="Ask about this game — answers without changing it">Ask</button>'
+  - "<small>Never saved</small>"
+  - '<b :title="open ? ''Back'' : ''Back to the game, not the menu''">Back</b>'

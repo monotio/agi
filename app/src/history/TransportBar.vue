@@ -226,7 +226,7 @@ onUnmounted(() => {
           :title="
             model.live.here
               ? 'The current game'
-              : 'Back to the current game — it stays paused until you resume'
+              : 'Back to the current game, paused until you resume'
           "
           @click="
             model.live!.run();
@@ -270,7 +270,7 @@ onUnmounted(() => {
               v-if="model.dropped > 0"
               class="transport-note"
               data-testid="history-dropped"
-              title="The history outgrew its storage limit — playback starts at the oldest kept session"
+              title="The history outgrew its storage limit. Playback starts at the oldest kept session."
               >earlier history dropped</span
             >
           </span>

@@ -255,13 +255,17 @@ function onScreenClick(): void {
   gap: var(--space-1);
   min-width: 0;
 }
+/* A long title such as "King's Quest I: Quest for the Crown" takes a second line. */
 .game-card__title {
+  display: -webkit-box;
   margin: 0;
   overflow: hidden;
   color: var(--ink);
   font: var(--weight-semibold) var(--text-md) / var(--leading-tight) var(--font-sans);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 .game-card__meta {
   margin: 0;

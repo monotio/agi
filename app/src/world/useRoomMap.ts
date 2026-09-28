@@ -376,7 +376,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (ticket !== planWriteTicket) return; // a newer write owns the verdict
     if (!ok) {
       planSaveError.value =
-        "The plan could not be saved — edits are kept in memory; Retry writes them again.";
+        "The plan could not be saved. Edits are kept in memory; Retry writes them again.";
       return;
     }
     planSaveError.value = "";
@@ -1132,8 +1132,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
    * mutation leaves the target untouched.
    */
   function editWorld(mutate: (draft: WorldDraft) => string | null): string | null {
-    if (experience.value !== "create")
-      return "Plan editing is a creator action — open the map's plan surface.";
+    if (experience.value !== "create") return "Edit the plan from the map in Create.";
     const session = deps.getSession();
     if (!session) return "This game has no authoring plan to edit.";
     const draft = createWorldDraft(session.state.authoring.world);
@@ -1141,9 +1140,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (error) return error;
     const result = session.commitPlanDraft(draft);
     if (result.status === "busy")
-      return "The agent is mid-turn — the map accepts edits again when it finishes.";
+      return "The agent is mid-turn. The map accepts edits again when it finishes.";
     if (result.status === "conflict")
-      return "The plan changed while you were editing — close and reopen the map.";
+      return "The plan changed while you were editing. Close and reopen the map.";
     if (result.status === "invalid") return result.error;
     planVersion.value++;
     void persistPlan();
@@ -1221,12 +1220,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     return planOp(() => {
       const scan = scanResources();
       if (scan.logic.has(room) || scan.picture.has(room))
-        return `Room ${room} is already built — its resources stay; change it in Remix instead.`;
+        return `Room ${room} is already built. Change it in Remix.`;
       if (
         discovered.rooms.has(room) ||
         journal.some((entry) => entry.to === room || entry.from === room)
       )
-        return `Room ${room} is on the record — the map keeps visited rooms.`;
+        return `Room ${room} is on the record: the map keeps visited rooms.`;
       return editWorld((draft) => draftRemoveRoom(draft, room));
     });
   }
@@ -1299,7 +1298,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     expect: string,
   ): string | null {
     const current = planFieldValue(edit.room, field);
-    if (current === null) return planOp(() => `Room ${edit.room} is no longer in the plan.`);
+    if (current === null) return planOp(() => `Room ${edit.room} was removed from the plan.`);
     if (current !== expect) {
       edit[field].conflict = current;
       return "conflict";

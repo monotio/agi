@@ -75,6 +75,7 @@ const sprites = useSpriteStudio();
 const studioOpen = computed(() => workspace.studio.value !== null);
 const studioFits = workspace.studioFits;
 const STUDIO_TOO_SMALL = "Room Studio needs a larger screen";
+const STUDIO_OPEN = "A Studio is already open";
 
 function pickRoom(room: number): void {
   graphView.value?.selectRoom(room, true);
@@ -104,7 +105,7 @@ function openInStudio(picture: number): void {
       {{ map.storageError.value }}
     </p>
     <p v-if="map.unsaved.value" class="world-alert" data-testid="map-unsaved">
-      Map data is not saved — retrying in the background.
+      Map data is not saved yet. Retrying in the background.
       <UiButton size="sm" variant="ghost" @click="map.retrySave()">Retry now</UiButton>
     </p>
     <p
@@ -184,6 +185,8 @@ function openInStudio(picture: number): void {
               :data-testid="`world-open-studio-${picture}`"
               :data-picture="picture"
               :disabled="studioOpen || !studioFits"
+              :title="studioOpen ? STUDIO_OPEN : undefined"
+              :aria-describedby="studioFits ? undefined : 'world-studio-small'"
               @click="openInStudio(picture)"
             >
               Open PIC {{ picture }}
@@ -220,10 +223,14 @@ function openInStudio(picture: number): void {
                 :label="`Open VIEW ${entry.view} in Sprite Studio`"
                 :data-testid="`world-open-sprite-${entry.view}`"
                 :disabled="studioOpen || !studioFits"
+                :aria-describedby="studioFits ? undefined : 'world-sprites-small'"
                 @click="sprites.open(entry.view)"
               />
             </li>
           </ul>
+          <p v-if="!studioFits" id="world-sprites-small" class="world-blocked">
+            Sprite Studio needs a larger screen
+          </p>
         </section>
       </template>
     </WorldRoomDetail>

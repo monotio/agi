@@ -1,0 +1,44 @@
+id: plain-copy-literal
+snapshots:
+  const error = "This game is no longer in your library.";:
+    labels:
+    - source: This game is no longer in your library.
+      style: primary
+      start: 15
+      end: 54
+  const hint = "Play here needs a live game, not a replay.";:
+    labels:
+    - source: Play here needs a live game, not a replay.
+      style: primary
+      start: 14
+      end: 56
+  const hint = "The backdrop is never saved.";:
+    labels:
+    - source: The backdrop is never saved.
+      style: primary
+      start: 14
+      end: 42
+  const hint = "Use Remix instead of Play.";:
+    labels:
+    - source: Use Remix instead of Play.
+      style: primary
+      start: 14
+      end: 40
+  const hint = `Room ${room} is already built — change it in Remix.`;:
+    labels:
+    - source: ' is already built — change it in Remix.'
+      style: primary
+      start: 26
+      end: 67
+  const note = "Game text uses its own font, rather than the built-in one.";:
+    labels:
+    - source: Game text uses its own font, rather than the built-in one.
+      style: primary
+      start: 14
+      end: 72
+  const title = "Ask about this game — answers without changing it";:
+    labels:
+    - source: Ask about this game — answers without changing it
+      style: primary
+      start: 15
+      end: 66

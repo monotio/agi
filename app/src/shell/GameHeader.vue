@@ -442,7 +442,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="state.leaving"
           @click="onEjectGame('abandonHistory')"
         >
-          Leave without this session's timeline
+          Leave anyway
         </UiButton>
         <UiButton variant="primary" size="sm" data-testid="eject-stay" @click="historyExit = false">
           Stay

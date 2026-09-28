@@ -245,7 +245,7 @@ async function onBubbleReload(): Promise<void> {
           data-testid="agent-mode-ask"
           :aria-pressed="asking"
           :disabled="state.powerUp.busy"
-          title="Ask questions without changing the game"
+          title="Ask about this game"
           @click="state.powerUp.mode = 'ask'"
         >
           Ask
@@ -429,7 +429,7 @@ async function onBubbleReload(): Promise<void> {
       <UiButton
         v-if="!asking"
         data-testid="btn-record-test"
-        title="Record a playtest — check that this part still works after changes"
+        title="Record a playtest that checks this part still works after changes"
         :disabled="state.powerUp.busy || state.recording.active || state.recording.starting"
         @click="onRecordPlaytest"
       >
@@ -452,7 +452,7 @@ async function onBubbleReload(): Promise<void> {
     <div v-if="!asking && !creatingRoom && state.powerUp.needsConfig" class="agent-bubble-tools">
       <UiButton
         data-testid="btn-record-test"
-        title="Record a playtest — check that this part still works after changes"
+        title="Record a playtest that checks this part still works after changes"
         :disabled="state.powerUp.busy || state.recording.active || state.recording.starting"
         @click="onRecordPlaytest"
       >

@@ -280,8 +280,8 @@ function onReopenStaged(reference: StoredReference): void {
 
       <template v-if="kind === 'room'">
         <p class="reference-hint">
-          A room reference is a composition the agent redraws with native picture commands — it
-          decides look and layout, never walkable space or exits. It presents best at a
+          A room reference sets the look and layout; the agent redraws it with native picture
+          commands and decides the floor and exits. It presents best at a
           {{ ROOM_REFERENCE_ASPECT.toFixed(2) }}:1 proportion (the 160×168 picture surface, drawn
           double-wide).
         </p>
@@ -309,7 +309,7 @@ function onReopenStaged(reference: StoredReference): void {
       <template v-else>
         <p class="reference-hint">
           One pose row per facing on a flat key colour or real alpha, four to six poses, feet on one
-          ground line. Missing facings reuse the opposite row — mirrored only when the design is
+          ground line. Missing facings reuse the opposite row, mirrored only when the design is
           symmetric. The result stages as VIEW {{ characterViewNum }} (the player sprite) for you to
           keep or revise.
         </p>
@@ -391,7 +391,7 @@ function onReopenStaged(reference: StoredReference): void {
               :data-testid="`reference-staged-${reference.id}`"
               @click="onReopenStaged(reference)"
             >
-              Staged — inspect
+              Review draft
             </UiButton>
             <UiButton
               :data-testid="`reference-send-${reference.id}`"
@@ -414,7 +414,7 @@ function onReopenStaged(reference: StoredReference): void {
     <div v-else class="reference-upload-body" data-testid="reference-staged">
       <template v-if="attached.staged">
         <p class="reference-hint">
-          Staged as VIEW {{ attached.staged.num }}. Inspect the contact sheet — check silhouettes,
+          Staged as VIEW {{ attached.staged.num }}. Check the contact sheet for silhouettes,
           mirrored facings and the shared baseline.
         </p>
         <img

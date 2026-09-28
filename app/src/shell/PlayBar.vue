@@ -134,7 +134,7 @@ const shortcutsBlocked = computed(
           >
             <span
               >Watch walkthrough<small
-                >A recorded playthrough — it shows puzzle solutions</small
+                >A recorded playthrough that shows puzzle solutions</small
               ></span
             >
           </button>

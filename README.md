@@ -29,7 +29,7 @@ no account, no API key and no Sierra files.
 ![Adventure Department in Play: the apprentice has just painted the gallery's mural, and the status line reads Mural fixed! Next exhibit: go EAST.](docs/media/tutorial-gallery.png)
 
 - **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
-  The files stay in your browser's storage and are never uploaded. The app
+  The files stay in your browser's storage. The app
   recognises the edition, picks the matching interpreter and checks that the
   game opens.
 - **Watch a playthrough.** Verified releases come with a recorded completion
@@ -81,16 +81,16 @@ A few things worth knowing:
 - **The picture** fills a 4:3 frame, the way a monitor of the day stretched the
   320 × 200 screen. **Settings → Original 4:3** turns that off for square
   pixels.
-- **Text** uses this project's own 8 × 8 font in the original character grid,
-  not each machine's built-in font. It covers English text and the box drawing
-  the Sierra games print; other characters show blank.
+- **Text** uses this project's own 8 × 8 font in the original character grid. It
+  covers English text and the box drawing the Sierra games print; other
+  characters show blank.
 - **Fan-made games** run too. If the app cannot tell which interpreter a game
   needs, it asks. [Testing](docs/testing.md#testing-compatibility) lists the
   exact editions and builds.
 
-Commercial games are not included: bring your own copies, and they stay in your
-browser. No copies? Fans have made over a hundred free AGI games since the late
-nineties, collected on the
+Bring your own copies of commercial games; they stay in your browser. No copies?
+Fans have made over a hundred free AGI games since the late nineties, collected
+on the
 [AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List)
 and in the
 [SCI Programming community's game list](https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads).
@@ -109,7 +109,7 @@ OpenAI or Anthropic API key, and click **Create adventure**.
 | [Polyester Nights](games/polyester-nights/SKILL.md)     | A middle-aged lounge lizard tries his luck for one more night.       |
 
 The agent plans the world and builds the opening room: artwork, characters and
-game logic. When you walk into a room that does not exist yet, play pauses
+game logic. When you walk into a room that is still unbuilt, play pauses
 while the agent writes it. Along the way you can:
 
 - plan on the world map in Create's World panel: rename rooms, edit their
@@ -176,8 +176,8 @@ Studio on the waving robot._
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the scrubber's point in the draw order, and a ghost actor shows whether a
   character would stand in front of the scene or behind it.
-- **Keep** saves the picture into the game. Each lens locks the planes it is not
-  about until you unlock them, every change can be undone, even after Keep, and
+- **Keep** saves the picture into the game. Each lens locks the other planes
+  until you unlock them, every change can be undone, even after Keep, and
   leaving with unkept changes asks first.
 - **Test walks and doors** live in the Walk lens. A test walk runs the real game
   in a throwaway copy and reports Reached, Blocked at whatever was in the way,
@@ -197,7 +197,7 @@ Studio on the waving robot._
   reorder, duplicate and flip cels on a loops × cels timeline. The previews play
   the loop at the game's speed and stand it in a room at its real depth. Editing
   a loop that mirrors another makes it a separate copy, so fixing one facing
-  never changes the other unless you ask. Ask works here too, on the selected
+  leaves the other as it is unless you ask. Ask works here too, on the selected
   cel or its whole loop, with every other loop protected.
 
 ## Save and share
@@ -212,8 +212,8 @@ app saves as you play, so **Resume** picks up where you left off.
 | **Download game…**   | A ZIP of the game plus its authoring conversation, images, source descriptions, world notes, stored tests, map, session history, saved games and autosave. |
 
 Either ZIP opens again with **Add game**, in any browser. A game without a
-declared license keeps an unknown license: exports never inherit this
-repository's MIT license.
+declared license keeps an unknown license in its exports; the MIT license covers
+this repository's own code and assets.
 
 ## Thirty years later
 
