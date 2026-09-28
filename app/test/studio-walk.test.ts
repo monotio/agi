@@ -546,14 +546,14 @@ describe("the room logic draft", () => {
     // Placing the box on screen stores it back in the kept frame.
     walk.moveDoor("door-1", { x1: 100, y1: 120, x2: 111, y2: 126 });
     assert.match(logic.source.value, /posn\(o0, 120, 120, 131, 126\)/);
+    // The doorway moved 20 px west: the kept frame is 20 px east of the shown one.
+    assert.deepEqual(
+      toStored({ x1: 100, y1: 120, x2: 111, y2: 126 }, "doorway", rig.kept, moved.document),
+      { x1: 120, y1: 120, x2: 131, y2: 126 },
+    );
     assert.deepEqual(
       toShown({ x1: 120, y1: 120, x2: 131, y2: 126 }, "doorway", rig.kept, moved.document),
-      toShown(
-        toStored({ x1: 100, y1: 120, x2: 111, y2: 126 }, "doorway", rig.kept, moved.document),
-        "doorway",
-        rig.kept,
-        moved.document,
-      ),
+      { x1: 100, y1: 120, x2: 111, y2: 126 },
     );
     // Unbound, the box stays where it shows.
     walk.setFollows("door-1", null);
@@ -846,14 +846,14 @@ describe("test walks", () => {
     walk.clickWalk({ x: 40, y: 140 });
     walk.clickWalk({ x: 0, y: 150 });
     await settle();
-    assert.equal(
-      walk.result.value?.title.startsWith("Couldn't reach the west edge from here"),
-      true,
-    );
+    // It stopped at 20,122, just under the rope (y 121). Every step on toward
+    // the goal down at the west edge — 19,123, 19,122, 20,123 — is floor, so
+    // nothing refused it there and the card names no blocker.
+    assert.equal(walk.result.value?.title, "Couldn't reach the west edge from here");
     assert.equal(walk.tested.value.has("exit-west-1"), false);
     assert.equal(
       walk.doorNote("exit-west-1"),
-      `Last test walk from 40,140: ${walk.result.value?.title}.`,
+      "Last test walk from 40,140: Couldn't reach the west edge from here.",
     );
     rig.stop();
   });

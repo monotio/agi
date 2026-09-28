@@ -334,8 +334,7 @@ export function useEngine(
     logAgent,
     getBootedGame: () => lifecycle.getBootedGame(),
     getOrCreateSession: authoringController.getOrCreateSession,
-    markRemixNeedsSave: () => authoringController.setRemixNeedsSave(true),
-    persistRemix: authoringController.persistRemix,
+    commitTestsFile: authoringController.commitTestsFile,
     flushAutosave: () => autosaveController.flushAutosave(),
   });
 

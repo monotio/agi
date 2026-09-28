@@ -25,8 +25,6 @@ import WorldGraph from "./WorldGraph.vue";
 import WorldRoomDetail from "./WorldRoomDetail.vue";
 import WorldRoomList from "./WorldRoomList.vue";
 
-defineProps<{ readOnly: boolean }>();
-
 const engine = useEngineApi();
 const map = engine.roomMap;
 const workspace = useCreateWorkspace();

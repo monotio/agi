@@ -10,5 +10,6 @@
  */
 export { AgentSession } from "./agentSession.ts";
 export { executeAgentTool } from "../../../src/agent/tools.ts";
+export { forkAgentState } from "./sessionState.ts";
 export { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 export { referenceSource } from "../references/referenceHandles.ts";

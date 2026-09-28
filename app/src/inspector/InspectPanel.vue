@@ -8,8 +8,6 @@ import InspectorView from "./InspectorView.vue";
 import { useInspector } from "./useInspector.ts";
 import { useCreateWorkspace } from "../shell/useCreateWorkspace.ts";
 
-defineProps<{ readOnly: boolean }>();
-
 const { tab } = useInspector();
 const { viewOnly } = useCreateWorkspace();
 const TABS = ["screen", "state", "timeline"] as const;

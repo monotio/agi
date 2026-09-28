@@ -48,8 +48,7 @@ test("test recorder refuses to start on a live host request but not a parked win
     logAgent: () => {},
     getBootedGame: () => null,
     getOrCreateSession: async () => assert.fail("session should not be created"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
   await allowRecorder.startTestRecording();
@@ -64,8 +63,7 @@ test("test recorder refuses to start on a live host request but not a parked win
       logAgent: () => {},
       getBootedGame: () => null,
       getOrCreateSession: async () => assert.fail("session should not be created"),
-      markRemixNeedsSave: () => {},
-      persistRemix: async () => {},
+      commitTestsFile: async () => {},
       flushAutosave: async () => {},
     });
     await recorder.startTestRecording();
@@ -136,8 +134,7 @@ test("test recorder starts and stops successfully through worker queries", async
     logAgent: () => {},
     getBootedGame: () => null,
     getOrCreateSession: async () => assert.fail("session should not be called"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
 
@@ -196,8 +193,7 @@ test("test recorder cancels active recording and notifies worker", async () => {
     logAgent: () => {},
     getBootedGame: () => null,
     getOrCreateSession: async () => assert.fail("session should not be called"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
 
@@ -229,8 +225,7 @@ test("saveRecordedTest rejects tainted recordings", async () => {
     logAgent: () => {},
     getBootedGame: () => booted,
     getOrCreateSession: async () => assert.fail("session should not be created"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
 

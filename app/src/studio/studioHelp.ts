@@ -7,6 +7,11 @@
 
 import type { SpriteTool } from "./sprite/useSpriteTools.ts";
 import type { StudioTool } from "./studioTools.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
+
+/** Shift and Alt held on their own, in the viewer's keyboard words. */
+const SHIFT = keyLabel("Shift");
+const ALT = keyLabel("Alt");
 
 export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   select: "Select",
@@ -25,7 +30,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
 
 /** The status bar's one line for the active Room Studio tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
-  select: "Click an item · ⇧-click adds one · drag moves · ⌥-click adds a point",
+  select: `Click an item · ${keyLabel("Shift+click")} adds one · drag moves · ${keyLabel("Alt+click")} adds a point`,
   point: "Drag a point's handle · the item itself stays put",
   line: "Click points · Enter or double-click finishes",
   rect: "Drag a rectangle · Shift keeps it square",
@@ -43,11 +48,10 @@ export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
 export const ROOM_PATH_HINT = "Backspace removes a point · Esc cancels";
 
 /** With an item (or several) selected under Select: the editing keys. */
-export const ROOM_EDIT_HINT = "Arrows nudge (⇧ 8 px) · ⌥ arrows next item · [ ] order";
+export const ROOM_EDIT_HINT = `Arrows nudge (${SHIFT} 8 px) · ${ALT} arrows next item · [ ] order`;
 
 /** With several items selected: how they move, at the foot of the inspector. */
-export const ROOM_GROUP_HINT =
-  "Drag or arrows move them together (⇧ 8 px) · [ ] reorder one at a time";
+export const ROOM_GROUP_HINT = `Drag or arrows move them together (${SHIFT} 8 px) · [ ] reorder one at a time`;
 
 export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
   pencil: "Pencil",
@@ -66,7 +70,7 @@ export const SPRITE_TOOL_HINTS: Record<SpriteTool, string> = {
   fill: "Click to flood the area under the cursor",
   line: "Drag a line, or Space at each end",
   rect: "Drag a rectangle, or Space at each corner",
-  select: "Drag a marquee · arrows move it (⌥ copies) · H flips · Delete clears",
+  select: `Drag a marquee · arrows move it (${ALT} copies) · H flips · Delete clears`,
   pipette: "Click to pick the paint colour",
   recolor: "Click a colour on the canvas to change it everywhere in scope",
 };
@@ -114,32 +118,38 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
       rows: [
         ...(click
           ? [
-              { keys: ["←↑→↓"], does: "Move the drawing cursor (⇧ 8 px)" },
+              { keys: ["←↑→↓"], does: `Move the drawing cursor (${SHIFT} 8 px)` },
               { keys: ["Space", "Enter"], does: `Click at the cursor: ${click}` },
               { keys: ["Backspace"], does: "Remove the last point" },
             ]
           : [
-              { keys: ["←↑→↓"], does: "Nudge the selection 1 px (⇧ 8 px)" },
-              { keys: ["⌥ ←↑→↓"], does: "Previous or next item" },
-              { keys: ["⇧ ⌥ ←↑→↓"], does: "Add the previous or next item to the selection" },
-              { keys: ["⇧ click"], does: "Add an item to the selection, or take it away" },
-              { keys: ["⇧ drag"], does: "Select the items inside a box" },
-              { keys: ["⌥ click", "Insert"], does: "Add a point to the selected line" },
+              { keys: ["←↑→↓"], does: `Nudge the selection 1 px (${SHIFT} 8 px)` },
+              { keys: [keyLabel("Alt+←↑→↓")], does: "Previous or next item" },
+              {
+                keys: [keyLabel("Shift+Alt+←↑→↓")],
+                does: "Add the previous or next item to the selection",
+              },
+              {
+                keys: [keyLabel("Shift+click")],
+                does: "Add an item to the selection, or take it away",
+              },
+              { keys: [keyLabel("Shift+drag")], does: "Select the items inside a box" },
+              { keys: [keyLabel("Alt+click"), "Insert"], does: "Add a point to the selected line" },
             ]),
         { keys: ["Esc"], does: "Cancel one thing per press" },
-        { keys: ["⌘ \\"], does: "Hide or show the side panels (focus mode)" },
-        { keys: ["Menu", "⇧ F10"], does: "Canvas menu: Play here, test walks" },
+        { keys: [keyLabel("Mod+\\")], does: "Hide or show the side panels (focus mode)" },
+        { keys: ["Menu", keyLabel("Shift+F10")], does: "Canvas menu: Play here, test walks" },
       ],
     },
     {
       title: "Edit",
       rows: [
         { keys: ["Delete"], does: "Delete the selection" },
-        { keys: ["⌘ D"], does: "Duplicate the selection" },
-        { keys: ["⌘ G"], does: "Group the selected items" },
-        { keys: ["⇧ ⌘ G"], does: "Ungroup the selected group" },
+        { keys: [keyLabel("Mod+D")], does: "Duplicate the selection" },
+        { keys: [keyLabel("Mod+G")], does: "Group the selected items" },
+        { keys: [keyLabel("Mod+Shift+G")], does: "Ungroup the selected group" },
         { keys: ["[", "]"], does: "Move one item back or forward in draw order" },
-        { keys: ["⌘ Z", "⇧ ⌘ Z"], does: "Undo, redo" },
+        { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
         { keys: ["/"], does: "Ask about the selection" },
       ],
     },
@@ -171,7 +181,10 @@ export function spriteKeySheet(): KeySection[] {
     {
       title: "On the canvas",
       rows: [
-        { keys: ["←↑→↓"], does: "Move the cursor (⇧ 8 px), or the selection (⌥ copies)" },
+        {
+          keys: ["←↑→↓"],
+          does: `Move the cursor (${SHIFT} 8 px), or the selection (${ALT} copies)`,
+        },
         {
           keys: ["Space", "Enter"],
           does: "Click at the cursor: pen down and up, a corner, where a fill starts",
@@ -186,7 +199,7 @@ export function spriteKeySheet(): KeySection[] {
         { keys: [",", "."], does: "Previous or next cel" },
         { keys: ["<", ">"], does: "Previous or next loop" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },
-        { keys: ["⌘ Z", "⇧ ⌘ Z"], does: "Undo, redo" },
+        { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
         { keys: ["/"], does: "Ask about the cel or loop" },
         { keys: ["?"], does: "This list" },
       ],

@@ -26,11 +26,11 @@ export interface TestRecorderOptions {
   readonly logAgent: LogAgentFn;
   readonly getBootedGame: () => BootedGame | null;
   readonly getOrCreateSession: (game: BootedGame, config: LlmConfig) => Promise<AgentSession>;
-  readonly markRemixNeedsSave: () => void;
-  readonly persistRemix: (
+  /** Store TESTS.JSON, then install it in the session and the running game (the controller's commitTestsFile). */
+  readonly commitTestsFile: (
     game: BootedGame,
     author: AgentSession,
-    files: Record<string, Uint8Array>,
+    tests: Uint8Array,
   ) => Promise<void>;
   readonly flushAutosave: (waitMs?: number) => Promise<unknown>;
 }
@@ -143,10 +143,13 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
 
   /**
    * Store a recorded test through the SAME write path write_game_tests uses
-   * (validation, dictionary probe, TESTS.JSON serialization), then ship and
-   * persist the updated file exactly like a remix. On an installed or catalog
-   * game this is the established remix conversion: the project becomes a
-   * writable project copy, since originals cannot store tests.
+   * (validation, dictionary probe, TESTS.JSON serialization) on a fork of
+   * the session, then commit the file exactly like a remix: storage first,
+   * and only then the session and the running game. A refusal — a project
+   * saved elsewhere since boot — leaves both as they were and answers in
+   * the remix's own words. On an installed or catalog game this is the
+   * established remix conversion: the project becomes a writable project
+   * copy, since originals cannot store tests.
    */
   async function saveRecordedTest(
     snapshot: RecordingSnapshot,
@@ -155,28 +158,24 @@ export function useTestRecorder(options: TestRecorderOptions): TestRecorderContr
     config: LlmConfig,
   ): Promise<{ ok: boolean; message: string }> {
     const game = options.getBootedGame();
-    const worker = getWorker();
-    if (!game || !worker) return { ok: false, message: "No game is running." };
+    if (!game || !getWorker()) return { ok: false, message: "No game is running." };
     if (snapshot.tainted) return { ok: false, message: snapshot.tainted };
 
     const author = await options.getOrCreateSession(game, config);
-    const { executeAgentTool } = await loadAuthoringStack();
-    const result = executeAgentTool(author.state, "write_game_tests", {
+    const { executeAgentTool, forkAgentState } = await loadAuthoringStack();
+    const staged = forkAgentState(author.state);
+    const result = executeAgentTool(staged, "write_game_tests", {
       mode: "merge",
       names: null,
       tests: [buildRecordedTest(name, snapshot, selected)],
     });
-    if (!result.success)
+    if (!result.success || !staged.testsPayload)
       return { ok: false, message: result.error ?? "The recorded test was rejected." };
-    options.markRemixNeedsSave();
-    worker.postMessage({
-      type: "patchMetadata",
-      files: { "TESTS.JSON": new Uint8Array(author.state.testsPayload!) },
-    } satisfies WorkerInbound);
-    const files = await query("exportFiles");
-    if (!files || options.getBootedGame() !== game)
-      return { ok: false, message: "The game changed while saving the recording. Try again." };
-    await options.persistRemix(game, author, files);
+    try {
+      await options.commitTestsFile(game, author, staged.testsPayload);
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
     await options.flushAutosave(2000);
     logAgent("response", `[Record] ${result.message}`, {
       tool: "write_game_tests",

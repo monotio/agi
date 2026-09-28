@@ -357,7 +357,7 @@ export class AgentSession implements AgentHandler {
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
-    const context = await this.orientationContext(room, ASK_TOOLS);
+    const context = await this.orientationContext(room, ASK_TOOLS, true);
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
@@ -439,8 +439,17 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.oriented) this.orientation = input;
   }
 
-  /** The first request's scene brief, read under the task's own list. */
-  private async orientationContext(room: number, allowedTools: readonly string[]): Promise<string> {
+  /**
+   * The first request's scene brief, read under the task's own list. Ask
+   * (`readOnly`) reads the room as its read_room_context calls do, so the
+   * plan entry that tool withholds from the player's surface stays out of
+   * the brief too.
+   */
+  private async orientationContext(
+    room: number,
+    allowedTools: readonly string[],
+    readOnly = false,
+  ): Promise<string> {
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
     // The compact scene brief reads through the same tools the model uses —
@@ -451,7 +460,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         this.state,
         "read_room_context",
         { room, state: null, frames: null },
-        { ...this.runtime, allowedTools },
+        { ...this.runtime, allowedTools, readOnly },
       ),
       executeAgentTool(this.state, "read_picture", { num: room }),
     ];

@@ -3,8 +3,9 @@
  * and the workspace renders them as tabs. The shell registers placeholders
  * for World (left) and Assistant (right); a later panel with the same id
  * replaces its placeholder, and new ids (Inspect, Activity, Resources…) add
- * tabs. Panels receive `readOnly` (catalog and installed editions: the first
- * edit forks a remix) as a prop.
+ * tabs. Panels take no props: a catalog or installed edition needs nothing
+ * disabled (its first edit forks a remix), and a phone's view-only Create
+ * reaches them through useCreateWorkspace().viewOnly.
  *
  *   registerCreatePanel({ id: "world", dock: "left", title: "World",
  *     icon: "map", order: 0, component: WorldPanel });

@@ -7,6 +7,7 @@ import type { IconName } from "../ui/icons.ts";
 import UiExplain from "../ui/UiExplain.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
 import { explain } from "./studioTerms.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
 import type { StudioEditing } from "./useStudioEditing.ts";
 
 /**
@@ -67,7 +68,7 @@ const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
       id: "duplicate",
       text: "Duplicate",
       icon: "copy",
-      shortcut: "⌘D",
+      shortcut: keyLabel("Mod+D"),
       run: () => void edit.duplicate(),
     },
   ],
@@ -79,7 +80,7 @@ const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
             id: "combine",
             text: "Group",
             icon: "layers",
-            shortcut: "⌘G",
+            shortcut: keyLabel("Mod+G"),
             run: () => emit("combine"),
           } as const,
         ]
@@ -89,7 +90,7 @@ const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
               id: "ungroup",
               text: "Ungroup",
               icon: "unlink",
-              shortcut: "⇧⌘G",
+              shortcut: keyLabel("Mod+Shift+G"),
               run: () => emit("ungroup"),
             } as const,
           ]

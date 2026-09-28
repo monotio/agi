@@ -8,7 +8,7 @@ import { TARGET_PROPERTY } from "../src/ui/explain.ts";
  * selection's actions, at three window sizes; the tool's options and the
  * selection's actions dock in a bar above the canvas, folding into More
  * rather than running out of it, and the tool's help sits in the status bar; `?` lists every key and Esc puts the list away; ⌘\ (Ctrl+\
- * off a Mac) hides the side panels while Tab and Shift+Tab only move focus; and
+ * off a Mac, and labelled so) hides the side panels while Tab and Shift+Tab only move focus; and
  * Sprite Studio's drawing backdrop is view only, never the view's bytes.
  */
 
@@ -137,64 +137,74 @@ for (const [width, height] of [
   });
 }
 
-test("⌘\\ or Ctrl+\\ hides the side panels and brings them back; Tab and Shift+Tab only move focus", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await playTutorial(page);
-  const studio = await openRoomStudio(page, 2);
-  const canvas = studio.getByRole("group", { name: /^Canvas/ });
-  const scene = studio.locator(".studio__scene");
-  const inspector = studio.locator(".studio__inspector");
-  const toggle = studio.getByRole("button", { name: "Focus mode" });
-  const hint = studio.getByTestId("studio-hint");
-  const pane = studio.locator(".studio-pane").last();
-  await expect(canvas).toHaveAttribute(
-    "aria-label",
-    /Command or Control plus backslash hides the side panels/,
-  );
-  await expect(toggle).toHaveAttribute("aria-keyshortcuts", "Meta+Backslash Control+Backslash");
-  await expect(toggle).toHaveAttribute("title", "Focus mode (⌘\\)");
-  const before = (await pane.boundingBox())!.width;
+// The labels follow the viewer's platform; both chords work on either.
+for (const { platform, mod } of [
+  { platform: "MacIntel", mod: "⌘" },
+  { platform: "Linux x86_64", mod: "Ctrl+" },
+]) {
+  test(`${mod}\\ hides the side panels and brings them back on ${platform}; Tab and Shift+Tab only move focus`, async ({
+    page,
+  }) => {
+    await page.addInitScript((reported) => {
+      Object.defineProperty(Navigator.prototype, "platform", { get: () => reported });
+      Object.defineProperty(Navigator.prototype, "userAgentData", { get: () => undefined });
+    }, platform);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await playTutorial(page);
+    const studio = await openRoomStudio(page, 2);
+    const canvas = studio.getByRole("group", { name: /^Canvas/ });
+    const scene = studio.locator(".studio__scene");
+    const inspector = studio.locator(".studio__inspector");
+    const toggle = studio.getByRole("button", { name: "Focus mode" });
+    const hint = studio.getByTestId("studio-hint");
+    const pane = studio.locator(".studio-pane").last();
+    await expect(canvas).toHaveAttribute(
+      "aria-label",
+      /Command or Control plus backslash hides the side panels/,
+    );
+    await expect(toggle).toHaveAttribute("aria-keyshortcuts", "Meta+Backslash Control+Backslash");
+    await expect(toggle).toHaveAttribute("title", `Focus mode (${mod}\\)`);
+    const before = (await pane.boundingBox())!.width;
 
-  await canvas.focus();
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(scene).toBeHidden();
-  await expect(inspector).toBeHidden();
-  await expect(canvas).toBeFocused();
-  await expect(toggle).toHaveAttribute("aria-pressed", "true");
-  await expect(studio.locator('[data-role="announce"]')).toHaveText("Side panels hidden");
-  // The first time, the status bar says how to get them back; nothing lands on the canvas.
-  await expect(hint).toHaveText("Side panels hidden · ⌘\\ or Ctrl+\\ brings them back");
-  await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
+    await canvas.focus();
+    await page.keyboard.press("ControlOrMeta+Backslash");
+    await expect(scene).toBeHidden();
+    await expect(inspector).toBeHidden();
+    await expect(canvas).toBeFocused();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(studio.locator('[data-role="announce"]')).toHaveText("Side panels hidden");
+    // The first time, the status bar says how to get them back; nothing lands on the canvas.
+    await expect(hint).toHaveText(`Side panels hidden · ${mod}\\ brings them back`);
+    await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
 
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(scene).toBeVisible();
-  await expect(inspector).toBeVisible();
-  await expect(toggle).toHaveAttribute("aria-pressed", "false");
-  await expect(canvas).toBeFocused();
-  // The tip is a first-time one: the next toggle leaves the tool's own line.
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(hint).not.toContainText("Side panels hidden");
-  await page.keyboard.press("ControlOrMeta+Backslash");
-  await expect(scene).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+Backslash");
+    await expect(scene).toBeVisible();
+    await expect(inspector).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(canvas).toBeFocused();
+    // The tip is a first-time one: the next toggle leaves the tool's own line.
+    await page.keyboard.press("ControlOrMeta+Backslash");
+    await expect(hint).not.toContainText("Side panels hidden");
+    await page.keyboard.press("ControlOrMeta+Backslash");
+    await expect(scene).toBeVisible();
 
-  // Tab and Shift+Tab are never taken: each moves focus off the canvas and back.
-  await page.keyboard.press("Tab");
-  await expect(canvas).not.toBeFocused();
-  await expect(scene).toBeVisible();
-  await page.keyboard.press("Shift+Tab");
-  await expect(canvas).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(canvas).not.toBeFocused();
-  await expect(scene).toBeVisible();
+    // Tab and Shift+Tab are never taken: each moves focus off the canvas and back.
+    await page.keyboard.press("Tab");
+    await expect(canvas).not.toBeFocused();
+    await expect(scene).toBeVisible();
+    await page.keyboard.press("Shift+Tab");
+    await expect(canvas).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(canvas).not.toBeFocused();
+    await expect(scene).toBeVisible();
 
-  // The status bar's button does the same by pointer.
-  await toggle.click();
-  await expect(scene).toBeHidden();
-  await toggle.click();
-  await expect(scene).toBeVisible();
-});
+    // The status bar's button does the same by pointer.
+    await toggle.click();
+    await expect(scene).toBeHidden();
+    await toggle.click();
+    await expect(scene).toBeVisible();
+  });
+}
 
 test("? lists every key in a dialog, and Esc puts it away without leaving Studio", async ({
   page,

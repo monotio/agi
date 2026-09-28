@@ -27,7 +27,7 @@ import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engine/engineContext.ts";
 import { aiSettingsKey } from "../settings/useAiSettings.ts";
 import { ResourceCommitError } from "../project/projectTransaction.ts";
-import type { ResourceCommitResult, RoomEdit } from "../project/resourceCommit.ts";
+import type { ResourceCommitResult } from "../project/resourceCommit.ts";
 import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import LessonCard from "../lessons/LessonCard.vue";
@@ -67,7 +67,6 @@ import StudioZoom from "./StudioZoom.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { fillFix, fillNotice } from "./fillAdvice.ts";
-import type { RouteRunner } from "./routeRunner.ts";
 import {
   ROOM_EDIT_HINT,
   ROOM_GROUP_HINT,
@@ -118,6 +117,7 @@ import { useStudioViewport } from "./useStudioViewport.ts";
 import { useRoomLogicDraft } from "./useRoomLogicDraft.ts";
 import { DEFAULT_EGO, useStudioWalk, type EgoShape } from "./useStudioWalk.ts";
 import { useUndoOrder } from "./useUndoOrder.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
 
 /**
  * Room Studio: one picture's items, draw order and planes, edited as a draft
@@ -147,10 +147,8 @@ const {
   baseRevision = undefined,
   baseAuthoring = undefined,
   keep: keepFn = undefined,
-  keepRoom = undefined,
   files = undefined,
   walk = undefined,
-  runRoute = undefined,
 } = defineProps<{
   pictureNumber: number;
   bytes: Uint8Array;
@@ -164,14 +162,10 @@ const {
   baseAuthoring?: AuthoringFingerprint | undefined;
   /** The Keep transaction; the engine's when omitted. */
   keep?: KeepFn | undefined;
-  /** The combined picture + room logic Keep; the engine's when omitted. */
-  keepRoom?: ((edit: RoomEdit) => Promise<ResourceCommitResult>) | undefined;
   /** The game's container files, read at the same revision: the actor probe's VIEWs. */
   files?: ReadonlyMap<string, Uint8Array> | undefined;
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
   walk?: StudioRoomSource | null | undefined;
-  /** Runs a test walk; a worker by default. */
-  runRoute?: RouteRunner | undefined;
 }>();
 /**
  * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
@@ -226,7 +220,6 @@ const commitPicture =
   engineApi?.commitPictureEdit ??
   (() => Promise.reject(new Error("Nothing can be kept here.")));
 const commitRoom =
-  keepRoom ??
   engineApi?.commitRoomEdit ??
   (() => Promise.reject(new Error("Door changes can't be kept here.")));
 /**
@@ -581,7 +574,6 @@ const walker = useStudioWalk({
   say: (notice) => editing.say(notice),
   frozen,
   paused: () => assist.holds.value,
-  runner: runRoute,
   liveState: engineApi
     ? async () => {
         const state = await engineApi.readEngineState();
@@ -1379,7 +1371,7 @@ function onKeyup(event: KeyboardEvent): void {
       <UiIconButton
         icon="panel-left"
         label="Focus mode"
-        shortcut="⌘\"
+        :shortcut="keyLabel('Mod+\\')"
         aria-keyshortcuts="Meta+Backslash Control+Backslash"
         :pressed="calm.focus.value"
         @click="toggleFocus"
