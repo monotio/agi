@@ -44,7 +44,7 @@
     "eval": "npm --prefix evals run eval --",
     "lint": "eslint . --max-warnings 0",
     "lint:dead": "knip",
-    "lint:deps": "depcruise src app --output-type plugin:$PWD/scripts/dependency-report.mjs",
+    "lint:deps": "node scripts/lint-deps.mjs",
     "mutation": "stryker run",
     "mutation:test": "node --test --experimental-strip-types 'test/picture*.test.ts' 'test/studio*.test.ts'",
     "lint:fix": "eslint . --fix",

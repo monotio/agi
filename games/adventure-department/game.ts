@@ -2,7 +2,7 @@ import type { OpenedGame } from "../../app/src/archive/gameZip.ts";
 import { serializeGameTests } from "../../src/agent/gameTestFormat.ts";
 import { TUTORIAL_GAME_TESTS } from "./tests.ts";
 import { createAuthoringState, resourceCacheHint } from "../../src/agent/authoringState.ts";
-import { buildSound } from "../../src/agent/tools.ts";
+import { buildSound } from "../../src/agent/soundBuilder.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -150,17 +150,18 @@ function hint(text: string): string {
 
 /** The line each repair ends with: where to see how it works. */
 const STUDIO_LINE: Readonly<Record<number, string>> = {
-  1: "Curious how it works? Switch to CREATE and open this room in Studio.",
+  1: "Curious how it works? Switch to CREATE and open this room in Room Studio.",
   2: "Curious how it works? Switch to CREATE and open the robot in Sprite Studio.",
-  3: "Curious how it works? Switch to CREATE, open this room in Studio and try the Depth lens.",
+  3: "Curious how it works? Switch to CREATE, open this room in Room Studio and try the Depth lens.",
 };
 
 /**
- * Printed by whichever room completes the third repair. It names no app
- * controls, so the tutorial stays true as the interface around it evolves.
+ * Printed by whichever room completes the third repair. It names the home
+ * screen and none of the controls on it, so the tutorial stays true as the
+ * interface around it evolves.
  */
 const GRADUATION_MESSAGE =
-  "All three exhibits work. You have graduated! You now know the three secrets of every AGI game: PICTURE recipes, VIEW flipbooks and PRIORITY numbers, all run by LOGIC rules. The AI writes the very same things. Make your own adventure from the main menu!";
+  "All three exhibits work. You have graduated! You now know the three secrets of every AGI game: PICTURE recipes, VIEW flipbooks and PRIORITY numbers, all run by LOGIC rules. The AI writes the very same things. Make your own adventure from the home screen!";
 
 const GRADUATED_HINT = hint("All fixed! Now make your own adventure.");
 
@@ -516,7 +517,7 @@ return;
 #message 18 "You see nothing special about that."
 #message 19 "Felix would rather you didn't. Everything here is filed exactly where it belongs."
 #message 20 "Felix, busy behind his counter. Priority 10: one step behind the counter's 11."
-#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. It has no depth number of its own yet, so if you walk behind it you float in front! Fixing that is a job for the Room Studio."
+#message 21 "A tall ledger stand with a paper tag on it: DEPTH PENDING. It has no depth number of its own yet, so if you walk behind it you float in front! Fixing that is a job for Room Studio."
 #message 22 "The depth chart: every priority from 4 (far away, at the top) to 15 (right in front). SHOW PRIORITY paints the room in these colours."
 #message 23 "A globe of a world where every adventure is still waiting to be written."
 #message 24 "A map of the Adventure Department: the red gallery, the blue lab and the green archive. You are here."

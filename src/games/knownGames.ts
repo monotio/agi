@@ -80,7 +80,7 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     // TESTS.JSON is not part of the canonical playable set, so the fixture
     // server's public file set and the full project boot to one revision.
     targetRevision: requireResourceRevision(
-      "62f0651af38642b852fdf1efb1b7e1a3b1eb5dfbd7ce0b4aee91335a3793b8e8",
+      "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a",
     ),
     walkthroughLabel: "Complete route (30 pts)",
     walkthroughCoverage: "complete-game",
