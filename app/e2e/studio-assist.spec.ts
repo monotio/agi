@@ -15,7 +15,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import { createPictureSurface } from "../../src/types.ts";
 import { cacheGame, configureAi, enterCreateMode, textHook, waitForCycles } from "./engineProbe.ts";
 
@@ -290,7 +290,7 @@ test("Room Studio: a request behind a save made elsewhere writes nothing and off
   await selectBridge(page, studio);
   // Another tab keeps an edit: the stored project moves past the running game.
   const generation = await page.evaluate(async (projectId) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const storage = await import(path);
     const cached = await storage.loadAuthoredGame(projectId);
     const changed = { ...cached.files, "AGIDATA.OVL": new TextEncoder().encode("kept elsewhere") };
@@ -304,7 +304,7 @@ test("Room Studio: a request behind a save made elsewhere writes nothing and off
   );
   expect(
     await page.evaluate(async (projectId) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const storage = await import(path);
       return (await storage.loadAuthoredGame(projectId)).generation as number;
     }, PROJECT),

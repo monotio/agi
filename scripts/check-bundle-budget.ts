@@ -62,11 +62,12 @@ const GROUP_LABELS: Record<Group, string> = {
 
 /**
  * Studio code loads when Room Studio or Sprite Studio opens, never on the way
- * to a Play frame: the Studio components, the rules kernel and the walk-route
- * kernel with its worker. (The walkable mask, src/studio/walkable.ts, is
- * shared with click-to-walk navigation and legitimately boots with Play.)
+ * to a Play frame: the Studio components and every Studio kernel, the walk-
+ * route kernel with its worker among them. Helpers Play shares with the
+ * Studios (the walkable mask, view usage, the sprite document) live outside
+ * the studio folders, as `npm run lint:deps` enforces.
  */
-const STUDIO_MODULES = [/^app\/src\/studio\//, /^src\/studio\/rules\//, /^src\/studio\/route\.ts$/];
+const STUDIO_MODULES = [/^app\/src\/studio\//, /^src\/studio\//];
 const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
 
 /**

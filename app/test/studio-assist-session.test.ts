@@ -8,7 +8,7 @@ import type { StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
-import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import { DEFAULT_V2_PROFILE, PROFILES } from "../../src/runtime/profile.ts";
 import { parseView } from "../../src/view/view.ts";
 import { BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "../../test/studioAssistFixtures.ts";

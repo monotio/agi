@@ -1,4 +1,4 @@
-import type { OpenedGame } from "../../app/src/gameZip.ts";
+import type { OpenedGame } from "../../app/src/archive/gameZip.ts";
 import { serializeGameTests } from "../../src/agent/gameTestFormat.ts";
 import { TUTORIAL_GAME_TESTS } from "./tests.ts";
 import { createAuthoringState, resourceCacheHint } from "../../src/agent/authoringState.ts";
@@ -133,6 +133,7 @@ const WORD_GROUPS: readonly (readonly [number, readonly string[]])[] = [
   [158, ["clock", "time"]],
   [159, ["floor", "ground", "carpet", "tiles", "rug"]],
   [160, ["hug", "cuddle", "pat", "pet"]],
+  [161, ["exhibit", "exhibits"]],
 ];
 
 export const TUTORIAL_WORDS: [string, number][] = WORD_GROUPS.flatMap(([id, words]) =>
@@ -187,6 +188,9 @@ export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
 #message 20 "You hug the sleeping robot. Cold tin. The WAKE lever might help."
 #message 21 "You hug the robot. He beeps happily and keeps waving."
 #message 22 "A hug never fixed an exhibit, but it's a kind thought."
+#message 23 "Three exhibits need fixing: the mural in the Picture Gallery, the robot in the Sprite Lab and Felix in the Priority Archive. %s1"
+#message 24 "All three exhibits work: the mural, the robot and Felix. You fixed every one!"
+#message 25 "Each exhibit has its own fix. %s1"
 
 // Boot once, then dispatch the current room every interpreter cycle.
 if (!isset(f200)) {
@@ -228,6 +232,13 @@ if (said("smell") || (equaln(v9, 0) && said("smell", "*"))) { print(16); }
 if (said("thank") || (equaln(v9, 0) && said("thank", "*"))) { print(17); }
 // HOW DO I PAINT: how and do are ignored, and I is INVENTORY's word.
 if (equaln(v9, 0) && said("inventory", "...")) { print(19); }
+// The hint row's "Fix 3 exhibits", answered in every room.
+if (said("look", "exhibit")) {
+  if (isset(f33)) { print(24); } else { print(23); }
+}
+if (said("fix", "exhibit")) {
+  if (isset(f33)) { print(24); } else { print(25); }
+}
 call.v(v0);
 // Whatever the room did not handle gets a Sierra-style reply naming the
 // unknown word and the room's next step (s1, which each room keeps current).
@@ -372,7 +383,7 @@ return;
 #message 7 "${hint("Exhibit 2 of 3. HELP. Try PULL LEVER.")}"
 #message 8 "${GRADUATION_MESSAGE}"
 #message 9 "A tin robot, fast asleep in its charging bay. Zzz. The lever on the wall says WAKE."
-#message 10 "The robot waves at you. Walk past him and he turns: his left-facing loop is a MIRROR of his right-facing one, so it costs no extra drawings."
+#message 10 "The robot waves at you. Walk past him and he turns: his left-facing loop starts as a MIRROR of his right-facing one, and a mirror costs no extra drawings."
 #message 11 "A big red lever on a steel plate. The label says WAKE. Try PULL LEVER."
 #message 12 "The lever points the other way now. A flag keeps it there, even if you leave and come back."
 #message 13 "The robot snores in little beeps. It's switched off."
@@ -425,7 +436,7 @@ if (isset(f5)) {
   draw(o2); stop.cycling(o2);
   accept.input();
 }
-// Awake, the robot turns to face the apprentice: loop 1 is loop 0 mirrored.
+// Awake, the robot turns to face the apprentice: loop 1 faces left.
 if (isset(f31)) {
   if (lessn(v54, 100)) { set.loop(o1, 1); } else { set.loop(o1, 0); }
 }
@@ -523,6 +534,7 @@ return;
 #message 36 "A thick red carpet. It muffles footsteps, and Felix likes it quiet."
 #message 37 "Wait: you're BEHIND the ledger stand, yet you float in front of it! The tag on it says DEPTH PENDING. Nobody has given the stand a depth number yet."
 #message 38 "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains."
+#message 39 "You're too far away. Walk up to Felix's counter, then FIX PRIORITY."
 
 if (isset(f5)) {
   assignn(v50, 3); load.pic(v50); draw.pic(v50); show.pic();
@@ -595,12 +607,15 @@ if (said("show", "priority")) {
   clear.lines(23, 23, 0);
 }
 if (said("fix", "priority") || said("fix", "clerk", "priority")) {
-  if (!isset(f32)) {
-    set(f32); addn(v3, 10); set.priority(o1, 10); set.cel(o2, 1);
-    sound(2, f37);
-    print(4);
-    if (isset(f30) && isset(f31)) { set(f33); print(7); }
-  } else { print(35); }
+  if (isset(f32)) { print(35); } else {
+    // Like the mural and the lever, the repair is made up close: at the counter.
+    if (posn(o0, 50, 112, 125, 167)) {
+      set(f32); addn(v3, 10); set.priority(o1, 10); set.cel(o2, 1);
+      sound(2, f37);
+      print(4);
+      if (isset(f30) && isset(f31)) { set(f33); print(7); }
+    } else { print(39); }
+  }
 }
 if (said("west")) { new.room(2); }
 if (said("east")) { print(10); }

@@ -71,7 +71,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
   const result = await page.evaluate(
     async ({ toolsPath, agentStatePath, wordsPath }) => {
       const sessionPath = "/src/agent/agentSession.ts";
-      const workerPath = "/src/engine.worker.ts?worker";
+      const workerPath = "/src/worker/engine.worker.ts?worker";
       const { AgentSession } = await import(sessionPath);
       const { default: EngineWorker } = await import(workerPath);
       const tools = await import(toolsPath);

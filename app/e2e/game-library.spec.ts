@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
-import { buildProjectZip } from "../src/projectArchive.ts";
+import { buildZip } from "../src/archive/zip.ts";
+import { buildProjectZip } from "../src/archive/projectArchive.ts";
 import {
   configureAi,
   isolateStorage,
@@ -80,7 +80,10 @@ test("ZIP import is checked and staged before Play, with a stable duplicate", as
     mimeType: "application/zip",
     buffer: zip,
   });
-  await expect(page.getByTestId("game-import-ready")).toContainText("added to your library");
+  // The notice names the game as its card does, not the file it came in.
+  await expect(page.getByTestId("game-import-ready")).toContainText(
+    "library added to your library",
+  );
   await expect(page.locator("[data-testid^='saved-game-card-']")).toHaveCount(1);
   await expect(card).toHaveAttribute("data-project-id", firstProjectId!);
   await card.getByTestId("btn-resume-cached").click();
@@ -176,7 +179,7 @@ test("index recovery preserves a game saved while another entry is being reconci
   await page.goto("/");
   const retained = await page.evaluate(
     async ({ entries, firstId, secondId }) => {
-      const storage = await import("/src/gameStorage.ts");
+      const storage = await import("/src/project/gameStorage.ts");
       const files = Object.fromEntries(
         entries.map(({ name, bytes }) => [name, new Uint8Array(bytes)]),
       );
@@ -297,8 +300,8 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await card.getByRole("button", { name: "Play now" }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const before = await page.evaluate(async () => {
-    const storage = await import("/src/gameStorage.ts");
-    const metadata = await import("/src/gameMetadata.ts");
+    const storage = await import("/src/project/gameStorage.ts");
+    const metadata = await import("/src/project/gameMetadata.ts");
     const original = storage.listCachedGames().find((game) => game.library?.source === "catalog")!;
     const data = await storage.loadAuthoredGame(original.projectId);
     return {
@@ -346,8 +349,8 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect.poll(() => requests).toBe(2);
   const after = await page.evaluate(async (originalProjectId) => {
-    const storage = await import("/src/gameStorage.ts");
-    const metadata = await import("/src/gameMetadata.ts");
+    const storage = await import("/src/project/gameStorage.ts");
+    const metadata = await import("/src/project/gameMetadata.ts");
     const games = storage.listCachedGames();
     const original = games.find((game) => game.projectId === originalProjectId)!;
     const remix = games.find((game) => game.library?.source === "remix")!;
@@ -396,7 +399,7 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   // and Cancel — the default focus — keeps every record.
   const stored = () =>
     page.evaluate(async (id) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { loadAuthoredGame } = await import(path);
       const body = await loadAuthoredGame(id);
       const keys = Object.keys(localStorage).sort();

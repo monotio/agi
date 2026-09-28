@@ -5,7 +5,7 @@
 import { openContainer } from "../../../src/container/container.ts";
 import { HostWait, type EngineHost } from "../../../src/runtime/engine.ts";
 import { rngDraw } from "../../../src/runtime/rng.ts";
-import { bytesToBase64 } from "../bytes.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
 import type { WorkerContext } from "./context.ts";
 
 export function createEngineHost(ctx: WorkerContext): EngineHost {
@@ -168,7 +168,9 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     quit() {
       ctx.fns.historyEnd("quit");
       ctx.fns.stopTimers();
-      ctx.ports.presentation({ type: "quit" });
+      // A replay (a walkthrough, the history timeline) plays a recording to
+      // its last frame; only a live game's quit sends the player Home.
+      if (!ctx.replay.replay) ctx.ports.presentation({ type: "quit" });
     },
     /** Playback state only; the engine emits scheduled audio commands separately. */
     playSound(soundNum) {

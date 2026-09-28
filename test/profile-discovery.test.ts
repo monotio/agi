@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { detectVersionString, detectProfile } from "../src/runtime/profile.ts";
 import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
-import { readGameZip } from "../app/src/gameZip.ts";
-import { buildZip } from "../app/src/zip.ts";
+import { readGameZip } from "../app/src/archive/gameZip.ts";
+import { buildZip } from "../app/src/archive/zip.ts";
 
 const ascii = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
 

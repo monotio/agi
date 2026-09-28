@@ -1,5 +1,5 @@
 import { providerReply } from "../../test/provider-stream.ts";
-import { type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { encodePngRgb } from "../../src/picture/png.ts";
 import {
@@ -126,7 +126,7 @@ async function storedProject(page: Page): Promise<{
   revision: string;
 }> {
   return page.evaluate(async () => {
-    const { listCachedGames, loadAuthoredGame } = await import("/src/gameStorage.ts");
+    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     const id = listCachedGames()[0]!.projectId;
     const data = await loadAuthoredGame(id);
     return {
@@ -418,7 +418,7 @@ test("JPEG and WebP attachments survive closing upload and ride only the next or
   // Reaching the storage limit is an explicit refusal; the seventeenth cannot disappear.
   await page.evaluate(async () => {
     const { listCachedGames, loadAuthoredGame, updateAuthoredReferences } =
-      await import("/src/gameStorage.ts");
+      await import("/src/project/gameStorage.ts");
     const id = listCachedGames()[0]!.projectId;
     const data = await loadAuthoredGame(id);
     const first = data!.references![0]!;

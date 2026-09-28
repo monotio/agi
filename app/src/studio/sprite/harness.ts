@@ -12,10 +12,12 @@ import SpriteStudio, { type SpriteKeepFn } from "./SpriteStudio.vue";
 import { buildTutorial } from "../../../../games/adventure-department/game.ts";
 import { requireResourceRevision } from "../../../../src/gameIdentity.ts";
 import { DEFAULT_V2_PROFILE } from "../../../../src/runtime/profile.ts";
-import { openSprite } from "../../../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../../../src/view/spriteDocument.ts";
 import { applySpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import { parseView } from "../../../../src/view/view.ts";
-import { ResourceCommitError, type ViewEdit } from "../../resourceCommit.ts";
+import { authoringFingerprint } from "../../project/gameStorage.ts";
+import { ResourceCommitError } from "../../project/projectTransaction.ts";
+import type { ViewEdit } from "../../project/resourceCommit.ts";
 import { studioSpriteSource } from "../../world/studioSource.ts";
 
 const params = new URLSearchParams(location.search);
@@ -33,7 +35,12 @@ const keep: SpriteKeepFn = async (edit, staged) => {
   if (refusal === "stale" || refusal === "install" || refusal === "storage")
     throw new ResourceCommitError(refusal, `The harness refuses with ${refusal}.`);
   kept.push({ edit, staged });
-  return { status: "committed", projectId: null, revision: revision(kept.length + 1) };
+  return {
+    status: "committed",
+    projectId: null,
+    revision: revision(kept.length + 1),
+    authoring: authoringFingerprint(undefined),
+  };
 };
 
 const probe = {

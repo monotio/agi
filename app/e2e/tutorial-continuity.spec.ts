@@ -7,7 +7,7 @@ import {
   openLibraryActions,
   openSavedGameDetails,
   savedGameCard,
-  textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 import { seedTutorial10, TUTORIAL_1_0 } from "./tutorialRelease.ts";
 
@@ -79,7 +79,7 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
 
   // Resuming the 1.0 card resumes the stored copy, not the catalog release.
   await older.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_1_0}$`));
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
     TUTORIAL_1_0,
@@ -118,7 +118,7 @@ test("the 1.0 card removes through the normal saved-game menu, leaving remix and
   await expect.poll(autosave).toBeNull();
   expect(
     await page.evaluate(async (id) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { loadAuthoredGame } = await import(path);
       return (await loadAuthoredGame(id)) !== null;
     }, TUTORIAL_1_0),
@@ -129,6 +129,53 @@ test("the 1.0 card removes through the normal saved-game menu, leaving remix and
   const tutorial = page.getByTestId("catalog-adventure-department");
   await expect(tutorial).toBeVisible();
   await tutorial.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(/#play\/catalog-adventure-department-1\.1\.0$/);
+});
+
+test("a 1.0 copy without an autosave still reads as played, and an imported 1.0 download keeps its release name", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await seedTutorial10(page);
+  // A 1.0 player whose copy kept its room journal but no autosave.
+  await page.evaluate(async (id) => {
+    localStorage.removeItem(`monotio_agi.autosave.${id}`);
+    const path = "/src/world/roomMapStore.ts";
+    const { writeMapSidecar } = await import(path);
+    const journal = [1, 2].map((to, i) => ({
+      seq: i + 1,
+      session: 1,
+      from: i === 0 ? null : 1,
+      to,
+      cause: i === 0 ? "boot" : "edge",
+      ...(i === 0 ? {} : { edge: "right" }),
+      cycle: i + 1,
+      resourceSet: "tutorial-1.0@0",
+    }));
+    writeMapSidecar(localStorage, id, {
+      journal,
+      discovered: { rooms: { "1": 1, "2": 1 }, edges: [] },
+      layout: {},
+      notes: {},
+      edgeNotes: {},
+    });
+  }, TUTORIAL_1_0);
+  await page.reload();
+  const older = savedGameCard(page, OLDER_TITLE);
+  await expect(older.locator(".game-card__meta")).toHaveText("Played before · last in room 2");
+  await expect(older.getByTestId("btn-resume-cached")).toHaveText("Play");
+
+  // The released 1.0 Project download added again with Add game is the same
+  // release: its card keeps the release name beside the stored copy.
+  await page.getByTestId("game-zip-input").setInputFiles("test/formats/project-v1.zip");
+  await expect(page.getByTestId("game-import-ready")).toContainText(
+    "Added another copy of Adventure Department to your library, with its saved progress, map and history.",
+  );
+  await expect(savedGameCard(page, OLDER_TITLE)).toHaveCount(2);
+  // "Adventure Department" alone is the Tutorial card, the 1.1 release.
+  await expect(
+    page.getByTestId("saved-game-gallery").getByText("Adventure Department", { exact: true }),
+  ).toHaveCount(1);
 });

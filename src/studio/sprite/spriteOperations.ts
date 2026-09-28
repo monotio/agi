@@ -40,7 +40,7 @@ import {
   type SpriteCel,
   type SpriteDocument,
   type SpriteLoop,
-} from "./spriteDocument.ts";
+} from "../../view/spriteDocument.ts";
 
 export interface CelRef {
   readonly loop: number;

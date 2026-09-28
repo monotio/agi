@@ -249,6 +249,13 @@ compatibility on physical Android and iPhone browsers with the keyboard open,
 rotation, interruption and save/restore. Full-game compatibility needs recorded
 completion runs on the specific game edition and interpreter profile.
 
+Desktop Studio runs in WebKit too: `npm --prefix app run e2e:webkit-desktop`
+(`app/playwright.webkit.config.ts`) runs the scenarios tagged `@webkit-desktop`,
+a Room Studio edit kept, reloaded and exported, an export reopened in a fresh
+browser, a mirrored cel repaired in Sprite Studio, a test walk with Play here,
+keyboard-only editing and the unkept-changes dialog. Tag a scenario by ending
+its title with `@webkit-desktop` rather than copying it into a new spec.
+
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
 
@@ -602,7 +609,7 @@ in-degree is not reachability.
 | `app/e2e/world-map.spec.ts`     | The browser contract: pause ownership, imported static graphs, Watch from here, no provider request, phone layout, and measured open/select timings on a 256-room synthetic map |
 
 The sidecar (`MAP.JSON` in project archives, `monotio_agi.map.<key>` in storage)
-is validated by `app/src/roomMapStore.ts`; unknown versions read as empty.
+is validated by `app/src/world/roomMapStore.ts`; unknown versions read as empty.
 
 ## History and reference recovery
 
@@ -642,8 +649,9 @@ remain separate measurements.
 The [media gallery](media/README.md) includes images returned by the actual
 agent tools and screenshots of the app, with source scenarios and reproduction
 commands. `npm run media:capture` regenerates them: `app/e2e/media/docs.media.ts`
-drives the app in test mode with the stub provider, and
-`scripts/capture-feedback.ts` generates tutorial feedback without a provider
+drives the app in test mode with the stub provider, and restyles nothing: the
+Play shot starts from the tutorial's recorded walkthrough, so its timeline reads
+the same on every run. `scripts/capture-feedback.ts` generates tutorial feedback without a provider
 call. `app/playwright.capture.config.ts` records selected browser tests with
 original resources and mocked provider replies; generated recordings stay under
 `.captures/` until reviewed and edited.

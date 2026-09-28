@@ -1,38 +1,38 @@
 <script setup lang="ts">
-import {
-  computed,
-  inject,
-  nextTick,
-  onScopeDispose,
-  ref,
-  shallowRef,
-  useTemplateRef,
-  watch,
-} from "vue";
+import { computed, inject, nextTick, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { StudioFocus } from "../../../../src/agent/studioAssistTools.ts";
 import { viewAssistScope } from "../../../../src/studio/assistScope.ts";
-import { openSprite, type SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
+import { openSprite, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
 import type { ResourceRevision } from "../../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { openContainer } from "../../../../src/container/container.ts";
+import { renderPicture } from "../../../../src/picture/renderer.ts";
+import { createPictureSurface } from "../../../../src/types.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
-import type { ViewUsage } from "../../../../src/studio/sprite/spriteUsage.ts";
-import { engineKey, useEngineApi } from "../../engineContext.ts";
-import { aiSettingsKey } from "../../useAiSettings.ts";
+import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
+import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
+import { aiSettingsKey } from "../../settings/useAiSettings.ts";
+import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import LessonCard from "../../lessons/LessonCard.vue";
 import { useStudioLesson } from "../../lessons/useStudioLesson.ts";
-import type { ResourceCommitResult, ViewEdit } from "../../resourceCommit.ts";
-import { useOptionalCreateCenter, type SpriteRoom } from "../../shell/useCreateWorkspace.ts";
+import type { ResourceCommitResult, ViewEdit } from "../../project/resourceCommit.ts";
+import type { AuthoringFingerprint } from "../../project/gameStorage.ts";
+import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
 import StudioAssistCompare from "../StudioAssistCompare.vue";
 import StudioAssistPanel from "../StudioAssistPanel.vue";
 import StudioKeepDialog from "../StudioKeepDialog.vue";
+import StudioKeySheet from "../StudioKeySheet.vue";
+import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
+import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
+import { useFold } from "../useFold.ts";
 import StudioStageNotes from "../StudioStageNotes.vue";
 import StudioZoom from "../StudioZoom.vue";
 import { useStudioFocus } from "../useStudioFocus.ts";
-import { useStudioKeep, type KeepRecovery } from "../useStudioKeep.ts";
-import { useStudioLeave } from "../useStudioLeave.ts";
+import { useStudioKeep } from "../useStudioKeep.ts";
+import { useStudioExit } from "../useStudioExit.ts";
 import { useStudioNotice } from "../useStudioNotice.ts";
 import { useStudioViewport } from "../useStudioViewport.ts";
 import { useStudioAssist, type StudioAssistHost } from "../useStudioAssist.ts";
@@ -51,7 +51,17 @@ import SpriteTopBar from "./SpriteTopBar.vue";
 import SpriteViewBar from "./SpriteViewBar.vue";
 import { spriteKey, type SpriteKeyActions } from "./spriteKeys.ts";
 import { recolorTargets } from "./spriteRecolor.ts";
-import { aliasGroup, celCount, feetWarning, previewPartner, usageText } from "./spriteView.ts";
+import {
+  aliasGroup,
+  backdropKey,
+  celCount,
+  feetWarning,
+  parseBackdrop,
+  previewPartner,
+  type PreviewCycler,
+  type RoomBackdrop,
+  type SpriteBackdrop,
+} from "./spriteView.ts";
 import { exposeSpriteDraft, useSpriteDraft, type SpriteOutcome } from "./useSpriteDraft.ts";
 import { SPRITE_TOOL_KEYS, useSpriteTools } from "./useSpriteTools.ts";
 
@@ -83,11 +93,13 @@ const {
   profile,
   title = undefined,
   baseRevision = undefined,
+  baseAuthoring = undefined,
   keep: keepFn = undefined,
   files = new Map(),
   usage = { rooms: [], logics: [], dynamic: false },
   rooms = [],
   speed = 1,
+  cyclers = [],
   priorityBase = undefined,
   stagedReference = undefined,
 } = defineProps<{
@@ -98,6 +110,8 @@ const {
   title?: string | undefined;
   /** The game revision the bytes were read at; without one the view is view only. */
   baseRevision?: ResourceRevision | undefined;
+  /** The authoring content the draft opens on; each Keep carries it (resourceCommit.ts). */
+  baseAuthoring?: AuthoringFingerprint | undefined;
   /** The Keep transaction; the engine's when omitted. */
   keep?: SpriteKeepFn | undefined;
   /** The game's container files, read at the same revision: the rooms' pictures. */
@@ -106,6 +120,8 @@ const {
   rooms?: readonly SpriteRoom[];
   /** The game's cycle delay (v10): the loop preview's pace. */
   speed?: number;
+  /** The live objects when Studio opened: whose cycle time paces the preview. */
+  cyclers?: readonly PreviewCycler[] | undefined;
   priorityBase?: number | undefined;
   /** The staged character-sheet candidate these bytes are: its Keep spends the offer. */
   stagedReference?: string | undefined;
@@ -280,19 +296,27 @@ const keeper = useStudioKeep({ draft, keep: keepView });
 const engine = keepFn ? null : useEngineApi();
 /** The staged offer the next Keep spends; once kept, the view is the game's own. */
 let stagedPending = stagedReference;
+/** The authoring content the draft was opened or last kept on. */
+let keptAuthoring = baseAuthoring;
+watch(
+  () => baseAuthoring,
+  (next) => (keptAuthoring = next),
+);
 async function keepView(revision: ResourceRevision): Promise<ResourceCommitResult> {
   const edit: ViewEdit = {
     viewNumber,
     bytes: draft.bytes.value,
     baseRevision: revision,
+    baseAuthoring: keptAuthoring,
     reason: draft.reason(),
   };
   const result = keepFn
     ? await keepFn(edit, stagedPending)
     : stagedPending
-      ? await engine!.keepStagedView(stagedPending, { bytes: edit.bytes, baseRevision: revision })
+      ? await engine!.keepStagedView(stagedPending, edit)
       : await engine!.commitViewEdit(edit);
   stagedPending = undefined;
+  keptAuthoring = result.authoring;
   lesson.check({ kind: "view", num: viewNumber, after: edit.bytes, profile });
   return result;
 }
@@ -392,6 +416,26 @@ const onionNext = ref(true);
 const onionDepth = ref(1);
 const showGrid = ref(true);
 const showBaseline = ref(true);
+/** What shows behind transparent pixels while drawing: per viewer, never the view's data. */
+const BACKDROP_KEY = "monotio_agi.spriteBackdrop";
+const backdrop = shallowRef<SpriteBackdrop>(parseBackdrop(readViewerPref(BACKDROP_KEY)));
+watch(backdrop, (next) => writeViewerPref(BACKDROP_KEY, backdropKey(next)));
+/** The first room that uses the view: a Room backdrop shows its picture where the cel stands. */
+const backdropRoom = computed(() => rooms[0] ?? null);
+const roomPicture = computed<RoomBackdrop | null>(() => {
+  const room = backdropRoom.value;
+  if (backdrop.value.kind !== "room" || !room) return null;
+  try {
+    const bytes = openContainer(new Map(files)).getResource("picture", room.picture);
+    if (!bytes) return null;
+    const surface = createPictureSurface();
+    renderPicture(bytes, surface, { profile });
+    // Where the in-room preview first stands the cel (SpriteRoomPreview.vue).
+    return { visual: surface.visual, x: 70, baselineY: 120 };
+  } catch {
+    return null;
+  }
+});
 /** The contact sheet shows in place of the canvas. */
 const sheet = ref(false);
 /** Back from the contact sheet to the canvas; false when it was not open. */
@@ -409,8 +453,8 @@ const { zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(stage, 1, {
   size: () => ({
     width: currentCel.value?.width ?? 1,
     height: currentCel.value?.height ?? 1,
-    // The view bar above the canvas and the baseline label below it.
-    below: 96,
+    // The baseline label below the canvas.
+    below: 56,
   }),
   max: 24,
 });
@@ -430,7 +474,7 @@ const onion = computed<OnionSkin[]>(() => {
   return out;
 });
 const CANVAS_LABEL =
-  "Canvas. Arrow keys move the cursor 1 pixel (Shift: 8), or the selection; Space or Enter clicks at the cursor; Escape cancels.";
+  "Canvas. Arrow keys move the cursor 1 pixel (Shift: 8), or the selection; Space or Enter clicks at the cursor; Escape cancels; question mark lists every key.";
 const PEN_DOWN = "Pen down — Space to lift";
 const spoken = computed(() => {
   const point = tools.cursor.value;
@@ -448,44 +492,18 @@ const keepTitle = computed(() =>
 
 // ---- the way out ---------------------------------------------------------
 
-const leave = useStudioLeave({
-  unkept: () => draft.dirty.value && !keeper.needsReload.value,
-  keep: () => keepChanges(),
-  discard: () => draft.discard(),
-});
-const center = useOptionalCreateCenter();
-if (center) onScopeDispose(center.guardStudio(leave));
-const opening = () => center?.studio.value?.notice;
-watch(opening, (text) => text && say({ tone: "ok", text }), { immediate: true });
-const dialog = leave.ask;
-async function requestClose(): Promise<void> {
-  if (await leave.confirm()) emit("close");
-}
-function discardChanges(): void {
-  leave.discarding.value = false;
-  tools.cancel();
-  draft.discard();
-  say({ tone: "ok", text: "Changes discarded." });
-}
-async function keepChanges(): Promise<boolean> {
-  tools.cancel();
-  const kept = await keeper.keep();
-  keepFocus();
-  if (!kept) return false;
-  say(lesson.keptNotice(`VIEW ${viewNumber}`));
-  return true;
-}
-async function recover(recovery: KeepRecovery): Promise<void> {
-  if (recovery === "retry") return void keepChanges();
-  await reopen(keeper.banner.value?.fromStorage === true);
-}
-/** Reopen Studio on the running game, or on the game reloaded from storage; the draft stays behind. */
-async function reopen(fromStorage: boolean): Promise<void> {
-  if (fromStorage && !(await leave.confirmReload())) return;
-  keeper.dismiss();
-  draft.discard();
-  emit("reopen", fromStorage);
-}
+const { leave, dialog, requestClose, discardChanges, keepChanges, recover, reopen } = useStudioExit(
+  {
+    draft,
+    keeper,
+    say,
+    keptNotice: () => lesson.keptNotice(`VIEW ${viewNumber}`),
+    keepFocus: () => keepFocus(),
+    settle: () => tools.cancel(),
+    close: () => emit("close"),
+    reopen: (fromStorage) => emit("reopen", fromStorage),
+  },
+);
 function history(which: "undo" | "redo"): void {
   if (frozen()) return;
   tools.cancel();
@@ -493,6 +511,27 @@ function history(which: "undo" | "redo"): void {
 }
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
+const calm = useStudioCalm();
+const keySheet = spriteKeySheet();
+/**
+ * The options bar folds what it cannot fit, least used first: the backdrop,
+ * the grid and the baseline into More, then the "1 px" note, then the contact
+ * sheet into More. The tool's own options never run under the view's.
+ */
+const optionsBar = useTemplateRef("optionsBar");
+const optionsFold = useFold(optionsBar, 3, (bar) => {
+  const options = bar.querySelector<HTMLElement>(".sprite-options");
+  return !options || options.scrollWidth <= options.clientWidth;
+});
+const viewFold = computed(() => [0, 1, 1, 2][optionsFold.level.value] ?? 2);
+watch(
+  () => [tools.tool.value, color.value, sheet.value],
+  () => void optionsFold.refit(),
+  { flush: "post" },
+);
+
+/** The options bar's paint colour, for the tools that paint with it. */
+const paints = computed(() => ["pencil", "fill", "line", "rect"].includes(tools.tool.value));
 exposeSpriteDraft(draft);
 
 const keys: SpriteKeyActions = {
@@ -513,11 +552,12 @@ const keys: SpriteKeyActions = {
     return next !== undefined;
   },
   ask: () => assistPanel.value?.focus() ?? false,
+  keySheet: () => (calm.sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
   event.stopPropagation();
-  if (dialog.value !== undefined) return;
+  if (dialog.value !== undefined || calm.sheetOpen.value) return;
   if (spriteKey(event, keys)) event.preventDefault();
   keepFocus();
 }
@@ -571,6 +611,51 @@ const status = computed(() => {
       @discard="leave.discarding.value = true"
     />
 
+    <div
+      ref="optionsBar"
+      class="sprite-studio__options"
+      role="group"
+      aria-label="Tool and view options"
+      data-testid="sprite-options-bar"
+    >
+      <div
+        class="sprite-options"
+        role="group"
+        :aria-label="`${SPRITE_TOOL_NAMES[tools.tool.value]} options`"
+        data-testid="sprite-tool-options"
+        :data-tool="tools.tool.value"
+      >
+        <b class="sprite-options__name">{{ SPRITE_TOOL_NAMES[tools.tool.value] }}</b>
+        <span v-if="paints" class="sprite-options__colour">
+          <i :style="{ background: `var(--agi-${color})` }" aria-hidden="true"></i>
+          Colour {{ color }} · {{ EGA_COLOUR_NAMES[color] }}
+        </span>
+        <span v-else-if="tools.tool.value === 'eraser'" class="sprite-options__note"
+          >Writes the transparent colour ∅ {{ currentCel?.transparent }}</span
+        >
+        <span v-else-if="tools.tool.value === 'pipette'" class="sprite-options__note"
+          >Picks the paint colour</span
+        >
+        <span
+          v-if="tools.tool.value !== 'recolor' && optionsFold.level.value < 2"
+          class="sprite-options__note"
+          >1 px</span
+        >
+      </div>
+      <span class="sprite-studio__spacer"></span>
+      <SpriteViewBar
+        v-model:sheet="sheet"
+        v-model:prev="onionPrev"
+        v-model:next="onionNext"
+        v-model:depth="onionDepth"
+        v-model:grid="showGrid"
+        v-model:baseline="showBaseline"
+        v-model:backdrop="backdrop"
+        :room-backdrop="backdropRoom?.room ?? null"
+        :fold="viewFold"
+      />
+    </div>
+
     <SpriteToolRail
       :tool="tools.tool.value"
       class="sprite-studio__rail"
@@ -584,14 +669,6 @@ const status = computed(() => {
       class="sprite-studio__frame"
       :class="{ 'sprite-studio__frame--recolor': tools.tool.value === 'recolor' && !sheet }"
     >
-      <SpriteViewBar
-        v-model:sheet="sheet"
-        v-model:prev="onionPrev"
-        v-model:next="onionNext"
-        v-model:depth="onionDepth"
-        v-model:grid="showGrid"
-        v-model:baseline="showBaseline"
-      />
       <div
         ref="stage"
         class="sprite-studio__stage"
@@ -612,6 +689,8 @@ const status = computed(() => {
           :baseline="showBaseline"
           :overlay="tools.overlay.value"
           :changed="changedHere"
+          :backdrop
+          :room="roomPicture"
           :label="`Loop ${loop}, cel ${cel}: ${currentCel.width} by ${currentCel.height} pixels`"
           @hover="tools.hover"
           @press="(press) => tools.pressAt(press.point, press.alt)"
@@ -632,23 +711,8 @@ const status = computed(() => {
         @apply="(op) => edit(op, 'Recolour')"
         @close="tools.closeRecolor()"
       />
-      <StudioAssistCompare
-        v-if="proposal"
-        v-model="compare"
-        below-bar
-        :stale="assist.stale.value"
-      />
-      <StudioStageNotes
-        :banner="keeper.banner.value"
-        :notice
-        :editing="false"
-        @recover="recover"
-        @hold="hold"
-      />
-      <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
-      <p v-if="tools.penDown.value" class="sprite-studio__pen" data-testid="sprite-pen-down">
-        {{ PEN_DOWN }}
-      </p>
+      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
+      <StudioStageNotes :banner="keeper.banner.value" :notice @recover="recover" @hold="hold" />
     </main>
 
     <SpriteTimeline
@@ -693,7 +757,14 @@ const status = computed(() => {
         :rooms="usage.rooms"
         @propagate="setPropagate"
       />
-      <SpritePreview :document="shown" :loop :partner="previewPartner(shown, loop)" :speed />
+      <SpritePreview
+        :document="shown"
+        :loop
+        :partner="previewPartner(shown, loop)"
+        :speed
+        :view="viewNumber"
+        :cyclers
+      />
       <SpriteRoomPreview
         v-if="currentCel && rooms.length > 0"
         :rooms
@@ -727,17 +798,36 @@ const status = computed(() => {
       </StudioAssistPanel>
     </aside>
 
-    <footer class="sprite-studio__status">
+    <footer class="sprite-studio__status" aria-label="Status bar">
       <span data-role="status">{{ status }}</span>
-      <span>{{ tools.tool.value }} · 1 px</span>
+      <span
+        v-if="tools.penDown.value"
+        class="sprite-studio__hint is-pen"
+        data-testid="sprite-pen-down"
+        >{{ PEN_DOWN }}</span
+      >
+      <span v-else class="sprite-studio__hint" data-testid="sprite-hint">{{
+        SPRITE_TOOL_HINTS[tools.tool.value]
+      }}</span>
       <span class="sprite-studio__spacer"></span>
       <span data-testid="sprite-bytes"
-        >VIEW {{ viewNumber }} · {{ draft.bytes.value.length.toLocaleString("en") }} B</span
+        >VIEW {{ viewNumber }} · {{ draft.bytes.value.length.toLocaleString("en") }} bytes</span
       >
-      <span>AGI {{ profile.id }} profile</span>
+      <span>AGI {{ profile.id }}</span>
+      <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
+      <UiIconButton
+        icon="help"
+        label="Keyboard shortcuts"
+        shortcut="?"
+        aria-keyshortcuts="?"
+        aria-haspopup="dialog"
+        data-testid="studio-keys-button"
+        @click="calm.sheetOpen.value = true"
+      />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
 
+    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Sprite Studio" :sections="keySheet" />
     <StudioKeepDialog
       v-model:ask="dialog"
       :subject="`VIEW ${viewNumber}`"
@@ -755,7 +845,10 @@ const status = computed(() => {
 .sprite-studio {
   position: relative;
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr) minmax(150px, 30%) 28px;
+  --studio-bar: var(--control-h);
+  grid-template-rows:
+    52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) minmax(150px, 30%)
+    var(--studio-bar);
   grid-template-columns: 48px minmax(0, 1fr) 300px;
   width: 100%;
   height: 100%;
@@ -768,13 +861,63 @@ const status = computed(() => {
 .sprite-studio__top {
   grid-column: 1 / -1;
 }
+@media (pointer: coarse) {
+  .sprite-studio {
+    --studio-bar: var(--control-h-touch);
+  }
+}
 .sprite-studio__rail {
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 1;
+}
+/* The options bar docks over the rail and the canvas: nothing floats on the cel. */
+.sprite-studio__options {
+  grid-row: 2;
+  grid-column: 1 / 3;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-1);
+}
+.sprite-options {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.sprite-options__name {
+  min-width: 5.5rem;
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+}
+.sprite-options__colour {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+}
+.sprite-options__colour i {
+  width: var(--space-5);
+  height: var(--space-5);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+}
+.sprite-options__note {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
 }
 .sprite-studio__frame {
   position: relative;
-  grid-row: 2;
+  grid-row: 3;
   grid-column: 2;
   min-width: 0;
   min-height: 0;
@@ -797,34 +940,17 @@ const status = computed(() => {
 .sprite-studio__frame--recolor :deep(.stage-note) {
   left: calc(50% + 134px);
 }
-/* Ask floats at the frame's upper right, under the view bar: the side panel
-   keeps its previews in view without scrolling. */
-/* The held pen's cue, at the stage's lower left like the editing keys' hint. */
-.sprite-studio__pen {
-  position: absolute;
-  bottom: var(--space-4);
-  left: var(--space-4);
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg);
-  color: var(--ink-2);
-  background: var(--surface-overlay);
-  font-size: var(--text-2xs);
-  white-space: nowrap;
-  pointer-events: none;
-}
-/* The inset matches STAGE_INSET in useStudioViewport.ts; the top clears the view bar. */
+/* The inset matches STAGE_INSET in useStudioViewport.ts. */
 .sprite-studio__canvas {
   margin: auto;
-  padding: calc(var(--space-7) + var(--control-h)) var(--space-7) var(--space-7);
+  padding: var(--space-7);
 }
 .sprite-studio__timeline {
-  grid-row: 3;
+  grid-row: 4;
   grid-column: 1 / 3;
 }
 .sprite-studio__panel {
-  grid-row: 2 / 4;
+  grid-row: 2 / 5;
   grid-column: 3;
   overflow-y: auto;
   border-left: 1px solid var(--hairline);
@@ -833,8 +959,9 @@ const status = computed(() => {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: var(--space-5);
-  padding: 0 var(--space-4);
+  gap: var(--space-4);
+  min-width: 0;
+  padding: 0 var(--space-1) 0 var(--space-4);
   border-top: 1px solid var(--hairline);
   color: var(--ink-3);
   background: var(--surface-0);
@@ -843,6 +970,18 @@ const status = computed(() => {
 }
 .sprite-studio__status [data-role="status"] {
   color: var(--ink-2);
+}
+.sprite-studio__hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+}
+.sprite-studio__hint.is-pen {
+  color: var(--action);
+  font-weight: var(--weight-bold);
 }
 .sprite-studio__spacer {
   flex: 1;

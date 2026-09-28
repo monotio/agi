@@ -1,8 +1,8 @@
-import { type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
 
 test("top navigation groups controls and follows game sound through shortcuts, app toggles and restore", async ({
@@ -69,10 +69,10 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(page.getByTestId("input-line")).toBeFocused();
 
   await settings.click();
+  // A drawn switch: its state is aria-checked, never "On"/"Off" text.
   const sound = page.getByTestId("toggle-mute");
-  const soundValue = sound.locator(".setting-value");
+  await expect(sound).toHaveRole("switch");
   await expect(sound).toHaveAttribute("aria-checked", "false");
-  await expect(soundValue).toHaveText("Off");
   await sound.click();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("GAME SOUND ON");
   await expect(sound).toHaveAttribute("aria-checked", "true");
@@ -83,13 +83,13 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("F2");
   await settings.click();
-  await expect(soundValue).toHaveText("Off");
+  await expect(sound).toHaveAttribute("aria-checked", "false");
   await page.keyboard.press("Escape");
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
   await expect(page.getByTestId("resume-caption")).toBeVisible();
   await settings.click();
-  await expect(soundValue).toHaveText("Off");
+  await expect(sound).toHaveAttribute("aria-checked", "false");
 
   // The sheet's game section is the creator/export actions plus Start over —
   // no history or recording entries.

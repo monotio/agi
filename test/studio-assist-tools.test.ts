@@ -26,7 +26,7 @@ import {
 } from "../src/studio/assistScope.ts";
 import { compileEditDocument } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { openSprite } from "../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../src/view/spriteDocument.ts";
 import { parseView } from "../src/view/view.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
 import { AFTER_BRIDGE, BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "./studioAssistFixtures.ts";
@@ -152,7 +152,11 @@ test("outside a Studio assist task the Studio tools are denied", async () => {
   const refused = /only available in a Studio assist task/;
   assert.match(executeAgentTool(state, "read_edit_context", args).error ?? "", refused);
   assert.match(
-    (await executeAgentToolAsync(state, "read_edit_context", args)).error ?? "",
+    (
+      await executeAgentToolAsync(state, "read_edit_context", args, {
+        allowedTools: STUDIO_ASSIST_TASK_TOOLS,
+      })
+    ).error ?? "",
     refused,
   );
   // Genesis, room authoring and Remix: not in the phase's availability.
@@ -169,7 +173,10 @@ test("outside a Studio assist task the Studio tools are denied", async () => {
   assert.match(phase.error ?? "", /not available in this phase/);
   // Ask: read-only, and the Studio tools are not among its reads.
   assert.ok(!ASK_TOOLS.includes("read_edit_context"));
-  const ask = await executeAgentToolAsync(state, "read_edit_context", args, { readOnly: true });
+  const ask = await executeAgentToolAsync(state, "read_edit_context", args, {
+    readOnly: true,
+    allowedTools: ASK_TOOLS,
+  });
   assert.match(ask.error ?? "", /Ask mode is read-only/);
   // Inside the task, writers stay denied.
   const writer = await run(state, bridgeAssist(), "write_words", { words: ["x"], groups: null });

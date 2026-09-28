@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { directionForDelta } from "../../src/agent/gameTestSteps.ts";
 import { AGI_KEY, DIRECTION_KEYS } from "../../src/runtime/keys.ts";
 import type { ScreenObject } from "../../src/runtime/screenObject.ts";
-import { type DirectionInput, type Speedrun } from "./runner.ts";
+import type { DirectionInput, Speedrun } from "./runner.ts";
 import { KNOWN_GAME_HASH } from "../../src/games/knownGames.ts";
 import type { Walkthrough } from "./route.ts";
 

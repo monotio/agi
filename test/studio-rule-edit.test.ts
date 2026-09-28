@@ -291,7 +291,7 @@ describe("rule edits", () => {
       assert.deepEqual(applyRuleEdit(document, op, session), {
         ok: false,
         error:
-          "Rule 'odd' is native logic the rule editor cannot read. Change it as text with an explicit edit.",
+          "Rule 'odd' is written directly in the room's script, which the door editor cannot read. Change it in the script text.",
       });
     }
     assert.equal(serializeLogicDocument(document), source);

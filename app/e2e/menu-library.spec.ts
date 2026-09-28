@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
+  openDeveloperActivity,
   openLibraryActions,
   isolateStorage,
   openSavedGameDetails,
@@ -53,10 +54,14 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await expect(page.getByRole("menuitem", { name: /ZIP/i })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /folder/i })).toBeVisible();
   await page.keyboard.press("Escape");
+  // The test game lives in Developer activity, off the page until Settings →
+  // Advanced opens it.
   await expect(page.getByTestId("boot-agent")).toBeHidden();
-  await page.getByTestId("agent-panel").getByText("Developer activity", { exact: true }).click();
+  await expect(page.getByTestId("developer-activity-summary")).toHaveCount(0);
+  await openDeveloperActivity(page);
   await expect(page.getByTestId("boot-agent")).toBeVisible();
-  await page.getByTestId("agent-panel").getByText("Developer activity", { exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("developer-activity-sheet")).toBeHidden();
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.screenshot({
@@ -149,7 +154,7 @@ test("Resume shows the same saved scene and position, including after reopening 
     if (!observed) throw new Error("No save observation was installed");
     if (!record.preview) throw new Error("The saved progress has no screenshot");
     if (!observed.frame) throw new Error("No frame accompanied the save observation");
-    const { compositeFrame } = await import("/src/composite.ts");
+    const { compositeFrame } = await import("/src/render/composite.ts");
     const rgba = new Uint8ClampedArray(320 * 200 * 4);
     compositeFrame(
       {
@@ -232,10 +237,10 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
   await page.evaluate(async () => {
-    const { GAME_CATALOG } = await import("/src/gameCatalog.ts");
-    const { previewGame } = await import("/src/gamePreview.ts");
-    const { addLibraryGame, copyLibraryGame } = await import("/src/gameLibrary.ts");
-    const { renameAuthoredGame } = await import("/src/gameStorage.ts");
+    const { GAME_CATALOG } = await import("/src/library/gameCatalog.ts");
+    const { previewGame } = await import("/src/library/gamePreview.ts");
+    const { addLibraryGame, copyLibraryGame } = await import("/src/library/gameLibrary.ts");
+    const { renameAuthoredGame } = await import("/src/project/gameStorage.ts");
     const entry = GAME_CATALOG[0]!;
     const game = await entry.load();
     const opening = await previewGame(game);
@@ -327,7 +332,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     localStorage.getItem("monotio_agi.lastGame")!,
   );
   const copy = await page.evaluate(async () => {
-    const path = "/src/gameLibrary.ts";
+    const path = "/src/library/gameLibrary.ts";
     const { copyLibraryGame } = await import(path);
     return copyLibraryGame(localStorage.getItem("monotio_agi.lastGame")!);
   });
@@ -349,7 +354,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   const checkpoint = await page.evaluate(async () => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const storage = await import(path);
     const projectId = localStorage.getItem("monotio_agi.lastGame")!;
     const key = `monotio_agi.autosave.${projectId}`;
@@ -382,7 +387,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     "Rejected resume preserves the checkpoint bytes",
   ).toBe(true);
   await page.evaluate(async ({ projectId, original }) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const storage = await import(path);
     await storage.updateAuthoredGameFiles(
       projectId,

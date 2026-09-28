@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.1.0-rc.5",
+  "version": "1.1.0-rc.6",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "type": "module",
   "license": "MIT",
@@ -30,8 +30,8 @@
     "typecheck:app": "npm --prefix app run typecheck",
     "check:dependencies": "npm ls --depth=0 && npm --prefix app ls --depth=0",
     "check": "run-s check:dependencies typecheck typecheck:app lint lint:ast lint:dead lint:deps lint:tokens format:check test test:app eval:replay",
-    "eval:genesis": "node --experimental-strip-types scripts/eval-genesis.ts",
-    "eval:picture": "node --experimental-strip-types scripts/eval-picture.ts",
+    "eval:genesis": "node --experimental-strip-types evals/genesis-cli.ts",
+    "eval:picture": "node --experimental-strip-types evals/picture-fidelity.ts",
     "eval:remix": "node --experimental-strip-types evals/remix-benchmark.ts",
     "eval:studio": "node --experimental-strip-types evals/studio-assist-benchmark.ts",
     "eval:matrix": "node --experimental-strip-types evals/genesis-matrix.ts",
@@ -42,7 +42,7 @@
     "eval": "npm --prefix evals run eval --",
     "lint": "eslint . --max-warnings 0",
     "lint:dead": "knip",
-    "lint:deps": "depcruise src app",
+    "lint:deps": "depcruise src app --output-type plugin:$PWD/scripts/dependency-report.mjs",
     "mutation": "stryker run",
     "mutation:test": "node --test --experimental-strip-types 'test/picture*.test.ts' 'test/studio*.test.ts'",
     "lint:fix": "eslint . --fix",
@@ -52,7 +52,7 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.127.0",
+    "@anthropic-ai/sdk": "^0.128.0",
     "@ast-grep/cli": "0.45.3",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
@@ -63,10 +63,10 @@
     "globals": "^17.12.0",
     "knip": "^6.38.0",
     "npm-run-all2": "^9.0.3",
-    "openai": "^7.19.0",
+    "openai": "^7.22.0",
     "prettier": "^3.9.8",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.70.0",
+    "typescript-eslint": "^8.70.1",
     "vue-eslint-parser": "^10.4.1"
   }
 }

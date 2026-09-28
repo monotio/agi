@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
@@ -144,7 +144,7 @@ const studioFocused = (studio: Locator): Promise<boolean> =>
 
 async function storedFiles(page: Page): Promise<Map<string, Uint8Array>> {
   const files = await page.evaluate(async (id) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const game = await loadAuthoredGame(id);
     return Object.fromEntries(
@@ -176,7 +176,7 @@ async function dragHandle(page: Page, line: number, index: number, dx: number, d
   await page.mouse.up();
 }
 
-test("a depth drag changes only the priority plane, undoes, keeps, reloads, exports and plays", async ({
+test("a depth drag changes only the priority plane, undoes, keeps, reloads, exports and plays @webkit-desktop", async ({
   page,
 }) => {
   await bootStudioGame(page);
@@ -421,7 +421,7 @@ test("Keep refuses as stale when the project changed elsewhere; Reopen reloads i
   elsewhere.putResource("picture", 9, PIC_5);
   const moved = await page.evaluate(
     async ([id, files]) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { updateAuthoredGameFiles } = await import(path);
       return updateAuthoredGameFiles(
         id,
@@ -560,7 +560,7 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
     studio.locator('[role="treeitem"][data-row] .scene-list__label').allTextContents();
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   expect((await rowLabels()).filter((label) => /^Element \d/.test(label))).toEqual([]);
-  await expect(studio.locator(".studio__status")).toContainText("authored source");
+  await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
   // A barrier nudged up one row: a Walk-kind edit the Depth lens allows.
   await page.keyboard.press("2");
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
@@ -578,5 +578,5 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   // The remix keeps the named objects with the kept edit.
   await panel.getByTestId("world-open-studio").click();
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
-  await expect(studio.locator(".studio__status")).toContainText("authored source");
+  await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
 });

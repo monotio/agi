@@ -1,9 +1,9 @@
 import { expect, test } from "./test.ts";
 import { testProjectId, testRevision } from "../test/identity.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/gameZip.ts";
-import { buildProjectZip } from "../src/projectArchive.ts";
-import { buildZip } from "../src/zip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { buildProjectZip } from "../src/archive/projectArchive.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -88,12 +88,14 @@ test("project import names each stored and refused progress entry", async ({ pag
     buffer: Buffer.from(archive),
   });
   const notice = page.getByTestId("game-import-ready");
-  await expect(notice).toContainText("save slot 1 stored");
-  await expect(notice).toContainText("save slot 7 could not be stored");
-  await expect(notice).toContainText("autosave could not be stored");
+  // One plain sentence for what came along, one for what storage refused.
+  await expect(notice).toHaveText(
+    "Storage report added to your library, with its save slot 1. " +
+      "Its saved progress and save slot 7 could not be stored.",
+  );
   const stored = await page.evaluate(async () => {
-    const { listCachedGames } = await import("/src/gameStorage.ts");
-    const { readGameSaves } = await import("/src/gameSaves.ts");
+    const { listCachedGames } = await import("/src/project/gameStorage.ts");
+    const { readGameSaves } = await import("/src/saves/gameSaves.ts");
     const projectId = listCachedGames()[0]!.projectId;
     return {
       slots: Object.keys(readGameSaves(localStorage, projectId)),
@@ -167,11 +169,13 @@ test("the project archive moves the autosave to another browser; the game export
     const other = await fresh.newPage();
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles(savedPath);
-    await expect(other.getByText(/added to your library.*autosave stored/)).toBeVisible();
+    await expect(other.getByTestId("game-import-ready")).toContainText(
+      /added to your library, with its saved progress[^()]*\.$/,
+    );
     const resume = other.getByTestId("btn-resume-cached");
     await expect(resume).toHaveText("Resume");
     const projectId = await other.evaluate(async () => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const store = await import(path);
       return store.listCachedGames()[0].projectId as string;
     });

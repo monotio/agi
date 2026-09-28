@@ -5,16 +5,22 @@ import { useId } from "vue";
  * Label, hint and error around one control. The slot receives the ids to wire
  * up: `<UiField v-slot="{ id, describedBy }"><input :id :aria-describedby="describedBy"></UiField>`.
  */
-const { hint = undefined, error = undefined } = defineProps<{
+const {
+  hint = undefined,
+  error = undefined,
+  dense = false,
+} = defineProps<{
   label: string;
   hint?: string | undefined;
   error?: string | undefined;
+  /** Inspector density: a small label over a 32px control. */
+  dense?: boolean;
 }>();
 const id = useId();
 </script>
 
 <template>
-  <div class="ui-field" :class="[{ 'ui-field--error': error }]">
+  <div class="ui-field" :class="[{ 'ui-field--error': error, 'ui-field--dense': dense }]">
     <label class="ui-field__label" :for="id">{{ label }}</label>
     <slot
       :id="id"
@@ -62,6 +68,22 @@ const id = useId();
 }
 .ui-field :slotted(:is(input, textarea, select):hover) {
   border-color: var(--ink-3);
+}
+.ui-field :slotted(:is(input, textarea, select):focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+}
+.ui-field--dense {
+  gap: var(--space-1);
+}
+.ui-field--dense .ui-field__label {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.ui-field--dense :slotted(:is(input, textarea, select)) {
+  min-height: var(--control-h-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
 }
 .ui-field--error :slotted(:is(input, textarea, select)) {
   border-color: var(--danger);

@@ -1,6 +1,6 @@
 /**
  * Sprite Studio's working draft: the VIEW document being edited
- * (src/studio/sprite/spriteDocument.ts), its undo history over encoded
+ * (src/view/spriteDocument.ts), its undo history over encoded
  * payloads (spriteHistory.ts), and the bytes and resource revision last kept
  * (or opened). Every edit goes through the kernel (`applySpriteEdit`), then
  * `validateSpriteEdit` with the loops the edit targets, so an accidental
@@ -24,7 +24,7 @@ import {
   withPayload,
   type SpriteDocument,
   type SpriteProfile,
-} from "../../../../src/studio/sprite/spriteDocument.ts";
+} from "../../../../src/view/spriteDocument.ts";
 import {
   begin,
   cancelSpriteGesture,

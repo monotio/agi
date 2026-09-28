@@ -1,0 +1,21 @@
+id: no-nonnull-update
+language: ts
+severity: error
+message: >-
+  Increment or decrement on a non-null assertion in a mutation-tested kernel;
+  write `x = x! + 1` so Stryker's instrumenter can parse it
+note: |
+  `npm run mutation` instruments src/picture and src/studio with Babel, which
+  rejects an update expression whose operand is a TypeScript non-null
+  assertion, so one `counts[c]!++` stops the whole run.
+  BAD:  counts[c]!++;
+  GOOD: counts[c] = counts[c]! + 1;
+rule:
+  any:
+    - pattern: $A!++
+    - pattern: $A!--
+    - pattern: ++$A!
+    - pattern: --$A!
+files:
+  - src/picture/**
+  - src/studio/**

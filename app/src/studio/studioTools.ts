@@ -37,22 +37,33 @@ const WALK_TOOLS: readonly StudioTool[] = ["walk", "door", "edge"];
 
 export const isWalkTool = (tool: StudioTool): tool is WalkTool => WALK_TOOLS.includes(tool);
 
-/** The rail's single-letter shortcuts; G toggles the actor probe, which is not a tool. */
-export const TOOL_KEYS: Record<string, StudioTool | "probe"> = {
-  t: "walk",
-  d: "door",
-  e: "edge",
-  v: "select",
-  a: "point",
-  l: "line",
-  r: "rect",
-  p: "polygon",
-  f: "fill",
-  b: "brush",
-  i: "pipette",
-  g: "probe",
-  h: "hand",
+/**
+ * Each tool's single-letter shortcut, the one list the rail shows and the
+ * keyboard handler reads; G toggles the actor probe, which is not a tool.
+ */
+export const TOOL_SHORTCUTS: Record<StudioTool | "probe", string> = {
+  walk: "T",
+  door: "D",
+  edge: "E",
+  select: "V",
+  point: "A",
+  line: "L",
+  rect: "R",
+  polygon: "P",
+  fill: "F",
+  brush: "B",
+  pipette: "I",
+  probe: "G",
+  hand: "H",
 };
+
+/** The shortcuts by lowercase key, for the keyboard handler. */
+export const TOOL_KEYS: Record<string, StudioTool | "probe"> = Object.fromEntries(
+  (Object.entries(TOOL_SHORTCUTS) as [StudioTool | "probe", string][]).map(([tool, key]) => [
+    key.toLowerCase(),
+    tool,
+  ]),
+);
 
 /** Tools that insert a new item. */
 const DRAWING_TOOLS: readonly StudioTool[] = ["line", "rect", "polygon", "fill", "brush"];

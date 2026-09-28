@@ -4,7 +4,7 @@
  * draw-order tick layout and Scene list labels. No Vue and no DOM, so tests drive them directly.
  */
 
-import { EGA_PALETTE } from "../palette.ts";
+import { EGA_PALETTE } from "../render/palette.ts";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { PictureSourceSpan } from "../../../src/picture/source.ts";
@@ -370,19 +370,36 @@ export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number
     return {
       tone: "warn",
       fraction,
-      note: `Over the agent's ${n(sceneLimit)}-byte write_scene limit; the resource limit is ${n(recordLimit)} bytes.`,
+      note: `Larger than the ${n(sceneLimit)} bytes the assistant can rewrite in one go; the game allows ${n(recordLimit)} bytes.`,
     };
   if (bytes >= sceneLimit * BYTES_APPROACH)
     return {
       tone: "warn",
       fraction,
-      note: `Approaching the agent's ${n(sceneLimit)}-byte write_scene limit (resource limit ${n(recordLimit)}).`,
+      note: `Close to the ${n(sceneLimit)} bytes the assistant can rewrite in one go (the game allows ${n(recordLimit)}).`,
     };
   return {
     tone: "ok",
     fraction,
     note: `${n(bytes)} of the ${n(recordLimit)} bytes a picture can hold.`,
   };
+}
+
+/** A picture's size in plain words, for the top bar's meter and the footer. */
+export interface PictureSize {
+  /** "1,148 bytes" */
+  readonly bytes: string;
+  /** "219 drawing commands" */
+  readonly commands: string;
+  /** "1,148 bytes · 219 drawing commands" */
+  readonly full: string;
+}
+
+export function pictureSize(bytes: number, commands: number): PictureSize {
+  const n = (value: number): string => value.toLocaleString("en-US");
+  const size = `${n(bytes)} ${bytes === 1 ? "byte" : "bytes"}`;
+  const drawing = `${n(commands)} drawing ${commands === 1 ? "command" : "commands"}`;
+  return { bytes: size, commands: drawing, full: `${size} · ${drawing}` };
 }
 
 /** A Scene list label split for a middle ellipsis: `head` gives way first, `tail` stays whole. */

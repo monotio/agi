@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isStoryDialogue, storyDialogueKey } from "../src/replayRunner.ts";
-import type { ReplayObservation } from "../src/replay.ts";
+import { isStoryDialogue, storyDialogueKey } from "../src/walkthrough/replayRunner.ts";
+import type { ReplayObservation } from "../src/walkthrough/replay.ts";
 
 function fakeObservation(
   modalKind: string | null = null,

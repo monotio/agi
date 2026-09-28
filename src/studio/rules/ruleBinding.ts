@@ -109,7 +109,7 @@ export function followPictureEdit(
     if (model === "native")
       return {
         ok: false,
-        error: `Rule '${rule.id}' follows '${item}' but is native logic; move its box as text.`,
+        error: `Rule '${rule.id}' follows '${item}' but is written directly in the room's script; move its box in the script text.`,
       };
     const box = ruleBox(model);
     if (box === null) {

@@ -61,28 +61,62 @@ test("a tracked release precedes a subsequently pressed direction in the same cy
   assert.equal(engine.vars[6], 3, "north, release, east leaves east selected");
 });
 
-test("have.key discards mapped status events and retains unread raw events", () => {
+test("have.key reads script-mapped keys raw; the input phase maps what it leaves", () => {
+  // The original applies set.key mappings only in the cycle's input phase;
+  // have.key dequeues raw keys (docs/fidelity.md, "Script key mappings and
+  // have.key"). Keys arriving during the logic pass are still raw for it.
   class LateHost extends Host {
     polls = 0;
     override takeKeys(): number[] {
-      return ++this.polls === 2 ? [0x61, 0x62, 0x63] : [];
+      return ++this.polls === 2 ? [0x61, 0x62, 0x61] : [];
     }
   }
   const host = new LateHost();
   const engine = game(
     `
     set.key(97,0,7);
-    if (have.key()) { assignv(v100,v19); }
-    assignn(v19,0);
-    if (have.key()) { assignv(v101,v19); }
+    if (!isset(f200)) {
+      set(f200);
+      if (have.key()) { assignv(v100,v19); }
+      assignn(v19,0);
+      if (have.key()) { assignv(v101,v19); }
+    }
     return;
   `,
     host,
   );
   engine.tick();
-  assert.equal(engine.vars[100], 0x62, "mapped a is not a raw key");
-  assert.equal(engine.vars[101], 0x63, "later raw c is retained for the next poll");
-  assert.equal(engine.controllers[7], 0, "have.key discards status events");
+  assert.equal(engine.vars[100], 0x61, "a mapped key is still a raw key for have.key");
+  assert.equal(engine.vars[101], 0x62, "the next raw key is polled in order");
+  assert.equal(engine.controllers[7], 0, "have.key never raises a controller");
+  engine.tick();
+  assert.equal(engine.controllers[7], 1, "the unread suffix maps in the next input phase");
+  assert.equal(engine.vars[19], 0, "and is not a raw key there");
+});
+
+test("a have.key busy loop accepts a script-mapped key delivered while it waits", () => {
+  // A busy loop spins inside one logic pass, so the original's timer-driven
+  // keyboard poll always queues the key raw for the loop's have.key.
+  class WaitingHost extends Host {
+    answers = [0x0d, 0x62];
+    waitKey(): number {
+      return this.answers.shift() ?? 0x62;
+    }
+  }
+  const engine = game(
+    `
+    set.key(13,0,7);
+    assignn(v19,0);
+  wait:
+    if (!have.key()) { goto wait; }
+    assignv(v100,v19);
+    return;
+  `,
+    new WaitingHost(),
+  );
+  engine.tick();
+  assert.equal(engine.vars[100], 0x0d, "the mapped Enter ends the loop");
+  assert.equal(engine.controllers[7], 0);
 });
 
 test("a satisfied OR group skips the remaining members' handlers", () => {
@@ -208,7 +242,7 @@ test("script-bound Enter and Escape still select or dismiss a modal menu", () =>
   }
 });
 
-test("a script-bound Escape cancels inventory and maps the remaining input in order", () => {
+test("a script-bound Escape cancels inventory and leaves the remaining input raw in order", () => {
   const host = new Host();
   const container = createContainer();
   container.putFile("OBJECT", buildObjectFile([{ name: "key" }]));
@@ -234,8 +268,8 @@ test("a script-bound Escape cancels inventory and maps the remaining input in or
   engine.tick();
   assert.equal(engine.modalKind, null);
   assert.equal(engine.vars[25], 255);
-  assert.equal(engine.vars[100], 98, "mapped a is discarded by resumed have.key");
-  assert.equal(engine.vars[101], 99, "raw b and c retain their order");
+  assert.equal(engine.vars[100], 97, "resumed have.key reads the mapped a raw");
+  assert.equal(engine.vars[101], 98, "raw b follows in order");
   assert.equal(engine.controllers[7], 0);
   assert.equal(engine.controllers[8], 0);
 });
@@ -258,7 +292,7 @@ test("queued script-bound Escape can dismiss consecutive modal windows", () => {
   assert.equal(engine.controllers[7], 0);
 });
 
-test("ordinary queued raw input keeps its classification when a later script adds a binding", () => {
+test("have.key reads a queued key raw after a script adds its binding", () => {
   class LateHost extends Host {
     polls = 0;
     override takeKeys(): number[] {

@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
 
 /**
  * Room Studio's tool rail fits its column. The Walk lens adds three tools,
@@ -20,7 +20,7 @@ async function openLabStudio(page: Page): Promise<Locator> {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
   await panel.getByTestId("map-room-2").click();
@@ -146,7 +146,9 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
     overlaps((await stage.view.boundingBox())!, (await stage.legend.boundingBox())!),
     "the open legend overlaps the view bar",
   ).toBe(false);
-  await expect(studio.getByTestId("studio-size")).toHaveText(/^\d+ B · \d+ cmds$/);
+  await expect(studio.getByTestId("studio-size")).toHaveText(
+    /^[\d,]+ bytes · [\d,]+ drawing commands$/,
+  );
   await page.screenshot({ path: test.info().outputPath("studio-walk-1024x600.png") });
   await page.keyboard.press("1");
   await studio.locator('[data-row="west-wall"]').click();

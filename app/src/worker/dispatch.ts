@@ -8,10 +8,11 @@ import { parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
 import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
-import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
-import { resetSession, type WorkerContext } from "./context.ts";
-import type { BootMessage, WorkerInbound } from "../workerProtocol.ts";
+import type { WorkerContext } from "./context.ts";
+import { resetSession } from "./session.ts";
+import type { BootMessage, WorkerInbound } from "./workerProtocol.ts";
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
   const control = ctx.ports.control;
@@ -377,7 +378,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       if (ctx.recording.recording)
         ctx.recording.recording.tainted = "The sound device changed during recording.";
       const device = msg.device === 0 ? 0 : 1;
-      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSoundPlayback();
+      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSound();
       ctx.boot.selectedSoundDevice = device;
       if (ctx.engine) ctx.engine.vars[22] = device === 0 ? 1 : 3;
       ctx.fns.historyRecord({ kind: "device", device });

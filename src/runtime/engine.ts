@@ -771,22 +771,11 @@ export class Engine {
   }
 
   /**
-   * Runtime container patch (the authoring agent's growth primitive):
-   * reclaims superseded records and repoints the directory transactionally.
-   * The engine picks it up on next load.
-   */
-  patchResource(
-    kind: "logic" | "picture" | "view" | "sound",
-    num: number,
-    payload: Uint8Array,
-  ): void {
-    this.patchResources([{ kind, num, payload }]);
-  }
-
-  /**
-   * Replace several resources as one transaction: the container takes every
+   * Runtime container patch (the authoring agent's growth primitive), for one
+   * or several resources as a single transaction: the container takes every
    * payload or refuses the set, leaving all of them on their old bytes. Each
-   * installed resource then counts as one patch, as `patchResource` does.
+   * installed resource's cached parse is evicted — a loaded view re-parses in
+   * place and its objects re-clamp (see `evictPatched`).
    */
   patchResources(
     resources: readonly {
@@ -1260,7 +1249,7 @@ export class Engine {
         // is enqueued so the resumed poll sees it exactly like a live one.
         this.pendingInteraction = null;
         this.conditionReplayUntil = pending.condPc;
-        this.inputQueue.enqueueKey(Number(answer), this.keymap);
+        this.inputQueue.enqueueKey(Number(answer));
         break;
       }
       case "getstring": {
@@ -1373,7 +1362,7 @@ export class Engine {
    */
   releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
     if (eligible) {
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
       this.inputQueue.enqueue({ type: 2, value: 0 });
     }
   }
@@ -1470,13 +1459,13 @@ export class Engine {
     this.drawInputRow();
   }
 
-  /** have.key discards navigation/status events and preserves the unread suffix. */
+  /**
+   * have.key discards navigation/status events and preserves the unread
+   * suffix. It applies no script mapping: a mapped key is raw here.
+   */
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) {
-        if (event.mapOnConsume && this.keymap.has(event.value)) continue;
-        return event.value;
-      }
+      if (event.type === 1) return event.value;
     }
     return undefined;
   }
@@ -2481,8 +2470,15 @@ export class Engine {
     this.saveDialogMode = null;
     this.stopSound();
 
-    // 1. Scalar, parser, object, inventory, replay, logic-resume, display and
-    //    session state.
+    // 1. Scalar, signature, parser, object, inventory, replay, logic-resume,
+    //    display and session state. The signature area belongs to the state
+    //    block restore reads back wholesale, so a game that issues set.game.id
+    //    only on its boot pass keeps its save namespace through a restore or a
+    //    host resume (docs/fidelity.md, "Game signature across restore").
+    const signatureEnd = s.signature.indexOf(0);
+    this.signature = String.fromCharCode(
+      ...s.signature.subarray(0, signatureEnd < 0 ? s.signature.length : signatureEnd),
+    );
     this.vars.set(s.vars);
     this.flags.set(s.flags);
     this.timerTicks = s.timerTicks;
@@ -2742,11 +2738,6 @@ export class Engine {
     }
   }
 
-  /** Stop the active sound before the host changes audio devices. */
-  stopSoundPlayback(): void {
-    this.stopSound();
-  }
-
   /** Advance the script-visible clock (v11..v14) from injected elapsed time. */
   advanceClock(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds < 0)
@@ -2803,8 +2794,11 @@ export class Engine {
     this.sounds.set(num, payload);
   }
 
-  /** stop.sound state teardown, shared with pause (spec: pause stops sound). */
-  private stopSound(): void {
+  /**
+   * stop.sound state teardown, shared with pause (spec: pause stops sound);
+   * the host also calls it before changing audio devices.
+   */
+  stopSound(): void {
     if (this.playingSound === null) return;
     for (const output of this.soundPlayback?.stop() ?? []) this.host.soundOutput?.(output);
     if (this.soundDoneFlag !== null) this.flags[this.soundDoneFlag] = 1;
@@ -3047,7 +3041,7 @@ export class Engine {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
         this.pendingController = null;
       }
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
       // The original's message pump starts a click-move as the click arrives;
       // a direction event it queued alongside still cancels it below.
       for (const [x, y] of this.host.takePointerClicks?.() ?? []) this.pointerClick(x, y);
@@ -3061,7 +3055,9 @@ export class Engine {
           if (this.directionCoupling !== 0) this.objects[0]!.motionMode = MOTION_NORMAL;
         } else if (event.type === 3) this.controllers[event.value] = 1;
         else {
-          const mapped = event.mapOnConsume ? this.keymap.get(event.value) : undefined;
+          // Script key mappings apply here, and only here (docs/fidelity.md,
+          // "Script key mappings and have.key").
+          const mapped = this.keymap.get(event.value);
           if (mapped !== undefined) this.controllers[mapped] = 1;
           else this.handleKey(event.value);
         }
@@ -4512,7 +4508,7 @@ export class Engine {
         // gets a synthesized Enter after a bounded number of polls so a
         // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
-        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey;
         if (pressed === undefined) {
@@ -4524,7 +4520,7 @@ export class Engine {
               const delivered = this.hostCall({ kind: "key", condPc: pc }, () =>
                 blockingWait.call(this.host),
               );
-              this.inputQueue.enqueueKey(delivered ?? 0, this.keymap);
+              this.inputQueue.enqueueKey(delivered ?? 0);
               pressed = this.pollRawKey();
             }
           } else if (++this.haveKeyPolls > HAVE_KEY_POLL_LIMIT) {
@@ -4971,12 +4967,12 @@ export class Engine {
         return next;
       }
       case 0x29:
-        this.requireView(a(1));
+        this.loadView(a(1));
         this.setView(obj(0), a(1));
         return next;
       case 0x2a: {
         const view = this.vars[a(1)]!;
-        this.requireView(view);
+        this.loadView(view);
         this.setView(obj(0), view);
         return next;
       }
@@ -6011,10 +6007,6 @@ export class Engine {
     this.views.set(num, view);
     if (!this.viewOrder.includes(num)) this.viewOrder.push(num);
     return view;
-  }
-
-  private requireView(num: number): void {
-    this.loadView(num);
   }
 
   /** Cel count for an object's selected loop (1 when view missing). */

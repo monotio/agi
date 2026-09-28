@@ -100,7 +100,7 @@ for (const deviceScaleFactor of [1, 2]) {
     });
     const page = await context.newPage();
     await open(page, "demo");
-    const zoomLevel = page.locator(".studio__zoom-level");
+    const zoomLevel = page.getByRole("group", { name: "Zoom" });
     const zooms: string[] = [];
     for (const step of ["fit", "+"]) {
       if (step === "+") await page.keyboard.press("+");
@@ -243,7 +243,9 @@ test("a long list folds into draw-order sections, and a canvas click opens one",
   );
 });
 
-test("Alt+arrow keys on the canvas step through items and Tab leaves it", async ({ page }) => {
+test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab and Shift+Tab leave", async ({
+  page,
+}) => {
   await open(page, "demo");
   const canvas = page.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
@@ -256,12 +258,22 @@ test("Alt+arrow keys on the canvas step through items and Tab leaves it", async 
   await expect(selected).toHaveAttribute("data-row", "floor");
   await page.keyboard.press("Alt+ArrowLeft");
   await expect(selected).toHaveAttribute("data-row", "floor");
-  // Tab is never taken by the canvas: one press moves focus on.
+  // ⌘\ (Ctrl+\ off a Mac) hides and shows the side panels; focus stays on the canvas.
+  await page.keyboard.press("ControlOrMeta+Backslash");
+  await expect(canvas).toBeFocused();
+  await expect(page.locator(".studio__scene")).toBeHidden();
+  await page.keyboard.press("ControlOrMeta+Backslash");
+  await expect(page.locator(".studio__scene")).toBeVisible();
+  await expect(selected).toHaveAttribute("data-row", "floor");
+  // Tab and Shift+Tab are never taken by the canvas: each moves focus on or back.
   await page.keyboard.press("Tab");
   await expect(canvas).not.toBeFocused();
-  await expect(selected).toHaveAttribute("data-row", "floor");
+  await expect(page.locator(".studio__scene")).toBeVisible();
   await page.keyboard.press("Shift+Tab");
   await expect(canvas).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(canvas).not.toBeFocused();
+  await expect(selected).toHaveAttribute("data-row", "floor");
 });
 
 test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {
@@ -359,6 +371,9 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
   await page.keyboard.press("3");
   await expect(lens("Walk")).toHaveAttribute("aria-checked", "true");
+  // The legend folds into the options bar: opened on purpose, it lists the control lines.
+  await expect(page.locator('[data-role="control-legend"]')).toHaveCount(0);
+  await page.getByTestId("studio-legend-toggle").click();
   await expect(page.locator('[data-role="control-legend"]')).toContainText("0 · barrier");
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
@@ -390,12 +405,12 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   );
 });
 
-test("a disassembled picture reads as authored source once kept: the kept text is stored", async ({
+test("a picture rebuilt from the game's bytes reads as your source once kept: the kept text is stored", async ({
   page,
 }) => {
   await open(page, "demo&authored=0");
-  const footer = page.locator(".studio__status");
-  await expect(footer).toContainText("disassembled");
+  const source = page.getByTestId("studio-source-kind");
+  await expect(source).toHaveText("rebuilt from the game's bytes");
   // A rect by keys: R, Space at the cursor, three cells right and down, Space.
   await page.locator(".studio__stage").focus();
   await page.keyboard.press("r");
@@ -406,6 +421,5 @@ test("a disassembled picture reads as authored source once kept: the kept text i
   await expect(page.getByTestId("studio-draft-status")).toHaveText("1 change");
   await page.getByTestId("studio-keep").click();
   await expect(page.getByTestId("studio-draft-status")).toHaveText("Kept");
-  await expect(footer).toContainText("authored source");
-  await expect(footer).not.toContainText("disassembled");
+  await expect(source).toHaveText("your source");
 });

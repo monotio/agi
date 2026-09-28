@@ -18,14 +18,14 @@ import {
   storeImportedProgress,
   type AutosaveRecord,
   type GameProgress,
-} from "../app/src/gameProgress.ts";
-import { readGameSaves } from "../app/src/gameSaves.ts";
-import { gameRevision } from "../app/src/gameMetadata.ts";
-import { readGameZip } from "../app/src/gameZip.ts";
-import { buildProjectZip, buildPublicGameZip } from "../app/src/projectArchive.ts";
-import { buildZip, type ZipFileInput } from "../app/src/zip.ts";
-import type { CachedGameData } from "../app/src/gameTypes.ts";
-import type { ProjectHistory } from "../app/src/historyArchive.ts";
+} from "../app/src/saves/gameProgress.ts";
+import { readGameSaves } from "../app/src/saves/gameSaves.ts";
+import { gameRevision } from "../app/src/project/gameMetadata.ts";
+import { readGameZip } from "../app/src/archive/gameZip.ts";
+import { buildProjectZip, buildPublicGameZip } from "../app/src/archive/projectArchive.ts";
+import { buildZip, type ZipFileInput } from "../app/src/archive/zip.ts";
+import type { CachedGameData } from "../app/src/project/gameTypes.ts";
+import type { ProjectHistory } from "../app/src/archive/historyArchive.ts";
 import { HISTORY_FORMAT_VERSION, stampBoot } from "../src/agent/history.ts";
 import { requireProjectId, requireResourceRevision } from "../src/gameIdentity.ts";
 

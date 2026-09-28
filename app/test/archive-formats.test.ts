@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { readGameZip } from "../src/gameZip.ts";
-import { buildPublicGameZip } from "../src/projectArchive.ts";
-import { progressEntries } from "../src/gameProgress.ts";
-import { mapArchiveData } from "../src/roomMapStore.ts";
-import { historyArchiveData } from "../src/historyArchive.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
+import { progressEntries } from "../src/saves/gameProgress.ts";
+import { mapArchiveData } from "../src/world/roomMapStore.ts";
+import { historyArchiveData } from "../src/archive/historyArchive.ts";
 
 /**
  * The first released archive formats, as the 1.0 app wrote them: a Game and

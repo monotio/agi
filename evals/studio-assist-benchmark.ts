@@ -49,8 +49,8 @@ import {
   type CompiledDocument,
 } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
-import { openSprite } from "../src/studio/sprite/spriteDocument.ts";
-import { walkableMask } from "../src/studio/walkable.ts";
+import { openSprite } from "../src/view/spriteDocument.ts";
+import { walkableMask } from "../src/runtime/walkable.ts";
 import type { AgiProfile } from "../src/runtime/profile.ts";
 import { parseView } from "../src/view/view.ts";
 

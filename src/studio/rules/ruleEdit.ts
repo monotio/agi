@@ -309,7 +309,7 @@ export function applyRuleEdit(
     const { rule, model: current } = existing;
     if (current === "native")
       return refuse(
-        `Rule '${op.id}' is native logic the rule editor cannot read. Change it as text with an explicit edit.`,
+        `Rule '${op.id}' is written directly in the room's script, which the door editor cannot read. Change it in the script text.`,
       );
     const span = rule.closeLine - rule.openLine + 1;
     if (op.op === "removeRule") {

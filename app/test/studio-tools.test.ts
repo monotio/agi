@@ -19,6 +19,8 @@ import {
   rectFrom,
   resolvePriority,
   startStroke,
+  TOOL_KEYS,
+  TOOL_SHORTCUTS,
   type PathDraft,
 } from "../src/studio/studioTools.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
@@ -28,6 +30,17 @@ import { useStudioInput } from "../src/studio/useStudioInput.ts";
 import { useStudioTools } from "../src/studio/useStudioTools.ts";
 
 const p = (x: number, y: number) => ({ x, y });
+
+describe("tool shortcuts", () => {
+  it("gives every tool its own letter, so the rail's label and the key agree", () => {
+    const letters = Object.values(TOOL_SHORTCUTS);
+    assert.ok(letters.every((letter) => /^[A-Z]$/.test(letter)));
+    assert.equal(new Set(letters).size, letters.length, "two tools share a letter");
+    assert.equal(Object.keys(TOOL_KEYS).length, letters.length);
+    assert.equal(TOOL_KEYS["v"], "select");
+    assert.equal(TOOL_KEYS["g"], "probe");
+  });
+});
 
 describe("tool state machines", () => {
   it("clicks out a line: repeated clicks add nothing, two points finish it, Backspace drops one", () => {

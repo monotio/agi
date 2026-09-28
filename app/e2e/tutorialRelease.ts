@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, type Page } from "@playwright/test";
-import { readGameZip } from "../src/gameZip.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import { cacheGame } from "./engineProbe.ts";
 
@@ -65,7 +65,7 @@ export async function seedTutorial10(page: Page, remix?: string): Promise<void> 
   );
   await page.evaluate(
     async ({ id, revision, progress }) => {
-      const path = "/src/gameProgress.ts";
+      const path = "/src/saves/gameProgress.ts";
       const { storeImportedProgress } = await import(path);
       storeImportedProgress(localStorage, id, revision, progress);
     },

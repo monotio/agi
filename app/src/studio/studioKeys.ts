@@ -15,10 +15,13 @@
  * - Delete/Backspace delete; Cmd/Ctrl+D duplicate; `[` `]` move back/forward
  *   in draw order; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo;
  *   Insert adds a point to the selected line where the cursor is nearest it
- * - the tool rail's letters (studioTools.ts TOOL_KEYS: V A L R P F B I, the
+ * - the tool rail's letters (studioTools.ts TOOL_SHORTCUTS: V A L R P F B I, the
  *   Walk view's T D E, which open it first, and G H); Enter finishes a line
  *   or polygon, Backspace drops its last point
- * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue)
+ * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
+ *   opens the key sheet (StudioKeySheet.vue)
+ * - Cmd+\ (Ctrl+\ off a Mac) toggles focus mode, which hides the side
+ *   panels; Tab and Shift+Tab only ever move focus
  */
 
 import type { StudioLens } from "./studioView.ts";
@@ -63,6 +66,10 @@ export interface StudioKeyActions {
   ask(): boolean;
   /** Insert: add a point to the selected line nearest the cursor; false when none was added. */
   insertPoint(): boolean;
+  /** Cmd+\ or Ctrl+\: hide or show the side panels. */
+  focusMode(): void;
+  /** `?`: the key sheet. */
+  keySheet(): void;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -85,6 +92,16 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   }
   if (key === "Escape") {
     if (!act.dismiss()) act.close();
+    return true;
+  }
+  // Focus mode: the backslash character, whatever keys a layout (AltGr,
+  // Option) types it with; or the US backslash key, whose character a
+  // modifier may change. A held chord toggles once.
+  if (
+    command &&
+    (key === "\\" || (event.code === "Backslash" && !event.altKey && !event.shiftKey))
+  ) {
+    if (!event.repeat) act.focusMode();
     return true;
   }
   const plain = !command && !event.altKey;
@@ -117,6 +134,10 @@ export function studioKey(event: KeyboardEvent, act: StudioKeyActions): boolean 
   }
   if (event.altKey) return false;
   if (key === "/") return act.ask();
+  if (key === "?") {
+    act.keySheet();
+    return true;
+  }
   if (key === "Insert") return act.insertPoint();
   const lens = LENS_KEYS[key];
   if (lens) act.lens(lens);

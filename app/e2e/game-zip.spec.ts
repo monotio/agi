@@ -1,10 +1,10 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import { expect, test, keepDetectedProfile } from "./test.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
 import {
   configureAi,
@@ -17,7 +17,7 @@ import {
   enterCreateMode,
 } from "./engineProbe.ts";
 
-test("a friend opens an exported world in a fresh browser without a key", async ({
+test("a friend opens an exported world in a fresh browser without a key @webkit-desktop", async ({
   page,
   browser,
 }) => {

@@ -74,19 +74,23 @@ test("reanimating an object clears prior drawing and movement flags but preserve
   // The old priority-15 value remains data, but must no longer bypass barriers.
   engine.surface.priority.fill(4);
   engine.surface.priority[100 * 160 + 22] = 0;
-  engine.patchResource(
-    "logic",
-    1,
-    assembleLogic(
-      `
+  engine.patchResources([
+    {
+      kind: "logic",
+      num: 1,
+      payload: assembleLogic(
+        `
     draw(o1); stop.cycling(o1); assignn(v61, 1); step.time(o1, v61);
     assignn(v62, 3); set.dir(o1, v62); return;
   `,
-      { dictionary: new Map() },
-    ).payload,
-  );
+        { dictionary: new Map() },
+      ).payload,
+    },
+  ]);
   engine.execute(1);
-  engine.patchResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  engine.patchResources([
+    { kind: "logic", num: 0, payload: assembleLogic("return;", { dictionary: new Map() }).payload },
+  ]);
   for (let i = 0; i < 4; i++) engine.tick();
   assert.equal(o.x, 20, "the actor cannot step onto the wall at x=22");
 
@@ -233,11 +237,13 @@ test("room transition clears loaded views, resets cadence/block and uses actual 
     [1, 1, 1, 1, 1],
   );
   assert.equal(decodeSave(engine.serialize(), PROFILES["2.936"]).blockEnabled, 0);
-  engine.patchResource(
-    "logic",
-    0,
-    assembleLogic("draw(o0); return;", { dictionary: new Map() }).payload,
-  );
+  engine.patchResources([
+    {
+      kind: "logic",
+      num: 0,
+      payload: assembleLogic("draw(o0); return;", { dictionary: new Map() }).payload,
+    },
+  ]);
   assert.throws(() => engine.tick(), /draw requires a selected cel/);
 });
 
@@ -329,19 +335,21 @@ test("room transition flushes queued input and re-entry input state", () => {
     "2.936",
     { ...host, takeKeys: () => (polls++ === 0 ? [] : [120]) },
   );
-  engine.patchResource(
-    "logic",
-    1,
-    assembleLogic(
-      `if (isset(f2)) { assignn(v101, 1); }
+  engine.patchResources([
+    {
+      kind: "logic",
+      num: 1,
+      payload: assembleLogic(
+        `if (isset(f2)) { assignn(v101, 1); }
        if (isset(f4)) { assignn(v102, 1); }
        assignv(v103, v19);
        if (controller(3)) { assignn(v104, 1); }
        assignv(v105, v4); assignv(v106, v5); assignv(v107, v9);
        return;`,
-      { dictionary: new Map() },
-    ).payload,
-  );
+        { dictionary: new Map() },
+      ).payload,
+    },
+  ]);
   engine.tick();
   engine.tick();
   assert.equal(engine.vars[101], 0, "f2 clears on the re-entry path");
@@ -600,11 +608,13 @@ test("priority 15 skips the footprint scan and clears ego's class flags", () => 
   engine.surface.priority[100 * 160 + 21] = 3;
   engine.tick();
   assert.equal(engine.flags[3], 1);
-  engine.patchResource(
-    "logic",
-    0,
-    assembleLogic("set.priority(o0, 15); return;", { dictionary: new Map() }).payload,
-  );
+  engine.patchResources([
+    {
+      kind: "logic",
+      num: 0,
+      payload: assembleLogic("set.priority(o0, 15); return;", { dictionary: new Map() }).payload,
+    },
+  ]);
   engine.tick();
   assert.deepEqual([engine.flags[3], engine.flags[0]], [0, 0], "no scan, both flags cleared");
   assert.deepEqual([engine.screenObjects[0]!.x, engine.screenObjects[0]!.y], [20, 100]);
@@ -727,11 +737,11 @@ test("loop and view selection keep an index the new loop or view has, else fall 
   // A view with fewer loops resets the loop, and its loop's cel count applies.
   const single = buildView({ loops: [{ cels: [{ width: 2, height: 1, pixels: [5, 5] }] }] });
   engine = game(`${setup} load.view(2); set.loop(o0, 1); set.view(o0, 2); return;`);
-  engine.patchResource("view", 2, single);
+  engine.patchResources([{ kind: "view", num: 2, payload: single }]);
   engine.execute(0);
   assert.deepEqual(indices(engine), [0, 0]);
   engine = game(`${setup} load.view(2); set.cel(o0, 2); set.view(o0, 2); return;`);
-  engine.patchResource("view", 2, single);
+  engine.patchResources([{ kind: "view", num: 2, payload: single }]);
   engine.execute(0);
   assert.deepEqual(indices(engine), [0, 0]);
   // The direction-driven loop change goes through the same selection: an
@@ -757,7 +767,7 @@ test("loop and view selection keep an index the new loop or view has, else fall 
     `load.view(3); animate.obj(o0); set.view(o0, 3); position(o0, 20, 100); draw(o0);
      stop.cycling(o0); ignore.blocks(o0); set.cel(o0, 2); assignn(v60, 1); step.time(o0, v60); assignn(v6, 7); return;`,
   );
-  engine.patchResource("view", 3, twoCels);
+  engine.patchResources([{ kind: "view", num: 3, payload: twoCels }]);
   engine.tick();
   assert.deepEqual(indices(engine), [1, 0]);
 });
@@ -780,7 +790,7 @@ test("a patched view repaints drawn objects; a shrunken view re-clamps their ind
       { cels: [{ width: 2, height: 1, pixels: [12, 12] }] },
     ],
   });
-  engine.patchResource("view", 1, repainted);
+  engine.patchResources([{ kind: "view", num: 1, payload: repainted }]);
   assert.equal(engine.getFrame().visual[100 * 160 + 20], 9);
 
   // An object parked on loop 1 survives a patch to a single-loop view by
@@ -791,7 +801,7 @@ test("a patched view repaints drawn objects; a shrunken view re-clamps their ind
   const single = buildView({
     loops: [{ cels: [{ width: 2, height: 1, pixels: [13, 13] }] }],
   });
-  selected.patchResource("view", 1, single);
+  selected.patchResources([{ kind: "view", num: 1, payload: single }]);
   assert.equal(selected.screenObjects[0]!.loop, 0);
   assert.equal(selected.getFrame().visual[100 * 160 + 20], 13);
 });
@@ -826,15 +836,19 @@ test("graphics drawn after text cover, hide or drop the cells under their pixels
     `configure.screen(0, 23, 24); load.view(2);
      clear.text.rect(10, 0, 14, 39, 0); add.to.pic(2, 0, 0, 20, 100, 15, 4); return;`,
   );
-  engine.patchResource(
-    "view",
-    2,
-    buildView({
-      loops: [
-        { cels: [{ width: 8, height: 1, pixels: [0, 0, 0, 0, 3, 3, 3, 3], transparentColor: 0 }] },
-      ],
-    }),
-  );
+  engine.patchResources([
+    {
+      kind: "view",
+      num: 2,
+      payload: buildView({
+        loops: [
+          {
+            cels: [{ width: 8, height: 1, pixels: [0, 0, 0, 0, 3, 3, 3, 3], transparentColor: 0 }],
+          },
+        ],
+      }),
+    },
+  ]);
   engine.execute(0);
   assert.equal(cell(engine, 12, 5), 0x20, "transparent pixels paint nothing");
   assert.equal(cell(engine, 12, 6), 0, "the opaque half covers its cell");

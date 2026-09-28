@@ -4,7 +4,7 @@
  * ordinary host actions: abandon a parked interaction, acknowledge open
  * windows, re-enter the room as new.room would, run the room's entry cycle
  * so its own logic sets the room up, then place ego
- * (src/studio/playHere.ts).
+ * (src/runtime/playHere.ts).
  *
  * The history tape records host causes, and a jump of ego is not one it
  * can replay. So the open segment ends first with the existing "walkthrough"
@@ -14,7 +14,7 @@
  */
 
 import { openContainer } from "../../../src/container/container.ts";
-import { placeEgo, playHereProblem } from "../../../src/studio/playHere.ts";
+import { placeEgo, playHereProblem } from "../../../src/runtime/playHere.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 export function createPlayHere(ctx: WorkerContext) {

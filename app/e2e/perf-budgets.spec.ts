@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
 
 /**
  * Interaction budgets on the real app, measured in the page with the
@@ -13,9 +13,9 @@ import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
  * Mac, alone and under the full suite's parallel load (numbers beside each
  * budget), so CI's slower two-worker headless runners still pass. Raise one
  * only on purpose, with the measurement and the reason in the commit. Tagged
- * @perf; where timing means nothing (a debugger, a software-rendered or
- * throttled machine), skip them with `npm --prefix app run e2e --
- * --grep-invert @perf`.
+ * @perf: the main suite leaves them out, and `npm --prefix app run e2e:perf`
+ * runs them alone on one worker, so no other test loads the machine they
+ * measure (CI runs them after the first Chromium shard).
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 // One test at a time in this file, so the specs do not load each other.
@@ -131,7 +131,7 @@ async function playTutorial(page: Page): Promise<void> {
   await installProbe(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 }
 
 /** Press at `from`, move one step per animation frame to `to`, release. */

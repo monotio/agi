@@ -128,7 +128,7 @@ const at = (x: number, y: number) => y * 160 + x;
 
 async function storedPicture(page: Page): Promise<Uint8Array> {
   const files = await page.evaluate(async (id) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const game = await loadAuthoredGame(id);
     return Object.entries(game.files as Record<string, Uint8Array>).map(
@@ -155,7 +155,7 @@ async function nudgeOccluder(page: Page, studio: Locator): Promise<void> {
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
 }
 
-test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens, then Keep", async ({
+test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens, then Keep @webkit-desktop", async ({
   page,
 }) => {
   await bootGame(page);
@@ -171,14 +171,17 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   const crosshair = studio.locator('[data-role="key-cursor"]').last();
   const announce = studio.locator('[data-role="announce"]');
 
-  // Art lens, the rect tool, Filled: the keys are listed under the tool.
+  // Art lens, the rect tool, Filled: the ? sheet lists its keys, and Esc returns to the canvas.
   await page.keyboard.press("r");
   await studio.getByTestId("studio-tool-filled").press("Space");
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
-  await expect(studio.getByTestId("studio-tool-keys")).toContainText(
-    "Space or Enter starts, arrows size it, again finishes",
-  );
   await canvas.focus();
+  await page.keyboard.press("?");
+  const sheet = page.getByRole("dialog", { name: "Room Studio keys" });
+  await expect(sheet).toContainText("Click at the cursor: starts; arrows size it; again finishes");
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(canvas).toBeFocused();
   await expect(canvas).toHaveAttribute("aria-label", /arrow keys move the drawing cursor/i);
   // The cursor starts at the centre, 80,84: to 20,120.
   await repeat(page, "Shift+ArrowLeft", 7);
@@ -215,7 +218,7 @@ test("keyboard only: a rect in the Art lens and a barrier line in the Walk lens,
   await repeat(page, "Shift+ArrowRight", 10);
   await expect(announce).toHaveText("x 100 y 150");
   await page.keyboard.press("Enter");
-  await expect(studio.getByTestId("studio-tool-options")).toContainText("Backspace");
+  await expect(studio.getByTestId("studio-hint")).toContainText("Backspace");
   await expect(status).toHaveText("1 change");
   await page.keyboard.press("Enter");
   await expect(status).toHaveText("2 changes");
@@ -323,12 +326,12 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await bootGame(page);
+  // Developer activity is never on the page (Settings → Advanced opens it):
+  // nothing sits below the stage for Studio to hide.
   const activity = page.getByTestId("developer-activity-summary");
-  // Play keeps Developer activity off the page; Create's page holds it, hidden under Studio.
   await expect(activity).toHaveCount(0);
   const studio = await openStudio(page);
-  await expect(activity).toBeAttached();
-  await expect(activity).toBeHidden();
+  await expect(activity).toHaveCount(0);
   const scroll = () =>
     page.evaluate(() => {
       window.scrollTo(0, 500);
@@ -349,6 +352,11 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
     if (where !== null && where !== "body") outside.push(where);
   }
   expect(outside).toEqual([]);
+  // Tab only moves focus: passing the canvas never hides the side panels.
+  await expect(studio.getByRole("button", { name: "Focus mode" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
 
   // The full label is the row's tooltip; the filter shows a focus ring.
   await expect(studio.locator('[data-row="occluder"] .scene-list__label')).toHaveAttribute(
@@ -362,5 +370,5 @@ test("while Studio is open the page holds still and Tab stays in Studio and the 
 
   await studio.getByTestId("studio-close").click();
   await expect(studio).toHaveCount(0);
-  await expect(activity).toBeVisible();
+  await expect(activity).toHaveCount(0);
 });

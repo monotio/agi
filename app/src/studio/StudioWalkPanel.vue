@@ -2,15 +2,19 @@
 import { computed, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
-import type { Point } from "../../../src/studio/shapes.ts";
+import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { StudioTool } from "./studioTools.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
 import {
   doorStatus,
+  doorTestNote,
   EDGE_NAMES,
   outcomeTone,
+  playTarget,
   resultPlace,
   ruleProblemText,
+  WALK_STATE_LABEL,
+  walkStateText,
   type WalkDoor,
 } from "./walkView.ts";
 
@@ -19,7 +23,9 @@ import {
  * (what to click next, "Walking…", and the result card with Test again and
  * Play here), and the room's doors: a list, and for the selected door where
  * it leads, its condition, the art it follows, its box, and its two-sided
- * status. Native doors are read-only here and open as text instead. Every
+ * status, with how to test it (or why the last walk aimed at it did not go
+ * through). Doors written in the room's script are read-only here and open
+ * as text instead. Every
  * control is a plain form control, so the keyboard reaches all of it.
  */
 const { walk, tool, flags, items } = defineProps<{
@@ -32,7 +38,7 @@ const { walk, tool, flags, items } = defineProps<{
 }>();
 const emit = defineEmits<{
   tool: [tool: StudioTool];
-  "play-here": [at: Point];
+  "play-here": [target: PlayHereTarget];
   /** Show the room's logic as text, at a line when one is known. */
   text: [line: number | null];
 }>();
@@ -44,17 +50,17 @@ const place = computed(() =>
 );
 const selected = computed(() => walk.selectedDoor.value);
 const status = computed(() =>
-  selected.value ? doorStatus(selected.value, walk.walked.value) : null,
+  selected.value ? doorStatus(selected.value, walk.tested.value.has(selected.value.id)) : null,
 );
-/**
- * Play here from where the walk ended; the goal when it never moved. A start
- * the player cannot stand on offers none: the engine's end is the room's
- * entry spot, not a place the creator chose.
- */
-const playSpot = computed<Point | null>(() =>
-  result.value?.result.outcome === "start_blocked"
-    ? null
-    : (result.value?.result.end ?? walk.goal.value),
+/** How to test the selected door, or why the last walk aimed at it did not go through. */
+const testNote = computed(() =>
+  selected.value && status.value
+    ? doorTestNote(selected.value, status.value.testedOk, walk.doorNote(selected.value.id))
+    : null,
+);
+/** Play here from where the walk ended, in the room it ended in (walkView.ts `playTarget`). */
+const playSpot = computed<PlayHereTarget | null>(() =>
+  result.value ? playTarget(result.value.result, walk.room.value, walk.goal.value) : null,
 );
 
 function describe(door: WalkDoor): string {
@@ -150,7 +156,7 @@ const roomChoices = computed(() => {
           data-testid="walk-live-state"
           @change="walk.setUseLiveState(($event.target as HTMLInputElement).checked)"
         />
-        <span>Use my current game state</span>
+        <span>{{ WALK_STATE_LABEL }}</span>
       </label>
       <p class="walk-panel__prompt" aria-live="polite" data-testid="walk-prompt">
         {{
@@ -179,11 +185,14 @@ const roomChoices = computed(() => {
       >
         <strong data-testid="walk-result-title">{{ result.title }}</strong>
         <p class="walk-panel__note" data-testid="walk-result-state">
-          {{
-            result.state === "live"
-              ? "Tested with your game as it is now"
-              : "Tested from a fresh start"
-          }}
+          {{ walkStateText(result.state) }}
+        </p>
+        <p
+          v-if="walk.resultStale.value"
+          class="walk-panel__note is-stale"
+          data-testid="walk-result-stale"
+        >
+          The room changed since this walk: Test again to check it.
         </p>
         <dl>
           <dt>Cycles</dt>
@@ -241,8 +250,17 @@ const roomChoices = computed(() => {
           >
             <span>{{ walk.labelOf(door) }}</span>
             <em>{{ describe(door) }}</em>
-            <UiChip v-if="!door.editable" :tone="door.planned ? 'warn' : 'neutral'">
-              {{ door.planned ? "planned" : "native" }}
+            <UiChip
+              v-if="!door.editable"
+              :tone="door.planned ? 'warn' : 'neutral'"
+              :title="
+                door.planned
+                  ? 'Planned: nothing in the room\'s script leads there yet'
+                  : 'Written in the room\'s script: change it as text'
+              "
+              data-testid="walk-door-kind"
+            >
+              {{ door.planned ? "planned" : "in script" }}
             </UiChip>
           </button>
         </li>
@@ -254,6 +272,9 @@ const roomChoices = computed(() => {
           <UiChip :tone="status?.testedOk ? 'ok' : 'neutral'" dot data-testid="door-tested">
             {{ status?.tested }}
           </UiChip>
+        </p>
+        <p v-if="testNote" class="walk-panel__note" data-testid="door-test-note">
+          {{ testNote }}
         </p>
         <template v-if="selected.editable">
           <label class="walk-panel__field">
@@ -358,8 +379,8 @@ const roomChoices = computed(() => {
         </template>
         <template v-else>
           <p class="walk-panel__note" data-testid="door-native">
-            {{ walk.labelOf(selected) }}: this exit is written in the room's own logic, which the
-            door tools can't change. Edit it as text, or ask the assistant.
+            {{ walk.labelOf(selected) }}: this exit is written in the room's script, which the door
+            tools can't change. Edit it as text, or ask the assistant.
           </p>
           <UiButton
             size="sm"
@@ -420,6 +441,9 @@ const roomChoices = computed(() => {
   margin: 0;
   color: var(--ink-3);
   font-size: var(--text-2xs);
+}
+.walk-panel__note.is-stale {
+  color: var(--warn);
 }
 .walk-panel__prompt {
   margin: 0;
@@ -493,7 +517,8 @@ const roomChoices = computed(() => {
   cursor: pointer;
 }
 .walk-panel__door em {
-  flex: 1;
+  /* A long description wraps onto its own line rather than into a narrow column. */
+  flex: 1 1 9em;
   color: var(--ink-3);
   font-style: normal;
   font-size: var(--text-xs);

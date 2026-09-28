@@ -4,8 +4,8 @@ import { testProjectId } from "./identity.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { executeAgentTool } from "../../src/agent/tools.ts";
-import { buildProjectZip } from "../src/projectArchive.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { buildProjectZip } from "../src/archive/projectArchive.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 
 test("musical intent survives a saved project and resets after raw effect authoring", async () => {
   const state = createAgentSessionState();

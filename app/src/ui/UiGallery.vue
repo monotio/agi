@@ -9,6 +9,11 @@ import UiIconButton from "./UiIconButton.vue";
 import UiKbd from "./UiKbd.vue";
 import UiPanel from "./UiPanel.vue";
 import UiSegmented from "./UiSegmented.vue";
+import UiSelect from "./UiSelect.vue";
+import UiSwitch from "./UiSwitch.vue";
+import UiToast from "./UiToast.vue";
+import BootCard from "./BootCard.vue";
+import BrandMark from "./BrandMark.vue";
 import { ICONS, type IconName } from "./icons.ts";
 
 /** Dev and test only (ui-gallery.html is not a build input): every primitive in every state. */
@@ -16,6 +21,9 @@ const lens = ref<"art" | "depth" | "walk">("depth");
 const dialogOpen = ref(false);
 const title = ref("The Clearing");
 const pressed = ref(true);
+const sound = ref(true);
+const crt = ref(false);
+const provider = ref("anthropic");
 const iconNames = Object.keys(ICONS) as IconName[];
 const surfaces = ["surface-sunken", "surface-0", "surface-1", "surface-2", "surface-3"];
 const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "danger"];
@@ -88,6 +96,45 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
         <UiChip tone="warn" dot>Not walk-tested</UiChip>
         <UiChip tone="danger" dot>Stale</UiChip>
         <span>Press <UiKbd>⌘</UiKbd> <UiKbd>K</UiKbd> for commands</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Brand</h2>
+      <div class="row">
+        <BootCard />
+        <span class="lockup">MONOTIO <span>/ AGI</span><BrandMark /></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Switches, selects, toasts</h2>
+      <div class="row">
+        <UiSwitch v-model="sound" class="switch-row"
+          >Sound<small>Linked to the game</small></UiSwitch
+        >
+        <UiSwitch v-model="crt" class="switch-row">Display<small>CRT glass</small></UiSwitch>
+        <UiSwitch v-model="crt" size="sm" disabled>Disabled</UiSwitch>
+      </div>
+      <div class="row">
+        <UiSelect v-model="provider" aria-label="Provider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+        </UiSelect>
+        <UiSelect v-model="provider" size="sm" aria-label="Provider (small)">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+        </UiSelect>
+        <UiSelect v-model="provider" disabled aria-label="Provider (disabled)">
+          <option value="anthropic">Anthropic</option>
+        </UiSelect>
+      </div>
+      <div class="row">
+        <UiToast dismissible>Play here could not place the player.</UiToast>
+        <UiToast tone="warn" dismissible>
+          This game changed in another tab.
+          <UiButton size="sm">Reload game</UiButton>
+        </UiToast>
       </div>
     </section>
 
@@ -197,6 +244,16 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
 }
 section {
   margin-bottom: var(--space-8);
+}
+.lockup {
+  font: var(--weight-bold) var(--text-md) var(--font-mono);
+  letter-spacing: 0.12em;
+}
+.lockup > span {
+  color: var(--ink-3);
+}
+.switch-row {
+  width: 260px;
 }
 h2 {
   margin: 0 0 var(--space-4);

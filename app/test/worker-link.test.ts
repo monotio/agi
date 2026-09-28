@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { useWorkerLink, type WorkerOutboundHandlers } from "../src/useWorkerLink.ts";
-import type { WorkerOutbound, WorkerQueryPayload, WorkerQueryType } from "../src/workerProtocol.ts";
-import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
+import { useWorkerLink, type WorkerOutboundHandlers } from "../src/engine/useWorkerLink.ts";
+import type {
+  WorkerOutbound,
+  WorkerQueryPayload,
+  WorkerQueryType,
+} from "../src/worker/workerProtocol.ts";
+import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
-import type { ReplayObservation } from "../src/replay.ts";
+import type { ReplayObservation } from "../src/walkthrough/replay.ts";
 
 /**
  * The outbound dispatch table is a required mapped type — a WorkerOutbound
@@ -160,7 +164,7 @@ function makeLink() {
     handleRoomAuthoring: async () => "done",
     getAgentSession: () => null,
     getReplayDriver: () => driver,
-    ejectGame: () => depCalls.push("ejectGame"),
+    gameQuit: () => depCalls.push("gameQuit"),
   });
   return { link, state, hook, audioCalls, depCalls, logged, frames, driver };
 }
@@ -600,7 +604,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         break;
       case "quit":
         deliver(w, { type });
-        assert.ok(depCalls.includes("ejectGame"));
+        assert.ok(depCalls.includes("gameQuit"));
         break;
       case "log":
         deliver(w, { type, text: "hello" });

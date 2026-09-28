@@ -13,3 +13,5 @@ evals/benchmarks/*/*/runs/
 evals/benchmarks/*/*/matrix/
 evals/fixtures/pictures/
 app/public/walkthroughs/
+# ast-grep writes its rule-test snapshots itself (`ast-grep test -U`).
+.ast-grep/rule-tests/__snapshots__/

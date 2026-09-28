@@ -31,7 +31,7 @@ import {
 } from "../../src/runtime/persistence.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
 import { testProjectId, testRevision } from "./identity.ts";
-import { base64ToBytes, bytesToBase64 } from "../src/bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../src/project/bytes.ts";
 import {
   createWorkerContext,
   type WorkerContext,
@@ -44,7 +44,7 @@ import type {
   WorkerControl,
   WorkerInbound,
   WorkerPresentation,
-} from "../src/workerProtocol.ts";
+} from "../src/worker/workerProtocol.ts";
 
 const PICTURE_1 = new Uint8Array([
   0xf0, 0x01, 0xf6, 10, 10, 60, 10, 60, 40, 10, 40, 10, 10, 0xf8, 30, 20, 0xf1, 0xf2, 0x05, 0xf6, 0,

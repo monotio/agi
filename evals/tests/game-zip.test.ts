@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateRawSync } from "node:zlib";
-import { buildZip, crc32 } from "../../app/src/zip.ts";
-import { readGameZip } from "../../app/src/gameZip.ts";
+import { buildZip, crc32 } from "../../app/src/archive/zip.ts";
+import { readGameZip } from "../../app/src/archive/gameZip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";

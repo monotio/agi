@@ -19,7 +19,7 @@ test("sound ticks and completion continue during a blocking host prompt", async 
     async ({ containerPath, assemblerPath }) => {
       const { createContainer } = await import(containerPath);
       const { assembleLogic } = await import(assemblerPath);
-      const workerPath = "/src/engine.worker.ts?worker";
+      const workerPath = "/src/worker/engine.worker.ts?worker";
       const { default: EngineWorker } = await import(workerPath);
       const container = createContainer();
       container.putResource(

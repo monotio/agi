@@ -11,6 +11,7 @@ import {
   maskOutlinePath,
   paintLayer,
   panesFor,
+  pictureSize,
   spanIndexAt,
   tickFor,
 } from "../src/studio/studioView.ts";
@@ -166,4 +167,14 @@ test("a Scene label ellipsizes before the numbers that tell rows apart, never in
     head: "Window 12 left",
     tail: " pane part 3",
   });
+});
+
+test("a picture's size in plain words: bytes and drawing commands, thousands separated", () => {
+  assert.deepEqual(pictureSize(1148, 219), {
+    bytes: "1,148 bytes",
+    commands: "219 drawing commands",
+    full: "1,148 bytes · 219 drawing commands",
+  });
+  assert.equal(pictureSize(1, 1).full, "1 byte · 1 drawing command");
+  assert.equal(pictureSize(12000, 4000).full, "12,000 bytes · 4,000 drawing commands");
 });

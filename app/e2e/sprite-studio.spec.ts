@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { parseGameHash } from "../src/shell/shellRoute.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { encodePngRgb } from "../../src/picture/png.ts";
@@ -13,7 +13,7 @@ import {
   samePixels,
   type SpriteCel,
   type SpriteDocument,
-} from "../../src/studio/sprite/spriteDocument.ts";
+} from "../../src/view/spriteDocument.ts";
 import {
   configureAi,
   enterCreateMode,
@@ -21,6 +21,7 @@ import {
   openDeveloperActivity,
   openGameOptions,
   textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -48,7 +49,7 @@ const draftBytes = async (page: Page): Promise<Uint8Array> =>
 
 async function storedFiles(page: Page, projectId: string): Promise<Map<string, Uint8Array>> {
   const files = await page.evaluate(async (id) => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const game = await loadAuthoredGame(id);
     return Object.fromEntries(
@@ -69,9 +70,7 @@ async function storedView(page: Page, projectId: string): Promise<Uint8Array> {
 async function playTutorial(page: Page): Promise<void> {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  // A cold dev server compiles the boot's module graph on first request; a
-  // full worker pool can take longer than the default poll to reach room 1.
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
 }
 
@@ -182,7 +181,9 @@ async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", sample
       !frame ||
       frame.room !== 1 ||
       frame.ego.direction !== direction ||
-      frame.ego.x > TURN_BACK_X
+      // Only a walk east can reach the east exit; a walk west may begin past
+      // the turn-back point when the eastward walk overshot it on a slow host.
+      (key === "ArrowRight" && frame.ego.x > TURN_BACK_X)
     )
       break;
     frames.push(frame);
@@ -194,10 +195,9 @@ async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", sample
   return frames;
 }
 
-test("a mirrored actor is repaired without changing its source loop, kept, reloaded, exported and played", async ({
+test("a mirrored actor is repaired without changing its source loop, kept, reloaded, exported and played @webkit-desktop", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
   await playTutorial(page);
   const catalog = new URL(page.url()).hash;
 
@@ -275,7 +275,7 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
   // A reload boots the stored remix: Studio opens on the kept bytes.
   await page.reload();
   if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1);
   studio = await openApprentice(page);
   expect(await draftBytes(page)).toEqual(kept);
   await studio.getByTestId("studio-close").click();
@@ -293,7 +293,6 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
 test("a loop's cyan recoloured to blue by keys is kept, and the walking ego shows it", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
   await playTutorial(page);
   const studio = await openApprentice(page);
   const CYAN = 11;
@@ -414,7 +413,7 @@ test("a Keep refuses as stale when the project changed elsewhere, and reopens fr
   elsewhere.putResource("view", 9, elsewhere.getResource("view", 0)!);
   const moved = await page.evaluate(
     async ([id, files]) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { updateAuthoredGameFiles } = await import(path);
       return updateAuthoredGameFiles(
         id,
@@ -683,7 +682,6 @@ function sheetPng(): Buffer {
 test("a staged character-sheet candidate opens in Sprite Studio, is repaired and kept", async ({
   page,
 }) => {
-  test.setTimeout(120_000);
   await isolateStorage(page);
   await page.route("**/api/openai/v1/responses", (route) =>
     route.fulfill(providerReply("openai", { id: "reply", output: [] })),
@@ -733,7 +731,7 @@ test("a staged character-sheet candidate opens in Sprite Studio, is repaired and
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
 
   const stored = await page.evaluate(async () => {
-    const { listCachedGames, loadAuthoredGame } = await import("/src/gameStorage.ts");
+    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     const id = listCachedGames()[0]!.projectId;
     const data = await loadAuthoredGame(id);
     return { id, staged: data?.references?.find((r) => r.kind === "character")?.staged ?? null };

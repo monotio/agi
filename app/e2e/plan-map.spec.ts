@@ -6,6 +6,7 @@ import {
   openDeveloperActivity,
   screenText,
   textHook,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -31,7 +32,7 @@ async function createAdventure(page: Page): Promise<void> {
   await page.getByTestId("custom-adventure-input").fill("A small stub adventure.");
   await page.getByTestId("boot-game").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 }
 
 async function openMap(page: Page): Promise<void> {
@@ -252,7 +253,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   await page.getByTestId("map-plan-retry").click();
   await expect(flag).toBeHidden();
   const stored = await page.evaluate(async () => {
-    const { listCachedGames, loadAuthoredGame } = await import("/src/gameStorage.ts");
+    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     const id = listCachedGames()[0]!.projectId;
     const data = await loadAuthoredGame(id);
     const authoring = data?.authoringState?.["authoring"] as
@@ -304,7 +305,7 @@ test("a running authored game extends from a planned map node", async ({ page })
   await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
     timeout: 30_000,
   });
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 
   await openMap(page);
 
@@ -339,7 +340,7 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
     timeout: 30_000,
   });
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 
   // Walk east: room 2 authors just-in-time.
   await say(page, "east");

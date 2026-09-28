@@ -11,8 +11,8 @@ import type { ProjectId } from "../../../src/gameIdentity.ts";
 import {
   ResourceCommitError,
   type ResourceCommitErrorCode,
-  type ResourceCommitResult,
-} from "../resourceCommit.ts";
+} from "../project/projectTransaction.ts";
+import type { ResourceCommitResult } from "../project/resourceCommit.ts";
 
 export type { ResourceCommitResult };
 
@@ -34,7 +34,10 @@ export function studioCommitFailure(error: unknown): StudioCommitFailure {
   if (error.code === "stale")
     return {
       code: "stale",
-      message: "The game changed since you opened Studio. Reopen to continue.",
+      // A removed project cannot be reopened: the transaction's own words say so.
+      message: error.removed
+        ? error.message
+        : "The game changed since you opened Studio. Reopen to continue.",
       behindStorage: error.behindStorage,
     };
   return { code: error.code, message: error.message, projectId: error.projectId };

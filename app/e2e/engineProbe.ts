@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { CachedGameData } from "../src/gameTypes.ts";
+import type { CachedGameData } from "../src/project/gameTypes.ts";
 
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
@@ -19,7 +19,7 @@ export interface AiConfiguration {
  * counter, and the pixels on the probe canvas.
  */
 
-/** Mirror of window.__AGI_TEXT__ (see app/src/useEngine.ts, TextHook). */
+/** Mirror of window.__AGI_TEXT__ (see app/src/engine/useEngine.ts, TextHook). */
 export interface TextHook {
   rows: string[];
   modal: string | null;
@@ -133,6 +133,31 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
   await expect
     .poll(async () => (await textHook(page)).cycle, { timeout })
     .toBeGreaterThanOrEqual(from + n);
+}
+
+/**
+ * A cold Vite dev server transforms and serves the boot's whole module graph
+ * on first request, so the first game boot of a run — and any fresh page load
+ * or deep link — can sit far past the settled-state poll before room 1 shows.
+ */
+const COLD_BOOT_BUDGET_MS = 30_000;
+
+/**
+ * Wait until the engine reports `room`. `coldBoot` spends the cold-boot
+ * budget on a wait that covers a fresh boot; a warm room change keeps the
+ * default poll budget.
+ */
+export async function waitForRoom(
+  page: Page,
+  room: number,
+  options?: { coldBoot?: boolean },
+): Promise<void> {
+  await expect
+    .poll(
+      async () => (await textHook(page)).room,
+      options?.coldBoot === true ? { timeout: COLD_BOOT_BUDGET_MS } : {},
+    )
+    .toBe(room);
 }
 
 /**
@@ -278,23 +303,18 @@ export async function openCreateAdventure(page: Page): Promise<void> {
 }
 
 /**
- * Open Developer activity without toggling it closed: the page's disclosure,
- * or in Play, which keeps it off the page, its dialog from Settings → Advanced.
+ * Open Developer activity, which no screen keeps on the page: Settings →
+ * Advanced opens it — as a dialog, or as Create's Activity tab on a desktop.
+ * A panel already showing stays as it is.
  */
 export async function openDeveloperActivity(page: Page): Promise<void> {
   const panel = page.getByTestId("agent-panel");
-  if ((await panel.evaluate((element) => element.tagName)) === "DETAILS") {
-    if ((await panel.getAttribute("open")) === null)
-      await page.getByTestId("developer-activity-summary").click();
-    return;
-  }
-  const sheet = page.getByTestId("developer-activity-sheet");
-  if (await sheet.isVisible()) return;
+  if (await panel.isVisible()) return;
   await openGameOptions(page, "settings-menu");
   const advanced = page.getByTestId("settings-advanced");
   if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
   await page.getByTestId("settings-developer-activity").click();
-  await expect(sheet).toBeVisible();
+  await expect(panel).toBeVisible();
 }
 
 /** Configure the app-wide AI connection through the same dialog a player uses. */
@@ -445,7 +465,7 @@ export async function cacheGame(
   const { files, ...metadata } = game;
   const saved = await page.evaluate(
     async ({ metadata, files }) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { saveAuthoredGame } = await import(path);
       return saveAuthoredGame(metadata.projectId, {
         ...metadata,

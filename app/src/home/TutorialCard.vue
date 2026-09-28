@@ -7,15 +7,15 @@
  * An installed development copy of the tutorial folds in as a ⋯ menu item.
  */
 import { computed, nextTick, useTemplateRef } from "vue";
-import ActionMenu from "../ActionMenu.vue";
+import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import GameCard from "./GameCard.vue";
 import SavedGameCard from "./SavedGameCard.vue";
 import StartFresh from "./StartFresh.vue";
 import { catalogDetails, showDetails } from "./cardDetails.ts";
 import { catalogLibraryCopy, isInstalledCatalogCopy } from "./shelfIdentity.ts";
-import { useGameLibrary } from "../useGameLibrary.ts";
-import { hasWalkthrough } from "../walkthrough.ts";
+import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { catalogProjectId, useProjectRecovery } from "./projectRecovery.ts";
 
 /** Adventure Department's rooms (games/adventure-department). */
@@ -78,7 +78,7 @@ async function focusPlay(): Promise<void> {
       >
         <span
           >{{ localAutosave(game) ? "Resume" : "Play" }} installed copy<small>{{
-            game.folder ?? game.alias
+            game.title
           }}</small></span
         >
       </button>
@@ -157,7 +157,7 @@ async function focusPlay(): Promise<void> {
         >
           <span
             >{{ localAutosave(game) ? "Resume" : "Play" }} installed copy<small>{{
-              game.folder ?? game.alias
+              game.title
             }}</small></span
           >
         </button>

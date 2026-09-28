@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAgentSessionState, type AgentToolResult } from "../src/agent/agentState.ts";
-import { AGENT_TOOLS, executeAgentTool, executeAgentToolAsync } from "../src/agent/tools.ts";
+import {
+  AGENT_TOOLS,
+  AUTHORING_TOOL_NAMES,
+  executeAgentTool,
+  executeAgentToolAsync,
+} from "../src/agent/tools.ts";
 import {
   splitToolResult,
   openAiToolContent,
@@ -483,6 +488,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     directCases[name] = { good, bad };
   }
   const deps = {
+    allowedTools: AGENT_TOOLS.map((tool) => tool.name),
     studio,
     frames: {
       read: async () => [
@@ -717,7 +723,10 @@ test("tool results carry explicit evidence origins and a resource-set identity",
     session,
     "read_room_context",
     { room: 1, state: { variables: null, flags: null, compact: null }, frames: null },
-    { engine: { objects: () => [{ num: 0 }], state: () => ({ room: 1 }) } },
+    {
+      allowedTools: AUTHORING_TOOL_NAMES,
+      engine: { objects: () => [{ num: 0 }], state: () => ({ room: 1 }) },
+    },
   );
   const liveState = live.details?.["state"] as Record<string, unknown>;
   const liveOrigin = liveState["origin"] as Record<string, unknown>;
@@ -757,6 +766,7 @@ test("fromLiveCheckpoint restores the captured live image into the staged candid
     fromLiveCheckpoint: true,
   };
   const candidate = await executeAgentToolAsync(session, "playtest_room", args, {
+    allowedTools: AUTHORING_TOOL_NAMES,
     checkpoint: () => image,
   });
   assert.equal(candidate.success, true, candidate.error ?? "");
@@ -773,7 +783,9 @@ test("fromLiveCheckpoint restores the captured live image into the staged candid
   )["resourceSet"];
   assert.equal(origin["resourceSet"], stagedSet);
 
-  const detached = await executeAgentToolAsync(session, "playtest_room", args, {});
+  const detached = await executeAgentToolAsync(session, "playtest_room", args, {
+    allowedTools: AUTHORING_TOOL_NAMES,
+  });
   assert.equal(detached.success, false);
   assert.match(detached.error ?? "", /live game/);
 });

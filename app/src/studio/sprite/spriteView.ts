@@ -7,9 +7,8 @@
 
 import { TIMER_INCREMENT_MS } from "../../../../src/runtime/cycleClock.ts";
 import type { PixelChange } from "../../../../src/studio/sprite/spriteCels.ts";
-import type { SpriteCel, SpriteDocument } from "../../../../src/studio/sprite/spriteDocument.ts";
-import type { ViewUsage } from "../../../../src/studio/sprite/spriteUsage.ts";
-import { EGA_PALETTE } from "../../palette.ts";
+import type { SpriteCel, SpriteDocument } from "../../../../src/view/spriteDocument.ts";
+import { EGA_PALETTE } from "../../render/palette.ts";
 import { HOST_POLL_MS } from "../../worker/cycle.ts";
 
 export interface CelPoint {
@@ -73,6 +72,133 @@ export function celIntervalMs(speed: number, cycleTime = 1): number {
   return cycle * Math.max(1, cycleTime);
 }
 
+/** What the loop preview needs of a live screen object (ScreenObjectState's fields). */
+export interface PreviewCycler {
+  readonly num: number;
+  readonly view: number;
+  readonly loop: number;
+  readonly cycling: boolean;
+  readonly cycleTime: number;
+}
+
+/** How the loop preview is paced: the cel interval and whose cycle time it borrows. */
+export interface PreviewPacing {
+  readonly intervalMs: number;
+  readonly cycleTime: number;
+  /** The object whose cycle time paces it; null when no object shows the view now. */
+  readonly object: number | null;
+}
+
+/**
+ * The loop preview's pace, as the player sees `view` animate: the game's
+ * cycle delay (v10) times the cycle time of an object showing the view now
+ * (cycle.time: a cel every that many cycles). Of several, the one on
+ * `loop` wins, else ego (object 0), else the first. An object standing
+ * still keeps its cycle time for when it moves again; one whose cycle time
+ * is 0 (animation off) is passed over. With none the preview advances one
+ * cel a cycle, and says so.
+ */
+export function previewPacing(
+  speed: number,
+  cyclers: readonly PreviewCycler[],
+  view: number,
+  loop: number,
+): PreviewPacing {
+  const showing = cyclers.filter((o) => o.view === view && o.cycleTime > 0);
+  const chosen =
+    showing.find((o) => o.loop === loop) ?? showing.find((o) => o.num === 0) ?? showing[0];
+  const cycleTime = chosen?.cycleTime ?? 1;
+  return { intervalMs: celIntervalMs(speed, cycleTime), cycleTime, object: chosen?.num ?? null };
+}
+
+/**
+ * The preview's pace in plain words: one short line (the milliseconds of
+ * the game's own pace are in the title), and the whole sentence for its title. Game ticks are the interpreter's logic cycles; a pose is a
+ * cel. At half speed each pose shows twice as long.
+ */
+export function paceWords(
+  pacing: PreviewPacing,
+  pace: "game" | "half",
+): { readonly text: string; readonly title: string } {
+  const { intervalMs, cycleTime, object } = pacing;
+  const ms = Math.round(intervalMs);
+  const every = cycleTime === 1 ? "every game tick" : `every ${cycleTime} game ticks`;
+  const who = object === null ? null : object === 0 ? "the hero" : `object ${object}`;
+  const title =
+    who === null
+      ? `At game speed each pose shows for ${ms} ms: nothing on screen uses this view right now, so the preview changes pose every game tick.`
+      : `At game speed each pose shows for ${ms} ms: ${who} changes pose ${every}, at the game's speed setting.`;
+  if (pace === "half") return { text: `Half speed: a new pose every ${ms * 2} ms`, title };
+  if (who === null) return { text: `Not on screen now: a new pose every ${ms} ms`, title };
+  const lead = who.charAt(0).toUpperCase() + who.slice(1);
+  return { text: `${lead} changes pose ${every}`, title };
+}
+
+/**
+ * What shows behind a cel's transparent pixels while drawing. View only:
+ * the view's transparent colour is data and stays as it is; a backdrop is
+ * never part of the view and never reaches the draft.
+ */
+export type SpriteBackdrop =
+  | { readonly kind: "checker"; readonly tone: "dark" | "light" }
+  | { readonly kind: "colour"; readonly colour: number }
+  | { readonly kind: "room" };
+
+export const DEFAULT_BACKDROP: SpriteBackdrop = { kind: "checker", tone: "dark" };
+
+/** The backdrop as a stored preference: `checker-dark`, `checker-light`, `colour-N` or `room`. */
+export function backdropKey(backdrop: SpriteBackdrop): string {
+  if (backdrop.kind === "checker") return `checker-${backdrop.tone}`;
+  return backdrop.kind === "colour" ? `colour-${backdrop.colour}` : "room";
+}
+
+/** A stored preference back to a backdrop; anything else is the default. */
+export function parseBackdrop(value: string | null): SpriteBackdrop {
+  if (value === "checker-dark" || value === "checker-light")
+    return { kind: "checker", tone: value === "checker-dark" ? "dark" : "light" };
+  if (value === "room") return { kind: "room" };
+  const colour = /^colour-(\d{1,2})$/.exec(value ?? "")?.[1];
+  if (colour !== undefined && Number(colour) < 16)
+    return { kind: "colour", colour: Number(colour) };
+  return DEFAULT_BACKDROP;
+}
+
+/** A room picture's window behind the cel: its visual plane and where the cel stands on it. */
+export interface RoomBackdrop {
+  /** 160×168 visual colours. */
+  readonly visual: Uint8Array;
+  readonly x: number;
+  readonly baselineY: number;
+}
+
+/**
+ * The backdrop at each of a `width`×`height` cel's pixels, row-major: an
+ * EGA colour 0..15, or −1 and −2 for the checker's two squares. A room
+ * backdrop reads the picture where the cel would stand (its bottom row on
+ * `baselineY`); cells off the picture fall back to the checker.
+ */
+export function backdropCells(
+  backdrop: SpriteBackdrop,
+  width: number,
+  height: number,
+  room: RoomBackdrop | null = null,
+): Int8Array {
+  const out = new Int8Array(width * height);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const checker = (x + y) % 2 === 0 ? -1 : -2;
+      let value = checker;
+      if (backdrop.kind === "colour") value = backdrop.colour & 0x0f;
+      else if (backdrop.kind === "room" && room) {
+        const px = room.x + x;
+        const py = room.baselineY - (height - 1) + y;
+        if (px >= 0 && px < 160 && py >= 0 && py < 168) value = room.visual[py * 160 + px]! & 0x0f;
+      }
+      out[y * width + x] = value;
+    }
+  return out;
+}
+
 /** Where a cel's feet stand: its lowest opaque row and that row's leftmost opaque column. */
 export interface Feet {
   /** Rows between the lowest opaque row and the cel's bottom row (the baseline). */
@@ -106,15 +232,6 @@ export function feetWarning(before: SpriteCel, after: SpriteCel): string | null 
   if (parts.length === 0) return null;
   const floats = b.lift > 0 ? " The actor now floats above its baseline." : "";
   return `The feet moved ${parts.join(" and ")} of where the game stands the actor.${floats}`;
-}
-
-/** The top bar's usage chip: which rooms name the view. */
-export function usageText(usage: ViewUsage): string {
-  const rooms = usage.rooms;
-  if (rooms.length > 0) return `Used by room${rooms.length === 1 ? "" : "s"} ${rooms.join(", ")}`;
-  if (usage.logics.length > 0)
-    return `Used by logic${usage.logics.length === 1 ? "" : "s"} ${usage.logics.join(", ")}`;
-  return usage.dynamic ? "Chosen at runtime" : "Not used by any logic";
 }
 
 /** The pixels of a straight line from `a` to `b`, one per step along its longer axis. */
@@ -233,37 +350,6 @@ export function clearSelectionChanges(cel: SpriteCel, selection: CelRect): Pixel
   for (let y = area.y; y < area.y + area.height; y++)
     for (let x = area.x; x < area.x + area.width; x++) out.push({ x, y, color: null });
   return out;
-}
-
-/**
- * The cel's colours into RGBA, transparent pixels left fully transparent;
- * `tint` blends every opaque pixel toward that colour (onion skins).
- */
-export function celRgba(
-  cel: SpriteCel,
-  out: Uint8ClampedArray,
-  tint?: { readonly rgb: readonly [number, number, number]; readonly alpha: number },
-): void {
-  for (let i = 0; i < cel.pixels.length; i++) {
-    const value = cel.pixels[i]!;
-    const o = i * 4;
-    if (value === cel.transparent) {
-      out[o + 3] = 0;
-      continue;
-    }
-    const [r, g, b] = EGA_PALETTE[value & 0x0f]!;
-    if (tint) {
-      out[o] = (r + tint.rgb[0]) / 2;
-      out[o + 1] = (g + tint.rgb[1]) / 2;
-      out[o + 2] = (b + tint.rgb[2]) / 2;
-      out[o + 3] = Math.round(tint.alpha * 255);
-    } else {
-      out[o] = r;
-      out[o + 1] = g;
-      out[o + 2] = b;
-      out[o + 3] = 255;
-    }
-  }
 }
 
 /** Total cels across the view's loops. */

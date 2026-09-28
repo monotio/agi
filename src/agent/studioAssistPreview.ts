@@ -8,7 +8,7 @@
 
 import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
 import type { CellBox } from "../studio/editValidation.ts";
-import type { SpriteCel } from "../studio/sprite/spriteDocument.ts";
+import type { SpriteCel } from "../view/spriteDocument.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 import { pictureComparisonPng } from "./pictureFeedback.ts";
 

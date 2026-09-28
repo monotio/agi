@@ -5,7 +5,7 @@ import {
   walkableBounds,
   walkableMask,
   type WalkableInput,
-} from "../src/studio/walkable.ts";
+} from "../src/runtime/walkable.ts";
 
 const at = (x: number, y: number): number => y * 160 + x;
 

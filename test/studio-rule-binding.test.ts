@@ -135,7 +135,8 @@ describe("rules bound to picture items", () => {
       ),
       {
         ok: false,
-        error: "Rule 'bust-spot' follows 'bust' but is native logic; move its box as text.",
+        error:
+          "Rule 'bust-spot' follows 'bust' but is written directly in the room's script; move its box in the script text.",
       },
     );
   });

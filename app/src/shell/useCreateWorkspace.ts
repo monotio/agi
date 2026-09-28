@@ -10,6 +10,7 @@
  * Folded docks are a per-viewer convenience kept in browser storage, never a
  * format: a blocked or corrupt entry falls back to open docks.
  */
+import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import {
   computed,
   inject,
@@ -24,8 +25,9 @@ import {
 } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
-import type { ViewUsage } from "../../../src/studio/sprite/spriteUsage.ts";
+import type { ViewUsage } from "../../../src/agent/viewUsage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
+import type { PreviewCycler } from "../studio/sprite/spriteView.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import { createPanels, type DockSide } from "./createDocks.ts";
 
@@ -38,6 +40,8 @@ interface StudioRequestBase {
   readonly subtitle?: string | undefined;
   /** The booted game's resource revision the bytes were read at. */
   readonly baseRevision: ResourceRevision;
+  /** The authoring content the draft opens on (projectTransaction.ts `openDraft`). */
+  readonly baseAuthoring?: AuthoringFingerprint | undefined;
   /** The booted game's container files, read at the same revision (VIEWs, room pictures). */
   readonly files: ReadonlyMap<string, Uint8Array>;
   /** The same resource read again from the running game, or null when it is gone. */
@@ -77,12 +81,14 @@ export interface SpriteStudioRequest extends StudioRequestBase {
   readonly kind: "sprite";
   readonly viewNumber: number;
   readonly bytes: Uint8Array;
-  /** Rooms and logics whose bytecode names the view (spriteUsage.ts). */
+  /** Rooms and logics whose bytecode names the view (src/agent/viewUsage.ts). */
   readonly usage: ViewUsage;
   /** Rooms with a picture to preview the sprite in, the room the game is in first. */
   readonly rooms: readonly SpriteRoom[];
   /** The game's cycle delay (v10) when Studio opened; the loop preview's pace. */
   readonly speed: number;
+  /** The live objects when Studio opened: whose cycle time paces the loop preview. */
+  readonly cyclers?: readonly PreviewCycler[] | undefined;
   /** The room's set.pri.base when known. */
   readonly priorityBase?: number | undefined;
   /** A staged character-sheet candidate: Keep goes through its reference's staged keep. */

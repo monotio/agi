@@ -2,7 +2,7 @@
  * History viewing: while the live session stays parked behind its
  * acknowledged pause, a scratch session on the side replays the recorded
  * stream through a real Engine and posts its frames to the real surface.
- * The scratch runs on the history drive (worker/replay.ts): recorded
+ * The scratch runs on the history drive (worker/historyDrive.ts): recorded
  * answers resolve its host requests, its own control traffic is swallowed,
  * and its sound stays silent. It writes nothing — no autosave, no journal
  * notices, no recorded batches, no provider calls.
@@ -16,7 +16,7 @@
  */
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
-import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import {
   HISTORY_FINGERPRINT_VERSION,
   historyBootSemantic,
@@ -27,8 +27,8 @@ import {
   type HistorySegment,
 } from "../../../src/agent/history.ts";
 import { resourceSetHint } from "../../../src/agent/authoringState.ts";
-import { openHistoryDrive, type HistoryDrive } from "./replay.ts";
-import type { Inbound, WorkerContext } from "./context.ts";
+import { openHistoryDrive, type HistoryDrive } from "./historyDrive.ts";
+import type { Inbound, WorkerContext, WorkerPorts } from "./context.ts";
 
 const V_ROOM = 0;
 const V_SCORE = 3;
@@ -36,7 +36,11 @@ const V_SCORE = 3;
 /** Wall-clock budget per drive chunk so a long seek never starves the worker. */
 const CHUNK_BUDGET_MS = 12;
 
-export function createHistoryView(ctx: WorkerContext) {
+export function createHistoryView(
+  ctx: WorkerContext,
+  /** Builds each scratch session's context: createWorkerContext, which passes itself. */
+  createContext: (ports: WorkerPorts) => WorkerContext,
+) {
   /**
    * Whether the view session has successfully opened: a start whose landing
    * report carried an error leaves no half-open session — the recording and
@@ -124,7 +128,7 @@ export function createHistoryView(ctx: WorkerContext) {
         break;
       }
     }
-    const drive = openHistoryDrive(segment, {
+    const drive = openHistoryDrive(segment, createContext, {
       ...(anchorIdx !== undefined ? { anchor: anchorIdx } : {}),
       ports: {
         // Scratch host requests resolve from the recorded answers, never the

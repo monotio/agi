@@ -13,7 +13,13 @@ import {
   type WorkerPorts,
 } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
-import type { WorkerControl, WorkerPresentation } from "../src/workerProtocol.ts";
+import {
+  openHistoryDrive,
+  type HistoryDrive,
+  type HistoryReplayOptions,
+} from "../src/worker/historyDrive.ts";
+import type { HistorySegment } from "../../src/agent/history.ts";
+import type { WorkerControl, WorkerPresentation } from "../src/worker/workerProtocol.ts";
 
 export interface WorkerHarness {
   ctx: WorkerContext;
@@ -49,4 +55,14 @@ export function workerHarness(container: GameContainer): WorkerHarness {
   ctx.engine = new Engine(container, ctx.host, new Map());
   ctx.engine.flags[9] = 1;
   return { ctx, control, presentation, transfers };
+}
+
+/** Replay a whole recorded segment on a scratch drive — the offline proof and verifier. */
+export function replayHistorySegment(
+  segment: HistorySegment,
+  options: HistoryReplayOptions = {},
+): HistoryDrive {
+  const drive = openHistoryDrive(segment, createWorkerContext, options);
+  while (!drive.halted) drive.step();
+  return drive;
 }

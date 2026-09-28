@@ -171,11 +171,14 @@ test(
       restarted: true,
       profile: "amiga-2.316",
     });
-    engine.patchResource(
-      "logic",
-      0,
-      assembleLogic("set(f9);load.sound(1);sound(1,f60);return;", { dictionary: dict }).payload,
-    );
+    engine.patchResources([
+      {
+        kind: "logic",
+        num: 0,
+        payload: assembleLogic("set(f9);load.sound(1);sound(1,f60);return;", { dictionary: dict })
+          .payload,
+      },
+    ]);
     engine.tick();
     const ticks: SoundOutput[][] = [];
     for (let t = 0; t < 60; t++) {

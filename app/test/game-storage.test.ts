@@ -3,24 +3,24 @@ import { stampBoot } from "../../src/agent/history.ts";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
-import * as storage from "../src/gameStorage.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
-import { readGameSaves, writeGameSave } from "../src/gameSaves.ts";
-import { mapKey, writeMapSidecar } from "../src/roomMapStore.ts";
+import * as storage from "../src/project/gameStorage.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
+import { readGameSaves, writeGameSave } from "../src/saves/gameSaves.ts";
+import { mapKey, writeMapSidecar } from "../src/world/roomMapStore.ts";
 import {
   lastGameKey,
   readAutosave,
   removeLibraryGame,
   writeAutosave,
   type AutosaveRecord,
-} from "../src/useEngine.ts";
+} from "../src/engine/useEngine.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import {
   appendHistoryBatch,
   importGameHistory,
   loadProjectHistory,
   stageRetainedOriginal,
-} from "../src/historyStorage.ts";
+} from "../src/history/historyStorage.ts";
 import { testRevision } from "./identity.ts";
 
 const indexedDbRecords = installIndexedDbFixture();
@@ -621,7 +621,7 @@ test("a database open that finishes after being blocked closes its abandoned con
       },
     },
   });
-  const modulePath = "../src/gameStorage.ts?blocked-open";
+  const modulePath = "../src/project/gameStorage.ts?blocked-open";
   const fresh = await import(modulePath);
   assert.equal(
     await fresh.saveAuthoredGame("blocked", {
@@ -661,7 +661,7 @@ test("a database a newer app upgraded asks for a reload instead of a raw Version
       },
     },
   });
-  const modulePath = "../src/gameStorage.ts?newer-database";
+  const modulePath = "../src/project/gameStorage.ts?newer-database";
   const fresh = await import(modulePath);
   await assert.rejects(
     fresh.bodyTransaction("readonly", (store: IDBObjectStore) => store.getAllKeys()),
@@ -675,7 +675,7 @@ test("concurrency conflict compare-and-swap preserves losing edits in stashedCon
   t.after(() => {
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
     else Reflect.deleteProperty(globalThis, "localStorage");
-    storage.clearStashedConflict(testProjectId("concurrent-project"));
+    storage.stashedConflicts.delete(testProjectId("concurrent-project"));
   });
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
@@ -731,7 +731,7 @@ test("concurrency conflict compare-and-swap preserves losing edits in stashedCon
   assert.equal(surviving.generation, 2);
 
   // Losing writer's work is stashed for recovery
-  const stashed = storage.getStashedConflict(testProjectId("concurrent-project"));
+  const stashed = storage.stashedConflicts.get(testProjectId("concurrent-project"));
   assert.notEqual(stashed, undefined);
   assert.equal(stashed?.reason, "concurrency_conflict");
   assert.equal(stashed?.data.title, "Tab A Overwrite");
@@ -744,7 +744,7 @@ test("delete-vs-write conflict preserves write in stashedConflicts", async (t) =
   t.after(() => {
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
     else Reflect.deleteProperty(globalThis, "localStorage");
-    storage.clearStashedConflict(testProjectId("deleted-project"));
+    storage.stashedConflicts.delete(testProjectId("deleted-project"));
   });
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
@@ -764,7 +764,7 @@ test("delete-vs-write conflict preserves write in stashedConflicts", async (t) =
   );
   assert.equal(result, false);
   // Stashed conflict recorded
-  const stashed = storage.getStashedConflict(testProjectId("deleted-project"));
+  const stashed = storage.stashedConflicts.get(testProjectId("deleted-project"));
   assert.notEqual(stashed, undefined);
   assert.equal(stashed?.reason, "project_deleted");
 });

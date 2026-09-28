@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { collectHistoryBackup } from "../src/historyBackup.ts";
+import { collectHistoryBackup } from "../src/archive/historyBackup.ts";
 
 test("failed history reads preserve worker recovery bytes and declare the missing tape", async () => {
   const batch = {

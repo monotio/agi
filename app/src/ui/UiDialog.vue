@@ -5,13 +5,29 @@ import UiIconButton from "./UiIconButton.vue";
 /**
  * A native modal <dialog> on the top layer, so nothing can render behind a
  * parent modal. Esc and the close button set `open` to false; focus returns
- * to whatever had it before opening.
+ * to whatever had it before opening, unless `restoreFocus` is false and the
+ * `closed` listener hands it on (the game's input, say). It arrives with the
+ * motion recipe's dialog entrance (motion.css). The `actions` slot puts
+ * controls in the header, before the close button; `flush` drops the body
+ * padding for panes that draw their own.
  */
-const { description = undefined, size = "md" } = defineProps<{
+const {
+  description = undefined,
+  size = "md",
+  closeTestid = undefined,
+  closeLabel = "Close",
+  restoreFocus = true,
+  flush = false,
+} = defineProps<{
   title: string;
   description?: string | undefined;
   size?: "sm" | "md" | "lg";
+  closeTestid?: string | undefined;
+  closeLabel?: string;
+  restoreFocus?: boolean;
+  flush?: boolean;
 }>();
+const emit = defineEmits<{ closed: [] }>();
 const open = defineModel<boolean>("open", { required: true });
 const dialog = useTemplateRef("dialog");
 let returnFocus: HTMLElement | null = null;
@@ -34,8 +50,9 @@ watch(
 
 function onClose(): void {
   open.value = false;
-  returnFocus?.focus({ preventScroll: true });
+  if (restoreFocus) returnFocus?.focus({ preventScroll: true });
   returnFocus = null;
+  emit("closed");
 }
 </script>
 
@@ -49,13 +66,20 @@ function onClose(): void {
     @cancel.prevent="open = false"
   >
     <header class="ui-dialog__head">
-      <div>
+      <div class="ui-dialog__heading">
         <h2 class="ui-dialog__title">{{ title }}</h2>
         <p v-if="description" class="ui-dialog__desc">{{ description }}</p>
       </div>
-      <UiIconButton icon="x" label="Close" size="sm" @click="open = false" />
+      <div v-if="$slots['actions']" class="ui-dialog__actions"><slot name="actions" /></div>
+      <UiIconButton
+        icon="x"
+        :label="closeLabel"
+        size="sm"
+        :data-testid="closeTestid"
+        @click="open = false"
+      />
     </header>
-    <div class="ui-dialog__body"><slot /></div>
+    <div class="ui-dialog__body" :class="{ 'ui-dialog__body--flush': flush }"><slot /></div>
     <footer v-if="$slots['footer']" class="ui-dialog__foot"><slot name="footer" /></footer>
   </dialog>
 </template>
@@ -92,6 +116,16 @@ function onClose(): void {
   gap: var(--space-4);
   padding: var(--space-5) var(--space-4) var(--space-3) var(--space-6);
 }
+.ui-dialog__heading {
+  min-width: 0;
+}
+.ui-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
 .ui-dialog__title {
   margin: 0;
   font: var(--weight-semibold) var(--text-xl) / var(--leading-tight) var(--font-sans);
@@ -107,11 +141,35 @@ function onClose(): void {
   overflow: auto;
   padding: var(--space-3) var(--space-6) var(--space-6);
 }
+.ui-dialog__body--flush {
+  padding: 0;
+}
 .ui-dialog__foot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--hairline);
+}
+/* A phone has no room for a row of buttons: they stack full width, in
+   reading order, so the safe choice (Cancel, first) is never pushed off an
+   edge. e2e/dialog-fit.spec.ts holds every dialog to this. */
+@media (max-width: 520px) {
+  .ui-dialog__head {
+    padding-left: var(--space-5);
+  }
+  .ui-dialog__body:not(.ui-dialog__body--flush) {
+    padding-inline: var(--space-5);
+  }
+  .ui-dialog__foot {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--space-4) var(--space-5);
+  }
+  .ui-dialog__foot > :slotted(*) {
+    width: 100%;
+    margin: 0;
+  }
 }
 </style>

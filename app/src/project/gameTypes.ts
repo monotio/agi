@@ -1,0 +1,175 @@
+import type { LibraryMetadata } from "./gameMetadata.ts";
+import type { StoredReference } from "../references/referenceArt.ts";
+import type { ScreenObjectState } from "../../../src/runtime/engine.ts";
+import { projectId } from "../../../src/gameIdentity.ts";
+import { cellChar } from "../../../src/runtime/textSurface.ts";
+import type { ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
+
+/**
+ * One library entry's stable id (an imported game, a created adventure, a
+ * copy, a remix) and the digest of its playable bytes — the branded identity
+ * contract lives in src/gameIdentity.ts; these re-exports keep the app's
+ * existing import sites.
+ */
+export type { ProjectId, ResourceRevision };
+
+export interface CachedGameMeta {
+  library?: LibraryMetadata | undefined;
+  projectId: ProjectId;
+  templateId?: string | undefined;
+  generation?: number | undefined;
+  title: string;
+  authoredAt: string;
+  provider: string;
+  model: string;
+  sessionId?: string | undefined;
+  imported?: boolean | undefined;
+  roomGeneration?: boolean | undefined;
+}
+
+export interface CachedGameData extends CachedGameMeta {
+  files: Record<string, Uint8Array>;
+  words: [string, number][];
+  transcript?: unknown[] | undefined;
+  authoringState?: Record<string, unknown> | undefined;
+  conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
+  /** Player-supplied reference art; project data, never playable bytes. */
+  references?: StoredReference[] | undefined;
+}
+
+export interface BootedGame {
+  /** Captured before worker boot; deletion invalidates this history writer. */
+  historyLifetime?: string | null;
+  readonly installed: boolean;
+  readonly title: string;
+  revision: ResourceRevision;
+  files: Record<string, Uint8Array>;
+  words: [string, number][];
+  readonly hash?: string | undefined;
+  readonly alias?: string | undefined;
+  readonly folder?: string | undefined;
+  readonly projectId?: ProjectId | undefined;
+  authoredGame?: CachedGameData | undefined;
+  /**
+   * The stored project holds a newer save than the running game: a Keep
+   * saved but not installed, or a write from elsewhere. Nothing writes this
+   * game's files to storage until it reloads from storage, which boots a
+   * fresh BootedGame without the mark.
+   */
+  behindStorage?: true | undefined;
+  /**
+   * The stored project this game runs was removed (in another tab). It is
+   * behind storage for good: no reload brings it back. Nothing — checkpoint,
+   * save slot, timeline, map or project write — is stored for it; the game
+   * plays on in memory and can still be downloaded.
+   */
+  removed?: true | undefined;
+}
+
+export interface InstalledGameDescriptor {
+  readonly hash: string;
+  readonly alias: string;
+  readonly title: string;
+  readonly author?: string | undefined;
+  readonly walkthroughLabel?: string | undefined;
+  readonly wordsSha256?: string | undefined;
+  readonly objectSha256?: string | undefined;
+  /** Full bundle revision of the served file set — walkthrough offers key on it. */
+  readonly revision?: ResourceRevision | undefined;
+  readonly folder?: string | undefined;
+}
+
+export interface CurrentGame {
+  readonly installed: boolean;
+  readonly title: string;
+  /** The world is unfinished: exits may lead to rooms not built yet. */
+  readonly workInProgress: boolean;
+  readonly revision: ResourceRevision;
+  readonly hash?: string | undefined;
+  readonly alias?: string | undefined;
+  readonly projectId?: ProjectId | undefined;
+  readonly folder?: string | undefined;
+}
+
+/**
+ * One storage identity for a game's progress: installed editions scope by
+ * folder (two folders can share a WORDS.TOK hash), authored projects by id.
+ * The key doubles as a `ProjectId` in stored records, so a folder name
+ * outside the project-id alphabet falls back to the edition's content hash.
+ * Save slots, autosaves and the last-game pointer must all resolve to this.
+ */
+export function gameStorageKey(game: {
+  installed: boolean;
+  folder?: string | null | undefined;
+  hash?: string | null | undefined;
+  alias?: string | null | undefined;
+  projectId?: string | null | undefined;
+}): string {
+  if (!game.installed) return game.projectId ?? "";
+  const folder = game.folder ?? "";
+  if (projectId(folder) !== null) return folder;
+  return game.hash ?? game.alias ?? "";
+}
+
+export function findInstalledFolder(
+  installedGames: readonly (string | InstalledGameDescriptor)[] | null | undefined,
+  query: string,
+): string {
+  const norm = query.toLowerCase();
+  const match = (installedGames ?? []).find((g) => {
+    if (typeof g === "string") return g.toLowerCase() === norm;
+    return (
+      g.hash.toLowerCase() === norm ||
+      g.alias.toLowerCase() === norm ||
+      g.folder?.toLowerCase() === norm ||
+      g.wordsSha256?.toLowerCase() === norm
+    );
+  });
+  return typeof match === "string" ? match : (match?.folder ?? query);
+}
+
+export interface Frame {
+  visual: Uint8Array;
+  priority: Uint8Array;
+  /** 40x25 [char, attr] text cells. */
+  text: Uint8Array;
+  /** Text row where picture row 0 is presented. */
+  picRow: number;
+  /** Interpreter cycle this frame completed, when the worker reports it. */
+  cycle?: number;
+  /** Container patch revision at capture; part of the frame's identity. */
+  patchGeneration?: number;
+  /**
+   * Per-pixel owning screen object (num + 1, 0 = background); present only
+   * while the worker's ownership debug channel is armed.
+   */
+  ownership?: Uint16Array;
+  /** Live screen-object table; present only while the objects channel is armed. */
+  objects?: ScreenObjectState[];
+  /**
+   * Picture-only visual + priority (no screen objects); present only while the
+   * picture debug channel is armed — the exploded view layers this as the wall.
+   */
+  picVisual?: Uint8Array;
+  picPriority?: Uint8Array;
+  /**
+   * Logical pixels the show.obj preview cel wrote; present only while that
+   * modal is open. Lets a layered renderer treat the preview as its own
+   * identifiable layer instead of unowned band-15 pixels.
+   */
+  preview?: Uint8Array;
+}
+
+/** Decodes 40x25 [char, attr] text buffer into 25 display rows. */
+export function decodeTextRows(text: Uint8Array): string[] {
+  const rows: string[] = [];
+  for (let r = 0; r < 25; r++) {
+    let line = "";
+    for (let c = 0; c < 40; c++) {
+      const ch = text[(r * 40 + c) * 2]!;
+      line += cellChar(ch);
+    }
+    rows.push(line);
+  }
+  return rows;
+}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { usePromptController, type PromptState } from "../src/usePromptController.ts";
+import { usePromptController, type PromptState } from "../src/play/usePromptController.ts";
 
 test("usePromptController opens and resolves string prompts", async () => {
   const logged: string[] = [];

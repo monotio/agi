@@ -1,16 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerPorts } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { replayHistorySegment } from "../src/worker/replay.ts";
 import {
   validateHistoryBoot,
   type HistoryBoot,
   type HistorySegment,
 } from "../../src/agent/history.ts";
-import type { WorkerControl, WorkerInbound, WorkerPresentation } from "../src/workerProtocol.ts";
+import type {
+  WorkerControl,
+  WorkerInbound,
+  WorkerPresentation,
+} from "../src/worker/workerProtocol.ts";
 
 test("worker boot with a profile override reports the chosen profile and detection kind", () => {
   const container = gameContainer(["assignn(v0, 1); accept.input(); return;"]);

@@ -18,10 +18,10 @@ import { rngDraw } from "../../src/runtime/rng.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { installBaseTemplate } from "../../src/agent/baseTemplate.ts";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
-import { appendHistoryBatch, loadGameHistory } from "../src/historyStorage.ts";
+import { appendHistoryBatch, loadGameHistory } from "../src/history/historyStorage.ts";
 
 const IDENTITY = { project: testProjectId("worker-history"), revision: testRevision("tape") };
 
@@ -33,13 +33,12 @@ import {
 } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { replayHistorySegment } from "../src/worker/replay.ts";
 import type {
   BootMessage,
   WorkerControl,
   WorkerInbound,
   WorkerPresentation,
-} from "../src/workerProtocol.ts";
+} from "../src/worker/workerProtocol.ts";
 
 // Blue box — the same fixture bytes test/worker-journal uses.
 const PICTURE_1 = new Uint8Array([

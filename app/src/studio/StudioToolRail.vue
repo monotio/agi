@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
+import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import type { IconName } from "../ui/icons.ts";
 import StudioCurrentValues from "./StudioCurrentValues.vue";
 import type { LensUnlocks } from "./studioLocks.ts";
-import type { CurrentValues, StudioTool } from "./studioTools.ts";
+import { TOOL_SHORTCUTS, type CurrentValues, type StudioTool } from "./studioTools.ts";
 import type { StudioLens } from "./studioView.ts";
 
 /**
@@ -16,8 +17,12 @@ import type { StudioLens } from "./studioView.ts";
  * The tools scroll inside the rail's column when it is shorter than they are
  * (the Walk lens's three extra tools at 1280×720, any lens on a short
  * screen); the values stay pinned under them, so their pickers are never
- * clipped. An edge fades where more tools lie beyond it, and the pressed
- * tool (picked by its key) or a focused one is scrolled clear of the fades.
+ * clipped. An edge where more tools lie beyond it fades and carries a
+ * chevron button that scrolls the next tools into view (a short screen's
+ * rail shows only a few at a time, and a hidden scrollbar says nothing);
+ * the pressed tool (picked by its key) or a focused one is scrolled clear
+ * of the fades. The chevrons are for the pointer and never take focus from
+ * the canvas: focus reaches every tool.
  */
 const {
   frozen,
@@ -47,30 +52,29 @@ interface RailTool {
   readonly id: StudioTool;
   readonly icon: IconName;
   readonly label: string;
-  readonly key: string;
   readonly draws?: boolean;
   /** Adds a door: needs the room's editable logic. */
   readonly doors?: boolean;
 }
 const GROUPS: readonly (readonly RailTool[])[] = [
   [
-    { id: "select", icon: "select", label: "Select and move", key: "V" },
-    { id: "point", icon: "spline", label: "Points only", key: "A" },
+    { id: "select", icon: "select", label: "Select and move" },
+    { id: "point", icon: "spline", label: "Points only" },
   ],
   [
-    { id: "line", icon: "line", label: "Line", key: "L", draws: true },
-    { id: "rect", icon: "rect", label: "Rectangle", key: "R", draws: true },
-    { id: "polygon", icon: "polygon", label: "Polygon", key: "P", draws: true },
-    { id: "fill", icon: "fill", label: "Fill", key: "F", draws: true },
-    { id: "brush", icon: "brush", label: "Brush", key: "B", draws: true },
-    { id: "pipette", icon: "pipette", label: "Pick colour and priority", key: "I" },
+    { id: "line", icon: "line", label: "Line", draws: true },
+    { id: "rect", icon: "rect", label: "Rectangle", draws: true },
+    { id: "polygon", icon: "polygon", label: "Polygon", draws: true },
+    { id: "fill", icon: "fill", label: "Fill", draws: true },
+    { id: "brush", icon: "brush", label: "Brush", draws: true },
+    { id: "pipette", icon: "pipette", label: "Pick colour and priority" },
   ],
 ];
 /** The Walk view's own tools: a test walk the game runs, and the room's doors. */
 const WALK_GROUP: readonly RailTool[] = [
-  { id: "walk", icon: "footprints", label: "Test walk", key: "T" },
-  { id: "door", icon: "exit", label: "Door box", key: "D", doors: true },
-  { id: "edge", icon: "move", label: "Edge exit", key: "E", doors: true },
+  { id: "walk", icon: "footprints", label: "Test walk" },
+  { id: "door", icon: "exit", label: "Door box", doors: true },
+  { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
 const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
 
@@ -95,6 +99,14 @@ function reveal(button: Element | null | undefined): void {
   else if (box.bottom > view.bottom - fade) el.scrollTop += box.bottom - (view.bottom - fade);
   measure();
 }
+/** Scroll the tools a column's height less one tool, so one stays in sight. */
+function page(direction: 1 | -1): void {
+  const el = scroller.value;
+  if (!el) return;
+  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  const step = Math.max(32, el.clientHeight - 48);
+  el.scrollBy({ top: direction * step, behavior: reduce ? "auto" : "smooth" });
+}
 const revealPressed = () => reveal(scroller.value?.querySelector('[aria-pressed="true"]'));
 watch([tool, () => probeActive, () => lens], () => void nextTick(revealPressed));
 watch(scroller, (el) => {
@@ -110,55 +122,83 @@ watch(scroller, (el) => {
 
 <template>
   <aside class="tool-rail" role="toolbar" aria-orientation="vertical" aria-label="Tools">
-    <div
-      ref="scroller"
-      class="tool-rail__scroll"
-      :class="{ 'is-more-above': more.above, 'is-more-below': more.below }"
-      data-testid="studio-rail-tools"
-      @scroll.passive="measure"
-      @focusin="reveal($event.target as Element)"
-    >
-      <div class="tool-rail__tools">
-        <template v-for="(group, g) in groups" :key="g">
-          <span v-if="g > 0" class="tool-rail__sep" aria-hidden="true"></span>
-          <div v-for="entry in group" :key="entry.id" class="tool-rail__tool">
+    <div class="tool-rail__column">
+      <div
+        ref="scroller"
+        class="tool-rail__scroll"
+        :class="{ 'is-more-above': more.above, 'is-more-below': more.below }"
+        data-testid="studio-rail-tools"
+        @scroll.passive="measure"
+        @focusin="reveal($event.target as Element)"
+      >
+        <div class="tool-rail__tools">
+          <template v-for="(group, g) in groups" :key="g">
+            <span v-if="g > 0" class="tool-rail__sep" aria-hidden="true"></span>
+            <div v-for="entry in group" :key="entry.id" class="tool-rail__tool">
+              <UiIconButton
+                :icon="entry.icon"
+                :label="entry.label"
+                :shortcut="TOOL_SHORTCUTS[entry.id]"
+                :pressed="tool === entry.id"
+                :disabled="(entry.draws && frozen) || (entry.doors && (frozen || !doorsEditable))"
+                :data-tool="entry.id"
+                @click="tool = entry.id"
+              />
+              <kbd aria-hidden="true">{{ TOOL_SHORTCUTS[entry.id] }}</kbd>
+            </div>
+          </template>
+          <span class="tool-rail__sep" aria-hidden="true"></span>
+          <div class="tool-rail__tool">
             <UiIconButton
-              :icon="entry.icon"
-              :label="entry.label"
-              :shortcut="entry.key"
-              :pressed="tool === entry.id"
-              :disabled="(entry.draws && frozen) || (entry.doors && (frozen || !doorsEditable))"
-              :data-tool="entry.id"
-              @click="tool = entry.id"
+              icon="actor"
+              :label="probeAvailable ? 'Actor probe' : 'Actor probe (this game has no VIEWs)'"
+              :shortcut="TOOL_SHORTCUTS.probe"
+              :pressed="probeActive"
+              :disabled="!probeAvailable"
+              data-testid="studio-probe-toggle"
+              @click="emit('probe')"
             />
-            <kbd aria-hidden="true">{{ entry.key }}</kbd>
+            <kbd aria-hidden="true">{{ TOOL_SHORTCUTS.probe }}</kbd>
           </div>
-        </template>
-        <span class="tool-rail__sep" aria-hidden="true"></span>
-        <div class="tool-rail__tool">
-          <UiIconButton
-            icon="actor"
-            :label="probeAvailable ? 'Actor probe' : 'Actor probe (this game has no VIEWs)'"
-            shortcut="G"
-            :pressed="probeActive"
-            :disabled="!probeAvailable"
-            data-testid="studio-probe-toggle"
-            @click="emit('probe')"
-          />
-          <kbd aria-hidden="true">G</kbd>
-        </div>
-        <div class="tool-rail__tool">
-          <UiIconButton
-            icon="hand"
-            label="Pan (or hold Space)"
-            shortcut="H"
-            :pressed="tool === 'hand'"
-            data-tool="hand"
-            @click="tool = 'hand'"
-          />
-          <kbd aria-hidden="true">H</kbd>
+          <div class="tool-rail__tool">
+            <UiIconButton
+              icon="hand"
+              label="Pan (or hold Space)"
+              :shortcut="TOOL_SHORTCUTS.hand"
+              :pressed="tool === 'hand'"
+              data-tool="hand"
+              @click="tool = 'hand'"
+            />
+            <kbd aria-hidden="true">{{ TOOL_SHORTCUTS.hand }}</kbd>
+          </div>
         </div>
       </div>
+      <button
+        v-show="more.above"
+        type="button"
+        class="tool-rail__more is-above"
+        tabindex="-1"
+        aria-hidden="true"
+        title="More tools above"
+        data-testid="studio-rail-more-above"
+        @mousedown.prevent
+        @click="page(-1)"
+      >
+        <UiIcon name="chevron-up" :size="16" />
+      </button>
+      <button
+        v-show="more.below"
+        type="button"
+        class="tool-rail__more is-below"
+        tabindex="-1"
+        aria-hidden="true"
+        title="More tools below"
+        data-testid="studio-rail-more-below"
+        @mousedown.prevent
+        @click="page(1)"
+      >
+        <UiIcon name="chevron-down" :size="16" />
+      </button>
     </div>
     <span class="tool-rail__spacer"></span>
     <StudioCurrentValues
@@ -180,6 +220,40 @@ watch(scroller, (el) => {
   padding: 0 0 var(--space-2);
   border-right: 1px solid var(--hairline);
   background: var(--surface-1);
+}
+/* The tools' column: the scrolling list with its chevrons laid over its edges. */
+.tool-rail__column {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  align-self: stretch;
+  min-height: 0;
+}
+.tool-rail__more {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  height: var(--space-5);
+  padding: 0;
+  border: 0;
+  color: var(--ink-2);
+  background: var(--surface-1);
+  cursor: pointer;
+}
+.tool-rail__more:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.tool-rail__more.is-above {
+  top: 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.tool-rail__more.is-below {
+  bottom: 0;
+  border-top: 1px solid var(--hairline);
 }
 /* The tools take the column's height left over by the values and scroll in
    it, with no scrollbar (a classic one would narrow the 48 px column below a

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createReplayDriver } from "../src/useReplayDriver.ts";
-import type { ReplayObservation } from "../src/replay.ts";
+import { createReplayDriver } from "../src/walkthrough/useReplayDriver.ts";
+import type { ReplayObservation } from "../src/walkthrough/replay.ts";
 
 function createMockObservation(revision: number, blocked: string | null = null): ReplayObservation {
   return {

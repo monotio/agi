@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runReplayBatch } from "../src/replayRunner.ts";
-import type { ReplayAction, ReplayDriver, ReplayObservation } from "../src/replay.ts";
+import { runReplayBatch } from "../src/walkthrough/replayRunner.ts";
+import type { ReplayAction, ReplayDriver, ReplayObservation } from "../src/walkthrough/replay.ts";
 
 /**
  * Manhunter, Manhunter 2 and Police Quest ask two names in one logic pass:

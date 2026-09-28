@@ -122,12 +122,19 @@ export function edgeTooltip(edge: RoomGraphEdge): string {
   return edge.label ? `logic exits off the ${edge.label} edge` : "named in logic";
 }
 
-/** One-line caption: the room number, plus a truncated title when it has one. */
+/** Characters a node caption holds: the node's width at the caption's type size. */
+const NODE_LABEL_CHARS = 18;
+
+/**
+ * One-line caption that fits the node: "Room 4" alone, or the room number
+ * and its title ("4 · The Vault"), the title cut with an ellipsis so the
+ * whole caption, ellipsis included, stays within NODE_LABEL_CHARS.
+ */
 export function nodeLabel(node: RoomGraphNode): string {
-  const name = `Room ${node.room}`;
-  if (!node.title) return name;
-  const budget = 19 - name.length;
-  if (budget < 3) return name;
-  const title = node.title.length > budget ? `${node.title.slice(0, budget)}…` : node.title;
-  return `${name} — ${title}`;
+  if (!node.title) return `Room ${node.room}`;
+  const prefix = `${node.room} · `;
+  const budget = NODE_LABEL_CHARS - prefix.length;
+  const title =
+    node.title.length > budget ? `${node.title.slice(0, budget - 1).trimEnd()}…` : node.title;
+  return `${prefix}${title}`;
 }

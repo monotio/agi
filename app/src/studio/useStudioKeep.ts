@@ -14,7 +14,7 @@
 
 import { computed, shallowRef, type Ref } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
-import type { PictureEdit, ResourceCommitResult } from "../resourceCommit.ts";
+import type { PictureEdit, ResourceCommitResult } from "../project/resourceCommit.ts";
 import type { DraftStatus } from "./StudioDraftControls.vue";
 import { useStudioCommit } from "./useStudioCommit.ts";
 

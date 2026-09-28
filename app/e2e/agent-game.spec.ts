@@ -142,7 +142,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
     offset = start + size;
   }
   const cachedFiles = await page.evaluate(async () => {
-    const modulePath = "/src/gameStorage.ts";
+    const modulePath = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(modulePath);
     const cached = await loadAuthoredGame("custom");
     return Object.fromEntries(
@@ -310,22 +310,24 @@ test("sound controls allow toggling mute and switching sound chip mode", async (
   await page.getByTestId("boot-agent").click();
   await openGameOptions(page, "settings-menu");
   const muteBtn = page.getByTestId("toggle-mute");
-  // Sound-chip emulation is an Advanced setting.
-  await page.getByTestId("settings-advanced").click();
+  // Sound-chip emulation is an Advanced setting (already open when Developer
+  // activity was reached through it).
+  const advanced = page.getByTestId("settings-advanced");
+  if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
   const modeBtn = page.getByTestId("toggle-sound-mode");
 
   await expect(muteBtn).toBeVisible();
   await expect(modeBtn).toBeVisible();
 
   // Initial state: Sound on, Tandy 4-Voice chip
-  await expect(muteBtn.locator(".setting-value")).toHaveText("On");
+  await expect(muteBtn).toHaveAttribute("aria-checked", "true");
   await expect(modeBtn).toContainText("Tandy 4-Voice");
 
   // Toggle mute
   await muteBtn.click();
-  await expect(muteBtn.locator(".setting-value")).toHaveText("Off");
+  await expect(muteBtn).toHaveAttribute("aria-checked", "false");
   await muteBtn.click();
-  await expect(muteBtn.locator(".setting-value")).toHaveText("On");
+  await expect(muteBtn).toHaveAttribute("aria-checked", "true");
 
   // A PC edition cycles between its two sound chips; Amiga and Apple IIgs
   // editions play through their own fixed family.

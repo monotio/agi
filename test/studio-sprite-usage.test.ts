@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { buildTutorial } from "../games/adventure-department/game.ts";
 import { openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
-import { roomBakesView, scanViewUsage, viewUsage } from "../src/studio/sprite/spriteUsage.ts";
+import { roomBakesView, scanViewUsage, viewUsage } from "../src/agent/viewUsage.ts";
 
 function tutorialLogics(): Map<number, Uint8Array> {
   const container = openContainer(new Map(Object.entries(buildTutorial().files)));

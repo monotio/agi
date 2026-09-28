@@ -5,17 +5,23 @@
  * files (the room map's scan) and the live engine's cycle delay and priority
  * base, and reads the same view again when a refused Keep reopens it.
  */
-import { base64ToBytes } from "../bytes.ts";
-import { useEngineApi } from "../engineContext.ts";
-import type { StoredReference } from "../referenceArt.ts";
+import { base64ToBytes } from "../project/bytes.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import type { StoredReference } from "../references/referenceArt.ts";
 import { useCreateWorkspace, type SpriteStudioRequest } from "../shell/useCreateWorkspace.ts";
-import type { EngineStateReport } from "../../../src/runtime/engine.ts";
+import type { EngineStateReport, ScreenObjectState } from "../../../src/runtime/engine.ts";
 import { parseView } from "../../../src/view/view.ts";
 
 const RELOADED = "Loaded the latest saved version of this game.";
 
 /** The engine's speed variable: the cycle delay, in 1/20 s timer increments. */
 const SPEED_VAR = 10;
+
+/** What Sprite Studio reads of the running game when it opens. */
+interface LiveState {
+  readonly state: EngineStateReport | null;
+  readonly objects: readonly ScreenObjectState[];
+}
 
 interface Staged {
   readonly id: string;
@@ -27,13 +33,19 @@ export function useSpriteStudio() {
   const workspace = useCreateWorkspace();
   const map = engine.roomMap;
 
-  const readState = () => engine.readEngineState().catch(() => null);
+  const readState = async (): Promise<LiveState> => {
+    const [state, objects] = await Promise.all([
+      engine.readEngineState().catch(() => null),
+      engine.readObjects().catch(() => []),
+    ]);
+    return { state, objects };
+  };
 
   /** Sprite Studio's request for one VIEW (or a staged candidate), read from the running game. */
   function build(
     view: number,
     staged: Staged | undefined,
-    state: EngineStateReport | null,
+    { state, objects }: LiveState,
     notice?: string,
   ): SpriteStudioRequest | null {
     const source = map.spriteSource(view, staged?.bytes);
@@ -50,10 +62,18 @@ export function useSpriteStudio() {
       ...source,
       title,
       speed: state?.vars[SPEED_VAR] ?? 1,
+      // The loop preview borrows the cycle time of an object showing the view.
+      cyclers: objects.map(({ num, view, loop, cycling, cycleTime }) => ({
+        num,
+        view,
+        loop,
+        cycling,
+        cycleTime,
+      })),
       priorityBase: state?.priorityBase,
       stagedReference: staged?.id,
       notice,
-      reload: () => build(view, staged, state),
+      reload: () => build(view, staged, { state, objects }),
       reloadFromStorage: async () =>
         (await engine.reloadFromStorage()) && engine.state.phase !== "error"
           ? build(view, staged, await readState(), RELOADED)

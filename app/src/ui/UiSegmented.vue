@@ -5,9 +5,19 @@ import { useTemplateRef } from "vue";
  * A single-choice segmented control (radio group). Arrow keys move and select,
  * Home/End jump; only the selected segment is in the tab order.
  */
-const { size = "md" } = defineProps<{
+const { size = "md", block = false } = defineProps<{
   label: string;
-  options: readonly { value: T; label: string; shortcut?: string; disabled?: boolean }[];
+  /** Fill the container's width, the segments sharing it equally. */
+  block?: boolean;
+  options: readonly {
+    value: T;
+    label: string;
+    shortcut?: string;
+    disabled?: boolean;
+    /** Tooltip: what the choice shows, or why it is unavailable. */
+    title?: string;
+    testid?: string;
+  }[];
   size?: "sm" | "md";
 }>();
 const model = defineModel<T>({ required: true });
@@ -38,7 +48,7 @@ function move(
     role="radiogroup"
     :aria-label="label"
     class="ui-seg"
-    :class="[`ui-seg--${size}`]"
+    :class="[`ui-seg--${size}`, { 'ui-seg--block': block }]"
     @keydown.right.prevent="move(1, options)"
     @keydown.down.prevent="move(1, options)"
     @keydown.left.prevent="move(-1, options)"
@@ -55,6 +65,8 @@ function move(
       :aria-checked="option.value === model"
       :tabindex="option.value === model ? 0 : -1"
       :disabled="option.disabled"
+      :title="option.title"
+      :data-testid="option.testid"
       @click="model = option.value"
     >
       {{ option.label }}<kbd v-if="option.shortcut" class="ui-seg__kbd">{{ option.shortcut }}</kbd>
@@ -70,6 +82,16 @@ function move(
   border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   background: var(--surface-0);
+}
+.ui-seg--block {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ui-seg--block .ui-seg__item {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
 }
 .ui-seg__item {
   display: inline-flex;

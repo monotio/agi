@@ -198,7 +198,7 @@ test("reenterRoom re-runs the room's init block after a live patch", () => {
   const patched = assembleLogic(LOGIC_1.replace("You are in room one.", "The room has changed."), {
     dictionary: DICT,
   });
-  engine.patchResource("logic", 1, patched.payload);
+  engine.patchResources([{ kind: "logic", num: 1, payload: patched.payload }]);
   engine.tick();
   assert.deepEqual(host.prints, ["You are in room one."], "no redraw without a room switch");
 
@@ -221,15 +221,23 @@ test("new.room prepares a destination before changing interpreter state", () => 
       calls.push([room, from]);
       assert.equal(engine.vars[0], 1);
       assert.equal(engine.readObjects().length, 2);
-      engine.patchResource("logic", room, assembleLogic("return;", { dictionary: DICT }).payload);
+      engine.patchResources([
+        {
+          kind: "logic",
+          num: room,
+          payload: assembleLogic("return;", { dictionary: DICT }).payload,
+        },
+      ]);
       return true;
     },
   });
-  engine.patchResource(
-    "logic",
-    1,
-    assembleLogic("new.room(7); return;", { dictionary: DICT }).payload,
-  );
+  engine.patchResources([
+    {
+      kind: "logic",
+      num: 1,
+      payload: assembleLogic("new.room(7); return;", { dictionary: DICT }).payload,
+    },
+  ]);
   engine.tick();
   assert.deepEqual(calls, [[7, 1]]);
   assert.equal(engine.vars[0], 7);
@@ -240,18 +248,22 @@ test("a refused room preparation preserves the current room and permits a retry"
   const { engine, host } = bootedEngine();
   let ready = false;
   Object.assign(host, { prepareRoom: () => ready });
-  engine.patchResource(
-    "logic",
-    1,
-    assembleLogic("new.room(7); return;", { dictionary: DICT }).payload,
-  );
+  engine.patchResources([
+    {
+      kind: "logic",
+      num: 1,
+      payload: assembleLogic("new.room(7); return;", { dictionary: DICT }).payload,
+    },
+  ]);
   const before = engine.readObjects();
   engine.tick();
   assert.equal(engine.vars[0], 1);
   assert.equal(engine.readObjects().length, before.length);
   assert.match(host.prints.at(-1)!, /not available/);
   ready = true;
-  engine.patchResource("logic", 7, assembleLogic("return;", { dictionary: DICT }).payload);
+  engine.patchResources([
+    { kind: "logic", num: 7, payload: assembleLogic("return;", { dictionary: DICT }).payload },
+  ]);
   engine.tick();
   assert.equal(engine.vars[0], 7);
 });

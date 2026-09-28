@@ -4,7 +4,8 @@ import base from "./playwright.config.ts";
 /**
  * Both browser engines must support the same touch-only AGI input contract. The menu and
  * settings specs run here too so their WebKit pointer, focus and Escape handling is checked
- * in Safari's engine, not only in Chromium.
+ * in Safari's engine, not only in Chromium; dialog-fit holds every dialog's buttons on a
+ * phone screen in both engines.
  */
 export default defineConfig({
   ...base,
@@ -17,6 +18,7 @@ export default defineConfig({
     "menu-flow.spec.ts",
     "reference-art.spec.ts",
     "synthetic-walkthrough.spec.ts",
+    "dialog-fit.spec.ts",
   ],
   projects: [
     { name: "android-chromium", use: { browserName: "chromium" } },

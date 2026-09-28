@@ -6,7 +6,7 @@ import { scanFixtures } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES, detectKnownGameByHashes } from "../src/games/knownGames.ts";
 import { canonicalResourceName } from "../src/types.ts";
-import { gameRevision, isPlayableFileName } from "./src/gameMetadata.ts";
+import { gameRevision, isPlayableFileName } from "./src/project/gameMetadata.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;

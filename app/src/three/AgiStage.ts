@@ -30,8 +30,8 @@ import {
   vec2,
   vec3,
 } from "three/tsl";
-import { FRAME_HEIGHT, FRAME_WIDTH } from "../composite.ts";
-import { pickThroughLayers, type StagePick } from "../explodedPick.ts";
+import { FRAME_HEIGHT, FRAME_WIDTH } from "../render/composite.ts";
+import { pickThroughLayers, type StagePick } from "../inspector/explodedPick.ts";
 
 /** Logical picture geometry the exploded view separates into depth layers. */
 const PIC_W = 160;

@@ -5,14 +5,19 @@
  * game played, the primary action continues it and the card shows its
  * current screen from the autosave's preview; otherwise the primary action
  * plays the tutorial and the card shows the tutorial's opening screen.
+ * When the last game ended by quitting, one line says so, with Play again and,
+ * if it saved progress before the quit, Continue — which is the primary
+ * action already when that game is the one the card shows.
  */
 import { computed } from "vue";
+import BootCard from "../ui/BootCard.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
-import { useEngineApi } from "../engineContext.ts";
-import { useGameLibrary } from "../useGameLibrary.ts";
-import { useShellBridge } from "../shellBridge.ts";
-import { gameStorageKey } from "../gameTypes.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import { useAiSettings } from "../settings/useAiSettings.ts";
+import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { useShellBridge } from "../shell/shellBridge.ts";
+import { gameStorageKey } from "../project/gameTypes.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
 import { catalogProjectId, useProjectRecovery } from "./projectRecovery.ts";
 import { shelfTitle } from "./shelfIdentity.ts";
@@ -20,7 +25,8 @@ import { formatRelativeTime } from "./relativeTime.ts";
 import { useNow } from "./useNow.ts";
 
 const { createOpen } = defineProps<{ createOpen: boolean }>();
-const { state } = useEngineApi();
+const { state, resumeAudio, startOver } = useEngineApi();
+const { llmConfig } = useAiSettings();
 const {
   pendingAutosave,
   savedGames,
@@ -29,8 +35,14 @@ const {
   catalogOpenings,
   catalogBusy,
   libraryActionBusy,
+  libraryAutosaves,
+  localGames,
+  localAutosave,
   importBusy,
   onResumeAutosave,
+  onPlayLocalGame,
+  onPlayLibraryGame,
+  onStartLibraryGameOver,
   playCatalogGame,
 } = useGameLibrary();
 const bridge = useShellBridge();
@@ -57,6 +69,52 @@ const last = computed(() => {
   };
 });
 
+/**
+ * The game that just quit, with its library entry or, for a game the fixture
+ * server installed, its fixture — either one can be played again.
+ */
+const ended = computed(() => {
+  const note = state.gameEnded;
+  if (!note) return undefined;
+  const game = savedGames.value.find((entry) => entry.projectId === note.projectId);
+  const installed = game
+    ? undefined
+    : localGames.value.find(
+        (entry) => gameStorageKey({ installed: true, ...entry }) === note.projectId,
+      );
+  return {
+    title: game ? shelfTitle(game, catalogEntries.value) : note.title,
+    game,
+    installed,
+    playable: game !== undefined || installed !== undefined,
+    saved: installed
+      ? localAutosave(installed) !== undefined
+      : libraryAutosaves.value[note.projectId] !== undefined,
+    continued: last.value?.record.game.identity.project === note.projectId,
+  };
+});
+
+/** Play again starts over: a fresh boot, past any progress saved before the quit. */
+function playAgain(): void {
+  const note = ended.value;
+  if (!note) return;
+  const { game, installed } = note;
+  if (game)
+    void playGuarded(game.projectId, () =>
+      note.saved ? onStartLibraryGameOver(game) : onPlayLibraryGame(game),
+    );
+  else if (installed && note.saved) {
+    resumeAudio();
+    startOver(gameStorageKey({ installed: true, ...installed }), llmConfig());
+  } else if (installed) void onPlayLocalGame(installed.folder ?? installed.hash);
+}
+
+function continueEnded(): void {
+  const { game, installed } = ended.value ?? {};
+  if (game) void playGuarded(game.projectId, () => onPlayLibraryGame(game));
+  else if (installed) void onPlayLocalGame(installed.folder ?? installed.hash);
+}
+
 const tutorialScreen = computed(() => catalogOpenings.value[featuredCatalog.id]?.preview);
 
 function onPrimary(): void {
@@ -70,7 +128,11 @@ function onPrimary(): void {
 <template>
   <section class="hero" aria-labelledby="welcome-title">
     <div class="hero-copy">
-      <h1 id="welcome-title">AGI IS HERE<span>.</span></h1>
+      <!-- The wordmark in the interpreter's own font; the heading's text is
+           for assistive tech and search, the boot card for the eye. -->
+      <h1 id="welcome-title" class="hero-title">
+        <BootCard class="hero-boot" /><span class="hero-title__text">AGI IS HERE.</span>
+      </h1>
       <p class="hero-line">
         Play Sierra-style adventures, build your own with AI, and edit every room by hand in the
         authentic
@@ -106,6 +168,32 @@ function onPrimary(): void {
           Create an adventure
         </UiButton>
       </div>
+      <p v-if="ended" class="hero-ended" role="status" data-testid="game-ended">
+        <span
+          ><strong>{{ ended.title }}</strong> · The game ended (it quit).</span
+        >
+        <template v-if="ended.playable">
+          <UiButton
+            size="sm"
+            variant="ghost"
+            data-testid="game-ended-play-again"
+            :disabled="libraryActionBusy || importBusy"
+            @click="playAgain"
+          >
+            Play again
+          </UiButton>
+          <UiButton
+            v-if="ended.saved && !ended.continued"
+            size="sm"
+            variant="ghost"
+            data-testid="game-ended-continue"
+            :disabled="libraryActionBusy || importBusy"
+            @click="continueEnded"
+          >
+            Continue
+          </UiButton>
+        </template>
+      </p>
     </div>
 
     <figure class="continue" data-testid="home-continue">
@@ -145,15 +233,18 @@ function onPrimary(): void {
   align-items: center;
   padding: var(--space-6) 0 0;
 }
-.hero h1 {
-  margin: 0 0 var(--space-4);
-  color: var(--ink);
-  font: 800 var(--text-display) / 1 var(--font-mono);
-  letter-spacing: 0.02em;
-  text-shadow: 0 0 24px var(--action-soft);
+.hero-title {
+  margin: 0 0 var(--space-6);
+  line-height: 0;
 }
-.hero h1 span {
-  color: var(--action);
+/* Visually hidden, still the heading's accessible name. */
+.hero-title__text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .hero-line {
   max-width: 34rem;
@@ -181,6 +272,19 @@ function onPrimary(): void {
   max-width: 100%;
   white-space: normal;
   text-align: left;
+}
+.hero-ended {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-5) 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.hero-ended strong {
+  color: var(--ink);
+  font-weight: var(--weight-semibold);
 }
 .continue {
   min-width: 0;

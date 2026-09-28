@@ -11,7 +11,7 @@
  * frame source with hand-computed dimensions.
  *
  * WHAT IS COMPOSITED. The engine core cannot draw text: the 8x8 glyph face
- * lives in the app shell (app/src/font8x8.ts) and `src/` may not import it.
+ * lives in the app shell (app/src/render/font8x8.ts) and `src/` may not import it.
  * So a composited frame here is the PICTURE BAND ONLY, positioned exactly
  * where the screen puts it: the 160x168 surface doubled horizontally to 320
  * pixels wide and drawn at text row `picRow` (eight logical rows per text

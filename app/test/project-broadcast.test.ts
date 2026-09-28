@@ -3,11 +3,16 @@ import assert from "node:assert/strict";
 import {
   PROJECT_CHANNEL,
   announceProjectWrite,
-  watchProjectWrites,
   type NoticeChannel,
-} from "../src/projectBroadcast.ts";
-import { clearCachedGame, renameAuthoredGame, saveAuthoredGame } from "../src/gameStorage.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+} from "../src/project/projectBroadcast.ts";
+import { watchProjectWrites } from "../src/project/projectTransaction.ts";
+import {
+  clearCachedGame,
+  readHistoryLifetime,
+  renameAuthoredGame,
+  saveAuthoredGame,
+} from "../src/project/gameStorage.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 
@@ -45,7 +50,7 @@ test("another tab's newer revision marks the running game behind storage, once",
   const game = running();
   let told = 0;
   const stop = watchProjectWrites(
-    { getBootedGame: () => game, onBehindStorage: () => told++ },
+    { getBootedGame: () => game, onBehindStorage: () => told++, onRemoved: () => {} },
     channel,
   );
   const projectId = testProjectId("shared-project");
@@ -74,7 +79,10 @@ test("an installed edition or an empty slot has no stored project to fall behind
   const { channel, deliver } = fakeChannel();
   let booted: BootedGame | null = running({ installed: true });
   let told = 0;
-  watchProjectWrites({ getBootedGame: () => booted, onBehindStorage: () => told++ }, channel);
+  watchProjectWrites(
+    { getBootedGame: () => booted, onBehindStorage: () => told++, onRemoved: () => {} },
+    channel,
+  );
   const notice = {
     projectId: testProjectId("shared-project"),
     revision: testRevision("r2"),
@@ -87,9 +95,89 @@ test("an installed edition or an empty slot has no stored project to fall behind
   assert.equal(told, 0);
 });
 
+test("another tab's removal of the lifetime a game runs stops everything it stores, once", () => {
+  const { channel, deliver } = fakeChannel();
+  const projectId = testProjectId("shared-project");
+  const game = running({ historyLifetime: "lifetime-1" });
+  const heard: string[] = [];
+  watchProjectWrites(
+    {
+      getBootedGame: () => game,
+      onBehindStorage: () => heard.push("behind"),
+      onRemoved: () => heard.push("removed"),
+    },
+    channel,
+  );
+  // Another project's removal, or an earlier lifetime of this id (removed
+  // before this game was added again), is not this game's.
+  deliver({ projectId: testProjectId("other"), removed: "lifetime-1" });
+  deliver({ projectId, removed: "lifetime-0" });
+  deliver({ projectId, removed: 7 });
+  assert.equal(game.removed, undefined);
+  assert.deepEqual(heard, []);
+
+  deliver({ projectId, removed: "lifetime-1" });
+  assert.equal(game.removed, true);
+  assert.equal(game.behindStorage, true, "nothing writes over storage any more");
+  // Said once; a later write notice of the id is not "changed in another tab".
+  deliver({ projectId, removed: "lifetime-1" });
+  deliver({ projectId, revision: testRevision("r2"), generation: 1 });
+  assert.deepEqual(heard, ["removed"]);
+
+  // A game already behind storage still learns it was removed.
+  const behind = running({ historyLifetime: "lifetime-1", behindStorage: true });
+  let told = 0;
+  watchProjectWrites(
+    { getBootedGame: () => behind, onBehindStorage: () => {}, onRemoved: () => told++ },
+    channel,
+  );
+  deliver({ projectId, removed: "lifetime-1" });
+  assert.equal(behind.removed, true);
+  assert.equal(told, 1);
+});
+
+test("removing a project tells other tabs the lifetime it ended, once", async (t) => {
+  const values = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  const id = testProjectId("removed-announced");
+  const otherTab = new BroadcastChannel(PROJECT_CHANNEL);
+  const heard: unknown[] = [];
+  otherTab.addEventListener("message", (event) => heard.push((event as MessageEvent).data));
+  t.after(() => {
+    otherTab.close();
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  await saveAuthoredGame(id, {
+    title: "Removed",
+    provider: "stub",
+    model: "stub",
+    files: { "VOL.0": Uint8Array.of(1) },
+    words: [],
+  });
+  const lifetime = await readHistoryLifetime(id);
+  assert.ok(lifetime);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  heard.length = 0;
+
+  await clearCachedGame(id);
+  // Removing it again ends no lifetime and says nothing.
+  await clearCachedGame(id);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(heard, [{ projectId: id, removed: lifetime }]);
+});
+
 test("without BroadcastChannel nothing is announced or watched, and nothing throws", () => {
   const stop = watchProjectWrites(
-    { getBootedGame: () => running(), onBehindStorage: () => {} },
+    { getBootedGame: () => running(), onBehindStorage: () => {}, onRemoved: () => {} },
     null,
   );
   stop();

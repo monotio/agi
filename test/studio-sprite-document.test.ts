@@ -7,10 +7,10 @@ import { viewSpec } from "../src/view/celEdit.ts";
 import { buildView, parseView, type BuildLoopInput } from "../src/view/view.ts";
 import {
   buildSprite,
+  encodeSprite,
   openSprite,
-  reencodeSprite,
   type SpriteProfile,
-} from "../src/studio/sprite/spriteDocument.ts";
+} from "../src/view/spriteDocument.ts";
 import { applySpriteEdit, type SpriteEdit } from "../src/studio/sprite/spriteOperations.ts";
 import { fixtureSkip } from "./fixtures.ts";
 import { loadGame } from "./game-fixture.ts";
@@ -117,7 +117,7 @@ describe("sprite document", () => {
     });
     assert.ok("document" in back);
     assert.deepEqual(back.document.payload, original);
-    assert.notDeepEqual(reencodeSprite(back.document), original);
+    assert.notDeepEqual(encodeSprite(back.document, back.document.loops), original);
   });
 
   it("round-trips every tutorial and synthetic-game view byte for byte", () => {
@@ -134,7 +134,7 @@ describe("sprite document", () => {
       const document = openSprite(payload, V2);
       assert.deepEqual(buildSprite(document, V2), payload);
       // Re-encoding without the short cut still displays the same pixels.
-      assert.deepEqual(displays(reencodeSprite(document), V2), displays(payload, V2));
+      assert.deepEqual(displays(encodeSprite(document, document.loops), V2), displays(payload, V2));
     }
   });
 });
@@ -248,7 +248,7 @@ for (const [name, hash] of COMMERCIAL) {
         assertSpecRebuilds(payload, profile, `${name} view ${num}`);
         let reencoded: Uint8Array;
         try {
-          reencoded = reencodeSprite(document);
+          reencoded = encodeSprite(document, document.loops);
         } catch {
           unencodable.push(num);
           continue;

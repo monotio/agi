@@ -56,7 +56,7 @@ export function computePictureMetrics(
   let filled = 0;
   for (let i = 0; i < total; i++) {
     const c = visual[i]! & 0x0f;
-    counts[c]!++;
+    counts[c] = counts[c]! + 1;
     if (c !== 15) filled++;
   }
   const paletteHistogram = counts.map((n) => n / total);

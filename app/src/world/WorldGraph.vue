@@ -13,7 +13,7 @@
  * compact form opens zoomed out to fit the dock.
  */
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from "vue";
-import { useEngineApi } from "../engineContext.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
 import {
   CAP_H,
   IMG_H,
@@ -290,6 +290,7 @@ defineExpose({ selectRoom });
         role="group"
         aria-label="Room graph"
         data-testid="map-graph"
+        :style="{ '--graph-zoom': zoom }"
         @pointerdown="onBgPointerDown"
         @pointermove="onBgPointerMove"
         @pointerup="onBgPointerUp"
@@ -506,6 +507,7 @@ defineExpose({ selectRoom });
 .node-label {
   fill: var(--ink);
   font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
   pointer-events: none;
 }
 .edge-line {
@@ -534,10 +536,18 @@ defineExpose({ selectRoom });
 .arrow-static {
   fill: var(--ink-3);
 }
+/* Exit words read at the same on-screen size at any zoom, on a halo of the
+   pane's own colour so a crossing arc never runs through the letters. */
 .edge-label {
   fill: var(--ink-2);
-  font-size: var(--text-2xs);
+  font-size: calc(var(--text-2xs) / var(--graph-zoom, 1));
+  font-weight: var(--weight-semibold);
   text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--surface-0);
+  stroke-width: calc(4px / var(--graph-zoom, 1));
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 .edge-hit {
   fill: none;

@@ -11,37 +11,39 @@ import { ref } from "vue";
 import assert from "node:assert/strict";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
-import { gameContainer } from "./worker-ctx.ts";
+import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import { useAuthoringController, type PowerUpUiState } from "../src/useAuthoringController.ts";
-import { ResourceCommitError } from "../src/resourceCommit.ts";
-import { useWorkerLink } from "../src/useWorkerLink.ts";
+import {
+  useAuthoringController,
+  type PowerUpUiState,
+} from "../src/authoring/useAuthoringController.ts";
+import { PROJECT_REMOVED_MESSAGE, ResourceCommitError } from "../src/project/projectTransaction.ts";
+import { useWorkerLink } from "../src/engine/useWorkerLink.ts";
 import { createWorkerContext, type WorkerContext } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
-import { replayHistorySegment } from "../src/worker/replay.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import {
   clearCachedGame,
   loadAuthoredGame,
   readHistoryLifetime,
   saveAuthoredGame,
   updateAuthoredGameFiles,
-} from "../src/gameStorage.ts";
-import type { BootedGame, ProjectId, ResourceRevision } from "../src/gameTypes.ts";
-import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
+} from "../src/project/gameStorage.ts";
+import type { BootedGame, ProjectId, ResourceRevision } from "../src/project/gameTypes.ts";
+import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
 import type {
   WorkerControl,
   WorkerInbound,
   WorkerOutbound,
   WorkerPresentation,
-} from "../src/workerProtocol.ts";
+} from "../src/worker/workerProtocol.ts";
 import { studioCommitFailure, useStudioCommit } from "../src/studio/useStudioCommit.ts";
 import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
-import { useAutosaveController } from "../src/useAutosaveController.ts";
+import { useAutosaveController } from "../src/saves/useAutosaveController.ts";
 import { draftPictureEdit, type StudioDraft } from "../src/studio/useStudioDraft.ts";
-import type { AwaitPatchedFn } from "../src/workerQueries.ts";
+import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
 import { resourceCacheHint } from "../../src/agent/authoringState.ts";
 import { authoredPictureSource, createAgentSessionState } from "../../src/agent/agentState.ts";
 import { historySyncDigest, type HistorySegment } from "../../src/agent/history.ts";
@@ -49,20 +51,20 @@ import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
-import { openSprite } from "../../src/studio/sprite/spriteDocument.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import { applyEdit } from "../../src/studio/editOperations.ts";
 import {
   parsePictureDocument,
   serializePictureDocument,
 } from "../../src/studio/pictureDocument.ts";
-import { placeEgo } from "../../src/studio/playHere.ts";
+import { placeEgo } from "../../src/runtime/playHere.ts";
 import { parseLogicDocument } from "../../src/studio/rules/logicDocument.ts";
 import { followPictureEdit } from "../../src/studio/rules/ruleBinding.ts";
 import { applyRuleEdit } from "../../src/studio/rules/ruleEdit.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
 import { viewSpec } from "../../src/view/celEdit.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
-import { bytesToBase64 } from "../src/bytes.ts";
+import { bytesToBase64 } from "../src/project/bytes.ts";
 
 installIndexedDbFixture();
 
@@ -221,7 +223,7 @@ function rig(
     handleRoomAuthoring: async () => "",
     getAgentSession: () => null,
     getReplayDriver: () => ({ latest: null }),
-    ejectGame() {},
+    gameQuit() {},
   });
   link.wireWorker(worker as unknown as Worker);
   worker.postMessage({
@@ -438,6 +440,19 @@ test("a stale base or an unusable source is refused before storage or the worker
   // The composable words a stale refusal for the Studio.
   const failure = studioCommitFailure(new ResourceCommitError("stale", "moved"));
   assert.equal(failure.message, "The game changed since you opened Studio. Reopen to continue.");
+});
+
+test("a Studio Keep refused as removed shows the transaction's words, not the generic stale text", () => {
+  const removed = "This game was removed in another tab. Reload to continue.";
+  const worded = studioCommitFailure(
+    new ResourceCommitError("stale", removed, { behindStorage: true, removed: true }),
+  );
+  assert.deepEqual([worded.code, worded.message, worded.behindStorage], ["stale", removed, true]);
+  // Any other stale refusal keeps the Studio's own words, whatever its text says.
+  assert.equal(
+    studioCommitFailure(new ResourceCommitError("stale", removed, { behindStorage: true })).message,
+    "The game changed since you opened Studio. Reopen to continue.",
+  );
 });
 
 test("an edit whose bytes and source already match commits nothing", async (t) => {
@@ -779,6 +794,80 @@ test("a Keep behind a project kept elsewhere reopens by reloading from storage",
     }),
     (e) => e instanceof ResourceCommitError && e.code === "stale" && e.behindStorage,
   );
+});
+
+test("a Keep that loses the race to another tab's Keep says reopen from storage, not retry", async (t) => {
+  const files = gameFiles();
+  const projectId = testProjectId("studio-keep-race");
+  const revision = await gameRevision(files);
+  await saveAuthoredGame(projectId, {
+    title: "Studio room",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  t.after(() => clearCachedGame(projectId));
+  // The other tab's Keep lands after this Keep read the record and before
+  // its conditional save: queued on the same project, it commits first.
+  const green = compile(["vis 2", "fill 80,80", "end"].join("\n"));
+  const elsewhere = openContainer(new Map(Object.entries(files)));
+  elsewhere.putResource("picture", 1, green);
+  let raced: Promise<boolean> | undefined;
+  const r = rig(
+    t,
+    files,
+    {
+      installed: false,
+      projectId,
+      title: "Studio room",
+      revision,
+      files,
+      words: [],
+      historyLifetime: await readHistoryLifetime(projectId),
+    },
+    {
+      drop: (msg) => {
+        if (msg.type === "exportFiles" && raced === undefined)
+          raced = updateAuthoredGameFiles(projectId, Object.fromEntries(elsewhere.files));
+        return false;
+      },
+    },
+  );
+  const loser = keeper(r, RED, revision);
+  assert.equal(await loser.keep(), false);
+  assert.equal(await raced, true);
+  // Retry would only refuse again: the one way on is the reload from storage.
+  assert.deepEqual(loser.banner.value, {
+    message: "The game changed since you opened Studio. Reopen to continue.",
+    recovery: "reopen",
+    fromStorage: true,
+  });
+  assert.equal(r.game().behindStorage, true);
+  assert.equal(patches(r).length, 0);
+  assert.deepEqual(storedPicture((await loadAuthoredGame(projectId))!.files), green);
+});
+
+test("a Keep on a project removed in another tab refuses as removed, with nothing written", async (t) => {
+  const { projectId, revision, r } = await authoredRig(t, "studio-removed-elsewhere");
+  await clearCachedGame(projectId);
+  const removed = (e: unknown) =>
+    e instanceof ResourceCommitError &&
+    e.code === "stale" &&
+    e.behindStorage &&
+    e.removed &&
+    e.message === PROJECT_REMOVED_MESSAGE;
+  const edit = { pictureNumber: 1, bytes: compile(RED), source: RED, baseRevision: revision };
+  // Found by the Keep itself (nothing heard): the game is behind for good.
+  await assert.rejects(r.controller.commitPictureEdit(edit), removed);
+  assert.equal(r.game().behindStorage, true);
+  // Heard from the removing tab: refused before storage is read.
+  r.game().removed = true;
+  await assert.rejects(r.controller.commitPictureEdit(edit), removed);
+  assert.equal(patches(r).length, 0);
+  assert.equal(await loadAuthoredGame(projectId), null, "the Keep never recreates the project");
+  // A stale refusal of a project that still exists is not a removal.
+  assert.equal(new ResourceCommitError("stale", "x", { behindStorage: true }).removed, false);
 });
 
 test("a worker that never acks the patch fails the Keep as an install, after a bounded wait", async (t) => {

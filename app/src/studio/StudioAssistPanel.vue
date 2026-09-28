@@ -2,7 +2,7 @@
 import { computed, inject, nextTick, ref, useId, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
-import { aiSettingsKey } from "../useAiSettings.ts";
+import { aiSettingsKey } from "../settings/useAiSettings.ts";
 import { walkableWords, type ScopeChip } from "./studioAssistText.ts";
 import { STALE_TEXT, STALE_VIEW_TEXT, type StudioAssist } from "./useStudioAssist.ts";
 

@@ -10,7 +10,7 @@ import InspectPanel from "../inspector/InspectPanel.vue";
 import { registerCreatePanel } from "./createDocks.ts";
 import { prefetchAuthoringStack } from "../agent/authoringLoader.ts";
 import type { CreateWorkspace } from "./useCreateWorkspace.ts";
-import type { EngineState } from "../useEngineTypes.ts";
+import type { EngineState } from "../engine/useEngineTypes.ts";
 
 /** Keys typed here are text, never dock shortcuts: the game's input line included. */
 function isTextEntry(target: EventTarget | null, gameInput: Element | null | undefined): boolean {

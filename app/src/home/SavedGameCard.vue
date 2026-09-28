@@ -7,7 +7,7 @@
  * it keeps the catalog card's test ids and badge.
  */
 import { computed, ref } from "vue";
-import ActionMenu from "../ActionMenu.vue";
+import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import GameCard, { type CardImage } from "./GameCard.vue";
 import RemoveGameDialog from "./RemoveGameDialog.vue";
@@ -18,12 +18,13 @@ import { projectThumbnail } from "./useLazyThumbnail.ts";
 import { useProjectRecovery } from "./projectRecovery.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
 import { useNow } from "./useNow.ts";
-import { useGameLibrary } from "../useGameLibrary.ts";
-import { useShellBridge } from "../shellBridge.ts";
-import { hasWalkthrough } from "../walkthrough.ts";
-import { describeGameProfile } from "../profileChoice.ts";
-import type { CachedGameMeta } from "../gameStorage.ts";
-import type { GameCatalogEntry } from "../gameCatalog.ts";
+import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { readMapSidecar } from "../world/roomMapStore.ts";
+import { useShellBridge } from "../shell/shellBridge.ts";
+import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
+import { describeGameProfile } from "../library/profileChoice.ts";
+import type { CachedGameMeta } from "../project/gameStorage.ts";
+import type { GameCatalogEntry } from "../library/gameCatalog.ts";
 
 const {
   game,
@@ -82,11 +83,27 @@ const image = computed<CardImage | undefined>(() => {
     : undefined;
 });
 
-const meta = computed(() =>
-  autosave.value
-    ? `Room ${autosave.value.room} · played ${formatRelativeTime(autosave.value.savedAt, now.value)}`
-    : ((featured ? undefined : libraryProvenance(game)) ?? featuredMeta ?? "Not played yet"),
-);
+/**
+ * A game played without an autosave to show for it (a 1.0 copy, say) still
+ * has its room journal: the last room it reached. Unreadable map data says
+ * nothing either way.
+ */
+function lastJournalRoom(): number | undefined {
+  try {
+    return readMapSidecar(localStorage, game.projectId).journal.at(-1)?.to;
+  } catch {
+    return undefined;
+  }
+}
+
+const meta = computed(() => {
+  if (autosave.value)
+    return `Room ${autosave.value.room} · played ${formatRelativeTime(autosave.value.savedAt, now.value)}`;
+  const provenance = (featured ? undefined : libraryProvenance(game)) ?? featuredMeta;
+  if (provenance) return provenance;
+  const room = lastJournalRoom();
+  return room === undefined ? "Not played yet" : `Played before · last in room ${room}`;
+});
 
 const badge = computed(() => {
   if (featured) return "Tutorial";

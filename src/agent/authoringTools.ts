@@ -4,9 +4,6 @@ import {
   type AgentSessionState,
   type AgentToolResult,
 } from "./agentState.ts";
-import { executeAgentTool } from "./tools.ts";
-import { AUTHORING_TOOLS } from "./authoringToolDefinitions.ts";
-
 import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
@@ -105,12 +102,17 @@ function occupiedIds(state: AgentSessionState, kind: BindingKind): Set<number> {
   return used;
 }
 
+/**
+ * Runs reserve_binding and update_world, which change only authoring state.
+ * edit_resource_source is not here: resolveSourceEdit patches the text, and
+ * the dispatcher writes it through the ordinary logic or picture writer.
+ */
 export function executeAuthoringTool(
   state: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (!AUTHORING_TOOLS.some((tool) => tool.name === name)) return undefined;
+  if (name !== "reserve_binding" && name !== "update_world") return undefined;
   try {
     if (name === "reserve_binding") {
       let items: { name: unknown; kind: unknown; id: unknown }[];
@@ -195,89 +197,6 @@ export function executeAuthoringTool(
         },
       };
     }
-    if (name === "edit_resource_source") {
-      const kind = args["kind"];
-      const num = args["num"];
-      if (
-        (kind !== "logic" && kind !== "picture") ||
-        typeof num !== "number" ||
-        !Number.isInteger(num) ||
-        num < 0 ||
-        num > 255
-      )
-        throw new Error("Select a logic or picture resource number 0..255.");
-      const source = editableSource(state, kind, num);
-      if (!source) throw new Error(`No readable source for ${kind} ${num}.`);
-      // The token covers the shown text and its compilation context (profile,
-      // dictionary, bindings), not just bytes — drift on any of them is a
-      // revision conflict, even when the resource payload is unchanged.
-      const revision = sourceContextRevision(state, kind, num, source);
-      if (revision !== args["expectedRevision"])
-        throw new Error(
-          "Source revision changed. Read the current source before editing; its text, dictionary, profile, or named bindings may have drifted.",
-        );
-      const edits = args["edits"];
-      if (!Array.isArray(edits) || !edits.length || edits.length > 64)
-        throw new Error("edits must name 1..64 find/replace pairs.");
-      const fail = (message: string, editIndex: number, excerpt: string): AgentToolResult => ({
-        success: false,
-        error: message,
-        details: {
-          diagnostic: {
-            tool: name,
-            message,
-            changed: false,
-            editIndex,
-            excerpt,
-            revision,
-          },
-        },
-      });
-      // Resolve every find against the same snapshot before applying anything.
-      const resolved: { index: number; offset: number; length: number; replace: string }[] = [];
-      for (const [index, raw] of edits.entries()) {
-        const edit = raw as Record<string, unknown> | null;
-        const find = edit?.["find"];
-        const replace = edit?.["replace"];
-        if (typeof find !== "string" || !find || typeof replace !== "string")
-          return fail(
-            `Edit ${index} must name a nonempty 'find' string and a 'replace' string.`,
-            index,
-            "",
-          );
-        const hits: number[] = [];
-        for (let at = source.indexOf(find); at !== -1; at = source.indexOf(find, at + 1))
-          hits.push(at);
-        if (hits.length !== 1) {
-          const at = hits[0] ?? 0;
-          return fail(
-            `Edit ${index}: 'find' matched ${hits.length} times; it must match exactly one source section.`,
-            index,
-            source.slice(Math.max(0, at - 60), at + find.length + 60),
-          );
-        }
-        resolved.push({ index, offset: hits[0]!, length: find.length, replace });
-      }
-      const ordered = [...resolved].sort((a, b) => a.offset - b.offset);
-      for (let i = 1; i < ordered.length; i++) {
-        const previous = ordered[i - 1]!;
-        const next = ordered[i]!;
-        if (previous.offset + previous.length > next.offset)
-          return fail(
-            `Edits ${previous.index} and ${next.index} overlap; merge them into one find/replace.`,
-            next.index,
-            source.slice(previous.offset, next.offset + next.length),
-          );
-      }
-      // Apply descending so earlier offsets stay valid on the shared snapshot.
-      let next = source;
-      for (const edit of ordered.reverse())
-        next = next.slice(0, edit.offset) + edit.replace + next.slice(edit.offset + edit.length);
-      return executeAgentTool(state, kind === "logic" ? "write_logic_source" : "write_picture", {
-        room: num,
-        source: next,
-      });
-    }
     const next = validateAuthoringState(state.authoring);
     for (const category of ["rooms", "facts", "quests"] as const) {
       const entries = args[category];
@@ -333,10 +252,106 @@ export function executeAuthoringTool(
       },
     };
   } catch (error) {
-    return {
+    return unchanged(name, error);
+  }
+}
+
+function unchanged(tool: string, error: unknown): AgentToolResult {
+  return {
+    success: false,
+    error: String(error),
+    details: { diagnostic: { tool, message: String(error), changed: false } },
+  };
+}
+
+/** The text an edit_resource_source call leaves, for the writer to compile. */
+export interface SourceEdit {
+  readonly kind: "logic" | "picture";
+  readonly num: number;
+  readonly source: string;
+}
+
+/**
+ * Resolves edit_resource_source against the revision the agent read: every
+ * find must match exactly one section of the same snapshot. Returns the
+ * patched text, or a failure that changed nothing.
+ */
+export function resolveSourceEdit(
+  state: AgentSessionState,
+  args: Record<string, unknown>,
+): SourceEdit | AgentToolResult {
+  const tool = "edit_resource_source";
+  try {
+    const kind = args["kind"];
+    const num = args["num"];
+    if (
+      (kind !== "logic" && kind !== "picture") ||
+      typeof num !== "number" ||
+      !Number.isInteger(num) ||
+      num < 0 ||
+      num > 255
+    )
+      throw new Error("Select a logic or picture resource number 0..255.");
+    const source = editableSource(state, kind, num);
+    if (!source) throw new Error(`No readable source for ${kind} ${num}.`);
+    // The token covers the shown text and its compilation context (profile,
+    // dictionary, bindings), not just bytes — drift on any of them is a
+    // revision conflict, even when the resource payload is unchanged.
+    const revision = sourceContextRevision(state, kind, num, source);
+    if (revision !== args["expectedRevision"])
+      throw new Error(
+        "Source revision changed. Read the current source before editing; its text, dictionary, profile, or named bindings may have drifted.",
+      );
+    const edits = args["edits"];
+    if (!Array.isArray(edits) || !edits.length || edits.length > 64)
+      throw new Error("edits must name 1..64 find/replace pairs.");
+    const fail = (message: string, editIndex: number, excerpt: string): AgentToolResult => ({
       success: false,
-      error: String(error),
-      details: { diagnostic: { tool: name, message: String(error), changed: false } },
-    };
+      error: message,
+      details: { diagnostic: { tool, message, changed: false, editIndex, excerpt, revision } },
+    });
+    // Resolve every find against the same snapshot before applying anything.
+    const resolved: { index: number; offset: number; length: number; replace: string }[] = [];
+    for (const [index, raw] of edits.entries()) {
+      const edit = raw as Record<string, unknown> | null;
+      const find = edit?.["find"];
+      const replace = edit?.["replace"];
+      if (typeof find !== "string" || !find || typeof replace !== "string")
+        return fail(
+          `Edit ${index} must name a nonempty 'find' string and a 'replace' string.`,
+          index,
+          "",
+        );
+      const hits: number[] = [];
+      for (let at = source.indexOf(find); at !== -1; at = source.indexOf(find, at + 1))
+        hits.push(at);
+      if (hits.length !== 1) {
+        const at = hits[0] ?? 0;
+        return fail(
+          `Edit ${index}: 'find' matched ${hits.length} times; it must match exactly one source section.`,
+          index,
+          source.slice(Math.max(0, at - 60), at + find.length + 60),
+        );
+      }
+      resolved.push({ index, offset: hits[0]!, length: find.length, replace });
+    }
+    const ordered = [...resolved].sort((a, b) => a.offset - b.offset);
+    for (let i = 1; i < ordered.length; i++) {
+      const previous = ordered[i - 1]!;
+      const next = ordered[i]!;
+      if (previous.offset + previous.length > next.offset)
+        return fail(
+          `Edits ${previous.index} and ${next.index} overlap; merge them into one find/replace.`,
+          next.index,
+          source.slice(previous.offset, next.offset + next.length),
+        );
+    }
+    // Apply descending so earlier offsets stay valid on the shared snapshot.
+    let next = source;
+    for (const edit of ordered.reverse())
+      next = next.slice(0, edit.offset) + edit.replace + next.slice(edit.offset + edit.length);
+    return { kind, num, source: next };
+  } catch (error) {
+    return unchanged(tool, error);
   }
 }

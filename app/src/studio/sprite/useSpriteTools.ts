@@ -21,7 +21,7 @@
  */
 
 import { computed, shallowRef, watch, type Ref } from "vue";
-import type { SpriteCel } from "../../../../src/studio/sprite/spriteDocument.ts";
+import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
 import type { StudioNotice } from "../useStudioNotice.ts";

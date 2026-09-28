@@ -64,3 +64,29 @@ test("boots the v3 demo pack, shows its intro text and starts a demonstration", 
     .toContain("GOLD RUSH!");
   await page.screenshot({ path: "test-results/demopac4-gold-rush.png" });
 });
+
+test.describe("on a touch screen", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("a tap starts the demo pack from its press-any-key title", async ({ page }) => {
+    await page.goto("/");
+    await page
+      .locator(
+        `[data-hash="${KNOWN_GAME_HASH.DEMOPAC4}"], [data-alias="demopac4"], [data-testid="boot-demopac4"]`,
+      )
+      .first()
+      .click();
+    await expect
+      .poll(async () => (await textHook(page)).rows[24] ?? "", { timeout: 20_000 })
+      .toContain("Press any key...");
+    await expect(page.getByTestId("title-prompt-hint")).toContainText(
+      "Tap screen or: Press Space to start",
+    );
+    // A tap is the title's key: Enter is the script's controller here, so the
+    // tap must send a key that have.key reads.
+    await page.locator(".screen").tap();
+    await expect
+      .poll(async () => (await textHook(page)).rows[7] ?? "", { timeout: 20_000 })
+      .toContain("Hi.  Which of our games");
+  });
+});

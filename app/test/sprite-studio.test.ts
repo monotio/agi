@@ -10,11 +10,12 @@ import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import {
+  buildSprite,
   openSprite,
   samePixels,
   type SpriteCel,
   type SpriteDocument,
-} from "../../src/studio/sprite/spriteDocument.ts";
+} from "../../src/view/spriteDocument.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
 import { validateSpriteEdit } from "../../src/studio/sprite/spriteValidation.ts";
 import { testRevision } from "./identity.ts";
@@ -27,14 +28,22 @@ import {
   type RecolorEdit,
 } from "../src/studio/sprite/spriteRecolor.ts";
 import {
+  backdropCells,
+  backdropKey,
   celIntervalMs,
+  DEFAULT_BACKDROP,
   feetWarning,
+  parseBackdrop,
+  paceWords,
+  previewPacing,
+  type SpriteBackdrop,
   loopFacing,
   moveSelectionChanges,
   previewPartner,
   swatchInk,
-  usageText,
 } from "../src/studio/sprite/spriteView.ts";
+import { celRgba } from "../src/render/palette.ts";
+import { usageText } from "../../src/agent/viewUsage.ts";
 import { useSpriteDraft } from "../src/studio/sprite/useSpriteDraft.ts";
 import { useSpriteTools } from "../src/studio/sprite/useSpriteTools.ts";
 import { contentFitZoom } from "../src/studio/useStudioViewport.ts";
@@ -438,6 +447,7 @@ describe("spriteKeys", () => {
     redo: () => log.push("redo"),
     tool: (key) => (log.push(`tool ${key}`), key === "b"),
     ask: () => (log.push("ask"), true),
+    keySheet: () => log.push("key sheet"),
   });
   const key = (init: KeyboardEventInit & { key: string; target?: unknown }) =>
     ({ defaultPrevented: false, target: null, repeat: false, ...init }) as unknown as KeyboardEvent;
@@ -504,6 +514,80 @@ describe("sprite view helpers", () => {
     assert.equal(celIntervalMs(2, 3), 300);
     // v10 = 0 imposes no wait: the host's 60 Hz poll bounds it.
     assert.equal(celIntervalMs(0), 1000 / 60);
+  });
+
+  it("paces the preview by the cycle time of the object showing the view", () => {
+    // The tutorial: v10 = 1 (50 ms cycles) and cycle.time(o0, v52) with v52 = 6.
+    const ego = { num: 0, view: 0, loop: 0, cycling: true, cycleTime: 6 };
+    assert.deepEqual(previewPacing(1, [ego], 0, 1), { intervalMs: 300, cycleTime: 6, object: 0 });
+    // Of several, the one on the edited loop wins over ego.
+    const guard = { num: 3, view: 0, loop: 1, cycling: true, cycleTime: 2 };
+    assert.equal(previewPacing(1, [ego, guard], 0, 1).intervalMs, 100);
+    // Standing still, ego keeps the cycle time it walks with.
+    assert.equal(previewPacing(1, [{ ...ego, cycling: false }], 0, 0).intervalMs, 300);
+    // Animation off (cycle time 0) or another view paces nothing.
+    const off = { ...guard, cycleTime: 0 };
+    const other = { ...ego, view: 5 };
+    assert.deepEqual(previewPacing(2, [off, other], 0, 1), {
+      intervalMs: 100,
+      cycleTime: 1,
+      object: null,
+    });
+  });
+
+  it("says the preview's pace in plain words: poses and game ticks, never cycles", () => {
+    const ego = { intervalMs: 300, cycleTime: 6, object: 0 };
+    assert.deepEqual(paceWords(ego, "game"), {
+      text: "The hero changes pose every 6 game ticks",
+      title:
+        "At game speed each pose shows for 300 ms: the hero changes pose every 6 game ticks, at the game's speed setting.",
+    });
+    assert.equal(
+      paceWords({ intervalMs: 50, cycleTime: 1, object: 3 }, "game").text,
+      "Object 3 changes pose every game tick",
+    );
+    const idle = paceWords({ intervalMs: 50, cycleTime: 1, object: null }, "game");
+    assert.equal(idle.text, "Not on screen now: a new pose every 50 ms");
+    assert.match(idle.title, /nothing on screen uses this view right now/);
+    assert.equal(paceWords(ego, "half").text, "Half speed: a new pose every 600 ms");
+    for (const pace of ["game", "half"] as const)
+      for (const pacing of [ego, { intervalMs: 50, cycleTime: 1, object: null }]) {
+        const words = paceWords(pacing, pace);
+        assert.doesNotMatch(`${words.text} ${words.title}`, /\bcycles?\b|\bego\b|a cel\b/);
+      }
+  });
+
+  it("a backdrop is view only: the cel and the view's bytes stay as they were", () => {
+    const document = openSprite(APPRENTICE, DEFAULT_V2_PROFILE);
+    const cel = celOf(document, 0);
+    const before = { pixels: [...cel.pixels], transparent: cel.transparent };
+    const visual = new Uint8Array(160 * 168).fill(2);
+    const choices: SpriteBackdrop[] = [
+      DEFAULT_BACKDROP,
+      { kind: "checker", tone: "light" },
+      { kind: "colour", colour: 14 },
+      { kind: "room" },
+    ];
+    for (const backdrop of choices) {
+      assert.deepEqual(parseBackdrop(backdropKey(backdrop)), backdrop);
+      const cells = backdropCells(backdrop, cel.width, cel.height, {
+        visual,
+        x: 70,
+        baselineY: 120,
+      });
+      const expected = backdrop.kind === "colour" ? 14 : backdrop.kind === "room" ? 2 : undefined;
+      if (expected !== undefined) assert.ok(cells.every((value) => value === expected));
+      else assert.deepEqual([cells[0], cells[1]], [-1, -2]);
+      // The cel draws exactly as before: transparent pixels stay see-through.
+      const rgba = new Uint8ClampedArray(cel.width * cel.height * 4);
+      celRgba(cel, rgba);
+      const hole = cel.pixels.indexOf(cel.transparent);
+      assert.equal(rgba[hole * 4 + 3], 0);
+    }
+    assert.deepEqual({ pixels: [...cel.pixels], transparent: cel.transparent }, before);
+    assert.deepEqual(buildSprite(document, DEFAULT_V2_PROFILE), APPRENTICE);
+    assert.deepEqual(parseBackdrop("colour-16"), DEFAULT_BACKDROP);
+    assert.deepEqual(parseBackdrop(null), DEFAULT_BACKDROP);
   });
 
   it("warns when the feet move off the baseline", () => {

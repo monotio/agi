@@ -6,6 +6,7 @@
  * walk that never answers fails after a deadline instead of hanging.
  */
 import type { ProfileId } from "../../../src/runtime/profile.ts";
+import type { EdgeSide } from "../../../src/agent/roomMap.ts";
 import type { RoutePoint, RouteTestResult } from "../../../src/studio/route.ts";
 
 /** What the route worker runs: testRoute's input with plain, cloneable files. */
@@ -16,6 +17,8 @@ export interface RouteWorkerInbound {
   readonly from: RoutePoint;
   readonly to: RoutePoint;
   readonly via?: readonly RoutePoint[];
+  /** An edge to step across from `to` (testRoute's `cross`). */
+  readonly cross?: EdgeSide;
   /** The live game's state, written before the room is entered (testRoute's preset). */
   readonly flags?: readonly { id: number; value: boolean }[];
   readonly vars?: readonly { id: number; value: number }[];
@@ -32,7 +35,7 @@ const ROUTE_TIMEOUT_MS = 30_000;
 
 export const runRouteInWorker: RouteRunner = (input) =>
   new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("../route.worker.ts", import.meta.url), { type: "module" });
+    const worker = new Worker(new URL("./route.worker.ts", import.meta.url), { type: "module" });
     const timeout = setTimeout(() => {
       worker.terminate();
       reject(new Error("The test walk took too long and was stopped."));

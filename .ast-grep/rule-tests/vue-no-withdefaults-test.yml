@@ -1,0 +1,7 @@
+id: vue-no-withdefaults
+valid:
+  - "const { count = 1 } = defineProps<Props>();"
+  - "const props = defineProps<Props>();"
+invalid:
+  - "const props = withDefaults(defineProps<Props>(), { count: 1 });"
+  - "withDefaults(defineProps<{ label?: string }>(), { label: 'Keep' });"

@@ -1,7 +1,7 @@
 import { openGameOptions, enterCreateMode } from "./engineProbe.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
 import { expect, test, type Page } from "@playwright/test";

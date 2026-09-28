@@ -1,5 +1,5 @@
 /**
- * The scope contract of a Studio assist request (decision D6): what an AI
+ * The scope contract of a Studio assist request: what an AI
  * proposal made from a Room Studio or Sprite Studio selection may change.
  * The UI builds it from the selection and the lens; `checkCandidate` holds a
  * candidate to it on DECODED pixels, whatever the proposal's operations or
@@ -67,7 +67,7 @@ import {
   type PictureItem,
 } from "./pictureDocument.ts";
 import { itemAt, type PicturePlane } from "./pictureQuery.ts";
-import type { SpriteDocument } from "./sprite/spriteDocument.ts";
+import type { SpriteDocument } from "../view/spriteDocument.ts";
 import type { CelRef } from "./sprite/spriteOperations.ts";
 import { validateSpriteEdit } from "./sprite/spriteValidation.ts";
 

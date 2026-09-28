@@ -16,7 +16,15 @@ import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./us
  * its middle, so the numbers that tell rows apart stay (studioView.ts
  * `labelParts`); the whole label is its tooltip.
  */
-const { branches, sections, matches, loose, hoveredId, selectedId } = defineProps<{
+const {
+  branches,
+  sections,
+  matches,
+  loose,
+  hoveredId,
+  selectedId,
+  quietTag = undefined,
+} = defineProps<{
   branches: readonly SceneBranch[];
   /** Draw-order sections over `branches`; empty for a short list. */
   sections: readonly SceneSectionRow[];
@@ -26,6 +34,8 @@ const { branches, sections, matches, loose, hoveredId, selectedId } = defineProp
   loose: SceneRow | undefined;
   hoveredId: string | undefined;
   selectedId: string | undefined;
+  /** A tag that says nothing in this lens (`art` in the Art lens): rows leave it out. */
+  quietTag?: string | undefined;
 }>();
 const emit = defineEmits<{ hover: [id: string | undefined]; select: [id: string] }>();
 const filter = defineModel<string>("filter", { required: true });
@@ -294,9 +304,12 @@ function onFilterKeydown(event: KeyboardEvent): void {
               aria-hidden="true"
             ></i>
           </span>
-          <span v-else class="scene-list__tag" :title="`Kind: ${entry.row.kind}`">{{
-            entry.row.tag
-          }}</span>
+          <span
+            v-else-if="entry.row.tag !== quietTag"
+            class="scene-list__tag"
+            :title="`Kind: ${entry.row.kind}`"
+            >{{ entry.row.tag }}</span
+          >
           <span class="scene-list__count" :title="`${entry.row.entries.length} commands`">{{
             entry.row.entries.length
           }}</span>

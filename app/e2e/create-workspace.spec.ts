@@ -9,6 +9,7 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -143,7 +144,9 @@ test("Open in Studio shows its picture in the centre and closing resumes the gam
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   await expect(studio.getByTestId("studio-picture")).toHaveText("PIC 5");
-  await expect(studio.getByTestId("studio-bytes")).toContainText(`${PIC_5.length} B`);
+  await expect(studio.getByTestId("studio-bytes")).toContainText(
+    `${PIC_5.length.toLocaleString("en-US")} bytes`,
+  );
   await expect(studio).toContainText("Great Hall");
   // The live stage waits hidden (never remounted) while Studio has the centre.
   await expect(page.locator(".game-surface:visible")).toHaveCount(0);
@@ -250,7 +253,7 @@ test("a folded dock stays folded across a reload and brackets fold only outside 
 
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(/#create\//);
   await expect(page.getByTestId("create-dock-left")).toHaveClass(/create-dock--rail/);
 

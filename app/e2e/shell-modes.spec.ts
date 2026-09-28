@@ -9,12 +9,14 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 /**
  * The 1.1 shell: a loaded game is shown in Play or Create, the URL names the
- * mode, Back and Forward move between them, and the Play stage gives the game
- * the largest whole multiple of its 320×200 frame.
+ * mode, Back and Forward move between them, and the stage gives the game the
+ * largest whole multiple of its 320×200 frame that fills most of the space,
+ * or else the largest fit (viewportLayout.ts).
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -53,6 +55,10 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   await expect(ask).toHaveAttribute("aria-expanded", "true");
   await expect(drawer.getByTestId("agent-mode-remix")).toHaveCount(0);
   await expect(drawer.getByTestId("btn-record-test")).toHaveCount(0);
+  // The strip's Ask button steps away while the drawer is open; the drawer
+  // itself says how to get back.
+  await expect(drawer.getByTestId("agent-bubble-esc")).toHaveText("Esc");
+  await expect(drawer.getByTestId("agent-bubble-close")).toBeVisible();
   await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
   const game = await surfaceBox(page);
   const side = (await drawer.boundingBox())!;
@@ -120,11 +126,13 @@ test("short windows fit the whole game under the bar and the top bar never overl
   page,
 }) => {
   await bootTutorial(page);
-  // 2× whenever it fits (800×600 leaves 800×500); below that the screen fits
-  // the stage fluidly at its exact aspect (844×390), so the game and its
-  // input line stay in view with nothing scrolled under the bar.
+  // 800×600 leaves 800×465 under the bar and the two-row strip: 465 rows fit
+  // 744 wide, which 2× (640) would fill only (640/744)² = 74% of, so the
+  // screen takes the whole fit; below 2× it fits the stage fluidly at its
+  // exact aspect (844×390), so the game and its input line stay in view with
+  // nothing scrolled under the bar.
   for (const [width, height, screenWidth] of [
-    [800, 600, 640],
+    [800, 600, 744],
     [844, 390, null],
   ] as const) {
     await page.setViewportSize({ width, height });
@@ -251,7 +259,7 @@ test("Create is a route: Back and Forward switch modes and a reload keeps Create
 
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#create/${target}$`));
   await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
     "aria-checked",
@@ -314,7 +322,7 @@ test("a cold deep link boots the stored game it names, or says it is not in this
   // Cold loads, as a link opened in a new tab: nothing of the page survives.
   await page.goto("about:blank");
   await page.goto(`/#create/${projectId}`);
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#create/${projectId}$`));
   await expect(page.getByRole("radio", { name: "Create", exact: true })).toHaveAttribute(
     "aria-checked",
@@ -328,4 +336,74 @@ test("a cold deep link boots the stored game it names, or says it is not in this
   await expect(note).toHaveText("That game isn't in this browser.");
   await expect(page.getByTestId("hero-primary")).toBeVisible();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe("");
+});
+
+/**
+ * Pairs of the play strip's visible pieces that print over each other: the
+ * hint's text lines (a line that wraps or overflows included) against every
+ * transport control, and the Ask button.
+ */
+async function stripOverlaps(page: Parameters<typeof textHook>[0]): Promise<string[]> {
+  return page.locator(".play-strip:visible").evaluate((strip) => {
+    const text = [...strip.querySelectorAll(".play-hints .input-help, .play-hints .caption")]
+      .flatMap((hint) => {
+        const range = document.createRange();
+        range.selectNodeContents(hint);
+        return [...range.getClientRects()];
+      })
+      .filter((box) => box.width > 0 && box.height > 0);
+    const controls = [
+      ...strip.querySelectorAll<HTMLElement>(
+        ".transport button, .transport [role='slider'], .ask-button",
+      ),
+    ]
+      .map((element) => ({
+        name: element.getAttribute("aria-label") ?? element.textContent?.trim() ?? "",
+        box: element.getBoundingClientRect(),
+      }))
+      .filter(({ box }) => box.width > 0);
+    const overlaps: string[] = [];
+    for (const line of text)
+      for (const { name, box } of controls)
+        if (
+          line.left < box.right &&
+          box.left < line.right &&
+          line.top < box.bottom &&
+          box.top < line.bottom
+        )
+          overlaps.push(`hint × ${name}`);
+    const right = strip.getBoundingClientRect().right;
+    for (const line of text) if (line.right > right + 0.5) overlaps.push("hint past the strip");
+    return [...new Set(overlaps)];
+  });
+}
+
+test("the strip's key hint never prints over the transport, and Create's stage fills its column", async ({
+  page,
+}) => {
+  await bootTutorial(page);
+  for (const mode of ["Play", "Create"] as const) {
+    const radio = page.getByRole("radio", { name: mode, exact: true });
+    if ((await radio.getAttribute("aria-checked")) !== "true") await radio.click();
+    for (const [width, height] of [
+      [1024, 600],
+      [1100, 700],
+      [1180, 560],
+      [1280, 720],
+      [1366, 768],
+      [1440, 900],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await expect
+        .poll(() => stripOverlaps(page), { message: `${mode} at ${width}×${height}` })
+        .toEqual([]);
+      // The help stays wherever it fits: all of Play, and Create's 780 px column.
+      if (mode === "Play" || width === 1440)
+        await expect(page.locator("#game-input-help:visible")).toHaveCount(1);
+    }
+  }
+  // Create's 780×800 centre column at 1440×900: 2× (640) would fill 67% of
+  // what fits, so the screen takes the column's width, as Play would.
+  await expect.poll(async () => (await surfaceBox(page)).width).toBe(780);
+  expect((await surfaceBox(page)).height).toBe(487.5);
 });

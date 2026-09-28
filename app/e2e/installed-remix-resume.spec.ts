@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { readFile } from "node:fs/promises";
 import { textHook, isolateStorage } from "./engineProbe.ts";
 

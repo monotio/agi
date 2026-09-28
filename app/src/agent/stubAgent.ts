@@ -7,7 +7,7 @@
 import { assembleLogic } from "../../../src/logic/assembler.ts";
 import { buildView } from "../../../src/view/view.ts";
 import { compilePictureSource } from "../../../src/picture/source.ts";
-import { type AgentSessionState } from "../../../src/agent/agentState.ts";
+import type { AgentSessionState } from "../../../src/agent/agentState.ts";
 import { executeAgentTool } from "../../../src/agent/tools.ts";
 import type { LlmRequest, AgentHandler, AgentEventSink } from "./hostRequests.ts";
 import type { RoomPatch } from "../../../src/agent/roomPatch.ts";
