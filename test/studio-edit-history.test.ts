@@ -92,6 +92,7 @@ describe("edit history", () => {
       history.past.map((step) => step.source),
       ["s2", "s3", "s4"],
     );
+    assert.equal(history.dropped, 2, "it counts the steps it dropped");
     assert.equal(createHistory("x").depth, 200);
     assert.throws(() => createHistory("x", 0), /depth/);
   });

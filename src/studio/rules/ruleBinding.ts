@@ -9,13 +9,66 @@
  * point by the same dx,dy, so that is exactly its dx,dy; a points edit that
  * reshapes the item moves the box by the shift of the item's centre, rounded
  * to whole pixels. The box keeps its size. Nothing is mutated.
+ *
+ * Group keeps each member as `# part` comments inside the group, so a rule
+ * bound to a member follows that member's own lines there: grouping moves
+ * nothing, moving the group moves the rule, and Ungroup (which restores the
+ * members' ids) keeps the binding. A group may take a followed member's id.
  */
-import { itemHandles } from "../editPoints.ts";
-import type { PictureDocument } from "../pictureDocument.ts";
+import { itemHandles, type LineHandle } from "../editPoints.ts";
+import { groupPart, type PictureDocument, type PictureItem } from "../pictureDocument.ts";
 import { assembleAuthoredLogic } from "../../agent/agentState.ts";
 import { serializeLogicDocument, type LogicDocument } from "./logicDocument.ts";
 import { applyRuleEdit, type RuleSession } from "./ruleEdit.ts";
 import { readRules, ruleBox } from "./ruleModel.ts";
+
+/** The 1-based lines of the `# part id` marker inside `item` and its matching end, and its label. */
+function partSpan(
+  document: PictureDocument,
+  item: PictureItem,
+  id: string,
+): { from: number; to: number; label: string } | null {
+  let open: { from: number; label: string } | null = null;
+  let depth = 0;
+  for (let line = item.openLine + 1; line < item.closeLine; line++) {
+    const part = groupPart(document.lines[line - 1] ?? "");
+    if (part === undefined) continue;
+    if (open === null) {
+      if (part !== "end" && part.id === id) {
+        open = { from: line, label: part.label };
+        depth = 1;
+      }
+    } else if (part !== "end") depth++;
+    else if (--depth === 0) return { ...open, to: line };
+  }
+  return null;
+}
+
+/**
+ * The picture item a rule bound to `id` follows in `document`: the member
+ * `id` inside a group (the group may carry the same id), else the item
+ * `id`; its label and points. Null when the picture has neither.
+ */
+export function followedItem(
+  document: PictureDocument,
+  id: string,
+): { readonly label: string; readonly handles: readonly LineHandle[] } | null {
+  const inside = (item: PictureItem) => {
+    const span = partSpan(document, item, id);
+    if (!span) return null;
+    const handles = itemHandles(document, item.id).filter(
+      (handle) => handle.line > span.from && handle.line < span.to,
+    );
+    return { label: span.label, handles };
+  };
+  const own = document.items.find((item) => item.id === id);
+  if (own) return inside(own) ?? { label: own.label, handles: itemHandles(document, id) };
+  for (const item of document.items) {
+    const member = inside(item);
+    if (member) return member;
+  }
+  return null;
+}
 
 /** How far a picture item moved between two documents; null when either has no points for it. */
 export function itemTranslation(
@@ -24,7 +77,7 @@ export function itemTranslation(
   itemId: string,
 ): { readonly dx: number; readonly dy: number } | null {
   const centre = (document: PictureDocument): [number, number] | null => {
-    const handles = itemHandles(document, itemId);
+    const handles = followedItem(document, itemId)?.handles ?? [];
     if (handles.length === 0) return null;
     const xs = handles.map((h) => h.x);
     const ys = handles.map((h) => h.y);
@@ -94,7 +147,7 @@ export function followPictureEdit(
     if (item === null) continue;
     const translation = itemTranslation(before, after, item);
     if (translation === null) {
-      const gone = !after.items.some((candidate) => candidate.id === item);
+      const gone = followedItem(after, item) === null;
       detached.push({
         rule: rule.id,
         item,

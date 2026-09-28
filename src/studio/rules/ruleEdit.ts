@@ -9,7 +9,8 @@
  *   - region → after the last top-level region rule, or else straight after
  *     the init block, or else before the first statement;
  *   - exit (edge or door) → after the last top-level exit rule, or else
- *     before the final top-level `return;`, or else at the end.
+ *     before the final top-level `return;` (split onto its own line when it
+ *     follows a finished statement), or else at the end.
  *
  * Allocation reuses the authoring tools: a flag name without a binding is
  * reserved through reserve_binding (kind flag, lowest free id from 32), and
@@ -104,15 +105,15 @@ interface Structure {
   readonly depth: readonly number[];
   /** 0-based line of the init block's closing brace. */
   readonly initClose: number | null;
-  /** 0-based line of the last top-level `return`. */
-  readonly finalReturn: number | null;
+  /** 0-based line and column of the last top-level `return`. */
+  readonly finalReturn: { readonly line: number; readonly col: number } | null;
   /** 0-based line of the first top-level statement. */
   readonly firstStatement: number | null;
 }
 
 /** Top-level structure from a comment- and string-aware brace scan. */
 function scanStructure(lines: readonly string[]): Structure {
-  const tokens: { text: string; line: number; depth: number }[] = [];
+  const tokens: { text: string; line: number; col: number; depth: number }[] = [];
   const depth: number[] = [];
   let level = 0;
   for (let line = 0; line < lines.length; line++) {
@@ -122,32 +123,33 @@ function scanStructure(lines: readonly string[]): Structure {
     for (let i = 0; i < text.length;) {
       const ch = text[i]!;
       if (text.startsWith("//", i)) break;
+      const col = i;
       if (ch === '"') {
         for (i++; i < text.length && text[i] !== '"'; i += text[i] === "\\" ? 2 : 1);
         i++;
-        tokens.push({ text: '"', line, depth: level });
+        tokens.push({ text: '"', line, col, depth: level });
         continue;
       }
       const word = /^[A-Za-z0-9_.]+/.exec(text.slice(i));
       if (word) {
-        tokens.push({ text: word[0], line, depth: level });
+        tokens.push({ text: word[0], line, col, depth: level });
         i += word[0].length;
         continue;
       }
       if (ch === "}") level--;
-      if (!/\s/.test(ch)) tokens.push({ text: ch, line, depth: level });
+      if (!/\s/.test(ch)) tokens.push({ text: ch, line, col, depth: level });
       if (ch === "{") level++;
       i++;
     }
   }
   let initClose: number | null = null;
-  let finalReturn: number | null = null;
+  let finalReturn: Structure["finalReturn"] = null;
   let firstStatement: number | null = null;
   for (let at = 0; at < tokens.length; at++) {
     const token = tokens[at]!;
     if (token.depth !== 0) continue;
     firstStatement ??= token.line;
-    if (token.text === "return") finalReturn = token.line;
+    if (token.text === "return") finalReturn = { line: token.line, col: token.col };
     const head = tokens
       .slice(at, at + 8)
       .map((t) => t.text)
@@ -158,24 +160,34 @@ function scanStructure(lines: readonly string[]): Structure {
   return { depth, initClose, finalReturn, firstStatement };
 }
 
-/** Where a new rule of this kind goes: the 0-based line to insert before, or a refusal. */
+/**
+ * Where a new rule of this kind goes: the 0-based line to insert before
+ * (`split`: after cutting that line at `col`, which moves the final
+ * `return` onto a line of its own), or a refusal.
+ */
 function placeRule(
   lines: readonly string[],
   structure: Structure,
   lastOfKind: LogicRuleFragment | undefined,
   kind: RuleModel["kind"],
-): number | string {
+): { readonly at: number; readonly split?: number } | string {
   const end = lines.length > 0 && lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
-  if (lastOfKind) return lastOfKind.closeLine;
+  if (lastOfKind) return { at: lastOfKind.closeLine };
   if (kind === "exit") {
-    const at = structure.finalReturn;
-    return at !== null && lines[at]!.trimStart().startsWith("return") ? at : end;
+    const final = structure.finalReturn;
+    if (final === null) return { at: end };
+    const before = lines[final.line]!.slice(0, final.col);
+    if (before.trim() === "") return { at: final.line };
+    // Only after a finished statement: a label or an if's body would change what runs.
+    if (!/[;}]\s*$/.test(before))
+      return "The room's final return; shares a line with other code; put it on its own line first.";
+    return { at: final.line, split: final.col };
   }
   const close = structure.initClose;
-  if (close === null) return structure.firstStatement ?? end;
+  if (close === null) return { at: structure.firstStatement ?? end };
   if (lines[close]!.trim() !== "}")
     return "The init block's closing brace shares a line with other code; put it on its own line first.";
-  return close + 1;
+  return { at: close + 1 };
 }
 
 /** Flag names the model uses (numbers need no binding). */
@@ -296,13 +308,22 @@ export function applyRuleEdit(
           structure.depth[entry.rule.openLine - 1] === 0,
       )
       .at(-1)?.rule;
-    const at = placeRule(lines, structure, lastOfKind, model.kind);
-    if (typeof at === "string") return refuse(at);
-    lines.splice(
-      at,
-      0,
-      ...ruleLines({ id: op.id, label: op.label, kind: model.kind, item }, fragment, ""),
-    );
+    const place = placeRule(lines, structure, lastOfKind, model.kind);
+    if (typeof place === "string") return refuse(place);
+    const { at, split } = place;
+    const rule = ruleLines({ id: op.id, label: op.label, kind: model.kind, item }, fragment, "");
+    if (split === undefined) lines.splice(at, 0, ...rule);
+    else {
+      const line = lines[at]!;
+      const indent = /^\s*/.exec(line)![0];
+      lines.splice(
+        at,
+        1,
+        line.slice(0, split).trimEnd() + eol,
+        ...rule,
+        indent + line.slice(split),
+      );
+    }
   } else {
     const existing = rules.find((entry) => entry.rule.id === op.id);
     if (!existing) return refuse(`This room has no rule '${op.id}'.`);
