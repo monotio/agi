@@ -10,6 +10,7 @@ import {
   textHook,
   waitForCycles,
   enterCreateMode,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
@@ -115,22 +116,33 @@ test("world map lists observed, planned and logic-named rooms; closing preserves
   await expect(page.getByTestId("map-room-4")).toContainText("planned");
   await expect(page.getByTestId("map-room-4")).toContainText("Attic");
 
-  // Keyboard: the room list answers ArrowUp/ArrowDown with roving selection.
+  // Keyboard: arrows move between rows, Enter opens a room's details in the
+  // list's place with focus on its heading, and Esc returns to the row.
   await page.getByTestId("map-room-list").focus();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByTestId("map-detail")).toBeVisible();
+  const firstRow = page.locator(".map-list-item").first().getByRole("button");
+  await expect(firstRow).toBeFocused();
+  await page.keyboard.press("Enter");
   const detail = page.getByTestId("map-detail");
+  await expect(detail.getByRole("heading", { level: 3 })).toBeFocused();
   await expect(detail).toContainText(/Room \d/);
+  await page.keyboard.press("Escape");
+  await expect(detail).toHaveCount(0);
+  await expect(firstRow).toBeFocused();
+  await expect(mapDialog).toBeVisible();
 
   // Select the planned room: never visited, but the plan names it.
-  await page.getByTestId("map-room-4").click();
+  await openWorldRoom(page.getByTestId("world-map"), 4);
   await expect(detail).toContainText("Room 4");
   await expect(detail).toContainText("Attic");
   await expect(detail).toContainText("Not visited");
   await expect(detail).toContainText("planned");
   await page.screenshot({ path: "test-results/world-map-desktop.png" });
 
-  // Escape closes only the map; the game resumes where it was.
+  // Escape leaves the details, then closes only the map; the game resumes
+  // where it was.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("map-room-list")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(mapDialog).not.toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
@@ -157,7 +169,7 @@ test("phone layout puts the room list first and the graph one tap away", async (
     await page.getByTestId("map-graph-fold").click();
   }
   await expect(page.getByTestId("map-graph")).toBeVisible();
-  await page.getByTestId("map-room-4").click();
+  await openWorldRoom(page.getByTestId("world-map"), 4);
   await expect(page.getByTestId("map-detail")).toContainText("Attic");
   await page.screenshot({ path: "test-results/world-map-phone.png" });
   test.info().annotations.push({ type: "world-map open (ms)", description: String(openMs) });
@@ -189,8 +201,9 @@ test("the map records a live transition and matches it against plan and logic", 
   await expect(page.getByTestId("map-room-2")).toHaveClass(/current/);
   await expect(page.getByTestId("map-node-2")).toBeInViewport();
   await page.screenshot({ path: "test-results/world-map-transition.png" });
-  await page.getByTestId("map-room-2").click();
+  // The panel follows the player: room 2's card shows without a pick.
   const detail = page.getByTestId("map-detail");
+  await expect(detail).toHaveAttribute("data-room", "2");
   await expect(detail).toContainText("Visited 1×");
   // Three provenances on one pair stay distinct: walked, planned (east), logic.
   await expect(detail).toContainText(/Walked|walked/);
@@ -307,7 +320,7 @@ test("Watch from here seeks the walkthrough to the room's checkpoint", async ({ 
   // Room 53 is only logic-named here, never visited, yet the kq1 walkthrough
   // has a checkpoint there ("Audience", tick 3690), so the action resolves
   // against this exact game edition.
-  await page.getByTestId("map-room-53").click();
+  await openWorldRoom(page.getByTestId("world-map"), 53);
   const watch = page.getByRole("button", { name: /Watch from here\s*Audience/ });
   await expect(watch).toBeVisible({ timeout: 15_000 });
   await watch.click();
@@ -372,7 +385,7 @@ test("opening and using the map makes no provider request", async ({ page }) => 
   await expect(mapDialog).toBeVisible();
 
   // Use the map: select a room, edit a note, drag a node, reset layout.
-  await page.getByTestId("map-room-4").click();
+  await openWorldRoom(page.getByTestId("world-map"), 4);
   await expect(page.getByTestId("map-detail")).toContainText("Attic");
   const note = page.getByTestId("map-note");
   if (await note.count()) await note.fill("check the ladder");
@@ -448,7 +461,7 @@ test("long labels and a dense planned graph stay navigable", async ({ page }) =>
   await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect(page.getByTestId("map-room-4")).toContainText("northern gallery");
-  await page.getByTestId("map-room-4").click();
+  await openWorldRoom(page.getByTestId("world-map"), 4);
   await expect(page.getByTestId("map-detail")).toContainText("northern gallery");
   await page.screenshot({ path: "test-results/world-map-dense.png" });
 });
@@ -576,9 +589,9 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
     )
     .toBeLessThanOrEqual(2);
 
-  // The detail pane dismisses via its close button and via a background click.
+  // The details give way to the list via All rooms and via a background click.
   // Picking a room from the list centres the graph on its node.
-  await page.getByTestId("map-room-4").click();
+  await openWorldRoom(page.getByTestId("world-map"), 4);
   await expect(page.getByTestId("map-detail")).toBeVisible();
   // List selection scrolls the node into view (centred when the scroll range
   // allows it — a node at the world edge clamps to the nearest reach).
@@ -616,11 +629,14 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   await page.mouse.up();
   await expect.poll(async () => Object.keys(await sidecarLayout())).toContain("4");
 
-  await page.getByTestId("map-detail-close").click();
+  await page.getByTestId("world-all-rooms").click();
   await expect(page.getByTestId("map-detail")).not.toBeVisible();
+  await expect(page.getByTestId("map-room-4").getByRole("button")).toBeFocused();
 
-  // A click on empty graph space (no drag) deselects. Centering scrolled the
-  // view; reset to the top-left world margin, which is guaranteed empty.
+  // A click on empty graph space (no drag) deselects too. Centering scrolled
+  // the view; reset to the top-left world margin, which is guaranteed empty.
+  await node.click();
+  await expect(page.getByTestId("map-detail")).toBeVisible();
   await scroll.evaluate((el) => {
     el.scrollLeft = 0;
     el.scrollTop = 0;

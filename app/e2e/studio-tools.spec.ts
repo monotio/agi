@@ -9,7 +9,13 @@ import { renderPicture } from "../../src/picture/renderer.ts";
 import { createPictureSurface } from "../../src/types.ts";
 import { buildView } from "../../src/view/view.ts";
 import { CHARACTER_VIEWS } from "../../games/adventure-department/characterViews.ts";
-import { cacheGame, enterCreateMode, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  cacheGame,
+  enterCreateMode,
+  textHook,
+  waitForCycles,
+  openWorldRoom,
+} from "./engineProbe.ts";
 
 /**
  * Room Studio's tool rail, end to end on the real app: a stored project
@@ -102,7 +108,7 @@ async function openStudio(page: Page): Promise<Locator> {
   await waitForCycles(page, 2);
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

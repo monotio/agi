@@ -1,6 +1,6 @@
 import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, waitForRoom } from "./engineProbe.ts";
+import { enterCreateMode, waitForRoom, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * Sprite Studio's defaults: the side panel opens at its essentials (Palette,
@@ -19,7 +19,7 @@ async function playTutorial(page: Page): Promise<void> {
 
 async function openApprentice(page: Page): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

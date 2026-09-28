@@ -1,6 +1,6 @@
 import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 import { ROOM_GROUP_HINT } from "../src/studio/studioHelp.ts";
 
 /**
@@ -19,7 +19,7 @@ async function openRoomOne(page: Page): Promise<Locator> {
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

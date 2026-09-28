@@ -13,6 +13,7 @@ import {
   textHook,
   waitForCycles,
   waitForRoom,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -36,7 +37,7 @@ async function playTutorial(page: Page): Promise<void> {
 async function openRoomStudio(page: Page, room: number): Promise<Locator> {
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId(`map-room-${room}`).click();
+  await openWorldRoom(panel, room);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

@@ -16,6 +16,7 @@ import {
   openGameOptions,
   textHook,
   waitForCycles,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -117,7 +118,7 @@ async function resumeInRoom(page: Page): Promise<void> {
 async function openStudio(page: Page): Promise<Locator> {
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -544,7 +545,7 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   const catalog = new URL(page.url()).hash;
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   // An untitled room's Studio is named by the picture it edits.

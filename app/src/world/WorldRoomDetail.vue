@@ -6,8 +6,8 @@
  * creator surface, the room note and recorded visits. Reference art is a
  * secondary action; the evidence behind the room (visited, planned, named by
  * a test…) folds under a plain-words Details disclosure. The window adds the
- * room's picture. `viewOnly` (a phone's Create) keeps the facts and drops
- * every edit.
+ * room's picture; "All rooms" beside the card is the way back (useRoomDrill.ts).
+ * `viewOnly` (a phone's Create) keeps the facts and drops every edit.
  */
 import { computed, nextTick, ref, useTemplateRef, watch } from "vue";
 import MapPlanEditor from "./MapPlanEditor.vue";
@@ -61,6 +61,8 @@ function jumpToVisit(hist: { segment: string; seq: number; tick: number }): void
 }
 
 // ---- the picture -------------------------------------------------------------
+
+const heading = useTemplateRef("heading");
 
 const thumbCanvas = useTemplateRef("thumbCanvas");
 const thumbKind = ref<string>("");
@@ -222,10 +224,17 @@ function edgeWord(edge: RoomGraphEdge): string {
   const count = edge.count && edge.count > 1 ? ` ×${edge.count}` : "";
   return `${PROVENANCE_WORD[edge.provenance]}${via}${count}`;
 }
+
+defineExpose({ focusHeading: () => heading.value?.focus() });
 </script>
 
 <template>
-  <section class="room-inspector" :class="{ compact }" data-testid="map-detail">
+  <section
+    class="room-inspector"
+    :class="{ compact }"
+    data-testid="map-detail"
+    :data-room="node.room"
+  >
     <header class="ri-head">
       <div class="ri-heading">
         <p v-if="node.title || currentRoom === node.room" class="ri-eyebrow">
@@ -234,15 +243,10 @@ function edgeWord(edge: RoomGraphEdge): string {
             ><span class="ri-here__dot" aria-hidden="true"></span>you are here</span
           >
         </p>
-        <h3 class="ri-title">{{ node.title || `Room ${node.room}` }}</h3>
+        <h3 ref="heading" class="ri-title" tabindex="-1">
+          {{ node.title || `Room ${node.room}` }}
+        </h3>
       </div>
-      <UiIconButton
-        icon="x"
-        size="sm"
-        label="Dismiss room details"
-        data-testid="map-detail-close"
-        @click="map.select(undefined)"
-      />
     </header>
     <div v-if="$slots['chips']" class="ri-chips"><slot name="chips" /></div>
     <template v-if="!compact">

@@ -6,6 +6,7 @@ import {
   openGameOptions,
   textHook,
   waitForCycles,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -85,7 +86,7 @@ test("Help, Game controls and the map close with the standard × button", async 
   await page.getByTestId("btn-world-map").click();
   const map = page.getByTestId("world-map");
   await expect(map.getByTestId("map-close")).toHaveText("");
-  await expect(map.getByRole("heading", { name: "World map" })).toBeVisible();
+  await expect(map.getByRole("heading", { name: "Map" })).toBeVisible();
   await map.getByTestId("map-close").click();
   await expect(map).toHaveCount(0);
 });
@@ -202,7 +203,7 @@ test("the World inspector leads with one primary action and folds its evidence a
   await playTutorial(page);
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   const detail = panel.getByTestId("map-detail");
   await expect(detail.getByRole("heading", { level: 3 })).toHaveText("Room 2");
   await expect(detail.locator(".ui-btn--primary")).toHaveCount(1);

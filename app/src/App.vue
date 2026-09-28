@@ -192,6 +192,7 @@ const playHereFromStudio = usePlayHereFromStudio({
 const { onDockKey } = useCreateMode({
   state,
   workspace,
+  roomMap: engine.roomMap,
   creating,
   phone,
   debugOpen,

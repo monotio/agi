@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, waitForRoom, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * Interaction budgets on the real app, measured in the page with the
@@ -184,7 +184,7 @@ test(
     await playTutorial(page);
     await enterCreateMode(page);
     const panel = page.getByTestId("world-panel");
-    await panel.getByTestId("map-room-1").click();
+    await openWorldRoom(panel, 1);
     await panel.getByTestId("world-open-studio").click();
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
@@ -214,7 +214,7 @@ test(
 async function openApprentice(page: Page): Promise<Locator> {
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

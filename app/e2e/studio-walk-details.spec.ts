@@ -1,6 +1,6 @@
 import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, waitForRoom } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, waitForRoom, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * Room Studio's Walk view in the tutorial, the small things: a test walk
@@ -16,7 +16,7 @@ async function openTutorialStudio(page: Page, room: number): Promise<Locator> {
   await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId(`map-room-${room}`).click();
+  await openWorldRoom(panel, room);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

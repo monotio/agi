@@ -17,7 +17,14 @@ import { renderPicture } from "../../src/picture/renderer.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { openSprite } from "../../src/view/spriteDocument.ts";
 import { createPictureSurface } from "../../src/types.ts";
-import { cacheGame, configureAi, enterCreateMode, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  cacheGame,
+  configureAi,
+  enterCreateMode,
+  textHook,
+  waitForCycles,
+  openWorldRoom,
+} from "./engineProbe.ts";
 import { clipped } from "./studioFit.ts";
 
 /**
@@ -83,7 +90,7 @@ async function bootAssistGame(page: Page): Promise<void> {
 
 async function openRoomStudio(page: Page): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -349,7 +356,7 @@ test("Room Studio: a request behind a save made elsewhere writes nothing and off
 test("Sprite Studio: make the eyes blue on loop 1, accept, loop 0 unchanged", async ({ page }) => {
   await bootAssistGame(page);
   await configureAi(page, { provider: "stub" });
-  await page.getByTestId("world-panel").getByTestId("map-room-1").click();
+  await openWorldRoom(page.getByTestId("world-panel"), 1);
   await page.getByTestId("world-panel").getByTestId("world-open-sprite-1").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

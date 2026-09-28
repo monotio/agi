@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 
 /**
  * The calm canvas, as a rule over every element: in Room Studio and Sprite
@@ -60,7 +60,7 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     const panel = page.getByTestId("world-panel");
-    await panel.getByTestId("map-room-2").click();
+    await openWorldRoom(panel, 2);
     await panel.getByTestId("world-open-studio").click();
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
@@ -93,7 +93,7 @@ for (const [width, height] of [
     await expect(studio).toBeHidden();
 
     // Sprite Studio: a selection on the cel.
-    await panel.getByTestId("map-room-1").click();
+    await openWorldRoom(panel, 1);
     await panel.getByTestId("world-open-sprite-0").click();
     const sprite = page.getByTestId("sprite-studio");
     await expect(sprite).toBeVisible();

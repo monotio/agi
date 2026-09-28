@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
- * The world-map window: rooms as a list beside a graph, and the selected
- * room's details. Which rooms depends on the experience the caller chose:
- * "play" shows discovered places and observed crossings only; "create" adds
- * the plan (authoring intent) and the static scan (a literal new.room in the
- * logic). Node positions and notes are project UI data in either view; plan
- * editing is a creator action.
+ * The world-map window: the graph filling the window beside a column that
+ * holds either the room list or the selected room's details (the World
+ * panel's drill-in, useRoomDrill.ts). Which rooms depends on the view, a
+ * segmented choice the caller opens on: "Discovered" (experience "play")
+ * shows discovered places and observed crossings only; "Full map" or "Plan"
+ * (experience "create") adds the plan (authoring intent) and the static scan
+ * (a literal new.room in the logic). Node positions and notes are project UI
+ * data in either view; plan editing is a creator action.
  *
  * A native modal dialog: Escape closes only this shell overlay and returns
  * focus to its invoker, the game's own dialog and prompt state untouched.
@@ -15,10 +17,13 @@
 import { computed, ref, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
+import UiSegmented from "../ui/UiSegmented.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import WorldGraph from "./WorldGraph.vue";
 import WorldRoomDetail from "./WorldRoomDetail.vue";
 import WorldRoomList from "./WorldRoomList.vue";
+import { useRoomDrill } from "./useRoomDrill.ts";
+import type { MapExperience } from "../../../src/agent/roomMap.ts";
 
 const engine = useEngineApi();
 const { state } = engine;
@@ -27,6 +32,8 @@ const map = engine.roomMap;
 const { unsaved, storageError } = map;
 
 const graphView = useTemplateRef("graphView");
+const sideEl = useTemplateRef("sideEl");
+const detailView = useTemplateRef("detailView");
 
 /** Shown while mounted: App mounts the window only while the map is open. */
 const shown = ref(true);
@@ -38,30 +45,51 @@ watch(shown, (value) => {
   if (map.open.value) shown.value = true;
 });
 
-const title = computed(() =>
-  map.experience.value === "create" ? (map.canPlan.value ? "World plan" : "Full map") : "World map",
-);
-
-const selectedNode = computed(
-  () => map.graph.value.nodes.find((n) => n.room === map.selected.value) ?? null,
-);
+/** The two views, each named for what it shows. */
+const views = computed(() => [
+  {
+    value: "play" as const,
+    label: "Discovered",
+    title: "The rooms the player has found",
+    testid: "btn-world-discovered",
+  },
+  {
+    value: "create" as const,
+    label: map.planAvailable.value ? "Plan" : "Full map",
+    title: map.planAvailable.value ? "Edit rooms, exits and intent" : "Every room the logic names",
+    testid: "btn-world-plan",
+  },
+]);
+const view = computed<MapExperience>({
+  get: () => map.experience.value,
+  set: (value) => {
+    map.experience.value = value;
+  },
+});
 
 /** A list pick is a lookup gesture — the graph answers it visually. */
 function pickRoom(room: number): void {
   graphView.value?.selectRoom(room, true);
 }
 
+const { selectedNode, pickFromList, showAllRooms, onDetailKeydown } = useRoomDrill({
+  map,
+  root: sideEl,
+  detail: detailView,
+  pick: pickRoom,
+});
+
 /** A bare room in the plan — no connection yet; the detail pane names it. */
 function addStandaloneRoom(): void {
   const result = map.addPlannedRoom(null, "New room", "", "");
-  if (result.room !== undefined) pickRoom(result.room);
+  if (result.room !== undefined) pickFromList(result.room);
 }
 </script>
 
 <template>
   <UiDialog
     v-model:open="shown"
-    :title="title"
+    title="Map"
     size="lg"
     flush
     class="world-map"
@@ -71,26 +99,7 @@ function addStandaloneRoom(): void {
   >
     <template #actions>
       <span v-if="state.paused" class="map-paused" data-testid="map-paused">Game paused</span>
-      <UiButton
-        size="sm"
-        data-testid="btn-world-plan"
-        :title="
-          map.experience.value === 'create'
-            ? 'Back to the discovered map'
-            : map.planAvailable.value
-              ? 'Edit rooms, exits and intent'
-              : 'Every room the logic names'
-        "
-        @click="map.experience.value = map.experience.value === 'create' ? 'play' : 'create'"
-      >
-        {{
-          map.experience.value === "create"
-            ? "World map"
-            : map.planAvailable.value
-              ? "World plan"
-              : "Full map"
-        }}
-      </UiButton>
+      <UiSegmented v-model="view" size="sm" label="Map view" :options="views" />
       <UiButton size="sm" variant="ghost" data-testid="map-reset-layout" @click="map.resetLayout()">
         Reset layout
       </UiButton>
@@ -128,30 +137,51 @@ function addStandaloneRoom(): void {
       </span>
     </div>
     <div class="map-body">
-      <section class="map-list-pane" aria-label="Rooms">
-        <WorldRoomList @pick="pickRoom" />
-        <UiButton
-          v-if="map.canPlan.value"
-          icon="plus"
-          size="sm"
-          variant="ghost"
-          class="map-add-room"
-          data-testid="map-add-room"
-          @click="addStandaloneRoom"
-        >
-          Add a room
-        </UiButton>
+      <section ref="sideEl" class="map-side" aria-label="Rooms">
+        <div v-show="!selectedNode">
+          <WorldRoomList @pick="pickFromList" />
+          <UiButton
+            v-if="map.canPlan.value"
+            icon="plus"
+            size="sm"
+            variant="ghost"
+            class="map-add-room"
+            data-testid="map-add-room"
+            @click="addStandaloneRoom"
+          >
+            Add a room
+          </UiButton>
+        </div>
+        <template v-if="selectedNode">
+          <UiButton
+            icon="chevron-left"
+            size="sm"
+            variant="ghost"
+            class="map-back"
+            data-testid="world-all-rooms"
+            @click="showAllRooms"
+          >
+            All rooms
+          </UiButton>
+          <WorldRoomDetail ref="detailView" :node="selectedNode" @keydown="onDetailKeydown" />
+        </template>
       </section>
       <WorldGraph ref="graphView" />
-      <WorldRoomDetail v-if="selectedNode" class="map-detail-pane" :node="selectedNode" />
     </div>
   </UiDialog>
 </template>
 
 <style scoped>
+/* Expand exists so the graph can be read: the window takes most of the
+   screen and the graph fills everything beside the side column. */
 .world-map.ui-dialog {
-  width: min(980px, 96vw);
+  width: min(1280px, 96vw);
+  height: 88dvh;
   max-height: 88dvh;
+}
+.world-map :deep(.ui-dialog__body) {
+  display: flex;
+  flex-direction: column;
 }
 .map-paused {
   color: var(--ok);
@@ -173,35 +203,33 @@ function addStandaloneRoom(): void {
 }
 .map-body {
   display: grid;
-  grid-template-columns: minmax(200px, 260px) 1fr;
-  grid-template-rows: minmax(0, 1fr) auto;
-  max-height: calc(88dvh - 72px);
+  flex: 1;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
   border-top: 1px solid var(--hairline);
 }
-.map-list-pane {
-  min-height: 160px;
+.map-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow-y: auto;
   border-right: 1px solid var(--hairline);
 }
 .map-add-room {
   margin: var(--space-3) var(--space-4);
 }
-.map-detail-pane {
-  grid-column: 1 / -1;
-  /* The auto row takes the detail's content height; without a cap a tall
-     detail starves the list row and its scrollport hides list items under
-     this pane. */
-  max-height: 38dvh;
-  overflow-y: auto;
-  border-top: 1px solid var(--hairline);
+.map-back {
+  align-self: flex-start;
+  margin: var(--space-2) var(--space-3) 0;
 }
 @media (max-width: 700px) {
   .map-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
-  .map-list-pane {
-    max-height: 34dvh;
+  .map-side {
+    max-height: 40dvh;
     border-right: none;
     border-bottom: 1px solid var(--hairline);
   }

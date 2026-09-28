@@ -14,8 +14,8 @@ Home: the tutorial, the adventure templates and **Add game**.
 
 ![The Home library with the tutorial and the adventure templates](home.png)
 
-Create docks the World panel on the left, with the room graph, the room list and
-the selected room's pictures and views, and the assistant on the right.
+Create docks the World panel on the left, with the room graph over the room list
+or the selected room's pictures and views, and the assistant on the right.
 
 ![Create mode with the World panel and the assistant](create-mode.png)
 
