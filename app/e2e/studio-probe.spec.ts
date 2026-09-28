@@ -82,7 +82,10 @@ test("a ghost dragged behind the bench occluder is hidden exactly where probeAct
 }) => {
   await open(page);
   const readout = page.getByTestId("ghost-probe-readout");
-  await expect(readout).toContainText("Static probe — not a walk test");
+  await expect(readout.getByRole("heading")).toHaveText("Probe");
+  // The readout sits beside the picture: on the art, only the ghost and its handle.
+  const art = (await page.locator(".studio-pane").boundingBox())!;
+  expect((await readout.boundingBox())!.x).toBeGreaterThanOrEqual(art.x + art.width);
   // The harness starts the ghost at x 60, baseline 100; take it to the open floor first.
   await drag(page, [60, 100], [70, 150]);
   await expect(readout.locator('[data-role="ghost-band"]')).toContainText("x 70 y 150");
@@ -114,7 +117,7 @@ test("moving onto the floor-edge barrier reports its cells; keys nudge, cycle an
   // Row 113 is plain floor; the barrier segment runs along y 114 from x 30 to 129.
   await drag(page, [60, 100], [60, 113]);
   await expect(readout.locator('[data-role="ghost-controls"]')).toContainText(
-    "No control lines under the baseline",
+    "Clear under the feet",
   );
   await page.keyboard.press("Shift+ArrowDown");
   const want = await expected(page, 60, 114);
@@ -122,7 +125,7 @@ test("moving onto the floor-edge barrier reports its cells; keys nudge, cycle an
   expect(barrier.cells.map((cell) => cell.x)).toEqual([60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
   const hit = readout.locator('[data-role="ghost-control-hit"][data-value="0"]');
   await expect(hit).toHaveText("0 · barrier: x 60–69 at y 114");
-  await expect(readout).toContainText("Blocked by a barrier");
+  await expect(readout).toContainText("Blocked: barrier");
   const marked = await page
     .locator('rect[data-role="ghost-control"][data-value="0"]')
     .evaluateAll((rects) => rects.map((r) => `${r.getAttribute("x")},${r.getAttribute("y")}`));

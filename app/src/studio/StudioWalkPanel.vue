@@ -4,6 +4,7 @@ import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { StudioTool } from "./studioTools.ts";
+import { CONTROL_VALUES, patternOn } from "./studioView.ts";
 import type { StudioWalk } from "./useStudioWalk.ts";
 import {
   doorStatus,
@@ -19,7 +20,8 @@ import {
 } from "./walkView.ts";
 
 /**
- * The Walk view's side panel: the walkable estimate's legend, the test walk
+ * The Walk view's side panel: the walkable estimate and the walk lines'
+ * legend, the test walk
  * (what to click next, "Walking…", and the result card with Test again and
  * Play here), and the room's doors: a list, and for the selected door where
  * it leads, its condition, the art it follows, its box, and its two-sided
@@ -43,6 +45,10 @@ const emit = defineEmits<{
   text: [line: number | null];
 }>();
 const tint = defineModel<boolean>("tint", { default: true });
+/** Why the door fields are off, on each of them. */
+const DOORS_OFF =
+  "Door editing is off while the room is view only, a proposal waits, or its rules need fixing as text.";
+const doorsOff = computed(() => (walk.canEditDoors.value ? undefined : DOORS_OFF));
 
 const result = computed(() => walk.result.value);
 const place = computed(() =>
@@ -130,8 +136,37 @@ const roomChoices = computed(() => {
         <span>Where the player can stand <em>(estimate)</em></span>
       </label>
       <p class="walk-panel__note">
-        From ego's size and the control lines; only a test walk says where the game really goes.
+        Estimated from the hero's size and the walk lines. Test walk asks the game.
       </p>
+      <div
+        class="walk-panel__legend"
+        data-role="control-legend"
+        role="list"
+        aria-label="Walk lines"
+      >
+        <span
+          v-for="control in CONTROL_VALUES"
+          :key="control.value"
+          class="walk-panel__line"
+          role="listitem"
+        >
+          <svg viewBox="0 0 8 2" width="24" height="6" aria-hidden="true">
+            <rect
+              v-for="x in 8"
+              :key="x"
+              :x="x - 1"
+              y="0"
+              width="1"
+              height="2"
+              :style="{
+                fill: `var(--agi-${control.colour})`,
+                opacity: patternOn(control.pattern, x - 1, 0) ? 1 : 0.45,
+              }"
+            />
+          </svg>
+          {{ control.value }} · {{ control.name }}
+        </span>
+      </div>
     </section>
 
     <section class="walk-panel__sec" data-role="test-walk">
@@ -201,7 +236,7 @@ const roomChoices = computed(() => {
           <dd data-testid="walk-result-end">{{ place?.text }}</dd>
         </dl>
         <details>
-          <summary>What the engine said</summary>
+          <summary>Game result</summary>
           <p>{{ result.result.reason }}</p>
         </details>
         <div class="walk-panel__actions">
@@ -315,7 +350,9 @@ const roomChoices = computed(() => {
               aria-label="New flag name for the door's condition"
               :disabled="!walk.canEditDoors.value"
             />
-            <UiButton size="sm" type="submit" :disabled="!walk.canEditDoors.value">Use</UiButton>
+            <UiButton size="sm" type="submit" :disabled="!walk.canEditDoors.value" :title="doorsOff"
+              >Use</UiButton
+            >
           </form>
           <p
             v-if="walk.flagError.value"
@@ -368,6 +405,7 @@ const roomChoices = computed(() => {
               icon="trash"
               data-testid="door-remove"
               :disabled="!walk.canEditDoors.value"
+              :title="doorsOff"
               @click="walk.removeDoor(selected.id)"
             >
               Remove
@@ -441,6 +479,20 @@ const roomChoices = computed(() => {
   margin: 0;
   color: var(--ink-3);
   font-size: var(--text-2xs);
+}
+/* The walk lines' legend: one row of the four control values. */
+.walk-panel__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--ink-2);
+  font-size: var(--text-2xs);
+}
+.walk-panel__line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
 }
 .walk-panel__note.is-stale {
   color: var(--warn);

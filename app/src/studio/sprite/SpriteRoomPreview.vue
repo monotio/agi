@@ -196,7 +196,7 @@ function onKey(event: KeyboardEvent): void {
         </option>
       </select>
       <span v-else-if="entry">Room {{ entry.room }}</span>
-      <span class="room-preview__tag">real priority</span>
+      <span class="room-preview__tag">real depth</span>
     </header>
     <template v-if="picture && verdict">
       <canvas

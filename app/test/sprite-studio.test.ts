@@ -41,6 +41,7 @@ import {
   moveSelectionChanges,
   previewPartner,
   swatchInk,
+  usageChip,
 } from "../src/studio/sprite/spriteView.ts";
 import { celRgba } from "../src/render/palette.ts";
 import { usageText } from "../../src/agent/viewUsage.ts";
@@ -149,7 +150,7 @@ describe("useSpriteDraft", () => {
     assert.equal(outcome.ok, false);
     assert.equal(
       !outcome.ok && outcome.refusal.message,
-      "The transparent colour can't be painted. Use the eraser to make pixels transparent.",
+      "The eraser (E) paints the transparent colour.",
     );
     assert.equal(draft.changes.value, 0);
   });
@@ -437,7 +438,6 @@ describe("spriteKeys", () => {
   const actions = (log: string[], canvas = true): SpriteKeyActions => ({
     onCanvas: () => canvas,
     dismiss: () => false,
-    close: () => log.push("close"),
     arrow: (dx, dy, alt) => log.push(`arrow ${dx},${dy}${alt ? " alt" : ""}`),
     click: () => log.push("click"),
     remove: () => log.push("remove"),
@@ -475,7 +475,6 @@ describe("spriteKeys", () => {
       "tool b",
       "ask",
       "tool q",
-      "close",
     ]);
   });
 
@@ -492,9 +491,9 @@ describe("spriteKeys", () => {
     assert.equal(spriteKey(key({ key: "Escape", target: field("SELECT") }), act), true);
     assert.equal(spriteKey(key({ key: "b", target: field("INPUT") }), act), false);
     assert.deepEqual(log, ["blur INPUT", "blur SELECT"]);
-    // Off the field, Esc dismisses first and then closes.
+    // Off the field, Esc dismisses; with nothing to dismiss, Studio stays open.
     assert.equal(spriteKey(key({ key: "Escape" }), act), true);
-    assert.deepEqual(log.slice(2), ["dismiss", "close"]);
+    assert.deepEqual(log.slice(2), ["dismiss"]);
   });
 
   it("leaves arrows, Space and Enter to the focused control off the canvas", () => {
@@ -639,6 +638,12 @@ describe("sprite view helpers", () => {
     );
     assert.equal(usageText({ rooms: [], logics: [0], dynamic: false }), "Used by logic 0");
     assert.equal(usageText({ rooms: [], logics: [], dynamic: false }), "Not used by any logic");
+    // The top bar's chip counts; the side panel lists the rooms.
+    const rooms = [1, 2, 4, 5, 7, 9, 12];
+    assert.equal(usageChip({ rooms, logics: [], dynamic: false }), "Used by 7 rooms");
+    assert.equal(usageChip({ rooms: [5], logics: [5], dynamic: false }), "Used by room 5");
+    assert.equal(usageChip({ rooms: [], logics: [0, 3], dynamic: false }), "Used by 2 logics");
+    assert.equal(usageChip({ rooms: [], logics: [], dynamic: true }), "Chosen at runtime");
   });
 
   it("fits a cel at the largest whole zoom that leaves room for the baseline", () => {

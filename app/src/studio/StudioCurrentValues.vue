@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, useTemplateRef } from "vue";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
 import StudioValuePicker from "./StudioValuePicker.vue";
@@ -11,7 +11,9 @@ import { CONTROL_VALUES, patternOn, priorityMeaning, type StudioLens } from "./s
  * The values new content draws with, under the tool rail: a colour swatch
  * and a priority swatch, each opening its picker. A plane the lens locks
  * shows as locked; the Walk lens picks among the four control lines, the
- * Depth lens can follow the band under the cursor.
+ * Depth lens can follow the band under the cursor. The picker opens to the
+ * rail's left, over the Scene list and away from the picture, when that
+ * column has room for it (focus mode hides it: then it opens to the right).
  */
 const {
   lens,
@@ -48,8 +50,21 @@ const priorityText = computed(() => {
   return values.priority === "band" ? `${meaning} (the band under the cursor)` : meaning;
 });
 
+/** The picker's narrowest and widest, in CSS pixels (17rem). */
+const POP_MIN = 180;
+const POP_MAX = 272;
+/** The gap between the picker and the rail, and the picker and the window's edge. */
+const POP_GAP = 12;
+const root = useTemplateRef("root");
+/** Where the picker opens: over the Scene list when it fits there, with its width. */
+const side = ref<{ left: boolean; width: number }>({ left: false, width: POP_MAX });
 function toggle(plane: "visual" | "priority"): void {
   open.value = open.value === plane ? undefined : plane;
+  const room = (root.value?.getBoundingClientRect().left ?? 0) - 2 * POP_GAP;
+  side.value =
+    room >= POP_MIN
+      ? { left: true, width: Math.min(POP_MAX, room) }
+      : { left: false, width: POP_MAX };
 }
 function pick(patch: Partial<CurrentValues>): void {
   emit("values", patch);
@@ -58,7 +73,12 @@ function pick(patch: Partial<CurrentValues>): void {
 </script>
 
 <template>
-  <div class="values" data-testid="studio-current-values" @keydown.esc.stop="open = undefined">
+  <div
+    ref="root"
+    class="values"
+    data-testid="studio-current-values"
+    @keydown.esc.stop="open = undefined"
+  >
     <button
       type="button"
       class="values__swatch"
@@ -84,12 +104,14 @@ function pick(patch: Partial<CurrentValues>): void {
       :data-value="values.priority ?? 'off'"
       @click="toggle('priority')"
     >
-      {{ priorityShown ?? "off" }}<small v-if="values.priority === 'band'">band</small>
+      {{ priorityShown ?? "off" }}<small v-if="values.priority === 'band'">here</small>
     </button>
 
     <div
       v-if="open"
       class="values__pop"
+      :class="{ 'is-left': side.left }"
+      :style="{ width: `${side.width}px` }"
       role="dialog"
       :aria-label="open === 'visual' ? 'Colour for new content' : 'Priority for new content'"
     >
@@ -146,7 +168,7 @@ function pick(patch: Partial<CurrentValues>): void {
           data-value="band"
           @click="pick({ priority: 'band' })"
         >
-          <span>Band under the cursor · now {{ band }}</span>
+          <span>At cursor · {{ band }}</span>
         </button>
         <StudioValuePicker
           plane="priority"
@@ -201,12 +223,15 @@ function pick(patch: Partial<CurrentValues>): void {
   z-index: var(--z-popover);
   display: grid;
   gap: var(--space-2);
-  width: 17rem;
   padding: var(--space-3);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
   background: var(--surface-1);
   box-shadow: var(--shadow-pop);
+}
+.values__pop.is-left {
+  right: calc(100% + var(--space-3));
+  left: auto;
 }
 .values__title {
   margin: 0;

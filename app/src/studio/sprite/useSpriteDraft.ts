@@ -206,7 +206,7 @@ export function useSpriteDraft(options: {
     const scoped = checkCandidate(document.value, next, scope);
     if (!scoped.ok)
       return refuse({
-        message: "The proposal no longer fits its scope. Ask again.",
+        message: "The proposal now reaches outside its scope. Ask again.",
         detail: assistRefusalText(scoped),
       });
     const targets = [...new Set(scope.targetCels.map(({ loop }) => loop))];

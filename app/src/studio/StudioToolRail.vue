@@ -77,6 +77,15 @@ const WALK_GROUP: readonly RailTool[] = [
   { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
 const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
+/** Why a tool is off, on its tooltip; its name and key while it is on. */
+const PAUSED = "Drawing waits while the picture is view only or an AI proposal is open";
+const NEEDS_LOGIC = "This room's script holds its exits: edit them as text";
+const PROBE_NEEDS_VIEWS = "Probe: the game needs a VIEW to stand on the picture";
+function toolTitle(entry: RailTool): string {
+  if ((entry.draws || entry.doors) && frozen) return PAUSED;
+  if (entry.doors && !doorsEditable) return NEEDS_LOGIC;
+  return `${entry.label} (${TOOL_SHORTCUTS[entry.id]})`;
+}
 
 const scroller = useTemplateRef("scroller");
 /** More tools lie above or below the visible part: that edge fades. */
@@ -141,6 +150,7 @@ watch(scroller, (el) => {
                 :shortcut="TOOL_SHORTCUTS[entry.id]"
                 :pressed="tool === entry.id"
                 :disabled="(entry.draws && frozen) || (entry.doors && (frozen || !doorsEditable))"
+                :title="toolTitle(entry)"
                 :data-tool="entry.id"
                 @click="tool = entry.id"
               />
@@ -151,10 +161,11 @@ watch(scroller, (el) => {
           <div class="tool-rail__tool">
             <UiIconButton
               icon="actor"
-              :label="probeAvailable ? 'Actor probe' : 'Actor probe (this game has no VIEWs)'"
+              label="Probe"
               :shortcut="TOOL_SHORTCUTS.probe"
               :pressed="probeActive"
               :disabled="!probeAvailable"
+              :title="probeAvailable ? `Probe (${TOOL_SHORTCUTS.probe})` : PROBE_NEEDS_VIEWS"
               data-testid="studio-probe-toggle"
               @click="emit('probe')"
             />

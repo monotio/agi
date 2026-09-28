@@ -50,6 +50,9 @@ const chip = computed(() =>
     ? { tone: "action" as const, text: changeCount(changes, notesOnly) }
     : STATUS[status],
 );
+/** Why undo or redo is off, on its tooltip. */
+const historyBlocked = (which: "undo" | "redo"): string =>
+  status === "reload" ? "Reload the game to edit" : `Nothing to ${which}`;
 </script>
 
 <template>
@@ -59,6 +62,7 @@ const chip = computed(() =>
     shortcut="⌘Z"
     size="sm"
     :disabled="!canUndo"
+    :title="canUndo ? 'Undo (⌘Z)' : historyBlocked('undo')"
     data-testid="studio-undo"
     @click="emit('undo')"
   />
@@ -68,6 +72,7 @@ const chip = computed(() =>
     shortcut="⇧⌘Z"
     size="sm"
     :disabled="!canRedo"
+    :title="canRedo ? 'Redo (⇧⌘Z)' : historyBlocked('redo')"
     data-testid="studio-redo"
     @click="emit('redo')"
   />
@@ -78,6 +83,7 @@ const chip = computed(() =>
     variant="ghost"
     size="sm"
     :disabled="changes === 0 || status === 'keeping'"
+    :title="status === 'keeping' ? 'Keeping the changes' : changes === 0 ? 'No changes' : undefined"
     data-testid="studio-discard"
     @click="emit('discard')"
   >
@@ -96,7 +102,6 @@ const chip = computed(() =>
   <UiIconButton
     icon="x"
     label="Close studio"
-    shortcut="Esc"
     size="sm"
     data-testid="studio-close"
     @click="emit('close')"

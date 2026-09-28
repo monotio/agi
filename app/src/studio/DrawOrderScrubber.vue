@@ -7,13 +7,15 @@ import type { Tick } from "./studioView.ts";
  * The draw-order scrubber: one tick per picture command in its drawing
  * colour (state lines short, fills tall), a draggable playhead and step
  * buttons. The model is the number of commands drawn, 0..ticks.length.
+ * Beside it, the last drawn command: its item's name first, then its text
+ * (coordinates and all) over up to two lines.
  */
 const { ticks, marked, command } = defineProps<{
   ticks: readonly Tick[];
   /** Timeline indices of the selected item's commands. */
   marked: readonly number[];
-  /** Source text of the last drawn command, or "" before the first. */
-  command: string;
+  /** The last drawn command: its item's label ("" for loose lines) and its source text ("" before the first). */
+  command: { readonly item: string; readonly text: string };
 }>();
 const playhead = defineModel<number>({ required: true });
 
@@ -24,7 +26,7 @@ const dragging = ref(false);
 const valueText = computed(() =>
   playhead.value === 0
     ? `Nothing drawn, 0 of ${total.value}`
-    : `Drawn up to #${playhead.value} of ${total.value}: ${command}`,
+    : `Drawn up to #${playhead.value} of ${total.value}: ${command.item ? `${command.item}, ` : ""}${command.text}`,
 );
 
 function seek(k: number): void {
@@ -150,9 +152,11 @@ function onKeydown(event: KeyboardEvent): void {
     <p class="scrubber__label" aria-live="off">
       <template v-if="playhead === 0">Nothing drawn · <b>0</b> of {{ total }}</template>
       <template v-else>
-        Drawn up to <b>#{{ playhead }}</b> of {{ total }}<br /><b class="scrubber__command">{{
-          command
-        }}</b>
+        Drawn up to <b>#{{ playhead }}</b> of {{ total }}
+        <span class="scrubber__command" data-testid="scrubber-command">
+          <b v-if="command.item" class="scrubber__item">{{ command.item }}</b>
+          <span class="scrubber__text" :title="command.text">{{ command.text }}</span>
+        </span>
       </template>
     </p>
   </section>
@@ -248,11 +252,18 @@ function onKeydown(event: KeyboardEvent): void {
   font-weight: var(--weight-semibold);
 }
 .scrubber__command {
-  display: inline-block;
-  max-width: 100%;
+  display: grid;
+  justify-items: end;
+}
+.scrubber__item {
+  overflow-wrap: anywhere;
+}
+/* A long polyline's points run on: two lines of them, the whole on hover. */
+.scrubber__text {
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 </style>

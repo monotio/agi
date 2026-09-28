@@ -140,6 +140,7 @@ onBeforeUnmount(close);
         role="menuitem"
         data-testid="studio-share-clip"
         :disabled="!type"
+        :title="type ? undefined : 'This browser can\'t record video'"
         @click="clip"
       >
         <UiIcon name="film" :size="18" />

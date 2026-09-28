@@ -20,7 +20,7 @@ const open = defineModel<boolean>("open", { required: true });
   <UiDialog
     v-model:open="open"
     :title="`${name} keys`"
-    description="Keys work while the canvas or the studio has focus, never in a text field."
+    description="Keys work while the canvas or the studio has focus. Text fields take typing."
     size="lg"
     data-testid="studio-key-sheet"
   >

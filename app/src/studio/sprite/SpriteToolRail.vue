@@ -42,6 +42,8 @@ const PICK: readonly RailTool[] = [
   { id: "select", icon: "marquee", label: "Select: move, copy, flip or delete", key: "M" },
   { id: "pipette", icon: "pipette", label: "Pick colour", key: "I" },
 ];
+/** Why the drawing tools are off, on their tooltips. */
+const PAUSED = "Drawing waits while the view is view only or an AI proposal is open";
 </script>
 
 <template>
@@ -53,6 +55,7 @@ const PICK: readonly RailTool[] = [
         :shortcut="entry.key"
         :pressed="tool === entry.id"
         :disabled="entry.draws && frozen"
+        :title="entry.draws && frozen ? PAUSED : `${entry.label} (${entry.key})`"
         :data-tool="entry.id"
         @click="tool = entry.id"
       />
@@ -84,6 +87,7 @@ const PICK: readonly RailTool[] = [
         label="Flip horizontally (the selection, else the cel)"
         shortcut="H"
         :disabled="frozen"
+        :title="frozen ? PAUSED : 'Flip horizontally (the selection, else the cel) (H)'"
         data-tool="flip"
         @click="emit('flip')"
       />

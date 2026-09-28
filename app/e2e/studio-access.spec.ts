@@ -260,7 +260,7 @@ test("a phone-width window covers Studio with a notice and keeps the draft; Keep
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("Room Studio needs a larger screen");
   await expect(notice).toContainText(
-    "Your unkept changes are safe — widen the window or rotate back to continue.",
+    "Your unkept changes are safe. Widen the window or rotate back to continue.",
   );
   await expect(notice).toContainText("1 unkept change");
   await expect(studio).toHaveCount(1);

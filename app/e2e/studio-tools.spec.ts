@@ -367,6 +367,10 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   const ghost = studio.getByTestId("ghost-probe");
   await expect(ghost).toBeVisible();
   await expect(studio.getByTestId("studio-probe-toggle")).toHaveAttribute("aria-pressed", "true");
+  // Its readout docks at the top of the inspector, off the picture.
+  await expect(
+    studio.locator(".studio__inspector").getByTestId("ghost-probe-readout"),
+  ).toBeVisible();
   // From its start (baseline 120, band 11: in front) up to baseline 97 (band 9).
   const handle = studio.getByTestId("ghost-probe-handle");
   const box = (await handle.boundingBox())!;

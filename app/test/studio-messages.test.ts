@@ -32,14 +32,14 @@ describe("plainKernelRefusal", () => {
   it("says which way a move would leave the picture, without coordinates", () => {
     const [technical, plain] = refusal({ type: "moveItem", itemId: "edge", dx: 0, dy: -1 });
     assert.match(technical, /moving by 0,-1 puts line 3 off the surface at 0,-1/);
-    assert.equal(plain, "Can't move it further up — it would leave the picture.");
+    assert.equal(plain, "Can't move it further up: it would leave the picture.");
     assert.equal(
       refusal({ type: "moveItem", itemId: "edge", dx: -1, dy: 0 })[1],
-      "Can't move it further left — it would leave the picture.",
+      "Can't move it further left: it would leave the picture.",
     );
     assert.equal(
       refusal({ type: "moveItem", itemId: "edge", dx: -1, dy: -1 })[1],
-      "Can't move it there — it would leave the picture.",
+      "Can't move it there: it would leave the picture.",
     );
     assert.equal(
       refusal({
@@ -50,14 +50,14 @@ describe("plainKernelRefusal", () => {
         newId: "copy",
         newLabel: "Copy",
       })[1],
-      "The copy can't go there — it would leave the picture.",
+      "The copy can't go there: it would leave the picture.",
     );
   });
 
   it("words points, short-step lines and locked objects plainly", () => {
     assert.equal(
       refusal({ type: "setPoint", line: 3, pointIndex: 0, x: -2, y: 0 })[1],
-      "Can't put the point there — it would leave the picture.",
+      "Can't put the point there: it would leave the picture.",
     );
     const [technical, plain] = refusal({ type: "setPoint", line: 6, pointIndex: 1, x: 90, y: 80 });
     assert.match(technical, /rel delta 1 would be 10,0, outside -7\.\.7/);
@@ -108,7 +108,7 @@ describe("kernelDetail", () => {
   });
 });
 
-describe("plainKernelRefusal of Make one item", () => {
+describe("plainKernelRefusal of Group and Ungroup", () => {
   const combine = (itemIds: string[]): EditOperation => ({
     type: "combineItems",
     itemIds,
@@ -118,13 +118,19 @@ describe("plainKernelRefusal of Make one item", () => {
   it("asks for neighbours, and for two items", () => {
     assert.equal(
       refusal(combine(["edge", "held"]))[1],
-      "Only neighbours in the draw order can be made one item: select the items between them too.",
+      "Only neighbours in the draw order can be grouped: select the items between them too.",
     );
-    assert.equal(refusal(combine(["edge"]))[1], "Select two items or more to make one item.");
+    assert.equal(refusal(combine(["edge"]))[1], "Select two items or more to group them.");
     const [technical] = refusal(combine(["edge", "held"]));
     assert.equal(
       kernelDetail(technical, document),
       '"Edge" and "Held" are not next to each other in the draw order: "Step" is drawn between them',
+    );
+  });
+  it("says an item of one drawing element has no parts", () => {
+    assert.equal(
+      refusal({ type: "ungroupItem", itemId: "edge" })[1],
+      "This item is one drawing element: it has no parts to ungroup.",
     );
   });
 });

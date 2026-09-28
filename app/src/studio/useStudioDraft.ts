@@ -296,7 +296,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     if (!scoped.ok)
       return refuse({
         kind: "kernel",
-        message: "The proposal no longer fits its scope. Ask again.",
+        message: "The proposal now reaches outside its scope. Ask again.",
         detail: assistRefusalText(scoped),
       });
     const known = new Set(document.value.items.map((item) => item.id));

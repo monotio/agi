@@ -69,6 +69,7 @@ const description = computed(() =>
         v-if="closing"
         variant="primary"
         :disabled="!canKeep"
+        :title="canKeep ? undefined : 'Keep waits for a reload or the Keep in progress'"
         data-testid="studio-dialog-keep"
         @click="emit('keep')"
       >

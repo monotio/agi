@@ -10,8 +10,9 @@ import { edgeAnchor, type WalkDoor } from "./walkView.ts";
 
 /**
  * The Walk view over one picture pane: the walkable tint (an estimate), the
- * room's doors (boxes on the floor, arrows on the edges, each labelled with
- * where it leads), the door box being drawn, and a test walk's start, goal,
+ * room's doors (boxes on the floor, arrows on the edges; the selected one
+ * labelled with where it leads, the rest named in the Walk panel, clear of
+ * the walk lines' own labels), the door box being drawn, and a test walk's start, goal,
  * estimated path and the spot where the engine's walk ended. Doors take the
  * pointer with the Select and walk tools: Select picks a door and drags its
  * box; the test walk tool starts where the player comes in through it, or,
@@ -200,7 +201,9 @@ const selected = computed(() => walk.selectedDoor.value);
         :points="arrowPoints(door)"
         vector-effect="non-scaling-stroke"
       />
+      <!-- The Walk panel lists every door by name; the picture names the selected one. -->
       <text
+        v-if="selected?.id === door.id"
         class="walk-overlay__label"
         :text-anchor="labelAt(door).anchor"
         :font-size="11 * unit"

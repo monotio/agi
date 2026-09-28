@@ -4,7 +4,7 @@
 // set on `window.studioHarnessInput` before the page loads (for pictures that
 // are generated or held privately); `&authored=0` withholds the source so the
 // studio falls back to disassembling the bytes. `&probe=1` mounts the ghost
-// actor probe alone over the picture's art pane, with the tutorial's
+// actor probe alone over the picture's art pane, its readout beside it, with the tutorial's
 // character VIEWs as its game (the full studio gets the same VIEWs for its
 // probe). The kernel is exposed on
 // `window.studioHarness` so browser tests compute expectations independently.
@@ -33,6 +33,7 @@ import { buildView, parseView, selectViewCel } from "../../../src/view/view.ts";
 import { CHARACTER_VIEWS } from "../../../games/adventure-department/characterViews.ts";
 import UiIconButton from "../ui/UiIconButton.vue";
 import GhostProbe from "./GhostProbe.vue";
+import GhostReadout from "./GhostReadout.vue";
 import StudioCanvas from "./StudioCanvas.vue";
 import { listGameViews, useGhostProbe } from "./useGhostProbe.ts";
 import { DEMO_PICTURE_SOURCE } from "./demoPicture.ts";
@@ -156,22 +157,27 @@ const ProbeHarness = defineComponent(() => {
     h("div", { class: "probe-harness", tabindex: -1, onKeydown }, [
       h(UiIconButton, {
         icon: "actor",
-        label: "Ghost actor probe",
+        label: "Probe",
         shortcut: "G",
         pressed: ghost.active.value,
         "data-testid": "ghost-probe-toggle",
         onClick: ghost.toggle,
       }),
-      h("div", { style: { position: "relative", width: "fit-content" } }, [
-        h(StudioCanvas, {
-          layer: "art",
-          label: "Picture, visual plane",
-          visual: surface.visual,
-          priority: surface.priority,
-          viewport,
-          dpr: globalThis.devicePixelRatio || 1,
-        }),
-        h(GhostProbe, { probe: ghost, viewport, describeCell }),
+      h("div", { style: { display: "flex", alignItems: "flex-start", gap: "16px" } }, [
+        h("div", { style: { position: "relative", width: "fit-content" } }, [
+          h(StudioCanvas, {
+            layer: "art",
+            label: "Picture, visual plane",
+            visual: surface.visual,
+            priority: surface.priority,
+            viewport,
+            dpr: globalThis.devicePixelRatio || 1,
+          }),
+          h(GhostProbe, { probe: ghost, viewport }),
+        ]),
+        ghost.active.value
+          ? h(GhostReadout, { probe: ghost, describeCell, style: { width: "300px" } })
+          : null,
       ]),
     ]);
 });

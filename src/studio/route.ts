@@ -58,7 +58,7 @@ export interface RoutePlan {
 }
 
 const ESTIMATE =
-  "Static estimate from the walkable mask: object collisions, block rectangles, animation and script triggers are not modelled. Run testRoute for the engine's answer.";
+  "An estimate from the walk lines alone; other objects, blocks and scripts can change the outcome.";
 
 /** A route over the walkable estimate, searched the way navigation searches. */
 export function planRoute(input: RouteInput): RoutePlan {

@@ -28,7 +28,7 @@ import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioH
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
 import { useFold } from "../useFold.ts";
-import StudioStageNotes from "../StudioStageNotes.vue";
+import StudioStatusNotice from "../StudioStatusNotice.vue";
 import StudioZoom from "../StudioZoom.vue";
 import { useStudioFocus } from "../useStudioFocus.ts";
 import { useStudioKeep } from "../useStudioKeep.ts";
@@ -57,6 +57,7 @@ import {
   celCount,
   feetWarning,
   parseBackdrop,
+  usageChip,
   previewPartner,
   type PreviewCycler,
   type RoomBackdrop,
@@ -154,7 +155,7 @@ const cel = ref(startCel);
 /** The loop whose linked group is edited together ("Edit loop N instead"); null copies on write. */
 const linkedEdit = shallowRef<number | null>(null);
 const color = ref(11);
-const { notice, say, hold } = useStudioNotice();
+const { notice, say, dismiss: dismissNotice } = useStudioNotice();
 
 // A structural edit, undo or a new base can take the selected loop or cel away.
 watch(
@@ -475,7 +476,7 @@ const onion = computed<OnionSkin[]>(() => {
 });
 const CANVAS_LABEL =
   "Canvas. Arrow keys move the cursor 1 pixel (Shift: 8), or the selection; Space or Enter clicks at the cursor; Escape cancels; question mark lists every key.";
-const PEN_DOWN = "Pen down — Space to lift";
+const PEN_DOWN = "Pen down: Space lifts it";
 const spoken = computed(() => {
   const point = tools.cursor.value;
   const at = tools.keyboard.value && point ? `x ${point.x} y ${point.y}` : "";
@@ -525,7 +526,7 @@ const optionsFold = useFold(optionsBar, 3, (bar) => {
 });
 const viewFold = computed(() => [0, 1, 1, 2][optionsFold.level.value] ?? 2);
 watch(
-  () => [tools.tool.value, color.value, sheet.value],
+  () => [tools.tool.value, color.value, sheet.value, proposal.value !== null],
   () => void optionsFold.refit(),
   { flush: "post" },
 );
@@ -537,7 +538,6 @@ exposeSpriteDraft(draft);
 const keys: SpriteKeyActions = {
   onCanvas: (target) => target === stage.value,
   dismiss: () => tools.cancel() || closeSheet() || tools.closeRecolor(),
-  close: () => void requestClose(),
   arrow: tools.arrow,
   click: tools.click,
   remove: () => void tools.clearSelection(),
@@ -563,6 +563,8 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 const description = computed(() => draft.document.value.description ?? title ?? "");
+/** A tool change hands the status line back to the tool's hint (before anything it says). */
+watch(tools.tool, () => say(null), { flush: "sync" });
 const status = computed(() => {
   const point = tools.cursor.value;
   const at = currentCel.value;
@@ -593,7 +595,8 @@ const status = computed(() => {
       class="sprite-studio__top"
       :view-number="viewNumber"
       :description
-      :usage="usageText(usage)"
+      :usage="usageChip(usage)"
+      :usage-full="usageText(usage)"
       :dynamic="usage.dynamic"
       :loops="shown.loops.length"
       :cels="celCount(shown)"
@@ -642,6 +645,7 @@ const status = computed(() => {
           >1 px</span
         >
       </div>
+      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
       <span class="sprite-studio__spacer"></span>
       <SpriteViewBar
         v-model:sheet="sheet"
@@ -711,8 +715,6 @@ const status = computed(() => {
         @apply="(op) => edit(op, 'Recolour')"
         @close="tools.closeRecolor()"
       />
-      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
-      <StudioStageNotes :banner="keeper.banner.value" :notice @recover="recover" @hold="hold" />
     </main>
 
     <SpriteTimeline
@@ -738,7 +740,7 @@ const status = computed(() => {
         :transparent="currentCel?.transparent ?? 0"
         @erase="
           tools.setTool('eraser');
-          say({ tone: 'ok', text: 'The transparent colour cannot be painted: the eraser is on.' });
+          say({ tone: 'ok', text: 'The eraser is on: it paints the transparent colour.' });
         "
       />
       <SpriteCelPanel
@@ -806,6 +808,15 @@ const status = computed(() => {
         data-testid="sprite-pen-down"
         >{{ PEN_DOWN }}</span
       >
+      <!-- A notice or a failed Keep takes the hint's place, off the cel. -->
+      <StudioStatusNotice
+        v-else-if="keeper.banner.value || notice"
+        :banner="keeper.banner.value"
+        :notice
+        @recover="recover"
+        @dismiss="dismissNotice"
+        @close="keeper.dismiss"
+      />
       <span v-else class="sprite-studio__hint" data-testid="sprite-hint">{{
         SPRITE_TOOL_HINTS[tools.tool.value]
       }}</span>
@@ -848,7 +859,7 @@ const status = computed(() => {
   --studio-bar: var(--control-h);
   grid-template-rows:
     52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) minmax(150px, 30%)
-    var(--studio-bar);
+    minmax(var(--studio-bar), auto);
   grid-template-columns: 48px minmax(0, 1fr) 300px;
   width: 100%;
   height: 100%;
@@ -866,8 +877,9 @@ const status = computed(() => {
     --studio-bar: var(--control-h-touch);
   }
 }
+/* The rail runs down beside the timeline too: every tool has room at 1024×600. */
 .sprite-studio__rail {
-  grid-row: 3;
+  grid-row: 3 / 5;
   grid-column: 1;
 }
 /* The options bar docks over the rail and the canvas: nothing floats on the cel. */
@@ -935,11 +947,6 @@ const status = computed(() => {
 .sprite-studio__stage:focus-visible {
   box-shadow: inset 0 0 0 2px var(--focus);
 }
-/* The recolour popover owns the stage's left column (12px + 256px); the
-   notice recentres in what remains so the two never overlap. */
-.sprite-studio__frame--recolor :deep(.stage-note) {
-  left: calc(50% + 134px);
-}
 /* The inset matches STAGE_INSET in useStudioViewport.ts. */
 .sprite-studio__canvas {
   margin: auto;
@@ -947,7 +954,7 @@ const status = computed(() => {
 }
 .sprite-studio__timeline {
   grid-row: 4;
-  grid-column: 1 / 3;
+  grid-column: 2;
 }
 .sprite-studio__panel {
   grid-row: 2 / 5;
@@ -971,17 +978,14 @@ const status = computed(() => {
 .sprite-studio__status [data-role="status"] {
   color: var(--ink-2);
 }
+/* The tool's help wraps onto a second line when the bar is short. */
 .sprite-studio__hint {
-  min-width: 0;
-  overflow: hidden;
+  min-width: 16ch;
   color: var(--ink-3);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
-  text-overflow: ellipsis;
-}
-.sprite-studio__hint.is-pen {
-  color: var(--action);
-  font-weight: var(--weight-bold);
+  line-height: 1.2;
+  white-space: normal;
 }
 .sprite-studio__spacer {
   flex: 1;

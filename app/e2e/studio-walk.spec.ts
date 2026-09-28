@@ -107,7 +107,7 @@ test("a test walk in the lab reaches the lever plate; the gallery's rope blocks 
 
   // The gallery: from its doorway straight at the mural, into the velvet rope.
   await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
+  await studio.getByTestId("studio-close").click();
   await expect(studio).toBeHidden();
   const gallery = await openRoomStudio(page, 1);
   await page.keyboard.press("3");

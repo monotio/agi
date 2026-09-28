@@ -81,6 +81,12 @@ const ready = computed(
     (count.value?.pixels ?? 0) > 0 &&
     clash.value === null,
 );
+/** Why Recolour is off: an open proposal or a view-only view, else what the count says. */
+const blocked = computed(() =>
+  frozen
+    ? "Editing waits while the view is view only or an AI proposal is open"
+    : (clash.value ?? summary.value),
+);
 
 const root = useTemplateRef("root");
 
@@ -152,6 +158,9 @@ const tabStop = (chosen: number | null | undefined): number =>
               : `${row === 'from' ? 'From' : 'To'} ${name(value)}`
           "
           :disabled="value === transparent"
+          :title="
+            value === transparent ? 'The transparent colour: the eraser (E) paints it' : undefined
+          "
           :tabindex="value === tabStop(row === 'from' ? from : to) ? 0 : -1"
           :data-colour="value"
           @click="row === 'from' ? (from = value) : (to = value)"
@@ -164,7 +173,7 @@ const tabStop = (chosen: number | null | undefined): number =>
       </div>
     </div>
     <p class="recolor__hint">
-      ∅ {{ transparent }} is transparent: the eraser (E), not a recolour, makes pixels transparent.
+      ∅ {{ transparent }} is transparent: the eraser (E) makes pixels transparent.
     </p>
     <UiSegmented v-model="scope" label="Recolour where" size="sm" :options="SCOPES" />
     <p class="recolor__count" aria-live="polite" data-testid="sprite-recolor-count">
@@ -178,6 +187,7 @@ const tabStop = (chosen: number | null | undefined): number =>
       size="sm"
       variant="primary"
       :disabled="!ready"
+      :title="ready ? undefined : blocked"
       data-testid="sprite-recolor-apply"
       @click="apply"
     >

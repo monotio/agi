@@ -343,14 +343,8 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
   await expect(recolor.getByTestId("sprite-recolor-apply")).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  // The edit's notice shows while the popover is still open, recentred clear of it.
-  const note = studio.locator(".stage-note");
-  await expect(note).toBeVisible();
-  const noteBox = await note.boundingBox();
-  const popBox = await recolor.boundingBox();
-  expect(noteBox).not.toBeNull();
-  expect(popBox).not.toBeNull();
-  expect(popBox!.x + popBox!.width).toBeLessThanOrEqual(noteBox!.x);
+  // The edit's notice shows in the status line while the popover is still open.
+  await expect(studio.locator(".sprite-studio__status").getByTestId("studio-notice")).toBeVisible();
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
     "No pixels of colour 11, light cyan in this loop.",
   );
@@ -428,6 +422,11 @@ test("a Keep refuses as stale when the project changed elsewhere, and reopens fr
     "The game changed since you opened Studio. Reopen to continue.",
   );
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  // The banner has its own close; the next Keep meets the same refusal.
+  await studio.getByTestId("studio-keep-error-close").click();
+  await expect(studio.getByTestId("studio-keep-error")).toHaveCount(0);
+  await studio.getByTestId("studio-keep").click();
+  await expect(studio.getByTestId("studio-keep-error")).toBeVisible();
   await studio.getByTestId("studio-recover").click();
   const dialog = page.getByRole("dialog", { name: "Reload the saved game?" });
   await expect(dialog).toContainText("Your unkept changes in this view will be discarded");
@@ -559,8 +558,11 @@ test.describe("on the harness", () => {
     await expect(width).toHaveValue("10");
     await expect(width).not.toBeFocused();
     expect(await closes()).toBe(0);
-    // Off the field, Esc leaves Studio.
+    // Off the field, with nothing in hand, Esc does nothing: the × closes Studio.
     await page.keyboard.press("Escape");
+    await expect(studio).toBeVisible();
+    expect(await closes()).toBe(0);
+    await studio.getByTestId("studio-close").click();
     await expect.poll(closes).toBe(1);
   });
 
@@ -625,8 +627,8 @@ test.describe("on the harness", () => {
     // The first Space puts the pen down: the cue is on the stage and in the
     // live region, and the disabled Keep says why. The next Space lifts it.
     await page.keyboard.press("Space");
-    await expect(cue).toHaveText("Pen down — Space to lift");
-    await expect(studio.locator(".sprite-studio__sr")).toContainText("Pen down — Space to lift");
+    await expect(cue).toHaveText("Pen down: Space lifts it");
+    await expect(studio.locator(".sprite-studio__sr")).toContainText("Pen down: Space lifts it");
     await expect(keep).toBeDisabled();
     await expect(keep).toHaveAttribute("title", /pen is down/i);
     await page.keyboard.press("Space");

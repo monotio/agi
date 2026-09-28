@@ -398,6 +398,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
 .scene-list__rows {
   flex: 1;
   min-height: 0;
+  container-type: inline-size;
   margin: 0;
   padding: 0 0 var(--space-3);
   overflow-y: auto;
@@ -419,7 +420,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
 .scene-list__row {
   position: relative;
   display: grid;
-  grid-template-columns: 12px 12px minmax(0, 1fr) auto 28px 12px;
+  grid-template-columns: 12px 12px minmax(8ch, 1fr) auto 28px 12px;
   align-items: center;
   gap: var(--space-2);
   height: 30px;
@@ -524,6 +525,20 @@ function onFilterKeydown(event: KeyboardEvent): void {
 .scene-list__lock {
   grid-column: 6;
   color: var(--ink-3);
+}
+/* A narrow list (1024 wide) keeps the names: the counts and chips go first. */
+@container (max-width: 232px) {
+  .scene-list__row {
+    grid-template-columns: 12px 12px minmax(8ch, 1fr) 12px;
+  }
+  .scene-list__count,
+  .scene-list__tag,
+  .scene-list__swatches {
+    display: none;
+  }
+  .scene-list__lock {
+    grid-column: 4;
+  }
 }
 .scene-list__empty {
   padding: var(--space-4) var(--space-5);

@@ -175,8 +175,8 @@ Studio on the waving robot._
   Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
   Shift+click, a group row, a Shift+drag box or Shift+Alt+arrows select several
   items, which then move, copy and delete together as one step, so an imported
-  bush's outline and fill stay together; Make one item names neighbours as one
-  item without changing a byte.
+  bush's outline and fill stay together; Group (⌘G) names neighbours as one
+  item without changing a byte, and Ungroup (⇧⌘G) splits it again.
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the scrubber's point in the draw order, and a ghost actor shows whether a
   character would stand in front of the scene or behind it.

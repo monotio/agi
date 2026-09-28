@@ -5,13 +5,16 @@ import StudioDraftControls, { type DraftStatus } from "../StudioDraftControls.vu
 
 /**
  * Sprite Studio's top bar: the way back to Create, which VIEW is open, where
- * the game uses it and its loops and cels, then the draft's controls
+ * the game uses it (a count; the side panel lists the rooms) and its loops
+ * and cels, then the draft's controls
  * (StudioDraftControls: undo and redo, the changes, Discard and Keep).
  */
 defineProps<{
   viewNumber: number;
   description: string;
+  /** The usage in a few words (usageChip), and in full for its tooltip. */
   usage: string;
+  usageFull: string;
   /** Some logic picks views at runtime: the rooms listed may not be all. */
   dynamic: boolean;
   loops: number;
@@ -39,11 +42,15 @@ const emit = defineEmits<{
     <div class="sprite-top__crumbs">
       <UiIconButton icon="chevron-left" label="Back to Create" size="sm" @click="emit('back')" />
       <b class="sprite-top__title" data-testid="sprite-title">VIEW {{ viewNumber }}</b>
-      <span v-if="description" class="sprite-top__subtitle">{{ description }}</span>
+      <span v-if="description" class="sprite-top__subtitle" data-testid="sprite-subtitle">{{
+        description
+      }}</span>
       <UiChip
         data-testid="sprite-usage"
         :title="
-          dynamic ? 'Some logic picks views at runtime, so other rooms may use it too.' : undefined
+          dynamic
+            ? `${usageFull}. Some logic picks views at runtime, so other rooms may use it too.`
+            : usageFull
         "
         >{{ usage }}{{ dynamic ? " +" : "" }}</UiChip
       >
@@ -79,11 +86,15 @@ const emit = defineEmits<{
   padding: 0 var(--space-4) 0 var(--space-3);
   border-bottom: 1px solid var(--hairline);
 }
+/* The crumbs take what the draft controls leave and clip there: they never
+   run under Undo, Redo and Keep. */
 .sprite-top__crumbs {
   display: flex;
+  flex: 1 1 0;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
+  overflow: hidden;
 }
 .sprite-top__crumbs .ui-chip {
   font-family: var(--font-mono);
@@ -101,6 +112,7 @@ const emit = defineEmits<{
 }
 .sprite-top__meta {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
