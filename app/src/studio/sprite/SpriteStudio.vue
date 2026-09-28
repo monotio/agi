@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, inject, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { StudioFocus } from "../../../../src/agent/studioAssistTools.ts";
 import { viewAssistScope } from "../../../../src/studio/assistScope.ts";
 import { openSprite, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
@@ -25,8 +25,10 @@ import StudioAssistCompare from "../StudioAssistCompare.vue";
 import StudioAssistPanel from "../StudioAssistPanel.vue";
 import StudioKeepDialog from "../StudioKeepDialog.vue";
 import StudioKeySheet from "../StudioKeySheet.vue";
+import StudioTour from "../StudioTour.vue";
 import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
+import { useStudioTour } from "../useStudioTour.ts";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
 import { useFold } from "../useFold.ts";
 import StudioStatusNotice from "../StudioStatusNotice.vue";
@@ -516,6 +518,9 @@ function history(which: "undo" | "redo"): void {
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 const calm = useStudioCalm();
+/** The first-run tour: once per viewer, silent while a lesson's card is open. */
+const tour = useStudioTour("sprite", { lesson: () => lesson.session.value !== null });
+onMounted(() => void tour.offer());
 const keySheet = spriteKeySheet();
 /**
  * The options bar folds what it cannot fit, least used first: the backdrop,
@@ -737,9 +742,11 @@ const status = computed(() => {
         v-if="lesson.session.value"
         :session="lesson.session.value"
         :outcome="lesson.outcome.value"
+        @tour="tour.start()"
       />
       <SpritePalette
         v-model="color"
+        data-testid="sprite-palette"
         :transparent="currentCel?.transparent ?? 0"
         @erase="
           tools.setTool('eraser');
@@ -842,8 +849,14 @@ const status = computed(() => {
       />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
+    <StudioTour :tour :stage name="Sprite Studio" />
 
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Sprite Studio" :sections="keySheet" />
+    <StudioKeySheet
+      v-model:open="calm.sheetOpen.value"
+      name="Sprite Studio"
+      :sections="keySheet"
+      @tour="tour.start()"
+    />
     <StudioKeepDialog
       v-model:ask="dialog"
       :subject="`VIEW ${viewNumber}`"

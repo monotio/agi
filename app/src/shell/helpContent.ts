@@ -136,6 +136,15 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         action: { kind: "map", label: "Open the map" },
       },
       {
+        id: "studio-basics",
+        title: "Studio basics",
+        body: [
+          "Room Studio shows one picture through three lenses. Art is what the player sees, Depth says what stands in front, and Walk says where the hero can go; press 1, 2 or 3 to switch. Every item in the Scene list is a few drawing steps: click a name to select it, and drag the slider under the canvas to watch the picture paint itself.",
+          "Sprite Studio edits a character's loops and cels: one loop per direction, one cel per frame. Pixels in the transparent colour ∅ show the room behind the character, and the eraser paints it.",
+          "Keep puts your changes in the game, and Undo works before and after. Each Studio shows a short tour the first time it opens; Tour in its ? key list plays it again.",
+        ],
+      },
+      {
         id: "studio-lenses",
         title: "Room Studio",
         body: [

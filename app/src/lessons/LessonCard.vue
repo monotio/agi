@@ -4,7 +4,8 @@
  * the lesson's steps and challenge, docked at the top of the Studio's side
  * column (Room Studio's inspector, Sprite Studio's side panel) so it never
  * covers the stage, with the last Keep's verdict. Hiding it folds it to a small tab, and the
- * fold is remembered per lesson in this browser (lessonStorage.ts).
+ * fold is remembered per lesson in this browser (lessonStorage.ts). Its footer's
+ * "30-second tour" starts the Studio's tour, which stays silent while the card is open.
  */
 import { computed, ref, watch } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -15,6 +16,7 @@ const { session, outcome } = defineProps<{
   session: LessonSession;
   outcome: LessonOutcome | null;
 }>();
+const emit = defineEmits<{ tour: [] }>();
 
 const lesson = computed(() => session.lesson);
 const completed = useLessonBadges().completed;
@@ -81,6 +83,16 @@ function fold(next: boolean): void {
     >
       ✓ Done
     </p>
+    <footer class="lesson-card__foot">
+      <button
+        type="button"
+        class="lesson-card__tour"
+        data-testid="lesson-card-tour"
+        @click="emit('tour')"
+      >
+        30-second tour
+      </button>
+    </footer>
   </aside>
 </template>
 
@@ -142,6 +154,24 @@ function fold(next: boolean): void {
 }
 .lesson-card__verdict.is-warn {
   color: var(--warn);
+}
+.lesson-card__foot {
+  margin-top: var(--space-3);
+}
+.lesson-card__tour {
+  padding: 0;
+  border: 0;
+  color: var(--action);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.lesson-card__tour:hover {
+  text-decoration: underline;
+}
+.lesson-card__tour:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .lesson-tab {
   align-self: start;

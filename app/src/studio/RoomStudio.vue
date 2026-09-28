@@ -57,6 +57,7 @@ import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
 import StudioTopBar from "./StudioTopBar.vue";
+import StudioTour from "./StudioTour.vue";
 import SharePictureMenu from "./share/SharePictureMenu.vue";
 import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
@@ -76,6 +77,7 @@ import {
 } from "./studioHelp.ts";
 import { explain } from "./studioTerms.ts";
 import { useStudioCalm } from "./useStudioCalm.ts";
+import { useStudioTour } from "./useStudioTour.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
@@ -950,6 +952,9 @@ const changeTotal = room.changes;
 
 // ---- The calm canvas: help in the status bar, the side panels on ⌘\ ----------
 const calm = useStudioCalm();
+/** The first-run tour: once per viewer, silent while a lesson's card is open. */
+const tour = useStudioTour("room", { lesson: () => lesson.session.value !== null });
+onMounted(() => void tour.offer());
 function toggleFocus(): void {
   calm.toggleFocus();
   input.spoken.value = calm.focus.value ? "Side panels hidden" : "Side panels shown";
@@ -1086,6 +1091,7 @@ function onKeyup(event: KeyboardEvent): void {
     <SceneList
       v-model:filter="filter"
       class="studio__scene"
+      data-testid="studio-scene"
       :branches="model.branches"
       :sections="model.sections"
       :matches="scene.matches"
@@ -1229,6 +1235,7 @@ function onKeyup(event: KeyboardEvent): void {
     <DrawOrderScrubber
       v-model="playhead"
       class="studio__scrubber"
+      data-testid="studio-scrubber"
       :ticks
       :marked="selectedRow?.entries ?? []"
       :command="current"
@@ -1259,6 +1266,7 @@ function onKeyup(event: KeyboardEvent): void {
           v-if="lesson.session.value"
           :session="lesson.session.value"
           :outcome="lesson.outcome.value"
+          @tour="tour.start()"
         />
         <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
         <GhostReadout v-if="ghost.active.value" :probe="ghost" :describe-cell="describeCell" />
@@ -1389,8 +1397,14 @@ function onKeyup(event: KeyboardEvent): void {
       />
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
+    <StudioTour :tour :stage name="Room Studio" />
 
-    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Room Studio" :sections="keySheet" />
+    <StudioKeySheet
+      v-model:open="calm.sheetOpen.value"
+      name="Room Studio"
+      :sections="keySheet"
+      @tour="tour.start()"
+    />
     <StudioKeepDialog
       v-model:ask="dialog"
       :subject="subject"

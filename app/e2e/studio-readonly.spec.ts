@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, seeStudioTours, test } from "./test.ts";
+import type { Page } from "@playwright/test";
 import type { StudioHarnessProbe } from "../src/studio/harness.ts";
 
 /**
@@ -99,6 +100,7 @@ for (const deviceScaleFactor of [1, 2]) {
       viewport: { width: 1440, height: 900 },
     });
     const page = await context.newPage();
+    await seeStudioTours(page);
     await open(page, "demo");
     const zoomLevel = page.getByRole("group", { name: "Zoom" });
     const zooms: string[] = [];
