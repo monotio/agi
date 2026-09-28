@@ -240,7 +240,7 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
   }
   if (a.priority.some((value, i) => value < 4 && b.priority[i] !== value))
     return fail(
-      "That covered a walk barrier, so the apprentice could walk through things. Draw the depth earlier: undo, click Counter depth's last command under Commands (or drag the draw order back before the barriers), and draw it again.",
+      "That covered a walk barrier, so the apprentice could walk through things. Draw the depth earlier: undo, click Counter depth's last step under Details › Steps (or drag the draw order back before the barriers), and draw it again.",
     );
   let outside = 0;
   for (let i = 0; i < CELLS; i++) {
@@ -284,12 +284,12 @@ export const TUTORIAL_LESSONS: LessonSet = {
     {
       id: "ad-gallery-recipe",
       title: "The mural is a recipe",
-      teaser: "Scrub the draw order and watch the mural paint itself, one command at a time.",
+      teaser: "Scrub the draw order and watch the mural paint itself, one step at a time.",
       steps: [
         "Drag the draw-order slider back to the start: the canvas is empty.",
-        "Drag it forward slowly. Each step is one command: a line, or a fill of colour.",
+        "Drag it forward slowly. Each step is one drawing command: a line, or a fill of colour.",
         "Watch the sky: it pours in last, because a fill only floods white.",
-        "Click Sun in the list. Every command in it lights up.",
+        "Click Sun in the list. Every step in it lights up.",
       ],
       open: { studio: "room", picture: MURAL },
       challenge: {
@@ -304,7 +304,7 @@ export const TUTORIAL_LESSONS: LessonSet = {
       steps: [
         "Loop 0 is the robot facing right: four drawings, or cels, that make his wave.",
         "Loop 1 faces left. It has no drawings of its own: it mirrors loop 0.",
-        "Turn on onion skin to see one cel over the next.",
+        "Turn on Onion to see one cel over the next.",
         "Click a cel in the Loop 1 row first. Edit it: loop 1 becomes its own copy, and loop 0 stays as it was.",
       ],
       open: { studio: "sprite", view: ROBOT_VIEW, loop: 1, cel: 0 },
@@ -318,10 +318,10 @@ export const TUTORIAL_LESSONS: LessonSet = {
       title: "Depth decides who is in front",
       teaser: "Drag a ghost behind the counter and see why its 11 hides Felix at 10.",
       steps: [
-        "Switch to the Depth lens. Every colour is a priority number.",
+        "Switch to the Depth lens. Every colour is a depth number, which AGI calls priority.",
         "Turn on the ghost and drag it behind the counter: the counter's 11 hides it. Lower on the screen means a bigger number, so in front it shows.",
         "Now drag it behind the ledger stand. It floats in front: the stand has no depth.",
-        "Click Counter depth in the list, then its last command under Commands. New shapes are drawn from there, before the walk barriers.",
+        "Click Counter depth in the list, then its last step under Details › Steps. New shapes go from there, before the walk barriers.",
       ],
       open: { studio: "room", picture: ARCHIVE },
       challenge: {

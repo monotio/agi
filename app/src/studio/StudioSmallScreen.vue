@@ -65,12 +65,8 @@ watch(
     @keypress.stop
   >
     <div class="small-screen__card">
-      <h2 id="studio-small-screen-title" class="small-screen__title">
-        {{ name }} needs a larger screen
-      </h2>
-      <p class="small-screen__text">
-        Your unkept changes are safe. Widen the window or rotate back to continue.
-      </p>
+      <h2 id="studio-small-screen-title" class="small-screen__title">{{ name }} needs more room</h2>
+      <p class="small-screen__text">Your changes are safe. Widen the window or rotate back.</p>
       <p class="small-screen__meta">
         {{ changes }} unkept {{ changes === 1 ? "change" : "changes" }}
       </p>

@@ -116,8 +116,8 @@ export function fillNotice(
     detail += ` Before ${owner ?? `line ${why.line}`} it is still ${spotName(why.plane, value)}, painted by line ${line}${label ? ` (${label})` : ""}, so it is ${white} only before ${fix.before}.`;
   }
   return {
-    summary: `Can't fill here: this spot is already ${name}.`,
-    short: "Can't fill here",
+    summary: `Fill stops here: this spot is already ${name}.`,
+    short: "Fill stops here",
     detail: detail + filled,
     ...(fix ? { action: `Draw before ${fix.before}` } : {}),
   };

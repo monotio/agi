@@ -42,8 +42,8 @@ describe("a fill that would flood nothing", () => {
       index: 0,
     });
     assert.deepEqual(fillNotice(why, "Ground", fix), {
-      summary: "Can't fill here: this spot is already light green.",
-      short: "Can't fill here",
+      summary: "Fill stops here: this spot is already light green.",
+      short: "Fill stops here",
       detail:
         "An AGI fill only spreads over white. The light green here was painted earlier by line 3 (Ground), so draw your shape before it in the draw order. A filled rectangle or polygon paints every pixel itself, so it works anywhere.",
       action: "Draw before Ground",
@@ -69,8 +69,8 @@ describe("a fill that would flood nothing", () => {
       still: { value: 10, line: 3, label: "Ground" },
     });
     assert.deepEqual(fillNotice(why, "Stripe", fix), {
-      summary: "Can't fill here: this spot is already light red.",
-      short: "Can't fill here",
+      summary: "Fill stops here: this spot is already light red.",
+      short: "Fill stops here",
       detail:
         "An AGI fill only spreads over white. The light red here was painted earlier by line 7 (Stripe), so draw your shape before it in the draw order. Before Stripe it is still light green, painted by line 3 (Ground), so it is white only before Ground. A filled rectangle or polygon paints every pixel itself, so it works anywhere.",
       action: "Draw before Ground",

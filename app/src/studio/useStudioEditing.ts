@@ -16,8 +16,9 @@ import {
   type PictureItemKind,
 } from "../../../src/studio/pictureDocument.ts";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
+import type { StudioCheck } from "./studioLocks.ts";
 import { freshItemId, itemIdFor, type DraftOutcome, type StudioDraft } from "./useStudioDraft.ts";
-import { useStudioNotice } from "./useStudioNotice.ts";
+import { useStudioNotice, type NoticeAction } from "./useStudioNotice.ts";
 
 /** How far Cmd/Ctrl+D offsets a copy, in logical pixels. */
 const DUPLICATE_OFFSET = 4;
@@ -41,6 +42,8 @@ export function useStudioEditing(options: {
   readonly frozen: () => boolean;
   /** Edits wait (an AI request or its proposal is open); undo and redo still run. */
   readonly paused?: () => boolean;
+  /** The step a lock refusal offers: Unlock for now, or Allow depth. */
+  readonly offer?: (check: StudioCheck) => NoticeAction | undefined;
 }) {
   const { draft, selectedId } = options;
   const { notice, say, dismiss } = useStudioNotice();
@@ -76,7 +79,8 @@ export function useStudioEditing(options: {
       return;
     }
     const { refusal } = outcome;
-    say({ tone: "warn", text: refusal.message, detail: refusal.detail });
+    const action = refusal.kind === "lock" ? options.offer?.(refusal.check) : undefined;
+    say({ tone: "warn", text: refusal.message, detail: refusal.detail, action });
     if (refusal.kind !== "lock") return;
     clearTimeout(flashTimer);
     flash.value = refusal.cells;

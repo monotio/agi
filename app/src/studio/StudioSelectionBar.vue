@@ -9,10 +9,11 @@ import type { StudioEditing } from "./useStudioEditing.ts";
 
 /**
  * The selection's actions, docked in the options bar above the canvas while
- * the Select tool has a selection: its name (or "N items selected"), then
- * Duplicate, the priority value (a picker that opens below it), Delete,
- * Group (for several) or Ungroup (for a group) and Ask, which opens "Ask
- * about this selection" in the inspector. Each applies to the whole selection as one
+ * the Select tool has a selection: its name (or "N items"), then
+ * Duplicate, for one item its depth (a picker that opens below it; several
+ * items take theirs under the inspector's Details), Delete,
+ * Group (for several) or Ungroup (for a group) and Ask, which opens Ask in
+ * the inspector. Each applies to the whole selection as one
  * step. Nothing floats over the picture; short of room (`fold`) the actions
  * first show as icons (their names as tooltips), then fold into More, and
  * at 4 the name gives way (the inspector still shows it).
@@ -28,13 +29,13 @@ const {
   grouped = false,
   fold = 0,
 } = defineProps<{
-  /** The selection's name, or "N items selected". */
+  /** The selection's name, or "N items". */
   label: string;
   /** Two items or more are selected. */
   several?: boolean;
-  /** The one priority the selection draws; null for none, undefined for several. */
+  /** The one depth (priority) value the selection draws; null for none, undefined for several. */
   priority: number | null | undefined;
-  /** Why priority is locked now, or null. */
+  /** Why depth is locked now, or null. */
   priorityLocked: string | null;
   depthValuesLocked: boolean;
   edit: StudioEditing;
@@ -57,7 +58,7 @@ interface Action {
   readonly shortcut?: string;
   readonly disabled?: boolean;
 }
-/** Duplicate and Delete, then Group (several) or Ungroup (a group) and Ask: the actions beside Priority. */
+/** Duplicate and Delete, then Group (several) or Ungroup (a group) and Ask: the actions beside Depth. */
 const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
   before: [
     {
@@ -105,7 +106,7 @@ const iconTitle = (action: Action): string =>
   action.disabled && action.id === "ask"
     ? NO_ASK
     : action.id === "ask"
-      ? "Ask about this selection"
+      ? "Ask about the selection"
       : action.text;
 
 function pick(value: number | null): void {
@@ -146,7 +147,7 @@ function pick(value: number | null): void {
         />
       </template>
     </template>
-    <span class="selection-bar__priority">
+    <span v-if="!several" class="selection-bar__priority">
       <UiButton
         variant="ghost"
         size="sm"
@@ -154,17 +155,17 @@ function pick(value: number | null): void {
         :aria-expanded="open"
         :aria-controls="pickerId"
         :title="
-          priorityLocked ?? `Set the priority ${several ? 'these items draw' : 'this item draws'}`
+          priorityLocked ?? `Set the depth ${several ? 'these items draw' : 'this item draws'}`
         "
         data-testid="selection-priority"
         @click="open = !open"
       >
-        Priority {{ priority === undefined ? "mixed" : priority === null ? "off" : priority }}
+        Depth {{ priority === undefined ? "mixed" : priority === null ? "off" : priority }}
       </UiButton>
       <div v-if="open" :id="pickerId" class="selection-bar__picker" data-testid="selection-picker">
         <StudioValuePicker
           plane="priority"
-          label="Priority value"
+          label="Depth value"
           :value="priority"
           :disabled="priorityLocked !== null"
           :allowed="(v) => !depthValuesLocked || v < 4"
@@ -184,8 +185,17 @@ function pick(value: number | null): void {
             variant="ghost"
             size="sm"
             :icon="action.icon"
+            :shortcut="
+              action.id === 'combine' || action.id === 'ungroup' ? action.shortcut : undefined
+            "
             :disabled="action.disabled"
-            :title="action.disabled ? NO_ASK : undefined"
+            :title="
+              action.disabled
+                ? NO_ASK
+                : action.shortcut
+                  ? `${action.text} (${action.shortcut})`
+                  : action.text
+            "
             :data-testid="`selection-${action.id}`"
             @click="action.run"
             >{{ action.text }}</UiButton
@@ -218,13 +228,7 @@ function pick(value: number | null): void {
         :title="action.disabled ? NO_ASK : undefined"
         @click="action.run"
       >
-        {{
-          action.id === "ask"
-            ? "Ask about this selection"
-            : action.id === "combine"
-              ? "Group…"
-              : action.text
-        }}
+        {{ action.id === "ask" ? "Ask about the selection" : action.text }}
       </button>
     </ActionMenu>
   </div>

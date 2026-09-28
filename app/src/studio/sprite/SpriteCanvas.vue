@@ -247,6 +247,7 @@ function onLeave(): void {
       :data-width="cel.width"
       :data-height="cel.height"
       :data-zoom="zoom"
+      :data-onion="onion.length"
       :data-changed="changed ? changed.reduce((sum, bit) => sum + bit, 0) : undefined"
       :style="{ width: `${width}px`, height: `${height}px` }"
       @pointerdown="onDown"

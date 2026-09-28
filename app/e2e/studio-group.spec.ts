@@ -179,7 +179,7 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   await page.keyboard.down("Shift");
   await page.mouse.click(...(await cell(page, 35, 50)));
   await page.keyboard.up("Shift");
-  await expect(bar.getByTestId("selection-name")).toHaveText("2 items selected");
+  await expect(bar.getByTestId("selection-name")).toHaveText("2 items");
   expect(await selectedRows(studio)).toEqual(["el-1", "el-1-2"]);
   await expect(studio.getByTestId("group-editor")).toBeVisible();
 
@@ -213,12 +213,10 @@ test("from the keyboard alone: step to an item, grow the run with Shift+Alt+arro
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
   await canvas.focus();
   await page.keyboard.press("Alt+ArrowDown");
-  await expect(studio.locator('[data-role="announce"]')).toHaveText("Element 1, art, 2 commands");
+  await expect(studio.locator('[data-role="announce"]')).toHaveText("Element 1, art, 2 steps");
   await page.keyboard.press("Shift+Alt+ArrowDown");
   await page.keyboard.press("Shift+Alt+ArrowDown");
-  await expect(studio.locator('[data-role="announce"]')).toHaveText(
-    "3 items selected, art, 6 commands",
-  );
+  await expect(studio.locator('[data-role="announce"]')).toHaveText("3 items, art, 6 steps");
   expect(await selectedRows(studio)).toEqual(["el-1", "el-2", "el-1-2"]);
   // Shift+Alt+Up takes the last one away again, and Down brings it back.
   await page.keyboard.press("Shift+Alt+ArrowUp");
@@ -249,7 +247,7 @@ test("Shift+drag draws a marquee that selects the items wholly inside it", async
   await expect(studio.locator('[data-role="marquee"]')).toHaveCount(0);
   // The outline and its fill lie inside; the trunk and the stripe do not.
   expect(await selectedRows(studio)).toEqual(["el-1", "el-1-2"]);
-  await expect(studio.getByTestId("selection-name")).toHaveText("2 items selected");
+  await expect(studio.getByTestId("selection-name")).toHaveText("2 items");
 });
 
 test("Group names the bush, keeps the bytes, stays one item after a reload, and Ungroup gives the parts back", async ({
@@ -292,7 +290,8 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
   await resumeInRoom(page);
   studio = await openStudio(page);
   expect(await rows(studio)).toEqual(["bush", "el-3"]);
-  await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
+  // The picture's own source: nothing says Rebuilt.
+  await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);
   expect(await draftBytes(page)).toEqual(PIC_5);
 
   // Ungroup, in the bar for a group: the parts come back as they were, selected, same bytes.

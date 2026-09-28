@@ -2,8 +2,10 @@
 import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { explain } from "./studioTerms.ts";
 import { changeCount } from "./useStudioDraft.ts";
 
 /** Where the draft stands, for the status chip. */
@@ -78,6 +80,7 @@ const historyBlocked = (which: "undo" | "redo"): string =>
   />
   <UiChip :tone="chip.tone" dot data-testid="studio-draft-status" :data-status="status">
     <UiIcon v-if="status === 'view-only'" name="lock" :size="12" />{{ chip.text }}
+    <UiExplain v-if="status === 'view-only'" v-bind="explain('view-only')" />
   </UiChip>
   <UiButton
     variant="ghost"
@@ -93,7 +96,7 @@ const historyBlocked = (which: "undo" | "redo"): string =>
     variant="primary"
     size="sm"
     :disabled="!canKeep"
-    :title="keepTitle"
+    :title="keepTitle ?? 'Keep saves your changes into the game'"
     data-testid="studio-keep"
     @click="emit('keep')"
   >
@@ -101,7 +104,7 @@ const historyBlocked = (which: "undo" | "redo"): string =>
   </UiButton>
   <UiIconButton
     icon="x"
-    label="Close studio"
+    label="Close"
     size="sm"
     data-testid="studio-close"
     @click="emit('close')"

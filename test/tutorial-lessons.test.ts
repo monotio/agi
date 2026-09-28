@@ -305,7 +305,7 @@ describe("Adventure Department lessons", () => {
       assert.equal(verdict.ok, false);
       assert.equal(
         verdict.hint,
-        "That covered a walk barrier, so the apprentice could walk through things. Draw the depth earlier: undo, click Counter depth's last command under Commands (or drag the draw order back before the barriers), and draw it again.",
+        "That covered a walk barrier, so the apprentice could walk through things. Draw the depth earlier: undo, click Counter depth's last step under Details › Steps (or drag the draw order back before the barriers), and draw it again.",
       );
     });
 

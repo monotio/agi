@@ -1,26 +1,26 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import UiButton from "../../ui/UiButton.vue";
-import UiIcon from "../../ui/UiIcon.vue";
+import UiExplain from "../../ui/UiExplain.vue";
 import type { SpriteDocument } from "../../../../src/view/spriteDocument.ts";
+import { explain } from "../studioTerms.ts";
 import { aliasGroup } from "./spriteView.ts";
 
 /**
- * Copy-on-write, stated plainly. Editing a loop that shares its data block
- * (a mirror) makes it a separate copy and leaves the others as they are;
- * editing the shared block itself — "Edit loop N instead", every linked loop
- * changing together — is an explicit choice. After a split it says which
- * loop became its own copy, and a view used by several rooms says so.
+ * Mirror loops in the cel section, as one chip: "⇋ Loop 1 mirrors this" (or
+ * "⇋ Mirrors loop 0") with its ⓘ, and Edit both, which edits the pair
+ * together, a mirrored loop showing the edit flipped. Copy-on-write is the
+ * default: an edit of one loop of the pair makes it its own copy and leaves
+ * the other as it is. With Edit both on, Edit one turns it off again; after
+ * a split the chip says which loop became its own copy.
  */
-const { document, loop, propagate, isolated, rooms } = defineProps<{
+const { document, loop, propagate, isolated } = defineProps<{
   document: SpriteDocument;
   loop: number;
   /** Edits change the whole linked group. */
   propagate: boolean;
   /** Loops the last edit split off. */
   isolated: readonly number[];
-  /** Rooms that use the view. */
-  rooms: readonly number[];
 }>();
 const emit = defineEmits<{
   /** Edit `loop` with its linked loops together (true) or on its own (false). */
@@ -31,6 +31,7 @@ const names = (loops: readonly number[]): string =>
   loops.length === 1
     ? `loop ${loops[0]}`
     : `loops ${loops.slice(0, -1).join(", ")} and ${loops.at(-1)}`;
+const capital = (text: string): string => `${text[0]!.toUpperCase()}${text.slice(1)}`;
 
 const note = computed(() => {
   const group = aliasGroup(document, loop);
@@ -39,87 +40,73 @@ const note = computed(() => {
   if (others.length > 0 && propagate)
     return {
       tone: "action",
-      text: `Editing loop ${loop} changes ${names(others)} with it: a mirrored loop shows the edit mirrored.`,
-      action: { label: `Edit loop ${loop} only`, loop, on: false },
+      text: `Edits change ${names(others)} too`,
+      action: { label: "Edit one", on: false },
     };
-  if (others.length > 0) {
-    const relation =
-      loop === owner
-        ? `${names(others).replace(/^l/, "L")} ${others.length === 1 ? "mirrors" : "mirror"} loop ${loop}.`
-        : `Loop ${loop} mirrors loop ${owner}.`;
+  if (others.length > 0)
     return {
       tone: "neutral",
-      text: `${relation} Editing loop ${loop} makes it a separate copy; ${names(others)} ${others.length === 1 ? "stays" : "stay"} as ${others.length === 1 ? "it is" : "they are"}.`,
-      action:
+      text:
         loop === owner
-          ? { label: "Edit linked loops together", loop, on: true }
-          : { label: `Edit loop ${owner} instead`, loop: owner, on: true },
+          ? `${capital(names(others))} ${others.length === 1 ? "mirrors" : "mirror"} this`
+          : `Mirrors loop ${owner}`,
+      action: { label: "Edit both", on: true },
     };
-  }
   if (isolated.includes(loop))
-    return {
-      tone: "ok",
-      text: `Loop ${loop} is now a separate copy; the loop it mirrored kept its pixels.`,
-      action: null,
-    };
+    return { tone: "ok", text: `Loop ${loop} is its own copy now`, action: null };
   return null;
 });
 </script>
 
 <template>
-  <section
-    v-if="note || rooms.length > 1"
-    class="mirror-note"
-    aria-label="Linked loops"
-    data-testid="sprite-mirror-note"
-  >
-    <p v-if="note" class="mirror-note__text" :class="`is-${note.tone}`" role="status">
-      <UiIcon name="link" :size="14" />
+  <div v-if="note" class="mirror-note" data-testid="sprite-mirror-note">
+    <span class="mirror-note__chip" :class="`is-${note.tone}`" role="status">
+      <span aria-hidden="true">⇋</span>
       <span data-testid="sprite-mirror-text">{{ note.text }}</span>
-    </p>
+      <UiExplain v-if="note.action" v-bind="explain('mirror')" />
+    </span>
     <UiButton
-      v-if="note?.action"
+      v-if="note.action"
       size="sm"
-      :variant="note.action.on ? 'secondary' : 'ghost'"
+      :variant="note.action.on ? 'ghost' : 'secondary'"
       data-testid="sprite-propagate"
-      @click="emit('propagate', note.action.loop, note.action.on)"
+      @click="emit('propagate', loop, note.action.on)"
     >
       {{ note.action.label }}
     </UiButton>
-    <p v-if="rooms.length > 1" class="mirror-note__shared" data-testid="sprite-shared-note">
-      Rooms {{ rooms.join(", ") }} share this view: a Keep changes it in each of them.
-    </p>
-  </section>
+  </div>
 </template>
 
 <style scoped>
 .mirror-note {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-3);
-  margin: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--action-line);
-  border-radius: var(--radius);
-  background: var(--action-soft);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.mirror-note__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 24px;
+  box-sizing: border-box;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
+  color: var(--ink-2);
+  background: var(--surface-2);
   font-size: var(--text-xs);
 }
-.mirror-note__text {
-  display: flex;
-  gap: var(--space-2);
-  margin: 0;
-  color: var(--ink);
-}
-.mirror-note__text .ui-icon {
-  flex: none;
-  margin-top: 2px;
+.mirror-note__chip.is-action {
+  border-color: var(--action-line);
   color: var(--action);
+  background: var(--action-soft);
 }
-.mirror-note__text.is-ok .ui-icon {
+.mirror-note__chip.is-ok {
+  padding-right: var(--space-3);
+  border-color: var(--ok-line);
   color: var(--ok);
-}
-.mirror-note__shared {
-  margin: 0;
-  color: var(--ink-2);
+  background: var(--ok-soft);
 }
 </style>

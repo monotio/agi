@@ -88,7 +88,7 @@ for (const viewport of [
         ["Art tab", lens.getByRole("radio", { name: /Art/ })],
         ["Depth tab", lens.getByRole("radio", { name: /Depth/ })],
         ["Walk tab", lens.getByRole("radio", { name: /Walk/ })],
-        ["size", studio.getByTestId("studio-bytes")],
+        ["lock", studio.locator(".top-bar__lens").getByTestId("studio-lock-chip")],
         ["undo", studio.getByTestId("studio-undo")],
         ["redo", studio.getByTestId("studio-redo")],
         ["status", studio.getByTestId("studio-draft-status")],
@@ -151,7 +151,7 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   await expect(studio).toBeVisible();
   const bar = studio.getByTestId("sprite-options-bar");
   const options = studio.getByTestId("sprite-tool-options");
-  await expect(options).toContainText("Colour");
+  await expect(options).toContainText("light cyan");
   const barBox = (await bar.boundingBox())!;
   const parts: [string, Locator][] = [];
   for (const [n, child] of (await options.locator(":scope > *").all()).entries())
@@ -165,8 +165,11 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
     if (await locator.isVisible()) expect(await onTop(locator), `${name} is on top`).toBe(true);
   await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600.png") });
 
-  // The folded options live in More: the backdrop, the grid and the baseline.
-  await expect(studio.getByTestId("sprite-backdrop")).toBeHidden();
+  // The folded options live in More: the grid, the baseline and All cels. The
+  // backdrop and the Onion menu stay in the bar.
+  await expect(studio.getByTestId("sprite-backdrop")).toBeVisible();
+  await expect(studio.getByTestId("sprite-onion")).toBeVisible();
+  await expect(studio.getByTestId("sprite-grid")).toBeHidden();
   const more = studio.getByTestId("sprite-view-more");
   await expect(more).toBeVisible();
   await more.click();
@@ -177,14 +180,9 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   const gridNow = gridWas === "true" ? "false" : "true";
   await grid.click();
   await expect(grid).toHaveAttribute("aria-checked", gridNow);
-  await expect(menu.getByRole("menuitemcheckbox", { name: "Feet" })).toBeVisible();
-  const light = menu.getByRole("menuitemradio", { name: "Light checker" });
-  await light.click();
-  await expect(light).toHaveAttribute("aria-checked", "true");
-  await expect(menu.getByRole("menuitemradio", { name: "Dark checker" })).toHaveAttribute(
-    "aria-checked",
-    "false",
-  );
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Baseline" })).toBeVisible();
+  await expect(menu.getByRole("menuitemcheckbox", { name: "All cels" })).toBeVisible();
+  await expect(menu.getByRole("menuitemradio")).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600-more.png") });
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();

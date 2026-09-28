@@ -27,11 +27,15 @@ export interface ShellBridge {
   assistantInputEl(): HTMLElement | null | undefined;
   /** Focus the game input (registered by PlayArea). */
   focusGameInput(): void;
-  /** Open the Help guide, optionally at a section id (registered by GameHeader). */
-  openHelp(section?: string): void;
+  /**
+   * Open the Help guide, optionally at a section id and a topic in it, which
+   * it scrolls to and focuses (registered by GameHeader).
+   */
+  openHelp(section?: string, topic?: string): void;
 }
 
-const shellBridgeKey: InjectionKey<ShellBridge> = Symbol("agi-shell-bridge");
+/** Inject it with a null default where the shell may be absent (the Studio harness). */
+export const shellBridgeKey: InjectionKey<ShellBridge> = Symbol("agi-shell-bridge");
 
 export function createShellBridge(): ShellBridge {
   return {

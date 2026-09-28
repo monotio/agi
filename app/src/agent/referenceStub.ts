@@ -16,7 +16,7 @@ import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentSt
 import type { LlmTurnResult, ReferenceStubScript, UnifiedConversation } from "./llmClient.ts";
 
 /** A manifest line: id first, the working size in the fourth field. */
-const MANIFEST_LINE = /^(art-[0-9a-f]{10}) · [^\n]*?· (\d+)x(\d+) · [^\n]*$/gm;
+export const MANIFEST_LINE = /^(art-[0-9a-f]{10}) · [^\n]*?· (\d+)x(\d+) · [^\n]*$/gm;
 /** The corner the region scenario views, in reference pixels. */
 const REGION_EDGE = 64;
 /**
@@ -33,7 +33,8 @@ function pngSize(png: Uint8Array): { width: number; height: number } {
     : { width: 0, height: 0 };
 }
 
-function describeImages(images: readonly AgentToolImage[] | undefined) {
+/** Images as a transcript records them: caption and PNG size, never the pixels. */
+export function describeImages(images: readonly AgentToolImage[] | undefined) {
   return (images ?? []).map((image) => ({
     caption: image.caption,
     bytes: image.png.length,

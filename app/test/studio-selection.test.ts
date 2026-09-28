@@ -90,16 +90,16 @@ test("from a selected group, next is its first member and previous the item befo
   assert.equal(selection.selectedId.value, "wall");
 });
 
-test("selection is announced as label, kind and command count", () => {
+test("selection is announced as label, kind and step count", () => {
   const { selection } = setup();
   assert.equal(selection.announcement.value, "");
   selection.selectedId.value = "bench";
-  assert.equal(selection.announcement.value, "Bench, depth, 4 commands");
+  assert.equal(selection.announcement.value, "Bench, depth, 4 steps");
   selection.selectedId.value = "exit";
-  assert.equal(selection.announcement.value, "Exit, walk, 1 command");
+  assert.equal(selection.announcement.value, "Exit, walk, 1 step");
   assert.equal(
     describeRow(row("(unassigned)", "Unassigned", "loose", 3)),
-    "Unassigned, not in an item, 3 commands",
+    "Unassigned, not in an item, 3 steps",
   );
 });
 
@@ -128,10 +128,10 @@ describe("several items", () => {
     selection.toggle("wall");
     assert.deepEqual(selection.itemIds.value, ["wall", "exit"]);
     assert.equal(selection.selectedId.value, undefined, "no single row stands for two items");
-    assert.equal(selection.selectedRow.value?.label, "2 items selected");
+    assert.equal(selection.selectedRow.value?.label, "2 items");
     // The rows' commands, each once and in draw order (the fixture's rows share indices).
     assert.deepEqual(selection.selectedRow.value?.entries, [0, 1]);
-    assert.equal(selection.announcement.value, "2 items selected, mixed, 2 commands");
+    assert.equal(selection.announcement.value, "2 items, mixed, 2 steps");
     selection.toggle("exit");
     assert.deepEqual(selection.itemIds.value, ["wall"]);
     assert.equal(selection.selectedId.value, "wall");

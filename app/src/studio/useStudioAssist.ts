@@ -216,7 +216,11 @@ export function useStudioAssist(options: StudioAssistOptions) {
     return `$${Math.max(0, state.budget - state.spent).toFixed(2)} of $${state.budget.toFixed(2)} left`;
   });
 
-  async function ask(text: string): Promise<void> {
+  /**
+   * Send `text` about the selection; `referenceIds` names stored reference
+   * art the creator attached, which rides the request as handles.
+   */
+  async function ask(text: string, referenceIds: readonly string[] = []): Promise<void> {
     const instruction = text.trim();
     const host = options.host();
     if (!instruction || running.value || !host || blocked.value !== null) return;
@@ -238,7 +242,9 @@ export function useStudioAssist(options: StudioAssistOptions) {
     phase.value = "running";
     const id = ++runId;
     try {
-      const result = await host.run({ instruction, focus });
+      const result = await host.run(
+        referenceIds.length ? { instruction, focus, referenceIds } : { instruction, focus },
+      );
       if (id !== runId) return;
       reply.value = result.text;
       thread.value = [...thread.value, { role: "ai", text: result.text }];

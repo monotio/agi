@@ -313,21 +313,24 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await studio.locator('[data-row="bench"]').click();
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
-    "This would change the art, which is locked in the Depth lens.",
-  );
+  await expect(studio.getByTestId("studio-notice")).toHaveText("Art is locked in the Depth lens.");
   await expect(studio.getByTestId("studio-notice-detail")).toContainText(
     "Art is locked in the Depth lens: 288 cells at 44,91..116,104 would change.",
   );
   await expect(studio.locator('[data-role="refused"]')).toHaveCount(1);
   await expect(status).toHaveText("No changes");
-  // Unlocked for the session, the same nudge goes through.
-  await studio.getByTestId("studio-unlock").click();
+  // The refusal offers the way out: unlocked for the session, the same nudge goes through.
+  await studio.getByTestId("studio-notice-action").click();
+  await expect(studio.getByTestId("studio-notice")).toHaveText("Unlocked for now. Try it again.");
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
   await expect(status).toHaveText("1 change");
   await page.keyboard.press("ControlOrMeta+z");
-  await studio.getByTestId("studio-unlock").click();
+  // Lock again, from the lock chip by the lens tabs.
+  const chip = studio.locator(".top-bar__lens").getByTestId("studio-lock-chip");
+  await chip.locator("[data-term]").click();
+  await page.getByTestId("explain-pop").getByTestId("studio-unlock").click();
+  await expect(chip).toHaveAttribute("data-locked", "true");
 
   // Nudges: 1 px, and 8 with Shift, each one undo step.
   await studio.locator('[data-row="occluder"]').click();
@@ -563,7 +566,8 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
     studio.locator('[role="treeitem"][data-row] .scene-list__label').allTextContents();
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   expect((await rowLabels()).filter((label) => /^Element \d/.test(label))).toEqual([]);
-  await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
+  // The picture's own source: nothing says Rebuilt.
+  await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);
   // A barrier nudged up one row: a Walk-kind edit the Depth lens allows.
   await page.keyboard.press("2");
   await studio.getByRole("searchbox", { name: "Filter items" }).fill("barrier");
@@ -581,5 +585,6 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   // The remix keeps the named objects with the kept edit.
   await panel.getByTestId("world-open-studio").click();
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
-  await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
+  // The picture's own source: nothing says Rebuilt.
+  await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);
 });

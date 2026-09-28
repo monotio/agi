@@ -1,26 +1,29 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef, watch } from "vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
+import UiExplain from "../../ui/UiExplain.vue";
 import UiIcon from "../../ui/UiIcon.vue";
+import UiSegmented from "../../ui/UiSegmented.vue";
 import { EGA_COLOUR_NAMES } from "../../../../src/studio/sceneGroups.ts";
+import { explain } from "../studioTerms.ts";
 import { backdropKey, parseBackdrop, type SpriteBackdrop } from "./spriteView.ts";
 
 /**
  * The canvas's view toggles, docked at the right of the options bar: the
- * contact sheet of every cel in place of the canvas, onion skins of the
- * previous and next cels (and how many of each, 1 to 3), the grid, the
- * baseline, and the backdrop behind transparent pixels. None of them
- * changes the view: the backdrop is only while drawing, never the view's
- * transparent colour.
+ * backdrop behind transparent pixels, onion skins (one Onion menu: the cels
+ * before and after, and how many of each, 1 to 3), the grid, the baseline
+ * where the feet stand, and All cels, every cel in place of the canvas. None
+ * of them changes the view: the backdrop shows only while drawing, and the
+ * view's transparent colour stays as it is.
  *
  * A narrow options bar folds the least used of them into a More menu
- * (`fold`: 1 the backdrop, the grid and the baseline; 2 the contact sheet
- * too); the onion skins stay in the bar.
+ * (`fold`: 1 the grid, the baseline and All cels; 2 the backdrop too); the
+ * Onion menu stays in the bar.
  */
 const { roomBackdrop = null, fold = 0 } = defineProps<{
   /** The room a Room backdrop shows, when a room uses the view. */
   roomBackdrop?: number | null;
-  /** How many groups are folded into More: 0 none, 1 backdrop, grid and baseline, 2 the contact sheet too. */
+  /** How many groups are folded into More: 0 none, 1 grid, baseline and All cels, 2 the backdrop too. */
   fold?: number;
 }>();
 const sheet = defineModel<boolean>("sheet", { required: true });
@@ -38,17 +41,56 @@ const CHECKERS = [
   { key: "checker-dark", label: "Dark checker" },
   { key: "checker-light", label: "Light checker" },
 ] as const;
+
+/** The Onion menu: Before, After and how many cels, in a small popover under its button. */
+const onionOpen = ref(false);
+const onionId = useId();
+const onionButton = useTemplateRef("onionButton");
+const onionPop = useTemplateRef("onionPop");
+const DEPTHS = [
+  { value: "1", label: "1" },
+  { value: "2", label: "2" },
+  { value: "3", label: "3" },
+] as const;
+const depthText = computed({
+  get: () => String(depth.value) as "1" | "2" | "3",
+  set: (value: "1" | "2" | "3") => (depth.value = Number(value)),
+});
+function closeOnion(refocus: boolean): void {
+  onionOpen.value = false;
+  if (refocus) void nextTick(() => onionButton.value?.focus({ preventScroll: true }));
+}
+/** Esc closes the Onion menu first; Studio's own Esc never sees that press. */
+function onOnionKey(event: KeyboardEvent): void {
+  if (event.key !== "Escape") return;
+  event.stopPropagation();
+  event.preventDefault();
+  closeOnion(true);
+}
+function onOutside(event: PointerEvent): void {
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (onionButton.value?.contains(target) || onionPop.value?.contains(target)) return;
+  // An explainer opened from the menu lives outside it: leave the menu open under it.
+  if (target instanceof Element && target.closest(".ui-explain__pop")) return;
+  closeOnion(false);
+}
+watch(onionOpen, (open) => {
+  if (open) window.addEventListener("pointerdown", onOutside, true);
+  else window.removeEventListener("pointerdown", onOutside, true);
+});
+watch(sheet, (shown) => {
+  if (shown) onionOpen.value = false;
+});
+onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true));
 </script>
 
 <template>
   <div class="sprite-view-bar" role="group" aria-label="Canvas view">
-    <label
-      v-if="fold < 1"
-      class="sprite-view-bar__backdrop"
-      title="Only while drawing: the view's transparent colour stays as it is"
-    >
-      <span>Backdrop</span>
-      <select v-model="backdropValue" data-testid="sprite-backdrop">
+    <span v-if="fold < 2" class="sprite-view-bar__backdrop">
+      <label for="sprite-backdrop-select">Backdrop</label>
+      <UiExplain v-bind="explain('backdrop')" />
+      <select id="sprite-backdrop-select" v-model="backdropValue" data-testid="sprite-backdrop">
         <option value="checker-dark">Dark checker</option>
         <option value="checker-light">Light checker</option>
         <option v-if="roomBackdrop !== null" value="room">Room {{ roomBackdrop }}</option>
@@ -62,54 +104,63 @@ const CHECKERS = [
           </option>
         </optgroup>
       </select>
-    </label>
-    <button
-      v-if="fold < 2"
-      type="button"
-      class="sprite-view-bar__toggle"
-      :aria-pressed="sheet"
-      data-testid="sprite-sheet-toggle"
-      @click="sheet = !sheet"
-    >
-      Contact sheet
-    </button>
-    <template v-if="!sheet">
+    </span>
+    <span v-if="!sheet" class="sprite-view-bar__onion" @keydown="onOnionKey">
       <button
+        ref="onionButton"
         type="button"
         class="sprite-view-bar__toggle"
-        :aria-pressed="prev"
-        data-testid="sprite-onion-prev"
-        @click="prev = !prev"
+        :class="{ 'is-on': prev || next }"
+        :aria-expanded="onionOpen"
+        :aria-controls="onionOpen ? onionId : undefined"
+        aria-haspopup="dialog"
+        data-testid="sprite-onion"
+        @click="onionOpen = !onionOpen"
       >
-        <i class="sprite-view-bar__tint is-prev" aria-hidden="true"></i>Onion −{{ depth }}
+        Onion<UiIcon name="chevron-down" :size="14" />
       </button>
+      <div
+        v-if="onionOpen"
+        :id="onionId"
+        ref="onionPop"
+        class="sprite-view-bar__pop"
+        role="dialog"
+        aria-label="Onion skin"
+        data-testid="sprite-onion-menu"
+      >
+        <p class="sprite-view-bar__pop-head">Onion skin <UiExplain v-bind="explain('onion')" /></p>
+        <label class="sprite-view-bar__check">
+          <input v-model="prev" type="checkbox" data-testid="sprite-onion-prev" />
+          <i class="sprite-view-bar__tint is-prev" aria-hidden="true"></i>Before
+        </label>
+        <label class="sprite-view-bar__check">
+          <input v-model="next" type="checkbox" data-testid="sprite-onion-next" />
+          <i class="sprite-view-bar__tint is-next" aria-hidden="true"></i>After
+        </label>
+        <div class="sprite-view-bar__depth">
+          <span>Cels</span>
+          <UiSegmented
+            v-model="depthText"
+            size="sm"
+            label="Onion skin cels"
+            :options="DEPTHS"
+            data-testid="sprite-onion-depth"
+          />
+        </div>
+      </div>
+    </span>
+    <template v-if="fold < 1">
       <button
+        v-if="!sheet"
         type="button"
         class="sprite-view-bar__toggle"
-        :aria-pressed="next"
-        data-testid="sprite-onion-next"
-        @click="next = !next"
+        :aria-pressed="grid"
+        data-testid="sprite-grid"
+        @click="grid = !grid"
       >
-        <i class="sprite-view-bar__tint is-next" aria-hidden="true"></i>+{{ depth }}
+        Grid
       </button>
-      <label class="sprite-view-bar__depth">
-        <span class="sprite-view-bar__sr">Onion skin cels</span>
-        <select v-model.number="depth" data-testid="sprite-onion-depth">
-          <option :value="1">1</option>
-          <option :value="2">2</option>
-          <option :value="3">3</option>
-        </select>
-      </label>
-      <template v-if="fold < 1">
-        <button
-          type="button"
-          class="sprite-view-bar__toggle"
-          :aria-pressed="grid"
-          data-testid="sprite-grid"
-          @click="grid = !grid"
-        >
-          Grid
-        </button>
+      <span v-if="!sheet" class="sprite-view-bar__with-explain">
         <button
           type="button"
           class="sprite-view-bar__toggle"
@@ -117,21 +168,21 @@ const CHECKERS = [
           data-testid="sprite-baseline-toggle"
           @click="baseline = !baseline"
         >
-          Feet
+          Baseline
         </button>
-      </template>
-    </template>
-    <ActionMenu v-if="fold > 0" label="More" test-id="sprite-view-more">
+        <UiExplain v-bind="explain('feet')" />
+      </span>
       <button
-        v-if="fold > 1"
         type="button"
-        role="menuitemcheckbox"
-        :aria-checked="sheet"
-        data-testid="sprite-more-sheet"
+        class="sprite-view-bar__toggle"
+        :aria-pressed="sheet"
+        data-testid="sprite-sheet-toggle"
         @click="sheet = !sheet"
       >
-        <UiIcon name="check" :size="16" class="sprite-more__check" />Contact sheet
+        All cels
       </button>
+    </template>
+    <ActionMenu v-if="fold > 0" label="More" test-id="sprite-view-more">
       <template v-if="!sheet">
         <button
           type="button"
@@ -149,49 +200,56 @@ const CHECKERS = [
           data-testid="sprite-more-baseline"
           @click="baseline = !baseline"
         >
-          <UiIcon name="check" :size="16" class="sprite-more__check" />Feet
+          <UiIcon name="check" :size="16" class="sprite-more__check" />Baseline
         </button>
       </template>
-      <div role="separator"></div>
-      <div
-        role="group"
-        aria-labelledby="sprite-more-backdrop"
-        title="Only while drawing: the view's transparent colour stays as it is"
+      <button
+        type="button"
+        role="menuitemcheckbox"
+        :aria-checked="sheet"
+        data-testid="sprite-more-sheet"
+        @click="sheet = !sheet"
       >
-        <p id="sprite-more-backdrop" class="sprite-more__heading">Backdrop</p>
-        <button
-          v-for="choice in CHECKERS"
-          :key="choice.key"
-          type="button"
-          role="menuitemradio"
-          :aria-checked="backdropValue === choice.key"
-          @click="backdropValue = choice.key"
-        >
-          <UiIcon name="check" :size="16" class="sprite-more__check" />{{ choice.label }}
-        </button>
-        <button
-          v-if="roomBackdrop !== null"
-          type="button"
-          role="menuitemradio"
-          :aria-checked="backdropValue === 'room'"
-          @click="backdropValue = 'room'"
-        >
-          <UiIcon name="check" :size="16" class="sprite-more__check" />Room {{ roomBackdrop }}
-        </button>
-        <div class="sprite-more__swatches">
+        <UiIcon name="check" :size="16" class="sprite-more__check" />All cels
+      </button>
+      <template v-if="fold > 1">
+        <div role="separator"></div>
+        <div role="group" aria-labelledby="sprite-more-backdrop">
+          <p id="sprite-more-backdrop" class="sprite-more__heading">Backdrop</p>
           <button
-            v-for="(name, colour) in EGA_COLOUR_NAMES"
-            :key="colour"
+            v-for="choice in CHECKERS"
+            :key="choice.key"
             type="button"
             role="menuitemradio"
-            :aria-checked="backdropValue === `colour-${colour}`"
-            :aria-label="`Solid colour ${colour} · ${name}`"
-            :title="`${colour} · ${name}`"
-            :style="{ background: `var(--agi-${colour})` }"
-            @click="backdropValue = `colour-${colour}`"
-          ></button>
+            :aria-checked="backdropValue === choice.key"
+            @click="backdropValue = choice.key"
+          >
+            <UiIcon name="check" :size="16" class="sprite-more__check" />{{ choice.label }}
+          </button>
+          <button
+            v-if="roomBackdrop !== null"
+            type="button"
+            role="menuitemradio"
+            :aria-checked="backdropValue === 'room'"
+            @click="backdropValue = 'room'"
+          >
+            <UiIcon name="check" :size="16" class="sprite-more__check" />Room {{ roomBackdrop }}
+          </button>
+          <div class="sprite-more__swatches">
+            <button
+              v-for="(name, colour) in EGA_COLOUR_NAMES"
+              :key="colour"
+              type="button"
+              role="menuitemradio"
+              :aria-checked="backdropValue === `colour-${colour}`"
+              :aria-label="`Solid colour ${colour} · ${name}`"
+              :title="`${colour} · ${name}`"
+              :style="{ background: `var(--agi-${colour})` }"
+              @click="backdropValue = `colour-${colour}`"
+            ></button>
+          </div>
         </div>
-      </div>
+      </template>
     </ActionMenu>
   </div>
 </template>
@@ -220,12 +278,76 @@ const CHECKERS = [
 .sprite-view-bar__toggle:hover {
   color: var(--ink);
 }
+.sprite-view-bar__toggle.is-on {
+  color: var(--ink);
+}
+.sprite-view-bar__with-explain,
+.sprite-view-bar__onion {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.sprite-view-bar__with-explain {
+  margin-right: var(--space-2);
+}
+.sprite-view-bar__pop {
+  position: absolute;
+  z-index: var(--z-popover);
+  top: calc(100% + var(--space-2));
+  right: 0;
+  display: grid;
+  gap: var(--space-1);
+  width: 220px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-pop);
+  font: var(--text-sm) var(--font-sans);
+  white-space: normal;
+}
+.sprite-view-bar__pop-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  color: var(--ink-3);
+  font: var(--weight-bold) var(--text-2xs) / var(--leading) var(--font-sans);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.sprite-view-bar__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  cursor: pointer;
+}
+.sprite-view-bar__check input {
+  width: var(--space-5);
+  height: var(--space-5);
+  margin: 0;
+  accent-color: var(--action);
+}
+.sprite-view-bar__check input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.sprite-view-bar__depth {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-h);
+  color: var(--ink-2);
+}
 .sprite-view-bar__toggle[aria-pressed="true"] {
   color: var(--ink);
   background: var(--surface-3);
 }
-.sprite-view-bar__toggle:focus-visible,
-.sprite-view-bar__depth select:focus-visible {
+.sprite-view-bar__toggle:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
@@ -262,14 +384,6 @@ const CHECKERS = [
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
-.sprite-view-bar__depth select {
-  height: var(--control-h);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  color: var(--ink-2);
-  background: var(--surface-2);
-  font: var(--text-xs) var(--font-mono);
-}
 [aria-checked="false"] > .sprite-more__check {
   visibility: hidden;
 }
@@ -297,19 +411,14 @@ const CHECKERS = [
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
-.sprite-view-bar__sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 @media (pointer: coarse) {
   .sprite-view-bar__toggle,
-  .sprite-view-bar__backdrop select,
-  .sprite-view-bar__depth select {
+  .sprite-view-bar__backdrop select {
     height: var(--control-h-touch);
+  }
+  .sprite-view-bar__check,
+  .sprite-view-bar__depth {
+    min-height: var(--control-h-touch);
   }
 }
 </style>

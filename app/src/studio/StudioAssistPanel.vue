@@ -1,32 +1,37 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, ref, useId, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import { aiSettingsKey } from "../settings/useAiSettings.ts";
+import StudioReferenceAttach, { type AttachedReference } from "./StudioReferenceAttach.vue";
 import { walkableWords, type ScopeChip } from "./studioAssistText.ts";
+import { explain } from "./studioTerms.ts";
 import { STALE_TEXT, STALE_VIEW_TEXT, type StudioAssist } from "./useStudioAssist.ts";
 
 /**
- * "Ask about this selection": the scope chips the request is held to, the
- * box, the request's compact activity with its budget and Stop, and the
- * candidate's verdict (Accept as one undo step, Reject, Ask again…). The
- * candidate itself is previewed on the Studio's canvas. Without a connected
- * provider the box offers Connect AI; while the draft is frozen it is off.
- * Studios mount it only where the game's AI can run (not in the harness).
+ * Ask: the scope chips the request is held to (the `scope` slot adds the
+ * Studio's own: the lock chip, or Cel / Loop), the box, the request's compact
+ * activity with its budget and Stop, and the candidate's verdict (Accept as
+ * one undo step, Reject, Ask again…). The candidate itself is previewed on
+ * the Studio's canvas. Without a connected provider the box offers Connect;
+ * while the draft is frozen it is off. With a `referenceTarget`, reference
+ * art can ride the request (StudioReferenceAttach): picked, dropped on the
+ * section, or chosen from the art the game holds for that room or view; it
+ * travels as handles and leaves the box when the request is sent. Studios
+ * mount it only where the game's AI can run (not in the harness).
  */
 const {
   assist,
   chips,
-  hint,
   changes = null,
   noun,
   empty,
   collapsible = false,
+  referenceTarget = null,
 } = defineProps<{
   assist: StudioAssist;
   chips: readonly ScopeChip[];
-  /** How to change the scope, one line. */
-  hint: string;
   /** What the candidate changes, counted on decoded pixels. */
   changes?: string | null;
   /** "picture" or "view", for the words. */
@@ -35,6 +40,8 @@ const {
   empty: string;
   /** Folded to its heading until opened, `/` pressed or a request is under way (a tight panel). */
   collapsible?: boolean;
+  /** The room or view a reference attached here is for; none offers no attach control. */
+  referenceTarget?: { readonly kind: "room" | "view"; readonly num: number } | null;
 }>();
 
 const emit = defineEmits<{
@@ -52,6 +59,11 @@ const refining = ref(false);
 const unfolded = ref(false);
 const bodyId = useId();
 const staleId = useId();
+/** Reference art attached to the next request. */
+const attachedRefs = ref<AttachedReference[]>([]);
+const references = useTemplateRef("references");
+/** A file is dragged over the section: it can be dropped as a reference. */
+const dropping = ref(false);
 /** Why Ask is off, on its tooltip. */
 const SEND_BLOCKED: Record<"unavailable" | "connect" | "frozen" | "selection", string> = {
   unavailable: "AI edits need the game's assistant",
@@ -83,6 +95,8 @@ const showInput = computed(
     (phase.value !== "candidate" || refining.value),
 );
 const staleText = computed(() => (noun === "picture" ? STALE_TEXT : STALE_VIEW_TEXT));
+/** What the Studio edits, as the sentences name it. */
+const thing = computed(() => (noun === "picture" ? "picture" : "character"));
 /** A Walk lens candidate's walkable estimate, as the model was told it. */
 const walkable = computed(() => {
   const candidate = assist.candidate.value;
@@ -110,7 +124,7 @@ const spoken = computed(() => {
         ? staleText.value
         : `Proposal ready: ${candidate?.summary ?? ""} ${changes ?? ""}`.trim();
     case "declined":
-      return `The AI didn't change anything: ${assist.reply.value}`;
+      return `The AI left the ${thing.value} as it was: ${assist.reply.value}`;
     case "failed":
       return assist.error.value;
     default:
@@ -123,7 +137,24 @@ async function submit(): Promise<void> {
   if (!asked.trim() || blocked.value !== null) return;
   text.value = "";
   refining.value = false;
-  await assist.ask(asked);
+  const referenceIds = attachedRefs.value.map((reference) => reference.id);
+  attachedRefs.value = [];
+  await assist.ask(asked, referenceIds);
+}
+
+const carriesFiles = (event: DragEvent): boolean =>
+  referenceTarget !== null && (event.dataTransfer?.types.includes("Files") ?? false);
+function onDragOver(event: DragEvent): void {
+  if (!carriesFiles(event)) return;
+  event.preventDefault();
+  dropping.value = true;
+}
+function onDrop(event: DragEvent): void {
+  dropping.value = false;
+  if (!carriesFiles(event)) return;
+  event.preventDefault();
+  const file = event.dataTransfer?.files[0];
+  if (file) void references.value?.attachFile(file);
 }
 
 /** Focus the box (the `/` key, the toolbar's Ask); false when it cannot take focus. */
@@ -161,10 +192,19 @@ defineExpose({ focus });
 </script>
 
 <template>
-  <section class="assist" :aria-labelledby="headingId" data-testid="studio-assist">
-    <h3 :id="headingId" class="assist__title">
+  <section
+    class="assist"
+    :class="{ 'is-dropping': dropping }"
+    :aria-labelledby="headingId"
+    data-testid="studio-assist"
+    @dragover="onDragOver"
+    @dragleave="dropping = false"
+    @drop="onDrop"
+  >
+    <h3 class="assist__title">
       <button
         v-if="collapsible"
+        :id="headingId"
         type="button"
         class="assist__fold"
         :aria-expanded="expanded"
@@ -172,30 +212,37 @@ defineExpose({ focus });
         data-testid="assist-fold"
         @click="unfolded = !expanded"
       >
-        <UiIcon name="sparkles" :size="14" />Ask about this selection
-        <UiIcon :name="expanded ? 'chevron-up' : 'chevron-down'" :size="14" />
+        <UiIcon :name="expanded ? 'chevron-down' : 'chevron-right'" :size="14" />Ask
       </button>
-      <template v-else><UiIcon name="sparkles" :size="14" />Ask about this selection</template>
+      <span v-else :id="headingId">Ask</span>
+      <UiExplain v-bind="explain(noun === 'picture' ? 'ask-scope' : 'ask-cels')" />
+      <span class="assist__ai" aria-hidden="true">AI</span>
     </h3>
     <div v-if="blocked !== 'unavailable' && expanded" :id="bodyId" class="assist__body">
-      <ul v-if="blocked !== 'selection'" class="assist__chips" aria-label="Scope">
-        <li
-          v-for="chip in chips"
-          :key="chip.text"
-          :class="{ 'is-lock': chip.lock }"
-          data-testid="assist-chip"
-        >
-          <UiIcon v-if="chip.lock" name="lock" :size="12" />{{ chip.text }}
-        </li>
-      </ul>
-      <slot name="scope" />
-      <p v-if="blocked !== 'selection'" class="assist__note">{{ hint }}</p>
+      <div
+        v-if="blocked !== 'selection' && chips.length > 0"
+        class="assist__scope"
+        aria-label="Scope"
+        role="group"
+      >
+        <ul class="assist__chips">
+          <li
+            v-for="chip in chips"
+            :key="chip.text"
+            :class="{ 'is-lock': chip.lock }"
+            :title="chip.title"
+            data-testid="assist-chip"
+          >
+            <UiIcon v-if="chip.lock" name="lock" :size="12" />{{ chip.text }}
+          </li>
+        </ul>
+        <slot name="scope" />
+      </div>
       <p v-else class="assist__note" data-testid="assist-empty">{{ empty }}</p>
 
       <div v-if="blocked === 'connect'" class="assist__connect">
-        <p>Connect your AI provider to ask for changes to this selection.</p>
+        <p>Connect AI to ask.</p>
         <UiButton
-          variant="primary"
           size="sm"
           data-testid="assist-connect"
           :disabled="ai?.aiSettingsUnavailable.value ?? true"
@@ -206,11 +253,15 @@ defineExpose({ focus });
           "
           @click="ai?.openAiSettings($event, 'create')"
         >
-          Connect AI
+          Connect
         </UiButton>
       </div>
-      <p v-else-if="blocked === 'frozen' && phase !== 'running'" class="assist__note">
-        Nothing can change in this {{ noun }} right now, so the AI can't either.
+      <p
+        v-else-if="blocked === 'frozen' && phase !== 'running'"
+        class="assist__note assist__frozen"
+        data-testid="assist-frozen"
+      >
+        This {{ thing }} is view only right now. <UiExplain v-bind="explain('view-only')" />
       </p>
 
       <ol v-if="assist.thread.value.length" class="assist__thread" aria-label="Conversation">
@@ -309,7 +360,7 @@ defineExpose({ focus });
 
       <div v-else-if="phase === 'declined'" class="assist__declined" data-testid="assist-declined">
         <p>
-          <strong>The AI didn't change anything:</strong>
+          <strong>The AI left the {{ thing }} as it was:</strong>
           {{ assist.reply.value }}
         </p>
         <ol v-if="assist.steps.value.length" class="assist__steps" data-testid="assist-steps">
@@ -340,12 +391,19 @@ defineExpose({ focus });
           :placeholder="
             phase === 'candidate' || phase === 'declined'
               ? 'Ask again: what should change?'
-              : `What should change in the selection?`
+              : 'What should change?'
           "
           :disabled="blocked !== null"
           data-testid="assist-input"
           @keydown.enter.exact.prevent="submit"
         ></textarea>
+        <StudioReferenceAttach
+          v-if="referenceTarget"
+          ref="references"
+          v-model="attachedRefs"
+          :target="referenceTarget"
+          :disabled="blocked !== null"
+        />
         <div class="assist__row">
           <span class="assist__keys">/ focuses · Enter asks</span>
           <UiButton
@@ -372,6 +430,10 @@ defineExpose({ focus });
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--hairline);
 }
+.assist.is-dropping {
+  outline: 2px dashed var(--action-line);
+  outline-offset: -4px;
+}
 .assist__title {
   display: flex;
   align-items: center;
@@ -382,13 +444,28 @@ defineExpose({ focus });
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
+.assist__ai {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.assist__scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.assist__frozen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
 .assist__body {
   display: grid;
   gap: var(--space-3);
 }
 .assist__fold {
   display: flex;
-  flex: 1;
   align-items: center;
   gap: var(--space-2);
   padding: 0;
@@ -399,9 +476,6 @@ defineExpose({ focus });
   letter-spacing: inherit;
   text-transform: inherit;
   cursor: pointer;
-}
-.assist__fold :last-child {
-  margin-left: auto;
 }
 .assist__fold:focus-visible {
   outline: 2px solid var(--focus);
@@ -419,14 +493,19 @@ defineExpose({ focus });
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-0) var(--space-2);
-  border-radius: var(--radius-sm);
+  min-height: 24px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
   color: var(--ink-2);
-  background: var(--surface-3);
-  font-size: var(--text-2xs);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
 }
 .assist__chips li.is-lock {
+  border-color: var(--warn-line);
   color: var(--warn);
+  background: var(--warn-soft);
 }
 .assist__note,
 .assist__connect p,
@@ -436,8 +515,9 @@ defineExpose({ focus });
   font-size: var(--text-2xs);
 }
 .assist__connect {
-  display: grid;
-  justify-items: start;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
 }
 .assist__declined p {

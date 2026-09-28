@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import UiChip from "../../ui/UiChip.vue";
+import UiExplain from "../../ui/UiExplain.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import StudioDraftControls, { type DraftStatus } from "../StudioDraftControls.vue";
+import { explain } from "../studioTerms.ts";
 
 /**
  * Sprite Studio's top bar: the way back to Create, which VIEW is open, where
- * the game uses it (a count; the side panel lists the rooms) and its loops
- * and cels, then the draft's controls
- * (StudioDraftControls: undo and redo, the changes, Discard and Keep).
+ * the game uses it ("Rooms 1, 2, 3", whose ⓘ says a Keep changes the
+ * character in each of them) and its loops and cels, then the draft's
+ * controls (StudioDraftControls: undo and redo, the changes, Discard and Keep).
  */
 defineProps<{
   viewNumber: number;
@@ -17,6 +19,8 @@ defineProps<{
   usageFull: string;
   /** Some logic picks views at runtime: the rooms listed may not be all. */
   dynamic: boolean;
+  /** Rooms use the view: a Keep reaches every one of them. */
+  shared: boolean;
   loops: number;
   cels: number;
   status: DraftStatus;
@@ -46,14 +50,15 @@ const emit = defineEmits<{
         description
       }}</span>
       <UiChip
-        data-testid="sprite-usage"
+        :class="{ 'sprite-top__usage': shared }"
         :title="
           dynamic
             ? `${usageFull}. Some logic picks views at runtime, so other rooms may use it too.`
             : usageFull
         "
-        >{{ usage }}{{ dynamic ? " +" : "" }}</UiChip
-      >
+        ><span data-testid="sprite-usage">{{ usage }}</span
+        ><UiExplain v-if="shared" v-bind="explain('shared-view')"
+      /></UiChip>
       <UiChip data-testid="sprite-counts"
         >{{ loops }} {{ loops === 1 ? "loop" : "loops" }} · {{ cels }}
         {{ cels === 1 ? "cel" : "cels" }}</UiChip
@@ -97,8 +102,11 @@ const emit = defineEmits<{
   overflow: hidden;
 }
 .sprite-top__crumbs .ui-chip {
-  font-family: var(--font-mono);
+  flex: none;
   white-space: nowrap;
+}
+.sprite-top__usage {
+  padding-right: var(--space-1);
 }
 .sprite-top__title {
   font-weight: var(--weight-semibold);

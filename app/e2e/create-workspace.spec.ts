@@ -144,7 +144,7 @@ test("Open in Studio shows its picture in the centre and closing resumes the gam
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   await expect(studio.getByTestId("studio-picture")).toHaveText("PIC 5");
-  await expect(studio.getByTestId("studio-bytes")).toContainText(
+  await expect(studio.getByTestId("studio-size")).toContainText(
     `${PIC_5.length.toLocaleString("en-US")} bytes`,
   );
   await expect(studio).toContainText("Great Hall");
@@ -186,7 +186,7 @@ test("Room Studio takes the whole workspace and closing restores the docks as th
     Number(
       /(\d+)%/.exec((await page.getByRole("group", { name: "Zoom" }).textContent()) ?? "")?.[1],
     );
-  const scrubber = page.getByRole("slider", { name: "Draw order playhead" });
+  const scrubber = page.getByRole("slider", { name: "Draw order", exact: true });
   for (const [width, height] of [
     [1440, 900],
     [1280, 720],
@@ -200,7 +200,7 @@ test("Room Studio takes the whole workspace and closing restores the docks as th
 
   // Studio's own back control is the way back to Create: the docks return
   // with the tab and the room they showed.
-  await studio.getByRole("button", { name: "Back to Create", exact: true }).click();
+  await studio.getByTestId("studio-back").click();
   await expect(studio).toHaveCount(0);
   await expect(left).toBeVisible();
   await expect(right).toBeVisible();

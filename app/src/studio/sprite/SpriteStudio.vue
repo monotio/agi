@@ -13,6 +13,7 @@ import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.
 import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
 import { aiSettingsKey } from "../../settings/useAiSettings.ts";
+import UiExplain from "../../ui/UiExplain.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import LessonCard from "../../lessons/LessonCard.vue";
@@ -37,6 +38,7 @@ import { useStudioNotice } from "../useStudioNotice.ts";
 import { useStudioViewport } from "../useStudioViewport.ts";
 import { useStudioAssist, type StudioAssistHost } from "../useStudioAssist.ts";
 import { changedPixels, viewChangeSummary, viewScopeChips } from "../studioAssistText.ts";
+import { explain } from "../studioTerms.ts";
 import SpriteCanvas, { type OnionSkin } from "./SpriteCanvas.vue";
 import SpriteCelPanel, { type CelEdit } from "./SpriteCelPanel.vue";
 import SpriteContactSheet from "./SpriteContactSheet.vue";
@@ -152,7 +154,7 @@ const startCel = Math.max(
 );
 const loop = ref(startLoop);
 const cel = ref(startCel);
-/** The loop whose linked group is edited together ("Edit loop N instead"); null copies on write. */
+/** The loop whose linked group is edited together (Edit both); null copies on write. */
 const linkedEdit = shallowRef<number | null>(null);
 const color = ref(11);
 const { notice, say, dismiss: dismissNotice } = useStudioNotice();
@@ -182,8 +184,8 @@ const assistHost: StudioAssistHost | null =
 /** What an Ask is about: the selected cel, or every cel of its loop. */
 const askScope = ref<"cel" | "loop">("loop");
 const ASK_SCOPES = [
-  { value: "cel", label: "This cel" },
-  { value: "loop", label: "Whole loop" },
+  { value: "cel", label: "Cel", title: "Ask about this cel" },
+  { value: "loop", label: "Loop", title: "Ask about every cel of this loop" },
 ] as const;
 const askCels = computed(() => {
   const cels = draft.document.value.loops[loop.value]?.cels ?? [];
@@ -265,6 +267,7 @@ const assistChips = computed(() => {
     : viewScopeChips({ targetCels: askCels.value, protectedLoops: askProtected.value });
 });
 const assistPanel = useTemplateRef("assistPanel");
+const celPanel = useTemplateRef("celPanel");
 
 const currentCel = computed(() => shown.value.loops[loop.value]?.cels[cel.value]);
 const group = computed(() => aliasGroup(draft.document.value, loop.value));
@@ -568,7 +571,7 @@ watch(tools.tool, () => say(null), { flush: "sync" });
 const status = computed(() => {
   const point = tools.cursor.value;
   const at = currentCel.value;
-  if (!point || !at) return `loop ${loop.value} · cel ${cel.value}`;
+  if (!point || !at) return `Loop ${loop.value} · cel ${cel.value}`;
   const value = at.pixels[point.y * at.width + point.x];
   const colour =
     value === undefined || value === at.transparent
@@ -598,6 +601,7 @@ const status = computed(() => {
       :usage="usageChip(usage)"
       :usage-full="usageText(usage)"
       :dynamic="usage.dynamic"
+      :shared="usage.rooms.length > 0"
       :loops="shown.loops.length"
       :cels="celCount(shown)"
       :status="keeper.status.value"
@@ -629,16 +633,15 @@ const status = computed(() => {
         :data-tool="tools.tool.value"
       >
         <b class="sprite-options__name">{{ SPRITE_TOOL_NAMES[tools.tool.value] }}</b>
-        <span v-if="paints" class="sprite-options__colour">
+        <span v-if="paints" class="sprite-options__colour" :title="`Colour ${color}`">
           <i :style="{ background: `var(--agi-${color})` }" aria-hidden="true"></i>
-          Colour {{ color }} · {{ EGA_COLOUR_NAMES[color] }}
+          {{ color }} {{ EGA_COLOUR_NAMES[color] }}
         </span>
-        <span v-else-if="tools.tool.value === 'eraser'" class="sprite-options__note"
-          >Writes the transparent colour ∅ {{ currentCel?.transparent }}</span
-        >
-        <span v-else-if="tools.tool.value === 'pipette'" class="sprite-options__note"
-          >Picks the paint colour</span
-        >
+        <span
+          v-else-if="tools.tool.value === 'eraser'"
+          class="sprite-options__note sprite-options__erase"
+          >Paints ∅ transparent <UiExplain v-bind="explain('transparent')"
+        /></span>
         <span
           v-if="tools.tool.value !== 'recolor' && optionsFold.level.value < 2"
           class="sprite-options__note"
@@ -742,23 +745,25 @@ const status = computed(() => {
           tools.setTool('eraser');
           say({ tone: 'ok', text: 'The eraser is on: it paints the transparent colour.' });
         "
+        @choose="celPanel?.chooseTransparent()"
       />
       <SpriteCelPanel
         v-if="currentCel"
+        ref="celPanel"
         :cel="currentCel"
         :loop
         :index="cel"
         :frozen="editsBlocked()"
         @edit="celEdit"
-      />
-      <SpriteMirrorNote
-        :document="draft.document.value"
-        :loop
-        :propagate="propagates(loop)"
-        :isolated="draft.isolated.value"
-        :rooms="usage.rooms"
-        @propagate="setPropagate"
-      />
+      >
+        <SpriteMirrorNote
+          :document="draft.document.value"
+          :loop
+          :propagate="propagates(loop)"
+          :isolated="draft.isolated.value"
+          @propagate="setPropagate"
+        />
+      </SpriteCelPanel>
       <SpritePreview
         :document="shown"
         :loop
@@ -780,11 +785,11 @@ const status = computed(() => {
         ref="assistPanel"
         :assist
         :chips="assistChips"
-        hint="To change the scope, pick another cel or loop on the timeline."
         :changes="assistChanges"
+        :reference-target="{ kind: 'view', num: viewNumber }"
         @reload="reopen(true)"
         noun="view"
-        empty="Select a cel on the timeline to ask the AI about it."
+        empty="Select a cel to ask about it."
         collapsible
       >
         <template #scope>
@@ -822,7 +827,7 @@ const status = computed(() => {
       }}</span>
       <span class="sprite-studio__spacer"></span>
       <span data-testid="sprite-bytes"
-        >VIEW {{ viewNumber }} · {{ draft.bytes.value.length.toLocaleString("en") }} bytes</span
+        >{{ draft.bytes.value.length.toLocaleString("en") }} bytes</span
       >
       <span>AGI {{ profile.id }}</span>
       <StudioZoom :zoom :fitted @zoom="(to) => (to === 'fit' ? zoomToFit() : zoomBy(to))" />
@@ -926,6 +931,13 @@ const status = computed(() => {
 .sprite-options__note {
   color: var(--ink-3);
   font-size: var(--text-xs);
+}
+.sprite-options__erase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
 }
 .sprite-studio__frame {
   position: relative;

@@ -4,7 +4,6 @@
  * planes and pixels (never taken from the model's summary).
  */
 
-import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
 import type { PictureItem, PictureItemKind } from "../../../src/studio/pictureDocument.ts";
 import type { SpriteCel, SpriteDocument } from "../../../src/view/spriteDocument.ts";
 import type { CelRef } from "../../../src/studio/sprite/spriteOperations.ts";
@@ -12,10 +11,12 @@ import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 
-/** One chip above the Ask box: what the request may change, or what it may not. */
+/** One chip above the Ask box: what the request may change, or what it keeps. */
 export interface ScopeChip {
   readonly text: string;
   readonly lock: boolean;
+  /** The whole list, when the text sums it up. */
+  readonly title?: string;
 }
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
@@ -40,21 +41,21 @@ export function labelList(labels: readonly string[]): string {
   return `${labels[0]} and ${labels.length - 1} more`;
 }
 
-/** Room Studio: the selected items, the locked planes and the Walk lens depth rule. */
-export function pictureScopeChips(input: {
-  readonly labels: readonly string[];
-  readonly lockedPlanes: readonly PicturePlane[];
-  readonly depthValuesLocked: boolean;
-}): ScopeChip[] {
+/**
+ * Room Studio: the selected items, by name for one and "These 3 items" for
+ * several (the names on its tooltip). The lens's locks are the lock chip's
+ * to say (StudioLockChip.vue), the same one the lens tabs carry.
+ */
+export function pictureScopeChips(labels: readonly string[]): ScopeChip[] {
+  if (labels.length === 0) return [];
   return [
-    { text: `Only: ${labelList(input.labels)}`, lock: false },
-    ...(input.lockedPlanes.includes("visual") ? [{ text: "Art is locked", lock: true }] : []),
-    ...(input.lockedPlanes.includes("priority") ? [{ text: "Depth is locked", lock: true }] : []),
-    ...(input.depthValuesLocked ? [{ text: "Depth values locked (Walk view)", lock: true }] : []),
+    labels.length === 1
+      ? { text: labels[0]!, lock: false }
+      : { text: `These ${labels.length} items`, lock: false, title: labels.join(", ") },
   ];
 }
 
-/** Sprite Studio: the selected cels of one loop and the loops kept as they are. */
+/** Sprite Studio: the selected cels of one loop, "Cel 0 · Loop 1", and the loops kept as they are. */
 export function viewScopeChips(input: {
   readonly targetCels: readonly CelRef[];
   readonly protectedLoops: readonly number[];
@@ -62,11 +63,11 @@ export function viewScopeChips(input: {
   const loops = [...new Set(input.targetCels.map(({ loop }) => loop))];
   const only = loops.map((loop) => {
     const cels = input.targetCels.filter((ref) => ref.loop === loop).map(({ cel }) => cel);
-    return `loop ${loop}, ${cels.length === 1 ? "cel" : "cels"} ${numberList(cels)}`;
+    return `${cels.length === 1 ? "Cel" : "Cels"} ${numberList(cels)} · Loop ${loop}`;
   });
   const kept = input.protectedLoops;
   return [
-    { text: `Only ${only.join("; ")}`, lock: false },
+    ...only.map((text) => ({ text, lock: false })),
     ...(kept.length
       ? [
           {
@@ -184,8 +185,8 @@ export function walkableWords(walkable: { readonly before: number; readonly afte
 } {
   const { before, after } = walkable;
   return {
-    line: `Where the player can stand (estimate): ${before} → ${plural(after, "cell")} in the selection`,
-    unchanged: before === after ? "This doesn't change where the player can stand." : null,
+    line: `Floor (estimate): ${before} → ${plural(after, "cell")} in the selection`,
+    unchanged: before === after ? "The floor stays as it was." : null,
   };
 }
 

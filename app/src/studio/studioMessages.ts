@@ -7,20 +7,6 @@
 
 import type { EditOperation } from "../../../src/studio/editOperations.ts";
 import type { PictureDocument } from "../../../src/studio/pictureDocument.ts";
-import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
-
-const LEAVES = "it would leave the picture";
-
-/** The way a point at x,y lies off the picture, or null when it is on it or off two ways. */
-function direction(x: number, y: number): string | null {
-  const ways = [
-    x < 0 && "left",
-    x >= SCREEN_WIDTH && "right",
-    y < 0 && "up",
-    y >= SCREEN_HEIGHT && "down",
-  ].filter((way) => way !== false);
-  return ways.length === 1 ? ways[0]! : null;
-}
 
 /** Kernel refusal patterns, first match wins, each with its plain sentence. */
 const PLAIN: readonly (readonly [
@@ -28,14 +14,11 @@ const PLAIN: readonly (readonly [
   (match: RegExpMatchArray, op: EditOperation) => string,
 ])[] = [
   [
-    /off the surface at (-?\d+),(-?\d+)/,
-    (match, op) => {
-      if (op.type === "duplicateItem") return `The copy can't go there: ${LEAVES}.`;
-      const way = direction(Number(match[1]), Number(match[2]));
-      return way ? `Can't move it further ${way}: ${LEAVES}.` : `Can't move it there: ${LEAVES}.`;
-    },
+    /off the surface at -?\d+,-?\d+/,
+    (_match, op) =>
+      op.type === "duplicateItem" ? "The copy would leave the picture." : "The picture ends there.",
   ],
-  [/^point -?\d+,-?\d+ is off the surface/, () => `Can't put the point there: ${LEAVES}.`],
+  [/^point -?\d+,-?\d+ is off the surface/, () => "The point would leave the picture."],
   [/^seed .* off the surface/, () => "A fill has to start inside the picture."],
   [/^plot point .* off the surface/, () => "The brush has to stay inside the picture."],
   [
@@ -53,14 +36,14 @@ const PLAIN: readonly (readonly [
   ],
   [/self-intersects/, () => "A polygon's edges can't cross. Remove the last point or start again."],
   [/draws on neither plane/, () => "Choose an art colour or a depth value to draw with."],
-  [/is inside item/, () => "New shapes can't go inside another object. Move the playhead first."],
+  [/is inside item/, () => "Move the step marker out of this item, then draw."],
   [/continues the command on line/, () => "This would split a drawing command in two."],
   [/in progress/, () => "Finish the current edit first."],
   [
     /not next to each other in the draw order|draws between .* outside any item/,
-    () => "Only neighbours in the draw order can be grouped: select the items between them too.",
+    () => "Group takes neighbours in the draw order. Include the items between them.",
   ],
-  [/needs at least two items/, () => "Select two items or more to group them."],
+  [/needs at least two items/, () => "Select two items or more to group."],
   [/is one drawing element/, () => "This item is one drawing element: it has no parts to ungroup."],
 ];
 
@@ -85,17 +68,16 @@ export function kernelDetail(error: string, document: PictureDocument): string {
   });
 }
 
-/** Where the drawing tools put new shapes: `index` commands draw before them, of `commands`. */
-export function insertionText(index: number, commands: number): string {
-  if (commands === 0) return "New shapes are drawn first.";
-  if (index >= commands) return `New shapes are drawn last, after step ${commands}.`;
-  const where = index === 0 ? `first, before step 1` : `after step ${index}`;
-  return `New shapes are drawn ${where} of ${commands} (use the draw order to change where).`;
+/** Where the drawing tools put new shapes: `index` steps draw before them, of `steps`. */
+export function insertionText(index: number, steps: number): string {
+  if (steps === 0) return "New shapes are the first steps.";
+  if (index >= steps) return `New shapes go last, after step ${steps}, on top of everything.`;
+  const where = index === 0 ? "first, before step 1" : `after step ${index}`;
+  return `New shapes go ${where} of ${steps}; the steps after them paint over them.`;
 }
 
 /** insertionText for the options bar: where new shapes go, in a few words. */
-export function insertionShort(index: number, commands: number): string {
-  if (commands === 0) return "Draws first";
-  if (index >= commands) return `Draws last, after step ${commands}`;
-  return index === 0 ? `Draws first of ${commands}` : `Draws after step ${index} of ${commands}`;
+export function insertionShort(index: number, steps: number): string {
+  if (steps === 0 || index === 0) return "Before step 1";
+  return `After step ${Math.min(index, steps)}`;
 }

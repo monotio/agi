@@ -10,7 +10,7 @@
  * members, a marquee adds the items inside it, and Shift+Alt+arrows grow or
  * shrink a run of neighbours from where it started. `itemIds` is what the
  * selection covers, in draw order; a single row (an item or a group) stays
- * `selectedId`, and two rows or more read as one "N items selected" row.
+ * `selectedId`, and two rows or more read as one "N items" row.
  */
 
 import { computed, ref, shallowRef, toValue, type MaybeRefOrGetter } from "vue";
@@ -33,11 +33,11 @@ export interface StudioSelectionOptions {
 /** Row id of a selection of two rows or more (not a valid item id). */
 const SEVERAL = "(selection)";
 
-/** "Bench, depth, 4 commands". */
+/** "Bench, depth, 4 steps". */
 export function describeRow(row: Pick<SceneRow, "label" | "kind" | "entries">): string {
   const n = row.entries.length;
   const kind = row.kind === "loose" ? "not in an item" : row.kind;
-  return `${row.label}, ${kind}, ${n} ${n === 1 ? "command" : "commands"}`;
+  return `${row.label}, ${kind}, ${n} ${n === 1 ? "step" : "steps"}`;
 }
 
 export function useStudioSelection({
@@ -98,7 +98,7 @@ export function useStudioSelection({
     const [kind] = kinds;
     return {
       id: SEVERAL,
-      label: `${itemIds.value.length} items selected`,
+      label: `${itemIds.value.length} items`,
       kind: kinds.size === 1 && kind !== undefined ? kind : "mixed",
       locked: parts.every((row) => row.locked),
       entries: [...new Set(parts.flatMap((row) => row.entries))].sort((a, b) => a - b),

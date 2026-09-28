@@ -7,7 +7,7 @@
 
 import { computed } from "vue";
 import { pictureCommandText } from "../../../src/studio/pictureDocument.ts";
-import { priorityMeaning, tickFor } from "./studioView.ts";
+import { tickFor } from "./studioView.ts";
 import type { StudioDocument } from "./useStudioDocument.ts";
 import type { StudioSelection } from "./useStudioSelection.ts";
 
@@ -68,11 +68,13 @@ export function useStudioReadout(options: {
   });
   const labelOf = (id: string): string =>
     [...model.value.rows, ...model.value.folds].find((row) => row.id === id)?.label ?? id;
+  /** The pixel in plain words: where, its colour and depth, and the step that last drew it. */
   const status = computed(() => {
     const info = pixel.value;
-    if (!info) return "Point at a pixel to read it";
-    // Which command wrote the pixel is the Pixel inspector's to say.
-    return `x ${info.x}  y ${info.y} · visual ${info.visual.value} · priority ${info.priority.value} (${priorityMeaning(info.priority.value)})`;
+    if (!info) return "Point at a pixel";
+    const writer = info.visual.entry ?? info.priority.entry;
+    const step = writer === null ? "" : ` · step ${writer + 1}`;
+    return `x ${info.x} y ${info.y} · colour ${info.visual.value} · depth ${info.priority.value}${step}`;
   });
 
   return { ticks, current, drawn, single, commands, pixel, fill, labelOf, status };

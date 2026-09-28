@@ -7,9 +7,9 @@ import type { KeepBanner, KeepRecovery } from "./useStudioKeep.ts";
 /**
  * Studio's messages, in the status line where they never cover the
  * picture: a failed Keep with the one recovery it allows, else the last
- * edit's notice (why it was refused, or what it did) with its technical
- * detail behind a disclosure that opens above the line. Each has its own
- * close button.
+ * edit's notice (why it was refused, or what it did) with the step it
+ * offers and its technical detail behind a disclosure that opens above the
+ * line. Each has its own close button.
  */
 const { banner, notice } = defineProps<{
   banner: KeepBanner | null;
@@ -61,6 +61,13 @@ const RECOVERY_LABELS: Record<KeepRecovery, string> = {
     role="status"
   >
     <span class="status-notice__text" data-testid="studio-notice">{{ notice.text }}</span>
+    <UiButton
+      v-if="notice.action"
+      size="sm"
+      data-testid="studio-notice-action"
+      @click="notice.action.run()"
+      >{{ notice.action.label }}</UiButton
+    >
     <details v-if="notice.detail" class="status-notice__details" data-testid="studio-notice-detail">
       <summary>Details</summary>
       <p>{{ notice.detail }}</p>

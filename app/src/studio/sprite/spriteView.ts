@@ -25,7 +25,7 @@ export interface CelRect {
   readonly height: number;
 }
 
-const FACINGS = ["Right-facing", "Left-facing", "Front-facing", "Back-facing"];
+const FACINGS = ["Right", "Left", "Front", "Back"];
 
 /**
  * The facing the interpreter's motion picks a loop for: loops 0 and 1 face
@@ -378,12 +378,19 @@ export function swatchInk(colour: number): "var(--agi-0)" | "var(--agi-15)" {
 }
 
 /**
- * The top bar's usage chip: one room or logic by number, several by count
- * ("Used by 7 rooms"); the side panel lists them (SpriteMirrorNote).
+ * The top bar's usage chip: up to three rooms or logics by number ("Rooms 1,
+ * 2, 3"), more by count ("7 rooms"); its tooltip has them all (usageText).
+ * Logic that picks views at runtime may use the view elsewhere too: the
+ * chip then ends in "…".
  */
 export function usageChip(usage: ViewUsage): string {
-  const { rooms, logics } = usage;
-  if (rooms.length > 1) return `Used by ${rooms.length} rooms`;
-  if (rooms.length === 0 && logics.length > 1) return `Used by ${logics.length} logics`;
-  return usageText(usage);
+  const { rooms, logics, dynamic } = usage;
+  const more = dynamic ? " …" : "";
+  const list = (noun: string, numbers: readonly number[]): string =>
+    numbers.length > 3
+      ? `${numbers.length} ${noun}s`
+      : `${noun[0]!.toUpperCase()}${noun.slice(1)}${numbers.length === 1 ? "" : "s"} ${numbers.join(", ")}`;
+  if (rooms.length > 0) return list("room", rooms) + more;
+  if (logics.length > 0) return list("logic", logics) + more;
+  return dynamic ? "Chosen at runtime" : usageText(usage);
 }

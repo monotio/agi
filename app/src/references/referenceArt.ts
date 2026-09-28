@@ -183,6 +183,29 @@ export function roomReference(
   };
 }
 
+/**
+ * A view's reference image as Studio's Ask attaches it: one image for the
+ * character the view draws, stored as a character reference without a pose
+ * manifest or staged VIEW (the shape a kept sheet already has, less its
+ * manifest), so released project records read it unchanged.
+ */
+export function viewReference(
+  id: string,
+  target: number,
+  brief: string,
+  attachedAt: GameIdentity,
+  decoded: DecodedImage,
+): StoredReference {
+  return {
+    id,
+    kind: "character",
+    target,
+    brief,
+    images: [referenceImage(decoded)],
+    attachedAt,
+  };
+}
+
 /** The reference as provider image blocks — the upload's own bytes per image. */
 export function referenceAgentImages(reference: StoredReference): AgentToolImage[] {
   return reference.images.map((image) => {

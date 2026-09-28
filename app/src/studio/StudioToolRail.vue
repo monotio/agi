@@ -46,7 +46,11 @@ const {
   /** The Walk view can add doors: the room's logic is editable. */
   doorsEditable?: boolean;
 }>();
-const emit = defineEmits<{ probe: []; values: [patch: Partial<CurrentValues>] }>();
+const emit = defineEmits<{
+  probe: [];
+  values: [patch: Partial<CurrentValues>];
+  unlocks: [next: LensUnlocks];
+}>();
 const tool = defineModel<StudioTool>("tool", { required: true });
 interface RailTool {
   readonly id: StudioTool;
@@ -58,8 +62,8 @@ interface RailTool {
 }
 const GROUPS: readonly (readonly RailTool[])[] = [
   [
-    { id: "select", icon: "select", label: "Select and move" },
-    { id: "point", icon: "spline", label: "Points only" },
+    { id: "select", icon: "select", label: "Select" },
+    { id: "point", icon: "spline", label: "Points" },
   ],
   [
     { id: "line", icon: "line", label: "Line", draws: true },
@@ -67,7 +71,7 @@ const GROUPS: readonly (readonly RailTool[])[] = [
     { id: "polygon", icon: "polygon", label: "Polygon", draws: true },
     { id: "fill", icon: "fill", label: "Fill", draws: true },
     { id: "brush", icon: "brush", label: "Brush", draws: true },
-    { id: "pipette", icon: "pipette", label: "Pick colour and priority" },
+    { id: "pipette", icon: "pipette", label: "Pipette" },
   ],
 ];
 /** The Walk view's own tools: a test walk the game runs, and the room's doors. */
@@ -80,11 +84,11 @@ const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUP
 /** Why a tool is off, on its tooltip; its name and key while it is on. */
 const PAUSED = "Drawing waits while the picture is view only or an AI proposal is open";
 const NEEDS_LOGIC = "This room's script holds its exits: edit them as text";
-const PROBE_NEEDS_VIEWS = "Probe: the game needs a VIEW to stand on the picture";
+const PROBE_NEEDS_VIEWS = "Ghost · G (this game has no characters)";
 function toolTitle(entry: RailTool): string {
   if ((entry.draws || entry.doors) && frozen) return PAUSED;
   if (entry.doors && !doorsEditable) return NEEDS_LOGIC;
-  return `${entry.label} (${TOOL_SHORTCUTS[entry.id]})`;
+  return `${entry.label} · ${TOOL_SHORTCUTS[entry.id]}`;
 }
 
 const scroller = useTemplateRef("scroller");
@@ -161,11 +165,11 @@ watch(scroller, (el) => {
           <div class="tool-rail__tool">
             <UiIconButton
               icon="actor"
-              label="Probe"
+              label="Ghost"
               :shortcut="TOOL_SHORTCUTS.probe"
               :pressed="probeActive"
               :disabled="!probeAvailable"
-              :title="probeAvailable ? `Probe (${TOOL_SHORTCUTS.probe})` : PROBE_NEEDS_VIEWS"
+              :title="probeAvailable ? `Ghost · ${TOOL_SHORTCUTS.probe}` : PROBE_NEEDS_VIEWS"
               data-testid="studio-probe-toggle"
               @click="emit('probe')"
             />
@@ -174,7 +178,8 @@ watch(scroller, (el) => {
           <div class="tool-rail__tool">
             <UiIconButton
               icon="hand"
-              label="Pan (or hold Space)"
+              label="Hand"
+              title="Hand · H · or hold Space"
               :shortcut="TOOL_SHORTCUTS.hand"
               :pressed="tool === 'hand'"
               data-tool="hand"
@@ -218,6 +223,7 @@ watch(scroller, (el) => {
       :values
       :cursor-y="cursorY"
       @values="emit('values', $event)"
+      @unlocks="emit('unlocks', $event)"
     />
   </aside>
 </template>

@@ -169,7 +169,7 @@ test("a test walk to the lab's west edge steps across it and certifies that exit
   const studio = await openRoomStudio(page, 2);
   await page.keyboard.press("3");
   const westEdge = studio.getByTestId("walk-door").filter({ hasText: "west edge" });
-  await expect(westEdge.getByTestId("walk-door-kind")).toHaveText("in script");
+  await expect(westEdge.getByTestId("walk-door-kind")).toHaveText("In script");
   await westEdge.click();
   const editor = studio.getByTestId("door-editor");
   await expect(editor.getByTestId("door-tested")).toHaveText("Not tested yet");
@@ -382,7 +382,12 @@ test("a door box bound to the doorway moves with it in one Keep; an edge exit re
   await expect(editor.getByTestId("door-way-back")).toHaveText("One way: nothing there leads back");
 
   // Move the doorway 20 px west by pointer: the door box moves with it as it drags.
-  await studio.getByTestId("studio-unlock").click();
+  await studio
+    .locator(".top-bar__lens")
+    .getByTestId("studio-lock-chip")
+    .locator("[data-term]")
+    .click();
+  await page.getByTestId("explain-pop").getByTestId("studio-unlock").click();
   await studio.locator('[data-row="doorway"]').click();
   const [sx, sy] = await cell(page, 120, 110);
   const perCell = ((await page.locator(".studio-pane").last().boundingBox())!.height / 168) * 2;
@@ -449,7 +454,7 @@ test("a test walk uses the live game's flags: a flag-gated door opens once the g
   // The live game has not pressed the plate: the walk passes the shut door into the wall.
   await expect(studio.getByTestId("walk-live-state")).toBeChecked();
   await expect(studio.getByTestId("walk-live-state").locator("xpath=..")).toHaveText(
-    "Start with my current flags and variables",
+    "Use my game state",
   );
   await page.keyboard.press("t");
   await clickCell(page, 108, 150);

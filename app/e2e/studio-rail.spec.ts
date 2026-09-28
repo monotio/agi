@@ -108,7 +108,7 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
   const studio = await openLabStudio(page);
   const top = {
     lens: studio.getByTestId("studio-lens"),
-    size: studio.getByTestId("studio-bytes"),
+    lock: studio.locator(".top-bar__lens").getByTestId("studio-lock-chip"),
     undo: studio.getByTestId("studio-undo"),
     status: studio.getByTestId("studio-draft-status"),
     keep: studio.getByTestId("studio-keep"),
@@ -136,12 +136,9 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
           expect(overlaps(boxA, boxB), `${lens}: ${a} overlaps ${b}`).toBe(false);
     }
   }
-  // The Walk legend is a row of the Walk panel; the footer carries the size
-  // the top bar had no room for.
+  // The Walk legend is a row of the Walk panel; the status bar carries the size.
   await expect(studio.locator('.studio__inspector [data-role="control-legend"]')).toBeVisible();
-  await expect(studio.getByTestId("studio-size")).toHaveText(
-    /^[\d,]+ bytes · [\d,]+ drawing commands$/,
-  );
+  await expect(studio.getByTestId("studio-size")).toHaveText(/^[\d,]+ bytes · [\d,]+ steps$/);
   await page.screenshot({ path: test.info().outputPath("studio-walk-1024x600.png") });
   await page.keyboard.press("1");
   await studio.locator('[data-row="west-wall"]').click();

@@ -170,14 +170,14 @@ test("a Scene label ellipsizes before the numbers that tell rows apart, never in
   });
 });
 
-test("a picture's size in plain words: bytes and drawing commands, thousands separated", () => {
+test("a picture's size in plain words: bytes and steps, thousands separated", () => {
   assert.deepEqual(pictureSize(1148, 219), {
     bytes: "1,148 bytes",
-    commands: "219 drawing commands",
-    full: "1,148 bytes · 219 drawing commands",
+    commands: "219 steps",
+    full: "1,148 bytes · 219 steps",
   });
-  assert.equal(pictureSize(1, 1).full, "1 byte · 1 drawing command");
-  assert.equal(pictureSize(12000, 4000).full, "12,000 bytes · 4,000 drawing commands");
+  assert.equal(pictureSize(1, 1).full, "1 byte · 1 step");
+  assert.equal(pictureSize(12000, 4000).full, "12,000 bytes · 4,000 steps");
 });
 
 test("a marquee takes the items whose every cell lies inside it", () => {

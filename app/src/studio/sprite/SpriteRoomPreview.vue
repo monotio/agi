@@ -8,6 +8,10 @@ import type { SpriteCel } from "../../../../src/view/spriteDocument.ts";
 import { createPictureSurface, SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../../src/types.ts";
 import { forEachPaintedPixel, type ViewCel } from "../../../../src/view/view.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
+import UiButton from "../../ui/UiButton.vue";
+import UiExplain from "../../ui/UiExplain.vue";
+import { explain } from "../studioTerms.ts";
+import { useShortWindow } from "./useShortWindow.ts";
 import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
 
 /**
@@ -15,8 +19,10 @@ import type { SpriteRoom } from "../../shell/useCreateWorkspace.ts";
  * picture rendered by the engine's renderer, the cel placed by the engine's
  * own blit with its baseline band's priority (src/studio/probe.ts, the same
  * probe as Room Studio's ghost actor), so pixels the room's priority hides
- * show hidden, and the footprint's control verdict. Drag, click or the
- * arrow keys move it; the room picker lists the rooms that use the view.
+ * show hidden: "Depth 11 at y 120 · fully visible", and a warning when its
+ * feet touch a walk line. Drag, click or the arrow keys move it; the room
+ * picker lists the rooms that use the view. A short window shows the verdict
+ * alone, with the room itself behind Show (useShortWindow.ts).
  */
 const {
   rooms,
@@ -32,6 +38,9 @@ const {
   priorityBase?: number | undefined;
 }>();
 
+const short = useShortWindow();
+/** The room shown in a short window, where it starts hidden. */
+const shown = shallowRef(false);
 const room = shallowRef(rooms[0]?.room);
 watch(
   () => rooms,
@@ -93,16 +102,14 @@ const verdict = computed(() => {
   const drawn = r.drawnMask.reduce((sum, value) => sum + value, 0);
   const hidden = r.hiddenMask.reduce((sum, value) => sum + value, 0);
   const cover =
-    hidden === 0
-      ? "fully visible"
-      : `${hidden} of ${drawn + hidden} pixels behind the room's priority`;
+    hidden === 0 ? "fully visible" : `${hidden} of ${drawn + hidden} pixels behind the room`;
   const touched = r.controlHits.map((hit) => CONTROL_WORDS[hit.value]!);
   const footing =
     touched.length === 0
-      ? "the feet stand on open floor"
-      : `the feet touch ${touched.join(" and ")}${r.footprint.accepted ? "" : ": the game would not let it stand here"}`;
+      ? null
+      : `The feet touch ${touched.join(" and ")}${r.footprint.accepted ? "" : ": the game keeps it from standing here"}.`;
   return {
-    priority: `Priority ${r.drawPriority} at y ${baselineY.value}`,
+    priority: `Depth ${r.drawPriority} at y ${baselineY.value}`,
     cover,
     footing,
     hidden,
@@ -180,6 +187,7 @@ function onKey(event: KeyboardEvent): void {
 <template>
   <section
     class="room-preview"
+    :class="{ 'is-short': short && !shown }"
     aria-labelledby="room-preview-title"
     data-testid="sprite-room-preview"
   >
@@ -196,15 +204,25 @@ function onKey(event: KeyboardEvent): void {
         </option>
       </select>
       <span v-else-if="entry">Room {{ entry.room }}</span>
-      <span class="room-preview__tag">real depth</span>
+      <UiButton
+        v-if="short && picture"
+        variant="ghost"
+        size="sm"
+        class="room-preview__show"
+        :aria-expanded="shown"
+        data-testid="sprite-room-show"
+        @click="shown = !shown"
+        >{{ shown ? "Hide" : "Show" }}</UiButton
+      >
     </header>
     <template v-if="picture && verdict">
       <canvas
+        v-show="!short || shown"
         ref="canvas"
         class="room-preview__canvas"
         tabindex="0"
         role="img"
-        :aria-label="`The cel in room ${entry?.room} at x ${x}, y ${baselineY}. ${verdict.priority}, ${verdict.cover}; ${verdict.footing}. Arrow keys move it.`"
+        :aria-label="`The cel in room ${entry?.room} at x ${x}, y ${baselineY}. ${verdict.priority}, ${verdict.cover}. ${verdict.footing ?? ''} Arrow keys move it.`"
         :data-x="x"
         :data-y="baselineY"
         :data-hidden="verdict.hidden"
@@ -214,7 +232,10 @@ function onKey(event: KeyboardEvent): void {
         @keydown="onKey"
       ></canvas>
       <p class="room-preview__verdict" data-testid="sprite-room-verdict">
-        <b>{{ verdict.priority }}</b> · {{ verdict.cover }}; {{ verdict.footing }}.
+        {{ verdict.priority }} · {{ verdict.cover }} <UiExplain v-bind="explain('depth')" />
+      </p>
+      <p v-if="verdict.footing" class="room-preview__warn" data-testid="sprite-room-footing">
+        {{ verdict.footing }}
       </p>
     </template>
     <p v-else class="room-preview__empty">
@@ -227,12 +248,13 @@ function onKey(event: KeyboardEvent): void {
 .room-preview {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--hairline);
 }
 .room-preview__head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
 }
 .room-preview__head h3 {
@@ -241,6 +263,13 @@ function onKey(event: KeyboardEvent): void {
   font: var(--weight-semibold) var(--text-2xs) / var(--leading) var(--font-sans);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
+}
+.room-preview.is-short {
+  gap: var(--space-2);
+  padding-block: var(--space-3);
+}
+.room-preview__show {
+  margin-left: auto;
 }
 .room-preview__head select {
   height: var(--control-h-sm);
@@ -253,11 +282,6 @@ function onKey(event: KeyboardEvent): void {
 .room-preview__head span {
   color: var(--ink-2);
   font-size: var(--text-xs);
-}
-.room-preview__head .room-preview__tag {
-  margin-left: auto;
-  color: var(--ink-3);
-  font: var(--text-2xs) var(--font-mono);
 }
 .room-preview__canvas {
   width: 100%;
@@ -273,9 +297,18 @@ function onKey(event: KeyboardEvent): void {
   outline-offset: 2px;
 }
 .room-preview__verdict,
-.room-preview__empty {
+.room-preview__empty,
+.room-preview__warn {
   margin: 0;
   color: var(--ink-2);
   font-size: var(--text-xs);
+}
+.room-preview__verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.room-preview__warn {
+  color: var(--warn);
 }
 </style>

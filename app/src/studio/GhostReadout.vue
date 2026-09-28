@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { SCREEN_WIDTH } from "../../../src/types.ts";
+import UiExplain from "../ui/UiExplain.vue";
+import { explain } from "./studioTerms.ts";
 import { CONTROL_VALUES } from "./studioView.ts";
 import type { GhostProbe } from "./useGhostProbe.ts";
 
@@ -41,7 +43,7 @@ const standing = computed(() => {
   const value = probe.picture.value.priority[baselineY.value * SCREEN_WIDTH + cx] ?? 4;
   const control = CONTROL_VALUES[value];
   const label = describeCell?.(cx, baselineY.value);
-  const name = control ? `${control.name} line` : value === 4 ? "background" : `priority ${value}`;
+  const name = control ? `${control.name} line` : value === 4 ? "background" : `depth ${value}`;
   return label ? `${label} · ${name}` : name;
 });
 
@@ -54,7 +56,7 @@ const occluder = computed(() => {
     if (!pixel.hidden) continue;
     const px = pixel.cell % SCREEN_WIDTH;
     const py = (pixel.cell - px) / SCREEN_WIDTH;
-    const name = describeCell?.(px, py) ?? `priority ${priority[pixel.cell]}`;
+    const name = describeCell?.(px, py) ?? `depth ${priority[pixel.cell]}`;
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return [...counts].sort((a, b) => b[1] - a[1])[0]![0];
@@ -87,7 +89,7 @@ const hits = computed(() =>
 const footprintText = computed(() => {
   const footprint = result.value?.footprint;
   if (!footprint) return "";
-  if (footprint.bypassed) return "Anywhere (priority 15)";
+  if (footprint.bypassed) return "Anywhere (depth 15)";
   if (footprint.accepted) {
     const { signal, water } = footprint.controls;
     return `Allowed${signal ? " · signal (f3 for ego)" : ""}${water ? " · all water (f0 for ego)" : ""}`;
@@ -104,10 +106,13 @@ const viewLabel = (number: number, description: string | undefined): string =>
   <section
     class="ghost-readout"
     data-testid="ghost-probe-readout"
-    aria-label="Probe"
+    aria-label="Ghost"
     aria-live="polite"
   >
-    <h2 class="ghost-readout__head">Probe</h2>
+    <div class="ghost-readout__title">
+      <h2 class="ghost-readout__head">Ghost</h2>
+      <UiExplain v-bind="explain('ghost')" />
+    </div>
     <label class="ghost-readout__row">
       <span class="ghost-readout__key">View</span>
       <select v-model="viewNumber" class="ghost-readout__select" data-role="ghost-view">
@@ -122,14 +127,18 @@ const viewLabel = (number: number, description: string | undefined): string =>
       <span class="ghost-readout__hint">←→ cel · ↑↓ loop · ⇧ move</span>
     </p>
     <label class="ghost-readout__row">
-      <span class="ghost-readout__key">Priority</span>
+      <span class="ghost-readout__key ghost-readout__with"
+        >Depth <UiExplain v-bind="explain('depth')"
+      /></span>
       <select v-model="fixedPriority" class="ghost-readout__select" data-role="ghost-priority">
-        <option value="band">From feet</option>
+        <option value="band">Band at the feet</option>
         <option v-for="p in PRIORITIES" :key="p" :value="p">Fixed {{ p }}</option>
       </select>
     </label>
     <p class="ghost-readout__row" data-role="ghost-band">
-      <span class="ghost-readout__key">Feet</span>
+      <span class="ghost-readout__key ghost-readout__with"
+        >Feet <UiExplain v-bind="explain('feet')"
+      /></span>
       <span
         >x {{ x }} y {{ baselineY }} → band {{ result?.bandPriority
         }}<template v-if="result && fixedPriority !== 'band'">
@@ -160,7 +169,7 @@ const viewLabel = (number: number, description: string | undefined): string =>
         {{ hit.value }} · {{ hit.name }}: x {{ hit.runs }} at y {{ hit.cells[0]!.y }}
       </p>
       <p v-if="hits.length === 0" class="ghost-readout__hit ghost-readout__hit--none">
-        Clear under the feet
+        No walk lines under the feet
       </p>
     </div>
   </section>
@@ -180,8 +189,19 @@ const viewLabel = (number: number, description: string | undefined): string =>
 .ghost-readout p {
   margin: 0;
 }
-.ghost-readout__head {
+.ghost-readout__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   margin: 0 0 var(--space-2);
+}
+.ghost-readout__with {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.ghost-readout__head {
+  margin: 0;
   color: var(--ink-3);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-caps);

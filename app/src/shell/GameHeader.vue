@@ -113,7 +113,7 @@ const helpActions = computed<HelpActionKind[]>(() => {
  */
 const helpLessons = shallowRef<LessonSet | undefined>();
 let helpLessonsAsked = 0;
-function openHelp(section?: string): void {
+function openHelp(section?: string, topic?: string): void {
   const game = state.phase === "running" ? currentGame() : null;
   const release =
     game && !game.installed
@@ -131,7 +131,7 @@ function openHelp(section?: string): void {
     .then((set) => {
       if (asked === helpLessonsAsked) helpLessons.value = set;
     });
-  helpGuide.value?.open(section);
+  helpGuide.value?.open(section, topic);
 }
 bridge.openHelp = openHelp;
 
