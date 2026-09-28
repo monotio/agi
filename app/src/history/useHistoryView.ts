@@ -1213,8 +1213,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         const pct = total > 0 ? Math.round((flatPosition() / total) * 100) : 0;
         return `Room ${v.room} · ${pct}%${v.seeking ? " · replaying…" : ""}`;
       }
-      if (v.parked) return "Paused";
-      // Live: the LIVE button already says so.
+      // Live or paused at LIVE: the LIVE and Resume buttons already say so.
       return undefined;
     },
     posTestid: "history-pos",

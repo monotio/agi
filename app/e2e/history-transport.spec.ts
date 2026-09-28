@@ -139,6 +139,8 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await pause.click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect.poll(async () => (await viewState(page))?.parked).toBe(true);
+  // Paused at LIVE, Resume carries the state: no card floats over the game.
+  await expect(page.locator(".transport-secondary:visible")).toHaveCount(0);
   await page.getByTestId("btn-transport-resume").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
