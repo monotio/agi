@@ -417,7 +417,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
       bad: { room: 99 },
     },
   };
-  // The Studio pair runs against a creator's selection: the river-and-bridge
+  // The Studio tools run against a creator's selection: the river-and-bridge
   // fixture in the Walk lens, attached to the shared deps below.
   const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
   const studio = createStudioAssist({
@@ -473,6 +473,11 @@ test("every catalog tool produces bounded binary-free transport on real success 
   cases["propose_edit"] = {
     good: proposal(draftRevision({ kind: "picture", source: BRIDGE_SOURCE })),
     bad: proposal("picture-1-00000000"),
+  };
+  // After propose_edit's candidate: the first call withdraws it, the second finds none.
+  cases["withdraw_edit"] = {
+    good: { reason: "It cannot meet the request." },
+    bad: { reason: "It cannot meet the request." },
   };
   const directCases = cases;
   for (const [name, value] of Object.entries(directCases)) {
@@ -559,6 +564,7 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "run_game_tests",
     "update_world",
     "view_reference",
+    "withdraw_edit",
     "write_game_tests",
     "write_inventory_objects",
     "write_logic_source",
