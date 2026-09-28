@@ -22,6 +22,7 @@ import {
   pictureItemAtLine,
 } from "../../../src/studio/pictureDocument.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
+import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
 import { engineKey } from "../engine/engineContext.ts";
@@ -114,7 +115,7 @@ import { useStudioReadout } from "./useStudioReadout.ts";
 import { useStudioSelection } from "./useStudioSelection.ts";
 import { useStudioTools } from "./useStudioTools.ts";
 import { useStudioViewport } from "./useStudioViewport.ts";
-import { useRoomLogicDraft } from "./useRoomLogicDraft.ts";
+import { unfollowedText, useRoomLogicDraft, type Unfollowed } from "./useRoomLogicDraft.ts";
 import { DEFAULT_EGO, useStudioWalk, type EgoShape } from "./useStudioWalk.ts";
 import { useUndoOrder } from "./useUndoOrder.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
@@ -264,6 +265,15 @@ const logic = useRoomLogicDraft({
       : null,
   session: () => ruleSession.value,
 });
+/** Doors that follow picture art: Group and Ungroup keep them following. */
+const followingDoors = computed(() =>
+  logic.rules.value.flatMap(({ rule }) =>
+    rule.item === null ? [] : [{ item: rule.item, label: rule.label }],
+  ),
+);
+/** The art a door follows, by name: an item, or a member inside a group. */
+const followLabel = (id: string): string =>
+  followedItem(draft.document.value, id)?.label ?? labelOf(id);
 /** The picture as last kept: door boxes are stored in its frame. */
 const keptDocument = computed(() => parsePictureDocument(draft.kept.value.source).document);
 /** The logic takes part in a Keep: it changed, or a door follows the art. */
@@ -284,6 +294,8 @@ const room = {
 };
 /** The authoring content the draft was opened or last kept on. */
 let keptAuthoring = baseAuthoring;
+/** Doors the last Keep stopped following art that is gone: its notice names them. */
+let unfollowed: readonly Unfollowed[] = [];
 watch(
   () => baseAuthoring,
   (next) => (keptAuthoring = next),
@@ -296,11 +308,17 @@ const keeper = useStudioKeep({
       baseAuthoring: keptAuthoring,
     };
     const pictureChanged = draft.dirty.value;
+    /** The picture this Keep goes from and to: door boxes and their history move between them. */
+    const frames = { before: keptDocument.value, after: draft.document.value };
+    unfollowed = [];
     let result: ResourceCommitResult;
-    if (!logicInKeep() || !walk) result = await commitPicture(edit);
-    else {
+    if (!logicInKeep() || !walk) {
+      result = await commitPicture(edit);
+      const logicKept = logic.kept.value;
+      if (logic.editable.value && logicKept) logic.markKept(logicKept, frames);
+    } else {
       // Doors that follow moved art move with it, in the same transaction.
-      const followed = logic.forKeep(keptDocument.value, draft.document.value);
+      const followed = logic.forKeep(frames.before, frames.after);
       if (!followed.ok || !("bytes" in followed))
         throw new ResourceCommitError(
           "invalid",
@@ -320,7 +338,8 @@ const keeper = useStudioKeep({
         baseAuthoring: keptAuthoring,
         reason: edit.reason,
       });
-      logic.markKept({ source: followed.source, bytes: followed.bytes });
+      logic.markKept({ source: followed.source, bytes: followed.bytes }, frames);
+      unfollowed = followed.unfollowed;
     }
     keptAuthoring = result.authoring;
     if (pictureChanged)
@@ -399,6 +418,7 @@ const editing = useStudioEditing({
   selectItems: selection.selectItems,
   frozen,
   paused: () => assist.holds.value,
+  doors: () => followingDoors.value,
   offer: (check) => {
     const rules = check.violations.map((violation) => violation.rule);
     const [plane] = lockedPlanes(lens.value, unlocks.value);
@@ -425,12 +445,14 @@ const undoOrder = useUndoOrder([
   {
     past: () => draft.history.value.past.length,
     future: () => draft.history.value.future.length,
+    dropped: () => draft.dropped.value,
     undo: editing.undo,
     redo: editing.redo,
   },
   {
     past: () => logic.past.value,
     future: () => logic.future.value,
+    dropped: () => logic.dropped.value,
     undo: () => !frozen() && logic.undo(),
     redo: () => !frozen() && logic.redo(),
   },
@@ -569,7 +591,7 @@ const walker = useStudioWalk({
   priority: () => shown.value.priority,
   logic,
   labelAt: (x, y) => describeCell(x, y),
-  itemLabel: (id) => draft.document.value.items.find((item) => item.id === id)?.label ?? id,
+  itemLabel: (id) => followedItem(draft.document.value, id)?.label ?? id,
   ego: () => ego.value,
   say: (notice) => editing.say(notice),
   frozen,
@@ -806,9 +828,17 @@ const flagNames = computed(() =>
     .map(([name]) => name)
     .sort(),
 );
-const pictureItems = computed(() =>
-  draft.document.value.items.map((item) => ({ id: item.id, label: item.label })),
-);
+const pictureItems = computed(() => {
+  const document = draft.document.value;
+  const items = document.items.map((item) => ({ id: item.id, label: item.label }));
+  // A door following a member inside a group still names it.
+  for (const { item } of followingDoors.value) {
+    if (items.some((entry) => entry.id === item)) continue;
+    const member = followedItem(document, item);
+    if (member) items.push({ id: item, label: member.label });
+  }
+  return items;
+});
 /** The picture item at a cell (its art, else its depth or walk lines): what a door can follow. */
 function itemAt(x: number, y: number): string | undefined {
   const id = doc.rowAt(x, y, "visual") ?? doc.rowAt(x, y, "priority");
@@ -925,7 +955,12 @@ const exit = useStudioExit({
   draft: room,
   keeper,
   say: (notice) => editing.say(notice),
-  keptNotice: () => lesson.keptNotice(subject.value),
+  keptNotice: () => {
+    const notice = lesson.keptNotice(subject.value);
+    return unfollowed.length === 0
+      ? notice
+      : { tone: "warn", text: `${notice.text} ${unfollowedText(unfollowed)}` };
+  },
   keepFocus: () => keepFocus(),
   close: () => emit("close"),
   reopen: (fromStorage) => emit("reopen", fromStorage),
@@ -1207,7 +1242,7 @@ function onKeyup(event: KeyboardEvent): void {
               :tool="tools.tool.value"
               :tint="walkTint"
               :item-at="itemAt"
-              :item-label="labelOf"
+              :item-label="followLabel"
               @hover-item="(id) => (selection.listHover.value = id)"
             />
             <StudioToolOverlay v-if="tools.tool.value !== 'select'" v-bind="input.overlay.value" />

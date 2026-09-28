@@ -5,6 +5,8 @@
  * several. Each is one kernel edit (a batch for several items) and one undo
  * step, and the short notice that says what was refused (with the refused
  * cells flashed on the canvas) or kept. Draw order moves one item at a time.
+ * A group takes the id of a member a door follows, so the door follows the
+ * group (src/studio/rules/ruleBinding.ts followedItem).
  */
 
 import { computed, onScopeDispose, shallowRef, type Ref } from "vue";
@@ -16,6 +18,7 @@ import {
   type PictureItemKind,
 } from "../../../src/studio/pictureDocument.ts";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
+import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
 import type { StudioCheck } from "./studioLocks.ts";
 import { freshItemId, itemIdFor, type DraftOutcome, type StudioDraft } from "./useStudioDraft.ts";
 import { useStudioNotice, type NoticeAction } from "./useStudioNotice.ts";
@@ -44,6 +47,8 @@ export function useStudioEditing(options: {
   readonly paused?: () => boolean;
   /** The step a lock refusal offers: Unlock for now, or Allow depth. */
   readonly offer?: (check: StudioCheck) => NoticeAction | undefined;
+  /** Doors that follow a picture item: their label and the item's id. */
+  readonly doors?: () => readonly { readonly item: string; readonly label: string }[];
 }) {
   const { draft, selectedId } = options;
   const { notice, say, dismiss } = useStudioNotice();
@@ -191,7 +196,9 @@ export function useStudioEditing(options: {
     if (list.length < 2) return false;
     const name = label.trim() || "Group";
     const ids = list.map((target) => target.id);
-    const id = itemIdFor(draft.document.value, name, ids);
+    const followed = new Set(options.doors?.().map((door) => door.item));
+    const id =
+      ids.find((member) => followed.has(member)) ?? itemIdFor(draft.document.value, name, ids);
     const outcome = draft.apply(
       { type: "combineItems", itemIds: ids, id, label: name },
       `Group ${name}`,
@@ -217,7 +224,8 @@ export function useStudioEditing(options: {
   function ungroup(): boolean {
     const target = editable.value;
     if (!target || several.value) return false;
-    const before = new Set(draft.document.value.items.map((entry) => entry.id));
+    const was = draft.document.value;
+    const before = new Set(was.items.map((entry) => entry.id));
     const outcome = draft.apply(
       { type: "ungroupItem", itemId: target.id },
       `Ungroup ${target.label}`,
@@ -229,6 +237,16 @@ export function useStudioEditing(options: {
       (entry) => !before.has(entry.id) || entry.id === target.id,
     );
     select(inside.map((entry) => entry.id));
+    // Split into drawing elements, a member a door followed has no id any more.
+    for (const door of options.doors?.() ?? []) {
+      const art = followedItem(was, door.item);
+      if (!art || followedItem(document, door.item)) continue;
+      say({
+        tone: "warn",
+        text: `${door.label} stays put now: Ungroup split ${art.label} into drawing elements.`,
+      });
+      break;
+    }
     return true;
   }
 

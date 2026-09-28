@@ -62,6 +62,8 @@ export interface StudioDraftOptions {
   readonly profile: MaybeRefOrGetter<AgiProfile>;
   readonly lens: MaybeRefOrGetter<StudioLens>;
   readonly unlocks: MaybeRefOrGetter<LensUnlocks>;
+  /** The most undo steps the history keeps; DEFAULT_HISTORY_DEPTH when omitted. */
+  readonly historyDepth?: number;
 }
 
 /** Why an edit did not happen: `message` in plain words, `detail` the technical account. */
@@ -162,7 +164,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const initial = toValue(options.base);
   /** The text and revision the game holds: the last Keep, or what Studio opened. */
   const kept = shallowRef<DraftBase>(initial);
-  const history = shallowRef<EditHistory>(createHistory(initial.source));
+  const history = shallowRef<EditHistory>(createHistory(initial.source, options.historyDepth));
   /** The accepted candidate of the open gesture; null shows the draft itself. */
   const preview = shallowRef<DraftCandidate | null>(null);
   /** The last refusal; cleared by the next accepted edit. */
@@ -195,10 +197,12 @@ export function useStudioDraft(options: StudioDraftOptions) {
   const gesturing = computed(() => history.value.gesture !== undefined);
   const canUndo = computed(() => !gesturing.value && history.value.past.length > 0);
   const canRedo = computed(() => !gesturing.value && history.value.future.length > 0);
+  /** Oldest undo steps the depth cap dropped so far (useUndoOrder `dropped`). */
+  const dropped = computed(() => ({ past: history.value.dropped, future: 0 }));
 
   function reset(base: DraftBase): void {
     kept.value = base;
-    history.value = createHistory(base.source);
+    history.value = createHistory(base.source, options.historyDepth);
     keptDepth.value = 0;
     preview.value = null;
     refusal.value = null;
@@ -401,6 +405,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     gesturing,
     canUndo,
     canRedo,
+    dropped,
     apply,
     adopt,
     evaluate,

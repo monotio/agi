@@ -110,6 +110,46 @@ describe("rules bound to picture items", () => {
     assert.equal(result.source, LOGIC);
   });
 
+  it("follows a member into a group, with the group, and back out on Ungroup", () => {
+    const logic = parseLogicDocument(LOGIC).document;
+    const follow = (before: PictureDocument, after: PictureDocument) => {
+      const result = followPictureEdit(logic, before, after, session);
+      if (!result.ok) assert.fail(result.error);
+      return { moved: result.moved, detached: result.detached.filter((d) => d.rule !== "east") };
+    };
+    // Group gives the group a fresh id; each member lives on as a `# part` inside it.
+    const grouped = edited({
+      type: "combineItems",
+      itemIds: ["doorway", "bust"],
+      id: "entrance",
+      label: "Entrance",
+    });
+    assert.deepEqual(follow(PICTURE, grouped), { moved: [], detached: [] });
+    assert.deepEqual(itemTranslation(PICTURE, grouped, "doorway"), { dx: 0, dy: 0 });
+    // Moving the group moves both members, and both rules with them.
+    const moved = applyEdit(grouped, { type: "moveItem", itemId: "entrance", dx: 10, dy: -5 });
+    if ("error" in moved) assert.fail(moved.error);
+    assert.deepEqual(follow(PICTURE, moved.document), {
+      moved: [
+        { rule: "bust-spot", item: "bust", dx: 10, dy: -5 },
+        { rule: "door-east", item: "doorway", dx: 10, dy: -5 },
+      ],
+      detached: [],
+    });
+    // A group that took the doorway's id still follows the doorway's own lines.
+    const named = edited({
+      type: "combineItems",
+      itemIds: ["doorway", "bust"],
+      id: "doorway",
+      label: "Entrance",
+    });
+    assert.deepEqual(itemTranslation(PICTURE, named, "doorway"), { dx: 0, dy: 0 });
+    // Ungroup gives the members their ids back: nothing moves or detaches.
+    const ungrouped = applyEdit(moved.document, { type: "ungroupItem", itemId: "entrance" });
+    if ("error" in ungrouped) assert.fail(ungrouped.error);
+    assert.deepEqual(follow(moved.document, ungrouped.document), { moved: [], detached: [] });
+  });
+
   it("refuses a move that puts a box off the picture or touches native logic", () => {
     const wide = parseLogicDocument(
       LOGIC.replace("posn(o0, 120, 125, 135, 130)", "posn(o0, 120, 125, 140, 130)"),

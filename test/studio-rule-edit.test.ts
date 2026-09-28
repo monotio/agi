@@ -4,6 +4,7 @@ import { createAgentSessionState, type AgentSessionState } from "../src/agent/ag
 import { playtestRoom } from "../src/agent/playtest.ts";
 import { openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
+import { decodeLogicInsns } from "../src/logic/disassembler.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
 import {
   parseLogicDocument,
@@ -268,6 +269,50 @@ describe("rule edits", () => {
       after.flatMap((line, index) => (line === before[index] ? [] : [[before[index], line]])),
       [["if (posn(o0, 1, 2, 3, 4)) {", "if (posn(o0, 10, 120, 30, 140)) {"]],
     );
+  });
+
+  it("puts a new exit before a final return that shares its line, or refuses", () => {
+    const door: RuleModel = {
+      kind: "exit",
+      edge: null,
+      box: { x1: 10, y1: 120, x2: 30, y2: 140 },
+      destination: 2,
+      requiresFlag: null,
+    };
+    const shared = ROOM.replace("return;", "assignn(v100, 1); return; // done");
+    const { session, document } = yard(shared);
+    const result = applyRuleEdit(
+      document,
+      { op: "addRule", id: "door", label: "Door", model: door },
+      session,
+    );
+    if (!result.ok) assert.fail(result.error);
+    assert.match(
+      result.source,
+      /\nassignn\(v100, 1\);\n\/\/ @rule door "Door" exit\n[^]*\n\/\/ @end\nreturn; \/\/ done\n$/,
+    );
+    // The door runs before the room's final return, every cycle.
+    const order = decodeLogicInsns(result.bytes)
+      .filter((insn) => insn.kind !== "data" && insn.kind !== "goto")
+      .map((insn) => (insn.kind === "if" ? `if ${insn.text}` : (insn.name ?? insn.kind)));
+    assert.deepEqual(order.slice(-4), [
+      "assignn",
+      "if posn(o0, 10, 120, 30, 140)",
+      "new.room",
+      "return",
+    ]);
+    // A label on the line could be a goto target: splitting there changes what runs.
+    const labelled = yard(ROOM.replace("return;", "done: return;"));
+    const refused = applyRuleEdit(
+      labelled.document,
+      { op: "addRule", id: "door", label: "Door", model: door },
+      labelled.session,
+    );
+    assert.deepEqual(refused, {
+      ok: false,
+      error:
+        "The room's final return; shares a line with other code; put it on its own line first.",
+    });
   });
 
   it("refuses native fragments and leaves the document untouched", () => {

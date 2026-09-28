@@ -23,6 +23,11 @@ export interface EditHistory {
   readonly gesture?: HistoryStep;
   /** The most steps `past` keeps; older ones are dropped. */
   readonly depth: number;
+  /**
+   * How many of the oldest steps `past` has dropped at `depth` so far, so a
+   * shared undo order can drop exactly their places (useUndoOrder `dropped`).
+   */
+  readonly dropped: number;
   /** What the snapshots are, as refusals name it ("picture", "sprite"). */
   readonly subject: string;
 }
@@ -39,12 +44,29 @@ export function createHistory(
   subject = "picture",
 ): EditHistory {
   if (!Number.isInteger(depth) || depth < 1) throw new RangeError(`depth must be >= 1`);
-  return { past: [], future: [], current: source, depth, subject };
+  return { past: [], future: [], current: source, depth, subject, dropped: 0 };
+}
+
+/** The history with these stacks and text, no gesture, `past` capped at `depth`. */
+function settle(
+  history: EditHistory,
+  past: readonly HistoryStep[],
+  future: readonly HistoryStep[],
+  current: string,
+): EditHistory {
+  const over = Math.max(0, past.length - history.depth);
+  return {
+    past: past.slice(over),
+    future,
+    current,
+    depth: history.depth,
+    subject: history.subject,
+    dropped: history.dropped + over,
+  };
 }
 
 function push(history: EditHistory, step: HistoryStep, current: string): EditHistory {
-  const past = [...history.past, step].slice(-history.depth);
-  return { past, future: [], current, depth: history.depth, subject: history.subject };
+  return settle(history, [...history.past, step], [], current);
 }
 
 const stale = (history: EditHistory, actual: string, action: string): HistoryResult | null =>
@@ -83,15 +105,8 @@ export function begin(history: EditHistory, label: string): EditHistory {
 export function commit(history: EditHistory): EditHistory {
   const { gesture } = history;
   if (!gesture) return history;
-  if (gesture.source === history.current) {
-    return {
-      past: history.past,
-      future: history.future,
-      current: history.current,
-      depth: history.depth,
-      subject: history.subject,
-    };
-  }
+  if (gesture.source === history.current)
+    return settle(history, history.past, history.future, history.current);
   return push(history, gesture, history.current);
 }
 
@@ -104,13 +119,12 @@ export function undo(history: EditHistory, actual: string): HistoryResult {
   if (!step) return { ok: false, reason: "nothing to undo" };
   return {
     ok: true,
-    history: {
-      past: history.past.slice(0, -1),
-      future: [{ label: step.label, source: history.current }, ...history.future],
-      current: step.source,
-      depth: history.depth,
-      subject: history.subject,
-    },
+    history: settle(
+      history,
+      history.past.slice(0, -1),
+      [{ label: step.label, source: history.current }, ...history.future],
+      step.source,
+    ),
     source: step.source,
   };
 }
@@ -124,13 +138,12 @@ export function redo(history: EditHistory, actual: string): HistoryResult {
   if (!step) return { ok: false, reason: "nothing to redo" };
   return {
     ok: true,
-    history: {
-      past: [...history.past, { label: step.label, source: history.current }].slice(-history.depth),
+    history: settle(
+      history,
+      [...history.past, { label: step.label, source: history.current }],
       future,
-      current: step.source,
-      depth: history.depth,
-      subject: history.subject,
-    },
+      step.source,
+    ),
     source: step.source,
   };
 }
@@ -141,10 +154,9 @@ export function cancel(history: EditHistory, actual: string): HistoryResult {
   if (!gesture) return { ok: false, reason: "no edit is in progress" };
   const refusal = stale(history, actual, "cancelling");
   if (refusal) return refusal;
-  const { past, future, depth, subject } = history;
   return {
     ok: true,
-    history: { past, future, current: gesture.source, depth, subject },
+    history: settle(history, history.past, history.future, gesture.source),
     source: gesture.source,
   };
 }
