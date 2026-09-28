@@ -236,7 +236,7 @@ test("studio-ask", async ({ page }) => {
   const studio = await openRoomStudio(page, 1);
   await studio.getByRole("radio", { name: /Walk/ }).click();
   await studio.locator('[data-row="bridge"]').click();
-  await expect(studio.getByTestId("assist-chip").first()).toHaveText("Only: Bridge");
+  await expect(studio.getByTestId("assist-chip").first()).toHaveText("Bridge");
   const input = studio.getByTestId("assist-input");
   await input.fill("Make this bridge walkable without changing the art");
   await input.press("Enter");
@@ -258,6 +258,6 @@ test("sprite-studio", async ({ page }) => {
   await expect(studio).toBeVisible();
   // The wave: cel 2 raises the arm.
   await studio.locator('[data-loop="0"][data-cel="2"]').click();
-  await expect(studio.getByText("Cel 2 of loop 0")).toBeVisible();
+  await expect(studio.getByTestId("sprite-cel-summary")).toHaveText("Cel 2 · Loop 0");
   await shot(page, "sprite-studio");
 });
