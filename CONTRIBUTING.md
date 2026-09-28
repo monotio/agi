@@ -66,10 +66,10 @@ their budgets, or when Studio code or the AI authoring stack (loaded on the
 first AI action through `app/src/agent/authoringLoader.ts`) joins that path, and
 `app/e2e/perf-budgets.spec.ts` bounds boot long tasks and Studio frame and input
 times. Its tests are tagged `@perf`: `npm --prefix app run e2e` leaves them out,
-and `npm --prefix app run e2e:perf` runs them alone on one worker, since a
-machine busy with other tests is not the machine they measure. Change a budget
-only on purpose: edit it beside its measured value and give the reason in the
-commit.
+and `npm --prefix app run e2e:perf` runs them alone on one worker, so no other
+test shares the machine they measure; CI runs them after the first of its four
+Chromium shards. Change a budget only on purpose: edit it beside its measured
+value and give the reason in the commit.
 
 ### Editor setup
 
@@ -134,8 +134,8 @@ each folder holds one responsibility:
 
 Three boundaries carry every feature. The Vue shell on the main thread owns the
 page; the engine worker owns the interpreter and its clock; the engine in
-`src/` is plain TypeScript with no platform access. The AI authoring stack is
-not on that path at all: `authoringLoader.ts` imports it on the first AI action.
+`src/` is plain TypeScript with no platform access. The AI authoring stack
+loads on demand: `authoringLoader.ts` imports it on the first AI action.
 
 ```mermaid
 flowchart LR

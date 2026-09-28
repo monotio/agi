@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, reviewShot, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { enterCreateMode, openGameOptions, waitForRoom } from "./engineProbe.ts";
 
@@ -11,7 +11,7 @@ import { enterCreateMode, openGameOptions, waitForRoom } from "./engineProbe.ts"
  * "30-second tour" link starts it, and it marks nothing seen. Every mark sits
  * beside its chrome, clear of the picture and the cel, at 1440×900 and
  * 1024×600. Other specs start with the tour seen (test.ts); this one starts
- * fresh. Set AGI_TOUR_SHOTS to a folder to keep each mark's screenshot there.
+ * fresh.
  */
 test.use({ studioTour: "fresh", viewport: { width: 1440, height: 900 } });
 
@@ -193,7 +193,6 @@ async function walkMarks(
   size: string,
 ): Promise<void> {
   const viewport = page.viewportSize()!;
-  const folder = process.env["AGI_TOUR_SHOTS"];
   for (let step = 1; step <= 3; step++) {
     const mark = tourMark(page);
     await expect(mark.getByTestId("studio-tour-step")).toHaveText(`${step} of 3`);
@@ -204,11 +203,7 @@ async function walkMarks(
     expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
-    const name = `${studio}-${size}-mark-${step}.png`;
-    await page.screenshot({
-      path: folder ? `${folder}/${name}` : test.info().outputPath(name),
-      animations: "disabled",
-    });
+    await reviewShot(page, `${studio}-${size}-mark-${step}`);
     await mark.getByRole("button", { name: step === 3 ? "Done" : "Next" }).click();
   }
   await expect(tourMark(page)).toHaveCount(0);

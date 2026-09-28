@@ -14,7 +14,7 @@
  *   clears the selection
  * - `,` `.` the previous and next cel, `<` `>` the previous and next loop
  * - + - 0 zoom; Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z (or Ctrl+Y) redo
- * - `/` focuses "Ask about this selection" (StudioAssistPanel.vue); `?`
+ * - `/` focuses Ask (StudioAssistPanel.vue); `?`
  *   opens the key sheet (StudioKeySheet.vue)
  */
 

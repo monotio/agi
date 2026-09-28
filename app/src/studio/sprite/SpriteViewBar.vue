@@ -139,13 +139,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
         </label>
         <div class="sprite-view-bar__depth">
           <span>Cels</span>
-          <UiSegmented
-            v-model="depthText"
-            size="sm"
-            label="Onion skin cels"
-            :options="DEPTHS"
-            data-testid="sprite-onion-depth"
-          />
+          <UiSegmented v-model="depthText" size="sm" label="Onion skin cels" :options="DEPTHS" />
         </div>
       </div>
     </span>
@@ -165,7 +159,6 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
           type="button"
           class="sprite-view-bar__toggle"
           :aria-pressed="baseline"
-          data-testid="sprite-baseline-toggle"
           @click="baseline = !baseline"
         >
           Baseline
@@ -184,32 +177,19 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
     </template>
     <ActionMenu v-if="fold > 0" label="More" test-id="sprite-view-more">
       <template v-if="!sheet">
-        <button
-          type="button"
-          role="menuitemcheckbox"
-          :aria-checked="grid"
-          data-testid="sprite-more-grid"
-          @click="grid = !grid"
-        >
+        <button type="button" role="menuitemcheckbox" :aria-checked="grid" @click="grid = !grid">
           <UiIcon name="check" :size="16" class="sprite-more__check" />Grid
         </button>
         <button
           type="button"
           role="menuitemcheckbox"
           :aria-checked="baseline"
-          data-testid="sprite-more-baseline"
           @click="baseline = !baseline"
         >
           <UiIcon name="check" :size="16" class="sprite-more__check" />Baseline
         </button>
       </template>
-      <button
-        type="button"
-        role="menuitemcheckbox"
-        :aria-checked="sheet"
-        data-testid="sprite-more-sheet"
-        @click="sheet = !sheet"
-      >
+      <button type="button" role="menuitemcheckbox" :aria-checked="sheet" @click="sheet = !sheet">
         <UiIcon name="check" :size="16" class="sprite-more__check" />All cels
       </button>
       <template v-if="fold > 1">

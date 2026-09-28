@@ -117,14 +117,9 @@ function onKey(event: KeyboardEvent): void {
   >
     <header class="sprite-preview__head">
       <h3 id="sprite-preview-title">Preview</h3>
-      <UiSegmented
-        v-model="pace"
-        label="Preview pace"
-        :options="paces"
-        data-testid="sprite-preview-pace"
-      />
+      <UiSegmented v-model="pace" label="Preview pace" :options="paces" />
     </header>
-    <p v-if="pace === 'step'" class="sprite-preview__pace" data-testid="sprite-preview-speed">
+    <p v-if="pace === 'step'" class="sprite-preview__pace">
       {{ paceText }}
     </p>
     <div
@@ -133,7 +128,6 @@ function onKey(event: KeyboardEvent): void {
       role="group"
       aria-label="Loop preview: the arrow keys step it a cel at a time"
       :title="paceTitle"
-      data-testid="sprite-preview-panes"
       @keydown="onKey"
     >
       <figure
@@ -141,7 +135,6 @@ function onKey(event: KeyboardEvent): void {
         :key="pane.index"
         class="sprite-preview__pane"
         :data-loop="pane.index"
-        data-testid="sprite-preview-pane"
       >
         <figcaption>{{ pane.label }}</figcaption>
         <SpriteThumb :cel="pane.cel" :width="116" :height="short ? 40 : 88" />

@@ -27,7 +27,7 @@ const MODES = [
 
 <template>
   <div v-if="lens !== 'art'" class="view-bar" role="toolbar" aria-label="View">
-    <ActionMenu v-if="fold >= 3" label="View" test-id="studio-view-more">
+    <ActionMenu v-if="fold >= 3" label="View">
       <button
         v-for="choice in MODES"
         :key="choice.value"

@@ -133,7 +133,7 @@ const roomChoices = computed(() => {
     <section class="walk-panel__sec">
       <h3>Walk</h3>
       <label class="walk-panel__check">
-        <input v-model="tint" type="checkbox" data-testid="walk-tint-toggle" />
+        <input v-model="tint" type="checkbox" />
         <i class="walk-panel__swatch" aria-hidden="true"></i>
         <span>Floor <em>(estimate)</em></span>
         <UiExplain v-bind="explain('floor-estimate')" />
@@ -179,7 +179,6 @@ const roomChoices = computed(() => {
           icon="footprints"
           shortcut="T"
           :aria-pressed="tool === 'walk'"
-          data-testid="walk-tool"
           @click="emit('tool', tool === 'walk' ? 'select' : 'walk')"
         >
           {{ tool === "walk" ? "Choosing…" : "Start" }}
@@ -195,7 +194,7 @@ const roomChoices = computed(() => {
         <span>{{ WALK_STATE_LABEL }}</span>
         <UiExplain v-bind="explain('game-state')" />
       </label>
-      <p class="walk-panel__prompt" aria-live="polite" data-testid="walk-prompt">
+      <p class="walk-panel__prompt" aria-live="polite">
         {{
           walk.running.value
             ? "Walking…"
@@ -222,11 +221,7 @@ const roomChoices = computed(() => {
         <p class="walk-panel__note" data-testid="walk-result-state">
           {{ walkStateText(result.state) }}
         </p>
-        <p
-          v-if="walk.resultStale.value"
-          class="walk-panel__note is-stale"
-          data-testid="walk-result-stale"
-        >
+        <p v-if="walk.resultStale.value" class="walk-panel__note is-stale">
           The room changed since this walk: Test again to check it.
         </p>
         <dl>
@@ -266,7 +261,6 @@ const roomChoices = computed(() => {
         :key="`${problem.line}:${problem.code}`"
         class="walk-panel__fail"
         role="alert"
-        data-testid="door-rule-problem"
       >
         {{ ruleProblemText(problem) }}
       </p>
@@ -351,12 +345,7 @@ const roomChoices = computed(() => {
               >Use</UiButton
             >
           </form>
-          <p
-            v-if="walk.flagError.value"
-            class="walk-panel__fail"
-            role="alert"
-            data-testid="door-flag-error"
-          >
+          <p v-if="walk.flagError.value" class="walk-panel__fail" role="alert">
             {{ walk.flagError.value }}
           </p>
           <template v-if="selected.box">

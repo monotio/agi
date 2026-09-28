@@ -48,7 +48,6 @@ function make(): void {
     size="sm"
     title="Group"
     :description="`The ${count} selected items become one group in the Scene list. The picture stays exactly as it is.`"
-    close-testid="combine-close"
   >
     <form class="combine" data-testid="combine-dialog" @submit.prevent="make">
       <label class="combine__label" :for="fieldId">Name</label>
@@ -82,7 +81,7 @@ function make(): void {
       </p>
     </form>
     <template #footer>
-      <UiButton variant="ghost" data-testid="combine-cancel" @click="open = false">Cancel</UiButton>
+      <UiButton variant="ghost" @click="open = false">Cancel</UiButton>
       <UiButton
         v-if="between.length > 0 && !loose"
         data-testid="combine-include"

@@ -179,7 +179,7 @@ const tabStop = (chosen: number | null | undefined): number =>
     <p class="recolor__count" aria-live="polite" data-testid="sprite-recolor-count">
       {{ summary }}
     </p>
-    <p v-if="clash" class="recolor__warn" data-testid="sprite-recolor-clash">{{ clash }}</p>
+    <p v-if="clash" class="recolor__warn">{{ clash }}</p>
     <p v-else-if="copies" class="recolor__note" data-testid="sprite-recolor-copies">
       {{ copies }}
     </p>

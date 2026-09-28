@@ -61,7 +61,6 @@ const PAUSED = "Drawing waits while the view is view only or an AI proposal is o
       role="img"
       :aria-label="`Colour ${color}, ${EGA_COLOUR_NAMES[color]}`"
       :title="`Colour ${color}, ${EGA_COLOUR_NAMES[color]}`"
-      data-testid="sprite-rail-colour"
     ></span>
     <span class="sprite-rail__sep" aria-hidden="true"></span>
     <div v-for="entry in PICK" :key="entry.id" class="sprite-rail__tool">

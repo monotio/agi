@@ -18,14 +18,7 @@ const emit = defineEmits<{ combine: [] }>();
       <UiButton size="sm" variant="danger" icon="trash" shortcut="Del" @click="edit.remove()"
         >Delete</UiButton
       >
-      <UiButton
-        size="sm"
-        icon="layers"
-        shortcut="⌘G"
-        data-testid="group-combine"
-        @click="emit('combine')"
-        >Group</UiButton
-      >
+      <UiButton size="sm" icon="layers" shortcut="⌘G" @click="emit('combine')">Group</UiButton>
     </div>
   </section>
 </template>

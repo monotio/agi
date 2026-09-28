@@ -76,14 +76,9 @@ function act(): void {
     >
       <p v-if="terse">{{ notice.summary }}</p>
       <p>{{ notice.detail }}</p>
-      <UiButton
-        v-if="notice.action"
-        size="sm"
-        variant="primary"
-        data-testid="bar-notice-pop-action"
-        @click="act"
-        >{{ notice.action }}</UiButton
-      >
+      <UiButton v-if="notice.action" size="sm" variant="primary" @click="act">{{
+        notice.action
+      }}</UiButton>
     </div>
   </span>
 </template>

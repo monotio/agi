@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
 import { STUDIO_TERMS, type StudioTerm } from "../src/studio/studioTerms.ts";
@@ -14,13 +14,6 @@ import { STUDIO_TERMS, type StudioTerm } from "../src/studio/studioTerms.ts";
  * look).
  */
 test.use({ viewport: { width: 1440, height: 900 } });
-
-const SHOTS = process.env["AGI_STUDIO_SHOTS"];
-const shot = (page: Page, name: string) =>
-  page.screenshot({
-    path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`),
-    animations: "disabled",
-  });
 
 async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -132,7 +125,7 @@ test("Room Studio: the lock chip's Learn more opens Help at Locks @webkit-deskto
   await trigger.click();
   const pop = page.getByTestId("explain-pop");
   await expect(pop.getByTestId("studio-unlock")).toHaveText("Unlock for now");
-  await shot(page, "room-lock-explainer");
+  await reviewShot(page, "room-lock-explainer");
   await pop.getByTestId("explain-more").click();
   const guide = page.getByTestId("help-guide");
   await expect(guide).toBeVisible();

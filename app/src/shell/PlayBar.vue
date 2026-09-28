@@ -81,13 +81,13 @@ const shortcutsBlocked = computed(
         @click="emit('exit')"
       />
       <div class="play-bar__title">
-        <h1 class="play-bar__game" data-testid="play-title">{{ game?.title ?? "AGI IS HERE" }}</h1>
+        <h1 class="play-bar__game">{{ game?.title ?? "AGI IS HERE" }}</h1>
         <span v-if="roomLabel" class="play-bar__room" data-testid="play-room">{{ roomLabel }}</span>
       </div>
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
       <div class="play-bar__actions">
         <UiIconButton icon="map" label="World map" data-testid="btn-world-map" @click="showMap" />
-        <ActionMenu label="Save or restore" test-id="save-menu" icon-only icon="save">
+        <ActionMenu label="Save or restore" icon-only icon="save">
           <button
             v-for="shortcut in saveShortcuts"
             :key="shortcut.key"

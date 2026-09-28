@@ -4,7 +4,7 @@
  * since the last one (a player message, tool results), asks the script for
  * the next turn and streams it back in the provider's own event shape. The
  * request bodies are captured verbatim, so a probe measures exactly the
- * bytes the app would send — no network, no key, no spend.
+ * bytes the app would send, offline and without a key.
  *
  * Scripts are the same shape as the app's stub conversations (studioAssist.ts,
  * referenceStub.ts): sendUserMessage answers a player message, complete

@@ -157,7 +157,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-locks",
         title: "Locks",
         body: [
-          "Each lens locks the planes outside its job, and the chip beside the lens tabs names them: the Art lens keeps depth as it is, the Depth lens keeps the art, and the Walk lens keeps both and draws walk lines 0–3 only. Its ⓘ holds Unlock for now (and Allow depth in the Walk lens), which lasts until you close Studio. The AI's Ask works under the same locks.",
+          "Each lens locks the planes outside its job, and the chip beside the lens tabs names them: the Art lens keeps depth as it is, the Depth lens keeps the art, and the Walk lens keeps both and draws walk lines 0–3 only. Its ⓘ holds Unlock for now (Unlock art and Allow depth in the Walk lens), which lasts until you close Studio. The AI's Ask works under the same locks.",
           "An item's own Lock, in the inspector, keeps that item's place and colours until you unlock it.",
         ],
       },

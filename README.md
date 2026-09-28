@@ -116,7 +116,8 @@ while the agent writes it. Along the way you can:
   briefs and pin notes the agent reads when it builds that part of the world;
 - use **Ask** in Play for hints and questions that leave the game untouched,
   or **Remix** in Create to change it, including any game you imported;
-- attach reference images for rooms and character sprites;
+- attach reference images for rooms and character sprites: the agent gets a
+  thumbnail of each and looks closer at the parts it needs;
 - preview the game's sounds as WAV clips.
 
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
@@ -142,9 +143,10 @@ it, and ask for revisions when something is off.
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
 are billed to your account; each task starts with an estimated $5 budget that
-you can change. What the agent writes comes from your provider's model and is
-not reviewed by the app, so play a game through before you share it, especially
-with children. [Security](SECURITY.md) covers storage and data flow, and
+you can change. Each request extends the one before it, so the provider's
+prompt cache serves the conversation so far at its lower cache-read price. What
+the agent writes comes from your provider's model and is not reviewed by the
+app, so play a game through before you share it, especially with children. [Security](SECURITY.md) covers storage and data flow, and
 [adventure briefs](games/README.md) covers writing your own templates.
 
 ## Edit every room by hand
@@ -157,13 +159,13 @@ its picture opens in **Room Studio** and its views in **Sprite Studio**.
 <p align="center">
   <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>
   <a href="docs/media/room-studio-walk.png"><img src="docs/media/room-studio-walk.png" width="49%" alt="The Walk lens on the tutorial's Sprite Lab: the walkable tint, doors labelled Picture Gallery and Priority Archive, and a test walk from the west door that reports Reached"></a>
-  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Ask about this selection on a bridge over a river: the proposed change outlined on the canvas with Before and After, the AI's summary, and Accept and Reject"></a>
+  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Ask on a bridge over a river: the proposed change outlined on the canvas with Before and After, the AI's summary, and Accept and Reject"></a>
   <a href="docs/media/sprite-studio.png"><img src="docs/media/sprite-studio.png" width="49%" alt="Sprite Studio on the tutorial's waving robot: the cel canvas, the loops and cels timeline with a mirrored loop, loop previews and the robot standing in its room"></a>
 </p>
 
 _Left to right, top to bottom: Room Studio with the velvet rope selected, a test
-walk across the Sprite Lab, a proposal from Ask about this selection, and Sprite
-Studio on the waving robot._
+walk across the Sprite Lab, a proposal from Ask, and Sprite Studio on the
+waving robot._
 
 - **Room Studio** shows a room's picture under three lenses: Art for what the
   player sees, Depth for how far away each part sits, and Walk for the lines that
@@ -191,11 +193,12 @@ Studio on the waving robot._
   lead to other rooms; a door can follow its doorway art, so moving the art
   moves the door in the same Keep. Exits written in the room's own logic stay
   read-only. Right-click any spot and **Play here** jumps into the game there.
-- **Ask about this selection** has your connected AI change only the selected
-  items: "make this bridge walkable without changing the art". Its proposal shows
-  on the canvas, Before or After, with the changed cells outlined. The app's own
-  checks hold it to the selection and the lens's locks, and Accept makes it one
-  undo step.
+- **Ask** has your connected AI change only the selected items: "make this
+  bridge walkable without changing the art". Attach reference art (a file, a
+  drop or a saved image) and the AI can look at it while it works. Its proposal
+  shows on the canvas, Before or After, with the changed cells outlined. The
+  app's own checks hold it to the selection and the lens's locks, and Accept
+  makes it one undo step.
 - **Sprite Studio** edits a view's loops and cels. Open it from a room's views,
   the Resources tab or a staged character sheet, draw with the pixel tools, and
   reorder, duplicate and flip cels on a loops × cels timeline. The previews play
@@ -203,6 +206,10 @@ Studio on the waving robot._
   a loop that mirrors another makes it a separate copy, so fixing one facing
   leaves the other as it is unless you ask. Ask works here too, on the selected
   cel or its whole loop, with every other loop protected.
+- **Explainers** sit beside the Studios' terms: each ⓘ says in one sentence
+  what the control does and links to its Help topic. Each Studio shows a
+  three-step tour the first time it opens, and **Tour** in its `?` key list
+  plays it again.
 
 ## Save and share
 
@@ -296,6 +303,10 @@ repository is arranged so that neither has to be taken at its word.
 - **Tests that are tested.** [Mutation testing](stryker.config.mjs), run on
   demand, checks that the picture and Studio kernels' tests catch deliberate
   bugs.
+- **Paid runs by consent.** An eval runner calls a provider only with both
+  `--live` and `--budget-usd` on the command line, and `npm run eval:cache`
+  checks offline that every request keeps the one before it as its prefix, so
+  the prompt cache keeps working.
 - **Measured models.** The [Genesis benchmark](evals/benchmarks/genesis/1.0.0/README.md)
   gives five models the same briefs and publishes every run, its cost and the
   game it made.

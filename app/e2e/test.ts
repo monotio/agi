@@ -55,3 +55,12 @@ export const test = base.extend<{
 });
 
 export { expect };
+
+/** A review screenshot: to `$AGI_STUDIO_SHOTS/<name>.png` when that folder is set, else to the test's output folder. */
+export function reviewShot(page: Page, name: string): Promise<Buffer> {
+  const folder = process.env["AGI_STUDIO_SHOTS"];
+  return page.screenshot({
+    path: folder ? `${folder}/${name}.png` : test.info().outputPath(`${name}.png`),
+    animations: "disabled",
+  });
+}

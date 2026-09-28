@@ -211,7 +211,7 @@ function openInStudio(picture: number): void {
         </p>
         <section v-if="views.length" class="world-views" aria-label="Sprites this room uses">
           <h4>Sprites</h4>
-          <ul data-testid="world-room-views">
+          <ul>
             <li v-for="entry in views" :key="entry.view" :data-view="entry.view">
               <span class="world-views__name">
                 <b>VIEW {{ entry.view }}</b>

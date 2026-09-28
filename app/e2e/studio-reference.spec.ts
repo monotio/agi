@@ -1,4 +1,4 @@
-import { expect, test } from "./test.ts";
+import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "../../test/studioAssistFixtures.ts";
 import { testProjectId } from "../test/identity.ts";
@@ -20,14 +20,6 @@ import { cacheGame, enterCreateMode, textHook, waitForCycles } from "./enginePro
  * removed before asking leaves the art off the request.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
-
-/** Screenshots go here when set, else to the test's output. */
-const SHOTS = process.env["AGI_STUDIO_SHOTS"];
-const shot = (page: Page, name: string) =>
-  page.screenshot({
-    path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`),
-    animations: "disabled",
-  });
 
 const PROJECT = testProjectId("studio-reference");
 const ROOM = [
@@ -151,7 +143,7 @@ test("Room Studio: an attached reference rides Ask as a handle, and a removed on
   expect(stored.map(({ kind }) => kind)).toEqual(["room"]);
   const art = referenceArtId(Buffer.from(stored[0]!.png, "base64"));
   await section.getByTestId("assist-input").fill("Match the reference");
-  await shot(page, "room-ask-reference");
+  await reviewShot(page, "room-ask-reference");
 
   // Ask: the stub views the attached art by its handle, and the request
   // carried one 72x72 contact strip (a 64 px thumbnail in a 4 px gutter),

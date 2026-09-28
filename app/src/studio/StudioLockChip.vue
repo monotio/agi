@@ -11,8 +11,8 @@ import type { StudioLens } from "./studioView.ts";
  * What the lens keeps from changing, as one chip: "Depth" in the Art lens,
  * "Art" in the Depth lens, "Art · Depth 4–15" in the Walk lens, each with a
  * lock. Its ⓘ says why in one sentence and holds the way out: Unlock for now
- * (and Allow depth in the Walk lens), which lasts for this Studio session,
- * and Lock again. It sits beside the lens tabs and again in Ask's scope row,
+ * (Unlock art and Allow depth in the Walk lens), which lasts for this Studio
+ * session, and Lock again. It sits beside the lens tabs and again in Ask's scope row,
  * where the same locks hold the AI. In a narrow top bar (under 960 px) the
  * chip shows its lock and ⓘ alone; its words stay for screen readers.
  */

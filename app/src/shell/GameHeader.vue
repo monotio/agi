@@ -476,12 +476,7 @@ async function onRecordSave(): Promise<void> {
         <UiButton size="sm" data-testid="history-new-timeline" @click="confirmNewTimeline = true">
           Start a new timeline
         </UiButton>
-        <UiButton
-          size="sm"
-          variant="ghost"
-          data-testid="history-old-download"
-          @click="onDownloadOldTimeline"
-        >
+        <UiButton size="sm" variant="ghost" @click="onDownloadOldTimeline">
           Download the old timeline
         </UiButton>
       </template>

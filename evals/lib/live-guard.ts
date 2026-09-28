@@ -1,7 +1,7 @@
 /**
- * Consent for a paid run. Keys in the environment never start one: every
- * harness that can call a provider refuses unless the command line carries
- * both `--live` and `--budget-usd <cap>` (the promptfoo lanes, which take no
+ * Consent for a paid run: every harness that can call a provider refuses,
+ * whatever keys the environment holds, unless the command line carries both
+ * `--live` and `--budget-usd <cap>` (the promptfoo lanes, which take no
  * arguments, read `EVAL_LIVE=1` and a budget variable instead). A refusal
  * says what would have run and how to run it offline, and the harness exits
  * non-zero without a request.

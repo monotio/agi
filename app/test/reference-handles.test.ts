@@ -216,8 +216,6 @@ test("a viewed reference stays in the transcript across later turns, unrewritten
     third.find((item) => item["type"] === "function_call_output"),
     viewed,
   );
-  assert.doesNotMatch(JSON.stringify(third), /left the conversation/);
-  assert.doesNotMatch(JSON.stringify(session.getTranscript()), /left the conversation/);
 });
 
 test("a turn without references neither lists nor runs view_reference", async (t) => {

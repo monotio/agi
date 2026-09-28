@@ -643,7 +643,7 @@ budgets passed; seek latency and peak memory remain separate measurements.
 The [media gallery](media/README.md) includes images returned by the actual
 agent tools and screenshots of the app, with source scenarios and reproduction
 commands. `npm run media:capture` regenerates them: `app/e2e/media/docs.media.ts`
-drives the app in test mode with the stub provider, and restyles nothing: the
+drives the app in test mode with the stub provider and the app's own styles; the
 Play shot starts from the tutorial's recorded walkthrough, so its timeline reads
 the same on every run. `scripts/capture-feedback.ts` generates tutorial feedback without a provider
 call. `app/playwright.capture.config.ts` records selected browser tests with
