@@ -45,6 +45,14 @@ jobs:
           path: release/
           if-no-files-found: error
           retention-days: 14
+      # The chunk graph (app/bundle-graph.config.ts) stays out of the site; the
+      # production-artifact laziness spec reads it beside the tested build.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agi-bundle-graph
+          path: app/node_modules/.agi/bundle-graph.json
+          if-no-files-found: error
+          retention-days: 14
 
   production:
     name: Production browser (${{ matrix.browser }})
@@ -72,6 +80,10 @@ jobs:
         with:
           name: agi-site
           path: app/dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agi-bundle-graph
+          path: app/node_modules/.agi
       - run: npx playwright install --with-deps ${{ matrix.browser }}
         working-directory: app
       - run: npm --prefix app run e2e:production -- --browser=${{ matrix.browser }} --reporter=list
