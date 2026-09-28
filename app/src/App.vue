@@ -644,7 +644,6 @@ watch(
           v-model:active="workspace.active.left"
           side="left"
           class="shell-dock shell-dock--left"
-          :read-only="shell.readOnly.value"
           :collapsed="workspace.collapsed.left"
           data-shell-keys
           @toggle="workspace.toggleDock('left')"
@@ -741,7 +740,6 @@ watch(
             v-if="creating && phone"
             v-model:active="workspace.active.sheet"
             side="sheet"
-            :read-only="shell.readOnly.value"
             :built-in="['assistant']"
             :collapsed="!sheetOpen"
             @toggle="workspace.sheetOpen.value = !workspace.sheetOpen.value"
@@ -750,7 +748,6 @@ watch(
             v-else-if="creating"
             v-model:active="workspace.active.right"
             side="right"
-            :read-only="shell.readOnly.value"
             :built-in="['assistant']"
             :collapsed="workspace.collapsed.right"
             @toggle="workspace.toggleDock('right')"

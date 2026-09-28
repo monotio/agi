@@ -14,6 +14,7 @@ import UiSwitch from "./UiSwitch.vue";
 import UiToast from "./UiToast.vue";
 import BootCard from "./BootCard.vue";
 import BrandMark from "./BrandMark.vue";
+import { keyLabel } from "./keyLabel.ts";
 import { ICONS, type IconName } from "./icons.ts";
 
 /** Dev and test only (ui-gallery.html is not a build input): every primitive in every state. */
@@ -40,7 +41,7 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
         <UiButton variant="primary" icon="play">Play here</UiButton>
         <UiButton>Secondary</UiButton>
         <UiButton icon="map">World map</UiButton>
-        <UiButton variant="ghost" icon="undo" shortcut="⌘Z">Undo</UiButton>
+        <UiButton variant="ghost" icon="undo" :shortcut="keyLabel('Mod+Z')">Undo</UiButton>
         <UiButton variant="danger" icon="trash">Delete</UiButton>
         <UiButton variant="primary" disabled>Disabled</UiButton>
         <UiButton disabled>Disabled</UiButton>
@@ -95,7 +96,9 @@ const inks = ["ink", "ink-2", "ink-3", "ink-disabled", "action", "ok", "warn", "
         <UiChip tone="ok" dot>Compiles exactly</UiChip>
         <UiChip tone="warn" dot>Not walk-tested</UiChip>
         <UiChip tone="danger" dot>Stale</UiChip>
-        <span>Press <UiKbd>⌘</UiKbd> <UiKbd>K</UiKbd> for commands</span>
+        <span
+          >Press <UiKbd>{{ keyLabel("Mod") }}</UiKbd> <UiKbd>K</UiKbd> for commands</span
+        >
       </div>
     </section>
 

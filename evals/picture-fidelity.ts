@@ -99,6 +99,7 @@ export { splitToolResult } from "../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
 import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
 import { assertLiveRun } from "./lib/live-guard.ts";
+import { requestCost } from "./lib/usage.ts";
 import { loadGame } from "../test/game-fixture.ts";
 import { fixtureSkip } from "../test/fixtures.ts";
 import { cropSideBySidePng, sideBySidePng, surfaceToPng } from "../scripts/png.ts";
@@ -199,6 +200,10 @@ export interface Provider {
   model: string;
   judgeModel: string;
   usage: Usage;
+  /** USD the requests so far cost, each priced by requestCost at the model it used. */
+  spentUsd: number;
+  /** The run's cap: once spentUsd reaches it, no further request starts. */
+  budgetUsd?: number | undefined;
   /** One-shot vision completion. */
   complete(system: string, user: ContentPart[], model: string): Promise<string>;
   /**
@@ -210,6 +215,18 @@ export interface Provider {
 }
 
 const PICTURE_TOOL = "write_picture";
+
+/**
+ * The gate before every paid request, the brief's and the judge's included:
+ * a request that crossed the cap is the last one sent. An entry records the
+ * refusal as its error and the run skips the entries after it.
+ */
+function assertBudget(provider: Provider): void {
+  if (provider.budgetUsd !== undefined && provider.spentUsd >= provider.budgetUsd)
+    throw new Error(
+      `Budget reached: $${provider.spentUsd.toFixed(4)} of $${provider.budgetUsd} spent.`,
+    );
+}
 
 let NUDGE = false;
 
@@ -229,6 +246,8 @@ class AnthropicProvider implements Provider {
   model: string;
   judgeModel: string;
   usage: Usage = { input: 0, output: 0, cachedInput: 0, calls: 0 };
+  spentUsd = 0;
+  budgetUsd: number | undefined;
   effort: "low" | "medium" | "high";
   #client: Anthropic;
 
@@ -239,11 +258,21 @@ class AnthropicProvider implements Provider {
     this.#client = new Anthropic();
   }
 
-  #track(u: Anthropic.Usage): void {
+  #track(u: Anthropic.Usage, model: string): void {
     this.usage.input += u.input_tokens;
     this.usage.output += u.output_tokens;
     this.usage.cachedInput += u.cache_read_input_tokens ?? 0;
     this.usage.calls++;
+    // input_tokens leaves out cache reads and writes; requestCost takes the total.
+    const reads = u.cache_read_input_tokens ?? 0;
+    const writes = u.cache_creation_input_tokens ?? 0;
+    this.spentUsd +=
+      requestCost(model, {
+        input: u.input_tokens + reads + writes,
+        output: u.output_tokens,
+        cachedInput: reads,
+        cacheWriteInput: writes,
+      }) ?? 0;
   }
 
   static toBlocks(parts: ContentPart[]): (Anthropic.TextBlockParam | Anthropic.ImageBlockParam)[] {
@@ -255,6 +284,7 @@ class AnthropicProvider implements Provider {
   }
 
   async complete(system: string, user: ContentPart[], model: string): Promise<string> {
+    assertBudget(this);
     const msg = await this.#client.messages
       .stream({
         model,
@@ -264,7 +294,7 @@ class AnthropicProvider implements Provider {
         messages: [{ role: "user", content: AnthropicProvider.toBlocks(user) }],
       })
       .finalMessage();
-    this.#track(msg.usage);
+    this.#track(msg.usage, model);
     if (msg.stop_reason === "refusal")
       throw new Error(`refusal: ${msg.stop_details?.explanation ?? ""}`);
     return msg.content
@@ -286,6 +316,7 @@ class AnthropicProvider implements Provider {
     const messages: Anthropic.MessageParam[] = [{ role: "user", content: user }];
     let rounds = 0;
     while (rounds < maxRounds) {
+      assertBudget(this);
       const msg = await this.#client.messages
         .stream({
           model: this.model,
@@ -296,7 +327,7 @@ class AnthropicProvider implements Provider {
           messages,
         })
         .finalMessage();
-      this.#track(msg.usage);
+      this.#track(msg.usage, this.model);
       if (msg.stop_reason === "refusal")
         throw new Error(`refusal: ${msg.stop_details?.explanation ?? ""}`);
       messages.push({ role: "assistant", content: msg.content });
@@ -334,6 +365,8 @@ class OpenAiProvider implements Provider {
   model: string;
   judgeModel: string;
   usage: Usage = { input: 0, output: 0, cachedInput: 0, calls: 0 };
+  spentUsd = 0;
+  budgetUsd: number | undefined;
   effort: "low" | "medium" | "high";
   #client: OpenAI;
 
@@ -344,12 +377,19 @@ class OpenAiProvider implements Provider {
     this.#client = new OpenAI();
   }
 
-  #track(u: OpenAI.Responses.ResponseUsage | undefined): void {
+  #track(u: OpenAI.Responses.ResponseUsage | undefined, model: string): void {
     if (!u) return;
     this.usage.input += u.input_tokens;
     this.usage.output += u.output_tokens;
     this.usage.cachedInput += u.input_tokens_details?.cached_tokens ?? 0;
     this.usage.calls++;
+    this.spentUsd +=
+      requestCost(model, {
+        input: u.input_tokens,
+        output: u.output_tokens,
+        cachedInput: u.input_tokens_details?.cached_tokens ?? 0,
+        cacheWriteInput: u.input_tokens_details?.cache_write_tokens ?? 0,
+      }) ?? 0;
   }
 
   static toItems(
@@ -363,6 +403,7 @@ class OpenAiProvider implements Provider {
   }
 
   async complete(system: string, user: ContentPart[], model: string): Promise<string> {
+    assertBudget(this);
     const res = await this.#client.responses.create({
       model,
       instructions: system,
@@ -370,7 +411,7 @@ class OpenAiProvider implements Provider {
       input: [{ role: "user", content: OpenAiProvider.toItems(user) }],
       store: false,
     });
-    this.#track(res.usage);
+    this.#track(res.usage, model);
     return res.output_text;
   }
 
@@ -391,6 +432,7 @@ class OpenAiProvider implements Provider {
     const cacheKey = `monotio_agi.eval-picture.${Math.random().toString(36).slice(2, 10)}`;
     let rounds = 0;
     while (rounds < maxRounds) {
+      assertBudget(this);
       const res = await this.#client.responses.create({
         model: this.model,
         instructions: system,
@@ -401,7 +443,7 @@ class OpenAiProvider implements Provider {
         include: ["reasoning.encrypted_content"],
         store: false,
       });
-      this.#track(res.usage);
+      this.#track(res.usage, this.model);
       const calls: OpenAI.Responses.ResponseFunctionToolCall[] = [];
       for (const item of res.output) {
         input.push(item as OpenAI.Responses.ResponseInputItem);
@@ -485,6 +527,8 @@ class FakeProvider implements Provider {
   model = "fake";
   judgeModel = "fake";
   usage: Usage = { input: 0, output: 0, cachedInput: 0, calls: 0 };
+  spentUsd = 0;
+  budgetUsd: number | undefined;
 
   async complete(system: string, user: ContentPart[]): Promise<string> {
     this.usage.calls++;
@@ -1304,18 +1348,6 @@ export function createProvider(
   return new FakeProvider();
 }
 
-/** The provider's usage at the app's price table; null for a model without a price. */
-function spentUsd(provider: Provider): number | null {
-  const u = provider.usage;
-  const price = MODEL_CAPABILITIES[provider.model]?.price;
-  return price
-    ? ((u.input - u.cachedInput) * price.input +
-        u.cachedInput * (price.cacheRead ?? price.input * 0.1) +
-        u.output * price.output) /
-        1e6
-    : null;
-}
-
 function parseArgs(argv: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
@@ -1358,8 +1390,9 @@ async function main(): Promise<void> {
       offline: "--provider fake",
     });
   }
-  /** True once the provider's usage has cost the cap; the remaining entries are skipped. */
-  const budgetSpent = () => budgetUsd !== undefined && (spentUsd(provider) ?? 0) >= budgetUsd;
+  provider.budgetUsd = budgetUsd;
+  /** True once the provider's requests have cost the cap; the remaining entries are skipped. */
+  const budgetSpent = () => budgetUsd !== undefined && provider.spentUsd >= budgetUsd;
   const rounds = Number(args["rounds"] ?? 4);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir = args["out"] ?? join(repoRoot, "evals/results", stamp);
@@ -1517,9 +1550,9 @@ async function main(): Promise<void> {
     );
   }
   const u = provider.usage;
-  const cost = spentUsd(provider);
+  const priced = MODEL_CAPABILITIES[provider.model]?.price !== undefined;
   console.log(
-    `\ntokens: input=${u.input} (cached ${u.cachedInput}) output=${u.output} calls=${u.calls}${cost !== null ? ` est. cost $${cost.toFixed(2)}` : ""}`,
+    `\ntokens: input=${u.input} (cached ${u.cachedInput}) output=${u.output} calls=${u.calls}${priced ? ` est. cost $${provider.spentUsd.toFixed(2)}` : ""}`,
   );
   console.log(`results: ${outDir}`);
 }

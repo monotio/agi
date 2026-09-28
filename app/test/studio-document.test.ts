@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE as profile } from "../../src/runtime/profile.ts";
-import { itemMask, renderUpTo } from "../../src/studio/pictureQuery.ts";
+import { itemMask } from "../../src/studio/pictureQuery.ts";
 import { SCREEN_WIDTH } from "../../src/types.ts";
 import { DEMO_OCCLUDER, DEMO_PICTURE_SOURCE } from "../src/studio/demoPicture.ts";
 import { maskBox } from "../src/studio/studioView.ts";
@@ -283,7 +283,7 @@ test("the demo picture's rows and occluder mask match its hand-placed shapes", (
   );
 });
 
-test("the playhead shows renderUpTo and the pixel owners at that point", () => {
+test("the playhead shows the picture drawn up to it and the pixel owners at that point", () => {
   const doc = useStudioDocument({ bytes: bytesOf(SMALL), authoredSource: SMALL, profile });
   // Seven drawing commands; the closing end is not one.
   assert.equal(doc.total.value, 7);
@@ -310,10 +310,13 @@ test("the playhead shows renderUpTo and the pixel owners at that point", () => {
   assert.equal(doc.rowAtForLens(1, 0, "depth"), "a");
 
   doc.playhead.value = 2; // vis 4 and the first line
-  const partial = renderUpTo(doc.model.value.compiled, 2, profile);
-  assert.deepEqual(doc.surface.value.visual, partial.visual);
-  assert.equal(doc.surface.value.visual[at(0, 0)], 4);
-  assert.equal(doc.surface.value.priority[at(1, 1)], 4);
+  // By hand: a 160×168 picture starts white (15) on the visual plane and 4 on
+  // the priority plane; vis 4 then draws x 0..3 of row 0 and nothing else.
+  // The priority line (pri 10) is past the playhead.
+  const visual = new Uint8Array(160 * 168).fill(15);
+  visual.fill(4, at(0, 0), at(4, 0));
+  assert.deepEqual(Uint8Array.from(doc.surface.value.visual), visual);
+  assert.deepEqual(Uint8Array.from(doc.surface.value.priority), new Uint8Array(160 * 168).fill(4));
   assert.equal(doc.pixelInfo(1, 1).priority.rowId, undefined);
   assert.equal(doc.pixelInfo(1, 0).visual.entry, 1);
 });

@@ -8,6 +8,7 @@
  */
 
 import { onScopeDispose, ref, shallowRef } from "vue";
+import { keyLabel } from "../ui/keyLabel.ts";
 
 /** A per-viewer preference string, or null when unset or storage is blocked. */
 export function readViewerPref(key: string): string | null {
@@ -26,7 +27,7 @@ export function writeViewerPref(key: string, value: string): void {
 }
 
 const FOCUS_TIP_KEY = "monotio_agi.studioFocusTip";
-const FOCUS_TIP = "Side panels hidden · ⌘\\ or Ctrl+\\ brings them back";
+const FOCUS_TIP = `Side panels hidden · ${keyLabel("Mod+\\")} brings them back`;
 /** How long the tip stays in the status bar. */
 const TIP_MS = 5000;
 

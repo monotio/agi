@@ -6,6 +6,7 @@ import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { explain } from "./studioTerms.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
 import { changeCount } from "./useStudioDraft.ts";
 
 /** Where the draft stands, for the status chip. */
@@ -52,6 +53,8 @@ const chip = computed(() =>
     ? { tone: "action" as const, text: changeCount(changes, notesOnly) }
     : STATUS[status],
 );
+const UNDO = keyLabel("Mod+Z");
+const REDO = keyLabel("Mod+Shift+Z");
 /** Why undo or redo is off, on its tooltip. */
 const historyBlocked = (which: "undo" | "redo"): string =>
   status === "reload" ? "Reload the game to edit" : `Nothing to ${which}`;
@@ -61,20 +64,20 @@ const historyBlocked = (which: "undo" | "redo"): string =>
   <UiIconButton
     icon="undo"
     label="Undo"
-    shortcut="⌘Z"
+    :shortcut="UNDO"
     size="sm"
     :disabled="!canUndo"
-    :title="canUndo ? 'Undo (⌘Z)' : historyBlocked('undo')"
+    :title="canUndo ? `Undo (${UNDO})` : historyBlocked('undo')"
     data-testid="studio-undo"
     @click="emit('undo')"
   />
   <UiIconButton
     icon="redo"
     label="Redo"
-    shortcut="⇧⌘Z"
+    :shortcut="REDO"
     size="sm"
     :disabled="!canRedo"
-    :title="canRedo ? 'Redo (⇧⌘Z)' : historyBlocked('redo')"
+    :title="canRedo ? `Redo (${REDO})` : historyBlocked('redo')"
     data-testid="studio-redo"
     @click="emit('redo')"
   />

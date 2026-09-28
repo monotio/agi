@@ -8,23 +8,14 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type * as PictureRunner from "../picture-fidelity.ts";
-import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
 
 const RUNNER = pathToFileURL(resolve(import.meta.dirname, "../picture-fidelity.ts")).href;
 const ROUNDS = Number(process.env["EVAL_PICTURE_ROUNDS"] ?? 4);
-/** The live lanes' cap (configs/picture.ts consents to it); a paid entry never starts past it. */
+/**
+ * The live lanes' cap (configs/picture.ts consents to it): no paid entry
+ * starts past it, and the runner refuses each request once it is spent.
+ */
 const BUDGET_USD = Number(process.env["EVAL_RUN_BUDGET_USD"] ?? Infinity);
-
-function spentUsd(usage: { input: number; cachedInput: number; output: number }, model: string) {
-  const price = MODEL_CAPABILITIES[model]?.price;
-  if (!price) return 0;
-  return (
-    ((usage.input - usage.cachedInput) * price.input +
-      usage.cachedInput * (price.cacheRead ?? price.input * 0.1) +
-      usage.output * price.output) /
-    1e6
-  );
-}
 
 interface PictureOptions {
   id?: string;
@@ -50,8 +41,11 @@ export default class PictureProvider {
 
   async callApi(_prompt: string, context: { vars: { entry: string } }) {
     const mod = (await import(RUNNER)) as typeof PictureRunner;
-    this.runner ??= mod.createProvider(this.vendor, this.model, undefined, "medium");
-    if (this.vendor !== "fake" && spentUsd(this.runner.usage, this.model) >= BUDGET_USD)
+    if (!this.runner) {
+      this.runner = mod.createProvider(this.vendor, this.model, undefined, "medium");
+      if (this.vendor !== "fake" && Number.isFinite(BUDGET_USD)) this.runner.budgetUsd = BUDGET_USD;
+    }
+    if (this.vendor !== "fake" && this.runner.spentUsd >= BUDGET_USD)
       throw new Error(`Budget reached ($${BUDGET_USD}); the picture lane stops here.`);
     const entry = JSON.parse(context.vars.entry);
     const outDir = resolve(

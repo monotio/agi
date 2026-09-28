@@ -14,8 +14,6 @@ import { usageText } from "../../../src/agent/viewUsage.ts";
 import { viewScan } from "./studioSource.ts";
 import { useSpriteStudio } from "./useSpriteStudio.ts";
 
-defineProps<{ readOnly: boolean }>();
-
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const sprites = useSpriteStudio();

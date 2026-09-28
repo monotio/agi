@@ -1,5 +1,13 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative } from "node:path";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
 import { scanFixtures } from "../test/fixtures.ts";
@@ -7,6 +15,7 @@ import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES, detectKnownGameByHashes } from "../src/games/knownGames.ts";
 import { canonicalResourceName } from "../src/types.ts";
 import { gameRevision, isPlayableFileName } from "./src/project/gameMetadata.ts";
+import { BUNDLE_GRAPH_PATH } from "./bundle-graph.config.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
@@ -200,9 +209,10 @@ function fixtureServer(): Plugin {
 /**
  * Records the production chunk graph, with each chunk's source modules
  * relative to the repository root (which Vite's manifest omits), at
- * `dist/.vite/bundle-graph.json` for scripts/check-bundle-budget.ts. Written
- * into the output directory, it can never describe a different build; CI
- * leaves it out of the published site.
+ * BUNDLE_GRAPH_PATH for scripts/check-bundle-budget.ts — outside the output
+ * directory, so a deploy of `dist` never carries it. Each build removes the
+ * previous graph before it starts, so one that fails leaves none behind
+ * rather than a graph of an older build.
  */
 function bundleGraph(): Plugin {
   const repository = join(import.meta.dirname, "..");
@@ -211,6 +221,9 @@ function bundleGraph(): Plugin {
   return {
     name: "agi-bundle-graph",
     apply: "build",
+    buildStart() {
+      rmSync(BUNDLE_GRAPH_PATH, { force: true });
+    },
     generateBundle(_options, bundle) {
       const chunks = [];
       const assets = [];
@@ -228,11 +241,8 @@ function bundleGraph(): Plugin {
           assets.push({ file: output.fileName });
         }
       }
-      this.emitFile({
-        type: "asset",
-        fileName: ".vite/bundle-graph.json",
-        source: JSON.stringify({ chunks, assets }, null, 1),
-      });
+      mkdirSync(dirname(BUNDLE_GRAPH_PATH), { recursive: true });
+      writeFileSync(BUNDLE_GRAPH_PATH, JSON.stringify({ chunks, assets }, null, 1));
     },
   };
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiButton from "../ui/UiButton.vue";
+import { keyLabel } from "../ui/keyLabel.ts";
 import type { StudioEditing } from "./useStudioEditing.ts";
 
 /**
@@ -14,11 +15,15 @@ const emit = defineEmits<{ combine: [] }>();
 <template>
   <section class="group-editor" data-testid="group-editor" aria-label="Selected items">
     <div class="group-editor__actions">
-      <UiButton size="sm" icon="copy" shortcut="⌘D" @click="edit.duplicate()">Duplicate</UiButton>
+      <UiButton size="sm" icon="copy" :shortcut="keyLabel('Mod+D')" @click="edit.duplicate()"
+        >Duplicate</UiButton
+      >
       <UiButton size="sm" variant="danger" icon="trash" shortcut="Del" @click="edit.remove()"
         >Delete</UiButton
       >
-      <UiButton size="sm" icon="layers" shortcut="⌘G" @click="emit('combine')">Group</UiButton>
+      <UiButton size="sm" icon="layers" :shortcut="keyLabel('Mod+G')" @click="emit('combine')"
+        >Group</UiButton
+      >
     </div>
   </section>
 </template>
