@@ -72,6 +72,9 @@ only for released formats and keep their original fixtures.
   `test/profile.test.ts`). Hashes and canonical serializations order by code
   point, never by locale.
 
+Releases flow through `release/X.Y` and reach `main`, which deploys, only by
+pull request (docs/hosting.md, "Release branches").
+
 Local release plans stay uncommitted and must not be referenced by committed
 code, comments or documentation.
 
