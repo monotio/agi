@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
-import { applyEdit, type EditOperation } from "../src/studio/editOperations.ts";
+import { applyEdit, applyEdits, type EditOperation } from "../src/studio/editOperations.ts";
 import {
   compileEditDocument,
   footprintMask,
@@ -391,5 +391,72 @@ describe("moveItem round trip", () => {
     }
     const counts = roundTrips(corpus);
     t.diagnostic(JSON.stringify(counts));
+  });
+});
+
+describe("moving an outline and its fill together", () => {
+  // A bush as an import splits it: the outline and the fill that colours it are two items.
+  const bush = doc(
+    '# @item el-1 "Element 1" art',
+    "vis 2",
+    "rect 10,10 30,20",
+    "# @end",
+    '# @item el-2 "Element 2" art',
+    "vis 10",
+    "fill 20,15",
+    "# @end",
+    "end",
+  );
+  const before = compile(bush);
+  const at = (x: number, y: number): number => y * 160 + x;
+  /** Both planes' footprints of `ids`, before or after: what an edit of them may change. */
+  const footprints = (after: CompiledDocument, ids: readonly string[]) =>
+    unionMask(
+      ...ids.flatMap((id) => [
+        footprintMask(before, id, "visual"),
+        footprintMask(after, id, "visual"),
+      ]),
+    );
+
+  it("keeps the fill inside the moved outline, and passes as one edit of both items", () => {
+    const result = applyEdits(
+      bush,
+      [
+        { type: "moveItem", itemId: "el-1", dx: 4, dy: -2 },
+        { type: "moveItem", itemId: "el-2", dx: 4, dy: -2 },
+      ],
+      { profile },
+    );
+    if ("error" in result) assert.fail(result.error);
+    const after = compile(result.document);
+    // The outline is now 14,8..34,18 and the fill its inside, 15..33 x 9..17.
+    assert.equal(after.visual[at(14, 8)], 2);
+    assert.equal(after.visual[at(34, 18)], 2);
+    assert.equal(after.visual[at(15, 9)], 10);
+    assert.equal(after.visual[at(33, 17)], 10);
+    assert.equal(after.visual[at(11, 19)], 15, "the old inside's corner is bare again");
+    assert.equal(after.visual[at(0, 0)], 15, "nothing leaked");
+    const verdict = validateEdit(before, after, {
+      lockedPlanes: ["priority"],
+      allowedMask: { visual: footprints(after, ["el-1", "el-2"]) },
+    });
+    assert.deepEqual(verdict, { ok: true, violations: [] });
+  });
+
+  it("floods the picture when the outline moves without its fill seed", () => {
+    const after = compile(edited(bush, { type: "moveItem", itemId: "el-1", dx: 20, dy: 0 }));
+    // The seed 20,15 is outside the outline at 30..50: the fill takes the whole white picture.
+    assert.equal(after.visual[at(0, 0)], 10);
+    assert.equal(after.visual[at(40, 15)], 15, "and leaves the moved outline empty");
+    const verdict = validateEdit(before, after, {
+      lockedPlanes: ["priority"],
+      allowedMask: { visual: footprints(after, ["el-1"]) },
+    });
+    assert.equal(verdict.ok, false);
+    // Everything outside both outlines' boxes (10..50 x 10..20: 451 cells) turned 10.
+    assert.deepEqual(
+      verdict.violations.map((v) => [v.constraint, "count" in v ? v.count : 0]),
+      [["outside-mask", 26880 - 451]],
+    );
   });
 });

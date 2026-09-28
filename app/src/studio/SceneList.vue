@@ -11,7 +11,9 @@ import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./us
  * consecutive look-alike items, then their members; a long list first folds
  * into draw-order sections), then the loose lines as Unassigned. Arrow keys
  * move a cursor that also hovers (so the canvas highlights it), Right and Left
- * open and close a section or group, Enter selects. The filter narrows to a
+ * open and close a section or group, Enter selects; Shift+click or
+ * Shift+Enter adds a row's items to the selection or takes them away, and a
+ * group row selects all its members. The filter narrows to a
  * flat list of matching items. A label too long for the column ellipsizes in
  * its middle, so the numbers that tell rows apart stay (studioView.ts
  * `labelParts`); the whole label is its tooltip.
@@ -22,7 +24,7 @@ const {
   matches,
   loose,
   hoveredId,
-  selectedId,
+  selectedIds,
   quietTag = undefined,
 } = defineProps<{
   branches: readonly SceneBranch[];
@@ -33,11 +35,16 @@ const {
   /** The Unassigned row, when there are loose lines (and it matches the filter). */
   loose: SceneRow | undefined;
   hoveredId: string | undefined;
-  selectedId: string | undefined;
+  /** The selected rows: one item or group, or several items. */
+  selectedIds: readonly string[];
   /** A tag that says nothing in this lens (`art` in the Art lens): rows leave it out. */
   quietTag?: string | undefined;
 }>();
-const emit = defineEmits<{ hover: [id: string | undefined]; select: [id: string] }>();
+/** `extend`: Shift was held, so the row's items join the selection or leave it. */
+const emit = defineEmits<{
+  hover: [id: string | undefined];
+  select: [id: string, extend: boolean];
+}>();
 const filter = defineModel<string>("filter", { required: true });
 
 /** Above this many items, groups start closed. Sections always do. */
@@ -159,7 +166,7 @@ watch(
 );
 // A canvas click or an arrow step selects the finest item: open its section and group.
 watch(
-  () => selectedId,
+  () => selectedIds.at(-1),
   (id) => {
     if (id !== undefined && matches === null) setOpen(ancestors(id), true);
     reveal(id);
@@ -178,7 +185,7 @@ function moveTo(index: number): void {
 }
 function onKeydown(event: KeyboardEvent): void {
   const rows = entries.value;
-  const from = rows.findIndex((entry) => entry.row.id === (cursor.value ?? selectedId));
+  const from = rows.findIndex((entry) => entry.row.id === (cursor.value ?? selectedIds.at(-1)));
   const at = rows[from];
   if (event.key === "ArrowDown") moveTo(from < 0 ? 0 : from + 1);
   else if (event.key === "ArrowUp") moveTo(from < 0 ? rows.length - 1 : from - 1);
@@ -193,7 +200,7 @@ function onKeydown(event: KeyboardEvent): void {
     const parent = at.parent;
     moveTo(rows.findIndex((entry) => entry.row.id === parent));
   } else if ((event.key === "Enter" || event.key === " ") && cursor.value !== undefined)
-    emit("select", cursor.value);
+    emit("select", cursor.value, event.shiftKey);
   else return;
   event.preventDefault();
 }
@@ -241,6 +248,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
       class="scene-list__rows"
       role="tree"
       aria-label="Scene items in draw order"
+      aria-multiselectable="true"
       tabindex="0"
       :aria-activedescendant="cursor === undefined ? undefined : optionId(cursor)"
       @keydown="onKeydown"
@@ -266,10 +274,13 @@ function onFilterKeydown(event: KeyboardEvent): void {
           role="treeitem"
           :aria-level="entry.level"
           :aria-expanded="entry.fold ? expanded.has(entry.fold.id) : undefined"
-          :aria-selected="entry.row.id === selectedId"
+          :aria-selected="
+            selectedIds.includes(entry.row.id) ||
+            (entry.parent !== undefined && selectedIds.includes(entry.parent))
+          "
           :data-row="entry.row.id"
           @pointerenter="emit('hover', entry.row.id)"
-          @click="emit('select', entry.row.id)"
+          @click="emit('select', entry.row.id, $event.shiftKey)"
         >
           <span
             v-if="entry.fold"

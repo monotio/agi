@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, it, test } from "node:test";
 import { computed, ref } from "vue";
 import type { SceneRow } from "../src/studio/useStudioDocument.ts";
 import { describeRow, useStudioSelection } from "../src/studio/useStudioSelection.ts";
@@ -101,4 +101,85 @@ test("selection is announced as label, kind and command count", () => {
     describeRow(row("(unassigned)", "Unassigned", "loose", 3)),
     "Unassigned, not in an item, 3 commands",
   );
+});
+
+describe("several items", () => {
+  const rows = [
+    ...ROWS,
+    row("pond", "Pond", "mixed", 1),
+    row("(unassigned)", "Unassigned", "loose", 2),
+  ];
+  // "(group)bench" stands for bench and exit.
+  const membersOf = (id: string) => (id === "(group)bench" ? ["bench", "exit"] : undefined);
+  const group: SceneRow = { ...row("(group)bench", "Mixed · 2", "mixed", 0), entries: [4, 5] };
+  function several() {
+    return useStudioSelection({
+      rows,
+      allRows: [...rows, group],
+      rowAt: (x) => owner(x),
+      membersOf,
+      items: ["wall", "bench", "exit", "pond"],
+    });
+  }
+
+  it("Shift adds an item and takes it away again, in draw order", () => {
+    const selection = several();
+    selection.selectedId.value = "exit";
+    selection.toggle("wall");
+    assert.deepEqual(selection.itemIds.value, ["wall", "exit"]);
+    assert.equal(selection.selectedId.value, undefined, "no single row stands for two items");
+    assert.equal(selection.selectedRow.value?.label, "2 items selected");
+    // The rows' commands, each once and in draw order (the fixture's rows share indices).
+    assert.deepEqual(selection.selectedRow.value?.entries, [0, 1]);
+    assert.equal(selection.announcement.value, "2 items selected, mixed, 2 commands");
+    selection.toggle("exit");
+    assert.deepEqual(selection.itemIds.value, ["wall"]);
+    assert.equal(selection.selectedId.value, "wall");
+    selection.toggle("wall");
+    assert.deepEqual(selection.itemIds.value, []);
+    // Shift+click on the canvas toggles the cell's owner; a plain click selects just it.
+    selection.pick({ x: 0, y: 0 });
+    selection.pick({ x: 1, y: 0 }, true);
+    assert.deepEqual(selection.itemIds.value, ["wall", "bench"]);
+    selection.pick({ x: 1, y: 0 });
+    assert.deepEqual(selection.itemIds.value, ["bench"]);
+  });
+
+  it("a group row selects its members; Shift on it adds or takes away all of them", () => {
+    const selection = several();
+    selection.selectedId.value = "(group)bench";
+    assert.deepEqual(selection.itemIds.value, ["bench", "exit"]);
+    assert.equal(selection.selectedRow.value?.label, "Mixed · 2", "the group names itself");
+    selection.toggle("wall");
+    assert.deepEqual(selection.itemIds.value, ["wall", "bench", "exit"]);
+    selection.toggle("(group)bench");
+    assert.deepEqual(selection.itemIds.value, ["wall"]);
+    selection.toggle("(group)bench");
+    assert.deepEqual(selection.itemIds.value, ["wall", "bench", "exit"]);
+    // Unassigned lines are no item: selecting them covers nothing to edit.
+    selection.selectedId.value = "(unassigned)";
+    assert.deepEqual(selection.itemIds.value, []);
+    selection.selectItems(["pond", "wall"]);
+    assert.deepEqual(selection.itemIds.value, ["wall", "pond"]);
+  });
+
+  it("Shift+Alt+arrows grow and shrink a run from where it started", () => {
+    const selection = several();
+    selection.selectedId.value = "bench";
+    assert.equal(selection.extend(1), true);
+    assert.deepEqual(selection.itemIds.value, ["bench", "exit"]);
+    assert.equal(selection.extend(1), true);
+    assert.deepEqual(selection.itemIds.value, ["bench", "exit", "pond"]);
+    assert.equal(selection.extend(1), false, "Unassigned is not an item to add");
+    assert.equal(selection.extend(-1), true);
+    assert.deepEqual(selection.itemIds.value, ["bench", "exit"]);
+    assert.equal(selection.extend(-1), true);
+    assert.equal(selection.extend(-1), true);
+    assert.deepEqual(selection.itemIds.value, ["wall", "bench"]);
+    assert.equal(selection.extend(-1), false);
+    // With nothing selected it starts at the end it moves from.
+    selection.selectedId.value = undefined;
+    assert.equal(selection.extend(-1), true);
+    assert.deepEqual(selection.itemIds.value, ["pond"]);
+  });
 });

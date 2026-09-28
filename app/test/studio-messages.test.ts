@@ -107,3 +107,24 @@ describe("kernelDetail", () => {
     assert.equal(kernelDetail("no item 'gone'", document), "no item 'gone'");
   });
 });
+
+describe("plainKernelRefusal of Make one item", () => {
+  const combine = (itemIds: string[]): EditOperation => ({
+    type: "combineItems",
+    itemIds,
+    id: "group",
+    label: "Group",
+  });
+  it("asks for neighbours, and for two items", () => {
+    assert.equal(
+      refusal(combine(["edge", "held"]))[1],
+      "Only neighbours in the draw order can be made one item: select the items between them too.",
+    );
+    assert.equal(refusal(combine(["edge"]))[1], "Select two items or more to make one item.");
+    const [technical] = refusal(combine(["edge", "held"]));
+    assert.equal(
+      kernelDetail(technical, document),
+      '"Edge" and "Held" are not next to each other in the draw order: "Step" is drawn between them',
+    );
+  });
+});

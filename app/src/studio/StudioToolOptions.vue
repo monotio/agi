@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import UiButton from "../ui/UiButton.vue";
-import type { FillExplanation } from "../../../src/studio/pictureQuery.ts";
+import type { BarNotice } from "./fillAdvice.ts";
+import StudioBarNotice from "./StudioBarNotice.vue";
 import { ROOM_TOOL_NAMES } from "./studioHelp.ts";
 import { insertionShort, insertionText } from "./studioMessages.ts";
 import { isDrawingTool, type InsertionPoint, type StudioTool } from "./studioTools.ts";
@@ -9,40 +10,34 @@ import { isDrawingTool, type InsertionPoint, type StudioTool } from "./studioToo
 /**
  * The active tool's options, docked in the options bar above the canvas:
  * the tool's name, Filled for rect and polygon, the brush pen, where in the
- * draw order new content goes (with a way to the end), and, for a fill that
- * would flood nothing, the AGI rule that says why. How the tool is used by
- * pointer and keys is the status bar's line and the `?` sheet, never here.
+ * draw order new content goes (with a way to the end), and a notice (a
+ * fill that would flood nothing: what the spot holds, Why?, and the fix).
+ * How the tool is used by pointer and keys is the status bar's line and the
+ * `?` sheet, never here. Short of room (`fold`), where new shapes go gives
+ * way first, then the notice's fix moves into its popover, then → End, then
+ * the notice says itself in a few words (Why? still has it all).
  */
 const {
   tool,
   insertion,
   commands,
-  fillWhy = null,
+  notice = null,
+  fold = 0,
 } = defineProps<{
   tool: StudioTool;
   insertion: InsertionPoint;
   /** Drawing commands in the picture. */
   commands: number;
-  fillWhy?: FillExplanation | null;
+  notice?: BarNotice | null;
+  fold?: number;
 }>();
-const emit = defineEmits<{ end: [] }>();
+const emit = defineEmits<{ end: []; fix: [] }>();
 const filled = defineModel<boolean>("filled", { required: true });
 const radius = defineModel<number>("radius", { required: true });
 const stipple = defineModel<boolean>("stipple", { required: true });
 const seed = defineModel<number>("seed", { required: true });
 const draws = computed(() => isDrawingTool(tool));
 const atEnd = computed(() => insertion.index >= commands);
-const whyText = computed(() => {
-  const why = fillWhy;
-  if (!why) return "";
-  const rule =
-    why.plane === "visual"
-      ? "a colour fill floods only white (15) cells, 4-connected"
-      : "a priority fill (colour off) floods only priority 4 cells, 4-connected";
-  const plane = why.plane === "visual" ? "colour" : "priority";
-  const owner = why.line === null ? "" : ` (drawn by line ${why.line})`;
-  return `Nothing to fill: at this point in the draw order ${why.x},${why.y} holds ${plane} ${why.value}${owner}, and ${rule}.`;
-});
 const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.round(value) || 0));
 </script>
 
@@ -88,16 +83,16 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
         />
       </label>
     </template>
-    <span v-if="draws" class="tool-options__sep" aria-hidden="true"></span>
+    <span v-if="draws && fold < 1" class="tool-options__sep" aria-hidden="true"></span>
     <span
-      v-if="draws"
+      v-if="draws && fold < 1"
       class="tool-options__at"
       :title="insertionText(insertion.index, commands)"
       data-testid="studio-insert-at"
       >{{ insertionShort(insertion.index, commands) }}</span
     >
     <UiButton
-      v-if="draws && !atEnd"
+      v-if="draws && !atEnd && fold < 3"
       variant="ghost"
       class="tool-options__end"
       aria-label="Move playhead to end"
@@ -107,14 +102,13 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
     >
       → End
     </UiButton>
-    <span
-      v-if="whyText"
-      class="tool-options__why"
-      role="status"
-      :title="whyText"
-      data-testid="studio-fill-why"
-      >{{ whyText }}</span
-    >
+    <StudioBarNotice
+      v-if="notice"
+      :notice
+      :compact="fold > 1"
+      :terse="fold > 3"
+      @act="emit('fix')"
+    />
   </div>
 </template>
 
@@ -172,17 +166,6 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
 }
 .tool-options__end {
   padding: 0 var(--space-3);
-}
-.tool-options__why {
-  min-width: 0;
-  overflow: hidden;
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--warn-line);
-  border-radius: var(--radius-sm);
-  color: var(--warn);
-  background: var(--warn-soft);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
 }
 @media (pointer: coarse) {
   .tool-options__toggle,

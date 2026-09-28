@@ -2,8 +2,10 @@
  * Room Studio's working draft: the picture text being edited, its undo
  * history, the compiled result and the last check, all against the text and
  * resource revision last kept (or opened). Every edit goes through the kernel
- * (applyEdit), then the lens locks (studioLocks.ts); a refused edit changes
- * nothing and says why. A drag is one gesture: `move` previews each frame's
+ * (applyEdits), then the lens locks (studioLocks.ts); a refused edit changes
+ * nothing and says why. An edit is one operation or a batch (a
+ * multi-selection's move, copy or delete): a batch is checked as one edit of
+ * all its items and recorded as one undo step, or refused whole. A drag is one gesture: `move` previews each frame's
  * candidate from the text the gesture started on, and `end` records one undo
  * step or snaps back. Keep rebases the draft but keeps its history. A draft
  * whose compiled bytes equal the kept ones differs only in its notes (labels,
@@ -29,7 +31,7 @@ import {
   checkCandidate,
   type PictureAssistScope,
 } from "../../../src/studio/assistScope.ts";
-import { applyEdit, type EditOperation } from "../../../src/studio/editOperations.ts";
+import { applyEdits, type EditOperation } from "../../../src/studio/editOperations.ts";
 import { compileEditDocument, type CompiledDocument } from "../../../src/studio/editValidation.ts";
 import {
   parsePictureDocument,
@@ -102,8 +104,41 @@ export function freshItemId(document: PictureDocument, base: string): string {
   }
 }
 
-/** The items an operation edits: their footprints are the cells it may change. */
-export function editedItems(document: PictureDocument, op: EditOperation): string[] {
+/**
+ * An id for an item named `label` ("Red box" → "red-box"): unused in
+ * `document`, or one of `members` (the items it replaces), else numbered.
+ */
+export function itemIdFor(
+  document: PictureDocument,
+  label: string,
+  members: readonly string[] = [],
+): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^[^a-z]+|-+$/g, "")
+    .slice(0, 28);
+  const stem = slug === "" ? "item" : slug;
+  const used = new Set(
+    document.items.flatMap((item) => (members.includes(item.id) ? [] : item.id)),
+  );
+  for (let n = 1; ; n++) {
+    const id = n === 1 ? stem : `${stem}-${n}`;
+    if (!used.has(id) && PICTURE_ITEM_ID.test(id)) return id;
+  }
+}
+
+/** One operation or a batch applied as one edit. */
+export type DraftEdit = EditOperation | readonly EditOperation[];
+
+const batchOf = (edit: DraftEdit): readonly EditOperation[] =>
+  Array.isArray(edit) ? edit : [edit as EditOperation];
+
+/** The items an operation (or a batch) edits: their footprints are the cells it may change. */
+export function editedItems(document: PictureDocument, edit: DraftEdit): string[] {
+  if (Array.isArray(edit))
+    return [...new Set(edit.flatMap((op: EditOperation) => editedItems(document, op)))];
+  const op = edit as EditOperation;
   switch (op.type) {
     case "setPoint": {
       const item = pictureItemAtLine(document, op.line);
@@ -115,6 +150,8 @@ export function editedItems(document: PictureDocument, op: EditOperation): strin
     case "insertFill":
     case "insertPlot":
       return [op.id];
+    case "combineItems":
+      return [...op.itemIds, op.id];
     default:
       return [op.itemId];
   }
@@ -174,13 +211,13 @@ export function useStudioDraft(options: StudioDraftOptions) {
     },
   );
 
-  /** Run `op` on the draft: the kernel, then the locks. Nothing is recorded. */
-  function evaluate(op: EditOperation): DraftCandidate | DraftRefusal {
-    const result = applyEdit(document.value, op, { profile: profile() });
+  /** Run `op` (or a batch) on the draft: the kernel, then the locks. Nothing is recorded. */
+  function evaluate(op: DraftEdit): DraftCandidate | DraftRefusal {
+    const result = applyEdits(document.value, batchOf(op), { profile: profile() });
     if ("error" in result)
       return {
         kind: "kernel",
-        message: plainKernelRefusal(op, result.error),
+        message: plainKernelRefusal(batchOf(op)[0]!, result.error),
         detail: kernelDetail(result.error, document.value),
       };
     const after = compileEditDocument(result.document, profile());
@@ -217,8 +254,8 @@ export function useStudioDraft(options: StudioDraftOptions) {
     return { ok: false, refusal: reason };
   }
 
-  /** One edit, one undo step. */
-  function apply(op: EditOperation, label: string): DraftOutcome {
+  /** One edit (or batch), one undo step. */
+  function apply(op: DraftEdit, label: string): DraftOutcome {
     if (gesturing.value) return refuse({ kind: "kernel", message: "Finish the drag first." });
     const candidate = evaluate(op);
     if (refused(candidate)) return refuse(candidate);
@@ -226,7 +263,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     if (!recorded.ok)
       return refuse({
         kind: "kernel",
-        message: plainKernelRefusal(op, recorded.reason),
+        message: plainKernelRefusal(batchOf(op)[0]!, recorded.reason),
         detail: kernelDetail(recorded.reason, document.value),
       });
     history.value = recorded.history;
@@ -293,7 +330,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
   }
 
   /** Preview `op` from the gesture's start; a refusal snaps the preview back. */
-  function moveGesture(op: EditOperation): DraftOutcome {
+  function moveGesture(op: DraftEdit): DraftOutcome {
     const candidate = evaluate(op);
     if (refused(candidate)) {
       preview.value = null;
@@ -305,7 +342,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
   }
 
   /** Close the gesture with `op`: one undo step, or back to where it started. */
-  function endGesture(op: EditOperation | null, label: string): DraftOutcome {
+  function endGesture(op: DraftEdit | null, label: string): DraftOutcome {
     if (!gesturing.value) return { ok: true };
     const candidate = op === null ? null : evaluate(op);
     preview.value = null;

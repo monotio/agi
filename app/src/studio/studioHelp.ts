@@ -25,7 +25,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
 
 /** The status bar's one line for the active Room Studio tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
-  select: "Click an item to select it · drag to move · ⌥-click adds a point",
+  select: "Click an item to select it · ⇧-click adds one · drag to move · ⌥-click adds a point",
   point: "Drag a point's handle · the item itself stays put",
   line: "Click points · Enter or double-click finishes",
   rect: "Drag a rectangle · Shift keeps it square",
@@ -42,8 +42,9 @@ export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
 /** While a line or polygon has points, the status line says how to take them back. */
 export const ROOM_PATH_HINT = "Backspace removes a point · Esc cancels";
 
-/** With an item selected under Select: the editing keys. */
-export const ROOM_EDIT_HINT = "Arrows nudge 1 px (⇧ 8) · ⌥+arrows next item · [ ] draw order";
+/** With an item (or several) selected under Select: the editing keys. */
+export const ROOM_EDIT_HINT =
+  "Arrows nudge 1 px (⇧ 8) · ⌥+arrows next item · ⇧⌥+arrows add it · [ ] draw order";
 
 export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
   pencil: "Pencil",
@@ -115,8 +116,11 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
               { keys: ["Backspace"], does: "Remove the last point" },
             ]
           : [
-              { keys: ["←↑→↓"], does: "Nudge the selected item 1 px (⇧ 8 px)" },
+              { keys: ["←↑→↓"], does: "Nudge the selection 1 px (⇧ 8 px)" },
               { keys: ["⌥ ←↑→↓"], does: "Previous or next item" },
+              { keys: ["⇧ ⌥ ←↑→↓"], does: "Add the previous or next item to the selection" },
+              { keys: ["⇧ click"], does: "Add an item to the selection, or take it away" },
+              { keys: ["⇧ drag"], does: "Select the items inside a box" },
               { keys: ["⌥ click", "Insert"], does: "Add a point to the selected line" },
             ]),
         { keys: ["Esc"], does: "Let go of one thing per press, then leave Studio" },
@@ -127,9 +131,9 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
     {
       title: "Edit",
       rows: [
-        { keys: ["Delete"], does: "Delete the selected item" },
-        { keys: ["⌘ D"], does: "Duplicate" },
-        { keys: ["[", "]"], does: "Move back or forward in draw order" },
+        { keys: ["Delete"], does: "Delete the selection" },
+        { keys: ["⌘ D"], does: "Duplicate the selection" },
+        { keys: ["[", "]"], does: "Move one item back or forward in draw order" },
         { keys: ["⌘ Z", "⇧ ⌘ Z"], does: "Undo, redo" },
         { keys: ["/"], does: "Ask about this selection" },
       ],

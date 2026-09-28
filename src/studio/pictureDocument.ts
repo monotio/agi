@@ -8,6 +8,13 @@
  * Items are flat and cover consecutive source lines; lines outside items are
  * loose. A malformed directive is reported and otherwise read as a plain
  * comment, as is the `@end` of a rejected `@item`.
+ *
+ * Several items become one ("Make one item") only as a run of neighbours:
+ * one `@item` over their lines, so the commands keep their draw order and
+ * the bytes never change. Items drawn between them, or loose commands, would
+ * have to move in the draw order (changing the picture) or join without
+ * being chosen, so `itemRun` names them and the edit refuses (see the
+ * `combineItems` operation in editOperations.ts).
  */
 
 export type PictureItemKind = "art" | "depth" | "walk" | "mixed";
@@ -199,4 +206,37 @@ export function pictureItemAtLine(
   line: number,
 ): PictureItem | undefined {
   return document.items.find((item) => item.openLine < line && line < item.closeLine);
+}
+
+/** Where items to be made one lie in the draw order, and what breaks their run. */
+export interface ItemRun {
+  /** The members in draw order. */
+  readonly members: readonly PictureItem[];
+  /** Items drawn between the first and last member that are not members. */
+  readonly between: readonly PictureItem[];
+  /** 1-based loose lines holding a command between the first and last member. */
+  readonly looseCommands: readonly number[];
+}
+
+/**
+ * The run from the first to the last of `ids` in draw order, and what lies
+ * between them that is not one of them. Ids the document lacks are skipped.
+ */
+export function itemRun(document: PictureDocument, ids: readonly string[]): ItemRun {
+  const chosen = new Set(ids);
+  const members = document.items.filter((item) => chosen.has(item.id));
+  const first = members[0];
+  const last = members.at(-1);
+  if (!first || !last) return { members, between: [], looseCommands: [] };
+  const between = document.items.filter(
+    (item) =>
+      !chosen.has(item.id) && item.openLine > first.openLine && item.openLine < last.openLine,
+  );
+  const looseCommands: number[] = [];
+  for (let line = first.closeLine + 1; line < last.openLine; line++) {
+    const text = document.lines[line - 1] ?? "";
+    if (!pictureItemAtLine(document, line) && !isPictureDirective(text))
+      if (pictureCommandText(text).length > 0) looseCommands.push(line);
+  }
+  return { members, between, looseCommands };
 }

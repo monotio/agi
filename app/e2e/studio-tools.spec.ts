@@ -246,11 +246,81 @@ test("the fill tool on a seed that is not white explains the AGI rule and insert
   const studio = await openStudio(page);
   await page.keyboard.press("f");
   await clickCell(page, 80, 40);
-  await expect(studio.getByTestId("studio-fill-why")).toHaveText(
-    "Nothing to fill: at this point in the draw order 80,40 holds colour 7 (drawn by line 4), and a colour fill floods only white (15) cells, 4-connected.",
+  await expect(studio.getByTestId("bar-notice-summary")).toHaveText(
+    "Can't fill here: this spot is already light grey.",
   );
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
   expect(await draftBytes(page)).toEqual(PIC_5);
+});
+
+test("a fill drawn last on painted ground says why, and Draw before moves the drawing where it works", async ({
+  page,
+}) => {
+  const studio = await openStudio(page);
+  const bar = studio.getByTestId("studio-options-bar");
+  await page.keyboard.press("f");
+  await pickColour(studio, 4);
+  // 40,40 is the wall's grey, flooded by its fill on line 4: a fill drawn last stops there.
+  await clickCell(page, 40, 40);
+  await expect(bar.getByTestId("bar-notice-summary")).toHaveText(
+    "Can't fill here: this spot is already light grey.",
+  );
+  // Nothing in the bar is cut off: the summary is shown whole.
+  expect(
+    await bar
+      .getByTestId("bar-notice-summary")
+      .evaluate((chip) => chip.scrollWidth <= chip.clientWidth + 1),
+  ).toBe(true);
+  const why = bar.getByTestId("bar-notice-why");
+  await why.click();
+  await expect(bar.getByTestId("bar-notice-detail")).toContainText(
+    "An AGI fill only spreads over white. The light grey here was painted earlier by line 4 (Wall), so draw your shape before it in the draw order.",
+  );
+  await page.keyboard.press("Escape");
+  await expect(bar.getByTestId("bar-notice-detail")).toHaveCount(0);
+  await expect(why).toBeFocused();
+  await expect(studio).toBeVisible();
+
+  // The fix: the scrubber moves before the Wall, where the spot is still white, and
+  // Filled goes on, so the shape brings its own inside.
+  await bar.getByTestId("bar-notice-action").click();
+  await expect(bar.getByTestId("studio-bar-notice")).toHaveCount(0);
+  await expect(studio.getByTestId("studio-notice")).toHaveText(
+    "New shapes now go before Wall. Filled is on: draw a rectangle or polygon there.",
+  );
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws first of 12");
+  await page.keyboard.press("r");
+  await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
+  await dragCells(page, [30, 30], [50, 50]);
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  expect(await order(studio)).toEqual(["rect-1", "wall", "floor", "bench", "occluder"]);
+  const after = planes(await draftBytes(page));
+  const before = planes(PIC_5);
+  // Red inside and on the outline; the wall's grey still flows all round it.
+  for (const [x, y] of [
+    [30, 30],
+    [40, 40],
+    [50, 50],
+  ] as const)
+    expect(after.visual[at(x, y)]).toBe(4);
+  for (const [x, y] of [
+    [29, 40],
+    [51, 40],
+    [40, 29],
+    [80, 40],
+  ] as const)
+    expect(after.visual[at(x, y)]).toBe(7);
+  // Outside the new box nothing changed.
+  const changedOutside: string[] = [];
+  for (let y = 0; y < 168; y++)
+    for (let x = 0; x < 160; x++)
+      if (
+        (x < 30 || x > 50 || y < 30 || y > 50) &&
+        after.visual[at(x, y)] !== before.visual[at(x, y)]
+      )
+        changedOutside.push(`${x},${y}`);
+  expect(changedOutside).toEqual([]);
+  expect(after.priority).toEqual(before.priority);
 });
 
 test("an insert at a mid playhead lands at that draw-order position under later commands", async ({

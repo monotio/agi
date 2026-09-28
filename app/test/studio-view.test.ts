@@ -6,6 +6,7 @@ import {
   bandGuides,
   controlLabels,
   labelParts,
+  insideBox,
   maskBox,
   maskFillPath,
   maskOutlinePath,
@@ -177,4 +178,17 @@ test("a picture's size in plain words: bytes and drawing commands, thousands sep
   });
   assert.equal(pictureSize(1, 1).full, "1 byte · 1 drawing command");
   assert.equal(pictureSize(12000, 4000).full, "12,000 bytes · 4,000 drawing commands");
+});
+
+test("a marquee takes the items whose every cell lies inside it", () => {
+  const mask = new Uint8Array(CELLS);
+  for (const [x, y] of [
+    [10, 20],
+    [14, 22],
+  ])
+    mask[y! * SCREEN_WIDTH + x!] = 1;
+  assert.equal(insideBox(mask, { x1: 10, y1: 20, x2: 14, y2: 22 }), true, "edges count");
+  assert.equal(insideBox(mask, { x1: 11, y1: 0, x2: 159, y2: 167 }), false, "one cell outside");
+  assert.equal(insideBox(mask, { x1: 0, y1: 0, x2: 13, y2: 167 }), false);
+  assert.equal(insideBox(new Uint8Array(CELLS), { x1: 0, y1: 0, x2: 159, y2: 167 }), false);
 });
