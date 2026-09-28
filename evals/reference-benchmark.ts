@@ -593,6 +593,8 @@ interface RunReport {
   match: boolean;
   scores: Scores;
   viewCalls: number;
+  /** Each view_reference call's size, region and grid, in call order. */
+  views: { size: unknown; region: unknown; grid: unknown }[];
   /** Attached art the turn wrote from or said it matched without viewing it. */
   unviewed: string[];
   requests: number;
@@ -615,6 +617,7 @@ async function runCase(
   const tutorial = buildTutorial();
   const telemetry: { usage?: LlmUsage; usageIncomplete?: boolean }[] = [];
   let viewCalls = 0;
+  const views: RunReport["views"] = [];
   const unviewed: string[] = [];
   const config = configFor(args, arm, allowance);
   const session = AgentSession.fromAuthoredData(
@@ -622,7 +625,11 @@ async function runCase(
     (kind, _message, data) => {
       const details = data as Record<string, unknown> | undefined;
       if (kind === "telemetry") telemetry.push(details?.["telemetry"] as (typeof telemetry)[0]);
-      if (kind === "request" && details?.["tool"] === "view_reference") viewCalls++;
+      if (kind === "request" && details?.["tool"] === "view_reference") {
+        viewCalls++;
+        const call = (details["args"] ?? {}) as Record<string, unknown>;
+        views.push({ size: call["size"], region: call["region"], grid: call["grid"] });
+      }
       const missed = details?.["unviewedReferences"];
       if (Array.isArray(missed)) unviewed.push(...(missed as string[]));
     },
@@ -689,6 +696,7 @@ async function runCase(
     match: outcome?.match ?? false,
     scores: outcome?.scores ?? {},
     viewCalls,
+    views,
     unviewed: [...new Set(unviewed)],
     requests: telemetry.length,
     tokens,
@@ -761,7 +769,11 @@ async function main(): Promise<void> {
         spent += report.costUsd;
         runs.push(report);
         console.log(
-          `${report.match ? "match" : "no match"} ${id} ${arm} r${repeat}: ${report.viewCalls} views, ` +
+          `${report.match ? "match" : "no match"} ${id} ${arm} r${repeat}: ${report.viewCalls} views` +
+            (report.views.length
+              ? ` (${report.views.map((v) => `${v.size ?? "default"}${v.region ? "+region" : ""}${v.grid ? "+grid" : ""}`).join(", ")})`
+              : "") +
+            `, ` +
             `${report.requests} requests, ${report.tokens.input} input tokens, $${report.costUsd.toFixed(4)}` +
             (report.unviewed.length ? `, unviewed ${report.unviewed.join(", ")}` : "") +
             (report.error ? ` — ${report.error}` : ""),

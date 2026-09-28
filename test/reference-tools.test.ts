@@ -153,6 +153,38 @@ describe("view_reference", () => {
     }
   });
 
+  it("shows the working size when size is left out", async () => {
+    const result = await view({ id: ID_A, size: null });
+    assert.equal(result.success, true, result.error ?? "");
+    assert.deepEqual(result.details?.["output"], { width: 1024, height: 512 });
+    assert.equal(result.details?.["size"], "full");
+  });
+
+  it("names the views that would show more", async () => {
+    const small = await view({ id: ID_A, size: "small" });
+    assert.match(
+      small.message ?? "",
+      / For shapes, poses and outlines, view it at size full \(1024x512\) or a region of it\.$/,
+    );
+    const full = await view({ id: ID_A, size: "full" });
+    assert.match(
+      full.message ?? "",
+      / For fine detail, view a region: it is enlarged by a whole factor up to 512 px\. grid: true labels source coordinates for an exact next region\.$/,
+    );
+    const region = { x: 100, y: 50, w: 40, h: 30 };
+    const thumbRegion = await view({ id: ID_A, size: "thumb", region });
+    assert.match(
+      thumbRegion.message ?? "",
+      / size full shows this region enlarged up to 512 px\.$/,
+    );
+    const gridded = await view({ id: ID_A, size: "full", region, grid: true });
+    assert.match(
+      gridded.message ?? "",
+      /Colours here: [^.]*\.$/,
+      "a gridded region at full is the closest look",
+    );
+  });
+
   it("enlarges a region by a whole factor up to 512 and crops in source pixels", async () => {
     // 40x30 at full: floor(512 / 40) = 12, so 480x360; at small floor(256 / 40) = 6.
     const full = await view({ id: ID_A, size: "full", region: { x: 100, y: 50, w: 40, h: 30 } });

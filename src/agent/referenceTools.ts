@@ -300,7 +300,7 @@ export async function referenceManifest(
   return {
     text: [
       "### REFERENCE ART",
-      "The player's reference art, one line per image: id · what it is · target · size in pixels · main AGI colours · note. The strip shows each as a thumbnail; only the thumbnails are in view. Call view_reference with an id before you match anything to it: small or full size, or a region with a grid for detail.",
+      "The player's reference art, one line per image: id · what it is · target · size in pixels · main AGI colours · note. The strip shows each as a thumbnail; only the thumbnails are in view. Call view_reference with an id before you match anything to it. It shows the whole image at the working size unless you ask for a smaller look or a region.",
       ...lines,
     ].join("\n"),
     image: {
@@ -310,16 +310,39 @@ export async function referenceManifest(
   };
 }
 
+type ViewSize = "thumb" | "small" | "full";
+
+/**
+ * The views that would show more than this one, named in the result so the
+ * model's next call can be exact: a smaller look points to the working size,
+ * a whole image to a region, and a region to its grid.
+ */
+function moreViews(
+  size: ViewSize,
+  region: { x: number; y: number; w: number; h: number } | null,
+  dims: string,
+  gridded: boolean,
+): string {
+  const grid = gridded ? "" : " grid: true labels source coordinates for an exact next region.";
+  if (size !== "full")
+    return region
+      ? `size full shows this region enlarged up to ${REGION_EDGE} px.`
+      : `For shapes, poses and outlines, view it at size full (${dims}) or a region of it.`;
+  return region
+    ? grid.trim()
+    : `For fine detail, view a region: it is enlarged by a whole factor up to ${REGION_EDGE} px.${grid}`;
+}
+
 export const VIEW_REFERENCE_TOOL: ToolDefinition = {
   name: "view_reference",
   description:
-    "Look at the player's reference art by `id`, the art-… handle from the reference list. The request carries only a manifest line and a thumbnail per reference; view one before you match anything to it. `size`: thumb (64 px), small (256 px) or full (the stored size, up to 1024 px), longest edge. `region` crops x, y, w, h in the reference's own pixels (the size its manifest line gives) and enlarges the crop by a whole factor up to 512 px (256 at small, 64 at thumb); null shows the whole image. `grid`: true draws lines labelled in the reference's pixel coordinates, so the next region can be exact. A viewed image stays in the conversation, so view each reference once at the size and region you need.",
+    "Look at the player's reference art by `id`, the art-… handle from the reference list. The request carries only a manifest line and a thumbnail per reference; view one before you match anything to it. `size`: null or full shows the stored image (up to 1024 px, longest edge), the size for tracing shapes, poses and outlines; small (256 px) and thumb (64 px) are cheaper looks at colour and composition. `region` crops x, y, w, h in the reference's own pixels (the size its manifest line gives) and enlarges the crop by a whole factor up to 512 px (256 at small, 64 at thumb); null shows the whole image. `grid`: true draws lines labelled in the reference's pixel coordinates, so the next region can be exact. Each result names the views that would show more. A viewed image stays in the conversation, so view each reference once at the size and region you need.",
   parameters: {
     type: "object",
     additionalProperties: false,
     properties: {
       id: { type: "string", pattern: "^art-[0-9a-f]{10}$" },
-      size: { type: "string", enum: ["thumb", "small", "full"] },
+      size: { type: ["string", "null"], enum: ["thumb", "small", "full", null] },
       region: {
         type: ["object", "null"],
         additionalProperties: false,
@@ -440,7 +463,8 @@ export async function viewReference(
   } catch {
     return { success: false, error: `${id} could not be decoded in this browser.` };
   }
-  const size = args["size"] as "thumb" | "small" | "full";
+  // Left out, the tool shows the working size: the one that holds shapes.
+  const size = (args["size"] ?? "full") as ViewSize;
   const region = args["region"] as { x: number; y: number; w: number; h: number } | null;
   const dims = `${bitmap.width}x${bitmap.height}`;
   if (region) {
@@ -482,9 +506,10 @@ export async function viewReference(
   const colours = colourSummary(bitmap, view);
   const gridText =
     step !== null ? `; grid every ${step} source pixels, labelled in source coordinates` : "";
+  const more = moreViews(size, region, dims, step !== null);
   return {
     success: true,
-    message: `${id} at ${viewedAt}${gridText}. Colours here: ${colours}.`,
+    message: `${id} at ${viewedAt}${gridText}. Colours here: ${colours}.${more ? ` ${more}` : ""}`,
     details: {
       id,
       size,
