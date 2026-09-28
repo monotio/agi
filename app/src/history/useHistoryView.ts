@@ -30,6 +30,7 @@ import {
   resolveStagedSwap,
   saveHistoryBookmark,
   stageRetainedOriginal,
+  startsFresh,
   type HistoryBookmark,
 } from "./historyStorage.ts";
 import { gameStorageKey, type BootedGame } from "../project/gameTypes.ts";
@@ -160,10 +161,25 @@ function roomMark(m: HistoryRoomMark, segment: number): HistoryViewMark {
   };
 }
 
-/** The transport's mark lane: room entries, remixes, prompts, bookmarks. */
+const STARTED_OVER = "Started over";
+
+/**
+ * Where a Start over began a session afresh: tick 0 of a segment that boots
+ * the game from its beginning after an earlier segment of the same tape.
+ * It shares the look of the game's own restart.
+ */
+function startedOverMark(segment: number): HistoryViewMark {
+  return { segment, tick: 0, seq: 0, room: null, kind: "restart", label: STARTED_OVER };
+}
+
+const isStartedOver = (m: HistoryViewMark): boolean =>
+  m.kind === "restart" && m.label === STARTED_OVER;
+
+/** The transport's mark lane: room entries, remixes, prompts, bookmarks, Start overs. */
 function buildMarks(recording: HistoryRecording, bookmarks: HistoryBookmark[]): HistoryViewMark[] {
   const marks: HistoryViewMark[] = [];
   recording.segments.forEach((seg, si) => {
+    if (si > 0 && startsFresh(seg.boot)) marks.push(startedOverMark(si));
     for (const m of seg.marks) marks.push(roomMark(m, si));
     for (const e of seg.events) {
       const c = e.cause;
@@ -241,6 +257,22 @@ interface FlatSeg {
   id: string;
   extent: number;
   marks: HistoryViewMark[];
+  /** The segment boots the game from its beginning (known once its boot is seen). */
+  fresh?: boolean;
+}
+
+/**
+ * Keep each live lane's Started over mark in step with its place: a fresh
+ * lane after an earlier one carries it, the first lane never does. Lanes
+ * arrive from batches and the stored outline in either order, so the mark
+ * is recomputed whenever they settle.
+ */
+function markStartOvers(lanes: FlatSeg[]): void {
+  lanes.forEach((lane, i) => {
+    const marks = lane.marks.filter((m) => !isStartedOver(m));
+    if (lane.fresh === true && i > 0) marks.unshift(startedOverMark(i));
+    lane.marks = marks;
+  });
 }
 
 export function useHistoryView(deps: HistoryViewDeps) {
@@ -412,11 +444,20 @@ export function useHistoryView(deps: HistoryViewDeps) {
         if (idx >= 0) {
           const lane = outline[idx]!;
           lane.extent = Math.max(lane.extent, seg.extent);
+          lane.fresh = lane.fresh === true || seg.fresh;
           for (const m of marks)
-            if (!lane.marks.some((x) => x.tick === m.tick && x.seq === m.seq)) lane.marks.push(m);
+            if (
+              !lane.marks.some((x) => x.tick === m.tick && x.seq === m.seq && x.label === m.label)
+            )
+              lane.marks.push(m);
           lane.marks.sort((a, b) => a.tick - b.tick || a.seq - b.seq);
         } else {
-          outline.push({ id: seg.id, extent: seg.extent, marks });
+          outline.push({
+            id: seg.id,
+            extent: seg.extent,
+            marks,
+            fresh: seg.fresh,
+          });
         }
       }
       // Stored lanes belong before the live tail: re-sort by manifest order,
@@ -428,6 +469,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
       );
       outline.forEach((lane, i) => lane.marks.forEach((m) => (m.segment = i)));
+      markStartOvers(outline);
     } catch {
       // A missing or unreadable manifest leaves the batch-built axis as is.
     }
@@ -455,6 +497,10 @@ export function useHistoryView(deps: HistoryViewDeps) {
     const extent = batchExtent(batch);
     if (extent > lane.extent) lane.extent = extent;
     for (const m of batch.marks) lane.marks.push(roomMark(m, index));
+    if (batch.boot !== undefined) {
+      lane.fresh = startsFresh(batch.boot);
+      markStartOvers(outline);
+    }
   }
 
   /** The transport's own live pause — released only by Resume at LIVE. */
@@ -639,13 +685,21 @@ export function useHistoryView(deps: HistoryViewDeps) {
     playAfterSeek = null;
     // The outline picks up the loaded tape's exact extents — the live axis
     // stays honest after a look back.
-    if (recording !== null)
+    if (recording !== null) {
       for (const seg of recording.segments) {
         const lane = outline.find((s) => s.id === seg.id);
         const extent = segmentExtent(seg);
-        if (lane === undefined) outline.push({ id: seg.id, extent, marks: [] });
+        if (lane === undefined)
+          outline.push({
+            id: seg.id,
+            extent,
+            marks: [],
+            fresh: startsFresh(seg.boot),
+          });
         else if (extent > lane.extent) lane.extent = extent;
       }
+      markStartOvers(outline);
+    }
     deps.resumeEngine("history");
   }
 
@@ -887,6 +941,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
     verb: string,
     /** The branch this swap adopted — it leaves the undo list on commit. */
     dropBranch?: string,
+    /**
+     * Whether the departing session joins the kept branches once the swap
+     * lands. It is staged either way, so an uncertain swap keeps its copy.
+     */
+    keepDeparting = true,
   ): Promise<boolean> {
     if (deps.state.powerUp.busy)
       throw new Error("Wait for the current authoring operation before changing sessions.");
@@ -987,7 +1046,9 @@ export function useHistoryView(deps: HistoryViewDeps) {
         return true;
       }
       try {
-        await commitStagedOriginal(key, candidate.id, dropBranch, game.historyLifetime);
+        if (keepDeparting)
+          await commitStagedOriginal(key, candidate.id, dropBranch, game.historyLifetime);
+        else await clearStagedOriginal(key, candidate.id, game.historyLifetime);
       } catch (error) {
         closeHistory();
         pauseAtLive();
@@ -1014,7 +1075,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
   }
 
   /** The viewed moment becomes the live session; the departing one is kept. */
-  async function resumeFromHere(): Promise<void> {
+  async function resumeFromHere(
+    verb = "Resume from here",
+    /** Undo start over replaces a session nobody asked to keep. */
+    keepDeparting = true,
+  ): Promise<void> {
     const v = view();
     if (!v.active || !v.canResume || v.diverged !== null) return;
     const game = deps.getBootedGame();
@@ -1022,20 +1087,25 @@ export function useHistoryView(deps: HistoryViewDeps) {
     v.error = "";
     stopWatch();
     try {
-      const done = await swapSessions(async () => {
-        const reply = await deps.query(
-          "historyViewTake",
-          { segment: v.segment, tick: v.tick, seq: v.seq, generation: v.generation },
-          15_000,
-        );
-        return reply.ok
-          ? {
-              ok: true,
-              ...(reply.boot !== undefined ? { boot: reply.boot } : {}),
-              ...(reply.session !== undefined ? { session: reply.session } : {}),
-            }
-          : reply;
-      }, "Resume from here");
+      const done = await swapSessions(
+        async () => {
+          const reply = await deps.query(
+            "historyViewTake",
+            { segment: v.segment, tick: v.tick, seq: v.seq, generation: v.generation },
+            15_000,
+          );
+          return reply.ok
+            ? {
+                ok: true,
+                ...(reply.boot !== undefined ? { boot: reply.boot } : {}),
+                ...(reply.session !== undefined ? { session: reply.session } : {}),
+              }
+            : reply;
+        },
+        verb,
+        undefined,
+        keepDeparting,
+      );
       if (done) deps.logAgent("log", `history: resumed from ${v.segment}:${v.tick}`);
     } catch (error) {
       view().error = error instanceof Error ? error.message : String(error);
@@ -1093,6 +1163,59 @@ export function useHistoryView(deps: HistoryViewDeps) {
     } catch (error) {
       view().error = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  /**
+   * Undo start over: the session before the newest Start over becomes the
+   * live one again, from where it ended — through the tape's own seek and
+   * Resume from here, so the short fresh session stays on the timeline as
+   * history. It is not kept as a branch: Start over is one click away. The game
+   * plays on afterwards if it was playing and stays paused if it was
+   * paused. An earlier session that cannot be restored changes nothing and
+   * says why. Returns whether the earlier session is live again.
+   */
+  async function undoStartOver(): Promise<boolean> {
+    const v = view();
+    if (v.loading) return false;
+    // From an open tape, the live game it parked is the one to replace.
+    if (v.active) closeHistory();
+    const play = !v.parked;
+    const explain = (reason: string): string =>
+      `Couldn't undo start over: ${reason}${/[.!?]$/.test(reason) ? "" : "."} Nothing changed.`;
+    const refuse = (reason: string): false => {
+      closeHistory();
+      v.diverged = null;
+      v.error = explain(reason);
+      if (play) resumeLive();
+      return false;
+    };
+    pauseAtLive();
+    await openHistory();
+    if (!v.active || recording === null) {
+      if (v.error !== "") v.error = explain(v.error);
+      if (play) resumeLive();
+      return false;
+    }
+    const segments = recording.segments;
+    let fresh = -1;
+    for (let i = segments.length - 1; i > 0 && fresh < 0; i--)
+      if (startsFresh(segments[i]!.boot)) fresh = i;
+    if (fresh < 0)
+      return refuse("the earlier session was dropped from the timeline to save space.");
+    const previous = fresh - 1;
+    await seekTo(previous, segmentExtent(segments[previous]!));
+    if (!v.active) return false;
+    if (v.error !== "") return refuse(v.error);
+    if (v.diverged !== null)
+      return refuse("the earlier session's recording can't be replayed to its end.");
+    if (!v.canResume) return refuse("the earlier session ended at a moment that can't be resumed.");
+    await resumeFromHere("Undo start over", false);
+    // A refused take leaves the view open with its reason; an uncertain one
+    // already closed it and says so.
+    if (v.active) return refuse(v.error || "the earlier session could not be resumed.");
+    if (v.error !== "") return false;
+    if (!play) pauseAtLive();
+    return true;
   }
 
   /** Pin the viewed position as a named mark on the tape. */
@@ -1386,6 +1509,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
     transportToggle,
     resumeFromHere,
     undoRewind,
+    undoStartOver,
     addBookmark,
     jumpToVisit,
     highlightMark,

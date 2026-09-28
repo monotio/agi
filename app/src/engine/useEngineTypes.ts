@@ -160,6 +160,11 @@ export interface EngineState {
   /** This boot restored an autosave: the resume caption is showing. */
   resumed: boolean;
   /**
+   * A Start over left earlier sessions on the timeline: the stage's note
+   * offers Undo start over until the new run is under way.
+   */
+  startOverNote: boolean;
+  /**
    * The last game ran `quit` and play returned Home: Home says so, with Play
    * again and (when progress was saved before the quit) Continue. A new game
    * session clears it.

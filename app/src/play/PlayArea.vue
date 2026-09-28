@@ -616,6 +616,17 @@ defineExpose({
           />
         </form>
 
+        <!-- Notes about the game in play sit just above the engine's bottom
+             text rows, where the command line is drawn, at every size. -->
+        <div
+          v-if="state.phase === 'running' && $slots['screen-notes']"
+          class="screen-notes"
+          @click.stop
+          @pointerdown.stop
+        >
+          <slot name="screen-notes" />
+        </div>
+
         <!-- Draggable visual/priority wipe for the dock's Split mode. -->
         <div
           v-if="debugViewMode === 'split' && debugOpen"
@@ -756,6 +767,20 @@ defineExpose({
 .with-touch .stage-actions {
   right: var(--space-1);
   bottom: var(--space-1);
+}
+.screen-notes {
+  position: absolute;
+  right: var(--space-2);
+  /* The bottom three of the 25 text rows hold the command line (row 22 by default). */
+  bottom: calc(100% * 3 / 25);
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  max-width: calc(100% - 2 * var(--space-2));
+  pointer-events: none;
+}
+.screen-notes > :deep(*) {
+  pointer-events: auto;
 }
 .transport-card-host {
   display: flex;
