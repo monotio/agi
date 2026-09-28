@@ -69,6 +69,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           "The game's own Save and Restore work as they always did: most Sierra games save with F5 and restore with F7. The app also autosaves, so Resume picks up where you stopped.",
           "Every session records itself. Drag the timeline under the game to look back, then Resume from here to play on from that moment. Undo rewind takes you back if you went too far.",
+          "Start over keeps your earlier sessions: Undo start over, offered just after, returns to where you left off, and after that the Started over mark on the timeline is the way back.",
         ],
       },
       {

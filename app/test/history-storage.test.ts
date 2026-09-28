@@ -877,6 +877,46 @@ test("the manifest outline carries extents and marks — the live timeline needs
   assert.equal(outline.pending, 0);
 });
 
+test("the outline reads from each stored boot whether its segment starts fresh", async () => {
+  const key = "tape-store-fresh";
+  const end = { seq: 0, tick: 5, cycle: 5, reason: "boot" as const };
+  const boots: [string, HistoryBoot][] = [
+    ["s-f.1", BOOT],
+    // A rollover or Resume from here continues the segment before it.
+    ["s-f.2", stampBoot({ ...BOOT, resumedFrom: { segment: "s-f.1", seq: 0, tick: 5 } })],
+    // Continue restores the autosave: a checkpoint, not the game's beginning.
+    ["s-f.3", stampBoot({ ...BOOT, image: "AAAA" })],
+    // Start over boots the game from the top again.
+    ["s-f.4", BOOT],
+  ];
+  for (const [segment, boot] of boots) {
+    assert.equal(
+      await appendHistoryBatch(
+        key,
+        { ...batch(1), segment, boot, ...(segment !== "s-f.4" ? { end } : {}) },
+        "2.936",
+        IDENTITY,
+      ),
+      true,
+    );
+  }
+  // Only the opening batch carries the boot; a later one must not hide it.
+  assert.equal(
+    await appendHistoryBatch(key, { ...batch(2), segment: "s-f.4" }, "2.936", IDENTITY),
+    true,
+  );
+  const outline = await loadTapeOutline(key);
+  assert.deepEqual(
+    outline?.segments.map((s) => [s.id, s.fresh]),
+    [
+      ["s-f.1", true],
+      ["s-f.2", false],
+      ["s-f.3", false],
+      ["s-f.4", true],
+    ],
+  );
+});
+
 test("segments replaying the same bytes share one file blob", async () => {
   const key = "tape-store-blobs";
   const blobKeys = () =>

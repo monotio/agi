@@ -572,7 +572,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.deepEqual(state.gameEdit, { text: "look" });
         break;
       case "cycle":
-        deliver(w, { type, cycle: 4, room: 2, egoX: 9, egoY: 10 });
+        deliver(w, { type, cycle: 4, room: 2, egoX: 9, egoY: 10, delay: 1 });
         assert.equal(hook.cycle, 4);
         assert.equal(hook.room, 2);
         break;

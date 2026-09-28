@@ -11,7 +11,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { reactive } from "vue";
-import { useHistoryView, freshHistoryView } from "../src/history/useHistoryView.ts";
+import {
+  useHistoryView,
+  freshHistoryView,
+  type HistoryViewMark,
+} from "../src/history/useHistoryView.ts";
 import {
   HISTORY_FORMAT_VERSION,
   type HistoryBatch,
@@ -67,7 +71,7 @@ function segment(
   };
 }
 
-/** Two marks share tick 4 in segment 0; segment 1 starts a new run. */
+/** Two marks share tick 4 in segment 0; segment 1 continues it in a new run. */
 const RECORDING: HistoryRecording = {
   version: HISTORY_FORMAT_VERSION,
   identity: { project: testProjectId("history-view"), revision: testRevision("history-view") },
@@ -80,7 +84,10 @@ const RECORDING: HistoryRecording = {
       [5, 4, 3],
       [9, 8, 5],
     ]),
-    segment("sX.2", [[2, 1, 4]]),
+    {
+      ...segment("sX.2", [[2, 1, 4]]),
+      boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sX.1", seq: 9, tick: 8 } }),
+    },
   ],
 };
 
@@ -111,6 +118,8 @@ function makeHarness(opts?: {
   /** Query types whose replies are held until `release(type, reply)` runs. */
   defer?: string[];
   startError?: string;
+  /** The drive reports a divergence when it lands here. */
+  divergeAt?: (segment: number, tick: number) => boolean;
 }) {
   const state = reactive({
     phase: "running",
@@ -211,7 +220,9 @@ function makeHarness(opts?: {
           score: 0,
           modal: null,
           canResume: true,
-          diverged: null,
+          diverged: opts?.divergeAt?.(segment, tick)
+            ? { at: { segment, seq: 0, tick }, detail: "sync digest differs" }
+            : null,
           error: type === "historyViewStart" ? (opts?.startError ?? null) : null,
         };
       }
@@ -425,6 +436,13 @@ test("Resume from here keeps the departing session as a branch — no confirmati
   assert.equal(branches.length, 2, "both rewinds are kept");
   assert.equal(branches[1]!.boot.rng, 42, "the departing session joined the list");
   assert.equal(v.branches, 2);
+  // An ordinary rewind's undo keeps its name.
+  const redo = view.transport.trailing.find((b) => b.testid === "btn-undo-rewind");
+  assert.equal(redo?.label, "Undo rewind");
+  assert.equal(
+    redo?.title,
+    "Restore the session the last rewind kept; the current one is kept in its place",
+  );
 });
 
 test("an acknowledged take promotes the staged session to a branch", async () => {
@@ -1335,4 +1353,143 @@ test("a map jump from a paused game opens the tape paused at the visit", async (
   assert.equal(view.transport.tick, 150);
   assert.equal(watchLabel(view), "Watch from here");
   assert.equal(await tapeMoves(view), false);
+});
+
+/**
+ * A game's sessions across a Start over: the first boot, a rollover that
+ * continues it, a Continue from the autosave, then Start over — a fresh
+ * boot after earlier sessions. Only that last one is a Start over.
+ */
+const STARTED_OVER: HistoryRecording = {
+  ...RECORDING,
+  segments: [
+    segment("sS.1", [[1, 4, 2]], { seq: 3, tick: 12, cycle: 12, reason: "boot" }),
+    {
+      ...segment("sS.2", [[1, 2, 3]], { seq: 2, tick: 20, cycle: 20, reason: "boot" }),
+      boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sS.1", seq: 3, tick: 12 } }),
+    },
+    {
+      ...segment("sS.3", [[0, 0, 3]], { seq: 1, tick: 30, cycle: 30, reason: "boot" }),
+      boot: stampBoot({ ...BOOT, image: "AAAA" }),
+    },
+    segment("sS.4", [[0, 0, 1]]),
+  ],
+};
+
+const startedOverMarks = <T extends { label: string }>(marks: readonly T[]): T[] =>
+  marks.filter((m) => m.label === "Started over");
+
+test("the open tape marks a Start over, never a first boot, a rollover or a Continue", async () => {
+  await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view } = makeHarness();
+  await view.openHistory();
+  const marks = startedOverMarks(state.historyView.marks);
+  assert.deepEqual(
+    marks.map((m) => [m.segment, m.tick, m.kind]),
+    [[3, 0, "restart"]],
+  );
+  // Laid out on the timeline where the fresh session begins.
+  const lane = startedOverMarks(view.transport.marks);
+  assert.equal(lane.length, 1);
+  assert.equal(lane[0]!.kind, "restart");
+  assert.equal(lane[0]!.percent, (62 / view.transport.totalTicks) * 100);
+});
+
+test("the live timeline marks a stored Start over and one the batches just began", async () => {
+  await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { view } = makeHarness();
+  // Start over again: the new session's boot batch arrives before the stored
+  // outline has loaded, so its lane is first on the axis for a moment.
+  view.observeBatch({ ...batch("sS.5", [4]), boot: BOOT });
+  assert.equal(startedOverMarks(view.transport.marks).length, 0, "no earlier lane is known yet");
+  await flushSeeks();
+  const marks = startedOverMarks(view.transport.marks);
+  assert.deepEqual(
+    marks.map((m) => [(m.payload as HistoryViewMark).segment, (m.payload as HistoryViewMark).tick]),
+    [
+      [3, 0],
+      [4, 0],
+    ],
+  );
+  // A resumed session's boot is no Start over.
+  view.observeBatch({
+    ...batch("sS.6", [2]),
+    boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sS.5", seq: 0, tick: 4 } }),
+  });
+  assert.equal(startedOverMarks(view.transport.marks).length, 2);
+});
+
+test("Undo start over resumes the earlier session where it ended and keeps playing", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view, takes } = makeHarness();
+  const v = state.historyView;
+  view.observeBatch(batch("sS.4", [4]));
+  assert.equal(await view.undoStartOver(), true, `the undo landed — error: ${v.error}`);
+  // The session before the Start over, at the end of its recording.
+  assert.deepEqual(
+    takes.map((take) => [take["segment"], take["tick"]]),
+    [[2, 30]],
+  );
+  assert.equal(v.active, false);
+  assert.equal(v.parked, false, "the game was playing, so it plays on");
+  // The short fresh session stays on the tape as history but is not kept as
+  // a branch: no Undo rewind offers it back.
+  assert.equal(v.branches, 0, "the branch count is what it was before the start over");
+  assert.deepEqual(await loadRetainedBranches(key), []);
+  assert.equal(await loadTapeOutline(key).then((o) => o?.pending), 0, "no copy left staged");
+  assert.equal(
+    view.transport.trailing.some((b) => b.testid === "btn-undo-rewind"),
+    false,
+    "no undo or redo button follows",
+  );
+});
+
+test("Undo start over on a paused game leaves the earlier session paused", async () => {
+  await importGameHistory("view-test", { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view, takes } = makeHarness();
+  const v = state.historyView;
+  view.observeBatch(batch("sS.4", [4]));
+  view.pauseAtLive();
+  assert.equal(await view.undoStartOver(), true, `the undo landed — error: ${v.error}`);
+  assert.equal(takes.length, 1);
+  assert.equal(v.active, false);
+  assert.equal(v.parked, true, "the game was paused, so it stays paused");
+  assert.equal(view.transport.play.label, "Resume");
+});
+
+test("an earlier session that diverges at its end is not restored and nothing changes", async () => {
+  const key = "view-test";
+  await importGameHistory(key, { recording: STARTED_OVER }, STARTED_OVER.identity);
+  const { state, view, takes } = makeHarness({ divergeAt: (segment) => segment === 2 });
+  const v = state.historyView;
+  view.observeBatch(batch("sS.4", [4]));
+  assert.equal(await view.undoStartOver(), false);
+  assert.equal(takes.length, 0, "no session was swapped");
+  assert.equal(v.active, false, "the tape closed again");
+  assert.equal(v.parked, false, "the running game runs on");
+  assert.equal(v.diverged, null);
+  assert.equal(
+    v.error,
+    "Couldn't undo start over: the earlier session's recording can't be replayed to its end. Nothing changed.",
+  );
+  assert.deepEqual(await loadRetainedBranches(key), []);
+});
+
+test("Undo start over says so when the earlier session was dropped from the tape", async () => {
+  await importGameHistory(
+    "view-test",
+    { recording: { ...STARTED_OVER, segments: [STARTED_OVER.segments[3]!], dropped: 3 } },
+    STARTED_OVER.identity,
+  );
+  const { state, view, takes } = makeHarness();
+  const v = state.historyView;
+  view.pauseAtLive();
+  assert.equal(await view.undoStartOver(), false);
+  assert.equal(takes.length, 0);
+  assert.equal(v.parked, true, "a paused game stays paused");
+  assert.match(
+    v.error,
+    /^Couldn't undo start over: the earlier session was dropped from the timeline/,
+  );
 });

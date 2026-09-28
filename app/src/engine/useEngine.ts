@@ -36,6 +36,8 @@ import { discoverInstalledGames } from "../library/gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
 import { useHistoryController } from "../history/useHistoryController.ts";
 import { useHistoryView, freshHistoryView } from "../history/useHistoryView.ts";
+import { useStartOverNote } from "../history/useStartOverNote.ts";
+import { loadTapeOutline } from "../history/historyStorage.ts";
 import type { TransportModel } from "../history/useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
@@ -114,6 +116,7 @@ export function useEngine(
       error: "",
     },
     resumed: false,
+    startOverNote: false,
     gameEnded: null,
     staleTab: false,
     projectRemoved: false,
@@ -200,6 +203,7 @@ export function useEngine(
     getActiveWalkthroughSession: () => activeWalkthroughSession,
   });
   const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
+  const startOverNote = useStartOverNote(state);
 
   const debug = useEngineDebug({ state, link });
 
@@ -349,7 +353,10 @@ export function useEngine(
     pauseEngine,
     resumeEngine,
     resetPauseOwners,
-    resetHistoryView: () => historyView.resetHistoryView(),
+    resetHistoryView: () => {
+      historyView.resetHistoryView();
+      startOverNote.hide();
+    },
     stopHistoryWriter: historyController.stopWriterRenewal,
     getSessionId: () => activeWalkthroughSession,
     nextSessionId: () => ++activeWalkthroughSession,
@@ -391,6 +398,8 @@ export function useEngine(
     getAgentSession: () => authoringController.getSession(),
     getReplayDriver: () => replayDriver,
     gameQuit: () => void lifecycle.gameQuit(),
+    observeCycle: startOverNote.observeCycle,
+    observeRoom: startOverNote.observeRoom,
   });
 
   async function discoverGames(): Promise<void> {
@@ -459,6 +468,26 @@ export function useEngine(
   }
 
   const { openPowerUp, closePowerUp, submitPowerUp } = authoringController;
+
+  /**
+   * Start over, and when the game's timeline already holds a session to go
+   * back to, the note that offers Undo start over. The check reads the tape
+   * before the fresh boot adds its own segment.
+   */
+  async function startOver(targetKey: string, config: LlmConfig): Promise<void> {
+    const earlier = await loadTapeOutline(targetKey)
+      .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
+      .catch(() => false);
+    await autosaveController.startOver(targetKey, config);
+    if (earlier && state.phase !== "error" && lifecycle.getBootedGame() !== null)
+      startOverNote.show();
+  }
+
+  /** Undo start over: back to where the earlier session ended. */
+  async function undoStartOver(): Promise<boolean> {
+    startOverNote.hide();
+    return historyView.undoStartOver();
+  }
 
   async function updateAiConfig(config: LlmConfig): Promise<void> {
     activeLlmConfig = config;
@@ -561,11 +590,28 @@ export function useEngine(
     resumeWalkthrough: walkthrough.resumeWalkthrough,
     seekToTick: walkthrough.seekToTick,
     seekToCheckpoint: walkthrough.seekToCheckpoint,
-    sendInput,
-    sendEdit,
-    sendDirection,
-    sendKey,
-    sendClick,
+    // The player's own input: the first key, click or command after a
+    // Start over starts the note's countdown.
+    sendInput: (text: string) => {
+      startOverNote.noteInput();
+      sendInput(text);
+    },
+    sendEdit: (text: string) => {
+      startOverNote.noteInput();
+      sendEdit(text);
+    },
+    sendDirection: (dir: number, sessionId?: number) => {
+      startOverNote.noteInput();
+      sendDirection(dir, sessionId);
+    },
+    sendKey: (code: number, sessionId?: number) => {
+      startOverNote.noteInput();
+      sendKey(code, sessionId);
+    },
+    sendClick: (x: number, y: number, sessionId?: number) => {
+      startOverNote.noteInput();
+      sendClick(x, y, sessionId);
+    },
     dismissModal,
     submitPrompt,
     ejectGame: lifecycle.ejectGame,
@@ -618,7 +664,9 @@ export function useEngine(
     saveRecordedTest,
     resumeLastGame: autosaveController.resumeLastGame,
     resumeFromRecord: autosaveController.resumeFromRecord,
-    startOver: autosaveController.startOver,
+    startOver,
+    undoStartOver,
+    dismissStartOverNote: startOverNote.hide,
     /** Boot the running project again from storage under its own AI settings. */
     reloadFromStorage: () => autosaveController.reloadFromStorage(activeLlmConfig),
     flushAutosave: autosaveController.flushAutosave,
