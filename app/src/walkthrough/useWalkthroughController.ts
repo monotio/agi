@@ -595,7 +595,11 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         : Math.max(state.walkthrough.tick, engineTick);
     const currentAlias = state.walkthrough.alias;
     if (!currentAlias || !state.walkthrough.active) return;
-    const wasPaused = options?.keepPaused ?? state.walkthrough.status === "paused";
+    // A seek keeps the player's intent: playing stays playing, paused stays
+    // paused, and a finished run — not playing — lands paused.
+    const wasPaused =
+      options?.keepPaused ??
+      (state.walkthrough.status === "paused" || state.walkthrough.status === "completed");
 
     seekTargetTick = clamped;
     state.walkthrough.seeking = true;
