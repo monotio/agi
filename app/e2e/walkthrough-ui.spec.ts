@@ -788,6 +788,39 @@ test.describe("Walkthrough UI", () => {
     await expect(page.getByTestId("walkthrough-score")).toHaveText("Score: 30");
   });
 
+  test("taking control of a paused walkthrough hands over a paused game", async ({ page }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+    await openCardMenu(page, "game-actions-adventure-department");
+    await page.getByTestId("catalog-run-walkthrough").click();
+    await expect(page.getByTestId("walkthrough-bar")).toBeVisible({ timeout: 30_000 });
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.tick ?? 0), {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(40);
+
+    await page.getByTestId("btn-walkthrough-pause").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
+      .toBe("paused");
+    await page.getByTestId("btn-walkthrough-take-control").click();
+    await expect(page.getByTestId("walkthrough-bar")).toBeHidden();
+
+    // The live game waits under the play bar's own pause, with Resume offered.
+    const resume = page.getByTestId("btn-transport-resume");
+    await expect(resume).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.paused)).toBe(true);
+    const held = await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0);
+    await page.waitForTimeout(600);
+    expect(await page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0)).toBe(held);
+
+    await resume.click();
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_TEXT__?.cycle ?? 0), { timeout: 5_000 })
+      .toBeGreaterThan(held);
+  });
+
   test("dragging timeline thumb to the end of kq1 silences audio and stops playback cleanly", async ({
     page,
   }) => {

@@ -354,8 +354,11 @@ function releaseMovement(): void {
 }
 
 function onTakeControl(): void {
+  // A paused walkthrough hands over a paused game: the play bar's Resume starts it.
+  const paused = state.walkthrough.status === "paused";
   releaseMovement();
-  stopWalkthrough(true);
+  void stopWalkthrough(true);
+  if (paused) engine.historyView.pauseAtLive();
   nextTick(() => {
     playArea.value?.focusInput();
   });
