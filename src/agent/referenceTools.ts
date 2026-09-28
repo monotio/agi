@@ -1,6 +1,6 @@
 /**
  * Reference art by handle. The player's uploads (room plates, character
- * sheets, mood boards) reach the model as ids, not pixels: a turn carries one
+ * sheets, mood boards) reach the model as ids: a turn carries one
  * manifest line per image plus a single contact strip of 64-pixel thumbnails,
  * and the model calls view_reference for the size or region it needs. A
  * viewed image stays in the conversation: the transcript is append-only so
@@ -8,9 +8,8 @@
  * is far cheaper than rewriting the history that follows it to drop it
  * (measured by evals/cache-probe.ts).
  *
- * Ids are content-derived — the first ten hex digits of the stored bytes'
- * SHA-256 — so they are stable across reloads, copies and exports without a
- * stored field. The host decodes pixels (a browser canvas, or a script in the
+ * Ids are content-derived, the first ten hex digits of the stored bytes'
+ * SHA-256, so they stay the same across reloads, copies and exports. The host decodes pixels (a browser canvas, or a script in the
  * evals); this module only resamples, crops, overlays a grid and encodes PNG,
  * so it runs unchanged in the browser, a worker and Node.
  */
