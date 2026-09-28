@@ -5,7 +5,7 @@
  * platform-free — this module is UI-only and never imported by tests that
  * run under Node's strip-types runner.
  */
-import { PROVIDER_IMAGE_BYTES, PROVIDER_IMAGE_EDGE } from "../../../src/agent/toolTransport.ts";
+import { PROVIDER_IMAGE_BYTES, REFERENCE_WORKING_EDGE } from "../../../src/agent/toolTransport.ts";
 import { REFERENCE_BYTE_LIMIT, REFERENCE_PIXEL_LIMIT, type DecodedImage } from "./referenceArt.ts";
 
 function encode(canvas: HTMLCanvasElement, mime: string): Promise<Uint8Array> {
@@ -43,8 +43,8 @@ export async function decodeReferenceFile(file: Blob): Promise<DecodedImage> {
       throw new Error(
         `That image is ${bitmap.width}x${bitmap.height}; the reference limit is 4096x4096 pixels.`,
       );
-    // A larger upload reaches the model as a copy fitted to provider limits.
-    const scale = Math.min(1, PROVIDER_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
+    // A larger upload is stored at the working size agent turns view it at.
+    const scale = Math.min(1, REFERENCE_WORKING_EDGE / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement("canvas");
@@ -63,6 +63,26 @@ export async function decodeReferenceFile(file: Blob): Promise<DecodedImage> {
       }
     }
     return { rgba: context.getImageData(0, 0, width, height).data, width, height, mime, bytes };
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** A stored reference image's pixels, for view_reference and the turn manifest. */
+export async function decodeStoredImage(
+  bytes: Uint8Array,
+  mime: string,
+): Promise<{ width: number; height: number; rgba: Uint8ClampedArray }> {
+  const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: mime }));
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("This browser could not decode the image.");
+    context.drawImage(bitmap, 0, 0);
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    return { width: bitmap.width, height: bitmap.height, rgba: data };
   } finally {
     bitmap.close();
   }

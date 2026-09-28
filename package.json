@@ -34,6 +34,7 @@
     "eval:picture": "node --experimental-strip-types evals/picture-fidelity.ts",
     "eval:remix": "node --experimental-strip-types evals/remix-benchmark.ts",
     "eval:studio": "node --experimental-strip-types evals/studio-assist-benchmark.ts",
+    "eval:references": "node --experimental-strip-types evals/reference-benchmark.ts",
     "eval:matrix": "node --experimental-strip-types evals/genesis-matrix.ts",
     "eval:snapshot": "node --experimental-strip-types evals/snapshot-genesis.ts",
     "fixtures:audit": "node --experimental-strip-types scripts/audit-fixtures.ts",

@@ -17,6 +17,11 @@ import {
 } from "../../../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../../../src/agent/prompt.ts";
 import {
+  collapsedReferenceView,
+  isReferenceViewCaption,
+  REFERENCE_VIEW_TURNS,
+} from "../../../src/agent/referenceTools.ts";
+import {
   modelCapability,
   resolveModelEffort,
   type ModelEffort,
@@ -33,7 +38,15 @@ export interface LlmConfig {
   /** Isolated evaluation override; ordinary app requests use the shipped prompt. */
   systemPrompt?: string;
   budgetUsd?: number;
+  /**
+   * With the stub provider, a scripted model instead of the offline author
+   * (referenceStub.ts): tests and the reference eval's dry run.
+   */
+  stubScript?: ReferenceStubScript;
 }
+
+/** The scripted reference scenarios: one views a region and uses it, one never looks. */
+export type ReferenceStubScript = "reference-region" | "reference-never";
 
 interface ToolCallItem {
   id: string;
@@ -157,6 +170,86 @@ function pngPixels(png: Uint8Array): number {
   if (png.length < 24 || png[0] !== 0x89 || png[1] !== 0x50) return 0;
   const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
   return view.getUint32(16) * view.getUint32(20);
+}
+
+/**
+ * Collapse view_reference images once REFERENCE_VIEW_TURNS user messages
+ * follow them: the caption stays (it carries the manifest line and what was
+ * viewed) and the image becomes a line saying how to look again. Runs when a
+ * user message is added, so a turn's own requests stay append-only and the
+ * cached prefix holds within it. Counting from the transcript itself keeps it
+ * right for a conversation restored from storage.
+ */
+function collapseReferenceViews<T extends { type: string; text?: string }>(
+  blocks: T[],
+  kinds: { image: string; text: string },
+  replace: (text: string, image: T) => T,
+): T[] {
+  const out: T[] = [];
+  for (const block of blocks) {
+    const caption = out[out.length - 1];
+    if (
+      block.type === kinds.image &&
+      caption?.type === kinds.text &&
+      typeof caption.text === "string" &&
+      isReferenceViewCaption(caption.text)
+    )
+      out[out.length - 1] = replace(collapsedReferenceView(caption.text), block);
+    else out.push(block);
+  }
+  return out;
+}
+
+function collapseAnthropicViews(messages: Anthropic.MessageParam[]): void {
+  let turnsAfter = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role !== "user") continue;
+    if (
+      typeof message.content === "string" ||
+      !message.content.some((block) => block.type === "tool_result")
+    ) {
+      turnsAfter++;
+      continue;
+    }
+    if (turnsAfter < REFERENCE_VIEW_TURNS) continue;
+    for (const block of message.content)
+      if (block.type === "tool_result" && Array.isArray(block.content))
+        block.content = collapseReferenceViews(
+          block.content as { type: string; text?: string }[],
+          { image: "image", text: "text" },
+          (text) => ({ type: "text", text }),
+        ) as typeof block.content;
+  }
+}
+
+function collapseOpenAiViews(input: OpenAI.Responses.ResponseInputItem[]): void {
+  let turnsAfter = 0;
+  for (let index = input.length - 1; index >= 0; index--) {
+    const item = input[index]!;
+    if ("role" in item && item.role === "user") {
+      turnsAfter++;
+      continue;
+    }
+    if (
+      item.type !== "function_call_output" ||
+      !Array.isArray(item.output) ||
+      turnsAfter < REFERENCE_VIEW_TURNS
+    )
+      continue;
+    item.output = collapseReferenceViews(
+      item.output as { type: string; text?: string }[],
+      { image: "input_image", text: "input_text" },
+      (text, replaced) => ({
+        type: "input_text",
+        text,
+        // The explicit cache breakpoint a turn's last block carries stays put.
+        ...("prompt_cache_breakpoint" in replaced
+          ? { prompt_cache_breakpoint: replaced["prompt_cache_breakpoint"] }
+          : {}),
+      }),
+    ) as typeof item.output;
+  }
 }
 
 export interface LlmTurnResult {
@@ -414,6 +507,7 @@ export function createAnthropicConversation(
         role: "user",
         content: images?.length ? anthropicToolContent({ text, images }) : text,
       });
+      collapseAnthropicViews(messages);
       return step();
     },
     appendToolResults(results): void {
@@ -661,6 +755,7 @@ export function createOpenAiConversation(
       })[] = openAiToolContent({ text, images: images ?? [] });
       content[content.length - 1]!.prompt_cache_breakpoint = { mode: "explicit" };
       input.push({ role: "user", content });
+      collapseOpenAiViews(input);
       return step();
     },
     appendToolResults(results): void {

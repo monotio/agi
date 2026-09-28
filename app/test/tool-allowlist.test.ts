@@ -103,6 +103,47 @@ test("every task type names its own allowlist", () => {
     assert.ok(!list.includes("write_words") && !list.includes("handover"), task);
 });
 
+test("view_reference is listed for the reference tasks and offered only when a turn has art", async (t) => {
+  for (const [task, list] of Object.entries({
+    GENESIS_TOOLS,
+    ROOM_AUTHORING_TOOLS,
+    REMIX_TOOLS,
+    ASK_TOOLS,
+    STUDIO_ASSIST_TASK_TOOLS,
+  }))
+    assert.ok(list.includes("view_reference"), task);
+  const bodies = scriptProvider(t, "read_words", {
+    exact: null,
+    offset: null,
+    limit: null,
+    prefix: null,
+  });
+  const offered = (index: number) =>
+    (JSON.parse(bodies[index]!) as { tool_choice: { tools: { name: string }[] } }).tool_choice.tools
+      .map((tool) => tool.name)
+      .includes("view_reference");
+  const session = modelSession();
+  await session.runAsk("What is here?", 1);
+  assert.equal(offered(0), false, "no art, not offered");
+  const art = {
+    id: "art-0123456789",
+    label: "Room plate",
+    target: { kind: "room" as const, num: 1 },
+    note: "",
+    attached: true,
+    pixels: () => ({ width: 1, height: 1, rgba: new Uint8Array(4).fill(255) }),
+  };
+  const withArt = modelSession();
+  withArt.setRuntime({ referenceArt: async () => ({ art: [art] }) });
+  bodies.length = 0;
+  await withArt.runAsk("What is here?", 1);
+  assert.equal(offered(0), true, "a turn with art offers it");
+  // Genesis carries no art: its turn never offers the tool.
+  bodies.length = 0;
+  await assert.rejects(withArt.startGenesis("A quiet courtyard."));
+  assert.equal(offered(0), false);
+});
+
 test("Remix refuses a tool outside its list by its allowlist", async (t) => {
   const bodies = scriptProvider(t, "read_edit_context", { images: null });
   await modelSession().runPowerUp("change the lamp", 1);

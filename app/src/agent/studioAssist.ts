@@ -28,6 +28,8 @@ export interface StudioAssistRequest {
   readonly focus: StudioFocus;
   /** propose_edit calls allowed; DEFAULT_MAX_PROPOSALS otherwise. */
   readonly maxProposals?: number;
+  /** Stored reference records the creator attached to this request. */
+  readonly referenceIds?: readonly string[];
 }
 
 export interface StudioAssistResult {

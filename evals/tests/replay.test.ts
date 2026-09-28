@@ -12,6 +12,7 @@ import {
   type AgentToolDeps,
 } from "../../src/agent/tools.ts";
 import { createStudioAssist } from "../../src/agent/studioAssistTools.ts";
+import { referenceUnderFetch, type ReferenceSource } from "../../src/agent/referenceTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
@@ -40,6 +41,34 @@ interface StudioCase {
   unlocks?: LensUnlocks;
   payload?: number[];
   targetCels?: { loop: number; cel: number }[];
+}
+
+/**
+ * A case's `references`: reference art the task may view, each a solid
+ * `fill` colour at `width` x `height`, under the manifest fields it declares.
+ */
+interface ReferenceCase {
+  id: string;
+  label: string;
+  target: { kind: "room" | "view"; num: number } | { kind: "general" };
+  note: string;
+  attached: boolean;
+  width: number;
+  height: number;
+  fill: [number, number, number];
+}
+
+function referenceSource(cases: readonly ReferenceCase[]): ReferenceSource {
+  return {
+    art: cases.map(({ width, height, fill, ...art }) => ({
+      ...art,
+      pixels: () => {
+        const rgba = new Uint8Array(width * height * 4);
+        for (let at = 0; at < rgba.length; at += 4) rgba.set([...fill, 255], at);
+        return { width, height, rgba };
+      },
+    })),
+  };
 }
 
 function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDeps {
@@ -85,6 +114,15 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
     const content = JSON.parse(readFileSync(filePath, "utf-8"));
 
     it(`replays bad case: ${content.name} (${file})`, async () => {
+      // A turn's tool log and reply, graded by the under-fetch rule.
+      if (content.referenceTurn) {
+        assert.deepEqual(
+          referenceUnderFetch(content.referenceTurn),
+          content.expectedUnviewed,
+          `${file}: unviewed references`,
+        );
+        return;
+      }
       const session = createAgentSessionState();
       for (const setup of content.setup ?? []) {
         const result = executeAgentTool(session, setup.tool, setup.args);
@@ -103,6 +141,7 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
           : content.async
             ? await executeAgentToolAsync(session, content.tool, content.args, {
                 allowedTools: AUTHORING_TOOL_NAMES,
+                ...(content.references ? { references: referenceSource(content.references) } : {}),
               })
             : executeAgentTool(session, content.tool, content.args));
 

@@ -10,6 +10,7 @@ the tools give it enough feedback to correct mistakes.
 | Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds     |
 | Remix benchmark   | `npm run eval:remix`                 | Ask/Remix cases on a real engine: requests, cost, latency and cache per run    |
 | Studio assist     | `npm run eval:studio`                | Selection-scoped Studio edits: candidates, refusals, rounds, tokens and cost   |
+| Reference art     | `npm run eval:references`            | Full images against handles: tokens, cost, view_reference calls and match      |
 | Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output |
 | Genesis matrix    | `npm run eval:matrix`                | Cost, content, picture depth and control lines, and brief coverage per run     |
 
@@ -32,7 +33,9 @@ Image transport cases check that rendered previews reach the provider as image
 content and that binary buffers do not expand into JSON properties. A case with a
 `studio` focus (a picture's annotated `source`, `targetIds` and `lens`, or
 a view's `payload` and `targetCels`) replays a Studio assist tool call against that
-selection.
+selection. A case with `references` (solid-colour art under manifest fields) replays a
+view_reference call against that art; a `referenceTurn` (attached ids, a tool log and
+the final reply) is graded by the under-fetch rule against `expectedUnviewed`.
 
 ## Live model evaluations
 
@@ -44,6 +47,13 @@ options: [genesis](genesis-cli.ts) and
 The Studio assist lane (`evals/studio-assist-benchmark.ts`) refuses a live run
 without `--budget-usd`, enforces that cap from provider usage across all its runs,
 and has a `--dry-run` that drives the same session loop with the offline stub.
+
+The reference art lane (`evals/reference-benchmark.ts`) runs each case twice: with
+the full images in the request, the way references travelled before handles, and
+with handles (a manifest line and a thumbnail per image, plus view_reference). Its
+reference images are drawn by the script. It scores the output against them
+(palette overlap, layout agreement, silhouette IoU) and records tokens, cost and
+view_reference calls per run. Budget and dry run work as in the Studio assist lane.
 
 Genesis records model calls, compiler feedback, token usage and playtest results.
 Picture evaluation reads a local reference, asks for an art-direction brief,

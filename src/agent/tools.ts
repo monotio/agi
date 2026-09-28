@@ -60,6 +60,12 @@ import { verifyPlanConnections } from "./roomMap.ts";
 import { buildSound, type SoundNoteInput, type SoundTrackInput } from "./soundBuilder.ts";
 import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
 import {
+  NO_REFERENCES,
+  VIEW_REFERENCE_TOOL,
+  viewReference,
+  type ReferenceSource,
+} from "./referenceTools.ts";
+import {
   GAME_TEST_TOOLS,
   executeGameTestTool,
   rerunAffectedTests,
@@ -126,6 +132,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   ...GAME_TEST_TOOLS,
   ...CORE_AGENT_TOOLS,
   ...STUDIO_ASSIST_TOOLS,
+  VIEW_REFERENCE_TOOL,
 ];
 
 /**
@@ -426,6 +433,8 @@ function executeValidatedAgentTool(
 ): AgentToolResult {
   if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
     return { success: false, error: `'${name}' ${STUDIO_ONLY}` };
+  // Reference pixels come from the host's source, which only the async dispatcher carries.
+  if (name === "view_reference") return { success: false, error: NO_REFERENCES };
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
   if (name === "read_diagnostic") return readDiagnostic(session, args);
@@ -1471,6 +1480,18 @@ export interface AgentRuntimeDeps {
    * it do read_edit_context and propose_edit run; see studioAssistTools.ts.
    */
   readonly studio?: StudioAssist | undefined;
+  /**
+   * The reference art this task may view (referenceTools.ts). Without it
+   * view_reference refuses, and withReferences leaves it off the task's list.
+   */
+  readonly references?: ReferenceSource | undefined;
+  /**
+   * The project's reference art for a turn, with the images of the stored
+   * references the player attached (by record id) marked attached. The
+   * session resolves it into `references` when a turn starts.
+   */
+  readonly referenceArt?:
+    ((attached: readonly string[]) => Promise<ReferenceSource | undefined>) | undefined;
 }
 
 /**
@@ -1515,7 +1536,9 @@ const NO_LIVE_GAME =
  * Genesis: the whole authoring catalog except the Studio pair, which needs a
  * creator's selection. The three writing tasks share one list so the
  * advertised catalog stays stable across phases for prompt-cache reuse; each
- * keeps its own name, so narrowing one is a deliberate edit here.
+ * keeps its own name, so narrowing one is a deliberate edit here. Each list
+ * includes view_reference; a turn without reference art drops it
+ * (withReferences).
  */
 export const GENESIS_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 
@@ -1538,11 +1561,13 @@ export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [
   "read_command_reference",
   "read_authoring_guide",
   "read_diagnostic",
+  "view_reference",
 ];
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
   "read_room_context",
+  "view_reference",
   "read_diagnostic",
   "read_picture",
   "read_logic",
@@ -1557,6 +1582,17 @@ export const ASK_TOOLS: readonly string[] = [
   "inspect_world_bible",
   "playtest_room",
 ];
+
+/**
+ * A task's list for one turn: view_reference only when the turn has
+ * reference art to view. Every other name is unchanged.
+ */
+export function withReferences(
+  list: readonly string[],
+  references: ReferenceSource | undefined,
+): readonly string[] {
+  return references?.art.length ? list : list.filter((name) => name !== "view_reference");
+}
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const n = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
@@ -1668,6 +1704,7 @@ export async function executeAgentToolAsync(
     return deps?.studio
       ? executeStudioAssistTool(session, deps.studio, name, args)!
       : { success: false, error: `'${name}' ${STUDIO_ONLY}` };
+  if (name === "view_reference") return viewReference(deps.references, args);
   if (name === "read_room_context") {
     const stateArg = args["state"] as Record<string, unknown> | null | undefined;
     const framesArg = args["frames"] as Record<string, unknown> | null | undefined;

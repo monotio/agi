@@ -49,7 +49,6 @@ import {
 } from "../project/projectTransaction.ts";
 import {
   REFERENCE_COUNT_LIMIT,
-  referenceAgentImages,
   roomReference,
   stageCharacterView,
   type DecodedImage,
@@ -406,6 +405,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // Map-pinned intent is visible to read_room_context for any room the
       // agent inspects, not just the one a request names.
       roomNotes: (room) => getRoomNotes?.(room) ?? [],
+      referenceArt: projectReferenceArt,
     });
     if (game.installed || (game.projectId && getCachedGameMeta(game.projectId)?.imported)) {
       s.setOrientation({
@@ -520,6 +520,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         frames: { read: readFrames },
         engine: engineSource,
         checkpoint: checkpointSource,
+        referenceArt: projectReferenceArt,
       });
     } else {
       const game = getBootedGame();
@@ -762,21 +763,18 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     try {
       const room = state.powerUp.room;
       const booted = getBootedGame();
-      // Attached references ride the turn as image blocks: the model sees
-      // the player's own art, captioned with target and brief.
+      // Attached references ride the turn as handles: a manifest line and a
+      // thumbnail each, marked attached; the agent views what it needs with
+      // view_reference (the session's referenceArt source).
       const selectedIds =
         referenceIds ??
         pendingReferences
           .filter((reference) => reference.project === booted?.projectId)
           .map((reference) => reference.id);
-      const images = selectedIds.length
-        ? (await listReferences())
-            .filter((reference) => selectedIds.includes(reference.id))
-            .flatMap((reference) => referenceAgentImages(reference))
-        : undefined;
+      const attachments = { referenceIds: selectedIds };
       for (const id of selectedIds) removePendingReference(id);
       if (state.powerUp.mode === "ask") {
-        const text = await session.runAsk(instruction, room, images);
+        const text = await session.runAsk(instruction, room, attachments);
         state.powerUp.reply = text;
         state.powerUp.messages.push({ role: "assistant", text });
         if (booted) await saveConversation(booted, session);
@@ -792,7 +790,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const { text, patched, files } = await session.runPowerUp(
         instruction,
         room,
-        images,
+        attachments,
         turnBase,
       );
       state.powerUp.reply = text;
@@ -1193,6 +1191,17 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (!game || game.installed || !game.projectId) return [];
     const data = await loadAuthoredGame(game.projectId);
     return data?.references ?? game.authoredGame?.references ?? [];
+  }
+
+  /**
+   * The booted project's reference art for one turn, as handles; `attached`
+   * names the stored records the player attached to the request.
+   */
+  async function projectReferenceArt(attached: readonly string[]) {
+    const references = await listReferences();
+    if (!references.length) return undefined;
+    const { referenceSource } = await loadAuthoring();
+    return referenceSource(references, attached);
   }
 
   function requireAuthoredBoot(): BootedGame {

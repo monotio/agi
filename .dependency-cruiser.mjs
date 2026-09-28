@@ -2,7 +2,7 @@
 // the stack through one dynamic import (app/src/agent/authoringLoader.ts), and
 // scripts/check-bundle-budget.ts fails a build that puts these on the Play
 // boot path, so their static edges into src/studio never reach it.
-const LAZY_AUTHORING_MODULES = "^src/agent/(studioAssistTools|pictureTools)\\.ts$";
+const LAZY_AUTHORING_MODULES = "^src/agent/(studioAssistTools|pictureTools|referenceTools)\\.ts$";
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 export default {
