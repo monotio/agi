@@ -51,7 +51,7 @@ server is already running, give the browser tests their own port:
 | `npm run eval:replay`                                        | Replay stored authoring failures without provider calls                                                                                                           |
 | `npm run mutation`                                           | Stryker mutation report on `src/picture/` and `src/studio/`; on demand, writes `reports/mutation/`                                                                |
 | `npm run build`                                              | Compile the engine and build the browser app                                                                                                                      |
-| `npm run check:bundle`                                       | Bundle budget for the Play boot path, after a build                                                                                                               |
+| `npm run check:bundle`                                       | Bundle budget for startup, from Home to a catalog game's first frame, after a build                                                                               |
 | `npm run media:capture`                                      | Recapture the README and `docs/media` images from the real app and agent tools; on demand, stub provider                                                          |
 
 The full gate takes a few minutes. Playwright runs Vite in `test` mode with a
@@ -61,9 +61,15 @@ both `--live` and `--budget-usd` on the command line (`EVAL_LIVE=1` and a budget
 variable for the promptfoo lanes).
 
 `npm run check:bundle` runs after `npm run build` and fails, in CI too, when the
-compressed JavaScript, CSS or workers loaded before a game's first frame outgrow
-their budgets, or when Studio code or the AI authoring stack (loaded on the
-first AI action through `app/src/agent/authoringLoader.ts`) joins that path, and
+compressed JavaScript, CSS or workers loaded from opening Home to a catalog
+game's first frame outgrow their budgets, or when Studio code or the AI
+authoring stack (loaded on the first AI action through
+`app/src/agent/authoringLoader.ts`) joins that path. The path is the entry
+chunk's static imports plus the dynamic imports Home starts on every visit,
+such as the tutorial build behind its catalog thumbnail.
+`app/e2e/lazy-authoring.spec.ts` walks the same path in a browser, on the
+development server and on the production build. It checks which source modules
+each requested script carries. Separately,
 `app/e2e/perf-budgets.spec.ts` bounds boot long tasks and Studio frame and input
 times. Its tests are tagged `@perf`: `npm --prefix app run e2e` leaves them out,
 and `npm --prefix app run e2e:perf` runs them alone on one worker, so no other

@@ -1,4 +1,4 @@
-import type { SoundTrackInput } from "../../src/agent/tools.ts";
+import type { SoundTrackInput } from "../../src/agent/soundBuilder.ts";
 
 export const TUTORIAL_SOUND_IDS = {
   intro: 1,

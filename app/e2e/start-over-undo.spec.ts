@@ -28,7 +28,7 @@ async function startOverFromHome(page: Page): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
-test("Undo start over returns to the earlier session, and the timeline marks the start over", async ({
+test("Undo start over returns to the earlier session, and the timeline marks the start over @webkit-desktop", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -104,4 +104,37 @@ test("Undo start over returns to the earlier session, and the timeline marks the
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect(note(page)).toHaveCount(0);
+});
+
+test("Undo after the game's own Start over returns to the exact moment it was used", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await isolateStorage(page);
+  await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForCycles(page, 2);
+  const spawnX = (await textHook(page)).egoX;
+
+  // Walk east and stop inside room 1: the walk lives only in the session's
+  // open recording, which no room entry, autosave or Exit has closed yet.
+  await page.getByTestId("input-line").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
+  await page.keyboard.press("ArrowRight");
+  await waitForCycles(page, 4);
+  const stopped = await textHook(page);
+  expect(stopped.room).toBe(1);
+
+  await page.getByTestId("settings-menu").click();
+  await page.getByTestId("btn-start-over").click();
+  await expect.poll(async () => (await textHook(page)).egoX).toBe(spawnX);
+  await note(page).getByRole("button", { name: "Undo start over", exact: true }).click();
+  await expect(note(page)).toHaveCount(0);
+  await expect(page.getByTestId("history-error")).toHaveCount(0);
+  await expect.poll(async () => (await textHook(page)).egoX).toBe(stopped.egoX);
+  const back = await textHook(page);
+  expect([back.room, back.egoX, back.egoY]).toEqual([stopped.room, stopped.egoX, stopped.egoY]);
 });

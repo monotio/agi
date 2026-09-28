@@ -18,8 +18,12 @@
  *     propose_edit       ops on a detached copy of the draft, checked by
  *                        checkCandidate: a candidate with a before | after |
  *                        diff PNG, or a refusal in plain words
- *   assist.candidate     the latest candidate that passed its scope, or null;
- *                        `candidate.draft` holds the edited source or payload
+ *     withdraw_edit      clears the candidate: the model's own verdict that
+ *                        no change meets the request, or that the creator
+ *                        should reject what it proposed
+ *   assist.candidate     the latest candidate that passed its scope and was
+ *                        not withdrawn, or null; `candidate.draft` holds the
+ *                        edited source or payload
  *
  * Nothing here writes the session, the live draft or the game's resources:
  * a candidate is data until the creator accepts it in the UI.
@@ -161,7 +165,10 @@ export type StudioCandidate =
 /** The tool state of one Studio assist request. */
 export interface StudioAssist {
   readonly focus: StudioFocus;
-  /** The latest candidate that passed the scope check; a refusal never clears it. */
+  /**
+   * The latest candidate that passed the scope check; a refusal never clears
+   * it, withdraw_edit does.
+   */
   candidate: StudioCandidate | null;
   /** propose_edit calls so far, and how many of them were refused. */
   proposals: number;
@@ -377,7 +384,7 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "propose_edit",
     description:
-      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget. Returns a candidateId with a before | after | diff image, or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
+      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget; a candidate that draws the same pixels as the draft is refused unless its ops are only setItemMeta, setTransparent or unlinkMirror. Returns a candidateId with a before | after | diff image, or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -388,6 +395,17 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
         spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 32, items: SPRITE_OP },
       },
       required: ["baseRevision", "summary", "pictureOps", "spriteOps"],
+    },
+  },
+  {
+    name: "withdraw_edit",
+    description:
+      "Studio assist only. Withdraw your current candidate: the creator then sees no proposal, only your reply. Call it when you conclude that no change can meet the request, or when you would tell the creator to reject your own candidate. `reason` is one sentence. A later propose_edit in this request may still propose.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { reason: { type: "string", minLength: 1, maxLength: 240 } },
+      required: ["reason"],
     },
   },
 ];
@@ -1112,6 +1130,31 @@ function refusal(
   };
 }
 
+/**
+ * Operations that are edits in their own right though they draw nothing: a
+ * picture item's label or kind (setItemMeta; the Studio's item list and
+ * lenses read them), a cel's transparent colour where no opaque pixel uses
+ * the new one (setTransparent; it frees the old colour for opaque use) and a
+ * mirror split (unlinkMirror; the loops can then differ). Every other
+ * operation exists to change pixels, so a candidate that uses one yet draws
+ * the same pixels as the draft only adds bytes: it is refused (noChange).
+ */
+const NON_PIXEL_OPS: readonly string[] = ["setItemMeta", "setTransparent", "unlinkMirror"];
+
+/**
+ * The refusal of a candidate that renders like the draft: nothing for the
+ * creator to accept, whatever its bytes or annotations.
+ */
+function noChange(assist: StudioAssist, unchanged: string, requested: string): AgentToolResult {
+  return refusal(
+    assist,
+    `the operations draw the same pixels as the draft (${unchanged}). Propose a change that alters ${requested} within the selection, or reply with one sentence explaining why none can work within the selection and locks`,
+    [{ constraint: "no-change", message: unchanged }],
+  );
+}
+
+const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}`;
+
 function proposePicture(
   session: AgentSessionState,
   assist: StudioAssist,
@@ -1144,17 +1187,26 @@ function proposePicture(
     for (const id of creates) allowed.add(id);
   }
   const source = serializePictureDocument(document);
-  if (source === serializePictureDocument(before.document))
-    return refusal(assist, "the operations change nothing", []);
   const after = compileEditDocument(document, session.profile);
-  const check = checkCandidate(before.compiled, after, scope);
-  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
-  const candidateId = `c${assist.proposals}`;
-  const previewPng = pictureAssistPreviewPng(before.compiled, after);
   const changed = {
     visual: countMask(changedMask(before.compiled.visual, after.visual)),
     priority: countMask(changedMask(before.compiled.priority, after.priority)),
   };
+  if (
+    source === serializePictureDocument(before.document) ||
+    (changed.visual.cells === 0 &&
+      changed.priority.cells === 0 &&
+      !ops.every((op) => NON_PIXEL_OPS.includes(op.type)))
+  )
+    return noChange(
+      assist,
+      `visual and priority planes unchanged, ${signed(after.bytes.length - before.compiled.bytes.length)} bytes`,
+      "the requested plane",
+    );
+  const check = checkCandidate(before.compiled, after, scope);
+  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
+  const candidateId = `c${assist.proposals}`;
+  const previewPng = pictureAssistPreviewPng(before.compiled, after);
   const area = selectionArea(before.compiled, scope.targetIds);
   const walk = walkRelevant(scope)
     ? (() => {
@@ -1180,7 +1232,7 @@ function proposePicture(
   };
   return {
     success: true,
-    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${after.bytes.length - before.compiled.bytes.length >= 0 ? "+" : ""}${after.bytes.length - before.compiled.bytes.length}).\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_edit again to replace it, or reply with one sentence describing the change.`,
+    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${signed(after.bytes.length - before.compiled.bytes.length)}).\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_edit again to replace it, or reply with one sentence describing the change.`,
     details: {
       ok: true,
       candidateId,
@@ -1220,10 +1272,6 @@ function proposeView(
     document = result.document;
     for (const loop of result.isolated) isolated.add(loop);
   }
-  if (draftRevision({ kind: "view", payload: document.payload }) === draftRevision(draft))
-    return refusal(assist, "the operations change nothing", []);
-  const check = checkCandidate(before, document, scope);
-  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
   const changedCels: { loop: number; cel: number; pixels: number }[] = [];
   const loops = Math.max(before.loops.length, document.loops.length);
   const pairs: CelPair[] = [];
@@ -1249,6 +1297,15 @@ function proposeView(
       if (pairs.length < MAX_SHEET_ROWS) pairs.push({ before: a, after: b });
     }
   }
+  if (
+    draftRevision({ kind: "view", payload: document.payload }) === draftRevision(draft) ||
+    (changedCels.length === 0 &&
+      before.loops.length === document.loops.length &&
+      !ops.every((op) => NON_PIXEL_OPS.includes(op.type)))
+  )
+    return noChange(assist, "every cel unchanged", "the selected cels");
+  const check = checkCandidate(before, document, scope);
+  if (!check.ok) return refusal(assist, assistRefusalText(check), check.violations);
   const previewPng = spriteSheetPng(
     pairs.length ? pairs : [{ before: undefined, after: undefined }],
     true,
@@ -1293,9 +1350,29 @@ function proposeView(
   };
 }
 
+/** Clear the candidate on the model's own verdict; nothing else changes. */
+function withdraw(assist: StudioAssist, reason: string): AgentToolResult {
+  const withdrawn = assist.candidate;
+  if (!withdrawn)
+    return {
+      success: false,
+      error:
+        "There is no candidate to withdraw. Reply with one sentence saying what blocks the change.",
+      details: { ok: false, candidateId: null },
+    };
+  assist.candidate = null;
+  const left = assist.maxProposals - assist.proposals;
+  return {
+    success: true,
+    message: `Withdrew candidate ${withdrawn.candidateId}: the creator sees no proposal, only your reply. ${left > 0 ? `Call propose_edit to propose something else (${left} left), or reply with one sentence saying what blocks the change.` : "Reply with one sentence saying what blocks the change."}`,
+    details: { ok: true, withdrawn: withdrawn.candidateId, reason, candidateId: null },
+  };
+}
+
 /**
- * Execute read_edit_context or propose_edit for `assist`, or return undefined
- * for any other name. Arguments are already schema-validated.
+ * Execute read_edit_context, propose_edit or withdraw_edit for `assist`, or
+ * return undefined for any other name. Arguments are already
+ * schema-validated.
  */
 export function executeStudioAssistTool(
   session: AgentSessionState,
@@ -1304,6 +1381,7 @@ export function executeStudioAssistTool(
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
   if (!STUDIO_ASSIST_TOOL_NAMES.includes(name)) return undefined;
+  if (name === "withdraw_edit") return withdraw(assist, String(args["reason"]).trim());
   const { scope } = assist.focus;
   try {
     const draft = assist.focus.draft();

@@ -6,6 +6,7 @@ import { mirroredCel } from "../../../../src/studio/sprite/spriteCels.ts";
 import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.ts";
 import SpriteThumb from "../../world/SpriteThumb.vue";
 import { explain } from "../studioTerms.ts";
+import { keyLabel } from "../../ui/keyLabel.ts";
 import { aliasGroup, loopFacing } from "./spriteView.ts";
 
 /**
@@ -291,7 +292,7 @@ const menuItems = computed<MenuItem[][]>(() => {
   if (open.cel !== null) {
     const c = open.cel;
     groups.push([
-      { label: "Duplicate cel", hint: "⌘D", run: () => duplicateCel(l, c) },
+      { label: "Duplicate cel", hint: keyLabel("Mod+D"), run: () => duplicateCel(l, c) },
       { label: "Add blank cel after", hint: "+", run: () => addBlank(l, c + 1) },
       { label: "Copy to loop…", picks: true, run: () => pickLoop("copy") },
       {
@@ -303,14 +304,14 @@ const menuItems = computed<MenuItem[][]>(() => {
       },
       {
         label: "Move cel left",
-        hint: "⌥←",
+        hint: keyLabel("Alt+←"),
         disabled: c === 0,
         why: "This cel is first",
         run: () => moveCel(l, c, c - 1),
       },
       {
         label: "Move cel right",
-        hint: "⌥→",
+        hint: keyLabel("Alt+→"),
         disabled: c >= count - 1,
         why: "This cel is last",
         run: () => moveCel(l, c, c + 1),
@@ -459,7 +460,7 @@ function onMenuKey(event: KeyboardEvent): void {
               class="timeline__cel"
               :class="{ 'is-selected': row.index === loop && index === cel }"
               :aria-label="`Loop ${row.index}, cel ${index}`"
-              title="Drag to reorder · ⌥-drag copies · right-click for more"
+              :title="`Drag to reorder · ${keyLabel('Alt+drag')} copies · right-click for more`"
               :aria-pressed="row.index === loop && index === cel"
               :tabindex="row.index === loop && index === cel ? 0 : -1"
               :data-loop="row.index"

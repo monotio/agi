@@ -13,6 +13,7 @@ import { priorityForY } from "../../../src/runtime/priority.ts";
 import { SCREEN_HEIGHT } from "../../../src/types.ts";
 import StudioValuePicker from "./StudioValuePicker.vue";
 import { explain } from "./studioTerms.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
 import { CONTROL_VALUES } from "./studioView.ts";
 import type { StudioEditing } from "./useStudioEditing.ts";
 
@@ -140,7 +141,9 @@ const depthNote = computed(() => {
     </section>
 
     <section class="item-editor__sec item-editor__actions" aria-label="Item actions">
-      <UiButton size="sm" icon="copy" shortcut="⌘D" @click="edit.duplicate()">Duplicate</UiButton>
+      <UiButton size="sm" icon="copy" :shortcut="keyLabel('Mod+D')" @click="edit.duplicate()"
+        >Duplicate</UiButton
+      >
       <UiButton size="sm" variant="danger" icon="trash" shortcut="Del" @click="edit.remove()"
         >Delete</UiButton
       >
@@ -164,7 +167,7 @@ const depthNote = computed(() => {
         v-if="grouped"
         size="sm"
         icon="unlink"
-        shortcut="⇧⌘G"
+        :shortcut="keyLabel('Mod+Shift+G')"
         data-testid="item-ungroup"
         @click="emit('ungroup')"
         >Ungroup</UiButton

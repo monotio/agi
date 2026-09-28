@@ -81,6 +81,10 @@ The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from
 - A successful push to `main` builds the production artifact, checks it in
   separate Chromium and WebKit jobs (`npm --prefix app run e2e:production`) and
   deploys from that same CI run.
+- The deploy job then checks that the public site serves that artifact: the
+  index carries the commit's build identifier (`<meta name="agi-build">`) and
+  the entry assets match the artifact's SHA-256 digests
+  (`scripts/verify-deploy.ts`).
 - Pull request jobs have no deployment access, and workflows from outside
   contributors require approval.
 - Fixture games are never deployment inputs. Browser failures keep their traces
@@ -95,7 +99,8 @@ The public site at [agi.monotio.com](https://agi.monotio.com/) deploys from
    `X.Y.0-rc.N`. It is squash-merged once CI passes and the owner accepts it.
 2. When the release passes QA, bump both versions to `X.Y.0` on `release/X.Y`
    and open a pull request from `release/X.Y` into `main`. Merging it deploys.
-3. Once the deployment verifies, tag the `main` commit `vX.Y.0` and publish a
+3. Once the deploy job's build identity and asset digest check and the deployed
+   browser suite pass, tag the `main` commit `vX.Y.0` and publish a
    GitHub Release on the tag, with the release pull request's description as
    its notes.
 
@@ -111,6 +116,9 @@ Verify a deployment with:
 ```bash
 AGI_DEPLOY_URL=https://agi.monotio.com npm --prefix app run e2e:production
 ```
+
+A deployed site omits the build's chunk graph, so this run skips the lazy-loading
+check; the local production run and `npm run check:bundle` cover that build.
 
 Credentials, deployment identity and gateway configuration live outside this
 repository.

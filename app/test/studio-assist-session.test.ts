@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import { createAgentSessionState, type AgentSessionState } from "../../src/agent/agentState.ts";
 import { STUDIO_ASSIST_TASK_TOOLS } from "../../src/agent/tools.ts";
-import type { StudioFocus } from "../../src/agent/studioAssistTools.ts";
+import { STUDIO_ASSIST_TOOLS, type StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
 import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
@@ -139,6 +139,80 @@ test("stub: an impossible request reads the selection and declines with its reas
   assert.equal(result.text, STUB_DECLINE_TEXT);
   assert.ok(events.some((line) => line.startsWith("[Studio] read_edit_context ->")));
   untouched();
+});
+
+test("a model that judges its own candidate wrong withdraws it; the request ends with none", async (t) => {
+  // The live pattern: a real change, the host's "walkable 0 -> 0", then the
+  // model's verdict that it should not be accepted — now a withdraw_edit.
+  const reply = "The walkway cannot make the bridge walkable, so I withdrew it.";
+  const pictureOpFields = Object.keys(
+    (
+      STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!.parameters.properties[
+        "pictureOps"
+      ] as { items: { properties: object } }
+    ).items.properties,
+  );
+  // The bridge's rows on the priority plane as control 3: a real change.
+  const bridgePriority: Record<string, unknown> = {
+    type: "setItemColor",
+    itemId: "bridge",
+    plane: "priority",
+    value: 3,
+  };
+  const turns = [
+    {
+      name: "propose_edit",
+      arguments: {
+        baseRevision: bridgeFocus().scope.baseRevision,
+        summary: "Opened the banks under the bridge.",
+        pictureOps: [
+          Object.fromEntries(
+            pictureOpFields.map((field) => [field, bridgePriority[field] ?? null]),
+          ),
+        ],
+        spriteOps: null,
+      },
+    },
+    { name: "withdraw_edit", arguments: { reason: "It changes nothing the player can walk on." } },
+  ];
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    const turn = turns[calls];
+    calls++;
+    const output = turn
+      ? [
+          {
+            type: "function_call",
+            call_id: `c${calls}`,
+            name: turn.name,
+            arguments: JSON.stringify(turn.arguments),
+          },
+        ]
+      : [{ type: "message", role: "assistant", content: [{ type: "output_text", text: reply }] }];
+    return new Response(providerSse("openai", { id: `s${calls}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const events: string[] = [];
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    (_kind, detail) => events.push(detail),
+    state(),
+  );
+  const result = await session.runStudioAssist({
+    instruction: "Make this bridge walkable",
+    focus: bridgeFocus(),
+  });
+  assert.ok(
+    events.some((line) => line.startsWith("[Studio] propose_edit -> Candidate c1")),
+    events.join("\n"),
+  );
+  assert.ok(
+    events.some((line) => line.startsWith("[Studio] withdraw_edit -> Withdrew candidate c1")),
+  );
+  assert.equal(result.candidate, null);
+  assert.deepEqual([result.proposals, result.refusals], [1, 0]);
+  assert.equal(result.text, reply);
 });
 
 test("a provider turn offers only the Studio task tools and is denied anything else", async (t) => {

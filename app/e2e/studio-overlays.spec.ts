@@ -72,15 +72,16 @@ for (const [width, height] of [
 
     // A selection and the probe, in the Art lens.
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
-    await studio.getByRole("group", { name: /^Canvas/ }).focus();
-    await page.keyboard.press("g");
-    await expect(studio.getByTestId("ghost-probe")).toBeVisible();
-    await look("art", studio, pictures);
     // With an item selected, Ask shows in the inspector without scrolling.
+    // The probe's readout, opened next, stacks above it and may push it down.
     if (width === 1440)
       await expect(studio.getByTestId("studio-assist").getByRole("heading")).toBeInViewport({
         ratio: 1,
       });
+    await studio.getByRole("group", { name: /^Canvas/ }).focus();
+    await page.keyboard.press("g");
+    await expect(studio.getByTestId("ghost-probe")).toBeVisible();
+    await look("art", studio, pictures);
 
     // The Walk lens with its legend showing, and the values popover open.
     await page.keyboard.press("3");

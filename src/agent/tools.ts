@@ -136,7 +136,7 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
 ];
 
 /**
- * Every tool except the Studio assist pair: the availability of Genesis,
+ * Every tool except the Studio assist tools: the availability of Genesis,
  * room authoring and Remix. The studio tools need a creator's selection and
  * are refused wherever no StudioAssist is attached.
  */
@@ -1477,7 +1477,7 @@ export interface AgentRuntimeDeps {
   readonly roomNotes?: ((room: number) => readonly string[]) | undefined;
   /**
    * A Studio assist request's selection, draft and candidate slot. Only with
-   * it do read_edit_context and propose_edit run; see studioAssistTools.ts.
+   * it do the Studio assist tools run; see studioAssistTools.ts.
    */
   readonly studio?: StudioAssist | undefined;
   /**
@@ -1533,7 +1533,7 @@ const NO_LIVE_GAME =
   "No live game is attached to this session, so live inspection is unavailable. Use read_logic, read_picture and inspect_world_bible instead.";
 
 /**
- * Genesis: the whole authoring catalog except the Studio pair, which needs a
+ * Genesis: the whole authoring catalog except the Studio tools, which need a
  * creator's selection. The three writing tasks share one list so the
  * advertised catalog stays stable across phases for prompt-cache reuse; each
  * keeps its own name, so narrowing one is a deliberate edit here. Each list
@@ -1549,7 +1549,7 @@ export const ROOM_AUTHORING_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 export const REMIX_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 
 /**
- * A Studio assist task: the two studio tools plus read-only inspection.
+ * A Studio assist task: the Studio tools plus read-only inspection.
  * Everything else is denied before dispatch.
  */
 export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [

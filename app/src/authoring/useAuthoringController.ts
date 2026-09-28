@@ -158,15 +158,21 @@ export interface AuthoringController {
   submitPowerUp(instruction: string, referenceIds?: readonly string[]): Promise<void>;
   updateAiConfig(config: LlmConfig): Promise<void>;
   /**
-   * Persist files the running game already holds (Exit, a recorded test)
-   * with the session describing them; the booted game follows. Rejects as
-   * stale when storage moved past the running game.
+   * Persist files the running game already holds (Exit) with the session
+   * describing them; the booted game follows. Rejects as stale when storage
+   * moved past the running game.
    */
   persistRemix(
     game: BootedGame,
     author: AgentSession,
     files: Record<string, Uint8Array>,
   ): Promise<void>;
+  /**
+   * Store `tests` as the game's TESTS.JSON the way a remix turn lands: the
+   * durable write first, then `author` and the running game take the file.
+   * A stale refusal (STALE_TURN_MESSAGE) changes nothing.
+   */
+  commitTestsFile(game: BootedGame, author: AgentSession, tests: Uint8Array): Promise<void>;
   createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession>;
   attachSessionRuntime(s: AgentSession, game: BootedGame, profile?: string): void;
   getOrCreateSession(game: BootedGame, config: LlmConfig): Promise<AgentSession>;
@@ -687,6 +693,25 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     files: Record<string, Uint8Array>,
   ): Promise<void> {
     await updateBootedResources(await saveTurn(game, author, files), files);
+  }
+
+  async function commitTestsFile(
+    game: BootedGame,
+    author: AgentSession,
+    tests: Uint8Array,
+  ): Promise<void> {
+    const current = await query("exportFiles");
+    if (!current || getBootedGame() !== game)
+      throw new Error("The game changed while saving the recording. Try again.");
+    const saved: SavedFiles = { files: { ...current, "TESTS.JSON": tests.slice() } };
+    const owner = await saveTurn(game, author, saved.files);
+    author.state.testsPayload = tests.slice();
+    await installSaved(
+      runningGame(owner, author),
+      saved,
+      { resources: [], metadata: { "TESTS.JSON": tests.slice() } },
+      "The recorded test",
+    );
   }
 
   /** The running game an install of `owner`'s saved files goes to, as it stands now. */
@@ -1377,6 +1402,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     submitPowerUp,
     updateAiConfig,
     persistRemix,
+    commitTestsFile,
     createGameSession,
     attachSessionRuntime,
     getOrCreateSession,

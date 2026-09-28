@@ -19,11 +19,16 @@ import { compileEditDocument } from "../../src/studio/editValidation.ts";
 import { parsePictureDocument, type PictureDocument } from "../../src/studio/pictureDocument.ts";
 import { testRoute, type RouteTestResult } from "../../src/studio/route.ts";
 import { parseLogicDocument } from "../../src/studio/rules/logicDocument.ts";
-import { readRules } from "../../src/studio/rules/ruleModel.ts";
+import { readRules, ruleBox } from "../../src/studio/rules/ruleModel.ts";
 import type { ExitContract } from "../../src/studio/rules/ruleUsage.ts";
 import { buildView } from "../../src/view/view.ts";
 import type { RouteWorkerInbound } from "../src/studio/routeRunner.ts";
-import { toShown, toStored, useRoomLogicDraft } from "../src/studio/useRoomLogicDraft.ts";
+import {
+  toShown,
+  toStored,
+  unfollowedText,
+  useRoomLogicDraft,
+} from "../src/studio/useRoomLogicDraft.ts";
 import {
   DEFAULT_EGO,
   useStudioWalk,
@@ -385,6 +390,63 @@ describe("useUndoOrder", () => {
     });
     scope.stop();
   });
+
+  /**
+   * A counted history with drops, whose stacks change in one assignment, or
+   * (`split`) one count at a time, each in its own synchronous assignment.
+   */
+  function counted(split: boolean) {
+    const state = shallowRef({ past: 0, future: 0, dropped: 0 });
+    const set = (next: { past: number; future: number; dropped: number }) => {
+      if (!split) return void (state.value = next);
+      // Worst order for a drop: the shorter stack lands before its drop count.
+      state.value = { ...state.value, past: next.past };
+      state.value = { ...state.value, future: next.future };
+      state.value = next;
+    };
+    const now = () => state.value;
+    return {
+      edit: () => set({ ...now(), past: now().past + 1, future: 0 }),
+      drop: (n: number) => set({ ...now(), past: now().past - n, dropped: now().dropped + n }),
+      past: () => state.value.past,
+      future: () => state.value.future,
+      dropped: () => ({ past: state.value.dropped, future: 0 }),
+      undo: () =>
+        now().past > 0 && (set({ ...now(), past: now().past - 1, future: now().future + 1 }), true),
+      redo: () =>
+        now().future > 0 &&
+        (set({ ...now(), past: now().past + 1, future: now().future - 1 }), true),
+    };
+  }
+
+  it("ends with the same order whether a history changes in one assignment or several", () => {
+    for (const split of [false, true]) {
+      const scope = effectScope();
+      scope.run(() => {
+        const a = counted(split);
+        const b = counted(split);
+        const order = useUndoOrder([a, b]);
+        // a1, b1, a2, b2, a3; then a's oldest step is dropped.
+        a.edit();
+        b.edit();
+        a.edit();
+        b.edit();
+        a.edit();
+        a.drop(1);
+        const trail: string[] = [];
+        const mark = () => trail.push(`${a.past()}${b.past()}`);
+        while (order.undo()) mark();
+        while (order.redo()) mark();
+        // Undo a3, b2, a2, b1; redo them back in reverse.
+        assert.deepEqual(
+          trail,
+          ["12", "11", "01", "00", "01", "11", "12", "22"],
+          split ? "split" : "single",
+        );
+      });
+      scope.stop();
+    }
+  });
 });
 
 // ---- The room logic draft and the Walk composable ------------------------
@@ -546,18 +608,152 @@ describe("the room logic draft", () => {
     // Placing the box on screen stores it back in the kept frame.
     walk.moveDoor("door-1", { x1: 100, y1: 120, x2: 111, y2: 126 });
     assert.match(logic.source.value, /posn\(o0, 120, 120, 131, 126\)/);
+    // The doorway moved 20 px west: the kept frame is 20 px east of the shown one.
+    assert.deepEqual(
+      toStored({ x1: 100, y1: 120, x2: 111, y2: 126 }, "doorway", rig.kept, moved.document),
+      { x1: 120, y1: 120, x2: 131, y2: 126 },
+    );
     assert.deepEqual(
       toShown({ x1: 120, y1: 120, x2: 131, y2: 126 }, "doorway", rig.kept, moved.document),
-      toShown(
-        toStored({ x1: 100, y1: 120, x2: 111, y2: 126 }, "doorway", rig.kept, moved.document),
-        "doorway",
-        rig.kept,
-        moved.document,
-      ),
+      { x1: 100, y1: 120, x2: 111, y2: 126 },
     );
     // Unbound, the box stays where it shows.
     walk.setFollows("door-1", null);
     assert.match(logic.source.value, /posn\(o0, 100, 120, 111, 126\)/);
+    rig.stop();
+  });
+
+  it("unbinds a door whose art the Keep deletes, and names it", () => {
+    const rig = walkRig();
+    const { logic, walk } = rig;
+    walk.addDoor({ x1: 120, y1: 125, x2: 135, y2: 130 });
+    walk.setFollows("door-1", "doorway");
+    const deleted = applyEdit(rig.kept, { type: "deleteItem", itemId: "doorway" });
+    assert.ok(!("error" in deleted));
+    const keep = logic.forKeep(rig.kept, deleted.document);
+    assert.ok(keep.ok && "bytes" in keep);
+    assert.deepEqual(keep.unfollowed, [{ door: "Door to room 2", art: "Doorway" }]);
+    assert.match(keep.source, /\/\/ @rule door-1 "Door to room 2" exit\nif \(posn\(o0, 120, 125/);
+    assert.equal(
+      unfollowedText(keep.unfollowed),
+      "Door to room 2 stays put now: Doorway is gone from the picture.",
+    );
+    rig.stop();
+  });
+
+  it("rebases its undo history into the frame a Keep moved the art to", () => {
+    const rig = walkRig();
+    const { logic, walk } = rig;
+    walk.addDoor({ x1: 120, y1: 125, x2: 135, y2: 130 });
+    walk.setFollows("door-1", "doorway");
+    walk.moveDoor("door-1", { x1: 120, y1: 120, x2: 135, y2: 125 });
+    // The doorway moves 10 px east, and the Keep moves the door with it.
+    const moved = applyEdit(rig.kept, { type: "moveItem", itemId: "doorway", dx: 10, dy: 0 });
+    assert.ok(!("error" in moved));
+    const keep = logic.forKeep(rig.kept, moved.document);
+    assert.ok(keep.ok && "bytes" in keep);
+    logic.markKept(keep, { before: rig.kept, after: moved.document });
+    assert.match(logic.source.value, /posn\(o0, 130, 120, 145, 125\)/);
+    // Undo the art move and the door move: the door is back where it began.
+    const shownBox = () => {
+      const door = logic.rules.value.find((entry) => entry.rule.id === "door-1")!;
+      const box = door.model === "native" ? null : ruleBox(door.model);
+      assert.ok(box);
+      return toShown(box, door.rule.item, moved.document, rig.kept);
+    };
+    assert.equal(logic.undo(), true);
+    assert.match(logic.source.value, /posn\(o0, 130, 125, 145, 130\)/, "stored in the kept frame");
+    assert.deepEqual(shownBox(), { x1: 120, y1: 125, x2: 135, y2: 130 });
+    assert.equal(logic.redo(), true);
+    assert.deepEqual(shownBox(), { x1: 120, y1: 120, x2: 135, y2: 125 });
+    assert.equal(logic.past.value, 3, "add, follow and move all stay undoable");
+    rig.stop();
+
+    // A redo step moves into the new frame too.
+    const again = walkRig();
+    again.walk.addDoor({ x1: 120, y1: 125, x2: 135, y2: 130 });
+    again.walk.setFollows("door-1", "doorway");
+    again.walk.moveDoor("door-1", { x1: 120, y1: 120, x2: 135, y2: 125 });
+    again.logic.undo();
+    const kept = again.logic.forKeep(again.kept, moved.document);
+    assert.ok(kept.ok && "bytes" in kept);
+    again.logic.markKept(kept, { before: again.kept, after: moved.document });
+    assert.equal(again.logic.redo(), true);
+    assert.match(again.logic.source.value, /posn\(o0, 130, 120, 145, 125\)/);
+    again.stop();
+  });
+
+  it("drops the history a Keep's follow cannot carry, with every older step", () => {
+    const rig = walkRig();
+    const { logic, walk } = rig;
+    walk.addDoor({ x1: 140, y1: 125, x2: 159, y2: 130 });
+    walk.setFollows("door-1", "doorway");
+    walk.moveDoor("door-1", { x1: 120, y1: 125, x2: 135, y2: 130 });
+    const moved = applyEdit(rig.kept, { type: "moveItem", itemId: "doorway", dx: 10, dy: 0 });
+    assert.ok(!("error" in moved));
+    const keep = logic.forKeep(rig.kept, moved.document);
+    assert.ok(keep.ok && "bytes" in keep);
+    logic.markKept(keep, { before: rig.kept, after: moved.document });
+    // The bound 140..159 box moved 10 east would leave the picture: that step
+    // can't be undone to, so neither can anything before it.
+    assert.equal(logic.past.value, 0);
+    assert.match(logic.source.value, /posn\(o0, 130, 125, 145, 130\)/);
+    rig.stop();
+  });
+
+  it("keeps the shared undo order when a Keep drops older door steps", () => {
+    const rig = walkRig();
+    const { logic, walk } = rig;
+    const scope = effectScope();
+    // A picture history of plain steps, interleaved with the door steps.
+    const picture = { past: shallowRef(0), future: shallowRef(0) };
+    const pictureStep = () => {
+      picture.past.value++;
+      picture.future.value = 0;
+    };
+    const order = scope.run(() =>
+      useUndoOrder([
+        {
+          past: () => picture.past.value,
+          future: () => picture.future.value,
+          undo: () =>
+            picture.past.value > 0 ? (picture.past.value--, picture.future.value++, true) : false,
+          redo: () =>
+            picture.future.value > 0 ? (picture.future.value--, picture.past.value++, true) : false,
+        },
+        {
+          past: () => logic.past.value,
+          future: () => logic.future.value,
+          dropped: () => logic.dropped.value,
+          undo: logic.undo,
+          redo: logic.redo,
+        },
+      ]),
+    )!;
+    // Three door steps the Keep will drop: add at 140..159, follow, move to 120..135.
+    walk.addDoor({ x1: 140, y1: 125, x2: 159, y2: 130 });
+    walk.setFollows("door-1", "doorway");
+    walk.moveDoor("door-1", { x1: 120, y1: 125, x2: 135, y2: 130 });
+    // Then a picture step, a door step and a picture step.
+    pictureStep();
+    walk.moveDoor("door-1", { x1: 118, y1: 125, x2: 133, y2: 130 });
+    pictureStep();
+    // The doorway moves 10 east: undoing to the 140..159 box can't follow, so
+    // it and every older door step go; the last door move stays.
+    const moved = applyEdit(rig.kept, { type: "moveItem", itemId: "doorway", dx: 10, dy: 0 });
+    assert.ok(!("error" in moved));
+    const keep = logic.forKeep(rig.kept, moved.document);
+    assert.ok(keep.ok && "bytes" in keep);
+    logic.markKept(keep, { before: rig.kept, after: moved.document });
+    assert.equal(logic.past.value, 1);
+    assert.deepEqual(logic.dropped.value, { past: 3, future: 0 });
+    const trail: string[] = [];
+    const mark = () => trail.push(`${picture.past.value}${logic.past.value}`);
+    while (order.undo()) mark();
+    while (order.redo()) mark();
+    // Undo: picture, door, picture; redo the same steps back, in reverse.
+    assert.deepEqual(trail, ["11", "10", "00", "10", "11", "21"]);
+    scope.stop();
     rig.stop();
   });
 
@@ -846,14 +1042,14 @@ describe("test walks", () => {
     walk.clickWalk({ x: 40, y: 140 });
     walk.clickWalk({ x: 0, y: 150 });
     await settle();
-    assert.equal(
-      walk.result.value?.title.startsWith("Couldn't reach the west edge from here"),
-      true,
-    );
+    // It stopped at 20,122, just under the rope (y 121). Every step on toward
+    // the goal down at the west edge — 19,123, 19,122, 20,123 — is floor, so
+    // nothing refused it there and the card names no blocker.
+    assert.equal(walk.result.value?.title, "Couldn't reach the west edge from here");
     assert.equal(walk.tested.value.has("exit-west-1"), false);
     assert.equal(
       walk.doorNote("exit-west-1"),
-      `Last test walk from 40,140: ${walk.result.value?.title}.`,
+      "Last test walk from 40,140: Couldn't reach the west edge from here.",
     );
     rig.stop();
   });

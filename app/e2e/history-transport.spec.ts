@@ -66,7 +66,9 @@ async function bootTapeGame(page: Page): Promise<void> {
     files: Object.fromEntries(game.files),
     words: [],
   });
-  await page.reload();
+  // A fresh navigation reads the cached game. page.reload() here intermittently
+  // failed in CI with "WebKit encountered an internal error".
+  await page.goto("/");
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }

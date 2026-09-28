@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { effectScope, ref } from "vue";
+import { effectScope, ref, shallowRef } from "vue";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
@@ -16,6 +16,7 @@ import {
   useStudioDraft,
 } from "../src/studio/useStudioDraft.ts";
 import { useStudioKeep } from "../src/studio/useStudioKeep.ts";
+import { useUndoOrder } from "../src/studio/useUndoOrder.ts";
 import type { PictureEdit } from "../src/project/resourceCommit.ts";
 import { authoringFingerprint } from "../src/project/gameStorage.ts";
 
@@ -63,6 +64,66 @@ const line = (draft: ReturnType<typeof setup>["draft"], n: number) =>
   draft.source.value.split("\n")[n - 1];
 
 describe("useStudioDraft", () => {
+  it("keeps the shared undo order exact when its history drops steps at the depth cap", () => {
+    const base = ref({ source: SOURCE, revision: testRevision("draft") });
+    const scope = effectScope();
+    const run = scope.run(() => {
+      const draft = useStudioDraft({
+        base,
+        profile: DEFAULT_V2_PROFILE,
+        lens: "depth",
+        unlocks: NO_UNLOCKS,
+        historyDepth: 2,
+      });
+      // The door history: counted steps, both counts changing in one assignment.
+      const door = shallowRef({ past: 0, future: 0 });
+      const order = useUndoOrder([
+        {
+          past: () => draft.history.value.past.length,
+          future: () => draft.history.value.future.length,
+          dropped: () => draft.dropped.value,
+          undo: draft.undo,
+          redo: draft.redo,
+        },
+        {
+          past: () => door.value.past,
+          future: () => door.value.future,
+          undo: () => {
+            const { past, future } = door.value;
+            if (past === 0) return false;
+            door.value = { past: past - 1, future: future + 1 };
+            return true;
+          },
+          redo: () => {
+            const { past, future } = door.value;
+            if (future === 0) return false;
+            door.value = { past: past + 1, future: future - 1 };
+            return true;
+          },
+        },
+      ]);
+      return { draft, door, order };
+    })!;
+    const { draft, door, order } = run;
+    const picture = () => assert.equal(draft.apply(move("occ", 1, 0), "Move Occluder").ok, true);
+    const doorStep = () => void (door.value = { past: door.value.past + 1, future: 0 });
+    // Picture, door, picture, picture (the cap drops the first), door, picture (drops another).
+    picture();
+    doorStep();
+    picture();
+    picture();
+    doorStep();
+    picture();
+    assert.equal(draft.history.value.dropped, 2);
+    const trail: string[] = [];
+    const mark = () => trail.push(`${draft.history.value.past.length}${door.value.past}`);
+    while (order.undo()) mark();
+    while (order.redo()) mark();
+    // Newest first: picture, door, picture, door; then redo walks them back.
+    assert.deepEqual(trail, ["12", "11", "01", "00", "01", "11", "12", "22"]);
+    scope.stop();
+  });
+
   it("records a whole drag as one undo step", () => {
     const { draft } = setup();
     draft.beginGesture("Move Occluder");
@@ -368,7 +429,10 @@ describe("several items as one", () => {
     assert.equal(draft.history.value.past.length, 0);
   });
 
-  function editingRig(ids: string[] = ["box", "paint"]) {
+  function editingRig(
+    ids: string[] = ["box", "paint"],
+    doors: readonly { item: string; label: string }[] = [],
+  ) {
     const { draft } = setup("art");
     const selectedId = ref<string | undefined>();
     const selection = { ids };
@@ -380,6 +444,7 @@ describe("several items as one", () => {
         itemIds: () => selection.ids,
         selectItems: (next) => void (selection.ids = [...next]),
         frozen: () => false,
+        doors: () => doors,
       }),
     )!;
     return { draft, editing, selection, selectedId, scope };
@@ -468,6 +533,35 @@ describe("several items as one", () => {
       editing.notice.value?.text,
       "Group takes neighbours in the draw order. Include the items between them.",
     );
+    scope.stop();
+  });
+
+  it("keeps a followed member's id on Group, and says when Ungroup can't give it back", () => {
+    const door = { item: "paint", label: "Door to room 2" };
+    const { draft, editing, selection, selectedId, scope } = editingRig(["box", "paint"], [door]);
+    assert.equal(editing.combine("Red box"), true);
+    assert.deepEqual(selection.ids, ["paint"], "the group takes the id the door follows");
+    assert.equal(draft.document.value.items[0]!.label, "Red box");
+    // Grouped again with the occluder, the member's id rides along once more.
+    selection.ids = ["paint", "occ"];
+    assert.equal(editing.combine("Corner"), true);
+    assert.deepEqual(selection.ids, ["paint"]);
+    // A group of groups ungroups into drawing elements: the door's art is gone.
+    selectedId.value = "paint";
+    assert.equal(editing.ungroup(), true);
+    assert.ok(!draft.document.value.items.some((item) => item.id === "paint"));
+    assert.deepEqual(editing.notice.value, {
+      tone: "warn",
+      text: "Door to room 2 stays put now: Ungroup split Red box into drawing elements.",
+    });
+    // One level down, Ungroup gives the members their ids back and the door keeps its art.
+    assert.equal(draft.undo(), true);
+    assert.equal(draft.undo(), true);
+    editing.say(null);
+    selectedId.value = "paint";
+    assert.equal(editing.ungroup(), true);
+    assert.equal(draft.source.value, SOURCE);
+    assert.notEqual(editing.notice.value?.tone, "warn");
     scope.stop();
   });
 

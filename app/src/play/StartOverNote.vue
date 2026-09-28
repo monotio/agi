@@ -3,8 +3,8 @@
  * The stage's note after a Start over that left earlier sessions on the
  * timeline: Undo start over returns to where the last one ended. It never
  * takes focus; its button is in the tab order. The note's lifetime lives
- * in useStartOverNote; afterwards the timeline's Started over mark is the
- * way back.
+ * in useStartOverNote; afterwards the timeline's mark where the game
+ * started over is the way back.
  */
 import UiButton from "../ui/UiButton.vue";
 import UiToast from "../ui/UiToast.vue";

@@ -14,12 +14,10 @@ import { createPanels, type CreatePanel, type DockSide } from "./createDocks.ts"
 
 const {
   side,
-  readOnly,
   builtIn = [],
   collapsed = false,
 } = defineProps<{
   side: DockSide | "sheet";
-  readOnly: boolean;
   builtIn?: readonly string[];
   collapsed?: boolean;
 }>();
@@ -136,7 +134,7 @@ function onTabKey(ev: KeyboardEvent): void {
       :aria-labelledby="`${tabsId}-${current.id}`"
       :data-testid="`dock-panel-${current.id}`"
     >
-      <component :is="current.component" v-if="current.component" :read-only="readOnly" />
+      <component :is="current.component" v-if="current.component" />
       <slot v-else :name="current.id">
         <p class="create-dock__empty">{{ current.title }} docks here in Create mode.</p>
       </slot>

@@ -10,6 +10,7 @@
  */
 
 import type { Explainer, HelpTarget } from "../ui/explain.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
 
 const topic = (id: string): HelpTarget => ({ section: "creating", topic: id });
 
@@ -66,7 +67,7 @@ export const STUDIO_TERMS = {
   },
   loose: {
     name: "Loose steps",
-    says: "Steps that belong to no item yet. Select them and press ⌘G to make one.",
+    says: `Steps that belong to no item yet. Select them and press ${keyLabel("Mod+G")} to make one.`,
     help: topic("studio-order"),
   },
   group: {

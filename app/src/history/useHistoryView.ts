@@ -162,24 +162,34 @@ function roomMark(m: HistoryRoomMark, segment: number): HistoryViewMark {
 }
 
 const STARTED_OVER = "Started over";
+const STARTED_FRESH = "Started from the beginning";
 
 /**
- * Where a Start over began a session afresh: tick 0 of a segment that boots
- * the game from its beginning after an earlier segment of the same tape.
- * It shares the look of the game's own restart.
+ * Where a session began afresh: tick 0 of a segment that boots the game
+ * from its beginning after an earlier segment of the same tape. It shares
+ * the look of the game's own restart. The tape does not record why a boot
+ * was fresh — a Start over, a Play with no checkpoint and a reload that
+ * could not resume boot alike, and the released format has no field for
+ * the cause — so only a Start over this tab made (`startedOver`) is called
+ * one; any other says what is known.
  */
-function startedOverMark(segment: number): HistoryViewMark {
-  return { segment, tick: 0, seq: 0, room: null, kind: "restart", label: STARTED_OVER };
+function freshStartMark(segment: number, startedOver: boolean): HistoryViewMark {
+  const label = startedOver ? STARTED_OVER : STARTED_FRESH;
+  return { segment, tick: 0, seq: 0, room: null, kind: "restart", label };
 }
 
-const isStartedOver = (m: HistoryViewMark): boolean =>
-  m.kind === "restart" && m.label === STARTED_OVER;
+const isFreshStart = (m: HistoryViewMark): boolean =>
+  m.kind === "restart" && (m.label === STARTED_OVER || m.label === STARTED_FRESH);
 
-/** The transport's mark lane: room entries, remixes, prompts, bookmarks, Start overs. */
-function buildMarks(recording: HistoryRecording, bookmarks: HistoryBookmark[]): HistoryViewMark[] {
+/** The transport's mark lane: room entries, remixes, prompts, bookmarks, fresh starts. */
+function buildMarks(
+  recording: HistoryRecording,
+  bookmarks: HistoryBookmark[],
+  startedOver: ReadonlySet<string>,
+): HistoryViewMark[] {
   const marks: HistoryViewMark[] = [];
   recording.segments.forEach((seg, si) => {
-    if (si > 0 && startsFresh(seg.boot)) marks.push(startedOverMark(si));
+    if (si > 0 && startsFresh(seg.boot)) marks.push(freshStartMark(si, startedOver.has(seg.id)));
     for (const m of seg.marks) marks.push(roomMark(m, si));
     for (const e of seg.events) {
       const c = e.cause;
@@ -262,15 +272,15 @@ interface FlatSeg {
 }
 
 /**
- * Keep each live lane's Started over mark in step with its place: a fresh
+ * Keep each live lane's fresh-start mark in step with its place: a fresh
  * lane after an earlier one carries it, the first lane never does. Lanes
  * arrive from batches and the stored outline in either order, so the mark
  * is recomputed whenever they settle.
  */
-function markStartOvers(lanes: FlatSeg[]): void {
+function markStartOvers(lanes: FlatSeg[], startedOver: ReadonlySet<string>): void {
   lanes.forEach((lane, i) => {
-    const marks = lane.marks.filter((m) => !isStartedOver(m));
-    if (lane.fresh === true && i > 0) marks.unshift(startedOverMark(i));
+    const marks = lane.marks.filter((m) => !isFreshStart(m));
+    if (lane.fresh === true && i > 0) marks.unshift(freshStartMark(i, startedOver.has(lane.id)));
     lane.marks = marks;
   });
 }
@@ -310,8 +320,23 @@ export function useHistoryView(deps: HistoryViewDeps) {
    * pointer is down so a landing batch cannot move the gesture's target.
    */
   let scrubAxis: FlatSeg[] | null = null;
+  /**
+   * Segments this tab began with a Start over, for as long as it is open:
+   * the tape cannot say so (freshStartMark). A worker swap keeps them.
+   */
+  const startedOver = new Set<string>();
+  /** A Start over is booting: the next fresh boot batch is its segment. */
+  let startOverPending = false;
 
   const view = () => deps.state.historyView;
+
+  /**
+   * Start over is about to boot the game afresh (true), or booted nothing
+   * after all (false).
+   */
+  function expectStartOver(expected = true): void {
+    startOverPending = expected;
+  }
 
   /** A worker replacement ends the view session — called from reset paths. */
   function resetHistoryView(): void {
@@ -469,7 +494,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
       );
       outline.forEach((lane, i) => lane.marks.forEach((m) => (m.segment = i)));
-      markStartOvers(outline);
+      markStartOvers(outline, startedOver);
     } catch {
       // A missing or unreadable manifest leaves the batch-built axis as is.
     }
@@ -499,7 +524,11 @@ export function useHistoryView(deps: HistoryViewDeps) {
     for (const m of batch.marks) lane.marks.push(roomMark(m, index));
     if (batch.boot !== undefined) {
       lane.fresh = startsFresh(batch.boot);
-      markStartOvers(outline);
+      if (lane.fresh && startOverPending) {
+        startOverPending = false;
+        startedOver.add(lane.id);
+      }
+      markStartOvers(outline, startedOver);
     }
   }
 
@@ -612,7 +641,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
         v.error = "Nothing is recorded yet. Play a little first.";
         return;
       }
-      v.marks = buildMarks(recording, bookmarks);
+      v.marks = buildMarks(recording, bookmarks, startedOver);
       v.segmentCount = recording.segments.length;
       recordingAxis = recording.segments.map((seg, si) => ({
         id: seg.id,
@@ -698,7 +727,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
           });
         else if (extent > lane.extent) lane.extent = extent;
       }
-      markStartOvers(outline);
+      markStartOvers(outline, startedOver);
     }
     deps.resumeEngine("history");
   }
@@ -1232,7 +1261,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
       at: Date.now(),
     };
     bookmarks = [...bookmarks, bookmark];
-    v.marks = buildMarks(recording!, bookmarks);
+    v.marks = buildMarks(recording!, bookmarks, startedOver);
     recordingAxis = [];
     await saveHistoryBookmark(gameStorageKey(game), bookmark, game.historyLifetime);
   }
@@ -1491,6 +1520,7 @@ export function useHistoryView(deps: HistoryViewDeps) {
   return {
     resetHistoryView,
     observeBatch,
+    expectStartOver,
     openHistory,
     closeHistory,
     exitHistory,

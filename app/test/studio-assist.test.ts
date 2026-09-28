@@ -4,7 +4,11 @@ import { effectScope, ref } from "vue";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import type { AgentLogEntry } from "../src/agent/agentLog.ts";
 import type { AgentRunState } from "../src/agent/agentRun.ts";
-import { STUB_DECLINE_TEXT, type StudioAssistResult } from "../src/agent/studioAssist.ts";
+import {
+  STUB_DECLINE_TEXT,
+  STUB_WITHDRAW_REASON,
+  type StudioAssistResult,
+} from "../src/agent/studioAssist.ts";
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import type { StudioCandidate, StudioFocus } from "../../src/agent/studioAssistTools.ts";
 import { draftRevision, pictureAssistScope } from "../../src/studio/assistScope.ts";
@@ -260,6 +264,23 @@ describe("useStudioAssist", () => {
     studio.dispose();
   });
 
+  it("a proposal the AI withdraws is not offered: only its reason shows", async () => {
+    const studio = bridgeStudio();
+    await studio.assist.ask("withdraw: make this bridge walkable");
+    assert.equal(studio.assist.phase.value, "declined");
+    assert.equal(studio.assist.candidate.value, null);
+    assert.equal(studio.assist.accept(), false);
+    assert.equal(studio.assist.reply.value, STUB_WITHDRAW_REASON);
+    assert.deepEqual(studio.assist.steps.value, [
+      "Read the selection",
+      "Proposed a change",
+      `Withdrew its proposal: ${STUB_WITHDRAW_REASON}`,
+    ]);
+    assert.equal(studio.draft.source.value, BRIDGE_SOURCE);
+    assert.deepEqual(studio.applied, []);
+    studio.dispose();
+  });
+
   it("a candidate goes stale when the draft changes, and cannot be accepted", async () => {
     const held = heldHost();
     const studio = heldStudio(held.host);
@@ -511,6 +532,7 @@ describe("assist words", () => {
       refusalWords([{ constraint: "extra-copy", plane: "visual" }]),
       "would copy the selection more than once, or in other colours",
     );
+    assert.equal(refusalWords([{ constraint: "no-change" }]), "would change nothing");
     const entry = (kind: AgentLogEntry["kind"], detail: string, data?: unknown): AgentLogEntry => ({
       id: detail,
       timestamp: 0,

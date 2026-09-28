@@ -1046,7 +1046,8 @@ export async function loadRetainedBranches(storageKey: string): Promise<Retained
 /**
  * A boot that starts the game from its beginning: it continues no earlier
  * segment and restores no checkpoint. After an earlier segment of the same
- * tape, that is a Start over (or a Play with no checkpoint to resume).
+ * tape, that may be a Start over, a Play with no checkpoint to resume or a
+ * reload that could not resume one: the boot records no cause.
  */
 export function startsFresh(boot: Pick<HistoryBoot, "resumedFrom" | "image">): boolean {
   return boot.resumedFrom === undefined && boot.image === undefined;

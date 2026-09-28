@@ -5,6 +5,7 @@ import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiPanel from "../ui/UiPanel.vue";
 import { explain } from "./studioTerms.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
 import { labelParts, type LabelParts } from "./studioView.ts";
 import type { SceneBranch, SceneGroupRow, SceneRow, SceneSectionRow } from "./useStudioDocument.ts";
 
@@ -349,7 +350,7 @@ function onFilterKeydown(event: KeyboardEvent): void {
             variant="ghost"
             size="sm"
             class="scene-list__group"
-            shortcut="⌘G"
+            :shortcut="keyLabel('Mod+G')"
             data-testid="scene-group"
             @click="emit('group')"
             >Group</UiButton

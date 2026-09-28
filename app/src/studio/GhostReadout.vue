@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { SCREEN_WIDTH } from "../../../src/types.ts";
 import UiExplain from "../ui/UiExplain.vue";
 import { explain } from "./studioTerms.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
 import { CONTROL_VALUES } from "./studioView.ts";
 import type { GhostProbe } from "./useGhostProbe.ts";
 
@@ -124,7 +125,7 @@ const viewLabel = (number: number, description: string | undefined): string =>
     <p class="ghost-readout__row" data-role="ghost-cel">
       <span class="ghost-readout__key">Cel</span>
       <span>loop {{ loop }}/{{ loopCount }} · cel {{ celIndex }}/{{ celCount }}</span>
-      <span class="ghost-readout__hint">←→ cel · ↑↓ loop · ⇧ move</span>
+      <span class="ghost-readout__hint">←→ cel · ↑↓ loop · {{ keyLabel("Shift") }} move</span>
     </p>
     <label class="ghost-readout__row">
       <span class="ghost-readout__key ghost-readout__with"

@@ -7,7 +7,7 @@
  * game's own cycle delay, so a pause, a dialog or the open map (which all
  * stop the cycle) freeze the countdown. Entering another room after that
  * first input, dismissing it, or using it closes it sooner. Afterwards the
- * timeline's Started over mark is the way back.
+ * timeline's mark where the game started over is the way back.
  */
 import { TIMER_INCREMENT_MS } from "../../../src/runtime/cycleClock.ts";
 import type { RoomTransitionNotice } from "../worker/workerProtocol.ts";
