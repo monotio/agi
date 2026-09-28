@@ -154,7 +154,9 @@ app, so play a game through before you share it, especially with children. [Secu
 A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it. **Create** docks the tools around it: the world map and its
 rooms on the left, the assistant on the right. From a room in the World panel,
-its picture opens in **Room Studio** and its views in **Sprite Studio**.
+its picture opens in **Room Studio** and its views in **Sprite Studio**. Room
+Studio and Sprite Studio need a larger screen than a phone; games play on phones
+too.
 
 <p align="center">
   <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>
@@ -168,8 +170,8 @@ walk across the Sprite Lab, a proposal from Ask, and Sprite Studio on the
 waving robot._
 
 - **Room Studio** shows a room's picture under three lenses: Art for what the
-  player sees, Depth for how far away each part sits, and Walk for the lines that
-  steer the hero. A scrubber replays the draw order command by command, the
+  player sees, Depth for what stands in front, and Walk for the lines that steer
+  the hero. A scrubber replays the draw order command by command, the
   scene list names what the picture draws, and clicking a pixel shows the
   command that put it there.
 - **Editing** works on items: drag one or its points, nudge it with the arrow
@@ -278,7 +280,7 @@ the original 40 × 25 character screen.
 ## How it's built
 
 Coding agents build this project, alongside the agent inside it, and the
-repository is arranged so that neither has to be taken at its word.
+repository checks the work of both.
 
 - **A written agreement.** [AGENTS.md](AGENTS.md) holds the conventions,
   boundaries and method every contributor follows, person or agent: evals
@@ -296,7 +298,7 @@ repository is arranged so that neither has to be taken at its word.
   [contrast test](app/test/token-contrast.test.ts), the engine and app tests,
   and the stored evals. [CI](.github/workflows/ci.yml) adds Playwright in
   Chromium and WebKit.
-- **Budgets.** The Play boot path has a
+- **Budgets.** The startup path, from Home to a game's first frame, has a
   [bundle budget](scripts/check-bundle-budget.ts) that also keeps Studio and
   the AI stack off it, and [interaction budgets](app/e2e/perf-budgets.spec.ts)
   bound boot long tasks and Studio frame and input times.

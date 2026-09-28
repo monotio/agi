@@ -1,9 +1,12 @@
-// Bundle budget for the Play boot path: the JavaScript, CSS and worker scripts
-// a browser fetches before a game's first frame, compressed as a host serves
-// them. It reads the chunk graph that app/vite.config.ts records beside the
-// production build, so no file name is hard-coded, and fails when a budget is
-// exceeded or when a Studio or AI authoring module has become part of the
-// boot path.
+// Bundle budget for the startup path: the JavaScript, CSS and worker scripts
+// a browser fetches from opening Home to a catalog game's first frame,
+// compressed as a host serves them. That is the entry chunk's static import
+// closure plus the dynamic imports Home starts unconditionally (HOME_START),
+// each with its own static closure. It reads the chunk graph that
+// app/vite.config.ts records beside the production build, so no file name is
+// hard-coded, and fails when a budget is exceeded or when a Studio or AI
+// authoring module has joined the startup path. Features that load on a
+// player's action (Ask, the Studios, the map, lessons) stay outside it.
 //
 //   npm run build && npm run check:bundle
 //   npm run check:bundle -- --warn    report only; `npm run build` uses this
@@ -15,6 +18,7 @@ interface GraphChunk {
   readonly file: string;
   readonly isEntry: boolean;
   readonly imports: readonly string[];
+  readonly dynamicImports: readonly string[];
   readonly css: readonly string[];
   /** Source modules, relative to the repository root. */
   readonly modules: readonly string[];
@@ -34,31 +38,44 @@ interface Size {
 type Group = "entry" | "js" | "css" | "workers";
 
 /**
- * Budgets in bytes (gzip level 9, brotli quality 11). Each is a measured
- * build's size, noted beside it, plus about 10% headroom, rounded: the entry
- * and boot JavaScript as re-measured once the AI authoring stack moved behind
- * a dynamic import, the CSS and workers from the 1.1.0-rc.4 build. Raise one
- * only on purpose, saying in the commit what grew and why it must load before
- * the first frame; moving the code behind a dynamic import comes first.
+ * Budgets in bytes (gzip level 9, brotli quality 11). Each began as a measured
+ * build's size plus about 10% headroom, rounded: the entry and startup
+ * JavaScript as re-measured once the AI authoring stack moved behind a
+ * dynamic import, the CSS and workers from the 1.1.0-rc.4 build. The startup
+ * JavaScript budget kept its value when the Home-start tutorial build joined
+ * the measure, so its headroom is now about 3%. Raise one only on purpose,
+ * saying in the commit what grew and why it must load before the first frame;
+ * moving the code behind a dynamic import comes first.
  */
 const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }> = {
-  // The entry chunk alone: measured 455.7 kB gzip, 369.6 kB brotli.
+  // The entry chunk alone: measured 453.0 kB gzip, 367.3 kB brotli.
   entry: { gzip: 500_000, brotli: 405_000 },
-  // Entry plus every chunk it imports statically: 522.6 kB gzip, 429.5 kB brotli.
+  // The entry and HOME_START chunks with their static imports: measured
+  // 556.5 kB gzip, 458.7 kB brotli (the entry's closure alone was 536.7 kB,
+  // 441.8 kB).
   js: { gzip: 575_000, brotli: 472_000 },
-  // The stylesheets of those chunks: 15.0 kB gzip, 13.1 kB brotli.
+  // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // Worker scripts those chunks start (the engine, catalog previews):
-  // 144.5 kB gzip, 121.9 kB brotli.
+  // 144.8 kB gzip, 122.2 kB brotli.
   workers: { gzip: 160_000, brotli: 135_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {
   entry: "entry chunk",
-  js: "boot JavaScript",
-  css: "boot CSS",
-  workers: "boot workers",
+  js: "startup JavaScript",
+  css: "startup CSS",
+  workers: "startup workers",
 };
+
+/**
+ * Dynamic imports Home starts on every visit, named by a source module of the
+ * chunk they load: the catalog warm-up (mountCatalog in
+ * app/src/library/useGameLibrary.ts) builds the bundled tutorial for its
+ * thumbnail, and Play reuses that build. A name no chunk dynamically imported
+ * from the startup path carries fails the check, so the list cannot go stale.
+ */
+const HOME_START = ["games/adventure-department/game.ts"];
 
 /**
  * Studio code loads when Room Studio or Sprite Studio opens, never on the way
@@ -106,19 +123,36 @@ if (entries.length !== 1) {
 }
 const entry = entries[0]!;
 
-// Static imports only: a dynamic import() is by definition off the boot path.
+// The entry and the Home-start chunks, each with its static imports. Every
+// other dynamic import() waits for a player's action and stays off the path.
+const staticClosure = (roots: readonly string[], into: GraphChunk[]): void => {
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const file = pending.pop()!;
+    const chunk = byFile.get(file);
+    if (!chunk || into.includes(chunk)) continue;
+    into.push(chunk);
+    pending.push(...chunk.imports);
+  }
+};
 const boot: GraphChunk[] = [];
-const pending = [entry.file];
-while (pending.length > 0) {
-  const file = pending.pop()!;
-  const chunk = byFile.get(file);
-  if (!chunk || boot.includes(chunk)) continue;
-  boot.push(chunk);
-  pending.push(...chunk.imports);
+staticClosure([entry.file], boot);
+const lazy = new Set(boot.flatMap((chunk) => chunk.dynamicImports));
+for (const module of HOME_START) {
+  const chunk = graph.chunks.find(
+    (candidate) => lazy.has(candidate.file) && candidate.modules.includes(module),
+  );
+  if (!chunk) {
+    console.error(
+      `Bundle budget: no chunk dynamically imported from the entry's static closure carries ${module}; update HOME_START.`,
+    );
+    process.exit(1);
+  }
+  staticClosure([chunk.file], boot);
 }
 const css = [...new Set(boot.flatMap((chunk) => chunk.css))];
 const bootCode = boot.map((chunk) => readFileSync(join(dist, chunk.file), "latin1"));
-// A worker is an emitted asset that a boot chunk names by URL.
+// A worker is an emitted asset that a startup chunk names by URL.
 const workers = graph.assets
   .map((asset) => asset.file)
   .filter((file) => file.endsWith(".js"))
@@ -182,18 +216,18 @@ for (const chunk of boot)
   for (const module of chunk.modules)
     if (STUDIO_MODULES.some((pattern) => pattern.test(module)))
       failures.push(
-        `${module} is in the Play boot chunk ${chunk.file}; Studio code must load through a dynamic import.`,
+        `${module} is in the startup chunk ${chunk.file}; Studio code must load through a dynamic import.`,
       );
 for (const chunk of boot)
   for (const module of new Set(chunk.modules))
     if (AUTHORING_MODULES.some((pattern) => pattern.test(module)))
       failures.push(
-        `${module} is in the Play boot chunk ${chunk.file}; the AI authoring stack must load through app/src/agent/authoringLoader.ts.`,
+        `${module} is in the startup chunk ${chunk.file}; the AI authoring stack must load through app/src/agent/authoringLoader.ts.`,
       );
 for (const worker of workers)
   if (STUDIO_WORKERS.some((pattern) => pattern.test(worker)))
     failures.push(
-      `${worker} is started by a Play boot chunk; the Studio route worker must stay lazy.`,
+      `${worker} is started by a startup chunk; the Studio route worker must stay lazy.`,
     );
 
 if (failures.length > 0) {
@@ -205,6 +239,6 @@ if (failures.length > 0) {
   if (!warnOnly) process.exit(1);
 } else {
   console.log(
-    "\nBundle budget: Play boot path within budget; Studio and the AI authoring stack stay lazy.",
+    "\nBundle budget: startup path within budget; Studio and the AI authoring stack stay lazy.",
   );
 }

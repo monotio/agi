@@ -7,8 +7,9 @@ import base from "./playwright.config.ts";
  * a Room Studio edit kept, reloaded and exported, an export reimported in a
  * fresh browser, a Sprite Studio repair of a mirrored cel, a test walk and
  * Play here, keyboard-only editing, the unkept-changes dialog, an
- * explainer's popover (Unlock for now, Learn more into Help), and the
- * first-run tour with its focus moves.
+ * explainer's popover (Unlock for now, Learn more into Help), the
+ * first-run tour with its focus moves, and Start over from Home undone back
+ * to the earlier session.
  */
 export default defineConfig({
   ...base,

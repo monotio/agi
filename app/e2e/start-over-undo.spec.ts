@@ -28,7 +28,7 @@ async function startOverFromHome(page: Page): Promise<void> {
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
-test("Undo start over returns to the earlier session, and the timeline marks the start over", async ({
+test("Undo start over returns to the earlier session, and the timeline marks the start over @webkit-desktop", async ({
   page,
 }) => {
   test.setTimeout(120_000);

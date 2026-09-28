@@ -117,5 +117,8 @@ Verify a deployment with:
 AGI_DEPLOY_URL=https://agi.monotio.com npm --prefix app run e2e:production
 ```
 
+A deployed site omits the build's chunk graph, so this run skips the lazy-loading
+check; the local production run and `npm run check:bundle` cover that build.
+
 Credentials, deployment identity and gateway configuration live outside this
 repository.
