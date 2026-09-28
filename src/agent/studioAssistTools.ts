@@ -18,8 +18,12 @@
  *     propose_edit       ops on a detached copy of the draft, checked by
  *                        checkCandidate: a candidate with a before | after |
  *                        diff PNG, or a refusal in plain words
- *   assist.candidate     the latest candidate that passed its scope, or null;
- *                        `candidate.draft` holds the edited source or payload
+ *     withdraw_edit      clears the candidate: the model's own verdict that
+ *                        no change meets the request, or that the creator
+ *                        should reject what it proposed
+ *   assist.candidate     the latest candidate that passed its scope and was
+ *                        not withdrawn, or null; `candidate.draft` holds the
+ *                        edited source or payload
  *
  * Nothing here writes the session, the live draft or the game's resources:
  * a candidate is data until the creator accepts it in the UI.
@@ -161,7 +165,10 @@ export type StudioCandidate =
 /** The tool state of one Studio assist request. */
 export interface StudioAssist {
   readonly focus: StudioFocus;
-  /** The latest candidate that passed the scope check; a refusal never clears it. */
+  /**
+   * The latest candidate that passed the scope check; a refusal never clears
+   * it, withdraw_edit does.
+   */
   candidate: StudioCandidate | null;
   /** propose_edit calls so far, and how many of them were refused. */
   proposals: number;
@@ -388,6 +395,17 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
         spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 32, items: SPRITE_OP },
       },
       required: ["baseRevision", "summary", "pictureOps", "spriteOps"],
+    },
+  },
+  {
+    name: "withdraw_edit",
+    description:
+      "Studio assist only. Withdraw your current candidate: the creator then sees no proposal, only your reply. Call it when you conclude that no change can meet the request, or when you would tell the creator to reject your own candidate. `reason` is one sentence. A later propose_edit in this request may still propose.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: { reason: { type: "string", minLength: 1, maxLength: 240 } },
+      required: ["reason"],
     },
   },
 ];
@@ -1332,9 +1350,29 @@ function proposeView(
   };
 }
 
+/** Clear the candidate on the model's own verdict; nothing else changes. */
+function withdraw(assist: StudioAssist, reason: string): AgentToolResult {
+  const withdrawn = assist.candidate;
+  if (!withdrawn)
+    return {
+      success: false,
+      error:
+        "There is no candidate to withdraw. Reply with one sentence saying what blocks the change.",
+      details: { ok: false, candidateId: null },
+    };
+  assist.candidate = null;
+  const left = assist.maxProposals - assist.proposals;
+  return {
+    success: true,
+    message: `Withdrew candidate ${withdrawn.candidateId}: the creator sees no proposal, only your reply. ${left > 0 ? `Call propose_edit to propose something else (${left} left), or reply with one sentence saying what blocks the change.` : "Reply with one sentence saying what blocks the change."}`,
+    details: { ok: true, withdrawn: withdrawn.candidateId, reason, candidateId: null },
+  };
+}
+
 /**
- * Execute read_edit_context or propose_edit for `assist`, or return undefined
- * for any other name. Arguments are already schema-validated.
+ * Execute read_edit_context, propose_edit or withdraw_edit for `assist`, or
+ * return undefined for any other name. Arguments are already
+ * schema-validated.
  */
 export function executeStudioAssistTool(
   session: AgentSessionState,
@@ -1343,6 +1381,7 @@ export function executeStudioAssistTool(
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
   if (!STUDIO_ASSIST_TOOL_NAMES.includes(name)) return undefined;
+  if (name === "withdraw_edit") return withdraw(assist, String(args["reason"]).trim());
   const { scope } = assist.focus;
   try {
     const draft = assist.focus.draft();

@@ -28,8 +28,12 @@ import {
 /**
  * A case's `studio` focus: the Studio selection a Studio assist tool call
  * runs against. A picture gives its annotated `source`, `targetIds` and
- * `lens` with optional `unlocks` (and `draftSource` when the creator changed the draft
- * during the request); a view gives its `payload` bytes and `targetCels`.
+ * `lens` with optional `unlocks` and `horizon` (and `draftSource` when the
+ * creator changed the draft during the request); a view gives its `payload`
+ * bytes and `targetCels`. A case with `steps` runs each Studio call in turn
+ * on one request (each may expect an `expectedMessageSnippet`), graded on
+ * the last; `expectedCandidate` is the candidate id the creator is left
+ * with, or null for none.
  */
 interface StudioCase {
   kind: "picture" | "view";
@@ -39,6 +43,7 @@ interface StudioCase {
   targetIds?: string[];
   lens?: StudioLens;
   unlocks?: LensUnlocks;
+  horizon?: number;
   payload?: number[];
   targetCels?: { loop: number; cel: number }[];
 }
@@ -88,6 +93,7 @@ function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDe
         }),
         draft: () => ({ kind: "picture", source: draft }),
         lens: studio.lens,
+        horizon: studio.horizon,
       }),
     };
   }
@@ -128,22 +134,36 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
         const result = executeAgentTool(session, setup.tool, setup.args);
         assert.equal(result.success, true, `${file}: setup ${setup.tool}: ${result.error ?? ""}`);
       }
+      const studio = content.studio ? studioDeps(session, content.studio) : null;
+      let stepped: Awaited<ReturnType<typeof executeAgentToolAsync>> | null = null;
+      for (const step of content.steps ?? []) {
+        stepped = await executeAgentToolAsync(session, step.tool, step.args, studio!);
+        if (step.expectedMessageSnippet)
+          assert.ok(
+            stepped.message?.includes(step.expectedMessageSnippet),
+            `${file}: ${step.tool} said '${stepped.message ?? stepped.error}'`,
+          );
+      }
       // A literal `result` replays a transport-level failure (no tool call).
+      const tool = content.tool ?? content.steps?.at(-1)?.tool;
       const res =
         content.result ??
-        (content.studio
-          ? await executeAgentToolAsync(
-              session,
-              content.tool,
-              content.args,
-              studioDeps(session, content.studio),
-            )
+        stepped ??
+        (studio
+          ? await executeAgentToolAsync(session, content.tool, content.args, studio)
           : content.async
             ? await executeAgentToolAsync(session, content.tool, content.args, {
                 allowedTools: AUTHORING_TOOL_NAMES,
                 ...(content.references ? { references: referenceSource(content.references) } : {}),
               })
             : executeAgentTool(session, content.tool, content.args));
+
+      if ("expectedCandidate" in content)
+        assert.equal(
+          studio?.studio?.candidate?.candidateId ?? null,
+          content.expectedCandidate,
+          `${file}: the candidate the creator is left with`,
+        );
 
       for (const [path, expected] of Object.entries(content.expectedFields ?? {})) {
         let actual: unknown = res;
@@ -201,13 +221,13 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
         assert.equal(
           res.success,
           true,
-          `Expected ${content.tool} to succeed for ${file}, but got error: ${res.error}`,
+          `Expected ${tool} to succeed for ${file}, but got error: ${res.error}`,
         );
       } else {
         assert.equal(
           res.success,
           false,
-          `Expected ${content.tool} to fail for ${file}, but it unexpectedly succeeded`,
+          `Expected ${tool} to fail for ${file}, but it unexpectedly succeeded`,
         );
         if (content.expectedErrorSnippet) {
           assert.ok(

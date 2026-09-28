@@ -94,11 +94,13 @@ test("a tool outside the task's list is refused before dispatch", async () => {
 });
 
 test("every task type names its own allowlist", () => {
-  // The Studio pair needs a creator's selection: no writing task lists it.
+  // The Studio tools need a creator's selection: no writing task lists them.
   for (const [task, list] of Object.entries({ GENESIS_TOOLS, ROOM_AUTHORING_TOOLS, REMIX_TOOLS })) {
     assert.ok(list.includes("handover"), `${task} can finish its turn`);
-    assert.ok(!list.includes("propose_edit") && !list.includes("read_edit_context"), task);
+    for (const studio of ["read_edit_context", "propose_edit", "withdraw_edit"])
+      assert.ok(!list.includes(studio), `${task} lists ${studio}`);
   }
+  assert.ok(STUDIO_ASSIST_TASK_TOOLS.includes("withdraw_edit"));
   for (const [task, list] of Object.entries({ ASK_TOOLS, STUDIO_ASSIST_TASK_TOOLS }))
     assert.ok(!list.includes("write_words") && !list.includes("handover"), task);
 });

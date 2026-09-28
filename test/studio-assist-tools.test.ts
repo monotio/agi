@@ -128,8 +128,8 @@ function propose(
   });
 }
 
-test("the two Studio tools are catalogued with strict schemas", () => {
-  for (const name of ["read_edit_context", "propose_edit"]) {
+test("the Studio tools are catalogued with strict schemas", () => {
+  for (const name of ["read_edit_context", "propose_edit", "withdraw_edit"]) {
     const tool = AGENT_TOOLS.find((candidate) => candidate.name === name)!;
     assert.ok(tool, name);
     assert.deepEqual(tool.parameters.required, Object.keys(tool.parameters.properties));
@@ -542,4 +542,34 @@ test("a sprite edit that changes no pixel is refused; a mirror split or transpar
   ]);
   assert.equal(key.success, true, key.error ?? "");
   assert.deepEqual([assist.proposals, assist.refusals], [4, 2]);
+});
+
+test("withdraw_edit clears the candidate, and a later proposal can still be made", async () => {
+  const state = session();
+  const assist = bridgeAssist();
+  const withdraw = (reason: string) => run(state, assist, "withdraw_edit", { reason });
+  const empty = await withdraw("Nothing proposed yet.");
+  assert.equal(empty.success, false);
+  assert.match(empty.error ?? "", /^There is no candidate to withdraw\./);
+  // A real change the model then judges wrong: it takes its candidate back.
+  assert.equal((await propose(state, assist, [crossing])).success, true);
+  assert.equal(assist.candidate?.candidateId, "c1");
+  const withdrawn = await withdraw("The walkway does not reach the plate.");
+  assert.equal(withdrawn.success, true, withdrawn.error ?? "");
+  assert.equal(
+    withdrawn.message,
+    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call propose_edit to propose something else (3 left), or reply with one sentence saying what blocks the change.",
+  );
+  assert.deepEqual(withdrawn.details, {
+    ok: true,
+    withdrawn: "c1",
+    reason: "The walkway does not reach the plate.",
+    candidateId: null,
+  });
+  assert.equal(assist.candidate?.candidateId, undefined);
+  assert.deepEqual([assist.proposals, assist.refusals], [1, 0], "a withdrawal is not a proposal");
+  // The request goes on: the next proposal is the candidate.
+  const again = await propose(state, assist, [crossing]);
+  assert.equal(again.details?.["candidateId"], "c2");
+  assert.equal(assist.candidate?.candidateId, "c2");
 });

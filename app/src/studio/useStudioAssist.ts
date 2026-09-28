@@ -115,7 +115,8 @@ const STUDIO = "[Studio] ";
 /**
  * The request's activity from its log entries, compactly: reading the
  * selection, each proposal and each refusal ("Refused: would change the art;
- * trying again" when another proposal followed).
+ * trying again" when another proposal followed), and a withdrawal with the
+ * model's reason.
  */
 export function assistSteps(entries: readonly AgentLogEntry[]): string[] {
   const steps: { text: string; refused: boolean }[] = [];
@@ -135,6 +136,15 @@ export function assistSteps(entries: readonly AgentLogEntry[]): string[] {
         last.text = `Refused: ${refusalWords(data?.result?.details?.violations ?? [])}`;
         last.refused = true;
       } else last.text = "Proposed a change";
+    } else if (entry.kind === "request" && rest === "withdraw_edit")
+      steps.push({ text: "Withdrawing its proposal…", refused: false });
+    else if (rest.startsWith("withdraw_edit -> ")) {
+      const last = steps.at(-1);
+      const reason = (entry.data as { result?: { details?: { reason?: unknown } } } | undefined)
+        ?.result?.details?.reason;
+      if (last && entry.kind !== "error")
+        last.text = `Withdrew its proposal${typeof reason === "string" ? `: ${reason}` : ""}`;
+      else if (last) last.text = "Nothing to withdraw";
     } else if (rest.startsWith("read_edit_context -> ")) {
       const last = steps.at(-1);
       if (last && entry.kind !== "error") last.text = "Read the selection";
