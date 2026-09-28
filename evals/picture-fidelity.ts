@@ -26,7 +26,7 @@
  *
  * Usage:
  *   npm run eval:picture -- [--provider anthropic|openai|fake] [--model ID]
- *       [--judge-model ID] [--rounds 4] [--only kq1-room1] [--manifest PATH]
+ *       [--live --budget-usd 5] [--judge-model ID] [--rounds 4] [--only kq1-room1] [--manifest PATH]
  *       [--out DIR] [--effort low|medium|high]
  *       [--brief-mode prose|bounds] [--grid] [--nudge]
  *   --brief-mode bounds: the brief author must also emit a layout table (per
@@ -47,7 +47,9 @@
  *       preservation, and a judge on a side-by-side crop of the edit.
  *
  * Provider defaults to whichever key is present (ANTHROPIC_API_KEY, then
- * OPENAI_API_KEY), else `fake`: a deterministic offline provider that walks
+ * OPENAI_API_KEY), else `fake`. A live provider runs only with both --live
+ * and --budget-usd, and stops between entries once the cap is spent; `fake`
+ * is a deterministic offline provider that walks
  * the entire pipeline (including one syntax-error retry) so the harness
  * itself is testable. Sierra images, briefs and results never enter git.
  *
@@ -96,6 +98,7 @@ import {
 export { splitToolResult } from "../src/agent/toolTransport.ts";
 import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
 import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
+import { assertLiveRun } from "./lib/live-guard.ts";
 import { loadGame } from "../test/game-fixture.ts";
 import { fixtureSkip } from "../test/fixtures.ts";
 import { cropSideBySidePng, sideBySidePng, surfaceToPng } from "../scripts/png.ts";
@@ -1301,6 +1304,18 @@ export function createProvider(
   return new FakeProvider();
 }
 
+/** The provider's usage at the app's price table; null for a model without a price. */
+function spentUsd(provider: Provider): number | null {
+  const u = provider.usage;
+  const price = MODEL_CAPABILITIES[provider.model]?.price;
+  return price
+    ? ((u.input - u.cachedInput) * price.input +
+        u.cachedInput * (price.cacheRead ?? price.input * 0.1) +
+        u.output * price.output) /
+        1e6
+    : null;
+}
+
 function parseArgs(argv: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
@@ -1330,6 +1345,21 @@ async function main(): Promise<void> {
         : "fake");
   const effort = (args["effort"] as "low" | "medium" | "high" | undefined) ?? "medium";
   const provider = createProvider(providerName, args["model"], args["judge-model"], effort);
+  let budgetUsd: number | undefined;
+  if (provider.name !== "fake") {
+    if (!MODEL_CAPABILITIES[provider.model]?.price)
+      throw new Error(
+        `No price is known for ${provider.model}, so --budget-usd could not be enforced.`,
+      );
+    budgetUsd = assertLiveRun({
+      live: args["live"] === "true",
+      budgetUsd: args["budget-usd"] === undefined ? undefined : Number(args["budget-usd"]),
+      plan: `picture fidelity (${args["lane"] ?? "recreate"}) with ${provider.name} ${provider.model}`,
+      offline: "--provider fake",
+    });
+  }
+  /** True once the provider's usage has cost the cap; the remaining entries are skipped. */
+  const budgetSpent = () => budgetUsd !== undefined && (spentUsd(provider) ?? 0) >= budgetUsd;
   const rounds = Number(args["rounds"] ?? 4);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir = args["out"] ?? join(repoRoot, "evals/results", stamp);
@@ -1350,6 +1380,10 @@ async function main(): Promise<void> {
   if (args["lane"] === "edit") {
     const results: EditResult[] = [];
     for (const entry of entries) {
+      if (budgetSpent()) {
+        console.error(`Budget reached ($${budgetUsd}); skipping ${entry.id}.`);
+        continue;
+      }
       console.log(
         `\n== ${entry.id} (${entry.game} room ${entry.room}) edit: ${entry.edit ?? DEFAULT_EDITS[entry.id] ?? "?"}`,
       );
@@ -1418,6 +1452,10 @@ async function main(): Promise<void> {
 
   const results: EntryResult[] = [];
   for (const entry of entries) {
+    if (budgetSpent()) {
+      console.error(`Budget reached ($${budgetUsd}); skipping ${entry.id}.`);
+      continue;
+    }
     console.log(`\n== ${entry.id} (${entry.game} room ${entry.room})`);
     results.push(
       await runPictureEntry(entry, {
@@ -1479,14 +1517,7 @@ async function main(): Promise<void> {
     );
   }
   const u = provider.usage;
-  // The app's price table; unknown models report tokens only.
-  const price = MODEL_CAPABILITIES[provider.model]?.price;
-  const cost = price
-    ? ((u.input - u.cachedInput) * price.input +
-        u.cachedInput * (price.cacheRead ?? price.input * 0.1) +
-        u.output * price.output) /
-      1e6
-    : null;
+  const cost = spentUsd(provider);
   console.log(
     `\ntokens: input=${u.input} (cached ${u.cachedInput}) output=${u.output} calls=${u.calls}${cost !== null ? ` est. cost $${cost.toFixed(2)}` : ""}`,
   );

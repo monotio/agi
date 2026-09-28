@@ -3,9 +3,10 @@
  * sheets, mood boards) reach the model as ids, not pixels: a turn carries one
  * manifest line per image plus a single contact strip of 64-pixel thumbnails,
  * and the model calls view_reference for the size or region it needs. A
- * viewed image stays in the conversation for REFERENCE_VIEW_TURNS turns and
- * then collapses to its manifest line (app/src/agent/llmClient.ts); calling
- * the tool again brings it back.
+ * viewed image stays in the conversation: the transcript is append-only so
+ * the provider's prompt cache keeps serving it at the cache-read rate, which
+ * is far cheaper than rewriting the history that follows it to drop it
+ * (measured by evals/cache-probe.ts).
  *
  * Ids are content-derived — the first ten hex digits of the stored bytes'
  * SHA-256 — so they are stable across reloads, copies and exports without a
@@ -20,11 +21,6 @@ import type { AgentToolImage, AgentToolResult } from "./agentState.ts";
 import type { ToolDefinition } from "./tools.ts";
 import { REFERENCE_WORKING_EDGE } from "./toolTransport.ts";
 
-/**
- * Turns (user messages: a player request or a harness follow-up) a viewed
- * reference image stays in the conversation before it collapses.
- */
-export const REFERENCE_VIEW_TURNS = 2;
 /** Longest edge of a thumbnail: the manifest strip and view_reference size "thumb". */
 const THUMB_EDGE = 64;
 /** Longest edge of view_reference size "small". */
@@ -317,7 +313,7 @@ export async function referenceManifest(
 export const VIEW_REFERENCE_TOOL: ToolDefinition = {
   name: "view_reference",
   description:
-    "Look at the player's reference art by `id`, the art-… handle from the reference list. The request carries only a manifest line and a thumbnail per reference; view one before you match anything to it. `size`: thumb (64 px), small (256 px) or full (the stored size, up to 1024 px), longest edge. `region` crops x, y, w, h in the reference's own pixels (the size its manifest line gives) and enlarges the crop by a whole factor up to 512 px (256 at small, 64 at thumb); null shows the whole image. `grid`: true draws lines labelled in the reference's pixel coordinates, so the next region can be exact. A viewed image stays in the conversation for two turns, then only its manifest line remains; call again to see it.",
+    "Look at the player's reference art by `id`, the art-… handle from the reference list. The request carries only a manifest line and a thumbnail per reference; view one before you match anything to it. `size`: thumb (64 px), small (256 px) or full (the stored size, up to 1024 px), longest edge. `region` crops x, y, w, h in the reference's own pixels (the size its manifest line gives) and enlarges the crop by a whole factor up to 512 px (256 at small, 64 at thumb); null shows the whole image. `grid`: true draws lines labelled in the reference's pixel coordinates, so the next region can be exact. A viewed image stays in the conversation, so view each reference once at the size and region you need.",
   parameters: {
     type: "object",
     additionalProperties: false,
@@ -506,18 +502,6 @@ export async function viewReference(
       },
     ],
   };
-}
-
-const VIEW_CAPTION = /^Reference art-[0-9a-f]{10} viewed at /;
-
-/** True for the caption of an image view_reference returned. */
-export function isReferenceViewCaption(text: string): boolean {
-  return VIEW_CAPTION.test(text);
-}
-
-/** What replaces a viewed image once it has been in the conversation for its turns. */
-export function collapsedReferenceView(caption: string): string {
-  return `${caption} The image left the conversation after ${REFERENCE_VIEW_TURNS} turns; call view_reference again to see it.`;
 }
 
 /** Tools whose success writes art a reference could be matched against. */

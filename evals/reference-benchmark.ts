@@ -14,7 +14,7 @@
  * without viewing (the under-fetch rule), the match scores and the reply.
  *
  *   npm run eval:references -- --provider anthropic --model claude-opus-5-5 \
- *     --budget-usd 5 [--case all|harbour-room,door-room,mood-room,hero-view,ledger-swatch] \
+ *     --live --budget-usd 5 [--case all|harbour-room,door-room,mood-room,hero-view,ledger-swatch] \
  *     [--arm both|before|after] [--effort medium] [--repeats 1] [--out evals/results/references]
  *   npm run eval:references -- --dry-run     # the scripted stub, no key, no spend
  *
@@ -56,7 +56,6 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { inflateSync } from "node:zlib";
 import { AgentSession, type TurnReferences } from "../app/src/agent/agentSession.ts";
 import type { LlmConfig, LlmUsage } from "../app/src/agent/llmClient.ts";
 import {
@@ -78,6 +77,8 @@ import { parseView } from "../src/view/view.ts";
 import { pictureAssistScope } from "../src/studio/assistScope.ts";
 import { compileEditDocument, footprintMask } from "../src/studio/editValidation.ts";
 import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
+import { decodePng } from "./lib/decode-png.ts";
+import { assertLiveRun } from "./lib/live-guard.ts";
 import { requestCost } from "./lib/usage.ts";
 
 type Session = ReturnType<typeof AgentSession.fromAuthoredData>;
@@ -498,6 +499,7 @@ interface Args {
   budgetUsd?: number;
   repeats: number;
   dryRun: boolean;
+  live: boolean;
   out: string;
 }
 
@@ -508,12 +510,17 @@ function parseArgs(argv: string[]): Args {
     provider: "stub",
     repeats: 1,
     dryRun: false,
+    live: false,
     out: "evals/results/references",
   };
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i]!;
     if (key === "--dry-run") {
       args.dryRun = true;
+      continue;
+    }
+    if (key === "--live") {
+      args.live = true;
       continue;
     }
     const value = argv[++i];
@@ -540,13 +547,15 @@ function parseArgs(argv: string[]): Args {
   if (args.provider === "stub" && !args.dryRun)
     throw new Error("Use --dry-run for the offline stub.");
   if (args.provider !== "stub") {
-    if (args.budgetUsd === undefined || !Number.isFinite(args.budgetUsd) || args.budgetUsd <= 0)
-      throw new Error(
-        "A live provider run needs --budget-usd <cap in USD>; it is enforced from provider usage. Use --dry-run for the offline stub.",
-      );
     const model = args.model ?? DEFAULT_MODELS[args.provider];
     if (!MODEL_CAPABILITIES[model]?.price)
       throw new Error(`No price is known for ${model}, so --budget-usd could not be enforced.`);
+    args.budgetUsd = assertLiveRun({
+      live: args.live,
+      budgetUsd: args.budgetUsd,
+      plan: `the reference cases ${args.cases.join(", ")} (${args.arms.join(" and ")}) with ${args.provider} ${model}`,
+      offline: "--dry-run",
+    });
   }
   return args;
 }
@@ -575,28 +584,6 @@ function configFor(args: Args, arm: Arm, budgetUsd: number): LlmConfig {
     budgetUsd,
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
   };
-}
-
-/** Node stand-in for the browser decoder: the stored-deflate RGB PNGs drawn above. */
-async function decodePng(bytes: Uint8Array) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const width = view.getUint32(16);
-  const height = view.getUint32(20);
-  const idat: Uint8Array[] = [];
-  for (let offset = 8; offset < bytes.length;) {
-    const length = view.getUint32(offset);
-    if (String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)) === "IDAT")
-      idat.push(bytes.subarray(offset + 8, offset + 8 + length));
-    offset += length + 12;
-  }
-  const raw = inflateSync(Buffer.concat(idat));
-  const rgba = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      const at = y * (width * 3 + 1) + 1 + x * 3;
-      rgba.set([raw[at]!, raw[at + 1]!, raw[at + 2]!, 255], (y * width + x) * 4);
-    }
-  return { width, height, rgba };
 }
 
 interface RunReport {

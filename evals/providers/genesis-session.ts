@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { DEFAULT_TASK_BUDGET_USD } from "../../app/src/agent/agentRun.ts";
+import { assertLiveEnv } from "../lib/live-guard.ts";
 import { AgentSession, type BootResources } from "../../app/src/agent/agentSession.ts";
 import { buildProjectZip } from "../../app/src/archive/projectArchive.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
@@ -182,6 +183,16 @@ export async function runGenesisSession(options: GenesisOptions) {
   const provider = options.provider;
   if (provider !== "openai" && provider !== "anthropic")
     throw new Error("Genesis effort evaluation requires provider openai or anthropic.");
+  // A run with an injected fetch is a test; a real one needs explicit consent
+  // (EVAL_LIVE=1 and the budget variable), whatever keys the environment holds.
+  const budgetUsd =
+    typeof options.fetchImpl === "function"
+      ? (options.budgetUsd ?? DEFAULT_TASK_BUDGET_USD)
+      : assertLiveEnv(
+          process.env,
+          "EVAL_EFFORT_RUN_BUDGET_USD",
+          `genesis (${options.promptVariant ?? "default"}) with ${provider} ${options.model}`,
+        );
   if (typeof options.fetchImpl !== "function" && !apiKey(provider))
     throw new Error(`Missing ${provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"}.`);
 
@@ -285,7 +296,7 @@ export async function runGenesisSession(options: GenesisOptions) {
           apiKey: options.fetchImpl ? "test-placeholder" : apiKey(provider),
           model: options.model,
           ...(options.effort ? { effort: options.effort } : {}),
-          budgetUsd: options.budgetUsd ?? DEFAULT_TASK_BUDGET_USD,
+          budgetUsd: options.budgetUsd ?? budgetUsd,
         },
         (type, message, data) => {
           events.push({ elapsedMs: performance.now() - startedAt, type, message, data });

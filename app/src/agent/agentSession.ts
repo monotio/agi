@@ -850,9 +850,13 @@ Answer the player's question using evidence from inspection when needed. For hin
       if (turn.telemetry) {
         const toolMs = this.pendingToolMs;
         this.pendingToolMs = 0;
+        const cache =
+          turn.telemetry.cacheHitShare === undefined
+            ? ""
+            : ` · ${Math.round(turn.telemetry.cacheHitShare * 100)}% cached`;
         this.onEvent(
           "telemetry",
-          `[Request] ${phase} #${turn.telemetry.requestIndex} ${turn.telemetry.usageIncomplete ? "(incomplete usage) " : ""}${turn.telemetry.responseMs.toFixed(0)}ms`,
+          `[Request] ${phase} #${turn.telemetry.requestIndex} ${turn.telemetry.usageIncomplete ? "(incomplete usage) " : ""}${turn.telemetry.responseMs.toFixed(0)}ms${cache}`,
           { phase, telemetry: turn.telemetry, toolMs },
         );
       }

@@ -56,7 +56,9 @@ server is already running, give the browser tests their own port:
 
 The full gate takes a few minutes. Playwright runs Vite in `test` mode with a
 deterministic stub provider, so browser tests run offline at no cost. Live
-model evaluations are described in [evals](evals/README.md).
+model evaluations are described in [evals](evals/README.md). A paid run takes
+both `--live` and `--budget-usd` on the command line (`EVAL_LIVE=1` and a budget
+variable for the promptfoo lanes).
 
 `npm run check:bundle` runs after `npm run build` and fails, in CI too, when the
 compressed JavaScript, CSS or workers loaded before a game's first frame outgrow
