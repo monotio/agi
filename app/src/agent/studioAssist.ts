@@ -11,16 +11,21 @@
  * the walkable control value beside it (control 0–3 only, as the default
  * Walk locks allow), "eyes" recolours the selected cels' rarest colour blue,
  * "bad" first recolours the selected art under the lens lock, reads the
- * refusal, then retries with the walkable change, and "impossible" reads the
- * selection and declines with an explanation, proposing nothing.
+ * refusal, then retries with the walkable change, "impossible" reads the
+ * selection and declines with an explanation, proposing nothing, and
+ * "reference" views the reference art attached to the request with
+ * view_reference, reads the selection and declines, saying which art it
+ * viewed and what images the request itself carried (a manifest's contact
+ * strip, never the art), so a test can see the handles arrive.
  */
 import {
   STUDIO_ASSIST_TOOLS,
   type StudioCandidate,
   type StudioFocus,
 } from "../../../src/agent/studioAssistTools.ts";
-import type { AgentToolResult } from "../../../src/agent/agentState.ts";
+import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
 import type { LlmTurnResult, UnifiedConversation } from "./llmClient.ts";
+import { describeImages, MANIFEST_LINE } from "./referenceStub.ts";
 
 export interface StudioAssistRequest {
   /** The creator's words. */
@@ -57,7 +62,7 @@ The creator is editing ${kind} ${num} in ${studio}${focus.lens ? ` (${focus.lens
 You may change only the selection. Call read_edit_context, then propose_edit with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses changes outside the selection, on a locked plane or protected loop, or over the byte budget: read the refusal, fix that, and propose again. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
 }
 
-type Scenario = "walkable" | "eyes" | "bad" | "impossible" | "none";
+type Scenario = "walkable" | "eyes" | "bad" | "impossible" | "reference" | "none";
 
 /** The stub's explanation when it declines ("impossible"): nothing is proposed. */
 export const STUB_DECLINE_TEXT =
@@ -66,6 +71,7 @@ export const STUB_DECLINE_TEXT =
 function scenarioOf(instruction: string): Scenario {
   const asked = instruction.toLowerCase();
   if (asked.includes("impossible")) return "impossible";
+  if (asked.includes("reference")) return "reference";
   if (asked.includes("bad")) return "bad";
   if (asked.includes("eye")) return "eyes";
   if (asked.includes("walk")) return "walkable";
@@ -250,6 +256,10 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
   let context: PictureContext | ViewContext | null = null;
   const outcomes: boolean[] = [];
   let calls = 0;
+  /** "reference": the attached art's id, what view_reference answered, and the request's images. */
+  let attachedArt: string | null = null;
+  let viewed: AgentToolResult | null = null;
+  let carried: ReturnType<typeof describeImages> = [];
   const call = (name: string, input: Record<string, unknown>): LlmTurnResult => {
     const id = `stub-${++calls}`;
     names.set(id, name);
@@ -260,8 +270,21 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
     transcript.push({ role: "assistant", text });
     return { text, toolCalls: [] };
   };
+  /** "reference": what the art looked like and what the request carried, in one sentence. */
+  const referenceReply = (): LlmTurnResult => {
+    if (!attachedArt) return say("No reference art was attached to this request.");
+    if (!viewed?.success)
+      return say(`I could not view ${attachedArt}: ${viewed?.error ?? "no result"}.`);
+    const images = carried.map((image) => `${image.width}x${image.height}`).join(", ");
+    return say(
+      `I viewed ${attachedArt} and left the selection as it is; this request carried its reference list and ${carried.length === 1 ? "one image" : `${carried.length} images`} (${images || "none"}).`,
+    );
+  };
   const next = (): LlmTurnResult => {
+    if (scenario === "reference" && attachedArt && !viewed)
+      return call("view_reference", { id: attachedArt, size: "small", region: null, grid: null });
     if (!context) return say("I could not read the selection.");
+    if (scenario === "reference") return referenceReply();
     const last = outcomes.at(-1);
     if (last === true) return say(`Proposed: ${instruction.trim()}.`);
     if (scenario === "impossible") return say(STUB_DECLINE_TEXT);
@@ -281,14 +304,26 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
   };
   return {
     setAvailableTools() {},
-    async sendUserMessage(text: string) {
-      transcript.push({ role: "user", text });
+    async sendUserMessage(text: string, images?: readonly AgentToolImage[]) {
+      carried = describeImages(images);
+      transcript.push({ role: "user", text, images: carried });
+      if (scenario === "reference") {
+        const lines = [...text.matchAll(MANIFEST_LINE)];
+        attachedArt =
+          lines.find((line) => line[0].includes("attached to this request"))?.[1] ?? null;
+      }
       return call("read_edit_context", { images: false });
     },
     appendToolResults(results: { toolCallId: string; result: AgentToolResult }[]) {
       for (const { toolCallId, result } of results) {
-        transcript.push({ role: "tool", toolCallId, success: result.success });
+        transcript.push({
+          role: "tool",
+          toolCallId,
+          success: result.success,
+          images: describeImages(result.images),
+        });
         const name = names.get(toolCallId);
+        if (name === "view_reference") viewed = result;
         if (name === "read_edit_context" && result.success) context = asEditContext(result.details);
         if (name === "propose_edit") outcomes.push(result.success);
       }

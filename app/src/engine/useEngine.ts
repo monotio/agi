@@ -602,6 +602,7 @@ export function useEngine(
     listReferences: authoringController.listReferences,
     attachRoomReference: authoringController.attachRoomReference,
     attachCharacterReference: authoringController.attachCharacterReference,
+    attachStudioReference: authoringController.attachStudioReference,
     detachReference: authoringController.detachReference,
     keepStagedView: authoringController.keepStagedView,
     commitPictureEdit: authoringController.commitPictureEdit,

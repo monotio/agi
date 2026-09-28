@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef } from "vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { explain } from "./studioTerms.ts";
 import type { Tick } from "./studioView.ts";
 
 /**
- * The draw-order scrubber: one tick per picture command in its drawing
- * colour (state lines short, fills tall), a draggable playhead and step
- * buttons. The model is the number of commands drawn, 0..ticks.length.
- * Beside it, the last drawn command: its item's name first, then its text
- * (coordinates and all) over up to two lines.
+ * The draw-order scrubber: one tick per step (one AGI drawing command) in
+ * its drawing colour (state steps short, fills tall), a draggable marker and
+ * step buttons. The model is the number of steps drawn, 0..ticks.length.
+ * Beside it, "Step 12 of 365" and the last drawn step: its item's name
+ * first, then its text (coordinates and all) over up to two lines.
  */
 const { ticks, marked, command } = defineProps<{
   ticks: readonly Tick[];
@@ -25,8 +27,8 @@ const track = useTemplateRef("track");
 const dragging = ref(false);
 const valueText = computed(() =>
   playhead.value === 0
-    ? `Nothing drawn, 0 of ${total.value}`
-    : `Drawn up to #${playhead.value} of ${total.value}: ${command.item ? `${command.item}, ` : ""}${command.text}`,
+    ? `Step 0 of ${total.value}, empty`
+    : `Step ${playhead.value} of ${total.value}: ${command.item ? `${command.item}, ` : ""}${command.text}`,
 );
 
 function seek(k: number): void {
@@ -70,28 +72,28 @@ function onKeydown(event: KeyboardEvent): void {
     <div class="scrubber__transport">
       <UiIconButton
         icon="skip-back"
-        label="First command"
+        label="First step"
         shortcut="Home"
         size="sm"
         @click="seek(0)"
       />
       <UiIconButton
         icon="chevron-left"
-        label="Step back"
+        label="Back"
         shortcut=","
         size="sm"
         @click="seek(playhead - 1)"
       />
       <UiIconButton
         icon="chevron-right"
-        label="Step forward"
+        label="Forward"
         shortcut="."
         size="sm"
         @click="seek(playhead + 1)"
       />
       <UiIconButton
         icon="skip-forward"
-        label="Last command"
+        label="Last step"
         shortcut="End"
         size="sm"
         @click="seek(total)"
@@ -103,7 +105,7 @@ function onKeydown(event: KeyboardEvent): void {
       :class="{ 'is-dragging': dragging }"
       role="slider"
       tabindex="0"
-      aria-label="Draw order playhead"
+      aria-label="Draw order"
       aria-valuemin="0"
       :aria-valuemax="total"
       :aria-valuenow="playhead"
@@ -149,16 +151,20 @@ function onKeydown(event: KeyboardEvent): void {
         :style="{ left: `${(playhead / Math.max(total, 1)) * 100}%` }"
       ></div>
     </div>
-    <p class="scrubber__label" aria-live="off">
-      <template v-if="playhead === 0">Nothing drawn · <b>0</b> of {{ total }}</template>
-      <template v-else>
-        Drawn up to <b>#{{ playhead }}</b> of {{ total }}
+    <div class="scrubber__label" aria-live="off">
+      <span class="scrubber__step" data-testid="scrubber-step"
+        ><span
+          >Step <b>{{ playhead }}</b> of {{ total
+          }}<template v-if="playhead === 0"> · empty</template></span
+        ><UiExplain v-bind="explain('step')"
+      /></span>
+      <template v-if="playhead > 0">
         <span class="scrubber__command" data-testid="scrubber-command">
           <b v-if="command.item" class="scrubber__item">{{ command.item }}</b>
           <span class="scrubber__text" :title="command.text">{{ command.text }}</span>
         </span>
       </template>
-    </p>
+    </div>
   </section>
 </template>
 
@@ -250,6 +256,11 @@ function onKeydown(event: KeyboardEvent): void {
 .scrubber__label b {
   color: var(--ink);
   font-weight: var(--weight-semibold);
+}
+.scrubber__step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .scrubber__command {
   display: grid;

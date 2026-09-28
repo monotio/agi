@@ -6,7 +6,8 @@ import base from "./playwright.config.ts";
  * input; this project runs the desktop scenarios tagged @webkit-desktop:
  * a Room Studio edit kept, reloaded and exported, an export reimported in a
  * fresh browser, a Sprite Studio repair of a mirrored cel, a test walk and
- * Play here, keyboard-only editing, and the unkept-changes dialog.
+ * Play here, keyboard-only editing, the unkept-changes dialog, and an
+ * explainer's popover (Unlock for now, Learn more into Help).
  */
 export default defineConfig({
   ...base,

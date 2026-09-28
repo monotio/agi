@@ -87,7 +87,7 @@ for (const [width, height] of [
     await expect(studio.locator('[data-role="control-legend"]')).toBeVisible();
     await look("walk", studio, pictures);
     await studio.getByTestId("studio-value-priority").click();
-    await expect(studio.getByRole("dialog", { name: "Priority for new content" })).toBeVisible();
+    await expect(studio.getByRole("dialog", { name: "Depth for new shapes" })).toBeVisible();
     await look("values", studio, pictures);
     await studio.getByTestId("studio-close").click();
     await expect(studio).toBeHidden();

@@ -91,7 +91,7 @@ describe("useStudioDraft", () => {
     assert.equal(draft.preview.value, null, "the preview snaps back to the start");
     const end = draft.endGesture(move("occ", 45, 0), "Move Occluder");
     assert.ok(!end.ok && end.refusal.kind === "kernel");
-    assert.equal(end.refusal.message, "Can't move it further right: it would leave the picture.");
+    assert.equal(end.refusal.message, "The picture ends there.");
     assert.match(end.refusal.detail ?? "", /off the surface at 164,105/);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.history.value.past.length, 0);
@@ -105,10 +105,7 @@ describe("useStudioDraft", () => {
     // outline one row lower changes 21 + 19 cells at each long edge.
     const art = draft.apply(move("box", 0, 1), "Move Box");
     assert.ok(!art.ok && art.refusal.kind === "lock");
-    assert.equal(
-      art.refusal.message,
-      "This would change the art, which is locked in the Depth lens.",
-    );
+    assert.equal(art.refusal.message, "Art is locked in the Depth lens.");
     assert.equal(
       art.refusal.detail,
       "Art is locked in the Depth lens: 80 cells at 10,10..30,31 would change.",
@@ -120,10 +117,7 @@ describe("useStudioDraft", () => {
     lens.value = "art";
     const depth = draft.apply(move("occ", 0, 1), "Move Occluder");
     assert.ok(!depth.ok && depth.refusal.kind === "lock");
-    assert.equal(
-      depth.refusal.message,
-      "This would change the depth, which is locked in the Art lens.",
-    );
+    assert.equal(depth.refusal.message, "Depth is locked in the Art lens.");
     assert.match(
       depth.refusal.detail,
       /^Depth is locked in the Art lens: 316 cells at 40,90\.\.119,106/,
@@ -141,10 +135,7 @@ describe("useStudioDraft", () => {
       "Priority 12",
     );
     assert.ok(!paint.ok && paint.refusal.kind === "lock");
-    assert.equal(
-      paint.refusal.message,
-      "This would change depth values 4–15, which are locked in the Walk lens.",
-    );
+    assert.equal(paint.refusal.message, "The Walk lens draws walk lines 0–3 only.");
     assert.match(paint.refusal.detail, /^Depth values 4–15 are locked in the Walk lens: 120 cells/);
     const moved = draft.apply(move("occ", 1, 0), "Move Occluder");
     assert.ok(!moved.ok);
@@ -372,10 +363,7 @@ describe("several items as one", () => {
     const { draft } = setup("depth");
     const outcome = draft.apply([move("occ", 0, 1), move("box", 0, 1)], "Nudge 2 items");
     assert.ok(!outcome.ok && outcome.refusal.kind === "lock");
-    assert.equal(
-      outcome.refusal.message,
-      "This would change the art, which is locked in the Depth lens.",
-    );
+    assert.equal(outcome.refusal.message, "Art is locked in the Depth lens.");
     assert.equal(draft.source.value, SOURCE, "the occluder did not move either");
     assert.equal(draft.history.value.past.length, 0);
   });
@@ -478,7 +466,7 @@ describe("several items as one", () => {
     assert.equal(editing.combine("Group"), false);
     assert.equal(
       editing.notice.value?.text,
-      "Only neighbours in the draw order can be grouped: select the items between them too.",
+      "Group takes neighbours in the draw order. Include the items between them.",
     );
     scope.stop();
   });

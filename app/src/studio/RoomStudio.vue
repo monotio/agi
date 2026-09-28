@@ -16,7 +16,11 @@ import {
   footprintMask,
   unionMask,
 } from "../../../src/studio/editValidation.ts";
-import { parsePictureDocument, pictureItemAtLine } from "../../../src/studio/pictureDocument.ts";
+import {
+  groupPart,
+  parsePictureDocument,
+  pictureItemAtLine,
+} from "../../../src/studio/pictureDocument.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
 import type { Point } from "../../../src/studio/shapes.ts";
@@ -40,9 +44,10 @@ import StudioCanvasMenu, { type CanvasMenuItem } from "./StudioCanvasMenu.vue";
 import StudioCombineDialog from "./StudioCombineDialog.vue";
 import StudioGroupEditor from "./StudioGroupEditor.vue";
 import StudioItemEditor from "./StudioItemEditor.vue";
+import StudioItemPoints from "./StudioItemPoints.vue";
+import StudioLockChip from "./StudioLockChip.vue";
 import StudioKeepDialog from "./StudioKeepDialog.vue";
 import StudioKeySheet from "./StudioKeySheet.vue";
-import StudioLockNote from "./StudioLockNote.vue";
 import StudioLogicText from "./StudioLogicText.vue";
 import StudioSelectionBar from "./StudioSelectionBar.vue";
 import StudioSmallScreen from "./StudioSmallScreen.vue";
@@ -50,6 +55,7 @@ import StudioStatusNotice from "./StudioStatusNotice.vue";
 import StudioToolOptions from "./StudioToolOptions.vue";
 import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
+import StudioValuePicker from "./StudioValuePicker.vue";
 import StudioTopBar from "./StudioTopBar.vue";
 import SharePictureMenu from "./share/SharePictureMenu.vue";
 import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
@@ -57,20 +63,22 @@ import StudioViewBar from "./StudioViewBar.vue";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { fillFix, fillNotice } from "./fillAdvice.ts";
 import type { RouteRunner } from "./routeRunner.ts";
-import { ROOM_EDIT_HINT, ROOM_PATH_HINT, ROOM_TOOL_HINTS, roomKeySheet } from "./studioHelp.ts";
+import {
+  ROOM_EDIT_HINT,
+  ROOM_GROUP_HINT,
+  ROOM_PATH_HINT,
+  ROOM_TOOL_HINTS,
+  roomKeySheet,
+} from "./studioHelp.ts";
+import { explain } from "./studioTerms.ts";
 import { useStudioCalm } from "./useStudioCalm.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
-import {
-  depthValuesLocked,
-  lensItemLocks,
-  lockedPlanes,
-  NO_UNLOCKS,
-  type LensUnlocks,
-} from "./studioLocks.ts";
+import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
 import {
   changedCells,
   labelList,
@@ -396,7 +404,23 @@ const editing = useStudioEditing({
   selectItems: selection.selectItems,
   frozen,
   paused: () => assist.holds.value,
+  offer: (check) => {
+    const rules = check.violations.map((violation) => violation.rule);
+    const [plane] = lockedPlanes(lens.value, unlocks.value);
+    if (rules.includes("locked-plane") && plane)
+      return { label: "Unlock for now", run: () => unlockNow({ [plane]: true }) };
+    if (rules.includes("walk-depth"))
+      return { label: "Allow depth", run: () => unlockNow({ depthInWalk: true }) };
+    return undefined;
+  },
 });
+/** A lock refusal's step: the lock opens for this session and the notice says so. */
+function unlockNow(patch: Partial<LensUnlocks>): void {
+  if (assist.holds.value) return;
+  unlocks.value = { ...unlocks.value, ...patch };
+  editing.say({ tone: "ok", text: "Unlocked for now. Try it again." });
+  keepFocus();
+}
 /** The selected items the creator may edit now, when there are several. */
 const editableIds = computed(() =>
   editing.several.value ? editing.editableItems.value.map((item) => item.id) : [],
@@ -423,8 +447,6 @@ const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
 );
-/** The top bar folded some of the picture's size away: the footer says all of it. */
-const sizeFolded = ref(false);
 const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
 /** An AI proposal awaiting a verdict: compiled, with the cells it changes. */
@@ -468,17 +490,9 @@ const assistChanges = computed(() => {
 /** What the request is held to: the asked scope while it is open, else the selection's. */
 const assistChips = computed(() => {
   const scope = assist.holds.value ? assist.asked.value?.scope : undefined;
-  if (scope?.kind === "picture")
-    return pictureScopeChips({
-      labels: scope.targetIds.map(itemLabel),
-      lockedPlanes: scope.lockedPlanes,
-      depthValuesLocked: depthValuesLocked(scope.lens, scope.unlocks),
-    });
-  return pictureScopeChips({
-    labels: askTargets.value.map(itemLabel),
-    lockedPlanes: lockedPlanes(lens.value, unlocks.value),
-    depthValuesLocked: depthValuesLocked(lens.value, unlocks.value),
-  });
+  return pictureScopeChips(
+    (scope?.kind === "picture" ? scope.targetIds : askTargets.value).map(itemLabel),
+  );
 });
 const assistPanel = useTemplateRef("assistPanel");
 const editableId = computed(() => editing.editable.value?.id);
@@ -664,6 +678,26 @@ watch(selectionBar, (shown) => {
   if (!shown) priorityOpen.value = false;
 });
 const itemLocks = computed(() => lensItemLocks(lens.value, unlocks.value));
+/** How many parts the selected item was grouped from here, when it was. */
+const groupParts = computed(() => {
+  const target = editing.item.value;
+  if (!target || !editing.grouped.value) return undefined;
+  return draft.document.value.lines.slice(target.openLine, target.closeLine - 1).filter((line) => {
+    const part = groupPart(line);
+    return part !== undefined && part !== "end";
+  }).length;
+});
+/** What Details adds for the selection: an item's points, or depth for several. */
+const detailsMore = computed(() => {
+  if (editing.several.value) return editing.editableItems.value.length > 1 ? "Depth" : "";
+  return editing.editable.value && handleList.value.length > 0 ? "Points" : "";
+});
+/** Renames the one selected item, while it can be edited. */
+const rename = computed(() =>
+  editing.editable.value && !editing.several.value
+    ? (label: string) => editing.setMeta({ label })
+    : undefined,
+);
 
 /** Group: the dialog, and what lies between the selected items. */
 const combineOpen = ref(false);
@@ -820,14 +854,14 @@ const selectionMenu = computed<CanvasMenuItem[]>(() =>
     ? []
     : [
         { id: "duplicate", label: "Duplicate" },
-        { id: "priority", label: "Priority…" },
+        ...(editing.several.value ? [] : [{ id: "priority", label: "Depth…" }]),
         { id: "delete", label: "Delete" },
         ...(editing.several.value
           ? [{ id: "combine", label: "Group…" }]
           : [{ id: "ungroup", label: "Ungroup" }]),
         {
           id: "ask",
-          label: "Ask about this selection",
+          label: "Ask about the selection",
           ...(assistHost ? {} : { disabled: true, title: "AI edits need the game's assistant" }),
         },
       ],
@@ -1017,6 +1051,7 @@ function onKeyup(event: KeyboardEvent): void {
   >
     <StudioTopBar
       v-model:lens="lens"
+      v-model:unlocks="unlocks"
       class="studio__top"
       :title
       :picture-number="pictureNumber"
@@ -1037,7 +1072,6 @@ function onKeyup(event: KeyboardEvent): void {
       @redo="undoOrder.redo"
       @keep="keepChanges()"
       @discard="leave.discarding.value = true"
-      @fold="(level) => (sizeFolded = level > 0)"
     >
       <template #share
         ><SharePictureMenu
@@ -1059,16 +1093,11 @@ function onKeyup(event: KeyboardEvent): void {
       :hovered-id="hoveredId"
       :selected-ids="selection.selectedIds.value"
       :quiet-tag="lens === 'art' ? 'art' : undefined"
+      :groupable="editing.editableItems.value.length > 1"
       @hover="selection.listHover.value = $event"
       @select="(id, extend) => (extend ? selection.toggle(id) : (selectedId = id))"
-    >
-      <template #notice
-        ><StudioLockNote
-          v-model:unlocks="unlocks"
-          :lens
-          :held="assist.holds.value ? HOLD_TEXT : null"
-      /></template>
-    </SceneList>
+      @group="openCombine"
+    />
 
     <div
       ref="optionsBar"
@@ -1131,6 +1160,7 @@ function onKeyup(event: KeyboardEvent): void {
       @update:tool="pickTool"
       @probe="ghost.toggle()"
       @values="tools.setValues"
+      @unlocks="(next) => !assist.holds.value && (unlocks = next)"
     />
     <main class="studio__frame">
       <div
@@ -1213,9 +1243,13 @@ function onKeyup(event: KeyboardEvent): void {
       :pixel
       :pinned="selection.canvasCell.value === undefined && pinnedCell !== undefined"
       :fill
-      :editing="editing.editableItems.value.length > 0"
+      :editing="!!editing.editable.value && !editing.several.value"
+      :more="detailsMore"
       :playhead
       :label-of="labelOf"
+      :rename
+      :parts="groupParts"
+      :foot="editing.several.value && editing.editableItems.value.length > 1 ? ROOM_GROUP_HINT : ''"
       @seek="seek"
       @select="selectedId = $event"
     >
@@ -1251,10 +1285,35 @@ function onKeyup(event: KeyboardEvent): void {
           :item="editing.editable.value"
           :visual="single('visual')"
           :priority="single('priority')"
-          :handles="handleList"
           :locks="itemLocks"
           :edit="editing"
+          :grouped="editing.grouped.value"
+          @ungroup="editing.ungroup()"
         />
+      </template>
+      <template #more>
+        <StudioItemPoints
+          v-if="editing.editable.value && !editing.several.value"
+          :handles="handleList"
+          :edit="editing"
+          :locked="editing.editable.value.locked"
+        />
+        <section
+          v-else-if="editing.several.value && editing.editableItems.value.length > 1"
+          class="studio__depth-all"
+          data-role="depth-all"
+        >
+          <h3>Depth for all <UiExplain v-bind="explain('depth')" /></h3>
+          <StudioValuePicker
+            plane="priority"
+            label="Depth for all"
+            :value="single('priority')"
+            :disabled="itemLocks.priority !== null"
+            :title="itemLocks.priority ?? undefined"
+            :allowed="(v) => !itemLocks.depthValues || v < 4"
+            @pick="editing.setColour('priority', $event)"
+          />
+        </section>
       </template>
       <template #assist>
         <StudioAssistPanel
@@ -1262,12 +1321,20 @@ function onKeyup(event: KeyboardEvent): void {
           ref="assistPanel"
           :assist
           :chips="assistChips"
-          hint="To change the scope, select other items (Shift+click adds one) or a group, or unlock a plane in the Scene footer."
           :changes="assistChanges"
+          :reference-target="walk && walk.room > 0 ? { kind: 'room', num: walk.room } : null"
           @reload="reopen(true)"
           noun="picture"
-          empty="Select an item on the canvas or in the Scene list to ask the AI about it."
-        />
+          empty="Select an item to ask about it."
+        >
+          <template #scope>
+            <StudioLockChip
+              v-model:unlocks="unlocks"
+              :lens
+              :held="assist.holds.value ? HOLD_TEXT : null"
+            />
+          </template>
+        </StudioAssistPanel>
       </template>
     </PixelInspector>
 
@@ -1291,20 +1358,14 @@ function onKeyup(event: KeyboardEvent): void {
         >{{ calm.tip.value ?? toolHint }}</span
       >
       <span class="studio__spacer"></span>
-      <span v-if="sizeFolded" class="studio__meta" data-testid="studio-size" :title="size.full">{{
-        size.full
-      }}</span>
+      <span class="studio__meta" data-testid="studio-size">{{ size.full }}</span>
       <span class="studio__meta">AGI {{ profile.id }}</span>
       <span
-        class="studio__meta"
+        v-if="!model.trusted"
+        class="studio__meta studio__source"
         data-testid="studio-source-kind"
-        :title="
-          model.trusted
-            ? 'Studio edits the picture text you kept: it builds exactly the picture in the game.'
-            : 'No kept picture text matches the game\'s picture, so Studio rebuilt its steps from the bytes. Keep once and it becomes your source.'
-        "
-        >{{ model.trusted ? "your source" : "rebuilt from the game's bytes" }}</span
-      >
+        >Rebuilt <UiExplain v-bind="explain('rebuilt')"
+      /></span>
       <StudioZoom :zoom :fitted @zoom="(step) => (step === 'fit' ? zoomToFit() : zoomBy(step))" />
       <span class="studio__status-sep" aria-hidden="true"></span>
       <UiIconButton
@@ -1318,7 +1379,8 @@ function onKeyup(event: KeyboardEvent): void {
       />
       <UiIconButton
         icon="help"
-        label="Keyboard shortcuts"
+        label="Keys"
+        title="Keys · ?"
         shortcut="?"
         aria-keyshortcuts="?"
         aria-haspopup="dialog"
@@ -1505,6 +1567,27 @@ function onKeyup(event: KeyboardEvent): void {
 }
 .studio__meta {
   flex: none;
+}
+.studio__depth-all {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--hairline);
+}
+.studio__depth-all h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+.studio__source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 /* The size the top bar folded away: it wraps before the readout and hint must. */
 .studio__meta[data-testid="studio-size"] {

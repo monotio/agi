@@ -1,25 +1,24 @@
 <script setup lang="ts">
-import { computed, useTemplateRef, watch } from "vue";
+import { computed } from "vue";
 import UiChip from "../ui/UiChip.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { PAYLOAD_MAX_BYTES } from "../../../src/container/container.ts";
 import { MAX_PAYLOAD_BYTES } from "../../../src/agent/pictureTools.ts";
 import StudioDraftControls, { type DraftStatus } from "./StudioDraftControls.vue";
+import StudioLockChip from "./StudioLockChip.vue";
+import type { LensUnlocks } from "./studioLocks.ts";
+import { explain } from "./studioTerms.ts";
 import { byteMeter, pictureSize, type StudioLens } from "./studioView.ts";
-import { useFold } from "./useFold.ts";
 
 /**
- * Room Studio's top bar: the way back to Create and what is open, the lens
- * switch, the picture's size against its limits, and the draft's controls
- * (StudioDraftControls: undo and redo, the changes, Discard and Keep). The
- * `share` slot follows what is open, where the names give way to it: the
- * right side has no room left at 1024px.
- *
- * The draft controls never shrink and never run under the lens switch; the
- * size meter takes the room they leave, folding its drawing commands and
- * then itself away (`fold`: 0 whole, 1 bytes only, 2 hidden). The footer
- * then says the whole size.
+ * Room Studio's top bar: the way back and what is open, the lens tabs with
+ * the lock chip beside them (what the lens keeps as it is, and Unlock for
+ * now), and the draft's controls (StudioDraftControls: undo and redo, the
+ * changes, Discard and Keep). The `share` slot follows what is open. The
+ * picture's size lives in the status bar; a byte meter joins the top bar
+ * only once the picture nears its limits.
  */
 const {
   title,
@@ -49,7 +48,7 @@ const {
   canUndo: boolean;
   canRedo: boolean;
   canKeep: boolean;
-  /** Why the lens cannot change right now; the switch is off and says so. */
+  /** Why the lens and its locks cannot change right now; the tabs are off and say so. */
   lensHeld?: string | null;
 }>();
 const emit = defineEmits<{
@@ -59,69 +58,66 @@ const emit = defineEmits<{
   redo: [];
   keep: [];
   discard: [];
-  /** How much of the size meter is folded away: 0 none, 1 its commands, 2 all of it. */
-  fold: [level: number];
 }>();
 const lens = defineModel<StudioLens>("lens", { required: true });
+const unlocks = defineModel<LensUnlocks>("unlocks", { required: true });
 const LENSES = [
-  { value: "art", label: "Art", shortcut: "1" },
-  { value: "depth", label: "Depth", shortcut: "2" },
-  { value: "walk", label: "Walk", shortcut: "3" },
+  { value: "art", label: "Art", shortcut: "1", title: "Art · what the player sees" },
+  { value: "depth", label: "Depth", shortcut: "2", title: "Depth · what stands in front" },
+  { value: "walk", label: "Walk", shortcut: "3", title: "Walk · where the hero can go" },
 ] as const;
-const lenses = computed(() => LENSES.map((option) => ({ ...option, disabled: !!lensHeld })));
+const lenses = computed(() =>
+  LENSES.map((option) => ({
+    ...option,
+    disabled: !!lensHeld,
+    title: lensHeld ?? option.title,
+  })),
+);
 const meter = computed(() => byteMeter(bytes, MAX_PAYLOAD_BYTES, PAYLOAD_MAX_BYTES));
 const picChip = computed(() => `PIC ${pictureNumber}`);
 const size = computed(() => pictureSize(bytes, commands));
-const sizeBox = useTemplateRef("sizeBox");
-const sizeFold = useFold(sizeBox, 2, (box) => {
-  const meter = box.firstElementChild as HTMLElement | null;
-  return !meter || meter.offsetWidth <= box.clientWidth;
-});
-watch(size, () => void sizeFold.refit());
-watch(sizeFold.level, (level) => emit("fold", level), { immediate: true });
 </script>
 
 <template>
   <header class="top-bar">
     <div class="top-bar__crumbs">
-      <UiIconButton icon="chevron-left" label="Back to Create" size="sm" @click="emit('back')" />
+      <UiIconButton
+        icon="chevron-left"
+        label="Back"
+        size="sm"
+        data-testid="studio-back"
+        @click="emit('back')"
+      />
       <b class="top-bar__title">{{ title }}</b>
       <UiChip v-if="title !== picChip" data-testid="studio-picture">{{ picChip }}</UiChip>
       <span v-if="subtitle" class="top-bar__subtitle">{{ subtitle }}</span>
       <slot name="share" />
     </div>
-    <UiSegmented
-      v-model="lens"
-      label="Lens"
-      :options="lenses"
-      :title="lensHeld ?? undefined"
-      data-testid="studio-lens"
-    />
+    <div class="top-bar__lens">
+      <UiSegmented v-model="lens" label="Lens" :options="lenses" data-testid="studio-lens" />
+      <StudioLockChip v-model:unlocks="unlocks" class="top-bar__lock" :lens :held="lensHeld" />
+    </div>
     <div class="top-bar__meta">
-      <UiChip v-if="diagnostics > 0" tone="warn" dot>{{ diagnostics }} annotation issues</UiChip>
-      <div ref="sizeBox" class="top-bar__size">
-        <div
-          v-if="sizeFold.level.value < 2"
-          class="top-bar__meter"
-          :class="`is-${meter.tone}`"
-          role="meter"
-          aria-label="Picture size"
-          aria-valuemin="0"
-          :aria-valuemax="PAYLOAD_MAX_BYTES"
-          :aria-valuenow="bytes"
-          :aria-valuetext="`${size.full}. ${meter.note}`"
-          :title="`${size.full}. ${meter.note}`"
-          data-testid="studio-bytes"
-          :data-tone="meter.tone"
-        >
-          <span
-            >{{ size.bytes
-            }}<span v-if="sizeFold.level.value === 0" class="top-bar__cmds">
-              · {{ size.commands }}</span
-            ></span
-          >
-          <i :style="{ width: `${Math.max(2, meter.fraction * 100)}%` }"></i>
-        </div>
+      <UiChip v-if="diagnostics > 0" tone="warn" dot data-testid="studio-issues"
+        >{{ diagnostics }} {{ diagnostics === 1 ? "issue" : "issues" }}
+        <UiExplain v-bind="explain('issues')"
+      /></UiChip>
+      <div
+        v-if="meter.tone !== 'ok'"
+        class="top-bar__meter"
+        :class="`is-${meter.tone}`"
+        role="meter"
+        aria-label="Picture size"
+        aria-valuemin="0"
+        :aria-valuemax="PAYLOAD_MAX_BYTES"
+        :aria-valuenow="bytes"
+        :aria-valuetext="`${size.full}. ${meter.note}`"
+        :title="`${size.full}. ${meter.note}`"
+        data-testid="studio-bytes"
+        :data-tone="meter.tone"
+      >
+        <span>{{ size.bytes }}</span>
+        <i :style="{ width: `${Math.max(2, meter.fraction * 100)}%` }"></i>
       </div>
       <StudioDraftControls
         :status
@@ -169,6 +165,12 @@ watch(sizeFold.level, (level) => emit("fold", level), { immediate: true });
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.top-bar__lens {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
 .top-bar__meta {
   display: flex;
   align-items: center;
@@ -176,18 +178,11 @@ watch(sizeFold.level, (level) => emit("fold", level), { immediate: true });
   gap: var(--space-2);
   min-width: 0;
 }
-/* The meter's room: whatever the draft controls leave, never part of their minimum. */
-.top-bar__size {
-  display: flex;
-  flex: 1 1 0;
-  justify-content: flex-end;
-  min-width: 0;
-  container-type: inline-size;
-}
 
 .top-bar__meter {
   position: relative;
   display: grid;
+  flex: none;
   gap: var(--space-0);
   padding: var(--space-1) var(--space-3) var(--space-1);
   border: 1px solid var(--hairline);

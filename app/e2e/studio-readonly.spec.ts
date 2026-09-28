@@ -137,7 +137,7 @@ for (const deviceScaleFactor of [1, 2]) {
       "true",
     );
     await expect(page.locator('[data-role="announce"]')).toHaveText(
-      "Bench occluder, depth, 18 commands",
+      "Bench occluder, depth, 18 steps",
     );
     await context.close();
   });
@@ -284,7 +284,7 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
   // Bands shows only under Depth and Walk: after "1" hides it, keys still land in the studio.
-  await page.getByRole("button", { name: "Bands" }).click();
+  await page.getByRole("button", { name: "Bands", exact: true }).click();
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("2");
@@ -299,7 +299,7 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
 
 test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({ page }) => {
   await open(page, "1");
-  const slider = page.getByRole("slider", { name: "Draw order playhead" });
+  const slider = page.getByRole("slider", { name: "Draw order", exact: true });
   const total = Number(await slider.getAttribute("aria-valuemax"));
   // The playhead counts drawing commands: every compiled span but the closing end.
   expect(total).toBe(
@@ -319,7 +319,7 @@ test("dragging the scrubber to command k paints exactly renderUpTo(k)", async ({
   await page.mouse.move(box.x + (box.width * k) / total, box.y + box.height / 2, { steps: 4 });
   await page.mouse.up();
   await expect(slider).toHaveAttribute("aria-valuenow", String(k));
-  await expect(page.locator(".scrubber__label")).toContainText(`#${k} of ${total}`);
+  await expect(page.getByTestId("scrubber-step")).toHaveText(`Step ${k} of ${total}`);
 
   const mismatches = await page.locator(".studio-pane canvas").evaluate((element, count) => {
     const canvas = element as HTMLCanvasElement;
@@ -380,7 +380,7 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
 
-  const slider = page.getByRole("slider", { name: "Draw order playhead" });
+  const slider = page.getByRole("slider", { name: "Draw order", exact: true });
   const total = Number(await slider.getAttribute("aria-valuemax"));
   await page.keyboard.press(",");
   await expect(slider).toHaveAttribute("aria-valuenow", String(total - 1));
@@ -412,12 +412,12 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   );
 });
 
-test("a picture rebuilt from the game's bytes reads as your source once kept: the kept text is stored", async ({
+test("a picture rebuilt from the game's bytes reads as its own source once kept: the kept text is stored", async ({
   page,
 }) => {
   await open(page, "demo&authored=0");
   const source = page.getByTestId("studio-source-kind");
-  await expect(source).toHaveText("rebuilt from the game's bytes");
+  await expect(source).toHaveText("Rebuilt");
   // A rect by keys: R, Space at the cursor, three cells right and down, Space.
   await page.locator(".studio__stage").focus();
   await page.keyboard.press("r");
@@ -428,5 +428,5 @@ test("a picture rebuilt from the game's bytes reads as your source once kept: th
   await expect(page.getByTestId("studio-draft-status")).toHaveText("1 change");
   await page.getByTestId("studio-keep").click();
   await expect(page.getByTestId("studio-draft-status")).toHaveText("Kept");
-  await expect(source).toHaveText("your source");
+  await expect(source).toHaveCount(0);
 });

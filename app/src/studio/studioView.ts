@@ -404,16 +404,16 @@ export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number
 export interface PictureSize {
   /** "1,148 bytes" */
   readonly bytes: string;
-  /** "219 drawing commands" */
+  /** "219 steps" */
   readonly commands: string;
-  /** "1,148 bytes · 219 drawing commands" */
+  /** "1,148 bytes · 219 steps" */
   readonly full: string;
 }
 
 export function pictureSize(bytes: number, commands: number): PictureSize {
   const n = (value: number): string => value.toLocaleString("en-US");
   const size = `${n(bytes)} ${bytes === 1 ? "byte" : "bytes"}`;
-  const drawing = `${n(commands)} drawing ${commands === 1 ? "command" : "commands"}`;
+  const drawing = `${n(commands)} ${commands === 1 ? "step" : "steps"}`;
   return { bytes: size, commands: drawing, full: `${size} · ${drawing}` };
 }
 

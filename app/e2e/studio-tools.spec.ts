@@ -173,10 +173,10 @@ test("a filled rect drawn in the Art lens keeps as those pixels and leaves prior
   const studio = await openStudio(page);
   await page.keyboard.press("r");
   await expect(studio.locator('button[data-tool="rect"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws last, after step 12");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 12");
   await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
     "title",
-    "New shapes are drawn last, after step 12.",
+    "New shapes go last, after step 12, on top of everything.",
   );
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 4);
@@ -247,7 +247,7 @@ test("the fill tool on a seed that is not white explains the AGI rule and insert
   await page.keyboard.press("f");
   await clickCell(page, 80, 40);
   await expect(studio.getByTestId("bar-notice-summary")).toHaveText(
-    "Can't fill here: this spot is already light grey.",
+    "Fill stops here: this spot is already light grey.",
   );
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
   expect(await draftBytes(page)).toEqual(PIC_5);
@@ -263,7 +263,7 @@ test("a fill drawn last on painted ground says why, and Draw before moves the dr
   // 40,40 is the wall's grey, flooded by its fill on line 4: a fill drawn last stops there.
   await clickCell(page, 40, 40);
   await expect(bar.getByTestId("bar-notice-summary")).toHaveText(
-    "Can't fill here: this spot is already light grey.",
+    "Fill stops here: this spot is already light grey.",
   );
   // Nothing in the bar is cut off: the summary is shown whole.
   expect(
@@ -288,7 +288,7 @@ test("a fill drawn last on painted ground says why, and Draw before moves the dr
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     "New shapes now go before Wall. Filled is on: draw a rectangle or polygon there.",
   );
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws first of 12");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Before step 1");
   await page.keyboard.press("r");
   await expect(studio.getByTestId("studio-tool-filled")).toBeChecked();
   await dragCells(page, [30, 30], [50, 50]);
@@ -331,10 +331,10 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   await page.keyboard.press("Home");
   for (let k = 0; k < 6; k++) await page.keyboard.press(".");
   await page.keyboard.press("r");
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws after step 6 of 12");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 6");
   await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
     "title",
-    /^New shapes are drawn after step 6 of 12/,
+    /^New shapes go after step 6 of 12/,
   );
   await studio.getByTestId("studio-tool-filled").check();
   await pickColour(studio, 1);
@@ -347,15 +347,15 @@ test("an insert at a mid playhead lands at that draw-order position under later 
   expect(drawn.visual[at(60, 95)]).toBe(1);
   // The playhead stays after the new item; the way back to the end is one click.
   // vis, pri off and 13 rows: 15 commands after the first 6.
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws after step 21 of 27");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 21");
   await expect(studio.getByTestId("studio-playhead-end")).toHaveAccessibleName(
-    "Move playhead to end",
+    "Draw on top of everything",
   );
   await studio.getByTestId("studio-playhead-end").click();
-  await expect(studio.getByTestId("studio-insert-at")).toHaveText("Draws last, after step 27");
+  await expect(studio.getByTestId("studio-insert-at")).toHaveText("After step 27");
   await expect(studio.getByTestId("studio-insert-at")).toHaveAttribute(
     "title",
-    "New shapes are drawn last, after step 27.",
+    "New shapes go last, after step 27, on top of everything.",
   );
 });
 

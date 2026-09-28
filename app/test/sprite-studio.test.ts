@@ -114,7 +114,7 @@ describe("useSpriteDraft", () => {
     assert.equal(refused.ok, false);
     assert.match(
       !refused.ok ? refused.refusal.message : "",
-      /would also change loop 1, outside the loop you are editing/,
+      /would also change loop 1\. Turn on Edit both to allow it\./,
     );
     assert.equal(draft.document.value, original);
     const outcome = draft.apply(
@@ -150,7 +150,7 @@ describe("useSpriteDraft", () => {
     assert.equal(outcome.ok, false);
     assert.equal(
       !outcome.ok && outcome.refusal.message,
-      "The eraser (E) paints the transparent colour.",
+      "That is the transparent colour. The eraser paints it.",
     );
     assert.equal(draft.changes.value, 0);
   });
@@ -625,7 +625,7 @@ describe("sprite view helpers", () => {
   it("names facings, pairs the preview and words usage", () => {
     assert.deepEqual(
       [0, 1, 2, 3].map((loop) => loopFacing(loop, 4)),
-      ["Right-facing", "Left-facing", "Front-facing", "Back-facing"],
+      ["Right", "Left", "Front", "Back"],
     );
     assert.equal(loopFacing(2, 3), undefined);
     assert.equal(loopFacing(0, 1), undefined);
@@ -638,12 +638,15 @@ describe("sprite view helpers", () => {
     );
     assert.equal(usageText({ rooms: [], logics: [0], dynamic: false }), "Used by logic 0");
     assert.equal(usageText({ rooms: [], logics: [], dynamic: false }), "Not used by any logic");
-    // The top bar's chip counts; the side panel lists the rooms.
+    // The top bar's chip names up to three and counts more; its tooltip lists them all.
     const rooms = [1, 2, 4, 5, 7, 9, 12];
-    assert.equal(usageChip({ rooms, logics: [], dynamic: false }), "Used by 7 rooms");
-    assert.equal(usageChip({ rooms: [5], logics: [5], dynamic: false }), "Used by room 5");
-    assert.equal(usageChip({ rooms: [], logics: [0, 3], dynamic: false }), "Used by 2 logics");
+    assert.equal(usageChip({ rooms, logics: [], dynamic: false }), "7 rooms");
+    assert.equal(usageChip({ rooms: [1, 2, 3], logics: [], dynamic: false }), "Rooms 1, 2, 3");
+    assert.equal(usageChip({ rooms: [5], logics: [5], dynamic: false }), "Room 5");
+    assert.equal(usageChip({ rooms: [5], logics: [5], dynamic: true }), "Room 5 …");
+    assert.equal(usageChip({ rooms: [], logics: [0, 3], dynamic: false }), "Logics 0, 3");
     assert.equal(usageChip({ rooms: [], logics: [], dynamic: true }), "Chosen at runtime");
+    assert.equal(usageChip({ rooms: [], logics: [], dynamic: false }), "Not used by any logic");
   });
 
   it("fits a cel at the largest whole zoom that leaves room for the baseline", () => {
@@ -660,7 +663,7 @@ describe("sprite view helpers", () => {
     );
     assert.equal(
       plainSpriteRefusal("loop 3's cels are not exact mirror images of loop 1's; pass force"),
-      "Loop 3 is not an exact mirror of loop 1; replace it to link them.",
+      "Loop 3 differs from loop 1 flipped. Replace it to mirror.",
     );
     assert.equal(plainSpriteRefusal("something new"), "The view can't be changed that way.");
   });

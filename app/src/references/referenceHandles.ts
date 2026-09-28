@@ -41,7 +41,9 @@ function cachedPixels(
 
 function referenceLabel(reference: StoredReference, facing: string | undefined): string {
   if (reference.kind === "room") return "Room plate";
-  return facing ? `Character sheet, ${facing}-facing row` : "Character sheet";
+  if (facing) return `Character sheet, ${facing}-facing row`;
+  // A view's reference from a Studio's Ask carries one image and no pose manifest.
+  return reference.sheet ? "Character sheet" : "Character reference";
 }
 
 /**

@@ -51,6 +51,7 @@ import {
   REFERENCE_COUNT_LIMIT,
   roomReference,
   stageCharacterView,
+  viewReference,
   type DecodedImage,
   type StoredReference,
 } from "../references/referenceArt.ts";
@@ -217,6 +218,15 @@ export interface AuthoringController {
     sheets: readonly { decoded: DecodedImage; facing: SheetFacing }[],
     spec: CharacterSheetSpec,
     view: number,
+    brief: string,
+  ): Promise<StoredReference>;
+  /**
+   * Store a decoded image as reference art for a room or a view, the way a
+   * Studio's Ask attaches it: to that one request, off the chat's next message.
+   */
+  attachStudioReference(
+    decoded: DecodedImage,
+    target: { readonly kind: "room" | "view"; readonly num: number },
     brief: string,
   ): Promise<StoredReference>;
   /** Remove a stored reference; its bytes leave the project record. */
@@ -1300,6 +1310,23 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     return reference;
   }
 
+  async function attachStudioReference(
+    decoded: DecodedImage,
+    target: { readonly kind: "room" | "view"; readonly num: number },
+    brief: string,
+  ): Promise<StoredReference> {
+    const game = requireAuthoredBoot();
+    await referencesWithCapacity();
+    const id = `ref-${crypto.randomUUID()}`;
+    const at = { project: game.projectId!, revision: game.revision };
+    const reference =
+      target.kind === "room"
+        ? roomReference(id, target.num, brief, at, decoded)
+        : viewReference(id, target.num, brief, at, decoded);
+    await writeReferences(game, (current) => [...current, reference]);
+    return reference;
+  }
+
   async function detachReference(id: string): Promise<void> {
     const game = requireAuthoredBoot();
     await writeReferences(game, (current) => current.filter((reference) => reference.id !== id));
@@ -1368,6 +1395,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     listReferences,
     attachRoomReference,
     attachCharacterReference,
+    attachStudioReference,
     detachReference,
     keepStagedView,
     commitPictureEdit,

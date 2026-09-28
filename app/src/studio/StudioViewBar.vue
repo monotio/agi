@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
+import { explain } from "./studioTerms.ts";
 import type { StudioLens, StudioViewMode } from "./studioView.ts";
 
 /**
@@ -42,15 +44,17 @@ const MODES = [
       </button>
     </ActionMenu>
     <UiSegmented v-else v-model="mode" size="sm" label="Planes" :options="MODES" />
-    <UiButton
-      v-if="fold < 3"
-      variant="ghost"
-      class="view-bar__toggle"
-      :aria-pressed="bands"
-      @click="bands = !bands"
-    >
-      Bands
-    </UiButton>
+    <template v-if="fold < 3">
+      <UiButton
+        variant="ghost"
+        class="view-bar__toggle"
+        :aria-pressed="bands"
+        @click="bands = !bands"
+      >
+        Bands
+      </UiButton>
+      <UiExplain v-bind="explain('bands')" />
+    </template>
   </div>
 </template>
 

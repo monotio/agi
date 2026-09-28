@@ -5,8 +5,10 @@
  * perform; a topic's action is hidden when it is not among them. A game with
  * Studio lessons (lessons/registry.ts) adds a section of them: each opens a
  * Studio on the lesson's resource, and shows whether its challenge is done.
+ * `open` can land on one topic: the guide scrolls to its heading and focuses
+ * it, so an explainer's "Learn more" (UiExplain.vue) arrives where it points.
  */
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import UiDialog from "../ui/UiDialog.vue";
@@ -30,9 +32,18 @@ const section = computed(
 );
 const completed = useLessonBadges().completed;
 
-function open(section?: string): void {
+function open(section?: string, topic?: string): void {
   if (section) sectionId.value = section;
   shown.value = true;
+  // Two ticks: the dialog shows itself (and focuses its first control) after the first.
+  if (topic)
+    void nextTick()
+      .then(() => nextTick())
+      .then(() => {
+        const heading = document.getElementById(`help-topic-${topic}`);
+        heading?.scrollIntoView({ block: "start" });
+        heading?.focus({ preventScroll: true });
+      });
 }
 
 function run(request: HelpRequest): void {
@@ -115,8 +126,13 @@ defineExpose({ open });
         </section>
       </div>
       <div v-else class="help-topics" :data-testid="`help-topics-${section.id}`">
-        <section v-for="topic in section.topics" :key="topic.id" class="help-topic">
-          <h3>{{ topic.title }}</h3>
+        <section
+          v-for="topic in section.topics"
+          :key="topic.id"
+          class="help-topic"
+          :data-topic="topic.id"
+        >
+          <h3 :id="`help-topic-${topic.id}`" tabindex="-1">{{ topic.title }}</h3>
           <p v-for="(paragraph, index) in topic.body" :key="index">{{ paragraph }}</p>
           <UiButton
             v-if="topic.action && props.available.includes(topic.action.kind)"
@@ -182,6 +198,7 @@ defineExpose({ open });
   border-top: 1px solid var(--hairline);
 }
 h3 {
+  scroll-margin-top: var(--space-5);
   margin: 0 0 var(--space-2);
   font: var(--weight-semibold) var(--text-lg) / var(--leading-tight) var(--font-sans);
   color: var(--ink);
@@ -190,6 +207,10 @@ h3 {
   margin: 0 0 var(--space-3);
   font: var(--text-md) / 1.55 var(--font-sans);
   color: var(--ink-2);
+}
+h3:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .help-show-me {
   margin-top: var(--space-1);

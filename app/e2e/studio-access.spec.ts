@@ -258,10 +258,8 @@ test("a phone-width window covers Studio with a notice and keeps the draft; Keep
   const edited = await draftBytes(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("Room Studio needs a larger screen");
-  await expect(notice).toContainText(
-    "Your unkept changes are safe. Widen the window or rotate back to continue.",
-  );
+  await expect(notice).toContainText("Room Studio needs more room");
+  await expect(notice).toContainText("Your changes are safe. Widen the window or rotate back.");
   await expect(notice).toContainText("1 unkept change");
   await expect(studio).toHaveCount(1);
   // Esc dismisses nothing and closes nothing.

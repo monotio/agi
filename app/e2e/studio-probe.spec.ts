@@ -82,7 +82,7 @@ test("a ghost dragged behind the bench occluder is hidden exactly where probeAct
 }) => {
   await open(page);
   const readout = page.getByTestId("ghost-probe-readout");
-  await expect(readout.getByRole("heading")).toHaveText("Probe");
+  await expect(readout.getByRole("heading")).toHaveText("Ghost");
   // The readout sits beside the picture: on the art, only the ghost and its handle.
   const art = (await page.locator(".studio-pane").boundingBox())!;
   expect((await readout.boundingBox())!.x).toBeGreaterThanOrEqual(art.x + art.width);
@@ -117,7 +117,7 @@ test("moving onto the floor-edge barrier reports its cells; keys nudge, cycle an
   // Row 113 is plain floor; the barrier segment runs along y 114 from x 30 to 129.
   await drag(page, [60, 100], [60, 113]);
   await expect(readout.locator('[data-role="ghost-controls"]')).toContainText(
-    "Clear under the feet",
+    "No walk lines under the feet",
   );
   await page.keyboard.press("Shift+ArrowDown");
   const want = await expected(page, 60, 114);

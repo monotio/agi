@@ -2,6 +2,8 @@
 import { computed, ref, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
+import UiExplain from "../ui/UiExplain.vue";
+import { explain } from "./studioTerms.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { StudioTool } from "./studioTools.ts";
 import { CONTROL_VALUES, patternOn } from "./studioView.ts";
@@ -133,11 +135,9 @@ const roomChoices = computed(() => {
       <label class="walk-panel__check">
         <input v-model="tint" type="checkbox" data-testid="walk-tint-toggle" />
         <i class="walk-panel__swatch" aria-hidden="true"></i>
-        <span>Where the player can stand <em>(estimate)</em></span>
+        <span>Floor <em>(estimate)</em></span>
+        <UiExplain v-bind="explain('floor-estimate')" />
       </label>
-      <p class="walk-panel__note">
-        Estimated from the hero's size and the walk lines. Test walk asks the game.
-      </p>
       <div
         class="walk-panel__legend"
         data-role="control-legend"
@@ -166,6 +166,7 @@ const roomChoices = computed(() => {
           </svg>
           {{ control.value }} · {{ control.name }}
         </span>
+        <UiExplain v-bind="explain('walk-lines')" />
       </div>
     </section>
 
@@ -181,7 +182,7 @@ const roomChoices = computed(() => {
           data-testid="walk-tool"
           @click="emit('tool', tool === 'walk' ? 'select' : 'walk')"
         >
-          {{ tool === "walk" ? "Choosing" : "Start" }}
+          {{ tool === "walk" ? "Choosing…" : "Start" }}
         </UiButton>
       </h3>
       <label class="walk-panel__check">
@@ -192,6 +193,7 @@ const roomChoices = computed(() => {
           @change="walk.setUseLiveState(($event.target as HTMLInputElement).checked)"
         />
         <span>{{ WALK_STATE_LABEL }}</span>
+        <UiExplain v-bind="explain('game-state')" />
       </label>
       <p class="walk-panel__prompt" aria-live="polite" data-testid="walk-prompt">
         {{
@@ -199,7 +201,7 @@ const roomChoices = computed(() => {
             ? "Walking…"
             : tool === "walk"
               ? walk.prompt.value
-              : "Press T, then click a start and a goal (or use the arrow keys and Space)."
+              : "Press T, click a start, then a goal."
         }}
       </p>
       <p
@@ -207,9 +209,7 @@ const roomChoices = computed(() => {
         class="walk-panel__note"
         data-testid="walk-estimate"
       >
-        {{
-          walk.estimate.value.path ? "Dashed: the estimated route." : "The estimate finds no route."
-        }}
+        {{ walk.estimate.value.path ? "Dashed line: the guess." : "The guess finds no route." }}
       </p>
       <div
         v-if="result"
@@ -236,7 +236,7 @@ const roomChoices = computed(() => {
           <dd data-testid="walk-result-end">{{ place?.text }}</dd>
         </dl>
         <details>
-          <summary>Game result</summary>
+          <summary>Engine detail</summary>
           <p>{{ result.result.reason }}</p>
         </details>
         <div class="walk-panel__actions">
@@ -260,7 +260,7 @@ const roomChoices = computed(() => {
     </section>
 
     <section class="walk-panel__sec" data-role="doors">
-      <h3>Doors <em>D draws a door box · E adds an edge exit</em></h3>
+      <h3>Doors</h3>
       <p
         v-for="problem in walk.logicDiagnostics.value"
         :key="`${problem.line}:${problem.code}`"
@@ -270,9 +270,7 @@ const roomChoices = computed(() => {
       >
         {{ ruleProblemText(problem) }}
       </p>
-      <p v-if="walk.doors.value.length === 0" class="walk-panel__note">
-        This room has no exits yet.
-      </p>
+      <p v-if="walk.doors.value.length === 0" class="walk-panel__note">No exits yet.</p>
       <ul v-else class="walk-panel__doors" aria-label="Doors">
         <li v-for="door in walk.doors.value" :key="door.id">
           <button
@@ -288,16 +286,15 @@ const roomChoices = computed(() => {
             <UiChip
               v-if="!door.editable"
               :tone="door.planned ? 'warn' : 'neutral'"
-              :title="
-                door.planned
-                  ? 'Planned: nothing in the room\'s script leads there yet'
-                  : 'Written in the room\'s script: change it as text'
-              "
               data-testid="walk-door-kind"
             >
-              {{ door.planned ? "planned" : "in script" }}
+              {{ door.planned ? "Planned" : "In script" }}
             </UiChip>
           </button>
+          <UiExplain
+            v-if="!door.editable"
+            v-bind="explain(door.planned ? 'door-planned' : 'door-script')"
+          />
         </li>
       </ul>
 
@@ -364,7 +361,9 @@ const roomChoices = computed(() => {
           </p>
           <template v-if="selected.box">
             <label class="walk-panel__field">
-              <span>Follows</span>
+              <span class="walk-panel__with"
+                >Follows <UiExplain v-bind="explain('follows')"
+              /></span>
               <select
                 class="walk-panel__input"
                 :value="selected.item ?? ''"
@@ -378,10 +377,6 @@ const roomChoices = computed(() => {
                 </option>
               </select>
             </label>
-            <p class="walk-panel__note">
-              Or drag the round handle on the door box onto the art. Moving that art moves the door
-              when you Keep.
-            </p>
             <div class="walk-panel__box" role="group" aria-label="Door box">
               <label v-for="[field, name] in BOX_FIELDS" :key="field">
                 <span>{{ name }}</span>
@@ -417,8 +412,7 @@ const roomChoices = computed(() => {
         </template>
         <template v-else>
           <p class="walk-panel__note" data-testid="door-native">
-            {{ walk.labelOf(selected) }}: this exit is written in the room's script, which the door
-            tools can't change. Edit it as text, or ask the assistant.
+            {{ walk.labelOf(selected) }} is written in the room's script.
           </p>
           <UiButton
             size="sm"
@@ -440,6 +434,11 @@ const roomChoices = computed(() => {
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--hairline);
+}
+.walk-panel__with {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .walk-panel__sec h3 {
   display: flex;

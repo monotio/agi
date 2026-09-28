@@ -1,6 +1,7 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
 import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { TARGET_PROPERTY } from "../src/ui/explain.ts";
 
 /**
  * The calm canvas on the real app: nothing covers the picture, not even the
@@ -83,10 +84,16 @@ for (const [width, height] of [
       ".studio-pane__pixels, .studio-pane__overlay, .tool-overlay, .walk-overlay, .ghost";
     const bar = studio.getByTestId("studio-options-bar");
     /** The options bar fits its width: what it cannot show folds into More. */
+    /** Measured as the bar folds (useFold.ts): an explainer's invisible target is not content. */
     const barFits = () =>
-      bar.evaluate((element) =>
-        [element, ...element.children].every((child) => child.scrollWidth <= child.clientWidth + 1),
-      );
+      bar.evaluate((element, property) => {
+        element.style.setProperty(property, "0");
+        const fits = [element, ...element.children].every(
+          (child) => child.scrollWidth <= child.clientWidth + 1,
+        );
+        element.style.removeProperty(property);
+        return fits;
+      }, TARGET_PROPERTY);
 
     // Art lens: an item selected, the rect tool with its options (the owner's case).
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
@@ -215,7 +222,7 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   await expect(studio.getByTestId("studio-tool-options")).toHaveAttribute("data-tool", "line");
 
   // The status bar's ? button opens it too, and focus returns to the button.
-  const button = studio.getByRole("button", { name: "Keyboard shortcuts" });
+  const button = studio.getByRole("button", { name: "Keys", exact: true });
   await expect(button).toHaveAttribute("aria-keyshortcuts", "?");
   await button.click();
   await expect(sheet).toBeVisible();
@@ -252,7 +259,7 @@ test("the drawing backdrop is view only: it never changes the view's bytes, and 
       .evaluate((canvas: HTMLCanvasElement) => [
         ...canvas.getContext("2d")!.getImageData(2, 2, 1, 1).data.slice(0, 3),
       ]);
-  await expect(sprite.getByTestId("sprite-transparent")).toContainText("in-game transparent");
+  await expect(sprite.getByTestId("sprite-transparent")).toContainText("∅ transparent");
 
   const seen: string[] = [];
   for (const choice of ["checker-light", "colour-14", "room", "checker-dark"]) {

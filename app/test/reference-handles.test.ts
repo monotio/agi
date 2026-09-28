@@ -20,12 +20,19 @@ import {
   normalizeReferences,
   roomReference,
   stageCharacterView,
+  viewReference,
   type DecodedImage,
   type StoredReference,
 } from "../src/references/referenceArt.ts";
 import { referenceSource } from "../src/references/referenceHandles.ts";
 import { base64ToBytes } from "../src/project/bytes.ts";
 import { testProjectId, testRevision } from "./identity.ts";
+import type { StudioFocus } from "../../src/agent/studioAssistTools.ts";
+import { pictureAssistScope } from "../../src/studio/assistScope.ts";
+import { compileEditDocument } from "../../src/studio/editValidation.ts";
+import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
+import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
+import { BRIDGE_SOURCE } from "../../test/studioAssistFixtures.ts";
 
 const IDENTITY = { project: testProjectId("refs"), revision: testRevision("rev-a") };
 
@@ -375,4 +382,63 @@ test("the Anthropic transcript keeps a viewed reference on later user messages",
   // request extends the first, so its cached prefix holds.
   assert.deepEqual(requests[1]!.messages.slice(0, 5), requests[0]!.messages);
   assert.deepEqual(requests[1]!.messages[2], viewed);
+});
+
+test("a Studio assist request carries attached art as a handle, and the stub views it", async () => {
+  const events: string[] = [];
+  const robot = viewReference(
+    "ref-robot",
+    1,
+    "",
+    IDENTITY,
+    upload(40, 60, (_x, y) => (y < 30 ? [0xaa, 0xaa, 0xaa] : [0, 0, 0xaa])),
+  );
+  // A view's reference is a character reference without a pose manifest:
+  // the stored shape released records already read.
+  assert.deepEqual(normalizeReferences(JSON.parse(JSON.stringify([robot]))), [robot]);
+  const stored = [...references(), robot];
+  const session = new AgentSession(
+    { provider: "stub", apiKey: "", model: "offline-stub" },
+    (_kind, message) => events.push(message),
+    createAgentSessionState(),
+  );
+  session.setRuntime({
+    referenceArt: async (attached) => referenceSource(stored, attached, decodePng),
+  });
+  const focus: StudioFocus = {
+    scope: pictureAssistScope({
+      num: 1,
+      compiled: compileEditDocument(
+        parsePictureDocument(BRIDGE_SOURCE).document,
+        DEFAULT_V2_PROFILE,
+      ),
+      targetIds: ["bridge"],
+      lens: "walk",
+    }),
+    draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
+    lens: "walk",
+  };
+  const id = referenceArtId(base64ToBytes(robot.images[0]!.png));
+  const result = await session.runStudioAssist({
+    instruction: "Match the reference",
+    focus,
+    referenceIds: ["ref-robot"],
+  });
+  // The stub names the art the manifest marked attached, views it (the turn
+  // offers view_reference: the host dispatcher refuses tools off its list),
+  // and reports the images the request itself carried: one contact strip
+  // of the four 64 px thumbnails, a 4 px gutter before each 64 px cell and
+  // after the last (4 + 4 × 68 = 276 wide), none of the art itself.
+  assert.equal(
+    result.text,
+    `I viewed ${id} and left the selection as it is; this request carried its reference list and one image (276x72).`,
+  );
+  assert.equal(result.candidate, null);
+  assert.ok(events.some((message) => message.startsWith("[Studio] view_reference -> ")));
+  assert.ok(
+    !events.some((message) => /view_reference -> .*(not available|not allowed)/.test(message)),
+  );
+  // The manifest rode that request; the next one on the same art does not repeat it.
+  const again = await session.runStudioAssist({ instruction: "Match the reference", focus });
+  assert.equal(again.text, "No reference art was attached to this request.");
 });
