@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { BUNDLE_GRAPH_PATH } from "../bundle-graph.config.ts";
 import { expect, test } from "./test.ts";
 import { isolateStorage, waitForRoom } from "./engineProbe.ts";
 
@@ -32,9 +33,9 @@ const app = join(repository, "app");
 function modulesOf(url: URL): readonly string[] {
   const path = decodeURIComponent(url.pathname);
   if (path.startsWith("/assets/")) {
-    const graph = JSON.parse(
-      readFileSync(join(app, "dist", ".vite", "bundle-graph.json"), "utf8"),
-    ) as { chunks: { file: string; modules: string[] }[] };
+    const graph = JSON.parse(readFileSync(BUNDLE_GRAPH_PATH, "utf8")) as {
+      chunks: { file: string; modules: string[] }[];
+    };
     return graph.chunks.find((chunk) => `/${chunk.file}` === path)?.modules ?? [];
   }
   if (path.startsWith("/@fs/")) return [relative(repository, path.slice("/@fs".length))];

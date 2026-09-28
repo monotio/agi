@@ -13,6 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { brotliCompressSync, gzipSync } from "node:zlib";
+import { BUNDLE_GRAPH_PATH } from "../app/bundle-graph.config.ts";
 
 interface GraphChunk {
   readonly file: string;
@@ -104,7 +105,7 @@ const AUTHORING_MODULES = [
 ];
 
 const dist = join(import.meta.dirname, "..", "app", "dist");
-const graphPath = join(dist, ".vite", "bundle-graph.json");
+const graphPath = BUNDLE_GRAPH_PATH;
 const warnOnly = process.argv.includes("--warn");
 
 if (!existsSync(graphPath)) {
