@@ -30,12 +30,12 @@ const PLAIN: readonly (readonly [
   [
     /off the surface at (-?\d+),(-?\d+)/,
     (match, op) => {
-      if (op.type === "duplicateItem") return `The copy can't go there — ${LEAVES}.`;
+      if (op.type === "duplicateItem") return `The copy can't go there: ${LEAVES}.`;
       const way = direction(Number(match[1]), Number(match[2]));
-      return way ? `Can't move it further ${way} — ${LEAVES}.` : `Can't move it there — ${LEAVES}.`;
+      return way ? `Can't move it further ${way}: ${LEAVES}.` : `Can't move it there: ${LEAVES}.`;
     },
   ],
-  [/^point -?\d+,-?\d+ is off the surface/, () => `Can't put the point there — ${LEAVES}.`],
+  [/^point -?\d+,-?\d+ is off the surface/, () => `Can't put the point there: ${LEAVES}.`],
   [/^seed .* off the surface/, () => "A fill has to start inside the picture."],
   [/^plot point .* off the surface/, () => "The brush has to stay inside the picture."],
   [
@@ -58,10 +58,10 @@ const PLAIN: readonly (readonly [
   [/in progress/, () => "Finish the current edit first."],
   [
     /not next to each other in the draw order|draws between .* outside any item/,
-    () =>
-      "Only neighbours in the draw order can be made one item: select the items between them too.",
+    () => "Only neighbours in the draw order can be grouped: select the items between them too.",
   ],
-  [/needs at least two items/, () => "Select two items or more to make one item."],
+  [/needs at least two items/, () => "Select two items or more to group them."],
+  [/is one drawing element/, () => "This item is one drawing element: it has no parts to ungroup."],
 ];
 
 /** The creator's sentence for kernel refusal `error` of `op`. */

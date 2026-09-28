@@ -30,6 +30,7 @@ import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
+import GhostReadout from "./GhostReadout.vue";
 import PixelInspector from "./PixelInspector.vue";
 import SceneList from "./SceneList.vue";
 import StudioAssistCompare from "./StudioAssistCompare.vue";
@@ -45,7 +46,7 @@ import StudioLockNote from "./StudioLockNote.vue";
 import StudioLogicText from "./StudioLogicText.vue";
 import StudioSelectionBar from "./StudioSelectionBar.vue";
 import StudioSmallScreen from "./StudioSmallScreen.vue";
-import StudioStageNotes from "./StudioStageNotes.vue";
+import StudioStatusNotice from "./StudioStatusNotice.vue";
 import StudioToolOptions from "./StudioToolOptions.vue";
 import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
@@ -123,7 +124,7 @@ import { useUndoOrder } from "./useUndoOrder.ts";
  * about this selection" (useStudioAssist) has the game's AI propose a change
  * to the selected items, previewed on the canvas and accepted as one undo step.
  * Several items can be selected (useStudioSelection) and moved, copied,
- * deleted or made one item together; the selection's actions dock in the
+ * deleted or grouped together (and a group ungrouped); the selection's actions dock in the
  * options bar above the canvas, so nothing covers the picture.
  */
 const {
@@ -206,7 +207,7 @@ const selection = useStudioSelection({
   items: () => model.value.document.items.map((item) => item.id),
 });
 const { hoveredId, selectedId, selectedRow, pinnedCell } = selection;
-const readout = useStudioReadout({ doc, selection, lens });
+const readout = useStudioReadout({ doc, selection });
 const { ticks, current, drawn, single, pixel, fill, labelOf, status } = readout;
 /** The engine, when Studio runs in the app (the harness supplies its own Keep). */
 const engineApi = inject(engineKey, null);
@@ -664,7 +665,7 @@ watch(selectionBar, (shown) => {
 });
 const itemLocks = computed(() => lensItemLocks(lens.value, unlocks.value));
 
-/** "Make one item": the dialog, and what lies between the selected items. */
+/** Group: the dialog, and what lies between the selected items. */
 const combineOpen = ref(false);
 const combineGap = computed(() => editing.between.value);
 function makeOneItem(name: string): void {
@@ -677,6 +678,8 @@ function includeBetween(): void {
 }
 function openCombine(): void {
   if (editing.editableItems.value.length > 1) combineOpen.value = true;
+  else if (editing.editableItems.value.length === 1)
+    editing.say({ tone: "warn", text: "Select two items or more to group them." });
 }
 
 /** The fill tool's notice: what the spot holds, why, and the step where it is still white. */
@@ -724,6 +727,7 @@ watch(
     editing.several.value,
     fillAdvice.value?.notice.summary,
     lens.value,
+    proposal.value !== null,
     tools.insertion.value.index,
   ],
   () => void optionsFold.refit(),
@@ -818,7 +822,9 @@ const selectionMenu = computed<CanvasMenuItem[]>(() =>
         { id: "duplicate", label: "Duplicate" },
         { id: "priority", label: "Priority…" },
         { id: "delete", label: "Delete" },
-        ...(editing.several.value ? [{ id: "combine", label: "Make one item…" }] : []),
+        ...(editing.several.value
+          ? [{ id: "combine", label: "Group…" }]
+          : [{ id: "ungroup", label: "Ungroup" }]),
         {
           id: "ask",
           label: "Ask about this selection",
@@ -870,6 +876,7 @@ function pickMenu(id: string): void {
   else if (id === "delete") editing.remove();
   else if (id === "priority") priorityOpen.value = true;
   else if (id === "combine") openCombine();
+  else if (id === "ungroup") editing.ungroup();
   else if (id === "ask") assistPanel.value?.focus();
   else if (id === "play") void playHere(cell);
   else if (id === "walk-from") {
@@ -923,6 +930,8 @@ const toolHint = computed(() => {
   return ROOM_TOOL_HINTS[tool];
 });
 const notesOnly = computed(() => draft.notesOnly.value && !logic.dirty.value);
+/** A tool change hands the status line back to the tool's hint (before anything it says). */
+watch(tools.tool, () => editing.say(null), { flush: "sync" });
 
 const keys: StudioKeyActions = {
   onCanvas: (target) => target === stage.value,
@@ -939,7 +948,6 @@ const keys: StudioKeyActions = {
     else if (!drag.abort()) return false;
     return true;
   },
-  close: () => void requestClose(),
   // The lens and the unlocks wait with the request: Accept applies the terms it was asked under.
   lens: (next) => {
     if (!assist.holds.value) lens.value = next;
@@ -953,6 +961,8 @@ const keys: StudioKeyActions = {
   click: input.click,
   remove: () => tools.backspace() || editing.remove(),
   duplicate: editing.duplicate,
+  group: openCombine,
+  ungroup: () => void editing.ungroup(),
   reorder: editing.reorder,
   undo: undoOrder.undo,
   redo: undoOrder.redo,
@@ -1077,9 +1087,11 @@ function onKeyup(event: KeyboardEvent): void {
         :depth-values-locked="itemLocks.depthValues"
         :edit="editing"
         :askable="assistHost !== null"
+        :grouped="editing.grouped.value"
         :fold="optionsFold.level.value"
         @ask="assistPanel?.focus()"
         @combine="openCombine"
+        @ungroup="editing.ungroup()"
       />
       <StudioToolOptions
         v-else
@@ -1095,6 +1107,7 @@ function onKeyup(event: KeyboardEvent): void {
         @end="seek(total)"
         @fix="applyFillFix"
       />
+      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
       <span class="studio__spacer"></span>
       <StudioViewBar
         v-model:mode="mode"
@@ -1175,20 +1188,12 @@ function onKeyup(event: KeyboardEvent): void {
               v-if="index === 0"
               :probe="ghost"
               :viewport
-              :describe-cell="describeCell"
               @pointerdown.stop
               @pointermove.stop
             />
           </StudioCanvas>
         </div>
       </div>
-      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
-      <StudioStageNotes
-        :banner="keeper.banner.value"
-        :notice="editing.notice.value"
-        @recover="recover"
-        @hold="editing.hold"
-      />
     </main>
 
     <DrawOrderScrubber
@@ -1215,12 +1220,14 @@ function onKeyup(event: KeyboardEvent): void {
       @select="selectedId = $event"
     >
       <template #lead>
-        <!-- The lesson's card docks at the top of the inspector, never over the stage. -->
+        <!-- The lesson's card docks at the top of the inspector, off the stage. -->
         <LessonCard
           v-if="lesson.session.value"
           :session="lesson.session.value"
           :outcome="lesson.outcome.value"
         />
+        <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
+        <GhostReadout v-if="ghost.active.value" :probe="ghost" :describe-cell="describeCell" />
         <StudioWalkPanel
           v-if="lens === 'walk'"
           v-model:tint="walkTint"
@@ -1265,8 +1272,18 @@ function onKeyup(event: KeyboardEvent): void {
     </PixelInspector>
 
     <footer class="studio__status" aria-label="Status bar">
-      <span data-role="status">{{ status }}</span>
+      <span data-role="status" data-testid="studio-status">{{ status }}</span>
+      <!-- A notice or a failed Keep takes the hint's place, off the picture. -->
+      <StudioStatusNotice
+        v-if="keeper.banner.value || editing.notice.value"
+        :banner="keeper.banner.value"
+        :notice="editing.notice.value"
+        @recover="recover"
+        @dismiss="editing.dismiss"
+        @close="keeper.dismiss"
+      />
       <span
+        v-else
         class="studio__hint"
         :class="{ 'is-tip': calm.tip.value }"
         data-testid="studio-hint"
@@ -1354,9 +1371,10 @@ function onKeyup(event: KeyboardEvent): void {
   position: relative;
   display: grid;
   --studio-bar: var(--control-h);
-  grid-template-rows: 52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) 92px var(
-      --studio-bar
-    );
+  /* The status bar grows a line when its readout and hint wrap. */
+  grid-template-rows:
+    52px calc(var(--studio-bar) + var(--space-1)) minmax(0, 1fr) 92px
+    minmax(var(--studio-bar), auto);
   /* The Scene list takes what the canvas can spare: at 1280 wide what still
      leaves it 200% zoom (640 + 2 × STAGE_INSET), more when wider. */
   grid-template-columns: clamp(208px, max(18vw, 100vw - 1040px), 300px) 48px minmax(0, 1fr) 300px;
@@ -1453,31 +1471,32 @@ function onKeyup(event: KeyboardEvent): void {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
-  padding: 0 var(--space-1) 0 var(--space-4);
+  padding: var(--space-0) var(--space-1) var(--space-0) var(--space-4);
   border-top: 1px solid var(--hairline);
   color: var(--ink-3);
   background: var(--surface-0);
   font: var(--text-2xs) var(--font-mono);
   white-space: nowrap;
 }
+/* The readout and the tool's help share what the bar leaves, wrapping onto a
+   second line when short of room; the readout gives way first. */
 .studio__status [data-role="status"] {
-  flex: 0 1 auto;
-  min-width: 12ch;
-  overflow: hidden;
+  flex: 0 3 auto;
+  min-width: 22ch;
   color: var(--ink-2);
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  white-space: normal;
 }
-/* The active tool's one line of help: it gives way first when the bar is short. */
 .studio__hint {
-  flex: 0 1000 auto;
-  min-width: 0;
-  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 28ch;
   color: var(--ink-3);
   font-family: var(--font-sans);
   font-size: var(--text-xs);
-  text-overflow: ellipsis;
+  line-height: 1.2;
+  white-space: normal;
 }
 .studio__hint.is-tip {
   flex-shrink: 0;
@@ -1486,6 +1505,14 @@ function onKeyup(event: KeyboardEvent): void {
 }
 .studio__meta {
   flex: none;
+}
+/* The size the top bar folded away: it wraps before the readout and hint must. */
+.studio__meta[data-testid="studio-size"] {
+  flex: 0 1 auto;
+  min-width: 12ch;
+  line-height: 1.2;
+  text-align: right;
+  white-space: normal;
 }
 .studio__status-sep {
   width: 1px;

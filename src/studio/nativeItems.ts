@@ -24,7 +24,7 @@ export function isInferredItemId(id: string): boolean {
 }
 
 /** The kind of an item from the planes its lines write. */
-function kindOf(planes: number): PictureItemKind {
+export function kindOf(planes: number): PictureItemKind {
   if (planes === PLANE_VISUAL) return "art";
   if (planes === PLANE_DEPTH) return "depth";
   if (planes === PLANE_CONTROL) return "walk";

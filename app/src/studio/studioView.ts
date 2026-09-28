@@ -50,11 +50,11 @@ export function patternOn(pattern: ControlValue["pattern"], x: number, y: number
 
 /** Each pane's accessible name. */
 export const PANE_LABELS: Record<PaneLayer, string> = {
-  art: "Picture, visual plane",
-  depth: "Picture with the priority plane blended over it",
-  "depth-only": "Priority plane",
-  walk: "Picture dimmed, with control lines",
-  "walk-only": "Control lines on the priority plane",
+  art: "Picture",
+  depth: "Picture with its depth blended over it",
+  "depth-only": "Depth",
+  walk: "Picture dimmed, with its walk lines",
+  "walk-only": "Walk lines",
 };
 
 /** The subtitle's parts that add something beyond the title and the PIC chip. */

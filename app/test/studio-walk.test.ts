@@ -137,7 +137,7 @@ describe("walkView: doors and words", () => {
     );
     assert.equal(
       doorStatus({ destination: 2, contract: null }, none).wayBack,
-      "Not in the room's logic until you Keep",
+      "Written into the room when you Keep",
     );
   });
 

@@ -9,10 +9,7 @@ import type { SpriteValidation } from "../../../../src/studio/sprite/spriteValid
 
 /** Kernel refusal patterns, first match wins, each with its plain sentence. */
 const PLAIN: readonly (readonly [RegExp, (match: RegExpMatchArray) => string])[] = [
-  [
-    /is the cel's transparent colour/,
-    () => "The transparent colour can't be painted. Use the eraser to make pixels transparent.",
-  ],
+  [/is the cel's transparent colour/, () => "The eraser (E) paints the transparent colour."],
   [/cannot delete the last cel/, () => "A loop needs at least one cel. Delete the loop instead."],
   [/cannot delete the view's last loop/, () => "A view needs at least one loop."],
   [/already has the maximum (\d+) cels/, (m) => `A loop holds at most ${m[1]} cels here.`],
@@ -22,7 +19,7 @@ const PLAIN: readonly (readonly [RegExp, (match: RegExpMatchArray) => string])[]
     (m) => `Loop ${m[1]} is not an exact mirror of loop ${m[2]}; replace it to link them.`,
   ],
   [/already shares loop (\d+)'s data block/, (m) => `This loop already mirrors loop ${m[1]}.`],
-  [/does not share its data block/, () => "This loop is not linked to another loop."],
+  [/does not share its data block/, () => "This loop has its own pixels."],
   [/a loop cannot mirror itself/, () => "A loop cannot mirror itself."],
   [
     /no stored orientation can display|shares loop \d+'s data block but its cels differ/,

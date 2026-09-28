@@ -252,7 +252,7 @@ test("Shift+drag draws a marquee that selects the items wholly inside it", async
   await expect(studio.getByTestId("selection-name")).toHaveText("2 items selected");
 });
 
-test("Make one item names the bush, keeps the bytes, and stays one item after a reload", async ({
+test("Group names the bush, keeps the bytes, stays one item after a reload, and Ungroup gives the parts back", async ({
   page,
 }) => {
   await bootGame(page);
@@ -266,13 +266,13 @@ test("Make one item names the bush, keeps the bytes, and stays one item after a 
   await expect(page.getByTestId("combine-name")).toHaveValue("Group");
   // The trunk is drawn between the outline and its fill: only neighbours can be one item.
   await expect(page.getByTestId("combine-gap")).toHaveText(
-    "“Element 2” is drawn between them. Only neighbours in the draw order can be made one item.",
+    "“Element 2” is drawn between them. Only neighbours in the draw order can be grouped.",
   );
   await expect(page.getByTestId("combine-make")).toBeDisabled();
   await page.getByTestId("combine-include").click();
   await expect(page.getByTestId("combine-gap")).toHaveCount(0);
   await page.getByTestId("combine-name").fill("Bush");
-  await page.screenshot({ path: "test-results/group-move-make-one-item.png" });
+  await page.screenshot({ path: test.info().outputPath("group-move-group.png") });
   await page.getByTestId("combine-make").click();
   await expect(dialog).toBeHidden();
 
@@ -293,5 +293,26 @@ test("Make one item names the bush, keeps the bytes, and stays one item after a 
   studio = await openStudio(page);
   expect(await rows(studio)).toEqual(["bush", "el-3"]);
   await expect(studio.getByTestId("studio-source-kind")).toHaveText("your source");
+  expect(await draftBytes(page)).toEqual(PIC_5);
+
+  // Ungroup, in the bar for a group: the parts come back as they were, selected, same bytes.
+  await studio.locator('[data-row="bush"]').click();
+  await studio.getByTestId("selection-ungroup").click();
+  expect(await rows(studio)).toEqual(["el-1", "el-2", "el-1-2", "el-3"]);
+  expect(await selectedRows(studio)).toEqual(["el-1", "el-2", "el-1-2"]);
+  expect(await draftBytes(page)).toEqual(PIC_5);
+  await expect(status).toHaveText("1 note change");
+  // ⌘G (Ctrl+G) groups them again, through the dialog, and ⇧⌘G ungroups.
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("ControlOrMeta+g");
+  await expect(page.getByTestId("combine-name")).toHaveValue("Group");
+  // The name field has focus, so Enter groups.
+  await expect(page.getByTestId("combine-name")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("combine-dialog")).toBeHidden();
+  await expect.poll(() => rows(studio)).toEqual(["group", "el-3"]);
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("ControlOrMeta+Shift+g");
+  await expect.poll(() => rows(studio)).toEqual(["el-1", "el-2", "el-1-2", "el-3"]);
   expect(await draftBytes(page)).toEqual(PIC_5);
 });

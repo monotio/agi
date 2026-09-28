@@ -18,6 +18,7 @@ import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { openSprite } from "../../src/view/spriteDocument.ts";
 import { createPictureSurface } from "../../src/types.ts";
 import { cacheGame, configureAi, enterCreateMode, textHook, waitForCycles } from "./engineProbe.ts";
+import { clipped } from "./studioFit.ts";
 
 /**
  * "Ask about this selection" in Room Studio and Sprite Studio on the real
@@ -204,7 +205,8 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   await expect(studio.getByTestId("assist-walkable-unchanged")).toBeHidden();
   await expect(studio.getByTestId("assist-live")).toContainText("Proposal ready");
   // The canvas shows the proposal with its changed cells outlined; Before shows the draft.
-  const compare = studio.getByTestId("assist-compare");
+  // Before and After dock in the options bar, off the picture.
+  const compare = studio.getByTestId("studio-options-bar").getByTestId("assist-compare");
   await expect(compare.getByRole("radio", { name: "After" })).toBeChecked();
   await expect(studio.locator('[data-role="changed"]').first()).toBeVisible();
   const controlLabels = studio.locator('[data-role="control-labels"] text');
@@ -268,7 +270,7 @@ test("Room Studio: a refused proposal shows in the activity, and the retry keeps
   await expect(studio.getByTestId("assist-candidate")).toBeVisible();
   await expect(studio.getByTestId("assist-steps").locator("li")).toHaveText([
     "Read the selection",
-    "Refused: would change the art — trying again",
+    "Refused: would change the art; trying again",
     "Proposed a change",
   ]);
   await shot(page, "room-refusal-retry");
@@ -371,10 +373,16 @@ test("Sprite Studio: make the eyes blue on loop 1, accept, loop 0 unchanged", as
   // The cel canvas outlines the changed pixel of the cel on show.
   await expect(studio.getByTestId("sprite-canvas")).toHaveAttribute("data-changed", "1");
   await shot(page, "sprite-candidate-after");
-  await studio.getByTestId("assist-compare").getByRole("radio", { name: "Before" }).click();
+  await studio
+    .getByTestId("sprite-options-bar")
+    .getByTestId("assist-compare")
+    .getByRole("radio", { name: "Before" })
+    .click();
   await shot(page, "sprite-candidate-before");
   await studio.getByTestId("assist-accept").click();
   await expect(studio.getByTestId("assist-outcome")).toBeVisible();
+  // The outcome reads whole: it fits its box or wraps.
+  expect(await clipped(studio.getByTestId("assist-outcome"))).toEqual([]);
   const edited = openSprite(
     Uint8Array.from(await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()])),
     DEFAULT_V2_PROFILE,
@@ -586,7 +594,7 @@ test("Room Studio: a fill spilling out of the selection is refused in the activi
   await expect(studio.getByTestId("assist-candidate")).toBeVisible();
   await expect(studio.getByTestId("assist-steps").locator("li")).toHaveText([
     "Read the selection",
-    "Refused: would spill a fill outside the selection — trying again",
+    "Refused: would spill a fill outside the selection; trying again",
     "Proposed a change",
   ]);
   // The model read the refusal in words it can act on.

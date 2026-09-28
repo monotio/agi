@@ -446,7 +446,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
       item,
       "Change what a door follows",
       item === null
-        ? "The door box no longer follows the art."
+        ? "The door box now stays where it is when the art moves."
         : `The door box now follows ${options.itemLabel(item)}: moving it moves the door.`,
     );
   }

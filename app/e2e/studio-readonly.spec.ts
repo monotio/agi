@@ -278,7 +278,8 @@ test("Alt+arrow keys on the canvas step through items; ⌘\\ is focus mode, Tab 
 
 test("studio shortcuts keep working after clicking studio controls", async ({ page }) => {
   await open(page, "demo");
-  const lens = (name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
+  const lens = (name: string) =>
+    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
   await lens("Walk").click();
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
@@ -365,16 +366,17 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
         seen.push(`${type}:${(event as KeyboardEvent).key}`),
       );
   });
-  const lens = (name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
+  const lens = (name: string) =>
+    page.getByTestId("studio-lens").getByRole("radio", { name: new RegExp(`^${name}`) });
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
   await expect(page.locator('[data-role="band-guides"]')).toHaveCount(1);
   await page.keyboard.press("3");
   await expect(lens("Walk")).toHaveAttribute("aria-checked", "true");
-  // The legend folds into the options bar: opened on purpose, it lists the control lines.
-  await expect(page.locator('[data-role="control-legend"]')).toHaveCount(0);
-  await page.getByTestId("studio-legend-toggle").click();
-  await expect(page.locator('[data-role="control-legend"]')).toContainText("0 · barrier");
+  // The Walk panel lists the walk lines, off the picture.
+  await expect(page.locator('.studio__inspector [data-role="control-legend"]')).toContainText(
+    "0 · barrier",
+  );
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
 
@@ -396,7 +398,12 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
     [],
   );
 
+  // Esc with nothing in hand stays in Studio: the × closes it.
   await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
+    0,
+  );
+  await page.getByTestId("studio-close").click();
   expect(await page.evaluate(() => (window as unknown as HarnessWindow).studioHarness.closes)).toBe(
     1,
   );

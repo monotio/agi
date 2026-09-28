@@ -220,7 +220,7 @@ describe("useStudioAssist", () => {
     await studio.assist.ask("bad: repaint the bridge, then make it walkable");
     assert.deepEqual(studio.assist.steps.value, [
       "Read the selection",
-      "Refused: would change the art — trying again",
+      "Refused: would change the art; trying again",
       "Proposed a change",
     ]);
     assert.equal(studio.assist.candidate.value?.candidateId, "c2");
@@ -529,7 +529,7 @@ describe("assist words", () => {
         entry("error", "[Studio] propose_edit -> Refused", refused),
         entry("request", "[Studio] propose_edit"),
       ]),
-      ["Reading the selection…", "Refused: would change the depth — trying again", "Proposing…"],
+      ["Reading the selection…", "Refused: would change the depth; trying again", "Proposing…"],
     );
   });
 

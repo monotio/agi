@@ -1,8 +1,8 @@
 /**
- * Room Studio's edit commands for the selection — nudge, duplicate, delete,
- * reorder, colour, label/kind/lock and single points (moved or added) for
- * one item; nudge, duplicate, delete, priority and "Make one item" for
- * several — each one kernel edit (a batch for several items) and one undo
+ * Room Studio's edit commands for the selection: nudge, duplicate, delete,
+ * reorder, colour, label/kind/lock, single points (moved or added) and
+ * Ungroup for one item; nudge, duplicate, delete, priority and Group for
+ * several. Each is one kernel edit (a batch for several items) and one undo
  * step, and the short notice that says what was refused (with the refused
  * cells flashed on the canvas) or kept. Draw order moves one item at a time.
  */
@@ -10,6 +10,7 @@
 import { computed, onScopeDispose, shallowRef, type Ref } from "vue";
 import type { EditOperation } from "../../../src/studio/editOperations.ts";
 import {
+  groupPart,
   itemRun,
   type PictureItem,
   type PictureItemKind,
@@ -34,7 +35,7 @@ export function useStudioEditing(options: {
   readonly selectedId: Ref<string | undefined>;
   /** The items the selection covers, in draw order; the selected item alone when absent. */
   readonly itemIds?: () => readonly string[];
-  /** Select exactly these items (the copies after a Duplicate, the new item after Make one). */
+  /** Select exactly these items: the copies after Duplicate, the group, or its parts after Ungroup. */
   readonly selectItems?: (ids: readonly string[]) => void;
   /** Editing is blocked (view only, or a Keep that needs a reload). */
   readonly frozen: () => boolean;
@@ -42,7 +43,7 @@ export function useStudioEditing(options: {
   readonly paused?: () => boolean;
 }) {
   const { draft, selectedId } = options;
-  const { notice, say, hold } = useStudioNotice();
+  const { notice, say, dismiss } = useStudioNotice();
   const flash = shallowRef<Uint8Array | null>(null);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   onScopeDispose(() => clearTimeout(flashTimer));
@@ -168,7 +169,7 @@ export function useStudioEditing(options: {
           plane === "visual" ? "Colour" : "Priority",
         );
 
-  /** The items between the selected ones that "Make one item" would need too, in draw order. */
+  /** The items between the selected ones that Group would need too, in draw order. */
   const between = computed(() =>
     itemRun(
       draft.document.value,
@@ -177,9 +178,9 @@ export function useStudioEditing(options: {
   );
 
   /**
-   * "Make one item": the selected neighbours become one item named `label`,
-   * with the same bytes. Refused (with a notice) for items that are not
-   * neighbours in the draw order.
+   * Group: the selected neighbours become one item named `label`, with the
+   * same bytes. Refused (with a notice) for items that are not neighbours in
+   * the draw order.
    */
   function combine(label: string): boolean {
     const list = editableItems.value;
@@ -189,11 +190,42 @@ export function useStudioEditing(options: {
     const id = itemIdFor(draft.document.value, name, ids);
     const outcome = draft.apply(
       { type: "combineItems", itemIds: ids, id, label: name },
-      `Make one item ${name}`,
+      `Group ${name}`,
     );
     report(outcome);
     if (outcome.ok) select([id]);
     return outcome.ok;
+  }
+
+  /** The selected item was grouped here: its members' own items wait inside it. */
+  const grouped = computed(() => {
+    const target = item.value;
+    if (!target) return false;
+    const lines = draft.document.value.lines.slice(target.openLine, target.closeLine - 1);
+    return lines.some((line) => groupPart(line) !== undefined);
+  });
+
+  /**
+   * Ungroup: the selected item becomes separate items again, its members as
+   * they were grouped or one per drawing element, with the same bytes; they
+   * are selected after.
+   */
+  function ungroup(): boolean {
+    const target = editable.value;
+    if (!target || several.value) return false;
+    const before = new Set(draft.document.value.items.map((entry) => entry.id));
+    const outcome = draft.apply(
+      { type: "ungroupItem", itemId: target.id },
+      `Ungroup ${target.label}`,
+    );
+    report(outcome);
+    if (!outcome.ok) return false;
+    const document = draft.document.value;
+    const inside = document.items.filter(
+      (entry) => !before.has(entry.id) || entry.id === target.id,
+    );
+    select(inside.map((entry) => entry.id));
+    return true;
   }
 
   const setMeta = (patch: ItemMetaPatch): boolean =>
@@ -225,7 +257,7 @@ export function useStudioEditing(options: {
     notice,
     flash,
     say,
-    hold,
+    dismiss,
     report,
     nudge,
     duplicate,
@@ -233,6 +265,8 @@ export function useStudioEditing(options: {
     reorder,
     setColour,
     combine,
+    grouped,
+    ungroup,
     setMeta,
     setPoint,
     insertPoint,

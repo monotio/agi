@@ -91,7 +91,7 @@ describe("useStudioDraft", () => {
     assert.equal(draft.preview.value, null, "the preview snaps back to the start");
     const end = draft.endGesture(move("occ", 45, 0), "Move Occluder");
     assert.ok(!end.ok && end.refusal.kind === "kernel");
-    assert.equal(end.refusal.message, "Can't move it further right — it would leave the picture.");
+    assert.equal(end.refusal.message, "Can't move it further right: it would leave the picture.");
     assert.match(end.refusal.detail ?? "", /off the surface at 164,105/);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.history.value.past.length, 0);
@@ -394,7 +394,7 @@ describe("several items as one", () => {
         frozen: () => false,
       }),
     )!;
-    return { draft, editing, selection, scope };
+    return { draft, editing, selection, selectedId, scope };
   }
 
   it("nudges, duplicates and deletes the selection, each as one step", () => {
@@ -442,8 +442,8 @@ describe("several items as one", () => {
     scope.stop();
   });
 
-  it("makes the selection one named item without changing a byte", () => {
-    const { draft, editing, selection, scope } = editingRig();
+  it("groups the selection as one named item and ungroups it, without changing a byte", () => {
+    const { draft, editing, selection, selectedId, scope } = editingRig();
     const bytes = draft.compiled.value.bytes;
     assert.equal(editing.combine("Red box"), true);
     assert.deepEqual(selection.ids, ["red-box"]);
@@ -459,14 +459,26 @@ describe("several items as one", () => {
     assert.deepEqual([draft.changes.value, draft.notesOnly.value], [1, true]);
     assert.deepEqual(
       draft.history.value.past.map((step) => step.label),
-      ["Make one item Red box"],
+      ["Group Red box"],
     );
+    // Ungroup gives the members back as they were, selected, in one more step.
+    const grouped = draft.source.value;
+    selection.ids = ["red-box"];
+    selectedId.value = "red-box";
+    assert.equal(editing.grouped.value, true);
+    assert.equal(editing.ungroup(), true);
+    assert.equal(draft.source.value, SOURCE);
+    assert.deepEqual(selection.ids, ["box", "paint"]);
+    assert.deepEqual(draft.compiled.value.bytes, bytes);
+    assert.equal(draft.history.value.past.at(-1)?.label, "Ungroup Red box");
+    assert.equal(draft.undo(), true);
+    assert.equal(draft.source.value, grouped);
     // Not neighbours: the box and the occluder have the paint between them.
     selection.ids = ["red-box", "edge"];
     assert.equal(editing.combine("Group"), false);
     assert.equal(
       editing.notice.value?.text,
-      "Only neighbours in the draw order can be made one item: select the items between them too.",
+      "Only neighbours in the draw order can be grouped: select the items between them too.",
     );
     scope.stop();
   });

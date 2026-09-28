@@ -177,7 +177,7 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   const gridNow = gridWas === "true" ? "false" : "true";
   await grid.click();
   await expect(grid).toHaveAttribute("aria-checked", gridNow);
-  await expect(menu.getByRole("menuitemcheckbox", { name: "Baseline" })).toBeVisible();
+  await expect(menu.getByRole("menuitemcheckbox", { name: "Feet" })).toBeVisible();
   const light = menu.getByRole("menuitemradio", { name: "Light checker" });
   await light.click();
   await expect(light).toHaveAttribute("aria-checked", "true");

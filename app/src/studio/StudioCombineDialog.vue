@@ -4,8 +4,8 @@ import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 
 /**
- * "Make one item": the selected items become one item with the name typed
- * here (Group by default). Only neighbours in the draw order can: the
+ * Group: the selected items become one item with the name typed here
+ * (Group by default); Ungroup (Shift+Cmd/Ctrl+G) gives them back. Only neighbours in the draw order can: the
  * picture draws its commands in order, so the items drawn between them would
  * have to move and change the picture. For a gap of items the dialog offers
  * to include them; loose drawing between them rules it out. The picture's
@@ -46,8 +46,8 @@ function make(): void {
   <UiDialog
     v-model:open="open"
     size="sm"
-    title="Make one item"
-    :description="`The ${count} selected items become one item in the Scene list. The picture stays exactly as it is.`"
+    title="Group"
+    :description="`The ${count} selected items become one group in the Scene list. The picture stays exactly as it is.`"
     close-testid="combine-close"
   >
     <form class="combine" data-testid="combine-dialog" @submit.prevent="make">
@@ -58,14 +58,27 @@ function make(): void {
         class="combine__input"
         maxlength="60"
         autocomplete="off"
+        autofocus
         data-testid="combine-name"
       />
-      <p v-if="between.length > 0" class="combine__gap" role="alert" data-testid="combine-gap">
+      <p
+        v-if="between.length > 0"
+        id="combine-gap"
+        class="combine__gap"
+        role="alert"
+        data-testid="combine-gap"
+      >
         {{ quoteList(between) }} {{ between.length === 1 ? "is" : "are" }} drawn between them. Only
-        neighbours in the draw order can be made one item.
+        neighbours in the draw order can be grouped.
       </p>
-      <p v-else-if="loose" class="combine__gap" role="alert" data-testid="combine-gap">
-        Drawing that belongs to no item sits between them, so they can't be made one item.
+      <p
+        v-else-if="loose"
+        id="combine-gap"
+        class="combine__gap"
+        role="alert"
+        data-testid="combine-gap"
+      >
+        Drawing that belongs to no item sits between them, so they can't be grouped.
       </p>
     </form>
     <template #footer>
@@ -80,9 +93,10 @@ function make(): void {
       <UiButton
         variant="primary"
         :disabled="between.length > 0 || loose"
+        :aria-describedby="between.length > 0 || loose ? 'combine-gap' : undefined"
         data-testid="combine-make"
         @click="make"
-        >Make one item</UiButton
+        >Group</UiButton
       >
     </template>
   </UiDialog>

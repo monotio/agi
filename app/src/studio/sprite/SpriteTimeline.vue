@@ -199,6 +199,8 @@ interface MenuItem {
   readonly label: string;
   readonly hint?: string;
   readonly disabled?: boolean;
+  /** Why the item is off, on its tooltip. */
+  readonly why?: string;
   readonly danger?: boolean;
   /** The item turns the menu into the loop picker instead of closing it. */
   readonly picks?: boolean;
@@ -254,6 +256,10 @@ function onMenuFocusOut(event: FocusEvent): void {
 }
 
 /** The loop picker: every loop (a move skips the cel's own), then Back. */
+/** Why the timeline's edits are off, on their tooltips. */
+const PAUSED = "Editing waits while the view is view only or an AI proposal is open";
+const ONE_CEL = "A loop keeps at least one cel";
+
 function loopPicker(l: number, c: number, pick: "copy" | "move"): MenuItem[][] {
   const loops = document.loops.flatMap((_, target) => {
     if (pick === "move" && target === l) return [];
@@ -289,13 +295,21 @@ const menuItems = computed<MenuItem[][]>(() => {
         label: "Move to loop…",
         picks: true,
         disabled: count === 1 || document.loops.length === 1,
+        why: count === 1 ? ONE_CEL : "The view has one loop",
         run: () => pickLoop("move"),
       },
-      { label: "Move cel left", hint: "⌥←", disabled: c === 0, run: () => moveCel(l, c, c - 1) },
+      {
+        label: "Move cel left",
+        hint: "⌥←",
+        disabled: c === 0,
+        why: "This cel is first",
+        run: () => moveCel(l, c, c - 1),
+      },
       {
         label: "Move cel right",
         hint: "⌥→",
         disabled: c >= count - 1,
+        why: "This cel is last",
         run: () => moveCel(l, c, c + 1),
       },
       {
@@ -307,6 +321,7 @@ const menuItems = computed<MenuItem[][]>(() => {
         hint: "Del",
         danger: true,
         disabled: count === 1,
+        why: ONE_CEL,
         run: () => deleteCel(l, c),
       },
     ]);
@@ -346,6 +361,7 @@ const menuItems = computed<MenuItem[][]>(() => {
     label: "Delete loop",
     danger: true,
     disabled: document.loops.length === 1,
+    why: "A view keeps at least one loop",
     run: () => {
       edit({ type: "deleteLoop", loop: l }, "Delete loop");
       select(Math.max(0, Math.min(l, document.loops.length - 2)), 0, true);
@@ -468,6 +484,7 @@ function onMenuKey(event: KeyboardEvent): void {
             class="timeline__add"
             :aria-label="`Add a blank cel to loop ${row.index}`"
             :disabled="frozen"
+            :title="frozen ? PAUSED : `Add a blank cel to loop ${row.index}`"
             :data-drop-loop="row.index"
             :data-drop-at="row.cels.length"
             :class="{
@@ -507,6 +524,7 @@ function onMenuKey(event: KeyboardEvent): void {
           role="menuitem"
           :class="{ 'is-danger': item.danger }"
           :disabled="item.disabled || frozen"
+          :title="frozen ? PAUSED : item.disabled ? item.why : undefined"
           @click="runItem(item)"
         >
           <span>{{ item.label }}</span>

@@ -8,6 +8,7 @@
 import { TIMER_INCREMENT_MS } from "../../../../src/runtime/cycleClock.ts";
 import type { PixelChange } from "../../../../src/studio/sprite/spriteCels.ts";
 import type { SpriteCel, SpriteDocument } from "../../../../src/view/spriteDocument.ts";
+import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
 import { HOST_POLL_MS } from "../../worker/cycle.ts";
 
@@ -374,4 +375,15 @@ function luminance([r, g, b]: readonly [number, number, number]): number {
 export function swatchInk(colour: number): "var(--agi-0)" | "var(--agi-15)" {
   const l = luminance(EGA_PALETTE[colour] ?? [0, 0, 0]);
   return (l + 0.05) / 0.05 >= 1.05 / (l + 0.05) ? "var(--agi-0)" : "var(--agi-15)";
+}
+
+/**
+ * The top bar's usage chip: one room or logic by number, several by count
+ * ("Used by 7 rooms"); the side panel lists them (SpriteMirrorNote).
+ */
+export function usageChip(usage: ViewUsage): string {
+  const { rooms, logics } = usage;
+  if (rooms.length > 1) return `Used by ${rooms.length} rooms`;
+  if (rooms.length === 0 && logics.length > 1) return `Used by ${logics.length} logics`;
+  return usageText(usage);
 }

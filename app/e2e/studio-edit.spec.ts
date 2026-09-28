@@ -367,9 +367,12 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("studio-dialog-keep")).toBeHidden();
   await expect(studio).toBeVisible();
-  // The closed dialog hands focus back to Studio; only then does Esc reach it.
+  // The closed dialog hands focus back to Studio, where Esc with nothing in hand stays.
   await expect.poll(() => studioFocused(studio)).toBe(true);
   await page.keyboard.press("Escape");
+  await expect(page.getByTestId("studio-dialog-keep")).toBeHidden();
+  await expect(studio).toBeVisible();
+  await studio.getByTestId("studio-close").click();
   await expect(page.getByTestId("studio-dialog-keep")).toBeVisible();
   await page.getByTestId("studio-dialog-discard").click();
   await expect(studio).toHaveCount(0);

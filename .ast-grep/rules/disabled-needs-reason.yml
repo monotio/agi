@@ -11,8 +11,8 @@ note: |
   BAD:  <UiButton :disabled="!room.built" @click="open">Open</UiButton>
   GOOD: <UiButton :disabled="!room.built" :title="room.built ? '' : 'Build the room first'">Open</UiButton>
 files:
-  # Widen to app/src/studio/** when the Studio lane lands.
   - app/src/world/**/*.vue
+  - app/src/studio/**/*.vue
 rule:
   any:
     - kind: start_tag

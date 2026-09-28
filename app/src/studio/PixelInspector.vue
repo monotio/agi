@@ -20,7 +20,8 @@ interface InspectorCommand {
  * explains whether that fill reaches it. An editable item's editor goes in
  * the `editor` slot and replaces the read-only colour and priority lists;
  * a view's own panel (the Walk view's) goes in the `lead` slot above it all,
- * and "Ask about this selection" in the `assist` slot under the editor.
+ * and "Ask about this selection" in the `assist` slot, above the editor's
+ * points and appearance, where it shows without scrolling.
  */
 const {
   row,
@@ -72,8 +73,12 @@ const planes = computed(() =>
       ] as const)
     : [],
 );
-const writer = (plane: PlanePixel): string =>
-  plane.entry === null ? "not drawn (initial value)" : `#${plane.entry + 1} ${plane.text ?? ""}`;
+/** The command that last wrote a plane: its number and verb, then the rest on expand. */
+function writer(plane: PlanePixel): { head: string; rest: string } {
+  if (plane.entry === null) return { head: "not drawn (initial value)", rest: "" };
+  const [verb = "", ...rest] = (plane.text ?? "").trim().split(/\s+/);
+  return { head: `#${plane.entry + 1} ${verb}`.trim(), rest: rest.join(" ") };
+}
 </script>
 
 <template>
@@ -83,13 +88,13 @@ const writer = (plane: PlanePixel): string =>
       <h2>{{ row ? row.label : "Nothing selected" }}</h2>
       <p>{{ row ? summary : "Click an item in the Scene list or a pixel on the canvas." }}</p>
     </header>
-    <slot name="editor" />
     <slot name="assist" />
+    <slot name="editor" />
 
     <section v-if="pixel" class="inspector__sec" data-role="pixel">
       <h3>
         Pixel {{ pixel.x }},{{ pixel.y }}
-        <em>{{ pinned ? "clicked" : "under the pointer" }} · band {{ priorityForY(pixel.y) }}</em>
+        <em>{{ pinned ? "clicked" : "under the pointer" }} · depth {{ priorityForY(pixel.y) }}</em>
       </h3>
       <dl class="inspector__planes">
         <template v-for="[name, plane, value] in planes" :key="name">
@@ -103,7 +108,13 @@ const writer = (plane: PlanePixel): string =>
               ></i>
               {{ value }}
             </span>
-            <span class="inspector__writer">{{ writer(plane) }}</span>
+            <details v-if="writer(plane).rest" class="inspector__writer" data-role="writer">
+              <summary>{{ writer(plane).head }}</summary>
+              <span>{{ writer(plane).rest }}</span>
+            </details>
+            <span v-else class="inspector__writer" data-role="writer">{{
+              writer(plane).head
+            }}</span>
             <button
               v-if="plane.rowId"
               type="button"
@@ -254,11 +265,12 @@ const writer = (plane: PlanePixel): string =>
   box-shadow: inset 0 0 0 1px var(--hairline-strong);
 }
 .inspector__writer {
-  overflow: hidden;
   color: var(--ink-2);
   font-family: var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+.inspector__writer summary {
+  cursor: pointer;
 }
 .inspector__link {
   justify-self: start;

@@ -11,8 +11,8 @@ import type { StudioEditing } from "./useStudioEditing.ts";
  * The selection's actions, docked in the options bar above the canvas while
  * the Select tool has a selection: its name (or "N items selected"), then
  * Duplicate, the priority value (a picker that opens below it), Delete,
- * Make one item (for several) and Ask, which opens "Ask about this
- * selection" in the inspector. Each applies to the whole selection as one
+ * Group (for several) or Ungroup (for a group) and Ask, which opens "Ask
+ * about this selection" in the inspector. Each applies to the whole selection as one
  * step. Nothing floats over the picture; short of room (`fold`) the actions
  * first show as icons (their names as tooltips), then fold into More, and
  * at 4 the name gives way (the inspector still shows it).
@@ -25,6 +25,7 @@ const {
   depthValuesLocked,
   edit,
   askable = false,
+  grouped = false,
   fold = 0,
 } = defineProps<{
   /** The selection's name, or "N items selected". */
@@ -39,9 +40,11 @@ const {
   edit: StudioEditing;
   /** The game's AI can be asked here (not in the Studio harness). */
   askable?: boolean;
+  /** The one selected item is a group: it can be ungrouped. */
+  grouped?: boolean;
   fold?: number;
 }>();
-const emit = defineEmits<{ ask: []; combine: [] }>();
+const emit = defineEmits<{ ask: []; combine: []; ungroup: [] }>();
 const open = defineModel<boolean>("open", { required: true });
 const pickerId = useId();
 const NO_ASK = "AI edits need the game's assistant";
@@ -54,7 +57,7 @@ interface Action {
   readonly shortcut?: string;
   readonly disabled?: boolean;
 }
-/** Duplicate and Delete, then Make one item (several) and Ask: the actions beside Priority. */
+/** Duplicate and Delete, then Group (several) or Ungroup (a group) and Ask: the actions beside Priority. */
 const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
   before: [
     {
@@ -71,12 +74,23 @@ const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
       ? [
           {
             id: "combine",
-            text: "Make one item",
+            text: "Group",
             icon: "layers",
+            shortcut: "⌘G",
             run: () => emit("combine"),
           } as const,
         ]
-      : []),
+      : grouped
+        ? [
+            {
+              id: "ungroup",
+              text: "Ungroup",
+              icon: "unlink",
+              shortcut: "⇧⌘G",
+              run: () => emit("ungroup"),
+            } as const,
+          ]
+        : []),
     {
       id: "ask",
       text: "Ask",
@@ -171,6 +185,7 @@ function pick(value: number | null): void {
             size="sm"
             :icon="action.icon"
             :disabled="action.disabled"
+            :title="action.disabled ? NO_ASK : undefined"
             :data-testid="`selection-${action.id}`"
             @click="action.run"
             >{{ action.text }}</UiButton
@@ -183,6 +198,11 @@ function pick(value: number | null): void {
           :label="iconTitle(action)"
           :shortcut="action.shortcut"
           :disabled="action.disabled"
+          :title="
+            action.disabled || !action.shortcut
+              ? iconTitle(action)
+              : `${iconTitle(action)} (${action.shortcut})`
+          "
           :data-testid="`selection-${action.id}`"
           @click="action.run"
         />
@@ -202,7 +222,7 @@ function pick(value: number | null): void {
           action.id === "ask"
             ? "Ask about this selection"
             : action.id === "combine"
-              ? "Make one item…"
+              ? "Group…"
               : action.text
         }}
       </button>

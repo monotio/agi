@@ -23,8 +23,14 @@
 
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
 import { compilePictureSource, PictureSourceSyntaxError } from "../picture/source.ts";
+import { groupPictureElements } from "../picture/elements.ts";
+import { kindOf } from "./nativeItems.ts";
 import {
+  groupPart,
   itemRun,
+  partLine,
+  PART_END_LINE,
+  pictureCommandText,
   parsePictureDocument,
   PICTURE_ITEM_ID,
   pictureItemAtLine,
@@ -64,6 +70,7 @@ import {
   stateBefore,
   type Context,
   type EditSuccess,
+  type Line,
   type Slot,
 } from "./editSegments.ts";
 
@@ -138,15 +145,26 @@ export type EditOperation =
     }
   | {
       /**
-       * Make neighbouring items one item: one `@item` over their lines, the
-       * commands in draw order, so the bytes never change. Refused when
-       * another item or a loose command is drawn between them.
+       * Group: neighbouring items become one item, one `@item` over their
+       * lines, the commands in draw order, so the bytes never change. Each
+       * member's own item stays as `# part` comments for Ungroup. Refused
+       * when another item or a loose command is drawn between them.
        */
       readonly type: "combineItems";
       readonly itemIds: readonly string[];
       /** The new item's id: unused, or one of the members'. */
       readonly id: string;
       readonly label: string;
+    }
+  | {
+      /**
+       * Ungroup: the item becomes separate items again, bytes unchanged.
+       * A group's `# part` comments come back as the items they were when
+       * they can exactly; otherwise it splits per drawing element, named as
+       * inferred elements are (`el-N "Element N"`).
+       */
+      readonly type: "ungroupItem";
+      readonly itemId: string;
     }
   | {
       readonly type: "setItemMeta";
@@ -480,17 +498,106 @@ function combineItems(
   if (op.label.trim().length === 0) throw new EditRefusal("an item needs a non-empty label");
   const kinds = new Set(members.map((item) => item.kind));
   const kind = kinds.size === 1 ? first.kind : "mixed";
-  /** The members' own `@item` and `@end` lines, which the one new pair replaces. */
-  const directives = new Set(members.flatMap((item) => [item.openLine, item.closeLine]));
+  /** The members' own `@item` and `@end` lines become their `# part` comments. */
+  const opens = new Map(members.map((item) => [item.openLine, item]));
+  const closes = new Set(members.map((item) => item.closeLine));
   return finish(
     [
       ...inputLines(ctx, 1, first.openLine - 1),
       newLine(ctx, directive(op.id, op.label, kind, false)),
-      ...inputLines(ctx, first.openLine + 1, last.closeLine - 1).filter(
-        (line) => !directives.has(line.from!),
-      ),
+      ...inputLines(ctx, first.openLine, last.closeLine).map((line) => {
+        const member = opens.get(line.from!);
+        if (member) return newLine(ctx, partLine(member.id, member.label, member.kind));
+        return closes.has(line.from!) ? newLine(ctx, PART_END_LINE) : line;
+      }),
       newLine(ctx, "# @end"),
       ...inputLines(ctx, last.closeLine + 1, ctx.lines.length),
+    ],
+    ctx,
+  );
+}
+
+/**
+ * A group's body with its `# part` comments turned back into the items they
+ * were, or null when that can't be exact: a marker out of pairs, an id
+ * another item holds, or a command outside every part.
+ */
+function restoredParts(ctx: Context, group: PictureItem): Line[] | null {
+  const taken = new Set(ctx.document.items.filter((item) => item !== group).map((item) => item.id));
+  const out: Line[] = [];
+  let open = false;
+  let parts = 0;
+  for (const line of bodyOf(ctx, group)) {
+    const part = groupPart(line.text);
+    if (part === "end") {
+      if (!open) return null;
+      open = false;
+      out.push(newLine(ctx, "# @end"));
+    } else if (part) {
+      if (open || taken.has(part.id)) return null;
+      taken.add(part.id);
+      open = true;
+      parts++;
+      out.push(newLine(ctx, directive(part.id, part.label, part.kind, false)));
+    } else {
+      if (!open && pictureCommandText(line.text).length > 0) return null;
+      out.push(line);
+    }
+  }
+  return !open && parts > 0 ? out : null;
+}
+
+/**
+ * The item's body split into one item per drawing element run, named as
+ * `inferNativeItems` names them (`el-N`, then `el-N-2` for a later run or a
+ * taken id). Lines that belong to no element stay loose; stray `# part`
+ * comments are dropped.
+ */
+function elementParts(ctx: Context, item: PictureItem): Line[] {
+  const groups = groupPictureElements(ctx.lines.join("\n"), {
+    profile: ctx.profile,
+    joinContinuations: true,
+  });
+  const taken = new Set(ctx.document.items.filter((other) => other !== item).map((o) => o.id));
+  const body = bodyOf(ctx, item).filter((line) => groupPart(line.text) === undefined);
+  const out: Line[] = [];
+  let runs = 0;
+  for (let k = 0; k < body.length;) {
+    const element = groups.elementOf[body[k]!.from! - 1] ?? 0;
+    if (element === 0) {
+      out.push(body[k++]!);
+      continue;
+    }
+    let end = k;
+    while (end + 1 < body.length && groups.elementOf[body[end + 1]!.from! - 1] === element) end++;
+    let planes = 0;
+    for (let j = k; j <= end; j++) planes |= groups.planes[body[j]!.from! - 1] ?? 0;
+    let part = 1;
+    while (taken.has(part === 1 ? `el-${element}` : `el-${element}-${part}`)) part++;
+    const id = part === 1 ? `el-${element}` : `el-${element}-${part}`;
+    taken.add(id);
+    runs++;
+    const label = part === 1 ? `Element ${element}` : `Element ${element} part ${part}`;
+    out.push(newLine(ctx, directive(id, label, kindOf(planes), false)));
+    out.push(...body.slice(k, end + 1));
+    out.push(newLine(ctx, "# @end"));
+    k = end + 1;
+  }
+  if (runs < 2)
+    throw new EditRefusal(`'${item.id}' is one drawing element: there is nothing to ungroup`);
+  return out;
+}
+
+function ungroupItem(
+  ctx: Context,
+  op: Extract<EditOperation, { type: "ungroupItem" }>,
+): EditResult {
+  const item = editableItem(ctx, op.itemId);
+  return finish(
+    [
+      ...inputLines(ctx, 1, item.openLine - 1),
+      ...(restoredParts(ctx, item) ?? elementParts(ctx, item)),
+      ...inputLines(ctx, item.closeLine + 1, ctx.lines.length),
     ],
     ctx,
   );
@@ -540,6 +647,8 @@ function dispatch(ctx: Context, op: EditOperation): EditResult {
       return setItemMeta(ctx, op);
     case "combineItems":
       return combineItems(ctx, op);
+    case "ungroupItem":
+      return ungroupItem(ctx, op);
   }
 }
 

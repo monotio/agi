@@ -56,8 +56,8 @@ const priorityNote = computed(() => {
   if (value === undefined) return "draws several values";
   if (value === null) return "draws no priority";
   const control = CONTROL_VALUES[value];
-  if (control) return `${control.name}: a control line, not depth`;
-  if (value === 4) return "background: hides no actor";
+  if (control) return `${control.name}: a control line`;
+  if (value === 4) return "background: every actor draws in front of it";
   const top = bandTop(value);
   return top === undefined ? "hides every actor" : `hides actors above y ${top}`;
 });

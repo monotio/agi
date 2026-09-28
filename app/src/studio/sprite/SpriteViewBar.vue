@@ -117,7 +117,7 @@ const CHECKERS = [
           data-testid="sprite-baseline-toggle"
           @click="baseline = !baseline"
         >
-          Baseline
+          Feet
         </button>
       </template>
     </template>
@@ -149,7 +149,7 @@ const CHECKERS = [
           data-testid="sprite-more-baseline"
           @click="baseline = !baseline"
         >
-          <UiIcon name="check" :size="16" class="sprite-more__check" />Baseline
+          <UiIcon name="check" :size="16" class="sprite-more__check" />Feet
         </button>
       </template>
       <div role="separator"></div>

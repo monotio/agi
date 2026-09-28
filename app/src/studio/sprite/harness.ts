@@ -4,7 +4,8 @@
 // logics for the usage. Keep succeeds in memory (each kept edit lands in
 // `spriteHarness.kept`); `&keep=stale|install|storage` makes it refuse with
 // that code instead; `&staged=1` opens the view as a staged character-sheet
-// candidate. The sprite kernel is on `window.spriteHarness` so browser tests
+// candidate; `&rooms=N` says rooms 1 to N use the view (a long usage). The
+// sprite kernel is on `window.spriteHarness` so browser tests
 // compute expectations independently.
 import { createApp, h, ref } from "vue";
 import "../../styles/tokens.css";
@@ -29,6 +30,11 @@ if (!source) throw new Error(`sprite harness: the tutorial has no VIEW ${viewNum
 const revision = (n: number) => requireResourceRevision(n.toString(16).padStart(64, "0"));
 const kept: { edit: ViewEdit; staged: string | undefined }[] = [];
 const refusal = params.get("keep");
+const usedBy = Number(params.get("rooms") ?? "0");
+const usage =
+  usedBy > 0
+    ? { ...source.usage, rooms: Array.from({ length: usedBy }, (_, k) => k + 1) }
+    : source.usage;
 const closes = ref(0);
 const reopens = ref(0);
 const keep: SpriteKeepFn = async (edit, staged) => {
@@ -68,7 +74,7 @@ createApp({
       baseRevision: revision(1),
       keep,
       files: source.files,
-      usage: source.usage,
+      usage,
       rooms: source.rooms,
       // The tutorial's logic 0 boots with v10 = 1.
       speed: 1,

@@ -71,7 +71,7 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
         Stipple
       </label>
       <label v-if="stipple" class="tool-options__field">
-        Seed
+        Pattern
         <input
           type="number"
           min="0"

@@ -257,7 +257,7 @@ function onLeave(): void {
       @pointerleave="onLeave"
     ></canvas>
     <div v-if="baseline" class="sprite-canvas__baseline" data-testid="sprite-baseline">
-      <span>baseline · feet</span>
+      <span>feet</span>
     </div>
   </div>
 </template>

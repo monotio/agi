@@ -719,15 +719,22 @@ describe("applyEdit combineItems", () => {
 
   it("wraps a run of neighbours in one item, commands in draw order, bytes unchanged", () => {
     const [lines, changed] = edit(parts, combine(["el-2", "el-1", "el-3"]));
+    // Each member's own item stays as plain comments, so Ungroup can restore it.
     assert.deepEqual(lines, [
       '# @item bush "Bush" mixed',
+      '# part el-1 "Element 1" art',
       "vis 2",
       "rect 10,10 30,20",
+      "# end part",
       "",
+      '# part el-2 "Element 2" art',
       "vis 10",
       "fill 20,15",
+      "# end part",
+      '# part el-3 "Element 3" depth',
       "pri 9",
       "line 10,21 30,21",
+      "# end part",
       "# @end",
       "line 0,0 5,0",
       '# @item el-4 "Element 4" art',
@@ -736,7 +743,7 @@ describe("applyEdit combineItems", () => {
       "# @end",
       "end",
     ]);
-    assert.deepEqual(changed, [1, 9]);
+    assert.deepEqual(changed, [1, 2, 5, 7, 10, 11, 14, 15]);
     const before = compilePictureSource(serializePictureDocument(parts)).bytes;
     const after = compilePictureSource(lines.join("\n")).bytes;
     assert.deepEqual(after, before);
@@ -757,9 +764,9 @@ describe("applyEdit combineItems", () => {
           label: "Bush",
           kind: "mixed",
           locked: false,
-          commandLines: [2, 3, 5, 6, 7, 8],
+          commandLines: [3, 4, 8, 9, 12, 13],
         },
-        { id: "el-4", label: "Element 4", kind: "art", locked: false, commandLines: [12, 13] },
+        { id: "el-4", label: "Element 4", kind: "art", locked: false, commandLines: [18, 19] },
       ],
     );
   });
@@ -776,8 +783,19 @@ describe("applyEdit combineItems", () => {
       "",
     );
     assert.deepEqual(edit(crlf, combine(["el-1", "el-2"], "pair", "Pair")), [
-      ['# @item pair "Pair" art\r', "vis 2\r", "line 0,0 3,0\r", "line 0,2 3,2\r", "# @end\r", ""],
-      [1, 5],
+      [
+        '# @item pair "Pair" art\r',
+        '# part el-1 "Element 1" art\r',
+        "vis 2\r",
+        "line 0,0 3,0\r",
+        "# end part\r",
+        '# part el-2 "Element 2" art\r',
+        "line 0,2 3,2\r",
+        "# end part\r",
+        "# @end\r",
+        "",
+      ],
+      [1, 2, 5, 6, 8, 9],
     ]);
   });
 
@@ -812,5 +830,121 @@ describe("applyEdit combineItems", () => {
     // A member's own id may name the combined item.
     const [lines] = edit(parts, combine(["el-1", "el-2"], "el-1", "Bush"));
     assert.equal(lines[0], '# @item el-1 "Bush" art');
+  });
+});
+
+describe("applyEdit ungroupItem", () => {
+  const parts = doc(
+    '# @item el-1 "Element 1" art', //    1
+    "vis 2", //                           2
+    "rect 10,10 30,20", //                3
+    "# @end", //                          4
+    "", //                                5
+    '# @item el-2 "Element 2" art', //    6
+    "vis 10", //                          7
+    "fill 20,15", //                      8
+    "# @end", //                          9
+    '# @item el-3 "Element 3" depth', //  10
+    "pri 9", //                           11
+    "line 10,21 30,21", //                12
+    "# @end", //                          13
+    "end", //                             14
+  );
+  const ungroup = (itemId: string): EditOperation => ({ type: "ungroupItem", itemId });
+  const bytesOf = (lines: readonly string[]) => compilePictureSource(lines.join("\n")).bytes;
+
+  it("restores a group's members exactly as they were, bytes unchanged", () => {
+    const group: EditOperation = {
+      type: "combineItems",
+      itemIds: ["el-1", "el-2", "el-3"],
+      id: "bush",
+      label: "Bush",
+    };
+    const grouped = applyEdit(parts, group);
+    if ("error" in grouped) assert.fail(grouped.error);
+    const [lines] = edit(grouped.document, ungroup("bush"));
+    assert.deepEqual(lines, serializePictureDocument(parts).split("\n"));
+    assert.deepEqual(bytesOf(lines), bytesOf(parts.lines));
+  });
+
+  it("restores a group whose id is one of its members'", () => {
+    const grouped = applyEdit(parts, {
+      type: "combineItems",
+      itemIds: ["el-1", "el-2"],
+      id: "el-1",
+      label: "Bush",
+    });
+    if ("error" in grouped) assert.fail(grouped.error);
+    const [lines] = edit(grouped.document, ungroup("el-1"));
+    assert.deepEqual(lines, serializePictureDocument(parts).split("\n"));
+  });
+
+  it("splits an item written as one per drawing element, named as inferred elements are", () => {
+    const written = doc(
+      '# @item scene "Scene" mixed', // 1
+      "vis 2", //                       2
+      "rect 10,10 30,20", //            3
+      "vis 4", //                       4
+      "line 80,80 90,80", //            5
+      "pri 9", //                       6
+      "line 100,120 110,120", //        7
+      "# @end", //                      8
+      "end", //                         9
+    );
+    const [lines] = edit(written, ungroup("scene"));
+    assert.deepEqual(lines, [
+      '# @item el-1 "Element 1" art',
+      "vis 2",
+      "rect 10,10 30,20",
+      "# @end",
+      '# @item el-2 "Element 2" art',
+      "vis 4",
+      "line 80,80 90,80",
+      "# @end",
+      '# @item el-3 "Element 3" mixed',
+      "pri 9",
+      "line 100,120 110,120",
+      "# @end",
+      "end",
+    ]);
+    assert.deepEqual(bytesOf(lines), bytesOf(written.lines));
+  });
+
+  it("splits by element when the parts can't be restored exactly", () => {
+    // A part's id is taken by another item: the markers can't come back as they were.
+    const clash = doc(
+      '# @item bush "Bush" art', //       1
+      '# part el-9 "Leaf" art', //        2
+      "vis 2", //                         3
+      "rect 10,10 30,20", //              4
+      "# end part", //                    5
+      '# part el-8 "Twig" art', //        6
+      "vis 4", //                         7
+      "line 80,80 90,80", //              8
+      "# end part", //                    9
+      "# @end", //                        10
+      '# @item el-9 "Other" art', //      11
+      "line 0,150 5,150", //              12
+      "# @end", //                        13
+    );
+    const [lines] = edit(clash, ungroup("bush"));
+    assert.deepEqual(lines.slice(0, 8), [
+      '# @item el-1 "Element 1" art',
+      "vis 2",
+      "rect 10,10 30,20",
+      "# @end",
+      '# @item el-2 "Element 2" art',
+      "vis 4",
+      "line 80,80 90,80",
+      "# @end",
+    ]);
+    assert.deepEqual(bytesOf(lines), bytesOf(clash.lines));
+  });
+
+  it("refuses one drawing element, a locked item and an unknown one", () => {
+    refused(parts, ungroup("el-1"), /'el-1' is one drawing element: there is nothing to ungroup/);
+    const locked = doc('# @item a "A" art locked', "rect 0,0 3,3", "line 50,50 60,50", "# @end");
+    refused(locked, ungroup("a"), /item 'a' is locked; unlock it first/);
+    refused(parts, ungroup("nope"), /no item 'nope'/);
   });
 });

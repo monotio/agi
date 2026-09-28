@@ -86,12 +86,26 @@ const resizeWarning = computed(() => {
     return null;
   }
 });
+/** Why the cel's edits are off, on their tooltips. */
+const PAUSED = "Editing waits while the view is view only or an AI proposal is open";
+const resizeBlocked = computed(() => {
+  if (frozen) return PAUSED;
+  if (!validSize.value)
+    return `Width 1 to ${MAX_CEL_WIDTH} and height 1 to ${MAX_CEL_HEIGHT}, in whole pixels`;
+  return resized.value ? undefined : "Enter a new width or height";
+});
 /** Opaque pixels already use the colour chosen as transparent: they need another. */
 const clash = computed(
   () =>
     transparent.value !== cel.transparent &&
     cel.pixels.some((value) => value === transparent.value),
 );
+const transparentBlocked = computed(() => {
+  if (frozen) return PAUSED;
+  if (transparent.value === cel.transparent)
+    return `Colour ${cel.transparent} is transparent already`;
+  return clash.value && remap.value === undefined ? "Pick the colour its pixels become" : undefined;
+});
 
 const ANCHOR_LABELS: Record<ResizeAnchor, string> = {
   "top-left": "Top left",
@@ -202,6 +216,7 @@ function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
         <UiButton
           size="sm"
           :disabled="frozen || !validSize || !resized"
+          :title="resizeBlocked"
           data-testid="sprite-resize-apply"
           @click="resize"
         >
@@ -220,6 +235,7 @@ function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
             label="Shift left"
             size="sm"
             :disabled="frozen"
+            :title="frozen ? PAUSED : 'Shift left'"
             data-testid="sprite-shift-left"
             @click="emit('edit', { type: 'shiftCel', dx: -1, dy: 0 })"
           />
@@ -228,6 +244,7 @@ function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
             label="Shift up"
             size="sm"
             :disabled="frozen"
+            :title="frozen ? PAUSED : 'Shift up'"
             data-testid="sprite-shift-up"
             @click="emit('edit', { type: 'shiftCel', dx: 0, dy: -1 })"
           />
@@ -236,6 +253,7 @@ function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
             label="Shift down"
             size="sm"
             :disabled="frozen"
+            :title="frozen ? PAUSED : 'Shift down'"
             data-testid="sprite-shift-down"
             @click="emit('edit', { type: 'shiftCel', dx: 0, dy: 1 })"
           />
@@ -244,6 +262,7 @@ function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
             label="Shift right"
             size="sm"
             :disabled="frozen"
+            :title="frozen ? PAUSED : 'Shift right'"
             data-testid="sprite-shift-right"
             @click="emit('edit', { type: 'shiftCel', dx: 1, dy: 0 })"
           />
@@ -278,6 +297,7 @@ function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
         <UiButton
           size="sm"
           :disabled="frozen || transparent === cel.transparent || (clash && remap === undefined)"
+          :title="transparentBlocked"
           data-testid="sprite-transparent-apply"
           @click="applyTransparent"
         >

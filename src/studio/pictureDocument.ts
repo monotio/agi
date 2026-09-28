@@ -9,12 +9,17 @@
  * loose. A malformed directive is reported and otherwise read as a plain
  * comment, as is the `@end` of a rejected `@item`.
  *
- * Several items become one ("Make one item") only as a run of neighbours:
- * one `@item` over their lines, so the commands keep their draw order and
- * the bytes never change. Items drawn between them, or loose commands, would
+ * Several items become one (Group) only as a run of neighbours: one
+ * `@item` over their lines, so the commands keep their draw order and the
+ * bytes never change. Items drawn between them, or loose commands, would
  * have to move in the draw order (changing the picture) or join without
  * being chosen, so `itemRun` names them and the edit refuses (see the
- * `combineItems` operation in editOperations.ts).
+ * `combineItems` operation in editOperations.ts). Each member's own item
+ * stays inside the group as plain comments, which Ungroup (`ungroupItem`)
+ * turns back into the items they were:
+ *
+ *   # part <id> "<label>" <kind>                             a member's start
+ *   # end part                                               its end
  */
 
 export type PictureItemKind = "art" | "depth" | "walk" | "mixed";
@@ -61,6 +66,32 @@ export interface StudioDiagnostic {
 export const PICTURE_ITEM_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 
 const DIRECTIVE = /^#\s*@(item|end)(?=\s|$)(.*)$/;
+const PART = /^#\s*part\s+(\S+)\s+("(?:[^"\\]|\\.)*")\s+(art|depth|walk|mixed)$/;
+const PART_END = /^#\s*end part$/;
+
+/** A grouped member's start comment. */
+export const partLine = (id: string, label: string, kind: PictureItemKind): string =>
+  `# part ${id} ${JSON.stringify(label)} ${kind}`;
+/** A grouped member's end comment. */
+export const PART_END_LINE = "# end part";
+
+/** A group's member marker on this line: its start (id, label, kind) or its end. */
+export function groupPart(
+  line: string,
+): { id: string; label: string; kind: PictureItemKind } | "end" | undefined {
+  const text = line.trim();
+  if (PART_END.test(text)) return "end";
+  const match = PART.exec(text);
+  if (!match || !PICTURE_ITEM_ID.test(match[1]!)) return undefined;
+  let label: unknown;
+  try {
+    label = JSON.parse(match[2]!);
+  } catch {
+    return undefined;
+  }
+  if (typeof label !== "string" || label.trim().length === 0) return undefined;
+  return { id: match[1]!, label, kind: match[3] as PictureItemKind };
+}
 const LABEL = /^"(?:[^"\\]|\\.)*"/;
 
 /** The line with its comment and surrounding whitespace removed. */

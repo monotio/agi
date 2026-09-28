@@ -51,6 +51,21 @@ const refining = ref(false);
 /** The creator unfolded a collapsible box. */
 const unfolded = ref(false);
 const bodyId = useId();
+const staleId = useId();
+/** Why Ask is off, on its tooltip. */
+const SEND_BLOCKED: Record<"unavailable" | "connect" | "frozen" | "selection", string> = {
+  unavailable: "AI edits need the game's assistant",
+  connect: "Connect AI first",
+  frozen: "Editing waits for a Keep or a reload",
+  selection: "Select what to ask about first",
+};
+const sendBlocked = computed(() =>
+  blocked.value !== null
+    ? SEND_BLOCKED[blocked.value]
+    : text.value.trim()
+      ? undefined
+      : "Type what should change",
+);
 const expanded = computed(
   () =>
     !collapsible ||
@@ -184,6 +199,11 @@ defineExpose({ focus });
           size="sm"
           data-testid="assist-connect"
           :disabled="ai?.aiSettingsUnavailable.value ?? true"
+          :title="
+            (ai?.aiSettingsUnavailable.value ?? true)
+              ? 'AI settings open once the running request finishes'
+              : undefined
+          "
           @click="ai?.openAiSettings($event, 'create')"
         >
           Connect AI
@@ -249,7 +269,13 @@ defineExpose({ focus });
         <ol class="assist__steps" data-testid="assist-steps">
           <li v-for="(step, index) in assist.steps.value" :key="index">{{ step }}</li>
         </ol>
-        <p v-if="assist.stale.value" class="assist__warn" role="alert" data-testid="assist-stale">
+        <p
+          v-if="assist.stale.value"
+          :id="staleId"
+          class="assist__warn"
+          role="alert"
+          data-testid="assist-stale"
+        >
           {{ staleText }}
         </p>
         <p
@@ -267,6 +293,7 @@ defineExpose({ focus });
             icon="check"
             data-testid="assist-accept"
             :disabled="assist.stale.value"
+            :aria-describedby="assist.stale.value ? staleId : undefined"
             @click="accept"
           >
             Accept
@@ -327,6 +354,7 @@ defineExpose({ focus });
             icon="sparkles"
             data-testid="assist-send"
             :disabled="blocked !== null || !text.trim()"
+            :title="sendBlocked"
           >
             {{ phase === "candidate" ? "Ask again" : "Ask" }}
           </UiButton>

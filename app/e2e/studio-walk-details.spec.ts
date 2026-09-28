@@ -60,7 +60,7 @@ test("a start inside a wall: the card names the asked start, not the room's entr
   await shot(page, "walk-start-blocked");
 });
 
-test("Esc with a door selected lets go of the door; the next Esc leaves Studio", async ({
+test("Esc with a door selected lets go of the door; the next Esc stays in Studio", async ({
   page,
 }) => {
   const studio = await openTutorialStudio(page, 2);
@@ -79,7 +79,9 @@ test("Esc with a door selected lets go of the door; the next Esc leaves Studio",
   );
   await expect(studio).toBeVisible();
 
-  // Nothing is left to let go of, and nothing is unkept: Esc returns to Create.
+  // Nothing is left to let go of: Esc stays in Studio, and the × returns to Create.
   await page.keyboard.press("Escape");
+  await expect(studio).toBeVisible();
+  await studio.getByTestId("studio-close").click();
   await expect(studio).toBeHidden();
 });

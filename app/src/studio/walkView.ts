@@ -170,7 +170,7 @@ export function doorStatus(
     ? `Tested ✓ ${walked ? "(test walk)" : `(${contract!.testedBy.join(", ")})`}`
     : "Not tested yet";
   if (!contract || !contract.compiled)
-    return { wayBack: "Not in the room's logic until you Keep", tested, testedOk };
+    return { wayBack: "Written into the room when you Keep", tested, testedOk };
   if (contract.wayBack.length === 0)
     return { wayBack: "One way: nothing there leads back", tested, testedOk };
   const ways = contract.wayBack
