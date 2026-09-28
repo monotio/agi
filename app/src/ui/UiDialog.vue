@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, useTemplateRef, watch } from "vue";
+import { nextTick, onBeforeUnmount, useTemplateRef, watch } from "vue";
 import UiIconButton from "./UiIconButton.vue";
 
 /**
@@ -47,6 +47,15 @@ watch(
   },
   { immediate: true },
 );
+
+// A parent that unmounts the dialog as it closes (a `v-if` on the same state)
+// removes it before the close event: close it here so focus still returns.
+onBeforeUnmount(() => {
+  const element = dialog.value;
+  if (!element?.open) return;
+  element.close();
+  if (restoreFocus) returnFocus?.focus({ preventScroll: true });
+});
 
 function onClose(): void {
   open.value = false;

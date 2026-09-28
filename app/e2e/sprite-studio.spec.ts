@@ -22,6 +22,7 @@ import {
   openGameOptions,
   textHook,
   waitForRoom,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -76,7 +77,7 @@ async function playTutorial(page: Page): Promise<void> {
 
 async function openApprentice(page: Page): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

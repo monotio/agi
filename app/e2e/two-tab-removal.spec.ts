@@ -14,6 +14,7 @@ import {
   storedAutosave,
   textHook,
   waitForCycles,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -143,7 +144,7 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await expect(note).toHaveCount(0);
   await enterCreateMode(tabB);
   const panel = tabB.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = tabB.getByTestId("room-studio");
   await expect(studio).toBeVisible();

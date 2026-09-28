@@ -16,6 +16,7 @@ import {
   textHook,
   waitForCycles,
   waitForRoom,
+  openWorldRoom,
 } from "../engineProbe.ts";
 
 /**
@@ -105,7 +106,7 @@ async function takeControlAt(page: Page, index: number): Promise<void> {
 async function openRoomStudio(page: Page, room: number): Promise<Locator> {
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId(`map-room-${room}`).click();
+  await openWorldRoom(panel, room);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
@@ -252,7 +253,7 @@ test("sprite-studio", async ({ page }) => {
   await playTutorial(page);
   await enterCreateMode(page);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-2").click();
+  await openWorldRoom(panel, 2);
   await panel.getByTestId("world-open-sprite-2").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();

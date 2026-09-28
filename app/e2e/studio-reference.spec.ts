@@ -8,7 +8,13 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { encodePngRgb } from "../../src/picture/png.ts";
-import { cacheGame, enterCreateMode, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  cacheGame,
+  enterCreateMode,
+  textHook,
+  waitForCycles,
+  openWorldRoom,
+} from "./engineProbe.ts";
 
 /**
  * Reference art in a Studio's Ask, on the real app with the offline stub:
@@ -73,7 +79,7 @@ async function bootGame(page: Page): Promise<void> {
 /** Room Studio on room 1 with the bridge selected and the stub connected. */
 async function openAsk(page: Page): Promise<Locator> {
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").click();
+  await openWorldRoom(panel, 1);
   await panel.getByTestId("world-open-studio").click();
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();

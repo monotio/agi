@@ -1,6 +1,6 @@
 import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook } from "./engineProbe.ts";
+import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 import { clipped } from "./studioFit.ts";
 
 /**
@@ -35,7 +35,7 @@ for (const [width, height] of [
     await page.setViewportSize({ width, height });
     await playTutorial(page);
     const panel = page.getByTestId("world-panel");
-    await panel.getByTestId("map-room-2").click();
+    await openWorldRoom(panel, 2);
     await panel.getByTestId("world-open-studio").click();
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
@@ -85,7 +85,7 @@ for (const [width, height] of [
     await expect(studio).toBeHidden();
 
     // The sprite's subtitle.
-    await panel.getByTestId("map-room-1").click();
+    await openWorldRoom(panel, 1);
     await panel.getByTestId("world-open-sprite-0").click();
     const sprite = page.getByTestId("sprite-studio");
     await look("sprite subtitle", sprite.getByTestId("sprite-subtitle"));

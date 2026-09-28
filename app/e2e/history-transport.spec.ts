@@ -10,6 +10,7 @@ import {
   waitForAutosaveAfter,
   waitForCycles,
   openInspector,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
@@ -513,7 +514,7 @@ test("a map visit jumps straight to its moment on the tape", async ({ page }) =>
   await waitForCycles(page, 3);
 
   await openWorldMap(page);
-  await page.getByTestId("map-room-1").click();
+  await openWorldRoom(page.getByTestId("world-map"), 1);
   const jump = page.locator("[data-testid^='map-visit-jump-']").first();
   await expect(jump).toBeVisible();
   await jump.click();

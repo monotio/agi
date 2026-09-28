@@ -107,7 +107,12 @@ async function openStudio(page: Page): Promise<Locator> {
   }
   await expect(page).toHaveURL(/#create\//);
   const panel = page.getByTestId("world-panel");
-  await panel.getByTestId("map-room-1").getByRole("button").press("Enter");
+  // Entering Create shows the player's room; All rooms and back, by keyboard.
+  await expect(panel.getByTestId("map-detail")).toHaveAttribute("data-room", "1");
+  await panel.getByRole("button", { name: "All rooms" }).press("Enter");
+  await expect(panel.getByTestId("map-room-1").getByRole("button")).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(panel.getByTestId("map-detail").getByRole("heading", { level: 3 })).toBeFocused();
   const open = panel.getByTestId("world-open-studio");
   await expect(open).toBeEnabled();
   await open.press("Enter");

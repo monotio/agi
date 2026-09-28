@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * The room list: a listbox over the graph's nodes with roving selection on
- * ArrowUp/ArrowDown. The window shows each room's evidence badges; the
- * World panel's compact rows show a status (visited, built or planned) and
- * a chip with the picture the room's logic draws.
+ * The room list: a listbox over the graph's nodes; ArrowUp/ArrowDown move
+ * between rows and Enter or a click picks one, which opens its details in
+ * the list's place (useRoomDrill.ts). The window shows each room's evidence
+ * badges; the World panel's compact rows show a status (visited, built or
+ * planned) and a chip with the picture the room's logic draws.
  */
 import { computed, useTemplateRef } from "vue";
 import UiChip from "../ui/UiChip.vue";
@@ -65,18 +66,16 @@ const rows = computed(() => {
   });
 });
 
+/** A pick opens the room's details in the list's place, so arrows only move between rows. */
 function onListKeydown(ev: KeyboardEvent): void {
-  const list = nodes.value;
-  if (!list.length) return;
-  const at = list.findIndex((n) => n.room === selected.value);
-  let next: number;
-  if (ev.key === "ArrowDown") next = at < 0 ? 0 : Math.min(list.length - 1, at + 1);
-  else if (ev.key === "ArrowUp") next = at < 0 ? 0 : Math.max(0, at - 1);
-  else return;
+  if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+  const buttons = [...(listEl.value?.querySelectorAll<HTMLElement>(".map-list-button") ?? [])];
+  if (!buttons.length) return;
   ev.preventDefault();
-  const room = list[next]!.room;
-  emit("pick", room);
-  listEl.value?.querySelector(`[data-room="${room}"]`)?.scrollIntoView({ block: "nearest" });
+  const at = buttons.indexOf(document.activeElement as HTMLElement);
+  const next =
+    at < 0 ? 0 : Math.min(buttons.length - 1, Math.max(0, at + (ev.key === "ArrowDown" ? 1 : -1)));
+  buttons[next]!.focus();
 }
 </script>
 

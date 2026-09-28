@@ -188,6 +188,12 @@ export interface RoomMapDeps {
 export interface RoomMap {
   readonly open: Ref<boolean>;
   readonly selected: Ref<number | undefined>;
+  /**
+   * Whether the World panel's selection follows the player's room. Selecting
+   * the room the player is in turns it on, any other pick (or none) turns it
+   * off; each entry to Create turns it back on (useCreateMode.ts).
+   */
+  readonly followsPlayer: Ref<boolean>;
   readonly journal: RoomObservation[];
   readonly graph: ComputedRef<RoomGraph>;
   /**
@@ -291,6 +297,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   const open = ref(false);
   const selected = ref<number>();
+  const followsPlayer = ref(true);
   // The safe default: a caller that names no experience gets the discovered
   // view — creator intent is always an explicit ask.
   const experience = ref<MapExperience>("play");
@@ -1067,6 +1074,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   function select(room: number | undefined): void {
     selected.value = room;
+    followsPlayer.value = room !== undefined && room === currentRoom.value;
   }
 
   // ---- the map as the plan surface -----------------------------------------
@@ -1355,6 +1363,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   return {
     open,
     selected,
+    followsPlayer,
     journal,
     graph,
     experience,

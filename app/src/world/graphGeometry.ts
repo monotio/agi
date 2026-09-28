@@ -84,17 +84,22 @@ export function edgeGeometry(
     const sy = y1 + sd.y * edgeInset(sd);
     const ex = x2 - ed.x * edgeInset(ed);
     const ey = y2 - ed.y * edgeInset(ed);
-    // Labels anchor at the midpoint — which distinct pairs can share (a long
-    // edge's midpoint lands on a local pair's). A deterministic per-pair
-    // jitter along the edge axis separates those.
+    // Each exit word sits about a third of the way along its line from the
+    // room it leaves, so the two directions of one pair read apart ("top"
+    // near one room, "bottom" near the other) at any zoom. Distinct pairs
+    // can still share a spot (a long edge crossing a short one); a small
+    // deterministic per-pair nudge along the line separates those.
     let h = 0;
     for (let c = 0; c < k.length; c++) h = (h * 31 + k.charCodeAt(c)) | 0;
-    const jitter = ((Math.abs(h) % 5) - 2) * 14;
+    const t = 0.3 + ((Math.abs(h) % 5) - 2) * 0.02;
+    const u = 1 - t;
+    const lx = offset === 0 ? sx + (ex - sx) * t : u * u * sx + 2 * u * t * cx + t * t * ex;
+    const ly = offset === 0 ? sy + (ey - sy) * t : u * u * sy + 2 * u * t * cy + t * t * ey;
     return {
       edge,
       d: offset === 0 ? `M ${sx} ${sy} L ${ex} ${ey}` : `M ${sx} ${sy} Q ${cx} ${cy} ${ex} ${ey}`,
-      lx: mx + px + ((hi.x - lo.x) / clen) * jitter,
-      ly: my + py - 6 + ((hi.y - lo.y) / clen) * jitter,
+      lx,
+      ly: ly - 6,
       showLabel,
     };
   });
@@ -120,6 +125,29 @@ export function edgeTooltip(edge: RoomGraphEdge): string {
     return edge.label ? `walked off the ${edge.label} edge` : "walked";
   if (edge.provenance === "planned") return edge.label ? `planned exit “${edge.label}”` : "planned";
   return edge.label ? `logic exits off the ${edge.label} edge` : "named in logic";
+}
+
+/**
+ * Below this zoom exit words go quiet and the arrows alone show the way.
+ * Labels keep an 11 px on-screen size while the layout shrinks: at 0.6 the
+ * 92-unit gap between neighbouring nodes (CELL_W − NODE_W) is 55 px, room for
+ * "bottom" and its halo (about 44 px); at 0.5 the gap is 46 px and words
+ * from different pairs run into each other and onto the thumbnails.
+ */
+export const QUIET_LABEL_ZOOM = 0.6;
+
+/**
+ * Whether an edge's exit word renders: always at or above QUIET_LABEL_ZOOM,
+ * below it only on edges touching a room the user is looking at (selected,
+ * hovered or focused).
+ */
+export function edgeLabelShown(
+  geom: Pick<EdgeGeom, "edge" | "showLabel">,
+  zoom: number,
+  inView: ReadonlySet<number>,
+): boolean {
+  if (!geom.showLabel) return false;
+  return zoom >= QUIET_LABEL_ZOOM || inView.has(geom.edge.from) || inView.has(geom.edge.to);
 }
 
 /** Characters a node caption holds: the node's width at the caption's type size. */

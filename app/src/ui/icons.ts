@@ -82,6 +82,12 @@ export const ICONS = {
     ["path", { d: "M21 12H9" }],
     ["path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }],
   ],
+  expand: [
+    ["path", { d: "M15 3h6v6" }],
+    ["path", { d: "m21 3-7 7" }],
+    ["path", { d: "m3 21 7-7" }],
+    ["path", { d: "M9 21H3v-6" }],
+  ],
   "external-link": [
     ["path", { d: "M15 3h6v6" }],
     ["path", { d: "M10 14 21 3" }],
