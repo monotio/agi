@@ -155,7 +155,7 @@ export interface AutosaveControllerContext {
 type AutosaveFlushResult =
   | { status: "saved"; cycle: number }
   | { status: "already_durable"; cycle: number }
-  | { status: "not_checkpointable"; reason: string }
+  | { status: "not_checkpointable" }
   | { status: "storage_failure"; error?: unknown }
   | { status: "timeout" };
 
@@ -174,15 +174,7 @@ export interface AutosaveController {
     room: number;
     files?: Record<string, Uint8Array>;
   }): void;
-  handleFlushed(msg: {
-    id: number;
-    taken: boolean;
-    cycle?: number | undefined;
-    hasEngine?: boolean | undefined;
-    modal?: boolean | undefined;
-    textMode?: boolean | undefined;
-    pictureShown?: boolean | undefined;
-  }): void;
+  handleFlushed(msg: { id: number; taken: boolean; cycle?: number | undefined }): void;
   handleRestored(msg: {
     ok: boolean;
     room?: number;
@@ -349,15 +341,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       .catch(() => false);
   }
 
-  function handleFlushed(msg: {
-    id: number;
-    taken: boolean;
-    cycle?: number | undefined;
-    hasEngine?: boolean | undefined;
-    modal?: boolean | undefined;
-    textMode?: boolean | undefined;
-    pictureShown?: boolean | undefined;
-  }): void {
+  function handleFlushed(msg: { id: number; taken: boolean; cycle?: number | undefined }): void {
     const cycle = Number(msg.cycle ?? lastSeenCycle);
     lastSeenCycle = cycle;
     const simpleResolve = flushWaiters.get(Number(msg.id));
@@ -385,16 +369,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       return;
     }
 
-    const reason =
-      !msg.pictureShown && lastAutosave === null
-        ? "Game has not displayed an initial room."
-        : msg.modal
-          ? "A dialog or menu is open."
-          : msg.textMode
-            ? "Game is in text mode."
-            : "Interpreter is between transitions.";
     simpleResolve?.(false);
-    detailedResolve?.({ status: "not_checkpointable", reason });
+    detailedResolve?.({ status: "not_checkpointable" });
   }
 
   function handleRestored(msg: {

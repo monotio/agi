@@ -280,6 +280,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           if (!(error instanceof ResourceCommitError && error.code === "stale")) throw error;
         });
       }
+      // Only a storage failure or a timeout puts progress at risk. A moment
+      // the interpreter cannot checkpoint (a live prompt, text mode, a text
+      // window the game keeps up while it runs on) leaves with the last save
+      // point, and the timeline sealed below holds the rest.
       if (!ejectOptions?.abandonUnsaved && !(game !== null && storageMovedPast(game))) {
         const flushResult = await autosave.flushAutosaveDetailed(2000);
         if (flushResult.status === "storage_failure") {
@@ -290,12 +294,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           throw new Error(
             "Autosave timed out. Try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.",
           );
-        } else if (flushResult.status === "not_checkpointable") {
-          if (autosave.lastAutosaveRecord() !== null) {
-            throw new Error(
-              `Current progress cannot be saved: ${flushResult.reason} Close any open game window and try again, use Settings → This game → Download game… for a development backup, or leave with previously saved progress.`,
-            );
-          }
         }
       }
     } catch (error) {

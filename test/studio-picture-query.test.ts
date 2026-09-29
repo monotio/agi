@@ -7,6 +7,7 @@ import {
   compileDocument,
   itemAt,
   itemMask,
+  itemsInside,
   renderUpTo,
   whyNotFilled,
 } from "../src/studio/pictureQuery.ts";
@@ -175,5 +176,54 @@ describe("picture queries", () => {
     );
     assert.match(priority!.message, /runs only while visual drawing is off/);
     assert.equal(whyNotFilled(compiled, 160, 0, "visual"), undefined);
+  });
+});
+
+describe("itemsInside", () => {
+  // "Pond" is mixed: its art at 10..20,10 and a barrier (priority 0) at
+  // 10..20,100, far below. "Flower" is art alone at 12..18,20. "Hidden" is
+  // drawn over entirely by the flower: it owns no cell on either plane.
+  const garden = doc(
+    '# @item hidden "Hidden" art',
+    "vis 5",
+    "line 13,20 15,20",
+    "# @end",
+    '# @item pond "Pond" mixed',
+    "vis 1",
+    "line 10,10 20,10",
+    "vis off",
+    "pri 0",
+    "line 10,100 20,100",
+    "# @end",
+    '# @item flower "Flower" art',
+    "vis 2",
+    "line 12,20 18,20",
+    "# @end",
+    "end",
+  );
+  const compiled = compileDocument(garden, profile);
+
+  it("catches an item only when its cells on every plane lie in the box", () => {
+    // The box holds the pond's art but not its barrier: the pond stays out.
+    assert.deepEqual(itemsInside(compiled, garden, { x1: 0, y1: 0, x2: 50, y2: 50 }), ["flower"]);
+    assert.deepEqual(itemsInside(compiled, garden, { x1: 0, y1: 0, x2: 50, y2: 100 }), [
+      "pond",
+      "flower",
+    ]);
+    // The box's edges are inclusive: 10..20 by 10..100 is exactly the pond.
+    assert.deepEqual(itemsInside(compiled, garden, { x1: 10, y1: 10, x2: 20, y2: 100 }), [
+      "pond",
+      "flower",
+    ]);
+    assert.deepEqual(itemsInside(compiled, garden, { x1: 11, y1: 10, x2: 20, y2: 100 }), [
+      "flower",
+    ]);
+  });
+
+  it("catches nothing in a box over no item, and never an item that owns no cell", () => {
+    assert.deepEqual(itemsInside(compiled, garden, { x1: 100, y1: 0, x2: 159, y2: 167 }), []);
+    assert.ok(
+      !itemsInside(compiled, garden, { x1: 0, y1: 0, x2: 159, y2: 167 }).includes("hidden"),
+    );
   });
 });

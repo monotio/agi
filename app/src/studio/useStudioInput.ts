@@ -79,7 +79,7 @@ const onSurface = ({ x, y }: Point): Point => ({
   y: Math.min(SCREEN_HEIGHT - 1, Math.max(0, y)),
 });
 const CANVAS_SELECT =
-  "Canvas. Click an item to select it, Shift+click to add one; drag it or its handles to edit. Arrow keys nudge the selection 1 pixel (Shift: 8); Alt+arrows step through items in draw order, Shift+Alt+arrows add the next one. Command or Control plus backslash hides the side panels; question mark lists every key.";
+  "Canvas. Click an item to select it, or drag a box to select the items inside it; Shift adds to the selection. Drag the selection to move it; the Point tool, A, drags its points. Arrow keys nudge the selection 1 pixel (Shift: 8); Alt+arrows step through items in draw order, Shift+Alt+arrows add the next one. Command or Control plus backslash hides the side panels; question mark lists every key.";
 const CANVAS_DRAW =
   "Canvas. Arrow keys move the drawing cursor 1 pixel (Shift: 8); Space or Enter clicks at it; Escape cancels. Command or Control plus backslash hides the side panels; question mark lists every key.";
 

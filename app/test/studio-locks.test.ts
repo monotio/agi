@@ -272,6 +272,9 @@ describe("refusalText", () => {
       art.verdict.violations.map((v) => v.rule),
       ["locked-plane", "outside-mask"],
     );
-    assert.equal(refusalText(art.verdict).message, "Depth is locked in the Art lens.");
+    assert.equal(
+      refusalText(art.verdict).message,
+      "Depth and walk lines are locked in the Art lens.",
+    );
   });
 });

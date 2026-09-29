@@ -5,7 +5,7 @@ import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
-import { depthValuesLocked, lockedPlanes, PLANE_NAMES, type LensUnlocks } from "./studioLocks.ts";
+import { depthValuesLocked, LOCKED_PLANES, lockedPlanes, type LensUnlocks } from "./studioLocks.ts";
 import { explain } from "./studioTerms.ts";
 import { DEFAULT_BAND, type CurrentValues } from "./studioTools.ts";
 import { CONTROL_VALUES, patternOn, priorityMeaning, type StudioLens } from "./studioView.ts";
@@ -37,7 +37,7 @@ const emit = defineEmits<{
 const open = ref<"visual" | "priority">();
 const locked = computed(() => lockedPlanes(lens, unlocks));
 const lockNote = (plane: "visual" | "priority"): string =>
-  `${PLANE_NAMES[plane]} is locked. New shapes leave it as it is.`;
+  `${LOCKED_PLANES[plane]}. New shapes leave ${plane === "visual" ? "it as it is" : "them as they are"}.`;
 function unlock(plane: "visual" | "priority"): void {
   emit("unlocks", { ...unlocks, [plane]: true });
   open.value = undefined;

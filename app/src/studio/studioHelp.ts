@@ -30,7 +30,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
 
 /** The status bar's one line for the active Room Studio tool. */
 export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
-  select: `Click an item · ${keyLabel("Shift+click")} adds one · drag moves · ${keyLabel("Alt+click")} adds a point`,
+  select: `Click selects · drag draws a box · drag the selection to move it · ${SHIFT} adds`,
   point: "Drag a point's handle · the item itself stays put",
   line: "Click points · Enter or double-click finishes",
   rect: "Drag a rectangle · Shift keeps it square",
@@ -129,11 +129,13 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
                 keys: [keyLabel("Shift+Alt+←↑→↓")],
                 does: "Add the previous or next item to the selection",
               },
+              { keys: ["Drag"], does: "Select the items wholly inside a box" },
+              { keys: ["Drag"], does: "On the selection: move it, up to the picture's edge" },
               {
                 keys: [keyLabel("Shift+click")],
                 does: "Add an item to the selection, or take it away",
               },
-              { keys: [keyLabel("Shift+drag")], does: "Select the items inside a box" },
+              { keys: [keyLabel("Shift+drag")], does: "Add the items inside a box" },
               { keys: [keyLabel("Alt+click"), "Insert"], does: "Add a point to the selected line" },
             ]),
         { keys: ["Esc"], does: "Cancel one thing per press" },

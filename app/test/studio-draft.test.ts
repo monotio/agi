@@ -6,11 +6,13 @@ import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
 import { nearestInsertion } from "../../src/studio/editPoints.ts";
+import { movedWith } from "../src/studio/studioMessages.ts";
 import { useStudioDrag } from "../src/studio/useStudioDrag.ts";
 import { useStudioEditing } from "../src/studio/useStudioEditing.ts";
 import {
   changeCount,
   draftPictureEdit,
+  type DraftOutcome,
   editedItems,
   freshItemId,
   useStudioDraft,
@@ -56,6 +58,25 @@ function setup(lens: StudioLens = "depth", unlocks: LensUnlocks = NO_UNLOCKS) {
     unlocks: unlocksRef,
   });
   return { draft, lens: lensRef, unlocks: unlocksRef, base };
+}
+
+/** A mixed pond: water art and a barrier (priority 0) far below it. */
+const POND = [
+  '# @item pond "Pond" mixed', //  1
+  "vis 1", //                      2
+  "rect 20,20 40,30", //           3
+  "vis off", //                    4
+  "pri 0", //                      5
+  "line 20,100 40,100", //         6
+  "# @end", //                     7
+  "end", //                        8
+].join("\n");
+
+function setupWith(source: string, lens: StudioLens) {
+  const base = ref({ source, revision: testRevision("draft") });
+  return {
+    draft: useStudioDraft({ base, profile: DEFAULT_V2_PROFILE, lens, unlocks: NO_UNLOCKS }),
+  };
 }
 
 const move = (itemId: string, dx: number, dy: number) =>
@@ -152,7 +173,7 @@ describe("useStudioDraft", () => {
     assert.equal(draft.preview.value, null, "the preview snaps back to the start");
     const end = draft.endGesture(move("occ", 45, 0), "Move Occluder");
     assert.ok(!end.ok && end.refusal.kind === "kernel");
-    assert.equal(end.refusal.message, "The picture ends there.");
+    assert.equal(end.refusal.message, "That would move part of it off the picture.");
     assert.match(end.refusal.detail ?? "", /off the surface at 164,105/);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.history.value.past.length, 0);
@@ -160,31 +181,120 @@ describe("useStudioDraft", () => {
     assert.equal(draft.canUndo.value, false);
   });
 
-  it("refuses edits on a lens-locked plane, in plain words with the count and box as detail", () => {
+  it("refuses painting on a lens-locked plane, in plain words with the count and box as detail", () => {
     const { draft, lens, unlocks } = setup("depth");
-    // Moving art in the Depth lens touches the locked visual plane: a box
-    // outline one row lower changes 21 + 19 cells at each long edge.
-    const art = draft.apply(move("box", 0, 1), "Move Box");
+    // Recolouring the box's art in the Depth lens: its outline, 21 + 21 + 19 + 19 cells.
+    const art = draft.apply(
+      { type: "setItemColor", itemId: "box", plane: "visual", value: 2 },
+      "Colour Box",
+    );
     assert.ok(!art.ok && art.refusal.kind === "lock");
     assert.equal(art.refusal.message, "Art is locked in the Depth lens.");
     assert.equal(
       art.refusal.detail,
-      "Art is locked in the Depth lens: 80 cells at 10,10..30,31 would change.",
+      "Art is locked in the Depth lens: 80 cells at 10,10..30,30 would change.",
     );
     assert.ok(art.refusal.cells.includes(1));
     assert.equal(draft.source.value, SOURCE);
 
-    // The occluder outline one row lower: 80 + 78 cells at each long edge.
+    // The occluder's depth in the Art lens: its outline, 80 + 80 + 14 + 14 cells.
     lens.value = "art";
-    const depth = draft.apply(move("occ", 0, 1), "Move Occluder");
+    const priority = { type: "setItemColor", itemId: "occ", plane: "priority", value: 12 } as const;
+    const depth = draft.apply(priority, "Priority 12");
     assert.ok(!depth.ok && depth.refusal.kind === "lock");
-    assert.equal(depth.refusal.message, "Depth is locked in the Art lens.");
-    assert.match(
+    assert.equal(depth.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(
       depth.refusal.detail,
-      /^Depth is locked in the Art lens: 316 cells at 40,90\.\.119,106/,
+      "Depth and walk lines are locked in the Art lens: 188 cells at 40,90..119,105 would change.",
     );
+    // A point of its outline is editing within the plane too.
+    const point = draft.apply(
+      { type: "setPoint", line: 12, pointIndex: 0, x: 41, y: 90 },
+      "Move point",
+    );
+    assert.ok(!point.ok && point.refusal.kind === "lock");
     unlocks.value = { ...NO_UNLOCKS, priority: true };
-    assert.equal(draft.apply(move("occ", 0, 1), "Move Occluder").ok, true);
+    assert.equal(draft.apply(priority, "Priority 12").ok, true);
+  });
+
+  it("moves, copies and deletes whole items with every plane they draw, in any lens", () => {
+    const { draft, unlocks } = setup("depth");
+    // The box's art moves in the Depth lens; the occluder's depth in the Art lens.
+    assert.equal(draft.apply(both(), "Move 2 items").ok, true);
+    assert.equal(line(draft, 3), "rect 10,11 30,31");
+    assert.deepEqual(unlocks.value, NO_UNLOCKS, "the locks stay as they were");
+    const mixed = setupWith(POND, "art");
+    // The pond's water and the barrier far below it move as one step.
+    assert.equal(mixed.draft.apply(move("pond", 5, -3), "Move Pond").ok, true);
+    assert.equal(line(mixed.draft, 3), "rect 25,17 45,27");
+    assert.equal(line(mixed.draft, 6), "line 25,97 45,97");
+    assert.equal(mixed.draft.history.value.past.length, 1);
+    const copy = {
+      type: "duplicateItem",
+      itemId: "pond",
+      dx: 60,
+      dy: 0,
+      newId: "pond-copy",
+      newLabel: "Pond copy",
+    } as const;
+    assert.equal(mixed.draft.apply(copy, "Duplicate Pond").ok, true);
+    assert.equal(
+      mixed.draft.apply({ type: "deleteItem", itemId: "pond-copy" }, "Delete Pond copy").ok,
+      true,
+    );
+    // Its barrier alone still follows the lock: that is painting depth.
+    const paint = mixed.draft.apply(
+      { type: "setItemColor", itemId: "pond", plane: "priority", value: 3 },
+      "Priority 3",
+    );
+    assert.ok(!paint.ok && paint.refusal.kind === "lock");
+    assert.equal(paint.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    // So does a fill that would flood depth along with the art.
+    const fill = mixed.draft.apply(
+      {
+        type: "insertFill",
+        atLine: 8,
+        x: 80,
+        y: 150,
+        visual: 2,
+        priority: 9,
+        id: "flood",
+        label: "Flood",
+      },
+      "Fill",
+    );
+    assert.ok(!fill.ok && fill.refusal.kind === "lock");
+    assert.equal(fill.refusal.message, "Depth and walk lines are locked in the Art lens.");
+    assert.equal(mixed.draft.history.value.past.length, 3);
+    function both() {
+      return [move("box", 0, 1), move("paint", 0, 1)];
+    }
+  });
+
+  it("says when a move took along lines the lens hides", () => {
+    const { draft } = setupWith(POND, "art");
+    const scope = effectScope();
+    const lens = ref<StudioLens>("art");
+    const editing = scope.run(() =>
+      useStudioEditing({
+        draft,
+        selectedId: ref("pond"),
+        frozen: () => false,
+        lens: () => lens.value,
+      }),
+    )!;
+    assert.equal(editing.nudge(1, 0), true);
+    assert.equal(editing.notice.value?.text, "Moved Pond with its walk lines.");
+    // The Depth lens shows the barrier and hides the water.
+    lens.value = "depth";
+    assert.equal(editing.nudge(1, 0), true);
+    assert.equal(editing.notice.value?.text, "Moved Pond with its art.");
+    scope.stop();
+    assert.equal(
+      movedWith("3 items", true, ["depth", "walk lines"]),
+      "Moved 3 items with their depth and walk lines.",
+    );
+    assert.equal(movedWith("Box", false, []), null);
   });
 
   it("keeps depth values off limits in the Walk lens until they are allowed", () => {
@@ -198,11 +308,13 @@ describe("useStudioDraft", () => {
     assert.ok(!paint.ok && paint.refusal.kind === "lock");
     assert.equal(paint.refusal.message, "The Walk lens draws walk lines 0–3 only.");
     assert.match(paint.refusal.detail, /^Depth values 4–15 are locked in the Walk lens: 120 cells/);
-    const moved = draft.apply(move("occ", 1, 0), "Move Occluder");
-    assert.ok(!moved.ok);
-    unlocks.value = { ...NO_UNLOCKS, depthInWalk: true };
+    // Reshaping the occluder changes depth; moving it whole carries its depth.
+    const reshape = { type: "setPoint", line: 12, pointIndex: 0, x: 44, y: 92 } as const;
+    assert.ok(!draft.apply(reshape, "Move point").ok);
     assert.equal(draft.apply(move("occ", 1, 0), "Move Occluder").ok, true);
-    assert.equal(draft.changes.value, 2);
+    unlocks.value = { ...NO_UNLOCKS, depthInWalk: true };
+    assert.equal(draft.apply(reshape, "Move point").ok, true);
+    assert.equal(draft.changes.value, 3);
   });
 
   it("refuses an edit that reaches outside the edited items", () => {
@@ -311,31 +423,140 @@ describe("useStudioDraft", () => {
 });
 
 describe("useStudioDrag", () => {
-  function dragRig() {
+  /** Occ, the priority-10 outline at 40..119 by 90..105, starts selected unless `fresh`. */
+  function dragRig(fresh = false) {
     const { draft } = setup("depth");
     const frames: (() => void)[] = [];
-    const reports: boolean[] = [];
+    const reports: DraftOutcome[] = [];
+    const calls: string[] = [];
     let previews = 0;
     const moveGesture = draft.moveGesture;
     draft.moveGesture = (op) => {
       previews++;
       return moveGesture(op);
     };
-    let selected: string | undefined;
+    let selected = fresh ? undefined : "occ";
     const drag = useStudioDrag({
       draft,
       editableId: () => selected,
-      pick: () => (selected = "occ"),
-      onSelection: ({ x, y }) => y >= 90 && y <= 105 && x >= 40 && x <= 119,
+      pick: ({ x, y }) => {
+        calls.push(`pick ${x},${y}`);
+        selected = "occ";
+      },
+      extend: ({ x, y }) => void calls.push(`extend ${x},${y}`),
+      marquee: (box, add) =>
+        void calls.push(`${add ? "add" : "box"} ${box.x1},${box.y1} ${box.x2},${box.y2}`),
+      clear: () => {
+        calls.push("clear");
+        selected = undefined;
+      },
+      onSelection: ({ x, y }) => selected === "occ" && y >= 90 && y <= 105 && x >= 40 && x <= 119,
       labelOf: (id) => id,
-      report: (outcome) => void reports.push(outcome.ok),
+      report: (outcome) => void reports.push(outcome),
       frame: (callback) => frames.push(callback),
       cancelFrame: () => {},
     });
     const event = {} as PointerEvent;
-    const at = (x: number, y: number) => ({ event, cell: { x, y }, handle: undefined });
-    return { draft, drag, frames, reports, at, previews: () => previews };
+    const shift = { shiftKey: true } as PointerEvent;
+    const at = (x: number, y: number, pressed = event) => ({
+      event: pressed,
+      cell: { x, y },
+      handle: undefined,
+    });
+    return {
+      draft,
+      drag,
+      frames,
+      reports,
+      calls,
+      at,
+      shift,
+      previews: () => previews,
+      selected: () => selected,
+    };
   }
+
+  it("draws a box that replaces the selection from a press off the selection, moving nothing", () => {
+    const { draft, drag, frames, calls, at } = dragRig(true);
+    // 60,95 is Occ's own pixel, but Occ is not selected: the drag selects.
+    drag.press(at(60, 95));
+    drag.drag(at(20, 80));
+    assert.deepEqual(drag.marqueeBox.value, { x1: 20, y1: 80, x2: 60, y2: 95 });
+    assert.equal(drag.dragging.value, false);
+    assert.equal(frames.length, 0, "no preview");
+    drag.release(at(10, 70));
+    assert.equal(drag.marqueeBox.value, undefined);
+    assert.deepEqual(calls, ["box 10,70 60,95"]);
+    assert.equal(draft.source.value, SOURCE);
+    assert.equal(draft.history.value.past.length, 0);
+  });
+
+  it("adds with a Shift box, even from the selection, and toggles with a Shift+click", () => {
+    const { drag, calls, at, shift } = dragRig();
+    drag.press(at(60, 95, shift));
+    drag.drag(at(70, 100, shift));
+    drag.release(at(70, 100, shift));
+    drag.press(at(12, 12, shift));
+    drag.release(at(12, 12, shift));
+    assert.deepEqual(calls, ["add 60,95 70,100", "extend 12,12"]);
+  });
+
+  it("selects the item under a click, on the selection or off it", () => {
+    const { drag, calls, at, draft } = dragRig();
+    drag.press(at(60, 95));
+    drag.release(at(60, 95));
+    drag.press(at(12, 12));
+    drag.release(at(12, 12));
+    assert.deepEqual(calls, ["pick 60,95", "pick 12,12"]);
+    assert.equal(draft.gesturing.value, false);
+  });
+
+  it("clears the selection with a click in the margin, and draws a box from it", () => {
+    const { drag, calls, at, shift, selected } = dragRig();
+    drag.press(at(-6, 40));
+    drag.release(at(-6, 40));
+    assert.equal(selected(), undefined);
+    // A drag from beyond the right edge: the box is cut to the picture.
+    drag.press(at(170, -3));
+    drag.drag(at(150, 20));
+    assert.deepEqual(drag.marqueeBox.value, { x1: 150, y1: 0, x2: 159, y2: 20 });
+    drag.release(at(150, 20));
+    drag.press(at(-2, 30, shift));
+    drag.drag(at(5, 35, shift));
+    drag.release(at(5, 35, shift));
+    // A Shift+click in the margin changes nothing.
+    drag.press(at(-2, 30, shift));
+    drag.release(at(-2, 30, shift));
+    assert.deepEqual(calls, ["clear", "box 150,0 159,20", "add 0,30 5,35"]);
+  });
+
+  it("stops a move at the picture's edge, in the preview and the step alike", () => {
+    const { draft, drag, frames, reports, at } = dragRig();
+    // Occ's right side is at 119: 100 px right stops after 40.
+    drag.press(at(60, 95));
+    drag.drag(at(160, 95));
+    frames.shift()!();
+    assert.match(draft.preview.value!.source, /rect 80,90 159,105/);
+    drag.release(at(160, 97));
+    assert.equal(line(draft, 12), "rect 80,92 159,107");
+    assert.deepEqual(
+      reports.map((outcome) => outcome.ok),
+      [true, true],
+    );
+    assert.equal(draft.history.value.past.length, 1);
+    // At the edge, a drag further right goes nowhere and says which item is there.
+    drag.press(at(100, 100));
+    drag.drag(at(110, 100));
+    frames.shift()!();
+    drag.release(at(110, 100));
+    const stopped = reports.at(-1)!;
+    assert.ok(!stopped.ok && stopped.refusal.kind === "kernel");
+    assert.equal(stopped.refusal.message, "Occluder is at the picture's right edge.");
+    assert.match(stopped.refusal.detail ?? "", /moving by 10,0: "Occluder" is at the right edge/);
+    assert.equal(line(draft, 12), "rect 80,92 159,107");
+    assert.equal(draft.history.value.past.length, 1);
+    assert.equal(draft.gesturing.value, false);
+  });
 
   it("previews once per animation frame however many moves arrive, and records one step", () => {
     const { draft, drag, frames, at, previews } = dragRig();
@@ -422,10 +643,16 @@ describe("several items as one", () => {
 
   it("refuses the whole batch when one member breaks a lens lock", () => {
     const { draft } = setup("depth");
-    const outcome = draft.apply([move("occ", 0, 1), move("box", 0, 1)], "Nudge 2 items");
+    const outcome = draft.apply(
+      [
+        { type: "setItemColor", itemId: "occ", plane: "priority", value: 11 },
+        { type: "setItemColor", itemId: "box", plane: "visual", value: 3 },
+      ],
+      "Colour 2 items",
+    );
     assert.ok(!outcome.ok && outcome.refusal.kind === "lock");
     assert.equal(outcome.refusal.message, "Art is locked in the Depth lens.");
-    assert.equal(draft.source.value, SOURCE, "the occluder did not move either");
+    assert.equal(draft.source.value, SOURCE, "the occluder did not change either");
     assert.equal(draft.history.value.past.length, 0);
   });
 
@@ -449,6 +676,18 @@ describe("several items as one", () => {
     )!;
     return { draft, editing, selection, selectedId, scope };
   }
+
+  it("stops a nudge at the picture's edge, and says which item is there", () => {
+    const { draft, editing, scope } = editingRig();
+    // The box's left side is at 10: 15 px left stops after 10, and the paint's seed goes along.
+    assert.equal(editing.nudge(-15, 0), true);
+    assert.equal(line(draft, 3), "rect 0,10 20,30");
+    assert.equal(line(draft, 7), "fill 10,20");
+    assert.equal(editing.nudge(-1, 0), false);
+    assert.equal(editing.notice.value?.text, "Box is at the picture's left edge.");
+    assert.equal(draft.history.value.past.length, 1);
+    scope.stop();
+  });
 
   it("nudges, duplicates and deletes the selection, each as one step", () => {
     const { draft, editing, selection, scope } = editingRig();

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { compilePictureSource } from "../src/picture/source.ts";
-import { applyEdit, applyEdits, type EditOperation } from "../src/studio/editOperations.ts";
+import {
+  applyEdit,
+  applyEdits,
+  limitMove,
+  type EditOperation,
+} from "../src/studio/editOperations.ts";
 import {
   parsePictureDocument,
   serializePictureDocument,
@@ -91,6 +96,140 @@ describe("applyEdit moveItem", () => {
     const locked = doc('# @item a "A" art locked', "vis 1", "line 1,1 2,2", "# @end");
     refused(locked, { type: "moveItem", itemId: "a", dx: 1, dy: 0 }, /locked/);
     refused(locked, { type: "moveItem", itemId: "zz", dx: 1, dy: 0 }, /no item 'zz'/);
+  });
+});
+
+describe("limitMove", () => {
+  // Extents by hand: a x 3..30 y 20; b x 150..157 y 160..165; c's rel reaches
+  // 10,2 12,1 9,5 and its xcorner 100,100 158,100 158,120; d's fill seed and
+  // plot point 80,80 70,70 (the plot's 17 is a pattern, not a point); e sits
+  // on the left edge, x 0..5 y 50.
+  const near = doc(
+    '# @item a "A" art',
+    "vis 1",
+    "line 3,20 30,20",
+    "# @end",
+    '# @item b "B" art',
+    "rect 150,160 157,165",
+    "# @end",
+    '# @item c "C" mixed',
+    "rel 10,2 2,-1 -3,4",
+    "xcorner 100,100 158 120",
+    "# @end",
+    '# @item d "D" art',
+    "fill 80,80",
+    "pen 1 stipple",
+    "plot 17 70,70",
+    "# @end",
+    '# @item e "E" art',
+    "line 0,50 5,50",
+    "# @end",
+    '# @item s "State" art',
+    "vis 3",
+    "# @end",
+    "end",
+  );
+
+  it("stops each axis where an item's coordinate reaches the edge, keeping its direction", () => {
+    assert.deepEqual(limitMove(near, ["a"], -10, -30), {
+      dx: -3,
+      dy: -20,
+      stops: [
+        { itemId: "a", edge: "left" },
+        { itemId: "a", edge: "top" },
+      ],
+    });
+    assert.deepEqual(limitMove(near, ["a"], 200, 200), {
+      dx: 129,
+      dy: 147,
+      stops: [
+        { itemId: "a", edge: "right" },
+        { itemId: "a", edge: "bottom" },
+      ],
+    });
+    assert.deepEqual(limitMove(near, ["b"], 5, 5), {
+      dx: 2,
+      dy: 2,
+      stops: [
+        { itemId: "b", edge: "right" },
+        { itemId: "b", edge: "bottom" },
+      ],
+    });
+    assert.deepEqual(limitMove(near, ["b"], -5, -5), { dx: -5, dy: -5, stops: [] });
+  });
+
+  it("counts every rel vertex and corner step, and a fill seed and plot points", () => {
+    // The rel's second vertex, 12,1, is the top; the xcorner's 158 the right.
+    assert.deepEqual(limitMove(near, ["c"], 3, -4), {
+      dx: 1,
+      dy: -1,
+      stops: [
+        { itemId: "c", edge: "right" },
+        { itemId: "c", edge: "top" },
+      ],
+    });
+    assert.deepEqual(limitMove(near, ["d"], -75, 100), {
+      dx: -70,
+      dy: 87,
+      stops: [
+        { itemId: "d", edge: "left" },
+        { itemId: "d", edge: "bottom" },
+      ],
+    });
+  });
+
+  it("limits a mixed selection by whichever item is nearest each edge", () => {
+    assert.deepEqual(limitMove(near, ["a", "b", "c"], -8, 8), {
+      dx: -3,
+      dy: 2,
+      stops: [
+        { itemId: "a", edge: "left" },
+        { itemId: "b", edge: "bottom" },
+      ],
+    });
+    assert.deepEqual(limitMove(near, ["a", "b", "c"], 8, -8), {
+      dx: 1,
+      dy: -1,
+      stops: [
+        { itemId: "c", edge: "right" },
+        { itemId: "c", edge: "top" },
+      ],
+    });
+  });
+
+  it("stops dead at the edge an item already touches, while the other axis still moves", () => {
+    assert.deepEqual(limitMove(near, ["e"], -4, 3), {
+      dx: 0,
+      dy: 3,
+      stops: [{ itemId: "e", edge: "left" }],
+    });
+    assert.deepEqual(limitMove(near, ["e", "d"], -1, 0), {
+      dx: 0,
+      dy: 0,
+      stops: [{ itemId: "e", edge: "left" }],
+    });
+  });
+
+  it("sets no limit for state-only items or unknown ids", () => {
+    assert.deepEqual(limitMove(near, ["s", "zz"], -500, 500), { dx: -500, dy: 500, stops: [] });
+  });
+
+  it("agrees with moveItem: the limit is accepted and one pixel more is refused", () => {
+    const ids = ["a", "b", "c", "d"];
+    for (const [dx, dy] of [
+      [-50, 0],
+      [50, 0],
+      [0, -50],
+      [0, 50],
+    ] as const) {
+      const limit = limitMove(near, ids, dx, dy);
+      const moves = (mx: number, my: number): EditOperation[] =>
+        ids.map((itemId) => ({ type: "moveItem", itemId, dx: mx, dy: my }));
+      const kept = applyEdits(near, moves(limit.dx, limit.dy));
+      assert.ok(!("error" in kept), `${dx},${dy} limited to ${limit.dx},${limit.dy}`);
+      const further = applyEdits(near, moves(limit.dx + Math.sign(dx), limit.dy + Math.sign(dy)));
+      assert.ok("error" in further && /off the surface/.test(further.error));
+    }
   });
 });
 

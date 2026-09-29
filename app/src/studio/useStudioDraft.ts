@@ -2,7 +2,8 @@
  * Room Studio's working draft: the picture text being edited, its undo
  * history, the compiled result and the last check, all against the text and
  * resource revision last kept (or opened). Every edit goes through the kernel
- * (applyEdits), then the lens locks (studioLocks.ts); a refused edit changes
+ * (applyEdits), then the lens locks (studioLocks.ts), which an edit of whole
+ * items passes in any lens (lensRules.ts editUnlocks); a refused edit changes
  * nothing and says why. An edit is one operation or a batch (a
  * multi-selection's move, copy or delete): a batch is checked as one edit of
  * all its items and recorded as one undo step, or refused whole. A drag is one gesture: `move` previews each frame's
@@ -33,6 +34,7 @@ import {
 } from "../../../src/studio/assistScope.ts";
 import { applyEdits, type EditOperation } from "../../../src/studio/editOperations.ts";
 import { compileEditDocument, type CompiledDocument } from "../../../src/studio/editValidation.ts";
+import { editUnlocks, WHOLE_ITEM_OPERATIONS } from "../../../src/studio/lensRules.ts";
 import {
   parsePictureDocument,
   pictureItemAtLine,
@@ -228,12 +230,13 @@ export function useStudioDraft(options: StudioDraftOptions) {
     const edited = [
       ...new Set([...editedItems(document.value, op), ...editedItems(result.document, op)]),
     ];
+    const whole = batchOf(op).every((each) => WHOLE_ITEM_OPERATIONS.includes(each.type));
     const check = checkStudioEdit(
       compiled.value,
       after,
       edited,
       toValue(options.lens),
-      toValue(options.unlocks),
+      editUnlocks(toValue(options.unlocks), whole),
     );
     validation.value = check;
     if (!check.ok)

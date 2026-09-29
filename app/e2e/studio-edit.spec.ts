@@ -53,6 +53,7 @@ const SOURCE = [
   "end",
 ].join("\n");
 const POLYGON_LINE = SOURCE.split("\n").findIndex((line) => line.startsWith("polygon")) + 1;
+const BENCH_LINE = SOURCE.split("\n").indexOf("rect 44,92 116,104") + 1;
 const PIC_5 = compilePictureSource(SOURCE).bytes;
 
 function studioGame() {
@@ -186,9 +187,13 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   const original = await draftBytes(page);
   expect(original).toEqual(PIC_5);
 
-  // Depth lens, the occluder selected: its polygon and fill seed show handles.
+  // Depth lens, the occluder selected: Select moves it whole and shows no
+  // handles; the Point tool shows its polygon's and fill seed's.
   await page.keyboard.press("2");
   await studio.locator('[data-row="occluder"]').click();
+  await expect(studio.locator("[data-handle]")).toHaveCount(0);
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("a");
   await expect(studio.locator("[data-handle]")).toHaveCount(6);
   await dragHandle(page, POLYGON_LINE, 2, 10, 0);
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
@@ -251,7 +256,8 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   const studio = await openStudio(page);
   await page.keyboard.press("2");
   await studio.locator('[data-row="occluder"]').click();
-  await expect(studio.locator("[data-handle]")).toHaveCount(6);
+  // Select shows no handles, yet an Alt+click still adds a point.
+  await expect(studio.locator("[data-handle]")).toHaveCount(0);
   const pane = page.locator(".studio-pane").last();
   const box = (await pane.boundingBox())!;
   const zoom = box.height / 168;
@@ -276,9 +282,13 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   await page.mouse.up();
   await page.keyboard.up("Alt");
   await expect(ghost).toHaveCount(0);
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  // The Point tool shows the new point's handle.
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  await page.keyboard.press("a");
   await expect(studio.locator("[data-handle]")).toHaveCount(7);
   await expect(pane.locator('[data-point="' + POLYGON_LINE + ':1"]')).toBeVisible();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await page.keyboard.press("v");
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(
     polygon("40,90 80,84 119,90 126,98 119,105 40,105"),
   );
@@ -308,25 +318,36 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   const status = studio.getByTestId("studio-draft-status");
   const original = await draftBytes(page);
 
-  // Art is locked in the Depth lens: moving the bench frame is refused, with
-  // the count and box of the art cells it would change, and nothing changes.
+  // A whole item moves whole in any lens: the bench frame nudged in the Depth
+  // lens takes its art along, and the notice says so.
   await page.keyboard.press("2");
   await studio.locator('[data-row="bench"]').click();
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
+  await expect(studio.getByTestId("studio-notice")).toHaveText("Moved Bench with its art.");
+  await expect(status).toHaveText("1 change");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(status).toHaveText("No changes");
+  // Art is locked in the Depth lens for editing within it: with the Point
+  // tool, a corner of the frame dragged up a row is refused, with the count and box of the art
+  // cells it would change (row 91 gains 44..116, row 92 loses 45..115), and
+  // nothing changes.
+  await page.keyboard.press("a");
+  await dragHandle(page, BENCH_LINE, 0, 0, -1);
   await expect(studio.getByTestId("studio-notice")).toHaveText("Art is locked in the Depth lens.");
   await expect(studio.getByTestId("studio-notice-detail")).toContainText(
-    "Art is locked in the Depth lens: 288 cells at 44,91..116,104 would change.",
+    "Art is locked in the Depth lens: 144 cells at 44,91..116,92 would change.",
   );
   await expect(studio.locator('[data-role="refused"]')).toHaveCount(1);
   await expect(status).toHaveText("No changes");
-  // The refusal offers the way out: unlocked for the session, the same nudge goes through.
+  // The refusal offers the way out: unlocked for the session, the same drag goes through.
   await studio.getByTestId("studio-notice-action").click();
   await expect(studio.getByTestId("studio-notice")).toHaveText("Unlocked for now. Try it again.");
-  await canvas.focus();
-  await page.keyboard.press("ArrowUp");
+  await dragHandle(page, BENCH_LINE, 0, 0, -1);
   await expect(status).toHaveText("1 change");
+  await canvas.focus();
   await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("v");
   // Lock again, from the lock chip by the lens tabs.
   const chip = studio.locator(".top-bar__lens").getByTestId("studio-lock-chip");
   await chip.locator("[data-term]").click();

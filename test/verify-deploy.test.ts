@@ -163,16 +163,22 @@ test("an index without the app mount fails", async () => {
 test("verification retries until the edge serves the new build", async () => {
   served = older;
   nosniff = true;
-  // The first attempt sees the older build; the edge catches up after it.
-  setTimeout(() => (served = current), 20);
+  // The first two attempts see the older build; the edge catches up during
+  // the second wait. The wait is injected: no timer, whatever the load.
+  const waits: number[] = [];
   const result = await verifyDeploy({
     url,
     commit: CURRENT,
     artifact: writeArtifact("retry", current),
-    attempts: 50,
-    delayMs: 5,
+    attempts: 5,
+    delayMs: 5000,
     log: () => {},
+    wait: async (ms) => {
+      waits.push(ms);
+      if (waits.length === 2) served = current;
+    },
   });
   assert.equal(result.ok, true);
-  assert.ok(result.attempts > 1, `passed on attempt ${result.attempts}`);
+  assert.equal(result.attempts, 3);
+  assert.deepEqual(waits, [5000, 5000]);
 });
