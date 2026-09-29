@@ -291,36 +291,53 @@ class ResourceContainer implements GameContainer {
   }
 
   putResources(
-    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[],
+    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array | null }[],
   ): void {
-    const byKey = new Map<string, { kind: ResourceKind; num: number; payload: Uint8Array }>();
+    const byKey = new Map<
+      string,
+      { kind: ResourceKind; num: number; payload: Uint8Array | null }
+    >();
     for (const resource of resources) {
-      const { num, payload } = resource;
+      const { kind, num, payload } = resource;
+      if (!RESOURCE_KINDS.includes(kind)) {
+        throw new RangeError(`unknown resource kind: ${kind}`);
+      }
       checkResourceNum(num);
       if (num >= INITIAL_DIRECTORY_ENTRIES) throw new RangeError("resource number must be 0..255");
-      if (payload.length > PAYLOAD_MAX_BYTES) {
+      if (payload !== null && !(payload instanceof Uint8Array)) {
+        throw new TypeError("resource payload must be a Uint8Array or null");
+      }
+      if (payload !== null && payload.length > PAYLOAD_MAX_BYTES) {
         throw new RangeError(
           `payload of ${payload.length} bytes exceeds the u16le record length limit of ${PAYLOAD_MAX_BYTES}`,
         );
       }
       // A later entry for the same resource wins, as a later put would.
-      byKey.set(`${resource.kind} ${num}`, resource);
+      byKey.set(`${kind} ${num}`, resource);
     }
-    this.pack([...byKey.values()]);
+    const replacements = [...byKey.values()].filter(
+      ({ kind, num, payload }) => payload !== null || this.#readEntry(kind, num) !== null,
+    );
+    // An absent-only removal must not incidentally compact imported files.
+    if (byKey.size > 0 && replacements.length === 0) return;
+    this.pack(replacements);
   }
 
   /**
-   * Repack every indexed record with `replacements` in place. All replacement
-   * bytes are built first; validation failure leaves the live map untouched.
+   * Repack every indexed record with `replacements` applied; a null payload
+   * removes the entry. All record bytes are built first; validation failure
+   * leaves the live map untouched.
    */
   pack(
-    replacements: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[] = [],
+    replacements: readonly { kind: ResourceKind; num: number; payload: Uint8Array | null }[] = [],
   ): void {
     const directories = RESOURCE_KINDS.map((kind) => {
       const original = this.#directory(kind);
       const required = Math.max(
         0,
-        ...replacements.filter((r) => r.kind === kind).map((r) => (r.num + 1) * ENTRY_BYTES),
+        ...replacements
+          .filter((r) => r.kind === kind && r.payload !== null)
+          .map((r) => (r.num + 1) * ENTRY_BYTES),
       );
       const bytes = new Uint8Array(Math.max(original.length, required)).fill(0xff);
       bytes.set(original);
@@ -335,15 +352,21 @@ class ResourceContainer implements GameContainer {
       const directory = directories[k]!;
       for (let num = 0; num < Math.min(256, Math.floor(directory.length / ENTRY_BYTES)); num++) {
         const replacement = replacements.find((r) => r.kind === kind && r.num === num);
-        const replacing = replacement !== undefined;
+        const patch = replacement === undefined ? undefined : replacement.payload;
+        if (patch === null) {
+          // Deletion writes the canonical absent entry and packs no record;
+          // a shared record survives through its remaining entries.
+          directory.fill(0xff, num * ENTRY_BYTES, num * ENTRY_BYTES + ENTRY_BYTES);
+          continue;
+        }
         const entry = this.#readEntry(kind, num);
-        if (!replacing && !entry) continue;
-        const key = entry && !replacing ? `${entry.volume}:${entry.offset}` : null;
+        if (patch === undefined && !entry) continue;
+        const key = entry && patch === undefined ? `${entry.volume}:${entry.offset}` : null;
         let destination = key ? aliases.get(key) : undefined;
         if (!destination) {
           let record: Uint8Array;
-          if (replacing) {
-            const payload = replacement!.payload;
+          if (patch !== undefined) {
+            const payload = patch;
             record = new Uint8Array(this.#headerBytes + payload.length);
             record.set([
               RECORD_MAGIC_0,
