@@ -10,6 +10,7 @@ import { inspectLogicResource } from "../logic/disassembler.ts";
 import { actionSpec, CONDITION_BY_NAME } from "../logic/opcodes.ts";
 import { parseView } from "../view/view.ts";
 import { readInventoryObjects } from "./inventory.ts";
+import { inspectProjectReferences } from "./projectReferences.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { RESOURCE_KINDS, type GameContainer, type ResourceKind } from "../types.ts";
 
@@ -50,6 +51,19 @@ function occupiedIds(
         used.add(num);
       }
     }
+    const analysis = inspectProjectReferences(context);
+    for (const reference of analysis.references) {
+      if (reference.target.kind !== kind) continue;
+      if ("num" in reference.target) used.add(reference.target.num);
+      else
+        warnings.add(
+          `${reference.document} has an unresolved ${kind} target from v${reference.target.variable}. Allocated IDs avoid known stored references.`,
+        );
+    }
+    if (analysis.unknownDocuments.length)
+      warnings.add(
+        `References in ${analysis.unknownDocuments.join(", ")} could not be completely inspected. Allocated IDs avoid known stored references.`,
+      );
     return used;
   }
   for (let num = 0; num < 256; num++) {

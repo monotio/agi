@@ -263,3 +263,22 @@ test("runtime-inserted formatter text reports uncertainty instead of promising a
   assert.deepEqual(reserved.details?.["warnings"], allocation.warnings);
   assert.deepEqual(allocateProjectIds(contextOf(state), "flag").ids, [32]);
 });
+
+test("resource allocation preserves absent IDs that existing bytecode still references", () => {
+  const state = createAgentSessionState();
+  state.container.putResource(
+    "logic",
+    0,
+    buildLogicResource(Uint8Array.of(0x16, 1, 0x1e, 1, 0x62, 1, 0), []),
+  );
+  for (const kind of ["logic", "view", "sound"] as const)
+    assert.deepEqual(allocateProjectIds(contextOf(state), kind).ids, [2]);
+});
+
+test("unresolved resource targets are disclosed without treating variable indices as resource IDs", () => {
+  const state = createAgentSessionState();
+  state.container.putResource("logic", 0, buildLogicResource(Uint8Array.of(0x17, 1, 0), []));
+  const allocation = allocateProjectIds(contextOf(state), "logic");
+  assert.deepEqual(allocation.ids, [1]);
+  assert.match(allocation.warnings.join(" "), /unresolved/i);
+});
