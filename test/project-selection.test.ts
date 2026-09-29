@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createContainer, openContainer } from "../src/container/container.ts";
 import { ProjectDraft } from "../src/authoring/projectDraft.ts";
+import { compileProjectDocuments } from "../src/authoring/projectDocuments.ts";
+import { compileProjectSelection } from "../src/authoring/projectSelection.ts";
 
 test("a selected build includes coordinated changes and transitive dependencies, not unrelated drafts", () => {
   const draft = new ProjectDraft({
@@ -102,4 +105,125 @@ test("a fully reverted group no longer couples later independent edits", () => {
   draft.edit("words", "unrelated", draft.capture().version("words"));
   assert.deepEqual(draft.select(["logic:1"]).keys, ["logic:1"]);
   assert.equal(draft.select(["logic:1"]).documents()["words"], "old");
+});
+
+const profileId = "2.936" as const;
+const view = JSON.stringify({
+  loops: [{ cels: [{ width: 1, height: 1, transparentColor: 0, pixels: [1] }] }],
+});
+function workspace(extra: Record<string, string | Uint8Array> = {}) {
+  const documents = {
+    "logic:0": "return;",
+    "logic:1": "return;",
+    "view:1": view,
+    words: "[]",
+    bindings: "{}",
+    ...extra,
+  };
+  const files = Object.fromEntries(
+    compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      profileId,
+      documents,
+    }).files(),
+  );
+  const draft = new ProjectDraft(documents);
+  return { files, draft, profileId };
+}
+function edit(draft: ProjectDraft, key: string, content: string | Uint8Array | null) {
+  draft.edit(key, content, draft.capture().version(key));
+}
+
+test("selected build uses kept unrelated logic and leaves later typing dirty after acknowledgement", () => {
+  const input = workspace();
+  edit(input.draft, "logic:1", 'print("unfinished');
+  edit(input.draft, "view:1", view.replace("[1]", "[2]"));
+  const candidate = compileProjectSelection({ ...input, keys: ["view:1"] });
+  assert.deepEqual(candidate.selection.keys, ["view:1"]);
+  assert.equal(candidate.compiled.documents()["logic:1"], "return;");
+  edit(input.draft, "view:1", view.replace("[1]", "[3]"));
+  assert.throws(() => input.draft.assertCurrent(candidate.selection), /Stale/);
+  assert.equal(input.draft.acknowledgeKept(candidate.selection), true);
+  assert.deepEqual(input.draft.dirtyKeys(), ["logic:1", "view:1"]);
+});
+
+test("selection closes new binding, vocabulary and resource dependencies to a fixed point", () => {
+  const input = workspace();
+  edit(input.draft, "logic:0", 'if (said("open")) { call(next_room); } return;');
+  edit(input.draft, "bindings", JSON.stringify({ next_room: { kind: "logic", num: 2 } }));
+  edit(input.draft, "words", JSON.stringify([["open", 100]]));
+  edit(input.draft, "logic:2", "load.view(3); return;");
+  edit(input.draft, "view:3", view);
+  edit(input.draft, "logic:1", "unfinished(");
+  const candidate = compileProjectSelection({ ...input, keys: ["logic:0"] });
+  assert.deepEqual(candidate.selection.keys, ["bindings", "logic:0", "logic:2", "view:3", "words"]);
+  assert.deepEqual(candidate.references.diagnostics, []);
+  assert.ok(openContainer(candidate.compiled.files()).getResource("view", 3));
+});
+
+test("selection includes the dirty referring logic when a resource deletion has a coordinated repair", () => {
+  const input = workspace({ "logic:0": "load.view(1); return;" });
+  edit(input.draft, "view:1", null);
+  edit(input.draft, "logic:0", "return;");
+  const candidate = compileProjectSelection({ ...input, keys: ["view:1"] });
+  assert.deepEqual(candidate.selection.keys, ["logic:0", "view:1"]);
+  assert.equal(openContainer(candidate.compiled.files()).getResource("view", 1), null);
+  assert.deepEqual(candidate.references.diagnostics, []);
+});
+
+test("compilation reports missing and indirect references rather than authorizing removal", () => {
+  const input = workspace({ "logic:0": "load.view(1); load.view.v(v2); return;" });
+  edit(input.draft, "view:1", null);
+  const candidate = compileProjectSelection({ ...input, keys: ["view:1"] });
+  assert.ok(candidate.references.diagnostics.some((entry) => entry.code === "missing-resource"));
+  assert.ok(
+    candidate.references.diagnostics.some((entry) => entry.code === "unresolved-reference"),
+  );
+  assert.deepEqual(candidate.removedResources, ["view:1"]);
+});
+
+test("invalid related bindings block the candidate, while unrelated broken bindings stay draft-only", () => {
+  const input = workspace();
+  edit(input.draft, "bindings", "{");
+  edit(input.draft, "logic:0", 'print("hello"); return;');
+  assert.doesNotThrow(() => compileProjectSelection({ ...input, keys: ["logic:0"] }));
+  edit(input.draft, "logic:0", "call(next_room); return;");
+  assert.throws(() => compileProjectSelection({ ...input, keys: ["logic:0"] }), /bindings/);
+});
+
+test("changed binding selects its current target without pulling an unfinished former target", () => {
+  const input = workspace({ bindings: JSON.stringify({ hero: { kind: "view", num: 1 } }) });
+  edit(input.draft, "logic:0", "load.view(hero); return;");
+  edit(input.draft, "bindings", JSON.stringify({ hero: { kind: "view", num: 2 } }));
+  edit(input.draft, "view:1", "unfinished");
+  edit(input.draft, "view:2", view);
+  const candidate = compileProjectSelection({ ...input, keys: ["logic:0"] });
+  assert.deepEqual(candidate.selection.keys, ["bindings", "logic:0", "view:2"]);
+  assert.equal(candidate.compiled.documents()["view:1"], view);
+});
+
+test("a vocabulary edit includes the current source repair when the kept source cannot compile", () => {
+  const input = workspace({
+    "logic:0": 'if (said("open")) { return; } return;',
+    words: '[["open",100]]',
+  });
+  edit(input.draft, "words", '[["unlock",100]]');
+  edit(input.draft, "logic:0", 'if (said("unlock")) { return; } return;');
+  const candidate = compileProjectSelection({ ...input, keys: ["words"] });
+  assert.deepEqual(candidate.selection.keys, ["logic:0", "words"]);
+  assert.deepEqual(candidate.references.diagnostics, []);
+});
+
+test("recompiled kept logic brings its new binding target while leaving unfinished source typing aside", () => {
+  const input = workspace({
+    "logic:0": "load.view(hero); return;",
+    bindings: JSON.stringify({ hero: { kind: "view", num: 1 } }),
+  });
+  edit(input.draft, "bindings", JSON.stringify({ hero: { kind: "view", num: 2 } }));
+  edit(input.draft, "view:2", view);
+  edit(input.draft, "logic:0", 'print("unfinished');
+  const candidate = compileProjectSelection({ ...input, keys: ["bindings"] });
+  assert.deepEqual(candidate.selection.keys, ["bindings", "view:2"]);
+  assert.equal(candidate.compiled.documents()["logic:0"], "load.view(hero); return;");
+  assert.deepEqual(candidate.references.diagnostics, []);
 });

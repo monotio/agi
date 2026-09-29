@@ -45,7 +45,7 @@ interface ResourceOperand {
 
 // Names are resolved through the selected profile's decoder before this table
 // is consulted. These describe the referenced family, not opcode execution.
-const RESOURCE_OPERANDS: Record<string, ResourceOperand> = {
+export const RESOURCE_REFERENCE_OPERANDS: Readonly<Record<string, ResourceOperand>> = {
   "new.room": { kind: "logic", operand: 0 },
   "new.room.v": { kind: "logic", operand: 0, variable: true },
   "load.logics": { kind: "logic", operand: 0 },
@@ -165,7 +165,7 @@ export function inspectProjectReferences(input: {
       ].sort((left, right) => left.at - right.at);
       for (const call of calls) {
         const origin = { document, pc: call.at, command: call.name };
-        const resource = RESOURCE_OPERANDS[call.name];
+        const resource = RESOURCE_REFERENCE_OPERANDS[call.name];
         if (resource) {
           const value = call.args[resource.operand]!;
           add({

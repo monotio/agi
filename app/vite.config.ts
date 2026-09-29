@@ -267,6 +267,10 @@ function buildIdentity(): Plugin {
 
 export default defineConfig({
   plugins: [vue(), fixtureServer(), bundleGraph(), buildIdentity()],
+  // Discover the lazy editor's dependencies before a browser connects. Finding
+  // them on first Studio open otherwise makes Vite reload the authoring page.
+  // This prebundles dependencies on the server; Play still loads no editor code.
+  optimizeDeps: { entries: ["index.html", "src/studio/logic/monacoLanguage.ts"] },
   server: {
     proxy: {
       "/api/openai": {

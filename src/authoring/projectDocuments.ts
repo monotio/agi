@@ -73,6 +73,19 @@ export interface CompileProjectDocumentsInput {
   readonly documents: Readonly<Record<string, DocumentContent>>;
 }
 
+/** A resource compile failure retains its document identity and original cause. */
+export class ProjectDocumentCompileError extends Error {
+  readonly key: string;
+
+  constructor(key: string, cause: unknown) {
+    super(`Cannot compile ${key}: ${cause instanceof Error ? cause.message : String(cause)}`, {
+      cause,
+    });
+    this.name = "ProjectDocumentCompileError";
+    this.key = key;
+  }
+}
+
 export interface ProjectDocumentsCompile {
   readonly build: ReturnType<typeof captureProjectBuild>;
   /** Owned copies of the document set this image was compiled from. */
@@ -313,7 +326,7 @@ function readViewInput(value: unknown): BuildViewInput {
 }
 
 /** Authoring-state validation is the single bindings schema; reuse it here. */
-function readBindingsDocument(text: string): AuthoringState["bindings"] {
+export function readBindingsDocument(text: string): AuthoringState["bindings"] {
   const parsed = parseJson(text, "bindings");
   try {
     return validateAuthoringState({
@@ -630,16 +643,20 @@ export function compileProjectDocuments(
     if (documentKey.type !== "resource") continue;
     const { kind, num } = documentKey;
     let payload: Uint8Array;
-    if (typeof content === "string") {
-      payload = compileTextDocument(documentKey, content, context);
-      if (kind === "logic") sources[String(num)] = content;
-    } else {
-      payload = content;
-      const current = indexedPayload(container, kind, num);
-      // Unchanged imported bytes stay opaque; a new or changed native payload
-      // must pass the family's existing structural validation.
-      if (current === undefined || !sameBytes(current, content))
-        validateNativeResource(kind, num, content, context);
+    try {
+      if (typeof content === "string") {
+        payload = compileTextDocument(documentKey, content, context);
+        if (kind === "logic") sources[String(num)] = content;
+      } else {
+        payload = content;
+        const current = indexedPayload(container, kind, num);
+        // Unchanged imported bytes stay opaque; a new or changed native payload
+        // must pass the family's existing structural validation.
+        if (current === undefined || !sameBytes(current, content))
+          validateNativeResource(kind, num, content, context);
+      }
+    } catch (error) {
+      throw new ProjectDocumentCompileError(key, error);
     }
     desired.set(key, { kind, num, payload });
   }
