@@ -1011,7 +1011,10 @@ const keys: StudioKeyActions = {
     if (walker.selectedDoorId.value !== null) walker.selectDoor(null);
     else if (tools.tool.value !== "select") tools.setTool("select");
     else if (priorityOpen.value) priorityOpen.value = false;
-    else if (!drag.abort()) return false;
+    else if (drag.abort()) return true;
+    // Last: a test walk left on the picture.
+    else if (walker.start.value !== null) walker.clearWalk();
+    else return false;
     return true;
   },
   // The lens and the unlocks wait with the request: Accept applies the terms it was asked under.

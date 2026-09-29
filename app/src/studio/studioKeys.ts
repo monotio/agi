@@ -6,7 +6,8 @@
  *
  * - 1/2/3 lens; `,` `.` Home End scrub; + - 0 zoom; Esc lets go of one
  *   thing per press (a menu, what a tool is drawing, a selected door, a tool
- *   other than Select, the selection's bar, a drag) and with nothing in hand
+ *   other than Select, the selection's bar, a drag, then a test walk left on
+ *   the picture) and with nothing in hand
  *   does nothing: Studio closes by its × button (in a text field, Esc leaves
  *   the field instead)
  * - on the focused canvas: arrows nudge the selection 1 px (Shift: 8),
