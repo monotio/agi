@@ -118,3 +118,26 @@ test("a previous line's comment does not suppress completion on the next line", 
     [],
   );
 });
+
+test("invalid rename spellings produce an identifier diagnostic instead of a source lexer error", () => {
+  const source = "#define door 41\nset(door); return;";
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  for (const name of ['a"b', "a@b", "a\\b"])
+    assert.throws(
+      () => language.renameAt(source.indexOf("set(door") + 4, name),
+      /not a safe source identifier/,
+    );
+});
+
+test("vocabulary completion replaces an unfinished quoted word through the caret at EOF", () => {
+  const source = 'if (said("op';
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.deepEqual(language.completeAt(source.length), [
+    { label: "open", detail: "Word group 100", start: 9, end: 12, text: '"open"' },
+  ]);
+  const closed = 'if (said("open"';
+  assert.deepEqual(
+    createLogicLanguageSnapshot({ source: closed, ...context }).completeAt(closed.length),
+    [],
+  );
+});

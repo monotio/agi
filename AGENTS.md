@@ -127,8 +127,10 @@ code, comments or documentation.
 - Studio code (`src/studio/`, `app/src/studio/`) stays off the Play boot path: the
   shell loads it through dynamic `import()`, and `npm run check:bundle` fails a
   build that pulls it in.
-- Browser-only, BYOK, no server. Playwright runs Vite in `test` mode with the
-  deterministic stub provider; browser tests never call paid providers.
+- The browser app is BYOK and requires no server. Optional local developer tools
+  may expose stdio protocols; Node and protocol SDK dependencies stay in
+  `scripts/`, outside `src/` and the browser graph. Playwright runs Vite in `test`
+  mode with the deterministic stub provider; browser tests never call paid providers.
 - Host interactions that cannot answer synchronously (authoring, prompts, key
   waits, save/restore) suspend the interpreter as a resumable continuation: the
   worker posts a `hostRequest` message and resumes the parked interaction when

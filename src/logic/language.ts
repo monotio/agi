@@ -101,7 +101,13 @@ export function createLogicLanguageSnapshot(input: {
         }));
     const at =
       tokenAt(offset) ??
-      syntax.tokens.find((token) => token.end === offset && token.type === "ident");
+      syntax.tokens.find(
+        (token) =>
+          token.end === offset &&
+          (token.type === "ident" ||
+            token.type === "string" ||
+            (token.type === "invalid" && source[token.start] === '"')),
+      );
     const previous = syntax.tokens
       .filter((token) => token.end <= offset && token.type !== "eof")
       .at(-1);
@@ -249,7 +255,13 @@ export function createLogicLanguageSnapshot(input: {
       throw new Error(
         "Rename requires a valid compiled source; fix incomplete or invalid code first.",
       );
-    const tokens = scanLogicTokens(name);
+    let tokens: Token[];
+    try {
+      tokens = scanLogicTokens(name);
+    } catch (error) {
+      if (!(error instanceof AssemblerError)) throw error;
+      throw new Error("The new name is not a safe source identifier.", { cause: error });
+    }
     if (
       tokens.length !== 2 ||
       tokens[0]!.type !== "ident" ||
