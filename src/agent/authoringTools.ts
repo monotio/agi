@@ -5,6 +5,7 @@ import {
   type AgentToolResult,
 } from "./agentState.ts";
 import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
+import { allocateProjectIds } from "../authoring/resourceAllocation.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
@@ -63,45 +64,6 @@ export function sourceContextRevision(
   });
 }
 
-/** Discover static operands; refuse automatic allocation where runtime indirection obscures usage. */
-function occupiedIds(state: AgentSessionState, kind: BindingKind): Set<number> {
-  const used = new Set(
-    Object.values(state.authoring.bindings)
-      .filter((binding) => binding.kind === kind)
-      .map((binding) => binding.num),
-  );
-  if (kind !== "flag" && kind !== "variable") {
-    for (let num = 0; num < 256; num++) {
-      try {
-        if (state.container.getResource(kind, num)) used.add(num);
-      } catch {
-        used.add(num);
-      }
-    }
-    return used;
-  }
-  for (let num = 0; num < 256; num++) {
-    const payload = state.container.getResource("logic", num);
-    if (!payload) continue;
-    const source = disassembleLogic(payload, {
-      profile: state.profile,
-      dictionary: state.sources.words,
-    });
-    if (
-      source.includes("// !!") ||
-      /\b(?:lindirectv|rindirect|lindirectn|set\.v|reset\.v|toggle\.v|isset\.v)\s*\(/.test(source)
-    )
-      throw new Error(
-        `Logic ${num} has indirect or undecodable state access. Read its logic and bind an explicit ID; automatic allocation cannot establish a free ${kind}.`,
-      );
-    // Remove literals/comments: a message saying 'f32' is not an operand.
-    const code = source.replace(/\/\/[^\n]*|"(?:\\[^\n]|[^"\\\n])*"/g, "");
-    for (const match of code.matchAll(kind === "flag" ? /\bf(\d+)\b/g : /\bv(\d+)\b/g))
-      used.add(Number(match[1]));
-  }
-  return used;
-}
-
 /**
  * Runs reserve_binding and update_world, which change only authoring state.
  * edit_resource_source is not here: resolveSourceEdit patches the text, and
@@ -150,15 +112,16 @@ export function executeAuthoringTool(
             );
           num = existing.num;
         } else if (num == null) {
-          const used = occupiedIds(state, kind);
-          for (const b of reservedList) {
-            if (b.kind === kind) used.add(b.num);
-          }
-          const start = kind === "flag" || kind === "variable" ? 32 : 1;
-          num = Array.from({ length: 256 - start }, (_, index) => start + index).find(
-            (id) => !used.has(id),
-          );
-          if (num === undefined) throw new Error(`No free ${kind} IDs remain.`);
+          // Earlier batch items are already bound, so the live record covers them.
+          num = allocateProjectIds(
+            {
+              container: state.container,
+              profile: state.profile,
+              dictionary: state.sources.words,
+              bindings: state.authoring.bindings,
+            },
+            kind,
+          )[0]!;
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
