@@ -130,7 +130,13 @@ export function compileProjectSelection(input: {
       )
         continue;
       const num = Number(key.slice(6));
-      const before = baselineContainer.getResource("logic", num);
+      let before: Uint8Array | undefined;
+      try {
+        before = baselineContainer.getResource("logic", num) ?? undefined;
+      } catch {
+        // The independently compiled candidate is usable, but equality with a
+        // damaged baseline cannot be proved. Treat its dependencies as changed.
+      }
       const after = candidateContainer.getResource("logic", num);
       if (
         before &&

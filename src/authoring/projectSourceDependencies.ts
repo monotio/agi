@@ -8,7 +8,7 @@ import { actionSpec, CONDITION_BY_NAME } from "../logic/opcodes.ts";
 import { analyzeLogicSyntax, type Ref, type Stmt, type TestExpr } from "../logic/syntax.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { expandProjectLogic } from "./projectLogic.ts";
-import { RESOURCE_REFERENCE_OPERANDS } from "./projectReferences.ts";
+import { resourceReferenceOperand } from "./projectReferences.ts";
 
 interface SourceReference {
   /** Authored UTF-16 call offset; never a generated binding location. */
@@ -60,7 +60,7 @@ export function inspectProjectSourceDependencies(input: {
       dependencies.add(dependency);
       references.push({ start, command: call.name, dependency });
     };
-    const resource = condition ? undefined : RESOURCE_REFERENCE_OPERANDS[call.name];
+    const resource = condition ? undefined : resourceReferenceOperand(call.name, input.profile);
     if (resource) {
       const arg = call.args[resource.operand];
       if (resource.kind === "item") add("inventory");

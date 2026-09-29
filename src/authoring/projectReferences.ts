@@ -45,7 +45,7 @@ interface ResourceOperand {
 
 // Names are resolved through the selected profile's decoder before this table
 // is consulted. These describe the referenced family, not opcode execution.
-export const RESOURCE_REFERENCE_OPERANDS: Readonly<Record<string, ResourceOperand>> = {
+const RESOURCE_REFERENCE_OPERANDS: Readonly<Record<string, ResourceOperand>> = {
   "new.room": { kind: "logic", operand: 0 },
   "new.room.v": { kind: "logic", operand: 0, variable: true },
   "load.logics": { kind: "logic", operand: 0 },
@@ -73,6 +73,16 @@ export const RESOURCE_REFERENCE_OPERANDS: Readonly<Record<string, ResourceOperan
   "put.v": { kind: "item", operand: 0, variable: true },
   "get.room.v": { kind: "item", operand: 0, variable: true },
 };
+
+/** Sound discard is a real resource use only on IIgs; see fidelity.md "Apple IIgs sound discard". */
+export function resourceReferenceOperand(
+  command: string,
+  profile: AgiProfile,
+): ResourceOperand | undefined {
+  if (command === "discard.sound")
+    return profile.extraActions === "iigs" ? { kind: "sound", operand: 0 } : undefined;
+  return RESOURCE_REFERENCE_OPERANDS[command];
+}
 
 export function inspectProjectReferences(input: {
   readonly container: GameContainer;
@@ -165,7 +175,7 @@ export function inspectProjectReferences(input: {
       ].sort((left, right) => left.at - right.at);
       for (const call of calls) {
         const origin = { document, pc: call.at, command: call.name };
-        const resource = RESOURCE_REFERENCE_OPERANDS[call.name];
+        const resource = resourceReferenceOperand(call.name, profile);
         if (resource) {
           const value = call.args[resource.operand]!;
           add({

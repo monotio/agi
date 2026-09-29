@@ -73,7 +73,7 @@ export interface CompileProjectDocumentsInput {
   readonly documents: Readonly<Record<string, DocumentContent>>;
 }
 
-/** A resource compile failure retains its document identity and original cause. */
+/** A document compile failure retains its document identity and original cause. */
 export class ProjectDocumentCompileError extends Error {
   readonly key: string;
 
@@ -593,44 +593,60 @@ export function compileProjectDocuments(
   // dictionary and named bindings, so a coordinated vocabulary change
   // recompiles coherent bytes rather than mixing revisions.
   const bindingsDocument = documents.get("bindings");
-  if (bindingsDocument !== undefined && typeof bindingsDocument !== "string")
-    throw new Error("Invalid project document bindings: expected JSON text.");
-  const bindings = readBindingsDocument(bindingsDocument ?? "{}");
+  let bindings: AuthoringState["bindings"];
+  try {
+    if (bindingsDocument !== undefined && typeof bindingsDocument !== "string")
+      throw new Error("Invalid project document bindings: expected JSON text.");
+    bindings = readBindingsDocument(bindingsDocument ?? "{}");
+  } catch (error) {
+    throw new ProjectDocumentCompileError("bindings", error);
+  }
 
   const wordsDocument = documents.get("words");
   let wordsBytes: Uint8Array | null = null;
-  if (wordsDocument !== undefined) {
-    if (typeof wordsDocument === "string") {
-      wordsBytes = buildWordsTok(readWordEntries(parseJson(wordsDocument, "words")));
-    } else {
-      const current = container.files.get("WORDS.TOK");
-      if (!current || !sameBytes(current, wordsDocument)) parseWordsTok(wordsDocument);
-      wordsBytes = wordsDocument;
+  let dictionary: ReadonlyMap<string, number> = new Map();
+  try {
+    if (wordsDocument !== undefined) {
+      if (typeof wordsDocument === "string") {
+        wordsBytes = buildWordsTok(readWordEntries(parseJson(wordsDocument, "words")));
+      } else {
+        const current = container.files.get("WORDS.TOK");
+        if (!current || !sameBytes(current, wordsDocument)) parseWordsTok(wordsDocument);
+        wordsBytes = wordsDocument;
+      }
+      // The compile dictionary comes from the final words image; a corrupt
+      // unchanged payload refuses here with the words document identity.
+      dictionary = new Map(parseWordsTok(wordsBytes).map(({ word, id }) => [word, id]));
     }
+  } catch (error) {
+    throw new ProjectDocumentCompileError("words", error);
   }
+
   const inventoryDocument = documents.get("inventory");
   let inventoryBytes: Uint8Array | null = null;
-  if (inventoryDocument !== undefined) {
-    if (typeof inventoryDocument === "string") {
-      inventoryBytes = buildObjectFile(
-        readInventoryItems(parseJson(inventoryDocument, "inventory")),
-        profile,
-        inventoryLimit(container, profile),
-      );
-    } else {
-      const current = container.files.get("OBJECT");
-      if (!current || !sameBytes(current, inventoryDocument))
-        readInventoryObjects(inventoryDocument, profile);
-      inventoryBytes = inventoryDocument;
+  try {
+    if (inventoryDocument !== undefined) {
+      if (typeof inventoryDocument === "string") {
+        inventoryBytes = buildObjectFile(
+          readInventoryItems(parseJson(inventoryDocument, "inventory")),
+          profile,
+          inventoryLimit(container, profile),
+        );
+      } else {
+        const current = container.files.get("OBJECT");
+        if (!current || !sameBytes(current, inventoryDocument))
+          readInventoryObjects(inventoryDocument, profile);
+        inventoryBytes = inventoryDocument;
+      }
     }
+  } catch (error) {
+    throw new ProjectDocumentCompileError("inventory", error);
   }
 
   const context: CompileContext = {
     profile,
     maximumDrawableObjectIndex: inventoryLimit(container, profile),
-    dictionary: new Map(
-      wordsBytes ? parseWordsTok(wordsBytes).map(({ word, id }) => [word, id]) : [],
-    ),
+    dictionary,
     bindings: numBindings(bindings),
   };
 
