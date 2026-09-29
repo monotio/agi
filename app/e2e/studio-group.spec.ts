@@ -170,16 +170,20 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   const bar = studio.getByTestId("studio-options-bar");
   expect(await rows(studio)).toEqual(["el-1", "el-2", "el-1-2", "el-3"]);
 
-  // The outline alone, 8 px right: its fill would spread into cells no selected item owns,
-  // another item's art. Refused.
+  // The outline alone, 8 px right: its fill, drawn after the trunk, pours into
+  // its new inside. The edit lands and says so; one undo takes it all back.
+  const original = await draftBytes(page);
   await studio.locator('[data-row="el-1"]').click();
   await expect(bar.getByTestId("selection-name")).toHaveText("Element 1");
   await canvas.focus();
   await page.keyboard.press("Shift+ArrowRight");
   await expect(studio.getByTestId("studio-notice")).toHaveText(
-    "This would change another object's art.",
+    /^Element 1 part 2 flows differently: [\d,]+ cells changed\. (⌘|Ctrl\+)Z undoes it\.$/,
   );
+  await expect(status).toHaveText("1 change");
+  await page.keyboard.press("ControlOrMeta+z");
   await expect(status).toHaveText("No changes");
+  expect(await draftBytes(page)).toEqual(original);
 
   // Shift+click on the fill adds its item (the bush's fill, seeded after the trunk).
   await page.keyboard.down("Shift");

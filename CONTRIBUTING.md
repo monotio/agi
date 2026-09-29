@@ -205,7 +205,7 @@ flowchart LR
 2. A gesture on `StudioCanvas.vue` reaches `useStudioInput.ts` and then `useStudioDrag.ts`, `useStudioEditing.ts` or `useStudioTools.ts`.
 3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source; several selected items take a batch (`applyEdits`), checked and undone as one edit.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
-5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`).
+5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
 6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `project/resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `project/projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`project/gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
 
 **Where authority lives.** Each of these is a check in code:

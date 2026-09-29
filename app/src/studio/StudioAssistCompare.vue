@@ -5,9 +5,14 @@ import UiSegmented from "../ui/UiSegmented.vue";
  * The canvas's before/after switch while an AI proposal awaits a verdict,
  * docked in the options bar above the canvas: the canvas (and every
  * preview drawn from it) shows the draft as it is or with the proposal
- * applied; the changed cells stay outlined either way.
+ * applied; the changed cells stay outlined either way, and those of other
+ * items it changes (its side effects) in their own colour.
  */
-const { stale = false } = defineProps<{ stale?: boolean }>();
+const { stale = false, spilled = false } = defineProps<{
+  stale?: boolean;
+  /** The proposal changes other items too: their key shows. */
+  spilled?: boolean;
+}>();
 const mode = defineModel<"before" | "after">({ required: true });
 const OPTIONS = [
   { value: "before", label: "Before" },
@@ -20,6 +25,9 @@ const OPTIONS = [
     <span class="compare__label">{{ stale ? "Stale proposal" : "AI proposal" }}</span>
     <UiSegmented v-model="mode" size="sm" label="Show the canvas" :options="OPTIONS" />
     <span class="compare__key"><i aria-hidden="true"></i>changed</span>
+    <span v-if="spilled" class="compare__key is-spilled" data-testid="assist-compare-spilled"
+      ><i aria-hidden="true"></i>other items</span
+    >
   </div>
 </template>
 
@@ -47,5 +55,8 @@ const OPTIONS = [
   width: 10px;
   height: 10px;
   border: 2px dashed var(--ok);
+}
+.compare__key.is-spilled i {
+  border-color: var(--warn);
 }
 </style>

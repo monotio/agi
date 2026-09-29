@@ -6,26 +6,26 @@
  * the model's words claim. Pure and deterministic.
  *
  * Pictures. A candidate must start from `baseRevision`, keep every item
- * outside `targetIds` (id, label, kind and lock), change no item's lock
- * (locks are the creator's: a proposal never locks or unlocks an item, a
- * selected one included, nor adds a locked one), leave `lockedPlanes`
- * untouched, fit `maxBytes`, and change each plane only inside that plane's
- * allowed cells (`licence`): the ask-time area (the targets' old
+ * outside `targetIds` (id, label, kind, lock and commands) and the loose
+ * commands outside every item, change no item's lock (locks are the
+ * creator's: a proposal never locks or unlocks an item, a selected one
+ * included, nor adds a locked one), leave `lockedPlanes` untouched, fit
+ * `maxBytes`, and draw with its own bounded commands only inside each
+ * plane's allowed cells (`licence`): the ask-time area (the targets' old
  * footprints on the plane plus `allowedMask` when given), and the cells the
  * targets' bounded commands own after the edit. Lines, corners, rectangles
  * and plots lie on their own coordinates, so a reshaped or moved target may
- * take its new cells. A fill is bounded by nothing of its own: its cells are
- * allowed only inside the ask-time area, or inside a target's old area moved
- * by the offset the candidate moved (or duplicated) it by, read from the
- * decoded geometry. A fill that spills past that is a `fill-spill`.
- * `allowedMask` only adds cells; it never lifts the footprint rule. New items
- * a proposal inserts get no licence of their own: their pixels must land in
- * the allowed cells. The one exception is a duplicate, as manual Duplicate
- * makes: each target licenses ONE translated position, its own move or else
- * one new item repeating its commands with the same registers (colours and
- * pen), whose old area on each plane moved is allowed on that plane. A
- * further repeat, or one in other colours, is an `extra-copy` where it lands
- * outside the allowed cells. The lens rules a manual edit passes
+ * take its new cells; a new item's bounded cells outside the allowed ones
+ * are `outside-mask`. `allowedMask` only adds cells. The one exception is a
+ * duplicate, as manual Duplicate makes: each target licenses ONE translated
+ * position, its own move or else one new item repeating its commands with
+ * the same registers (colours and pen), whose old area on each plane moved
+ * is allowed on that plane. A further repeat, or one in other colours, is an
+ * `extra-copy` where it lands outside the allowed cells. Every other changed
+ * cell outside the allowed ones is a side effect (sideEffects.ts), reported
+ * with the check rather than refused: another item's fill that pours
+ * differently around a moved outline, or a fill of the proposal's own that
+ * pours past the selection. The lens rules a manual edit passes
  * (lensRules.ts: the Walk lens keeps depth values 4–15) apply too, with the
  * targets and the items the candidate creates as the edited items; and as
  * for a manual edit, a candidate that only moves or copies whole targets
@@ -73,6 +73,7 @@ import {
   type PictureItem,
 } from "./pictureDocument.ts";
 import { itemAt, type PicturePlane } from "./pictureQuery.ts";
+import { sideEffects, type SideEffectReport } from "./sideEffects.ts";
 import type { SpriteDocument } from "../view/spriteDocument.ts";
 import type { CelRef } from "./sprite/spriteOperations.ts";
 import { validateSpriteEdit } from "./sprite/spriteValidation.ts";
@@ -124,7 +125,6 @@ type AssistConstraint =
   | "item-lock"
   | "locked-plane"
   | "outside-mask"
-  | "fill-spill"
   | "extra-copy"
   | "walk-depth"
   | "protected-loop"
@@ -145,6 +145,8 @@ interface AssistViolation {
 export interface AssistCheck {
   readonly ok: boolean;
   readonly violations: readonly AssistViolation[];
+  /** What a picture candidate changes in other items' output, when anything. */
+  readonly sideEffects?: SideEffectReport;
 }
 
 /** FNV-1a over 16-bit units (source text) or bytes (payloads). */
@@ -452,14 +454,25 @@ function licence(
   return { cells: { visual: cells("visual"), priority: cells("priority") }, strays, whole };
 }
 
+/**
+ * Whether a picture candidate only moves or copies whole targets, so it
+ * passes the lens locks as a manual move does (lensRules.ts editUnlocks):
+ * what the Studio re-checks an accepted candidate under.
+ */
+export function wholeTargets(
+  before: CompiledDocument,
+  after: CompiledDocument,
+  scope: Pick<PictureAssistScope, "targetIds" | "allowedMask">,
+): boolean {
+  return licence(before, after, scope).whole;
+}
+
 const PLANE_WORDS: Record<PicturePlane, string> = {
   visual: "art (visual plane)",
   priority: "depth and walk (priority plane)",
 };
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-/** 23680 → "23,680": fixed grouping, whatever the locale. */
-const grouped = (count: number) => String(count).replace(/\B(?=(\d{3})+$)/g, ",");
 const at = (count: number, bbox: CellBox) =>
   `${plural(count, "cell")} at ${bbox.x0},${bbox.y0}..${bbox.x1},${bbox.y1}`;
 
@@ -511,13 +524,20 @@ function checkPicture(
       ? "be removed"
       : next.label !== item.label || next.kind !== item.kind || next.locked !== item.locked
         ? "have its label, kind or lock changed"
-        : null;
+        : !sameBody(before.document, item, after.document, next)
+          ? "have its commands changed"
+          : null;
     if (change)
       violations.push({
         constraint: "outside-target",
         message: `item '${item.id}' ("${item.label}") is not selected but would ${change}`,
       });
   }
+  if (looseCommands(before.document).join("\n") !== looseCommands(after.document).join("\n"))
+    violations.push({
+      constraint: "outside-target",
+      message: "the loose steps outside every item would change",
+    });
   // Locks are the creator's: no proposal locks or unlocks an item, selected
   // or new (an unselected one is reported above).
   for (const item of after.document.items) {
@@ -533,17 +553,8 @@ function checkPicture(
   const { cells: allowed, strays, whole } = licence(before, after, scope);
   // Whole items move whole, in any lens, as a manual move or copy does.
   const unlocks = editUnlocks(scope.unlocks, whole);
-  const result = validateEdit(before, after, {
-    lockedPlanes: whole ? lockedPlanes(scope.lens, unlocks) : scope.lockedPlanes,
-    allowedMask: allowed,
-    maxBytes: scope.maxBytes,
-  });
-  const controlled = new Set([...scope.targetIds, ...created]);
-  const spills = new Map<string, { plane: PicturePlane; label: string; cells: Tally }>();
-  const repeats = new Map<
-    string,
-    { plane: PicturePlane; id: string; label: string; stray: Stray; cells: Tally }
-  >();
+  const locked = whole ? lockedPlanes(scope.lens, unlocks) : scope.lockedPlanes;
+  const result = validateEdit(before, after, { lockedPlanes: locked, maxBytes: scope.maxBytes });
   for (const violation of result.violations) {
     if (violation.constraint === "max-bytes") {
       violations.push({
@@ -553,20 +564,30 @@ function checkPicture(
       });
       continue;
     }
-    const { plane } = violation;
-    if (violation.constraint === "locked-plane") {
-      violations.push({
-        constraint: "locked-plane",
-        plane,
-        count: violation.count,
-        bbox: violation.bbox,
-        message: `the ${PLANE_WORDS[plane]} is locked, but ${at(violation.count, violation.bbox)} would change`,
-      });
-      continue;
-    }
-    // The cells validateEdit found outside the allowed ones: those a stray
-    // repeat of a target owns are that repeat, and those a fill of an item
-    // the proposal controls owns are that fill spilling.
+    violations.push({
+      constraint: "locked-plane",
+      plane: violation.plane,
+      count: violation.count,
+      bbox: violation.bbox,
+      message: `the ${PLANE_WORDS[violation.plane]} is locked, but ${at(violation.count, violation.bbox)} would change`,
+    });
+  }
+  const controlled = new Set([...scope.targetIds, ...created]);
+  const repeats = new Map<
+    string,
+    { plane: PicturePlane; id: string; label: string; stray: Stray; cells: Tally }
+  >();
+  const spill: Record<PicturePlane, Uint8Array> = {
+    visual: new Uint8Array(CELLS),
+    priority: new Uint8Array(CELLS),
+  };
+  // A locked plane's changes are refused whole. On the others, the cells
+  // outside the allowed ones: those a stray repeat of a target owns are that
+  // repeat, those the proposal's own bounded commands draw are drawing
+  // outside the selection, and the rest (fills pouring differently, of other
+  // items or its own) are side effects.
+  for (const plane of PLANES) {
+    if (locked.includes(plane)) continue;
     const rest = tally();
     const [a, b, mask] = [before[plane], after[plane], allowed[plane]];
     for (let i = 0; i < CELLS; i++) {
@@ -586,17 +607,8 @@ function checkPicture(
         };
         repeats.set(key, repeat);
         add(repeat.cells, x, y);
-        continue;
-      }
-      const item = filledCell(after, plane, i) ? owner : undefined;
-      if (!item || !controlled.has(item.id)) {
-        add(rest, x, y);
-        continue;
-      }
-      const key = `${plane} ${item.id}`;
-      const spill = spills.get(key) ?? { plane, label: item.label, cells: tally() };
-      spills.set(key, spill);
-      add(spill.cells, x, y);
+      } else if (owner && controlled.has(owner.id) && !filledCell(after, plane, i)) add(rest, x, y);
+      else spill[plane][i] = 1;
     }
     if (rest.count > 0)
       violations.push({
@@ -615,14 +627,6 @@ function checkPicture(
       bbox: boxOf(cells),
       message: `new item '${id}' ("${label}") ${stray.why === "second" ? "would be a second copy of" : "copies"} the selected "${stray.target}"${stray.why === "second" ? "" : " in other colours"}: ${at(cells.count, boxOf(cells))} of the ${PLANE_WORDS[plane]} outside the selection would change. ${stray.why === "second" ? "An assist may move a selected item or copy it once, no more; drop the extra copies" : "A copy keeps the item's colours and pen; draw it in the same ones, or keep new drawing inside the selection"}`,
     });
-  for (const { plane, label, cells } of spills.values())
-    violations.push({
-      constraint: "fill-spill",
-      plane,
-      count: cells.count,
-      bbox: boxOf(cells),
-      message: `the ${label} fill would spill outside the selection (${grouped(cells.count)} ${cells.count === 1 ? "cell" : "cells"}); close the outline or keep the fill seed inside it`,
-    });
   for (const { constraint, plane, count, bbox, message } of checkLensRules(
     before,
     after,
@@ -631,7 +635,8 @@ function checkPicture(
     unlocks,
   ))
     violations.push({ constraint, plane, count, bbox, message });
-  return { ok: violations.length === 0, violations };
+  const report = sideEffects(before, after, spill, controlled);
+  return { ok: violations.length === 0, violations, ...(report ? { sideEffects: report } : {}) };
 }
 
 function checkView(
@@ -746,25 +751,7 @@ export function checkCandidate(
     : checkView(before as SpriteDocument, after as SpriteDocument, scope);
 }
 
-/**
- * The violations in plain words, for a refusal the model and the creator
- * read: a locked plane says it all for that plane, so its outside-selection
- * cells are not repeated.
- */
+/** The violations in plain words, for a refusal the model and the creator read. */
 export function assistRefusalText(check: AssistCheck): string {
-  const locked = new Set(
-    check.violations.flatMap((v) => (v.constraint === "locked-plane" ? [v.plane] : [])),
-  );
-  return check.violations
-    .filter(
-      (v) =>
-        !(
-          (v.constraint === "outside-mask" ||
-            v.constraint === "fill-spill" ||
-            v.constraint === "extra-copy") &&
-          locked.has(v.plane)
-        ),
-    )
-    .map((v) => v.message)
-    .join("; ");
+  return check.violations.map((v) => v.message).join("; ");
 }

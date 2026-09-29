@@ -1,0 +1,51 @@
+{
+  "name": "studio-assist-move-repours-fill",
+  "description": "Owner QA: moving an island outline drawn before the grass flood fill was refused as changing another object's art, because the grass pours around the outline and so re-pours when it moves. A move of the selected item's own commands is a candidate; the grass's new pour is a side effect the tool result names, with its cells and box, for the model and the creator to judge.",
+  "async": true,
+  "studio": {
+    "kind": "picture",
+    "num": 1,
+    "source": "# @item island \"Island\" art\nvis 2\nrect 20,40 40,60\n# @end\n# @item grass \"Grass\" art\nvis 10\nfill 80,100\n# @end\nend\n",
+    "targetIds": ["island"],
+    "lens": "art"
+  },
+  "tool": "propose_edit",
+  "args": {
+    "baseRevision": "picture-114-a2f47569",
+    "summary": "Moved the island 8 pixels right.",
+    "pictureOps": [
+      {
+        "type": "moveItem",
+        "itemId": "island",
+        "dx": 8,
+        "dy": 0,
+        "line": null,
+        "pointIndex": null,
+        "x": null,
+        "y": null,
+        "plane": null,
+        "value": null,
+        "toIndex": null,
+        "atLine": null,
+        "id": null,
+        "label": null,
+        "kind": null,
+        "locked": null,
+        "visual": null,
+        "priority": null,
+        "shape": null,
+        "pen": null,
+        "points": null,
+        "seed": null
+      }
+    ],
+    "spriteOps": null
+  },
+  "expectedSuccess": true,
+  "expectedMessageSnippet": "Side effects: other items' art changes. Grass: 266 cells at 21,41..47,59 (its fill re-pours).",
+  "expectedCandidate": "c1",
+  "expectedFields": {
+    "details.sideEffects.cells": 266,
+    "details.sideEffects.items.0.itemId": "grass"
+  }
+}

@@ -36,6 +36,31 @@ export const BRIDGE_SOURCE = [
   "",
 ].join("\n");
 
+/**
+ * An island outline drawn BEFORE the grass fill that pours around it, as an
+ * imported picture's bushes and rocks are: the outline is the fence the
+ * grass stops at. Grass floods every white cell but the island's inside
+ * (21..39 x 41..59).
+ */
+export const ISLAND_SOURCE = [
+  '# @item island "Island" art',
+  "vis 2",
+  "rect 20,40 40,60",
+  "# @end",
+  '# @item grass "Grass" art',
+  "vis 10",
+  "fill 80,100",
+  "# @end",
+  "end",
+  "",
+].join("\n");
+/**
+ * The island moved 8 right (rect 28,40 48,60): the grass pours into the
+ * inside it leaves, x 21..27 (7 x 19 = 133 cells), and out of its new
+ * inside, x 41..47 (133). Neither lies on the island's old or new outline.
+ */
+export const ISLAND_MOVE = { dx: 8, cells: 266, bbox: { x0: 21, y0: 41, x1: 47, y1: 59 } };
+
 /** 1-based line after the bridge's @end: where new items go. */
 export const AFTER_BRIDGE = BRIDGE_SOURCE.split("\n").indexOf("end") + 1;
 

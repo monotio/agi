@@ -17,7 +17,8 @@
  *                        protected cells, room context, crop and overview
  *     propose_edit       ops on a detached copy of the draft, checked by
  *                        checkCandidate: a candidate with a before | after |
- *                        diff PNG, or a refusal in plain words
+ *                        diff PNG and its side effects on other items, or a
+ *                        refusal in plain words
  *     withdraw_edit      clears the candidate: the model's own verdict that
  *                        no change meets the request, or that the creator
  *                        should reject what it proposed
@@ -58,6 +59,7 @@ import {
 } from "../studio/pictureDocument.ts";
 import type { PicturePlane } from "../studio/pictureQuery.ts";
 import { probeActor } from "../studio/probe.ts";
+import { sideEffectData, sideEffectLine } from "../studio/sideEffects.ts";
 import type { SceneShape } from "../studio/shapes.ts";
 import { RESIZE_ANCHORS, type ResizeAnchor } from "../studio/sprite/spriteCels.ts";
 import { openSprite, type SpriteDocument } from "../view/spriteDocument.ts";
@@ -384,7 +386,7 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "propose_edit",
     description:
-      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget; a candidate that draws the same pixels as the draft is refused unless its ops are only setItemMeta, setTransparent or unlinkMirror. Returns a candidateId with a before | after | diff image, or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
+      "Studio assist only. Propose a candidate change to the selection as ordered edit operations; nothing is applied. Send `baseRevision` from read_edit_context, a one-sentence `summary`, and `pictureOps` for a picture (Room Studio kernel ops: moveItem itemId dx dy; setPoint line pointIndex x y; insertPoint itemId line pointIndex x y (adds a vertex to a line, polyline, polygon or rel line of the item, before the point now at pointIndex; the point count appends, on a polygon its closing edge); setItemColor itemId plane value (null value turns the plane off); deleteItem itemId; duplicateItem itemId dx dy id label; reorderItem itemId toIndex; insertShape atLine shape id label kind; insertFill atLine x y visual priority id label; insertPlot atLine pen points seed visual priority id label; setItemMeta itemId label kind locked (locked stays null: only the creator locks or unlocks items)) or `spriteOps` for a view (Sprite Studio kernel ops on loop/cel: setPixels changes; fillCel x y color; recolor from to over recolorScope cels|loop|view; flipCel axis; shiftCel dx dy; resizeCel width height anchor; setTransparent color remap; addCel loop at source; deleteCel; moveCel to; unlinkMirror loop; propagate edits a shared mirror block). Unused fields are null. The ops run on a detached copy and the result is checked on decoded pixels against the selection, the locked planes, the protected cels and loops and the byte budget; a candidate that draws the same pixels as the draft is refused unless its ops are only setItemMeta, setTransparent or unlinkMirror. Returns a candidateId with a before | after | diff image and any side effects: cells of other items' output it changes (a fill that pours differently around a moved outline), reported, not refused, so you can judge them. Or a refusal naming the broken constraint: fix that and call again. Each accepted call replaces the candidate.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -886,7 +888,7 @@ function readPictureContext(
     for (const m of [...own, ...(extra ? [extra] : [])])
       for (let i = 0; i < CELLS; i++) if (m[i] === 1) mask[i] = 1;
     may[plane] =
-      `may change only in ${box(countMask(mask))} (the selection; a moved target also licenses its new footprint)`;
+      `takes new drawing only in ${box(countMask(mask))} (the selection; a moved target also licenses its new footprint); fills that pour past it are side effects`;
   }
   const room = roomContext(session, focus, compiled);
   const walk = walkRelevant(scope) ? walkable(session, focus, compiled.priority, area) : null;
@@ -1101,7 +1103,6 @@ const HINTS: Record<string, string> = {
   "walk-depth":
     "In the Walk lens paint only control values 0–3 (0 barrier, 1 conditional, 2 signal, 3 water) and leave depth values as they are.",
   "outside-mask": "Confine the change to the selected items' cells.",
-  "fill-spill": "Keep every fill inside a closed outline within the selection.",
   "outside-target": "Change only the selected items or cels.",
   "protected-loop": "Leave the protected loops exactly as they are.",
   "max-bytes": "Use fewer drawing commands.",
@@ -1217,6 +1218,7 @@ function proposePicture(
     : null;
   const candidateDraft = { kind: "picture", source } as const;
   const revision = draftRevision(candidateDraft);
+  const effects = check.sideEffects;
   assist.candidate = {
     kind: "picture",
     candidateId,
@@ -1232,7 +1234,7 @@ function proposePicture(
   };
   return {
     success: true,
-    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${signed(after.bytes.length - before.compiled.bytes.length)}).\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_edit again to replace it, or reply with one sentence describing the change.`,
+    message: `Candidate ${candidateId} for picture ${scope.num}: ${summary}\nChanged: visual ${box(changed.visual)}; priority ${box(changed.priority)}.${walk ? ` Walkable baseline cells in the selection: ${walk.before} → ${walk.after}.` : ""} ${after.bytes.length} bytes (${signed(after.bytes.length - before.compiled.bytes.length)}).${effects ? `\n${sideEffectLine(effects)}` : ""}\nThe creator sees the attached before | after | diff and accepts or rejects it. Call propose_edit again to replace it, or reply with one sentence describing the change.`,
     details: {
       ok: true,
       candidateId,
@@ -1244,6 +1246,7 @@ function proposePicture(
       changed,
       bytes: after.bytes.length,
       ...(walk ? { walkable: walk } : {}),
+      ...(effects ? { sideEffects: sideEffectData(effects) } : {}),
     },
     images: [{ png: previewPng, caption: PICTURE_ASSIST_PREVIEW_CAPTION }],
   };

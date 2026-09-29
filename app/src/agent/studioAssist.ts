@@ -11,8 +11,9 @@
  * the walkable control value beside it (control 0–3 only, as the default
  * Walk locks allow), "eyes" recolours the selected cels' rarest colour blue,
  * "bad" first recolours the selected art under the lens lock, reads the
- * refusal, then retries with the walkable change, "withdraw" proposes the
- * walkable change and then withdraws it with withdraw_edit, as a model does
+ * refusal, then retries with the walkable change, "move" moves the first
+ * selected item 8 pixels right (whatever that does to fills drawn after
+ * it), "withdraw" proposes the walkable change and then withdraws it with withdraw_edit, as a model does
  * that concludes its own candidate should be rejected, "impossible" reads
  * the selection and declines with an explanation, proposing nothing, and
  * "reference" views the reference art attached to the request with
@@ -61,10 +62,11 @@ The creator is editing ${kind} ${num} in ${studio}${focus.lens ? ` (${focus.lens
 
 "${instruction.trim()}"
 
-You may change only the selection. Call read_edit_context, then propose_edit with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses changes outside the selection, on a locked plane or protected loop, or over the byte budget, and a candidate that draws the same pixels as the draft: read the refusal, fix that, and propose again. If you conclude that no change can meet the request, or you would tell the creator to reject your own candidate, call withdraw_edit so they are not offered it. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
+You may change only the selection. Call read_edit_context, then propose_edit with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses edits to unselected items, drawing outside the selection, changes on a locked plane or protected loop, a candidate over the byte budget, and one that draws the same pixels as the draft: read the refusal, fix that, and propose again. It reports side effects, cells of other items that change (a fill that pours differently), for you and the creator to judge. If you conclude that no change can meet the request, or you would tell the creator to reject your own candidate, call withdraw_edit so they are not offered it. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
 }
 
-type Scenario = "walkable" | "eyes" | "bad" | "withdraw" | "impossible" | "reference" | "none";
+type Scenario =
+  "walkable" | "eyes" | "bad" | "move" | "withdraw" | "impossible" | "reference" | "none";
 
 /** The stub's explanation when it declines ("impossible"): nothing is proposed. */
 export const STUB_DECLINE_TEXT =
@@ -80,6 +82,7 @@ function scenarioOf(instruction: string): Scenario {
   if (asked.includes("reference")) return "reference";
   if (asked.includes("withdraw")) return "withdraw";
   if (asked.includes("bad")) return "bad";
+  if (/\bmove\b/.test(asked)) return "move";
   if (asked.includes("eye")) return "eyes";
   if (asked.includes("walk")) return "walkable";
   return "none";
@@ -231,6 +234,21 @@ function artProposal(context: PictureContext) {
   };
 }
 
+/** How far "move" moves the selection, in pixels to the right. */
+const STUB_MOVE_DX = 8;
+
+function moveProposal(context: PictureContext) {
+  const target = context.selection[0]!;
+  return {
+    baseRevision: context.baseRevision,
+    summary: `Moved the ${target.label.toLowerCase()} ${STUB_MOVE_DX} pixels right.`,
+    pictureOps: [
+      op("pictureOps", { type: "moveItem", itemId: target.id, dx: STUB_MOVE_DX, dy: 0 }),
+    ],
+    spriteOps: null,
+  };
+}
+
 function eyesProposal(context: ViewContext) {
   const first = context.colours[0]!;
   const rarest = Object.entries(first.colours).sort(
@@ -310,6 +328,10 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
     }
     if (scenario === "none" || scenario === "eyes")
       return say("The stub has no Studio change for that request.");
+    if (scenario === "move")
+      return outcomes.length === 0
+        ? call("propose_edit", moveProposal(context))
+        : say("I could not make that change within the selection.");
     const walkable = walkableProposal(context);
     if (outcomes.length === 0 && scenario === "bad")
       return call("propose_edit", artProposal(context));

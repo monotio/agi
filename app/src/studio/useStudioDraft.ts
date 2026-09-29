@@ -4,7 +4,9 @@
  * resource revision last kept (or opened). Every edit goes through the kernel
  * (applyEdits), then the lens locks (studioLocks.ts), which an edit of whole
  * items passes in any lens (lensRules.ts editUnlocks); a refused edit changes
- * nothing and says why. An edit is one operation or a batch (a
+ * nothing and says why. An accepted edit that changes other items' output
+ * (a fill that pours differently) carries its side effects, for the notice.
+ * An edit is one operation or a batch (a
  * multi-selection's move, copy or delete): a batch is checked as one edit of
  * all its items and recorded as one undo step, or refused whole. A drag is one gesture: `move` previews each frame's
  * candidate from the text the gesture started on, and `end` records one undo
@@ -30,6 +32,7 @@ import {
 import {
   assistRefusalText,
   checkCandidate,
+  wholeTargets,
   type PictureAssistScope,
 } from "../../../src/studio/assistScope.ts";
 import { applyEdits, type EditOperation } from "../../../src/studio/editOperations.ts";
@@ -43,9 +46,11 @@ import {
   type PictureDocument,
 } from "../../../src/studio/pictureDocument.ts";
 import { kernelDetail, plainKernelRefusal } from "./studioMessages.ts";
+import type { SideEffectReport } from "../../../src/studio/sideEffects.ts";
 import {
   checkStudioEdit,
   refusalText,
+  studioSideEffects,
   violationCells,
   type LensUnlocks,
   type StudioCheck,
@@ -85,10 +90,17 @@ export interface DraftCandidate {
   readonly source: string;
   readonly document: PictureDocument;
   readonly compiled: CompiledDocument;
+  /** What it changes in other items' output; null when nothing, or not asked for. */
+  readonly sideEffects: SideEffectReport | null;
 }
 
 export type DraftOutcome =
-  { readonly ok: true } | { readonly ok: false; readonly refusal: DraftRefusal };
+  | { readonly ok: true; readonly sideEffects?: SideEffectReport | null }
+  | { readonly ok: false; readonly refusal: DraftRefusal };
+
+/** An accepted outcome, with its side effects when there are any. */
+const accepted = (sideEffects: SideEffectReport | null): DraftOutcome =>
+  sideEffects ? { ok: true, sideEffects } : { ok: true };
 
 const sameBytes = (a: Uint8Array, b: Uint8Array): boolean =>
   a.length === b.length && a.every((byte, i) => byte === b[i]);
@@ -217,8 +229,12 @@ export function useStudioDraft(options: StudioDraftOptions) {
     },
   );
 
-  /** Run `op` (or a batch) on the draft: the kernel, then the locks. Nothing is recorded. */
-  function evaluate(op: DraftEdit): DraftCandidate | DraftRefusal {
+  /**
+   * Run `op` (or a batch) on the draft: the kernel, then the locks. Nothing
+   * is recorded. `report` also works out its side effects, which a drag's
+   * preview frames leave to the gesture's end.
+   */
+  function evaluate(op: DraftEdit, report = true): DraftCandidate | DraftRefusal {
     const result = applyEdits(document.value, batchOf(op), { profile: profile() });
     if ("error" in result)
       return {
@@ -250,6 +266,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       source: serializePictureDocument(result.document),
       document: result.document,
       compiled: after,
+      sideEffects: report ? studioSideEffects(compiled.value, after, edited) : null,
     };
   }
 
@@ -275,7 +292,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       });
     history.value = recorded.history;
     refusal.value = null;
-    return { ok: true };
+    return accepted(candidate.sideEffects);
   }
 
   /**
@@ -283,8 +300,10 @@ export function useStudioDraft(options: StudioDraftOptions) {
    * candidate passed its scope (assistScope.ts) when it was proposed; it
    * must still pass it against the draft now, and the locks a manual edit
    * passes under the lens and unlocks it was asked with (checkStudioEdit,
-   * with the targets and the items it creates as the edited items): both
-   * verdicts must agree, or nothing changes.
+   * with the targets and the items it creates as the edited items, and
+   * whole targets moved or copied passing the locks as a manual move): both
+   * verdicts must agree, or nothing changes. The outcome carries the side
+   * effects the proposal named, which the creator accepted with it.
    */
   function adopt(next: string, label: string, scope: PictureAssistScope): DraftOutcome {
     if (gesturing.value) return refuse({ kind: "kernel", message: "Finish the drag first." });
@@ -313,7 +332,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       after,
       [...scope.targetIds, ...created],
       scope.lens,
-      scope.unlocks,
+      editUnlocks(scope.unlocks, wholeTargets(compiled.value, after, scope)),
     );
     validation.value = check;
     if (!check.ok)
@@ -327,7 +346,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
       });
     history.value = recorded.history;
     refusal.value = null;
-    return { ok: true };
+    return accepted(scoped.sideEffects ?? null);
   }
 
   /** Open a gesture (a drag); its edits undo as one step. */
@@ -338,7 +357,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
 
   /** Preview `op` from the gesture's start; a refusal snaps the preview back. */
   function moveGesture(op: DraftEdit): DraftOutcome {
-    const candidate = evaluate(op);
+    const candidate = evaluate(op, false);
     if (refused(candidate)) {
       preview.value = null;
       return refuse(candidate);
@@ -361,7 +380,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     const recorded = record(history.value, label, source.value, candidate.source);
     history.value = commit(recorded.ok ? recorded.history : history.value);
     refusal.value = null;
-    return { ok: true };
+    return accepted(candidate.sideEffects);
   }
 
   /** Abandon the gesture (pointer cancel, Escape): nothing changes. */
