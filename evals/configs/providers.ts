@@ -16,6 +16,7 @@ export const MODEL_IDS = {
   gpt6Sol: "gpt-6-sol",
   gpt6Luna: "gpt-6-luna",
   claudeOpus55: "claude-opus-5-5",
+  claudeSonnet55: "claude-sonnet-5-5",
   claudeFable51: "claude-fable-5-1",
 };
 

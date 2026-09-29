@@ -1,6 +1,6 @@
 import type { AgentRun } from "./agentRun.ts";
 /**
- * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Fable 5.1) and OpenAI
+ * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Sonnet 5.5 / Fable 5.1) and OpenAI
  * (GPT-6 Astra / Sol / Luna) directly from the browser with prompt caching.
  */
 import Anthropic from "@anthropic-ai/sdk";
@@ -317,7 +317,7 @@ export function createAnthropicConversation(
             ) as Exclude<ModelEffort, "none">,
           },
           max_tokens: maxTokens,
-          // The notes Opus 5.5 writes between tool calls arrive as thinking
+          // The notes Opus 5.5 and Sonnet 5.5 write between tool calls arrive as thinking
           // blocks, empty without a display; the agent panel shows them.
           ...(modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
             .summarizedThinking

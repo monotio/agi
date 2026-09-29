@@ -3,7 +3,7 @@
  *
  * Framework-free TypeScript, zero dependencies. Runs in browser, Web Worker,
  * and Node. Designed for byte-prefix prompt caching in frontier LLMs (GPT-6,
- * Claude Opus 5.5 and Claude Fable 5.1).
+ * Claude Opus 5.5, Claude Sonnet 5.5 and Claude Fable 5.1).
  *
  * Keep engine instructions stable across games for prefix caching. Per-game
  * context belongs in the user turn. Put parameter and result details in the

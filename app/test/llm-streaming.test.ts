@@ -300,12 +300,13 @@ for (const provider of ["openai", "anthropic"] as const) {
   });
 }
 
-test("Opus 5.5 shows its thinking between tool calls instead of going quiet", async (t) => {
+test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of going quiet", async (t) => {
   // Opus 5.5 returns the notes it writes between tool calls as thinking
   // blocks, empty unless a display is requested; the agent panel showed
   // nothing during long turns. The player opens that panel by choice.
   for (const [model, displayed] of [
     ["claude-opus-5-5", true],
+    ["claude-sonnet-5-5", true],
     ["unlisted-model", false],
   ] as const) {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
