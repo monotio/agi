@@ -438,10 +438,9 @@ test("an imported autosave restores in a real engine boot of the imported game's
   assert.notEqual(fromSlot.flags[200], 0);
 });
 
-test("re-addressing is the revision contract: export compaction makes equality impossible", async () => {
-  // A container with orphan volume bytes, as an imported or externally patched
-  // game has: packing rewrites the bytes, so a hash of the files cannot survive
-  // the export. The save image itself is game data and travels byte for byte.
+test("Project backups preserve resource bytes and imported progress binds to its destination", async () => {
+  // Imported resources can contain unreferenced volume bytes. A private Project
+  // backup preserves them and the save image exactly, including their identities.
   const container = game();
   const engine = new Engine(container, host, DICT);
   engine.tick();
@@ -466,13 +465,15 @@ test("re-addressing is the revision contract: export compaction makes equality i
   };
   const progress: GameProgress = { saves: { "1": engine.serialize() }, autosave };
   const imported = await readGameZip(await buildProjectZip(cachedGame(files), progress));
-  // The record crosses the archive still naming the pre-compaction revision…
   assert.equal(imported.progress?.autosave?.game.identity.revision, preExportRevision);
-  // …but the export compacted the container, so the imported files hash to a
-  // different revision: enforcing equality would reject every such project.
-  const importedRevision = await gameRevision(imported.files);
-  assert.notEqual(importedRevision, preExportRevision);
-  // The save image needs no such check: it is identical after the trip.
+  assert.equal(await gameRevision(imported.files), preExportRevision);
+  assert.deepEqual(imported.files[volume], padded);
+  // Public Game export supplies a missing empty OBJECT for standalone play.
+  // Progress can also be imported against that image, whose revision differs.
+  const destination = await readGameZip(buildPublicGameZip(cachedGame(files)));
+  const destinationRevision = await gameRevision(destination.files);
+  assert.notEqual(destinationRevision, preExportRevision);
+  // Neither archive transformation changes the captured interpreter image.
   assert.equal(imported.progress?.autosave?.image, autosave.image);
   const backing = new Map<string, string>();
   const storage = {
@@ -484,10 +485,10 @@ test("re-addressing is the revision contract: export compaction makes equality i
   const report = storeImportedProgress(
     storage,
     requireProjectId("imported-xyz"),
-    importedRevision,
+    destinationRevision,
     imported.progress!,
   );
-  assert.equal(report.autosave?.game.identity.revision, importedRevision);
+  assert.equal(report.autosave?.game.identity.revision, destinationRevision);
   assert.equal(report.autosave?.image, autosave.image);
 });
 

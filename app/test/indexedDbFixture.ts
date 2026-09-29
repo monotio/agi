@@ -140,6 +140,7 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
     return value as unknown as IDBRequest<T>;
   };
   const database = {
+    objectStoreNames: { contains: (name: string) => name === "projects" },
     onversionchange: null,
     close: () => {},
     createObjectStore: () => ({}),

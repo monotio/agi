@@ -146,7 +146,7 @@ function matches(data: CachedGameData, expected: LocalBase, base: RecoveryBase):
   return (
     generationOf(data) === expected.generation &&
     data.library?.revision === base.revision &&
-    authoringFingerprint(data.authoringState) === base.authoring &&
+    authoringFingerprint(data.authoringState, data.workspace) === base.authoring &&
     detectProfile(new Map(Object.entries(data.files)), data.library?.profile).id === base.profileId
   );
 }

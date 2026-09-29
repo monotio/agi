@@ -1,0 +1,13 @@
+{
+  "format": "monotio.agi.project-workspace",
+  "version": 1,
+  "documents": [
+    {
+      "key": "logic:0",
+      "content": { "type": "text", "text": "print(\"unfinished" }
+    },
+    { "key": "sound:2", "content": { "type": "bytes", "bytes": [0, 1, 255] } },
+    { "key": "words", "content": { "type": "bytes", "bytes": [60, 0] } },
+    { "key": "world", "content": { "type": "text", "text": "{\"rooms\":{}}" } }
+  ]
+}

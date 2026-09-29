@@ -112,7 +112,7 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       const bootFiles = boot.files;
 
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open("monotio-agi-projects", 1);
+        const req = indexedDB.open("monotio-agi-projects");
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });

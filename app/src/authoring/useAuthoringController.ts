@@ -394,7 +394,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       : authored;
     // The session holds this record's authoring content from now on: one
     // another tab changed since boot leaves the game stale for authoring.
-    hydrateAuthoring(game, cached?.authoringState);
+    hydrateAuthoring(game, cached?.authoringState, authored?.workspace ?? null);
     return stack.AgentSession.fromAuthoredData(
       config,
       logAgent,
@@ -1199,6 +1199,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       roomGeneration: data.roomGeneration ?? false,
       conversationHistory:
         session &&
+        data.provider !== undefined &&
+        data.model !== undefined &&
         (data.provider !== session.getProviderContext().provider ||
           data.model !== session.getProviderContext().model) &&
         data.transcript?.length

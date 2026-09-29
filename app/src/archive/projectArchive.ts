@@ -1,3 +1,13 @@
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../../../src/authoring/projectWorkspace.ts";
+import {
+  readProjectRecovery,
+  writeProjectRecovery,
+} from "../../../src/authoring/projectRecovery.ts";
+import type { PortableProjectRecovery } from "../../../src/authoring/projectRecovery.ts";
 import { buildZip, type ZipFileInput } from "./zip.ts";
 import { sha256Hex } from "../project/crypto.ts";
 import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
@@ -21,11 +31,15 @@ import { historyArchiveData, type ProjectHistory } from "./historyArchive.ts";
 
 import type { BackupReport } from "./historyBackup.ts";
 
+const PROJECT_SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+
 export interface ProjectContext {
-  provider: string;
-  model: string;
+  provider?: string | undefined;
+  model?: string | undefined;
   sessionId?: string | undefined;
-  transcript: unknown[];
+  transcript?: unknown[] | undefined;
+  recoveryDraft?: PortableProjectRecovery | undefined;
+  workspace?: PortableProjectWorkspace | undefined;
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
   references?: StoredReference[] | undefined;
@@ -40,9 +54,10 @@ export interface ProjectContext {
  */
 function gameEntries(
   data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
+  supplyInventory = true,
 ): ZipFileInput[] {
   const files = new Map(Object.entries(data.files));
-  if (!files.has("OBJECT"))
+  if (supplyInventory && !files.has("OBJECT"))
     files.set("OBJECT", buildObjectFile([], detectProfile(files, data.library?.profile)));
   const entries = [...files]
     .filter(([name]) => isPlayableFileName(name))
@@ -85,7 +100,7 @@ export async function buildProjectZip(
   history?: ProjectHistory,
   backup?: BackupReport,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  const entries = gameEntries(data);
+  const entries = gameEntries(data, false);
   if (backup) {
     const { recoveryBatches, ...report } = backup;
     entries.push({ name: "BACKUP.JSON", data: JSON.stringify(report) });
@@ -153,14 +168,47 @@ export async function buildProjectZip(
     }
     return path;
   }
-  validateTranscript(data.transcript ?? [], data.provider);
-  const transcript = await visit(data.transcript ?? []);
-  const conversationHistory = await visit(data.conversationHistory ?? []);
+  const hasAssistant =
+    data.provider !== undefined ||
+    data.model !== undefined ||
+    data.sessionId !== undefined ||
+    data.transcript !== undefined ||
+    data.conversationHistory !== undefined;
+  if (
+    hasAssistant &&
+    (typeof data.provider !== "string" ||
+      !["openai", "anthropic", "stub"].includes(data.provider) ||
+      typeof data.model !== "string")
+  )
+    throw new Error("Invalid project model metadata.");
+  if (
+    data.sessionId !== undefined &&
+    (typeof data.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(data.sessionId))
+  )
+    throw new Error("Invalid project session field.");
+  if (hasAssistant) validateTranscript(data.transcript ?? [], data.provider!);
+  const assistant = hasAssistant
+    ? {
+        provider: data.provider!,
+        model: data.model!,
+        sessionId: data.sessionId,
+        conversation: { formatVersion: 1, messages: await visit(data.transcript ?? []) },
+        conversationHistory: await visit(data.conversationHistory ?? []),
+      }
+    : undefined;
+  const workspace =
+    data.workspace === undefined
+      ? undefined
+      : writeProjectWorkspace(readProjectWorkspace(data.workspace));
+  const recovered =
+    data.recoveryDraft === undefined ? undefined : readProjectRecovery(data.recoveryDraft);
+  const recoveryDraft =
+    recovered === undefined ? undefined : writeProjectRecovery(recovered.base, recovered.recovery);
   // Reference art is project data: metadata rides in PROJECT.JSON, the bytes
   // in REFERENCES/<id>.<ext> entries. A Game export never carries either.
   // Verify against the live input before rebinding to the exact exported bytes.
-  // Export may supply a missing OBJECT file, which moves the revision; that
-  // must not strand fresh staging.
+  // Private backups preserve resource bytes; rebinding also retains an
+  // already-stale attachment's refusal across repeated imports and copies.
   let exportedReferences = data.references;
   if (exportedReferences?.length) {
     const exportedFiles = Object.fromEntries(
@@ -194,13 +242,11 @@ export async function buildProjectZip(
     name: "PROJECT.JSON",
     data: JSON.stringify({
       format: "monotio.agi.project",
-      version: 1,
-      provider: data.provider,
-      model: data.model,
-      sessionId: data.sessionId,
-      conversation: { formatVersion: 1, messages: transcript },
+      version: 2,
+      ...(assistant !== undefined ? { assistant } : {}),
       authoringState: data.authoringState ?? {},
-      conversationHistory,
+      ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
+      ...(workspace !== undefined ? { workspace } : {}),
       ...(references !== undefined ? { references } : {}),
     }),
   });
@@ -329,15 +375,79 @@ export function readProjectContext(
   entries: Map<string, Uint8Array>,
   root: string,
 ): ProjectContext {
-  const raw = JSON.parse(new TextDecoder().decode(bytes));
+  const envelope = JSON.parse(new TextDecoder().decode(bytes));
   if (
-    raw.format !== "monotio.agi.project" ||
-    raw.version !== 1 ||
-    raw.conversation?.formatVersion !== 1
+    !envelope ||
+    typeof envelope !== "object" ||
+    Array.isArray(envelope) ||
+    envelope.format !== "monotio.agi.project" ||
+    ![1, 2].includes(envelope.version)
   )
     throw new Error("This project version is not supported.");
-  if (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
+  function knownFields(value: unknown, names: readonly string[]): void {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      Object.keys(value).some((key) => !names.includes(key))
+    )
+      throw new Error("Invalid or unknown project field.");
+  }
+  const hasAssistant = envelope.version === 1 || envelope.assistant !== undefined;
+  if (envelope.version === 2) {
+    knownFields(envelope, [
+      "format",
+      "version",
+      "assistant",
+      "authoringState",
+      "references",
+      "recoveryDraft",
+      "workspace",
+    ]);
+    if (hasAssistant)
+      knownFields(envelope.assistant, [
+        "provider",
+        "model",
+        "sessionId",
+        "conversation",
+        "conversationHistory",
+      ]);
+  }
+  const raw =
+    envelope.version === 1
+      ? envelope
+      : {
+          authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
+          references: envelope.references,
+          ...(hasAssistant ? envelope.assistant : {}),
+        };
+  if (hasAssistant && raw.conversation?.formatVersion !== 1)
+    throw new Error("This project conversation version is not supported.");
+  if (
+    hasAssistant &&
+    (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
+  )
     throw new Error("Invalid project model metadata.");
+  if (envelope.version === 2) {
+    if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
+    if (raw.references !== undefined && !Array.isArray(raw.references))
+      throw new Error("Invalid project reference field.");
+    if (
+      raw.sessionId !== undefined &&
+      (typeof raw.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(raw.sessionId))
+    )
+      throw new Error("Invalid project session field.");
+  }
+  const workspace =
+    envelope.version === 2 && envelope.workspace !== undefined
+      ? writeProjectWorkspace(readProjectWorkspace(envelope.workspace))
+      : undefined;
+  const recovered =
+    envelope.version === 2 && envelope.recoveryDraft !== undefined
+      ? readProjectRecovery(envelope.recoveryDraft)
+      : undefined;
+  const recoveryDraft =
+    recovered === undefined ? undefined : writeProjectRecovery(recovered.base, recovered.recovery);
 
   let nodeCount = 0;
   let reconstructedChars = 0;
@@ -391,7 +501,7 @@ export function readProjectContext(
     }
   }
 
-  scanRaw(raw.conversation.messages);
+  if (hasAssistant) scanRaw(raw.conversation.messages);
   scanRaw(raw.authoringState);
   if (raw.conversationHistory) {
     scanRaw(raw.conversationHistory);
@@ -427,7 +537,9 @@ export function readProjectContext(
     }
     return value;
   }
-  const transcript = validateTranscript(restore(raw.conversation.messages), raw.provider);
+  const transcript = hasAssistant
+    ? validateTranscript(restore(raw.conversation.messages), raw.provider)
+    : undefined;
   const authoringState = restore(raw.authoringState);
   if (!authoringState || typeof authoringState !== "object" || Array.isArray(authoringState))
     throw new Error("Invalid project authoring state.");
@@ -490,14 +602,20 @@ export function readProjectContext(
       })
     : undefined;
   return {
-    provider: raw.provider,
-    model: raw.model,
-    ...(typeof raw.sessionId === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(raw.sessionId)
-      ? { sessionId: raw.sessionId }
+    ...(hasAssistant
+      ? {
+          provider: raw.provider,
+          model: raw.model,
+          ...(typeof raw.sessionId === "string" && PROJECT_SESSION_ID_PATTERN.test(raw.sessionId)
+            ? { sessionId: raw.sessionId }
+            : {}),
+          transcript,
+          conversationHistory,
+        }
       : {}),
-    transcript,
     authoringState: authoringState as Record<string, unknown>,
-    conversationHistory,
+    ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
+    ...(workspace !== undefined ? { workspace } : {}),
     ...(references !== undefined ? { references: normalizeReferences(references) } : {}),
   };
 }

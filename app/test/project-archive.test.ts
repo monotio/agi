@@ -144,7 +144,7 @@ test("first-release project and public metadata versions reject future data", ()
   const futureProject = new TextEncoder().encode(
     JSON.stringify({
       format: "monotio.agi.project",
-      version: 2,
+      version: 999,
       conversation: { formatVersion: 1, messages: [] },
       provider: "stub",
       model: "stub",
@@ -281,9 +281,9 @@ test("readProjectContext bounds depth, missing attachments, attachment fan-out a
     }),
   );
   const context = readProjectContext(validProject, entries, "");
-  assert.equal(context.transcript.length, 10);
-  const firstImage = (context.transcript[0] as { content: unknown[] }).content[0];
-  const secondImage = (context.transcript[1] as { content: unknown[] }).content[0];
+  assert.equal(context.transcript!.length, 10);
+  const firstImage = (context.transcript![0] as { content: unknown[] }).content[0];
+  const secondImage = (context.transcript![1] as { content: unknown[] }).content[0];
   assert.equal(firstImage, secondImage, "repeated references share the same cached representation");
 });
 

@@ -121,12 +121,14 @@ export async function addLibraryGame(
     !(await saveAuthoredGame(targetProjectId, {
       title: effectiveTitle,
       library,
-      provider: game.project?.provider ?? "stub",
-      model: game.project?.model ?? "local-playback",
+      provider: game.project?.provider,
+      model: game.project?.model,
       transcript: game.project?.transcript,
       sessionId: game.project?.sessionId,
       authoringState: game.project?.authoringState,
       conversationHistory: game.project?.conversationHistory,
+      recoveryDraft: game.project?.recoveryDraft,
+      workspace: game.project?.workspace,
       // A staged candidate verified against these exact bytes rebinds to the
       // imported project — an already-stale one keeps its refusal.
       references: rebindStagedReferences(game.project?.references, {

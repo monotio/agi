@@ -253,6 +253,24 @@ is the check on that answer. The known-games catalog (`src/games/knownGames.ts`)
 fingerprints releases, while the Home shelf (`app/src/library/gameCatalog.ts` and a
 host's `catalog.json`) lists games to play.
 
+**Project storage and archives, version 2.** Stored project bodies, the
+localStorage index and `PROJECT.JSON` in a downloaded project archive are
+version 2, and readers still accept version 1. Version 2 makes the
+assistant metadata optional, so a game created locally without a provider
+carries no provider, model or transcript, and adds two separate envelopes:
+`workspace`, the kept authoring documents (exact source text where it
+exists, retained native bytes where it does not), and `recoveryDraft`,
+unfinished draft state that is never installed as playable resources. A
+private project backup keeps the playable files exactly as stored, byte
+for byte; the public Game export ships playable bytes only and still
+synthesizes an empty `OBJECT` when a game lacks one. The IndexedDB
+database itself is version 2, so a tab running an older release is refused
+before it could overwrite records it cannot read. The workspace codec
+stores text and bytes exactly but never compiles them, so accepting a
+version-2 project does not prove its sources reproduce the playable bytes;
+only recompiling the documents against the recorded resource revision
+establishes that, as `app/src/project/localProject.ts` does at creation.
+
 ### Extending
 
 | Task                                 | Files                                                                                                                                                                                                                                                          | Test                                                                                                                    | Gate                                   |

@@ -380,7 +380,7 @@ test("import and copy rebind a verified staged reference; a stale one keeps its 
   );
 });
 
-test("exports ship stored bytes; a supplied OBJECT keeps current staging and refuses stale staging through repeated imports and copies", async (t) => {
+test("exports preserve stored resources and private backups retain current and stale staging through imports and copies", async (t) => {
   installLocalStorage(t);
   // Stored bytes ship as they are, slack after the last record included: an
   // untouched original exports as the same bytes and the same revision.
@@ -390,7 +390,7 @@ test("exports ship stored bytes; a supplied OBJECT keeps current staging and ref
     (await readGameZip(buildPublicGameZip({ files: slack, title: "Port" }))).files,
     slack,
   );
-  // Export supplies a missing OBJECT, which moves the revision.
+  // Public Game export supplies a missing OBJECT; private Project preserves its base.
   const { OBJECT: _object, ...files } = exported;
   const originalIdentity = {
     project: testProjectId("objectless"),
@@ -429,7 +429,7 @@ test("exports ship stored bytes; a supplied OBJECT keeps current staging and ref
   };
   for (let round = 0; round < 2; round++) {
     const opened = await readGameZip(await buildProjectZip(project));
-    assert.deepEqual(opened.files, exported, "export adds only the missing OBJECT");
+    assert.deepEqual(opened.files, files, "private backup preserves the exact resource base");
     const importedId = await addLibraryGame(opened, "Port", "zip", opening);
     const imported = (await loadAuthoredGame(importedId))!;
     for (const candidate of [
@@ -709,7 +709,8 @@ test("an interpreter override travels with both exports and decodes the saves th
     },
   };
   const progress: GameProgress = { saves: { "1": slot }, autosave: null };
-  assert.equal((await readGameZip(buildPublicGameZip(data))).profile, "2.089");
+  const publicGame = await readGameZip(buildPublicGameZip(data));
+  assert.equal(publicGame.profile, "2.089");
   const project = await readGameZip(await buildProjectZip(data, progress));
   assert.equal(project.profile, "2.089");
   assert.deepEqual(project.progress?.saves["1"], slot);
@@ -726,7 +727,7 @@ test("an interpreter override travels with both exports and decodes the saves th
   const future = {
     ...data,
     // The export's own OBJECT, so no fallback runs under the unknown id.
-    files: { ...files, OBJECT: project.files["OBJECT"]! },
+    files: { ...files, OBJECT: publicGame.files["OBJECT"]! },
     library: { ...data.library!, profile: "9.999" as never },
   };
   for (const archive of [buildPublicGameZip(future), await buildProjectZip(future, progress)])

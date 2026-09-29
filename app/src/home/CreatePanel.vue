@@ -1,14 +1,20 @@
 <script setup lang="ts">
 /**
- * Create an adventure: a focused panel on the Home screen with the template
- * picker, the shared adventure brief editor, the AI-connect prompt and the
- * launch button. It opens from the hero, a template card on the shelf, the
+ * Create an adventure locally, or describe one for a connected assistant.
+ * The local form and the existing AI brief share the Home entry point. It opens from the hero, a template card on the shelf, the
  * Help guide or the `#create-adventure` hash, and registers
  * `openCreateSection` and the create button's element on the shell bridge so
  * the header and the AI settings flow can reach them. It is a non-modal
  * dialog: the header (AI settings, Help) stays usable while it is open.
  */
-import { nextTick, onBeforeUnmount, onMounted, useTemplateRef, watch } from "vue";
+import {
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  useTemplateRef,
+  watch,
+} from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
@@ -16,13 +22,34 @@ import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { prefetchAuthoringStack } from "../agent/authoringLoader.ts";
+import { useShell } from "../shell/useShell.ts";
+import type { ProjectId } from "../../../src/gameIdentity.ts";
 
 const open = defineModel<boolean>("open", { required: true });
+const LocalProjectForm = defineAsyncComponent(() => import("./LocalProjectForm.vue"));
 const { aiConfigured, aiSettingsUnavailable, openAiSettings } = useAiSettings();
-const { selectedTemplateId, adventureDraft, onBootSelectedTemplate } = useGameLibrary();
+const {
+  selectedTemplateId,
+  adventureDraft,
+  onBootSelectedTemplate,
+  refreshLibrary,
+  onBootSavedGame,
+} = useGameLibrary();
+const shell = useShell();
 const bridge = useShellBridge();
-// Creating an adventure runs Genesis: warm the authoring stack while the player writes the brief.
-watch(open, (shown) => shown && prefetchAuthoringStack(), { immediate: true });
+// Warm the optional assistant when a player selects an AI brief.
+watch(
+  [open, selectedTemplateId],
+  ([shown, template]) => shown && template && prefetchAuthoringStack(),
+);
+
+// The boot resolves while the game is still loading; the shell holds the
+// Create switch until this project is the running one.
+async function onLocalCreated(projectId: ProjectId): Promise<void> {
+  refreshLibrary(projectId);
+  await onBootSavedGame();
+  shell.expectCreate(projectId);
+}
 
 const panel = useTemplateRef("panel");
 const heading = useTemplateRef("heading");
@@ -75,8 +102,8 @@ bridge.createButtonEl = () => createButton.value?.$el;
       <div>
         <h2 id="create-title" ref="heading" tabindex="-1">Create an adventure</h2>
         <p class="create-intro">
-          Pick a template or write your own premise. The AI builds it as a real AGI game you can
-          play, remix and export.
+          Start with a playable room or an empty project. Edit it with the Studios and add AI help
+          whenever you like.
         </p>
       </div>
       <UiIconButton
@@ -86,6 +113,10 @@ bridge.createButtonEl = () => createButton.value?.$el;
         @click="closeCreateSection"
       />
     </header>
+    <div class="local-create">
+      <LocalProjectForm v-if="open" @created="onLocalCreated" />
+    </div>
+    <h3 class="ai-create-title">Build with AI</h3>
     <div class="create-body">
       <div class="template-grid" role="group" aria-label="Starting point">
         <button
@@ -202,6 +233,15 @@ bridge.createButtonEl = () => createButton.value?.$el;
   margin: 0;
   color: var(--ink-2);
   font-size: var(--text-sm);
+}
+.local-create {
+  margin-bottom: var(--space-7);
+}
+.ai-create-title {
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-6);
+  margin: 0 0 var(--space-4);
+  font: var(--weight-semibold) var(--text-lg) / var(--leading-tight) var(--font-sans);
 }
 .create-body {
   display: grid;

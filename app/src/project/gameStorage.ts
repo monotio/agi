@@ -1,3 +1,12 @@
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../../../src/authoring/projectWorkspace.ts";
+import {
+  readProjectRecovery,
+  writeProjectRecovery,
+} from "../../../src/authoring/projectRecovery.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import {
   gameRevision,
@@ -20,14 +29,14 @@ export type { CachedGameMeta, CachedGameData, ProjectId } from "./gameTypes.ts";
 
 interface StoredGameIndex extends CachedGameMeta {
   format: "monotio.agi.project-index";
-  version: 1;
+  version: 1 | 2;
   storage: "indexeddb";
 }
 
 /** The browser's project record; PROJECT.JSON is the archive format. */
 interface StoredGameBody extends CachedGameData {
   format: "monotio.agi.stored-project";
-  version: 1;
+  version: 1 | 2;
 }
 
 const STORAGE_PREFIX = "monotio_agi.authored.";
@@ -147,7 +156,7 @@ export function getCachedGameMeta(projectId: ProjectId): CachedGameMeta | null {
     const parsed = JSON.parse(raw) as StoredGameIndex;
     if (
       parsed.format !== "monotio.agi.project-index" ||
-      parsed.version !== 1 ||
+      ![1, 2].includes(parsed.version) ||
       parsed.storage !== "indexeddb"
     )
       return null;
@@ -203,9 +212,11 @@ function openDatabase(): Promise<IDBDatabase> {
     );
   database ??= new Promise((resolve, reject) => {
     let abandoned = false;
-    const request = indexedDB.open("monotio-agi-projects", 1);
-    request.onupgradeneeded = () =>
-      request.result.createObjectStore("projects", { keyPath: "projectId" });
+    const request = indexedDB.open("monotio-agi-projects", 2);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("projects"))
+        request.result.createObjectStore("projects", { keyPath: "projectId" });
+    };
     request.onsuccess = () => {
       const opened = request.result;
       if (abandoned) {
@@ -409,10 +420,19 @@ function compareCodePoints(a: string, b: string): number {
  */
 export function authoringFingerprint(
   authoringState: Record<string, unknown> | undefined,
+  workspace?: PortableProjectWorkspace,
 ): AuthoringFingerprint {
-  return sha256Hex(
-    new TextEncoder().encode(editableContent(authoringState)),
-  ) as AuthoringFingerprint;
+  const content = editableContent(authoringState);
+  // Preserve legacy hashes exactly. A workspace adds a separately tagged value;
+  // sorting the document set makes input ordering irrelevant to its identity.
+  const canonical =
+    workspace === undefined
+      ? content
+      : `["workspace",${content},${canonicalJson({
+          ...workspace,
+          documents: [...workspace.documents].sort((a, b) => compareCodePoints(a.key, b.key)),
+        })}]`;
+  return sha256Hex(new TextEncoder().encode(canonical)) as AuthoringFingerprint;
 }
 
 /** A boot captures this before its worker starts; deletion invalidates it permanently. */
@@ -571,6 +591,7 @@ async function writeCurrentBody(
   data: CachedGameData,
   options?: ProjectWriteOptions,
 ): Promise<BodyWrite> {
+  readStoredBody(storedBody(data), data.projectId);
   const db = await openDatabase();
   return new Promise<BodyWrite>((resolve, reject) => {
     const transaction = db.transaction("projects", "readwrite");
@@ -583,10 +604,23 @@ async function writeCurrentBody(
     existing.onsuccess = () => {
       const value = existing.result as StoredGameBody | undefined;
       // A record this release does not recognise is never overwritten.
-      if (value && (value.format !== "monotio.agi.stored-project" || value.version !== 1)) {
+      if (
+        value &&
+        (value.format !== "monotio.agi.stored-project" || ![1, 2].includes(value.version))
+      ) {
         contractError = new Error(UNREADABLE_PROJECT_MESSAGE);
         transaction.abort();
         return;
+      }
+
+      if (value) {
+        try {
+          readStoredBody(value, data.projectId);
+        } catch (error) {
+          contractError = error instanceof Error ? error : new Error(String(error));
+          transaction.abort();
+          return;
+        }
       }
 
       if (options?.requireNew && value) {
@@ -674,21 +708,48 @@ function storedIndex(data: CachedGameData): StoredGameIndex {
   return {
     ...metadata(data),
     format: "monotio.agi.project-index",
-    version: 1,
+    version: 2,
     storage: "indexeddb",
   };
 }
 function storedBody(data: CachedGameData): StoredGameBody {
-  return { ...data, format: "monotio.agi.stored-project", version: 1 };
+  return { ...data, format: "monotio.agi.stored-project", version: 2 };
 }
 function readStoredBody(raw: StoredGameBody, projectId: ProjectId): CachedGameData {
-  if (raw.format !== "monotio.agi.stored-project" || raw.version !== 1)
+  if (raw.format !== "monotio.agi.stored-project" || ![1, 2].includes(raw.version))
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const storedId = raw.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
   const { format: _format, version: _version, ...data } = raw;
   const normalized = { ...data, projectId };
+  if (
+    raw.version === 1 &&
+    (normalized.recoveryDraft !== undefined || normalized.workspace !== undefined)
+  )
+    throw new Error("This saved project has recovery data outside its declared version.");
+  if (
+    raw.version === 1 &&
+    (typeof normalized.provider !== "string" || typeof normalized.model !== "string")
+  )
+    throw new Error("Invalid saved project model metadata.");
+  const hasAssistant =
+    normalized.provider !== undefined ||
+    normalized.model !== undefined ||
+    normalized.transcript !== undefined ||
+    normalized.sessionId !== undefined ||
+    normalized.conversationHistory !== undefined;
+  if (
+    hasAssistant &&
+    (typeof normalized.provider !== "string" || typeof normalized.model !== "string")
+  )
+    throw new Error("Invalid saved project model metadata.");
+  if (normalized.workspace !== undefined)
+    normalized.workspace = writeProjectWorkspace(readProjectWorkspace(normalized.workspace));
+  if (normalized.recoveryDraft !== undefined) {
+    const recovered = readProjectRecovery(normalized.recoveryDraft);
+    normalized.recoveryDraft = writeProjectRecovery(recovered.base, recovered.recovery);
+  }
   if (normalized.references !== undefined)
     normalized.references = normalizeReferences(normalized.references);
   return normalized;
@@ -785,7 +846,7 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
     }
     if (
       index["format"] !== "monotio.agi.project-index" ||
-      index["version"] !== 1 ||
+      ![1, 2].includes(index["version"] as number) ||
       index["storage"] !== "indexeddb"
     )
       throw new Error(UNREADABLE_PROJECT_MESSAGE);
@@ -811,14 +872,15 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
   // Committed: a tab running another revision of this project learns now,
   // and one holding other authoring content when this write changed it.
   if (data.library && data.generation !== undefined) {
-    const authoring = editableContent(data.authoringState);
+    const authoring = authoringFingerprint(data.authoringState, data.workspace);
     announceProjectWrite({
       projectId: data.projectId,
       revision: data.library.revision,
       generation: data.generation,
       ...(written.replaced !== undefined &&
-      authoring !== editableContent(written.replaced.authoringState)
-        ? { fingerprint: authoringFingerprint(data.authoringState) }
+      authoring !==
+        authoringFingerprint(written.replaced.authoringState, written.replaced.workspace)
+        ? { fingerprint: authoring }
         : {}),
     });
   }
@@ -843,7 +905,7 @@ function readableIndex(id: ProjectId): string | null {
   const index = parsed as Record<string, unknown>;
   if (
     index["format"] !== "monotio.agi.project-index" ||
-    index["version"] !== 1 ||
+    ![1, 2].includes(index["version"] as number) ||
     index["storage"] !== "indexeddb"
   )
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
@@ -950,6 +1012,7 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
       projectId: request.projectId,
       authoredAt: new Date().toISOString(),
     };
+    readStoredBody(storedBody(data), data.projectId);
     await stampLibraryMetadata(data, true);
     let current: StoredGameBody | undefined;
     let previousLifetime: HistoryLifetime | undefined;
@@ -985,7 +1048,7 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
           if (
             generationOf(current) !== expected.generation ||
             current.library?.revision !== expected.revision ||
-            authoringFingerprint(current.authoringState) !== expected.authoring
+            authoringFingerprint(current.authoringState, current.workspace) !== expected.authoring
           )
             throw new ConcurrencyConflictError(
               "This project was modified by another window.",
@@ -1007,7 +1070,7 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
             generation: data.generation,
             lifetime: epoch,
             revision: data.library!.revision,
-            authoring: authoringFingerprint(data.authoringState),
+            authoring: authoringFingerprint(data.authoringState, data.workspace),
             buildId: request.buildId,
           },
         };
@@ -1248,6 +1311,8 @@ function applyConversation(
 ): void {
   if (
     provider &&
+    data.provider !== undefined &&
+    data.model !== undefined &&
     (provider !== data.provider || (model && model !== data.model)) &&
     data.transcript?.length
   )
@@ -1449,7 +1514,7 @@ async function storedProjects(): Promise<StoredGameBody[]> {
             if (
               data !== undefined &&
               data.format === "monotio.agi.stored-project" &&
-              data.version === 1 &&
+              [1, 2].includes(data.version) &&
               data.projectId === key &&
               data.files &&
               typeof data.files === "object"
@@ -1471,13 +1536,7 @@ export async function listStoredProjects(): Promise<CachedGameMeta[]> {
   const bodies = await storedProjects();
   const entries: CachedGameMeta[] = [];
   for (const body of bodies) {
-    if (
-      typeof body.title !== "string" ||
-      typeof body.authoredAt !== "string" ||
-      typeof body.provider !== "string" ||
-      typeof body.model !== "string"
-    )
-      continue;
+    if (typeof body.title !== "string" || typeof body.authoredAt !== "string") continue;
     try {
       const data = readStoredBody(body, body.projectId);
       data.library = readLibrary(data);
@@ -1505,7 +1564,11 @@ export async function reconcileGameIndex(): Promise<void> {
       if (current) {
         try {
           const parsed = JSON.parse(current) as Record<string, unknown>;
-          if (parsed["format"] === "monotio.agi.project-index" && parsed["version"] !== 1) return;
+          if (
+            parsed["format"] === "monotio.agi.project-index" &&
+            ![1, 2].includes(parsed["version"] as number)
+          )
+            return;
         } catch {
           return;
         }
@@ -1528,7 +1591,7 @@ export async function reconcileGameIndex(): Promise<void> {
       }
       if (
         index["format"] !== "monotio.agi.project-index" ||
-        index["version"] !== 1 ||
+        ![1, 2].includes(index["version"] as number) ||
         index["storage"] !== "indexeddb"
       )
         return;

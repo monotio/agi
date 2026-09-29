@@ -114,7 +114,7 @@ test("future project bodies and indexes are rejected without being overwritten",
   const key = storage.getStorageKey(testProjectId("future-index"));
   const futureIndex = JSON.stringify({
     format: "monotio.agi.project-index",
-    version: 2,
+    version: 999,
     storage: "indexeddb",
   });
   values.set(key, futureIndex);
@@ -130,7 +130,7 @@ test("future project bodies and indexes are rejected without being overwritten",
     words: [],
   });
   const body = indexedDbRecords.get("future-body") as Record<string, unknown>;
-  body["version"] = 2;
+  body["version"] = 999;
   indexedDbRecords.set("future-body", body);
   const before = structuredClone(body);
   await assert.rejects(storage.loadAuthoredGame(testProjectId("future-body")), /version/);
@@ -163,7 +163,7 @@ test("reconciliation and conversation writes preserve future-version records", a
   const indexKey = storage.getStorageKey(testProjectId("future-reconcile"));
   const futureIndex = JSON.stringify({
     format: "monotio.agi.project-index",
-    version: 2,
+    version: 999,
     storage: "indexeddb",
     privateFutureField: true,
   });

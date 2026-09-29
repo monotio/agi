@@ -8,7 +8,7 @@ const UNRELATED_PROJECT_ID = "keep-me";
 async function storedKeys(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("monotio-agi-projects", 1);
+      const request = indexedDB.open("monotio-agi-projects");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -33,7 +33,7 @@ test("an unreadable stored tutorial offers Start fresh, which removes only that 
   await page.evaluate(
     async (ids) => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("monotio-agi-projects", 1);
+        const request = indexedDB.open("monotio-agi-projects");
         request.onupgradeneeded = () =>
           request.result.createObjectStore("projects", { keyPath: "projectId" });
         request.onsuccess = () => resolve(request.result);
@@ -96,7 +96,7 @@ test("a saved game whose stored body predates 1.0 offers Start fresh on its own 
   // pre-1.0 stored format.
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("monotio-agi-projects", 1);
+      const request = indexedDB.open("monotio-agi-projects");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

@@ -1,3 +1,5 @@
+import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
+import type { PortableProjectRecovery } from "../../../src/authoring/projectRecovery.ts";
 import type { LibraryMetadata } from "./gameMetadata.ts";
 import type { StoredReference } from "../references/referenceArt.ts";
 import type { ScreenObjectState } from "../../../src/runtime/engine.ts";
@@ -20,8 +22,8 @@ export interface CachedGameMeta {
   generation?: number | undefined;
   title: string;
   authoredAt: string;
-  provider: string;
-  model: string;
+  provider?: string | undefined;
+  model?: string | undefined;
   sessionId?: string | undefined;
   imported?: boolean | undefined;
   roomGeneration?: boolean | undefined;
@@ -35,6 +37,10 @@ export interface CachedGameData extends CachedGameMeta {
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
   /** Player-supplied reference art; project data, never playable bytes. */
   references?: StoredReference[] | undefined;
+  /** Unfinished portable work, never installed as kept playable resources. */
+  recoveryDraft?: PortableProjectRecovery | undefined;
+  /** Exact kept authoring documents; source agreement is checked on editable open. */
+  workspace?: PortableProjectWorkspace | undefined;
 }
 
 export interface BootedGame {

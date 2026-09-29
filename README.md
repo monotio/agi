@@ -98,8 +98,17 @@ Their content varies, as fan works do.
 
 ## Make your own adventure
 
-Pick a template or describe your own hero, setting and trouble, connect an
-OpenAI or Anthropic API key, and click **Create adventure**.
+**Create an adventure** on the home screen offers two ways in. **Create
+game** builds a playable project locally, with no AI provider: **Starter**
+opens in a sunny clearing you can walk through, with an animated hero and
+the shared menu, death and save code, all editable; **Blank** is the
+smallest game that still runs, one room showing an empty picture. Both open
+in Create as ordinary AGI games you can edit in the Studios, and a
+connected provider can pick them up later like any other project.
+
+**Build with AI** keeps the themed briefs. Pick a template or describe your
+own hero, setting and trouble, connect an OpenAI or Anthropic API key, and
+click **Create adventure**.
 
 | Template                                                | Your predicament                                                     |
 | ------------------------------------------------------- | -------------------------------------------------------------------- |

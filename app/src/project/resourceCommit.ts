@@ -501,7 +501,7 @@ export function createResourceCommit(
         status: "committed",
         projectId: targetId,
         revision,
-        authoring: authoringFingerprint(candidate.authoringState),
+        authoring: authoringFingerprint(candidate.authoringState, data?.workspace),
       };
       if (moved()) throw notInstalled();
       if (bytesChanged) {
@@ -550,7 +550,7 @@ export function createResourceCommit(
       adoptedGame.files = files;
       adoptedGame.words = words;
       adoptedGame.revision = revision;
-      advanceAuthoring(adoptedGame, candidate.authoringState);
+      advanceAuthoring(adoptedGame, candidate.authoringState, data?.workspace ?? null);
       if (data) adoptedGame.authoredGame = data;
       if (adoptedGame !== game) {
         clearAutosave(gameStorageKey(game));
