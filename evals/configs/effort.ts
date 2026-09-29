@@ -11,10 +11,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { MODEL_IDS } from "./providers.ts";
+import { modelEffortOptions } from "../../src/agent/modelEffort.ts";
 import type { EffortProvider, EffortStage } from "../providers/genesis-session.ts";
 import { assertLiveEnv, LiveRunRefused } from "../lib/live-guard.ts";
 
 const models: ReadonlyArray<readonly [EffortProvider, string]> = [
+  ["openai", MODEL_IDS.gpt61Sol],
   ["openai", MODEL_IDS.gpt6Astra],
   ["openai", MODEL_IDS.gpt6Sol],
   ["openai", MODEL_IDS.gpt6Luna],
@@ -73,6 +75,9 @@ for (const [provider, model] of budgetUsd === null ? [] : models) {
     provider === "openai" ? process.env["OPENAI_API_KEY"] : process.env["ANTHROPIC_API_KEY"];
   if (!key) continue;
   for (const [stageName, stage] of stages) {
+    // A stage's effort must be one the model accepts: GPT-6.1 Sol takes no
+    // none, and the GPT-6 models take no optional-only levels.
+    if (stage.effort && !modelEffortOptions(model).includes(stage.effort)) continue;
     const lane = `${provider}-${model}-${stageName}`;
     if (laneFilters.length && !laneFilters.includes(lane)) continue;
     providers.push({

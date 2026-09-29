@@ -134,10 +134,10 @@ test("the app offers the current models, each with its published price and effor
   );
   assert.deepEqual(
     MODEL_OPTIONS.openai.map((option) => option.id),
-    ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
+    ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
   );
   assert.equal(DEFAULT_MODELS.anthropic, "claude-opus-5-5");
-  assert.equal(DEFAULT_MODELS.openai, "gpt-6-astra");
+  assert.equal(DEFAULT_MODELS.openai, "gpt-6.1-sol");
   assert.deepEqual(MODEL_CAPABILITIES["claude-opus-5-5"]?.price, {
     input: 4,
     output: 20,
@@ -149,6 +149,13 @@ test("the app offers the current models, each with its published price and effor
     input: 2,
     output: 10,
     longContext: false,
+  });
+  // GPT-6.1 Sol lists cache reads at 5% of input ($0.10/M), not the usual 10%.
+  assert.deepEqual(MODEL_CAPABILITIES["gpt-6.1-sol"]?.price, {
+    input: 2,
+    output: 10,
+    longContext: true,
+    cacheRead: 0.1,
   });
   assert.deepEqual(MODEL_CAPABILITIES["gpt-6-sol"]?.price, {
     input: 2,
@@ -165,6 +172,53 @@ test("the app offers the current models, each with its published price and effor
     assert.deepEqual(modelEffortOptions(id), ["none", "low", "medium", "high", "xhigh", "max"]);
     assert.equal(defaultModelEffort(id), "medium");
   }
+  // GPT-6.1 Sol requires reasoning: none and minimal are not offered.
+  assert.deepEqual(modelEffortOptions("gpt-6.1-sol"), ["low", "medium", "high", "xhigh", "max"]);
+  assert.equal(defaultModelEffort("gpt-6.1-sol"), "medium");
   for (const option of [...MODEL_OPTIONS.anthropic, ...MODEL_OPTIONS.openai])
     assert.ok(MODEL_CAPABILITIES[option.id]?.price, `${option.id} has a known price`);
+});
+
+test("fresh settings default to GPT-6.1 Sol at medium without writing storage", () => {
+  const storage = new MemoryStorage();
+  const loaded = loadAiSettings(storage, DEFAULT_MODELS, true);
+  assert.equal(loaded.provider, "openai");
+  assert.equal(loaded.profiles.openai.model, "gpt-6.1-sol");
+  assert.equal(loaded.profiles.openai.effort, "medium");
+  assert.equal(storage.values.size, 0);
+});
+
+test("a stored GPT-6 Sol at effort none stays selected; GPT-6.1 Sol refuses none on save", () => {
+  const storage = new MemoryStorage();
+  storage.values.set(
+    AI_SETTINGS_KEY,
+    JSON.stringify({
+      version: 1,
+      provider: "openai",
+      profiles: {
+        openai: { model: "gpt-6-sol", apiKey: "openai-secret", effort: "none" },
+        anthropic: { model: "claude-opus-5-5", apiKey: "", effort: "medium" },
+        stub: { model: "offline-stub", apiKey: "", effort: "medium" },
+      },
+    }),
+  );
+  const loaded = loadAiSettings(storage, DEFAULT_MODELS, true);
+  assert.equal(loaded.profiles.openai.model, "gpt-6-sol");
+  assert.equal(loaded.profiles.openai.effort, "none");
+  saveAiSettings(storage, loaded);
+  assert.equal(
+    (JSON.parse(storage.values.get(AI_SETTINGS_KEY)!) as AiSettings).profiles.openai.effort,
+    "none",
+  );
+  assert.throws(
+    () =>
+      saveAiSettings(storage, {
+        ...loaded,
+        profiles: {
+          ...loaded.profiles,
+          openai: { ...loaded.profiles.openai, model: "gpt-6.1-sol", effort: "none" },
+        },
+      }),
+    /supported reasoning effort/i,
+  );
 });

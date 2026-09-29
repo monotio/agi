@@ -80,6 +80,12 @@ test("cache reads use the per-model rate, and 10% of input where none is listed"
     sol.recordUsage({ input: 100_000, cachedInput: 100_000, cacheWriteInput: 0, output: 0 });
   });
   assert.equal(sol.snapshot().spent, 0.02);
+  // GPT-6.1 Sol lists reads at $0.10/M (5% of input): the same reads cost half.
+  const sol61 = new AgentRun("gpt-6.1-sol", () => {});
+  sol61.run(async () => {
+    sol61.recordUsage({ input: 100_000, cachedInput: 100_000, cacheWriteInput: 0, output: 0 });
+  });
+  assert.equal(sol61.snapshot().spent, 0.01);
 });
 
 test("a long task and a long request run on without a wall-clock stop", async (t) => {

@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { configureAi, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
 
-test("Astra is the new-user default; Stop and budget pauses retain a staged remix", async ({
+test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a staged remix", async ({
   page,
 }) => {
   const game = createContainer();
@@ -26,14 +26,14 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
   });
   await page.route("**/api/openai/v1/responses", async (route) => {
     const request = ++requests;
-    expect(route.request().postDataJSON().model).toBe("gpt-6-astra");
+    expect(route.request().postDataJSON().model).toBe("gpt-6.1-sol");
     expect(route.request().postDataJSON().max_output_tokens).toBeGreaterThan(4096);
     if (request === 2) await blocked;
     try {
       await route.fulfill(
         providerReply("openai", {
           id: `task${request}`,
-          usage: { input_tokens: 0, output_tokens: request === 3 ? 100000 : 0 },
+          usage: { input_tokens: 0, output_tokens: request === 3 ? 120000 : 0 },
           output:
             request === 1
               ? [
@@ -69,7 +69,7 @@ test("Astra is the new-user default; Stop and budget pauses retain a staged remi
   try {
     await page.goto("/");
     await openAiSettings(page);
-    await expect(page.getByTestId("model-select")).toHaveValue("gpt-6-astra");
+    await expect(page.getByTestId("model-select")).toHaveValue("gpt-6.1-sol");
     await page.getByTestId("ai-settings-cancel").click();
     await page.getByTestId("game-zip-input").setInputFiles({
       name: "task.zip",

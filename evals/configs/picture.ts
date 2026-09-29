@@ -39,7 +39,11 @@ function providers() {
     return [lane("fake", "fake")];
   }
   if (process.env["OPENAI_API_KEY"]) {
-    list.push(lane("openai", MODEL_IDS.gpt6Sol), lane("openai", MODEL_IDS.gpt6Astra));
+    list.push(
+      lane("openai", MODEL_IDS.gpt61Sol),
+      lane("openai", MODEL_IDS.gpt6Sol),
+      lane("openai", MODEL_IDS.gpt6Astra),
+    );
   } else console.error("[evals] picture: skipping OpenAI lanes (OPENAI_API_KEY not set)");
   if (process.env["ANTHROPIC_API_KEY"]) {
     list.push(lane("anthropic", MODEL_IDS.claudeOpus55));

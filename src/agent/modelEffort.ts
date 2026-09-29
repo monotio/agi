@@ -6,7 +6,7 @@ export type ModelProvider = "anthropic" | "openai" | "stub";
 /** The model each provider starts with, in the app and in the evaluation scripts. */
 export const DEFAULT_MODELS: Record<ModelProvider, string> = {
   anthropic: "claude-opus-5-5",
-  openai: "gpt-6-astra",
+  openai: "gpt-6.1-sol",
   stub: "offline-stub",
 };
 
@@ -22,6 +22,7 @@ export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[
     { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
   ],
   openai: [
+    { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
     { id: "gpt-6-astra", label: "GPT-6 Astra" },
     { id: "gpt-6-sol", label: "GPT-6 Sol" },
     { id: "gpt-6-luna", label: "GPT-6 Luna" },
@@ -64,6 +65,8 @@ export interface ModelCapability {
 /**
  * The tested capability table. Prices are the providers' standard API list
  * prices in USD per million tokens at the time of this release.
+ * https://developers.openai.com/api/docs/models/gpt-6.1-sol
+ * https://developers.openai.com/api/docs/pricing
  * https://developers.openai.com/api/docs/models/gpt-6-astra
  * https://developers.openai.com/api/docs/models/gpt-6-sol
  * https://developers.openai.com/api/docs/models/gpt-6-luna
@@ -104,6 +107,17 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     strictSchema: false,
     summarizedThinking: true,
     price: { input: 10, output: 50, longContext: false, cacheRead: 0.25 },
+  },
+  // The app's OpenAI default. Unlike the original Sol it always reasons —
+  // none is not offered — and its listed cache-read rate is $0.10/M, not 10%
+  // of input. Tool calling needs the Responses API, which this client uses.
+  "gpt-6.1-sol": {
+    provider: "openai",
+    effort: REASONING_LEVELS,
+    defaultEffort: "medium",
+    caching: "implicit",
+    strictSchema: true,
+    price: { input: 2, output: 10, longContext: true, cacheRead: 0.1 },
   },
   "gpt-6-astra": {
     provider: "openai",
