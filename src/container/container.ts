@@ -15,7 +15,12 @@ import {
   type GameContainer,
   type ResourceKind,
 } from "../types.ts";
-import { detectProfile } from "../runtime/profile.ts";
+import {
+  detectProfile,
+  type AgiProfile,
+  type DirectoryAbsence,
+  type ProfileId,
+} from "../runtime/profile.ts";
 import { toggleMessageEncryption } from "../logic/resource.ts";
 
 /** Directory file per family (v2 split profile). */
@@ -43,6 +48,13 @@ const RECORD_MAGIC_0 = 0x12;
 const RECORD_MAGIC_1 = 0x34;
 
 export interface ContainerOptions {
+  /**
+   * Explicit interpreter edition choice (the same override the engine
+   * accepts): pins the directory absence policy and the volume number a
+   * pack may still write. Detection over the incoming files supplies it
+   * when the override is omitted.
+   */
+  readonly profile?: ProfileId | AgiProfile;
   /** Auto-detected from directory/volume filenames when omitted. */
   readonly kind?: "v2-split" | "v3-combined";
   /** Game prefix for v3 DIR and VOL.N files; empty is valid. */
@@ -160,6 +172,7 @@ class ResourceContainer implements GameContainer {
   readonly #prefix: string;
   readonly #combinedName: string | null;
   readonly #headerBytes: number;
+  readonly #directoryAbsence: DirectoryAbsence;
   readonly #maxVolume: number;
 
   /** Takes ownership of `files` (already private copies). */
@@ -175,13 +188,20 @@ class ResourceContainer implements GameContainer {
       owned.set(canonical, bytes);
     }
     this.#files = owned;
+    // The directory absence policy is chosen once, here, through the same
+    // detection pipeline the engine uses; the frozen scalar below cannot be
+    // reinterpreted by a later edit of the caller's profile object.
+    const profile = detectProfile(owned, options.profile);
+    this.#directoryAbsence = profile.directoryAbsence;
     const inferred =
       options.kind && options.prefix !== undefined ? options : detectContainerFormat(owned);
     this.#v3 = (options.kind ?? inferred.kind) === "v3-combined";
     this.#prefix = this.#v3 ? (options.prefix ?? inferred.prefix ?? "") : "";
     this.#combinedName = this.#v3 && owned.has(`${this.#prefix}DIR`) ? `${this.#prefix}DIR` : null;
     this.#headerBytes = this.#v3 ? 7 : RECORD_HEADER_BYTES;
-    this.#maxVolume = this.#v3 ? 15 : VOLUME_MAX_NUMBER;
+    // An entry spelling that can name VOL.15 (exact-fff) may pack there;
+    // every nibble-f-absent interpreter tops out at volume 14.
+    this.#maxVolume = this.#directoryAbsence === "exact-fff" ? 15 : VOLUME_MAX_NUMBER;
     if (this.#combinedName) this.#sections();
     // Normalize: every family has a directory; at least VOL.0 exists.
     for (const kind of RESOURCE_KINDS) {
@@ -236,7 +256,11 @@ class ResourceContainer implements GameContainer {
     if (p + ENTRY_BYTES > dir.length) return null;
     const b0 = dir[p]!;
     const volume = b0 >> 4;
-    if (this.#v3 ? b0 === 255 && dir[p + 1] === 255 && dir[p + 2] === 255 : volume === 15)
+    if (
+      this.#directoryAbsence === "exact-fff"
+        ? b0 === 255 && dir[p + 1] === 255 && dir[p + 2] === 255
+        : volume === 15
+    )
       return null;
     const offset = ((b0 & 0x0f) << 16) | (dir[p + 1]! << 8) | dir[p + 2]!;
     return { volume, offset };

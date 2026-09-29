@@ -209,7 +209,7 @@ function stateFromAuthoredData(
   profile?: ProfileId,
 ): AgentSessionState {
   const fileMap = new Map(Object.entries(files));
-  const container = openContainer(fileMap);
+  const container = openContainer(fileMap, profile ? { profile } : {});
   const state = createAgentSessionState(container, profile);
   // Real copies, not refs: a Node Buffer's .slice() is a view, so callers
   // must never rely on the session detaching their byte arrays itself.
@@ -1275,7 +1275,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         // lands in the session's container.
         await beforeAdopt?.();
         const patch = prepareRoomPatch(
-          openContainer(this.state.getFiles()),
+          openContainer(this.state.getFiles(), { profile: this.state.profile }),
           Number(req.context["room"]),
           response,
           this.state.sources.words,
@@ -1464,7 +1464,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         ...(staged.testsPayload ? { tests: Array.from(staged.testsPayload) } : {}),
       });
       prepareRoomPatch(
-        openContainer(this.state.getFiles()),
+        openContainer(this.state.getFiles(), { profile: this.state.profile }),
         room,
         response,
         this.state.sources.words,

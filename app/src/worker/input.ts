@@ -42,11 +42,14 @@ export function createInput(ctx: WorkerContext) {
       // the same shape a live suspension produces. Recording the delivery
       // inside the tick run keeps it in the list: outside a run, tape.host
       // drops calls, and a recording that started on this wait would lose it.
-      ctx.recording.recording.tape.run("tick", () => {
-        ctx.recording.recording!.tape.host(["waitKey", queued]);
-        ctx.engine!.deliverHostAnswer(queued);
-        ctx.engine!.tick();
-      });
+      // runTickEntry counts the pass's controlled completion at this entry.
+      ctx.fns.runTickEntry(() =>
+        ctx.recording.recording!.tape.run("tick", () => {
+          ctx.recording.recording!.tape.host(["waitKey", queued]);
+          ctx.engine!.deliverHostAnswer(queued);
+          ctx.engine!.tick();
+        }),
+      );
       if (ctx.engine.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
     } else {
       ctx.engine.deliverHostAnswer(queued);

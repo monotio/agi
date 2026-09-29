@@ -22,11 +22,17 @@ export function compileProjectSelection(input: {
   readonly keys: readonly string[];
   /** Additional dependencies supplied by project metadata and editor operations. */
   readonly dependencies?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Forwarded to reference inspection: only an explicit room-generation
+   * caller policy downgrades missing `new.room` targets to warnings. Every
+   * other missing-resource diagnostic stays an error.
+   */
+  readonly allowMissingRooms?: boolean;
 }) {
   const profile = PROFILES[input.profileId];
   if (!profile) throw new Error(`Unknown build profile: ${input.profileId}`);
   const keptDocuments = input.draft.select([]).documents();
-  const baselineContainer = openContainer(new Map(Object.entries(input.files)));
+  const baselineContainer = openContainer(new Map(Object.entries(input.files)), { profile });
   const keptBindings = keptDocuments["bindings"];
   if (keptBindings !== undefined && typeof keptBindings !== "string")
     throw new Error("Invalid project document bindings: expected JSON text.");
@@ -34,6 +40,7 @@ export function compileProjectSelection(input: {
     container: baselineContainer,
     profile,
     bindings: readBindingsDocument(keptBindings ?? "{}"),
+    allowMissingRooms: input.allowMissingRooms === true,
   });
   const dependencies: Record<string, string[]> = Object.fromEntries(
     Object.entries(input.dependencies ?? {}).map(([key, values]) => [key, [...values]]),
@@ -104,11 +111,12 @@ export function compileProjectSelection(input: {
       }
       throw error;
     }
-    const candidateContainer = openContainer(compiled.files());
+    const candidateContainer = openContainer(compiled.files(), { profile });
     const references = inspectProjectReferences({
       container: candidateContainer,
       profile,
       bindings,
+      allowMissingRooms: input.allowMissingRooms === true,
     });
     changed = false;
     for (const key of selection.keys) {

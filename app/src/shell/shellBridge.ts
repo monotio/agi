@@ -5,6 +5,7 @@
  * injected bridge instead of reaching across templates.
  */
 import { inject, provide, type InjectionKey } from "vue";
+import type { ProjectId } from "../project/gameTypes.ts";
 
 export interface ShellBridge {
   /**
@@ -32,6 +33,12 @@ export interface ShellBridge {
    * it scrolls to and focuses (registered by GameHeader).
    */
   openHelp(section?: string, topic?: string): void;
+  /**
+   * Open Logic Studio on a stored project (registered by App.vue). The
+   * workspace is independent of any running game: it boots no engine and
+   * needs no provider or key.
+   */
+  openLogicProject(projectId: ProjectId): void;
 }
 
 /** Inject it with a null default where the shell may be absent (the Studio harness). */
@@ -48,6 +55,7 @@ export function createShellBridge(): ShellBridge {
     assistantInputEl: () => null,
     focusGameInput: () => {},
     openHelp: () => {},
+    openLogicProject: () => {},
   };
 }
 

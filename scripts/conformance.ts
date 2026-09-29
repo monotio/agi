@@ -249,7 +249,7 @@ export function pictureResults(
   options: { profile?: ProfileId; suiteId?: string } = {},
 ): Bundle {
   const profile = detectProfile(files, options.profile);
-  const container = openContainer(files, { kind: profile.container });
+  const container = openContainer(files, { kind: profile.container, profile });
   const cases: CaseResult[] = [];
   for (let number = 0; number < 256; number++) {
     const id = `picture_${String(number).padStart(3, "0")}`;

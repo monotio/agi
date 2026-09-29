@@ -337,7 +337,11 @@ export function createResourceCommit(
           `The running game changed before ${what} could be kept.`,
         );
 
-      const container = openContainer(new Map(Object.entries(exported)));
+      const editProfile = author?.state.profile ?? stored?.library?.profile;
+      const container = openContainer(
+        new Map(Object.entries(exported)),
+        editProfile ? { profile: editProfile } : {},
+      );
       // Only the resources whose bytes differ are written and installed.
       const changed = resolved.patches.filter(({ kind, num, payload }) => {
         const current = container.getResource(kind, num);
@@ -792,7 +796,7 @@ export function viewEdit(edit: ViewEdit): ResourceEdit {
     reenter: (room, files, profile) => {
       const logics = new Map<number, Uint8Array>();
       try {
-        const container = openContainer(new Map(files));
+        const container = openContainer(new Map(files), { profile });
         for (let n = 0; n < 256; n++) {
           const logic = container.getResource("logic", n);
           if (logic) logics.set(n, logic);

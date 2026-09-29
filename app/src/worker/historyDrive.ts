@@ -259,7 +259,10 @@ export function openHistoryDrive(
     const baseFiles = new Map<string, Uint8Array>();
     for (const [name, data] of Object.entries(segment.boot.files))
       baseFiles.set(name, base64ToBytes(data));
-    const foldContainer = openContainer(baseFiles);
+    const foldContainer = openContainer(
+      baseFiles,
+      segment.boot.profile ? { profile: segment.boot.profile } : {},
+    );
     const { wordsPatched } = foldFiles(foldContainer, dictionary, segment.events, startSeq);
     const files = new Map(foldContainer.files);
     const recordedSet = anchor ? anchor.resourceSet : segment.boot.resourceSet;
@@ -280,7 +283,7 @@ export function openHistoryDrive(
     ctx.boot.authoredWords = wordsPatched ? (files.get("WORDS.TOK") ?? null) : null;
     ctx.boot.profile = segment.boot.profile ?? null;
     ctx.engine = new Engine(
-      openContainer(files),
+      openContainer(files, ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
       ctx.host,
       dictionary,
       ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,

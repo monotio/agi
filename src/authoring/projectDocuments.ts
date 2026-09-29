@@ -471,7 +471,7 @@ function profileOrThrow(profileId: ProfileId): AgiProfile {
 
 export function readProjectDocuments(input: ReadProjectDocumentsInput): ProjectDocumentsRead {
   const profile = profileOrThrow(input.profileId);
-  const container = openContainer(canonicalFiles(input.files));
+  const container = openContainer(canonicalFiles(input.files), { profile });
   const diagnostics: { key: string; message: string }[] = [];
   const documents: Record<string, DocumentContent> = Object.create(null);
   const storedPayloads = new Map<string, Uint8Array>();
@@ -578,7 +578,7 @@ export function compileProjectDocuments(
   input: CompileProjectDocumentsInput,
 ): ProjectDocumentsCompile {
   const profile = profileOrThrow(input.profileId);
-  const container = openContainer(canonicalFiles(input.files));
+  const container = openContainer(canonicalFiles(input.files), { profile });
 
   // Detached, fully classified desired set — unknown keys and content types fail.
   const documents = new Map<string, DocumentContent>();

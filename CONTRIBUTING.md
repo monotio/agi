@@ -126,7 +126,7 @@ be tested in their target client before claiming compatibility.
 | `src/runtime/`                                                            | Interpreter, profiles, input, objects, sound timing and saves |
 | `src/container/`, `src/logic/`, `src/picture/`, `src/view/`, `src/sound/` | AGI binary formats, compilers, readers and rendering          |
 | `src/agent/`                                                              | Authoring tools, prompts, command help and isolated playtests |
-| `src/studio/`, `app/src/studio/`                                          | Room Studio and Sprite Studio, loaded only when one opens     |
+| `src/studio/`, `app/src/studio/`                                          | Room, Sprite and Logic Studios, loaded only when one opens    |
 | `app/src/`                                                                | The browser app: Vue shell, engine worker, storage and ZIPs   |
 | `games/`                                                                  | Original adventure briefs and the tutorial                    |
 | `scripts/`                                                                | Walkthrough, audit, conformance and interpreter probe tools   |
@@ -161,7 +161,7 @@ each folder holds one responsibility:
 | `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use  |
 | `references/`    | Reference art the player supplies for the agent to encode                               |
 | `world/`         | The world map, its room graph and plan, and the Studio launchers                        |
-| `studio/`        | Room Studio and Sprite Studio, loaded only when one opens                               |
+| `studio/`        | Room, Sprite and Logic Studios, loaded only when one opens                              |
 | `lessons/`       | Studio lessons tied to catalog releases                                                 |
 | `ui/`, `styles/` | Base controls, design tokens and global stylesheets                                     |
 | `types/`         | Ambient declarations                                                                    |
@@ -238,13 +238,24 @@ flowchart LR
 5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
 6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `project/resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `project/projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`project/gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
 
+**A Logic Studio edit becomes a saved project**
+
+Library **Game actions → Edit** opens `project/editableProject.ts` directly, without
+booting a game or an agent. `studio/logic/LogicStudio.vue` owns the Monaco models,
+analysis-worker context and draft recovery. `buildSelected` captures the selected
+documents and their dependency closure for review; `keepCandidate` checks that
+captured authority and writes through `commitProject`. Changes typed during a save
+stay dirty, and storage failures preserve the draft for retry. This Keep is
+saved-only: it does not install code into a running worker.
+
 **Where authority lives.** Each of these is a check in code:
 
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` and `assistScope.ts` judge Studio edits and AI proposals by their decoded pixels, whatever the operations or the model claim.
 - `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (a Keep, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `project/resourceCommit.ts` is the transaction behind every Keep: the bytes, their source, the stored project and the live worker move together or not at all.
+- `project/resourceCommit.ts` coordinates Room and Sprite Studio Keeps against the stored and running game, with conditional persistence and an acknowledged worker install.
+- `project/editableProject.ts` owns Logic Studio's immutable build candidates and saved-only Keep; its storage receipt does not claim that a running worker installed the build.
 - The logic assembler and the container writer are the validators of last resort.
 
 Two words carry more than one meaning. `prepareRoom` is the engine's host hook,

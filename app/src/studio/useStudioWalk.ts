@@ -207,7 +207,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     const files = options.files();
     if (!files) return out;
     try {
-      const container = openContainer(new Map(files));
+      const container = openContainer(new Map(files), { profile: options.profile() });
       for (let n = 0; n < 256; n++) {
         const payload = container.getResource("logic", n);
         if (payload) out.set(n, payload);
@@ -635,7 +635,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   function draftFiles(): Record<string, Uint8Array> | null {
     const files = options.files();
     if (!files) return null;
-    const container = openContainer(new Map(files));
+    const container = openContainer(new Map(files), { profile: options.profile() });
     container.putResource("picture", options.pictureNumber(), options.pictureBytes());
     if (logic.editable.value && room.value > 0) {
       const followed = logic.forKeep(options.keptPicture(), options.shownPicture());

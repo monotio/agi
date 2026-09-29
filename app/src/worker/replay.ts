@@ -216,7 +216,10 @@ export function createReplay(ctx: WorkerContext) {
     ctx.replay.reseedCursor = 0;
     ctx.replay.historyReplay = false;
     ctx.engine = new Engine(
-      openContainer(ctx.boot.currentBootFiles),
+      openContainer(
+        ctx.boot.currentBootFiles,
+        ctx.boot.profile ? { profile: ctx.boot.profile } : {},
+      ),
       ctx.host,
       ctx.boot.currentDictionary,
       ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
@@ -270,7 +273,10 @@ export function createReplay(ctx: WorkerContext) {
     ctx.fns.abandonHostRequest();
     ctx.fns.setKeyWaiting(false);
     ctx.engine = new Engine(
-      openContainer(ctx.boot.currentBootFiles),
+      openContainer(
+        ctx.boot.currentBootFiles,
+        ctx.boot.profile ? { profile: ctx.boot.profile } : {},
+      ),
       ctx.host,
       ctx.boot.currentDictionary,
       ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,

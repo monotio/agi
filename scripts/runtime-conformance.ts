@@ -30,7 +30,7 @@ export function runtimeResults(files: ReadonlyMap<string, Uint8Array>, input: un
   const cases: CaseResult[] = [];
   const ids = new Set<string>();
   const profile = PROFILES[scenario["profile"] as ProfileId];
-  const container = openContainer(files, { kind: profile.container });
+  const container = openContainer(files, { kind: profile.container, profile });
   const words = container.files.get("WORDS.TOK");
   const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
   const engine = new Engine(

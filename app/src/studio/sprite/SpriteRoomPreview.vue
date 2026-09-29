@@ -57,7 +57,7 @@ const picture = computed(() => {
   const number = entry.value?.picture;
   if (number === undefined) return null;
   try {
-    const bytes = openContainer(new Map(files)).getResource("picture", number);
+    const bytes = openContainer(new Map(files), { profile }).getResource("picture", number);
     if (!bytes) return null;
     const surface = createPictureSurface();
     renderPicture(bytes, surface, { profile });

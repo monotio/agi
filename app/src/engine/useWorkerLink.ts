@@ -89,6 +89,17 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   const { state, hook, audio, onFrame, logAgent, observationListeners } = options;
   const deps = {} as WorkerLinkDeps;
 
+  /**
+   * The worker's room-authoring suspension is a named audio pause owner, not
+   * a `paused || state.paused` OR: a local overlay releasing its hold must not
+   * lift a still-active worker freeze, and the worker's release must not lift
+   * an overlay's. Doubles that predate the owner API keep the old join.
+   */
+  const setWorkerAudioPause = (paused: boolean) => {
+    if (typeof audio.setPauseOwner === "function") audio.setPauseOwner("worker", paused);
+    else audio.setPaused(paused || state.paused);
+  };
+
   let worker: Worker | null = null;
   let latestFrame: Frame | null = null;
   let shakeTimer: number | null = null;
@@ -147,6 +158,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   function terminateWorker(): void {
     worker?.terminate();
     worker = null;
+    // A dead worker holds no audio pause.
+    setWorkerAudioPause(false);
     patchWaiters.drainPatchWaiters(new Error("engine worker stopped"));
   }
 
@@ -307,7 +320,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.soundPlaying = true;
       },
       soundOutput: (msg) => audio.output(msg.output),
-      soundPaused: (msg) => audio.setPaused(msg.paused || state.paused),
+      soundPaused: (msg) => setWorkerAudioPause(msg.paused),
       stopSound: () => {
         state.soundPlaying = false;
         audio.stop();
@@ -449,6 +462,9 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       },
     };
     worker = w;
+    // The replacement boundary: the previous run's sound-pause hold dies
+    // with it; this worker's own soundPaused messages re-arm it.
+    setWorkerAudioPause(false);
     // A fresh worker boots with every debug channel disarmed; re-arm the set
     // the UI still expects so a game switch never silently blanks the dock.
     w.postMessage({

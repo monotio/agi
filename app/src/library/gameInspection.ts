@@ -49,10 +49,15 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
     randomByte: () => 123,
   };
   const files = new Map(Object.entries(game.files));
-  const engine = new Engine(openContainer(files), host, new Map(game.words), {
-    instructionBudget: 100_000,
-    ...(game.profile ? { profile: game.profile } : {}),
-  });
+  const engine = new Engine(
+    openContainer(files, game.profile ? { profile: game.profile } : {}),
+    host,
+    new Map(game.words),
+    {
+      instructionBudget: 100_000,
+      ...(game.profile ? { profile: game.profile } : {}),
+    },
+  );
   const detected = game.profile ? detectProfileDecision(files).profile : engine.profile;
   let needsInput = false;
   let visible = false;

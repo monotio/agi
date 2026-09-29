@@ -38,7 +38,7 @@ export function createPlayHere(ctx: WorkerContext) {
     const problem = playHereProblem(msg);
     if (problem !== null) return reply(false, problem);
     if (engine.textModeActive) return reply(false, "The game is showing its text screen.");
-    const files = openContainer(engine.containerFiles);
+    const files = openContainer(engine.containerFiles, { profile: engine.profile });
     if (!files.getResource("logic", msg.room))
       return reply(false, `Room ${msg.room} has no logic to enter.`);
 
@@ -57,8 +57,11 @@ export function createPlayHere(ctx: WorkerContext) {
     // The room's logic exists, so an authored game's prepareRoom answers at once.
     engine.reenterRoom(msg.room);
     // The room's own entry pass: load, draw and position what it owns.
+    // Armed execution control counts a completed entry pass inside
+    // tickEngine and a stopped or suspended one nowhere — the explicit
+    // finish belongs to the ordinary unarmed pass only.
     ctx.fns.tickEngine();
-    ctx.fns.finishCycle();
+    if (!engine.executionControlActive) ctx.fns.finishCycle();
     const verdict = engine.hostInteractionPending ? "busy" : placeEgo(engine, msg.x, msg.y);
     ctx.fns.captureStateDiffs();
     ctx.fns.historyResume();

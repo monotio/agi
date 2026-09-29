@@ -213,7 +213,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
       ctx.boot.profile = boot.profile ?? null;
       ctx.engine = new Engine(
-        openContainer(files),
+        openContainer(files, ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
         ctx.host,
         ctx.boot.liveDictionary,
         ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,

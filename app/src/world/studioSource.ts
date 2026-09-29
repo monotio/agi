@@ -61,14 +61,14 @@ export function studioPictureSource(
   stored?: Record<string, unknown> | undefined,
 ): StudioPictureSource | null {
   const files = new Map(Object.entries(resources.files));
+  const profile = resources.profile ?? detectProfile(files);
   let bytes: Uint8Array | undefined;
   try {
-    bytes = openContainer(files).getResource("picture", picture) ?? undefined;
+    bytes = openContainer(files, { profile }).getResource("picture", picture) ?? undefined;
   } catch {
     return null;
   }
   if (!bytes) return null;
-  const profile = resources.profile ?? detectProfile(files);
   let authoredSource: string | undefined;
   if (session) {
     // authoredPictureSource trusts the text only while it compiles to the
@@ -147,7 +147,7 @@ export function studioRoomSource(
   const profile = resources.profile ?? detectProfile(files);
   let logicBytes: Uint8Array | null;
   try {
-    logicBytes = openContainer(files).getResource("logic", room);
+    logicBytes = openContainer(files, { profile }).getResource("logic", room);
   } catch {
     logicBytes = null;
   }
@@ -256,7 +256,7 @@ export function viewScan(resources: Pick<ScannedResources, "files" | "profile">)
   const pictures = new Set<number>();
   const payloads = new Map<number, Uint8Array>();
   try {
-    const container = openContainer(files);
+    const container = openContainer(files, { profile });
     for (let num = 0; num < 256; num++) {
       const logic = container.getResource("logic", num);
       if (logic) logics.set(num, logic);
@@ -314,14 +314,14 @@ export function studioSpriteSource(
   staged?: Uint8Array,
 ): StudioSpriteSource | null {
   const files = new Map(Object.entries(resources.files));
+  const profile = resources.profile ?? detectProfile(files);
   let bytes = staged;
   try {
-    bytes ??= openContainer(files).getResource("view", view) ?? undefined;
+    bytes ??= openContainer(files, { profile }).getResource("view", view) ?? undefined;
   } catch {
     return null;
   }
   if (!bytes) return null;
-  const profile = resources.profile ?? detectProfile(files);
   const scan = viewScan(resources);
   const usage = viewUsage(scan.index, view);
   const rooms = usage.rooms.flatMap((room): SpriteRoom[] => {

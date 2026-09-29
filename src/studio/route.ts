@@ -351,7 +351,10 @@ const EDGE_WORDS: Readonly<Record<EdgeSide, string>> = {
 export function testRoute(input: RouteTestInput): RouteTestResult {
   const files = "files" in input.game ? input.game.files : input.game;
   const profile = detectProfile(files, input.profile);
-  const state = createAgentSessionState(openContainer(files, { kind: profile.container }), profile);
+  const state = createAgentSessionState(
+    openContainer(files, { kind: profile.container, profile }),
+    profile,
+  );
   const maxCycles = input.maxCycles ?? 600;
   const result = playtestRoom(
     state,

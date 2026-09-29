@@ -121,14 +121,22 @@ resource readers still reject unavailable data if the scenario requests it.
   1988-07-27 3.5", Manhunter 2 3.02 1989-07-26 3.5" and Gold Rush 2.01
   1988-12-22 3.5". The KQ4 directory indexes pictures 150–151 in a `KQ4VOL.6`
   and views 198–199 in a `KQ4VOL.7`; the MH2 directory indexes sounds 215–216 in
-  an `MH2VOL.6`; the mh2-amiga `dirs` indexes picture 106 in a `VOL.15`. Those
-  volumes are absent from these releases' volume sets, so the entries come from
-  the matched directories themselves, as shipped. The strict volume check still
-  reports them. Walkthrough tooling uses `checkVolumes: "shipped"`, which
-  exempts exactly those volumes for exactly those directory hashes
-  ([test/fixtures.ts](../test/fixtures.ts)); a route that requests one of the
-  six resources still fails at the load. A fingerprint identifies the directory;
-  the volume bytes and the resources a playthrough requests lie outside it.
+  an `MH2VOL.6`. Those volumes are absent from these releases' volume sets, so
+  the entries come from the matched directories themselves, as shipped. The
+  strict volume check still reports them. Walkthrough tooling uses
+  `checkVolumes: "shipped"`, which exempts exactly those volumes for exactly
+  those directory hashes ([test/fixtures.ts](../test/fixtures.ts)); a route
+  that requests one of the six resources still fails at the load. A
+  fingerprint identifies the directory; the volume bytes and the resources a
+  playthrough requests lie outside it.
+- **Absent Amiga directory entries.** The mh2-amiga `dirs` lists picture 106
+  as `ff ff fc`. Under the Amiga 2.31x directory rule — a first byte whose
+  high nibble is `f` marks the entry absent whatever its tail holds
+  (docs/fidelity.md, "Amiga directory absence") — picture 106 is absent, not
+  a reference to an unshipped `VOL.15`. The fixture volume check applies the
+  absence rule of the fixture's own detected profile, so the strict check
+  passes the edition without a waiver, and an entry pointing at a genuinely
+  missing volume still fails.
 - **3.002.149 handler comparison.** The handler comparison in
   `test/mh2-profile.test.ts` requires both 3.002.149 fixtures (`gr1` and `mh2`);
   its logic-reference test requires only `mh2`.
@@ -145,7 +153,7 @@ identified along with the profile it runs:
 | ----------- | ---------------------------------------------------------------------------------------------------- |
 | `"binary"`  | a version string in an interpreter file, an Amiga hunk executable or the Apple IIgs `*.SYS16` banner |
 | `"catalog"` | the `WORDS.TOK` + `OBJECT` fingerprint of a catalogued release                                       |
-| `"default"` | neither; the container shape picks 2.936 or 3.002.149                                                |
+| `"default"` | neither; the container shape picks 2.936, Amiga 2.333 for a `dirs` set, or 3.002.149                 |
 
 The decision also names the identified build, which differs from the profile
 when that build has no promoted profile and the fallback runs. The `Engine`

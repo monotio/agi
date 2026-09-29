@@ -432,7 +432,7 @@ const roomPicture = computed<RoomBackdrop | null>(() => {
   const room = backdropRoom.value;
   if (backdrop.value.kind !== "room" || !room) return null;
   try {
-    const bytes = openContainer(new Map(files)).getResource("picture", room.picture);
+    const bytes = openContainer(new Map(files), { profile }).getResource("picture", room.picture);
     if (!bytes) return null;
     const surface = createPictureSurface();
     renderPicture(bytes, surface, { profile });

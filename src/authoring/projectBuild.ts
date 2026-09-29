@@ -55,7 +55,7 @@ export function captureProjectBuild(input: ProjectBuildInput) {
   for (const [name, bytes] of Object.entries(input.files)) {
     if (isPlayableFileName(name)) owned.set(canonicalResourceName(name), new Uint8Array(bytes));
   }
-  const container = openContainer(owned);
+  const container = openContainer(owned, { profile });
   const words = owned.get("WORDS.TOK");
   const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
   const bindings = Object.fromEntries(

@@ -26,6 +26,7 @@ import { MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { reconcileGameIndex } from "./project/gameStorage.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
 import { findInstalledFolder, gameStorageKey } from "./project/gameTypes.ts";
+import type { ProjectId } from "./project/gameTypes.ts";
 import { useGameKeys } from "./play/useGameKeys.ts";
 
 import { provideEngine } from "./engine/engineContext.ts";
@@ -107,6 +108,9 @@ provideInspector(createInspector(engine, presentation));
 const WorldMap = defineAsyncComponent(() => import("./world/WorldMap.vue"));
 const RoomStudio = defineAsyncComponent(() => import("./studio/RoomStudio.vue"));
 const SpriteStudio = defineAsyncComponent(() => import("./studio/sprite/SpriteStudio.vue"));
+// Logic Studio — Monaco plus its analysis worker — loads only when the
+// library's Edit asks for it; the Play boot path never sees it.
+const LogicStudio = defineAsyncComponent(() => import("./studio/logic/LogicStudio.vue"));
 const mapOpen = engine.roomMap.open;
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
@@ -183,6 +187,22 @@ const creating = computed(() => state.phase === "running" && shell.mode.value ==
 const studio = workspace.studio;
 /** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
 const studioOpen = computed(() => creating.value && studio.value !== null);
+/**
+ * Logic Studio is a stored-project workspace, not a running-game mode: it
+ * opens over whatever is mounted, holds its own pause while a run is hidden,
+ * and closing hands the untouched game back. The URL keeps naming the run —
+ * editing never adopts a play/create identity.
+ */
+const logicProjectId = ref<ProjectId>();
+const logicStudioEl = useTemplateRef("logicStudio");
+watch(logicProjectId, (id, previous) => {
+  if (id !== undefined) {
+    releaseMovement();
+    if (state.phase === "running") engine.pauseEngine("logicStudio");
+  } else if (previous !== undefined) {
+    engine.resumeEngine("logicStudio");
+  }
+});
 const sheetOpen = workspace.sheetOpen;
 /** Room Studio's Play here: leave Studio, show Play, jump the game to the spot. */
 const playHereFromStudio = usePlayHereFromStudio({
@@ -202,9 +222,15 @@ const { onDockKey } = useCreateMode({
 const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
   engine,
   playArea: () => playArea.value,
-  // Create's dock keys, and Studio holding the paused game: nothing reaches it.
-  intercept: (ev) => onDockKey(ev) || studio.value !== null,
+  // Create's dock keys, Studio holding the paused game, and Logic Studio over
+  // a run: nothing typed there may reach the game.
+  intercept: (ev) => onDockKey(ev) || studio.value !== null || logicProjectId.value !== undefined,
 });
+/** Logic Studio's keyup gets the same isolation as its keydown. */
+function onShellKeyup(ev: KeyboardEvent): void {
+  if (logicProjectId.value !== undefined) return;
+  onGlobalKeyup(ev);
+}
 /** Create keeps Developer activity in its Activity tab while that shows. */
 const activityDocked = computed(
   () =>
@@ -284,6 +310,26 @@ async function onStartWalkthrough(targetGame: string): Promise<void> {
   await startWalkthrough(targetGame);
 }
 shellBridge.startWalkthrough = (target) => void onStartWalkthrough(target);
+shellBridge.openLogicProject = (projectId) => {
+  logicProjectId.value = projectId;
+};
+
+// Dev/e2e handle: open the stored-project workspace and read the caret, so a
+// scripted run can exercise Edit over a running game and check definition
+// navigation without reaching into the component tree.
+if (import.meta.env?.DEV) {
+  (
+    window as unknown as {
+      __AGI_LOGIC__?: {
+        open(projectId: string): void;
+        cursor(): { line: number; column: number } | undefined;
+      };
+    }
+  ).__AGI_LOGIC__ = {
+    open: (projectId) => shellBridge.openLogicProject(projectId as ProjectId),
+    cursor: () => logicStudioEl.value?.cursor() as { line: number; column: number } | undefined,
+  };
+}
 
 const WATCH_HASH_PREFIX = "#watch/";
 
@@ -437,7 +483,7 @@ onMounted(async () => {
   window.visualViewport?.addEventListener("resize", resizeViewport);
   window.addEventListener("resize", resizeViewport);
   window.addEventListener("keydown", onGlobalKeydown);
-  window.addEventListener("keyup", onGlobalKeyup);
+  window.addEventListener("keyup", onShellKeyup);
   window.addEventListener("hashchange", onMenuHashChange);
   window.addEventListener("popstate", onPopState);
   document.addEventListener("visibilitychange", onPageHidden);
@@ -537,7 +583,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", resizeViewport);
   presentation.dispose();
   window.removeEventListener("keydown", onGlobalKeydown);
-  window.removeEventListener("keyup", onGlobalKeyup);
+  window.removeEventListener("keyup", onShellKeyup);
   window.removeEventListener("hashchange", onMenuHashChange);
   window.removeEventListener("popstate", onPopState);
   document.removeEventListener("visibilitychange", onPageHidden);
@@ -587,7 +633,7 @@ watch(
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
-    <div class="shell">
+    <div class="shell" :inert="logicProjectId !== undefined">
       <GameHeader
         :touch-controls="touchControls"
         :crt-enabled="crtEnabled"
@@ -757,6 +803,16 @@ watch(
         </aside>
       </div>
     </div>
+
+    <!-- The stored-project workspace sits above the shell; the mounted run
+         stays mounted and inert behind it, never replaced or re-identified. -->
+    <LogicStudio
+      v-if="logicProjectId"
+      ref="logicStudio"
+      :project-id="logicProjectId"
+      @update:project-id="logicProjectId = $event"
+      @close="logicProjectId = undefined"
+    />
 
     <AiSettingsDialog
       ref="aiSettingsDialog"

@@ -217,17 +217,9 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     if (isPlayableFileName(name) || name === "TESTS.JSON") files[name] = data;
   }
   if (!files["WORDS.TOK"]) throw new Error("The game is missing WORDS.TOK.");
-  const container = openContainer(new Map(Object.entries(files)));
-  // Validate the boot resource now. Some playable local games have dangling
-  // references to unused assets; preserve those bytes rather than refusing
-  // the whole game. Referenced resources are checked when the engine loads them.
-  const boot = container.getResource("logic", 0);
-  if (!boot) throw new Error("The game is missing its starting logic (logic 0).");
-  parseLogicResource(boot);
-  const words: [string, number][] = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [
-    word,
-    id,
-  ]);
+  // The declared metadata — a supported version and a profile this build
+  // ships — is validated before any directory entry is read: the declared
+  // edition, not detection over the bytes, decides which entries exist.
   const metadata = entries.get(`${root}GAME.JSON`);
   if (metadata && metadata.length >= 16384) throw new Error("GAME.JSON is too large.");
   let rawMetadata: unknown;
@@ -243,6 +235,20 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
   const gameMetadata = metadata
     ? readPublicMetadata(rawMetadata)
     : { roomGeneration: false, workInProgress: false };
+  const container = openContainer(
+    new Map(Object.entries(files)),
+    gameMetadata.profile ? { profile: gameMetadata.profile } : {},
+  );
+  // Validate the boot resource now. Some playable local games have dangling
+  // references to unused assets; preserve those bytes rather than refusing
+  // the whole game. Referenced resources are checked when the engine loads them.
+  const boot = container.getResource("logic", 0);
+  if (!boot) throw new Error("The game is missing its starting logic (logic 0).");
+  parseLogicResource(boot);
+  const words: [string, number][] = parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [
+    word,
+    id,
+  ]);
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
   const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
   const progress = project

@@ -310,7 +310,7 @@ export function createHistoryView(
     // restored verbatim — the live-restore redraw would rewrite the text
     // ages the snapshot carries.
     const candidate = new Engine(
-      openContainer(files),
+      openContainer(files, boot.profile ? { profile: boot.profile } : {}),
       ctx.host,
       dictionary,
       boot.profile ? { profile: boot.profile } : undefined,

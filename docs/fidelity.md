@@ -227,7 +227,8 @@ same pass. Other details that games depend on:
   next due step into a zero-step re-check.
 - **Ego and the player.** `move.obj`, `move.obj.v` and `wander` on ego take
   control away from the player; arrival or a border stop gives it back and
-  clears v6. `player.control` ends any scripted motion of ego outright.
+  clears v6. `player.control` ends any scripted motion of ego outright (on the
+  later Amiga builds, only when the call follows program control).
 - **Loops and cels.** `set.view` keeps the current loop, and `set.loop` the
   current cel, whenever the new view or loop has enough of them; only an
   out-of-range index falls back to 0.
@@ -1340,7 +1341,26 @@ touches nothing else. Fact: `player.control` ends a running `move.obj`,
 Switching only the coupling would let a scripted ego walk continue after the
 script hands control back; Police Quest depends on the stop.
 
-**Tests:** [ego-motion-control.test.ts](../test/ego-motion-control.test.ts).
+The Amiga builds split on the prior control state (hunk-relative offsets
+resolved through each executable's relocation table; the six-byte dispatch
+record for opcode 0x84 names each entry). SQ1 2.082's handler at h120+0x412
+(hunk `a9b73f7f501b21aa`) matches the DOS form: store 1 in the player-control
+field (state hunk `+0x1a`), clear ego's motion word, done. The five later
+builds — KQ2 2.176, SQ2 2.202, PQ1 2.310, GR 2.316 and MH2 2.333 — share one
+handler at h165+0x41e (hunk `b16f88c2b26e6c01`): it tests the prior control
+field at h206+0x1a and returns without touching ego when player control is
+already selected, so the motion word clears only on a program→player
+transition. Executing each relocated handler against both prior states and
+autonomous modes 1–4 confirms the branch reads the control field, not the
+motion: the later builds preserve modes 1–4 under prior player control and
+clear them under prior program control, 2.082 clears in both, and the
+direction byte is untouched either way. PQ1's logic 0 issues `player.control`
+on every ordinary cycle while its program-control flag is clear, so the
+unconditional form strands its click-walks mid-path with the first heading
+kept. `AgiProfile.playerControlMotionClear` selects between the two forms.
+
+**Tests:** [ego-motion-control.test.ts](../test/ego-motion-control.test.ts),
+[amiga-player-control.test.ts](../test/amiga-player-control.test.ts).
 
 ### Border variables cleared
 
@@ -2670,6 +2690,45 @@ none, and on 2.31x `menuInputAction`, `releaseGateAction`,
 from GR 2.316 only in version, disk-count and game-ID strings, one init
 routine and relocations. `soundEnvelope` is inert on 2.082, whose driver has
 no envelope table.
+
+### Amiga directory absence
+
+The 2.31x combined-directory loader decides whether a three-byte entry
+names a resource before any volume is opened. Its predicate lives at
+h100+0x118 in the PQ 2.310 and MH2 2.333 executables (sha256
+`72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca` and
+`5ce3b163bd32ee025f6ba8ca8c946b03a06ff2960da8cc723c1d6184a3cc346a`); both
+builds' predicate bytes hash identically
+(`02a9c19a546c9fef0ad9dfcf09df609d3b4b4fa8b6425702d68bb40f88470e87`), and
+GR 2.316 (`7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db`)
+carries the same bytes — a static identity; its routine was not executed.
+
+The original routine was executed unchanged on controlled inputs: 768
+three-byte entries per build, 1536 of 1536 agreeing with the rule that an
+entry whose first byte's high nibble is `f` is absent, regardless of its
+remaining bytes (`00 00 00` and `ef ff fc` present; `f0 00 00`,
+`ff ff fc` and `ff ff ff` absent). That differs from the DOS v3 rule,
+where only the exact `ff ff ff` triple is absent and the nibble can name
+a real `VOL.15`. An absent entry answers "no such resource": the loader
+never reaches the volume open, so an `f`-nibble entry cannot trigger the
+missing-volume report a real `VOL.14` reference produces, and it is never
+treated as a successful load. The MH2 `dirs` (sha256
+`4c4ed1128707c0b5cf35ae978b9bb77b9bb98f18b98e0f87a9911620d54515da`,
+picture section at offset 599) lists picture 106 as `ff ff fc` at file
+offset 0x395: absent under this rule, not a reference to an unshipped
+`VOL.15`.
+
+The probes establish the predicate on the 2.310/2.316/2.333
+combined-directory builds — executed on 2.310 and 2.333, byte-identical
+on 2.316. The earlier Amiga builds and the IIgs were not exercised here.
+In the engine, the rule is the profile's `directoryAbsence`
+(`volume-nibble-f` on these three profiles, `exact-fff` on the DOS v3
+profiles); the same boundary caps a pack's destination volume at 14 for
+the nibble-f rule and 15 under exact-fff.
+
+**Tests:** [amiga-directory.test.ts](../test/amiga-directory.test.ts),
+[amiga-directory-review.test.ts](../test/amiga-directory-review.test.ts),
+[container-profile-roundtrip.test.ts](../app/test/container-profile-roundtrip.test.ts).
 
 ### Original Amiga sound player
 

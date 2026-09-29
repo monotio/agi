@@ -7,11 +7,12 @@ in the moat while you are standing next to it.
 This AGI is Sierra's
 [Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter),
 the engine behind King's Quest, Space Quest and Leisure Suit Larry, rebuilt
-from scratch and paired with an AI co-author. Play the classics from your own
-copies, or describe a new adventure and play it while an agent builds the world
-around you. Ask for changes mid-game: give the guard a different personality,
-add a puzzle, or turn the courtyard into a swamp. Everything the agent makes is
-a real AGI game that you can inspect, download and play again.
+from scratch, with manual editors and an optional AI co-author. Play the classics
+from your own copies, start a game locally without an API key, or describe a new
+adventure and play it while an agent builds the world around you. With an agent
+connected, ask for changes mid-game: give the guard a different personality, add
+a puzzle, or turn the courtyard into a swamp. Everything you make is a real AGI
+game that you can inspect, download and play again.
 
 ![The same Knight's Trial brief drawn by five models, from Claude Opus 5.5 to GPT-6 Luna, with what each cost](docs/media/genesis-castles.png)
 
@@ -106,6 +107,13 @@ smallest game that still runs, one room showing an empty picture. Both open
 in Create as ordinary AGI games you can edit in the Studios, and a
 connected provider can pick them up later like any other project.
 
+To edit a saved game's code, open its library card's **Game actions → Edit**.
+**Logic Studio** gives you source tabs, code completion, hover help, definition
+navigation and a Problems panel without a key. Edit the logic and vocabulary,
+choose which changes to build, inspect the diff, then **Keep** them in the library.
+Unfinished work stays in a separate draft and is offered for recovery when you
+reopen. Games from the shared catalog need a personal copy before editing.
+
 **Build with AI** keeps the themed briefs. Pick a template or describe your
 own hero, setting and trouble, connect an OpenAI or Anthropic API key, and
 click **Create adventure**.
@@ -164,8 +172,8 @@ A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it. **Create** docks the tools around it: the world map and its
 rooms on the left, the assistant on the right. From a room in the World panel,
 its picture opens in **Room Studio** and its views in **Sprite Studio**. Room
-Studio and Sprite Studio need a larger screen than a phone; games play on phones
-too.
+Studio, Sprite Studio and Logic Studio are designed for a larger screen than a
+phone; games play on phones too.
 
 <p align="center">
   <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>

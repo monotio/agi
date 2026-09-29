@@ -254,7 +254,7 @@ const lesson = useStudioLesson();
 /** The room's logic, editable while its annotated text is trusted (useRoomLogicDraft). */
 const ruleSession = computed<RuleSession | null>(() => {
   if (!walk || !files) return null;
-  const state = createAgentSessionState(openContainer(new Map(files)), profile);
+  const state = createAgentSessionState(openContainer(new Map(files), { profile }), profile);
   state.authoring = structuredClone(walk.authoring);
   state.sources.words.clear();
   for (const [word, id] of walk.words) state.sources.words.set(word, id);

@@ -77,6 +77,18 @@ export class LogicAnalysisClient {
     this.rejectAll(new Error("Logic analysis was superseded by a newer workspace snapshot."));
   }
 
+  /**
+   * The consulted context (the words or bindings document) cannot be read:
+   * pending answers lose authority and the snapshot is dropped, so no further
+   * request runs against an invalid context. This is invalidation, not a
+   * failure — the worker stays alive and the next setProject resumes answers.
+   */
+  invalidateContext(message: string): void {
+    if (this.closed) return;
+    this.project = undefined;
+    this.rejectAll(new Error(message || "The logic analysis context is invalid."));
+  }
+
   async request<Q extends LogicAnalysisQuery>(
     key: string,
     query: Q,

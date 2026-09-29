@@ -282,7 +282,7 @@ export function executeRoomTool(
 
     const files = state.getFiles();
     const detached = createAgentSessionState(
-      openContainer(files, { kind: state.profile.container }),
+      openContainer(files, { kind: state.profile.container, profile: state.profile }),
     );
     const staged: AgentSessionState = {
       ...detached,

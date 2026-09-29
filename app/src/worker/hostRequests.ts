@@ -203,7 +203,9 @@ export function createHostRequests(ctx: WorkerContext) {
               applyRoomPatchFiles(decodeCommittedPatch(committed));
               patch = committed;
             } else {
-              const container = openContainer(ctx.engine.containerFiles);
+              const container = openContainer(ctx.engine.containerFiles, {
+                profile: ctx.engine.profile,
+              });
               const compiled = prepareRoomPatch(
                 container,
                 room,

@@ -423,7 +423,21 @@ interface WorkerFns {
   onResetReplay(msg: Inbound<"resetReplay">): void;
   onExitReplay(): void;
   // cycle.ts
-  tickEngine(): void;
+  /**
+   * One engine tick — the worker's single controlled-completion point.
+   * With execution control armed, returns whether this tick ran a pass to
+   * its post-logic tail (counted here, exactly once); a debugger stop,
+   * cooperative yield or fresh suspension returns false. Unarmed ticks
+   * always return false: the scheduler branch counts their completion.
+   */
+  tickEngine(): boolean;
+  /**
+   * Runs `run` as one worker tick entry — for callers whose engine tick is
+   * wrapped in a recorded operation. Same contract as tickEngine's
+   * completion half: armed and the pass reached its tail → counted and
+   * true; otherwise false.
+   */
+  runTickEntry(run: () => void): boolean;
   recordedClock(): void;
   advanceSoundClock(authoring?: boolean): void;
   /**

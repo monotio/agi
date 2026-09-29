@@ -26,9 +26,9 @@ export interface GhostView {
 /** Every VIEW in the game's container files that parses, by number. */
 export function listGameViews(
   files: ReadonlyMap<string, Uint8Array>,
-  profile: Pick<AgiProfile, "packedViewLoopHeader">,
+  profile: AgiProfile,
 ): GhostView[] {
-  const container = openContainer(files);
+  const container = openContainer(files, { profile });
   const views: GhostView[] = [];
   for (let number = 0; number < 256; number++) {
     try {

@@ -837,7 +837,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // the running game follows only once it confirms the saved files.
       const currentFiles = await query("exportFiles");
       if (!currentFiles) throw new Error("The remixed game snapshot is unavailable.");
-      const container = openContainer(new Map(Object.entries(currentFiles)));
+      const container = openContainer(new Map(Object.entries(currentFiles)), {
+        profile: session.state.profile,
+      });
       for (const res of patched) container.putResource(res.kind, res.num, res.payload);
       for (const name of ["WORDS.TOK", "OBJECT", "TESTS.JSON"] as const) {
         const payload = files?.[name];
@@ -1027,7 +1029,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const files = await query("exportFiles");
       if (!files || getBootedGame() !== game)
         throw new Error("The game changed while the room was being authored.");
-      const container = openContainer(new Map(Object.entries(files)));
+      const container = openContainer(new Map(Object.entries(files)), {
+        profile: author.state.profile,
+      });
       const dictionary = new Map(
         parseWordsTok(files["WORDS.TOK"] ?? new Uint8Array()).map(
           (entry) => [entry.word, entry.id] as [string, number],

@@ -101,7 +101,9 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     },
     prepareRoom(room, from) {
       if (!ctx.boot.authorRooms || !ctx.engine) return true;
-      const container = openContainer(ctx.engine.containerFiles);
+      const container = openContainer(ctx.engine.containerFiles, {
+        profile: ctx.engine.profile,
+      });
       if (container.getResource("logic", room)) return true;
       // The agent's answer lands in deliverHostResponse, which applies the
       // patch and delivers true/false to the suspended new.room.

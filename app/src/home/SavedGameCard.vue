@@ -209,6 +209,15 @@ function openDetails(): void {
         </button>
         <slot name="menu" />
         <button
+          v-if="game.library?.source !== 'catalog'"
+          type="button"
+          role="menuitem"
+          data-testid="edit-library-game"
+          @click="bridge.openLogicProject(game.projectId)"
+        >
+          <span>Edit<small>Open in Logic Studio; no engine needed</small></span>
+        </button>
+        <button
           v-if="autosave"
           type="button"
           role="menuitem"

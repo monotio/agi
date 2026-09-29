@@ -156,7 +156,10 @@ export class Simulation {
   ) {
     this.cycleBudget = cycleBudget;
     this.resourceSet = resourceSetHint(state);
-    const container = openContainer(state.getFiles(), { kind: state.profile.container });
+    const container = openContainer(state.getFiles(), {
+      kind: state.profile.container,
+      profile: state.profile,
+    });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
     const randomByte = randomSource(123456789);

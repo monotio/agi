@@ -12,19 +12,50 @@ export const HOST_POLL_MS = 1000 / 60;
 const CYCLE_REPORT_MS = 250;
 
 export function createCycle(ctx: WorkerContext) {
-  function tickEngine(): void {
-    if (!ctx.engine) return;
+  /**
+   * Runs `run` as one worker tick entry — the single place a controlled
+   * pass's completion is counted. With execution control armed the engine's
+   * own completed-cycle serial is the witness: a pass that reached its
+   * post-logic tail is counted here, wherever the entry came from (cycle
+   * poll, host answer, queued key), exactly once; a debugger stop,
+   * cooperative yield, fresh suspension or fault left the serial untouched
+   * and counts nothing. Unarmed runs always return false — their scheduler
+   * branch counts completion itself.
+   */
+  function runTickEntry(run: () => void): boolean {
+    const engine = ctx.engine;
+    if (!engine) return false;
+    const armedSerial = engine.executionControlActive ? engine.completedCycleSerial : null;
+    run();
+    // The serial is per engine instance; a replaced engine can never be
+    // mistaken for a completion the captured serial preceded.
+    if (
+      ctx.engine !== engine ||
+      armedSerial === null ||
+      engine.completedCycleSerial === armedSerial
+    )
+      return false;
+    finishCycle();
+    return true;
+  }
+
+  function tickEngine(): boolean {
+    const engine = ctx.engine;
+    if (!engine) return false;
     ctx.cycle.initialLogicStarted = true;
     // A suspended interaction freezes the cycle until its answer lands — the
     // gate inside tick() is the same, but skipping here keeps the recorder's
     // operation list honest: a parked tick never runs.
-    if (ctx.engine.hostInteractionPending && !ctx.engine.hostInteractionReady) return;
-    if (ctx.recording.recording) {
-      ctx.recording.recording.tape.run("tick", () => ctx.engine!.tick());
-      // A tick that ended suspended stays one recorded operation: the resumed
-      // answer and the calls it produces join the same list on the next tick.
-      if (ctx.engine!.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
-    } else ctx.engine.tick();
+    if (engine.hostInteractionPending && !engine.hostInteractionReady) return false;
+    const tape = ctx.recording.recording?.tape;
+    return runTickEntry(() => {
+      if (tape) {
+        tape.run("tick", () => engine.tick());
+        // A tick that ended suspended stays one recorded operation: the resumed
+        // answer and the calls it produces join the same list on the next tick.
+        if (engine.awaitingHostAnswer) tape.holdTick();
+      } else engine.tick();
+    });
   }
 
   function recordedClock(): void {
@@ -118,7 +149,10 @@ export function createCycle(ctx: WorkerContext) {
         engine.continuationPending ||
         engine.hostInteractionPending
       ) {
-        tickEngine();
+        // Under armed control a parked pass resuming here can run its
+        // post-logic tail — tickEngine counted that completion and the poll
+        // reports it; anything less still reports no cycle.
+        const completed = tickEngine();
         ctx.fns.noteTransition();
         ctx.fns.flushTraceBatch();
         ctx.fns.postFrame();
@@ -131,13 +165,24 @@ export function createCycle(ctx: WorkerContext) {
           ctx.fns.noteTransition();
           ctx.fns.postFrame(true);
         }
-        return false;
+        return completed;
       }
       // The cycle clock always polls — its accumulators stay honest — but a
       // recorded lane decides whether the live poll fired.
       const polled = ctx.clocks.cycle.poll(now, engine.vars[10]!);
       if (!(obs?.cycle ?? polled)) return false;
       ctx.fns.flushDeferredMovement();
+      if (engine.executionControlActive) {
+        // Armed control: the poll only decides the pass may run — whether a
+        // cycle completed is the engine's serial. tickEngine counted a pass
+        // that reached its tail; a stop, yield or fresh suspension counts
+        // nothing.
+        const completed = tickEngine();
+        ctx.fns.noteTransition();
+        ctx.fns.flushTraceBatch();
+        ctx.fns.postFrame(completed);
+        return completed;
+      }
       tickEngine();
       finishCycle();
       ctx.fns.postFrame(true);
@@ -227,6 +272,7 @@ export function createCycle(ctx: WorkerContext) {
   return {
     onPause,
     tickEngine,
+    runTickEntry,
     recordedClock,
     stopTimers,
     finishCycle,

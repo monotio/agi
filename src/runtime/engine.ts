@@ -472,12 +472,35 @@ export interface ExecutionBoundary {
   }[];
 }
 
+/**
+ * Which spans share one instruction allowance, selected at construction:
+ *
+ * - `"host-segment"` (compatibility Play, the default): the allowance renews
+ *   at each genuine pass start and at every real host boundary — a suspended
+ *   interaction's delivered answer, a drained modal window or a clock
+ *   busy-wait's next poll. This is the measured legacy behavior.
+ * - `"whole-pass"` (frozen Test): one allowance spans the whole pass,
+ *   including every host wait; it renews only at a genuine pass start.
+ *
+ * Debugger stops and internal cooperative slices are never host boundaries
+ * and never renew either policy; arming execution control does not select a
+ * policy. The allowance magnitude stays `instructionBudget`.
+ */
+export type ExecutionBudgetPolicy = "host-segment" | "whole-pass";
+
 interface ConditionCursor {
   pc: number;
   or: boolean;
   satisfied: boolean;
   negate: boolean;
   failed: boolean;
+  /**
+   * Scan position already billed to this pass — a term that suspended the
+   * pass mid-IF keeps its pc across the wait, and resuming must not bill it
+   * again. Session-local only; a serialized continuation's fresh cursor
+   * re-bills from the replay boundary instead (see conditionReplayUntil).
+   */
+  chargedPc?: number;
 }
 
 /** Cooperative yields carry no AGI event, time advance or host answer. */
@@ -754,6 +777,11 @@ export class Engine {
   private readonly dictionary: ReadonlyMap<string, number> | undefined;
   private readonly instructionBudget: number;
   private remainingInstructions: number;
+  /**
+   * Allowance renewal policy (see ExecutionBudgetPolicy). Session-local,
+   * never serialized, and never changed by installing an execution gate.
+   */
+  readonly executionBudgetPolicy: ExecutionBudgetPolicy;
   private executionGate: ((boundary: ExecutionBoundary) => boolean) | null = null;
   private stoppedExecution: ExecutionBoundary | null = null;
   private resumedSequence: number | null = null;
@@ -762,12 +790,24 @@ export class Engine {
   private executionSlice = 1024;
   private yieldedExecution = false;
   private executionFault: unknown = null;
+  /**
+   * Passes that ran their post-logic tail — the controlled-cycle completion
+   * witness. Session-local and never serialized; it rises only at the end of
+   * tickExecution, never at a debugger stop, cooperative yield, host
+   * suspension, modal wait or aborted continuation.
+   */
+  private completedCycles = 0;
 
   constructor(
     container: GameContainer,
     host: EngineHost,
     dictionary?: ReadonlyMap<string, number>,
-    options?: { restarted?: boolean; profile?: ProfileId | AgiProfile; instructionBudget?: number },
+    options?: {
+      restarted?: boolean;
+      profile?: ProfileId | AgiProfile;
+      instructionBudget?: number;
+      executionBudgetPolicy?: ExecutionBudgetPolicy;
+    },
   ) {
     this.container = container;
     this.host = host;
@@ -777,7 +817,16 @@ export class Engine {
       (!Number.isInteger(options.instructionBudget) || options.instructionBudget < 1)
     )
       throw new Error("instructionBudget must be a positive integer.");
+    if (
+      options?.executionBudgetPolicy !== undefined &&
+      options.executionBudgetPolicy !== "host-segment" &&
+      options.executionBudgetPolicy !== "whole-pass"
+    )
+      throw new Error(
+        `executionBudgetPolicy must be "host-segment" or "whole-pass", got ${JSON.stringify(options.executionBudgetPolicy)}.`,
+      );
     this.instructionBudget = options?.instructionBudget ?? Infinity;
+    this.executionBudgetPolicy = options?.executionBudgetPolicy ?? "host-segment";
     this.remainingInstructions = this.instructionBudget;
     // The interpreter version is not in the resource data: an explicit profile
     // wins, otherwise detection reads the version string from an interpreter
@@ -1026,6 +1075,20 @@ export class Engine {
 
   get executionYieldPending(): boolean {
     return this.yieldedExecution;
+  }
+
+  /** Execution control is armed: the installed gate can stop or slice a pass. */
+  get executionControlActive(): boolean {
+    return this.executionGate !== null;
+  }
+
+  /**
+   * Monotonic serial advanced only by a pass that reached its post-logic
+   * tail — never by a stop, yield, suspension or abort. A host compares it
+   * across a tick entry to learn whether that entry completed a real cycle.
+   */
+  get completedCycleSerial(): number {
+    return this.completedCycles;
   }
 
   /** Resume precisely the reported occurrence once, including a loop at the same PC. */
@@ -3080,11 +3143,29 @@ export class Engine {
 
   private tickExecution(): void {
     if (this.stoppedExecution !== null) return;
+    // Classify a parked pass's origin before this entry clears the yield
+    // flag: a debugger resume (resumedSequence) or an internal cooperative
+    // slice (yieldedExecution) is never a host boundary. Every other park —
+    // a suspended interaction's answer, a modal window or a clock
+    // busy-wait's poll — handed control back to the host.
+    const parkedOnHost =
+      this.pendingLogic !== null && !this.yieldedExecution && this.resumedSequence === null;
     this.executionSlice = 1024;
     this.yieldedExecution = false;
-    // Compatibility Play replenishes at host segments. Armed execution retains
-    // its whole-pass budget and clock-loop bookkeeping across stops and waits.
-    if (this.executionGate === null || this.pendingLogic === null) {
+    // The allowance renews at a genuine pass start and — under the
+    // compatibility host-segment policy — at each real host boundary. A
+    // whole-pass allowance spans every wait. A poll whose host answer is
+    // still in flight renews nothing under either policy; the actual answer
+    // landing is the boundary.
+    const awaitingAnswer =
+      this.pendingInteraction !== null &&
+      this.pendingAnswer === undefined &&
+      this.pendingInteraction.kind !== "restoreError";
+    if (
+      !awaitingAnswer &&
+      (this.pendingLogic === null ||
+        (this.executionBudgetPolicy === "host-segment" && parkedOnHost))
+    ) {
       this.remainingInstructions = this.instructionBudget;
       this.backwardJumps = 0;
       this.clockReadLogic = -1;
@@ -3299,6 +3380,10 @@ export class Engine {
       this.presentationDirty = true;
       this.updateEgoVisibility();
     }
+    // Every early return above — debugger stop, cooperative yield, host or
+    // modal wait, termination, abort — skipped this point, so the serial
+    // witnesses only a pass that truly ran its post-logic tail.
+    this.completedCycles++;
   }
 
   /**
@@ -4518,7 +4603,16 @@ export class Engine {
         !cursor.failed && b !== IF && b !== OR && (cursor.or ? !cursor.satisfied : b !== NOT);
       const originPc = cursor.or ? pc : cursor.negate ? pc - 1 : pc;
       if (evaluate && this.gateExecution(frames, originPc, "predicate", predicatePc)) return null;
-      this.consumeInstructionBudget();
+      // Bill each scanned item once per pass: a term that suspended the pass
+      // resumes at its already-charged pc, and a serialized continuation
+      // re-walks a completed prefix (pcs below the replay boundary) whose
+      // outcomes are already recorded — neither is billed again. Skipped
+      // terms, markers and fresh evaluations still count, keeping the scan
+      // itself bounded.
+      if (cursor.chargedPc !== pc && pc >= this.conditionReplayUntil) {
+        this.consumeInstructionBudget();
+        cursor.chargedPc = pc;
+      }
       if (b === IF) {
         if (cursor.or) throw new Error("invalid condition byte 0xff in unterminated OR group");
         return { result: !cursor.failed, next: pc + 1 };
@@ -5783,13 +5877,19 @@ export class Engine {
       case 0x83:
         this.directionCoupling = 0;
         return next;
-      case 0x84:
-        // Player coupling and the end of object 0's autonomous motion; the
-        // direction byte is left alone (docs/fidelity.md, "Original
+      case 0x84: {
+        // Player coupling; the direction byte is left alone. The DOS and
+        // Amiga 2.082 handlers end object 0's autonomous motion outright; the
+        // inspected later Amiga handlers (2.176 through 2.333) return early
+        // when player control is already selected, so the motion word clears
+        // only on the program→player transition (docs/fidelity.md, "Original
         // player.control handler").
+        const wasProgramControl = this.directionCoupling === 0;
         this.directionCoupling = 1;
-        this.objects[0]!.motionMode = MOTION_NORMAL;
+        if (this.profile.playerControlMotionClear === "always" || wasProgramControl)
+          this.objects[0]!.motionMode = MOTION_NORMAL;
         return next;
+      }
       case 0x86:
         // The original stops sound before reading the operand, so a declined
         // quit prompt still completes the playing sound's done flag

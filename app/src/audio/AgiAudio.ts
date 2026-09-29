@@ -38,7 +38,13 @@ export class AgiAudio {
   private mode: AudioMode = "tandy";
   private volume: number = 0.5;
   private muted: boolean = false;
-  private paused = false;
+  /** The ambient pause channel: setPaused, shared by the local hold owners. */
+  private pausedAmbient = false;
+  /** Identified owners beside the ambient channel (the worker's suspension). */
+  private readonly pauseOwners = new Set<string>();
+  /** A suspend/resume is settling; requests made during it fold into a recheck. */
+  private pauseTransition = false;
+  private pauseRequeue = false;
   private playing = false;
   private family: SoundOutput["kind"] | "paula-2.082" | null = null;
   private channelGains: GainNode[] = [];
@@ -83,6 +89,11 @@ export class AgiAudio {
     return this.playing;
   }
 
+  /** Any pause channel held: the ambient flag or a named owner. */
+  get isPaused(): boolean {
+    return this.pausedAmbient || this.pauseOwners.size > 0;
+  }
+
   setMode(mode: AudioMode): void {
     this.mode = mode;
     if (this.isPlaying) {
@@ -92,22 +103,12 @@ export class AgiAudio {
 
   setVolume(vol: number): void {
     this.volume = Math.max(0, Math.min(1, vol));
-    if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(
-        this.muted || this.paused ? 0 : this.volume,
-        this.ctx.currentTime,
-      );
-    }
+    this.applyMasterGain();
   }
 
   setMuted(mute: boolean): void {
     this.muted = mute;
-    if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(
-        this.muted || this.paused ? 0 : this.volume,
-        this.ctx.currentTime,
-      );
-    }
+    this.applyMasterGain();
   }
 
   toggleMute(): boolean {
@@ -117,9 +118,10 @@ export class AgiAudio {
 
   /**
    * Resumes AudioContext on user gesture to comply with browser autoplay policies.
+   * A pause owner outranks the unlock: the context stays frozen until released.
    */
   async resume(): Promise<void> {
-    if (this.ctx && this.ctx.state === "suspended") {
+    if (this.ctx && this.ctx.state === "suspended" && !this.isPaused) {
       await this.ctx.resume();
     }
   }
@@ -134,22 +136,92 @@ export class AgiAudio {
         this.ctx = new AudioCtx();
       }
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(
-        this.muted || this.paused ? 0 : this.volume,
-        this.ctx.currentTime,
-      );
+      this.applyMasterGain();
       this.masterGain.connect(this.ctx.destination);
+      // The context can reach "running" on its own — WebKit auto-resumes a
+      // context created suspended, an OS interruption ends — so a held pause
+      // is re-asserted from the state change, not only from our requests.
+      if (typeof this.ctx.addEventListener === "function")
+        this.ctx.addEventListener("statechange", () => this.syncContextPause());
+      this.syncContextPause();
     }
     return this.ctx;
   }
 
+  /**
+   * The ambient pause channel (the local overlay/walkthrough holds). A named
+   * owner set through setPauseOwner keeps the freeze after this releases.
+   */
   setPaused(paused: boolean): void {
-    this.paused = paused;
-    if (this.masterGain && this.ctx)
+    this.pausedAmbient = paused;
+    this.applyPause();
+  }
+
+  /**
+   * An identified pause owner: the worker's authoring suspension holds
+   * "worker"; the debugger's run-identified control is the next one. The
+   * context stays frozen until every owner and the ambient channel release.
+   */
+  setPauseOwner(owner: string, paused: boolean): void {
+    if (paused) this.pauseOwners.add(owner);
+    else this.pauseOwners.delete(owner);
+    this.applyPause();
+  }
+
+  /** Silence is immediate; the clock freeze settles through syncContextPause. */
+  private applyPause(): void {
+    this.applyMasterGain();
+    this.syncContextPause();
+  }
+
+  private applyMasterGain(): void {
+    if (this.masterGain && this.ctx) {
       this.masterGain.gain.setValueAtTime(
-        this.muted || paused ? 0 : this.volume,
+        this.muted || this.isPaused ? 0 : this.volume,
         this.ctx.currentTime,
       );
+    }
+  }
+
+  /**
+   * Drive the context toward the owners' answer: suspend() freezes
+   * currentTime — scheduled samples, envelope ramps and oscillator phases —
+   * where the muted master gain cannot. One transition runs at a time; a
+   * request made mid-flight marks a recheck so a rapid pause-release-pause
+   * ends frozen regardless of settle order. Rejections (a closed or
+   * replaced context) are swallowed: the gain is already zero, and the next
+   * request retries. A suspended context is only resumed when nothing holds
+   * the pause — output() and the autoplay unlock never lift an owner's hold.
+   */
+  private syncContextPause(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (this.pauseTransition) {
+      this.pauseRequeue = true;
+      return;
+    }
+    let transition: (() => Promise<void>) | null = null;
+    if (this.isPaused && ctx.state === "running" && typeof ctx.suspend === "function")
+      transition = () => ctx.suspend();
+    else if (!this.isPaused && ctx.state === "suspended" && typeof ctx.resume === "function")
+      transition = () => ctx.resume();
+    if (!transition) return;
+    this.pauseTransition = true;
+    let outcome: Promise<void>;
+    try {
+      outcome = Promise.resolve(transition());
+    } catch (error) {
+      outcome = Promise.reject(error);
+    }
+    void outcome
+      .catch(() => {})
+      .then(() => {
+        this.pauseTransition = false;
+        if (this.pauseRequeue) {
+          this.pauseRequeue = false;
+          this.syncContextPause();
+        }
+      });
   }
 
   /** Apply one authoritative sound-tick output. No separate playback clock or completion timer. */
@@ -162,7 +234,9 @@ export class AgiAudio {
       this.family = family;
     }
     const ctx = this.initContext();
-    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    // A held pause keeps a fresh or suspended context frozen; without one
+    // this is still the autoplay-unlock retry the suspended state needs.
+    this.syncContextPause();
     this.playing = true;
     const maxFreq = (ctx.sampleRate || 48000) / 2;
     if (event.kind === "iigs") {

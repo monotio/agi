@@ -146,7 +146,7 @@ function restoreChecker(
     if (!engine) {
       const words = files["WORDS.TOK"];
       engine = new Engine(
-        openContainer(new Map(Object.entries(files))),
+        openContainer(new Map(Object.entries(files)), profile ? { profile } : {}),
         RESTORE_CHECK_HOST,
         words
           ? new Map(parseWordsTok(words).map(({ word, id }): [string, number] => [word, id]))

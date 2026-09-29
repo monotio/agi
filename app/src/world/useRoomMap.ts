@@ -461,8 +461,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (scanned && scanned.key === key && scanned.files === game.files) return scanned;
     const logicPayloads = new Map<number, Uint8Array>();
     const picture = new Set<number>();
+    const profile = detectProfile(new Map(Object.entries(game.files)), override);
     try {
-      const container = openContainer(new Map(Object.entries(game.files)));
+      const container = openContainer(new Map(Object.entries(game.files)), { profile });
       for (let num = 0; num < 256; num++) {
         const payload = container.getResource("logic", num);
         if (payload) logicPayloads.set(num, payload);
@@ -482,7 +483,6 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       };
       return scanned;
     }
-    const profile = detectProfile(new Map(Object.entries(game.files)), override);
     const { scans, shared } = scanContainerExits(logicPayloads, profile);
     scanned = {
       key,
@@ -970,8 +970,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     }
     if (missing.length === 0) return;
     const files = new Map(Object.entries(scan.files));
-    const container = openContainer(files);
     const profile = scan.profile ?? detectProfile(files);
+    const container = openContainer(files, { profile });
     let produced = false;
     for (const [room, pic] of missing) {
       try {
