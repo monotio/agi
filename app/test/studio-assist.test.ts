@@ -11,13 +11,26 @@ import {
 } from "../src/agent/studioAssist.ts";
 import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import type { StudioCandidate, StudioFocus } from "../../src/agent/studioAssistTools.ts";
-import { draftRevision, pictureAssistScope } from "../../src/studio/assistScope.ts";
+import {
+  checkCandidate,
+  draftRevision,
+  pictureAssistScope,
+  selectionArea,
+} from "../../src/studio/assistScope.ts";
+import { compileEditDocument } from "../../src/studio/editValidation.ts";
+import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import type { PictureItemKind } from "../../src/studio/pictureDocument.ts";
 import { openSprite } from "../../src/view/spriteDocument.ts";
 import { viewAssistScope } from "../../src/studio/assistScope.ts";
 import { applySpriteEdit } from "../../src/studio/sprite/spriteOperations.ts";
-import { BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "../../test/studioAssistFixtures.ts";
+import {
+  BRIDGE_SOURCE,
+  DOT_EGO,
+  ISLAND_MOVE,
+  ISLAND_SOURCE,
+  ROBOT_VIEW,
+} from "../../test/studioAssistFixtures.ts";
 import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
 import {
@@ -30,6 +43,7 @@ import {
 import { useStudioDraft } from "../src/studio/useStudioDraft.ts";
 import { useSpriteDraft } from "../src/studio/sprite/useSpriteDraft.ts";
 import {
+  alsoChanges,
   numberList,
   pictureChangeSummary,
   pictureScopeChips,
@@ -424,6 +438,82 @@ describe("the adopting drafts", () => {
     scope.stop();
   });
 
+  it("Room Studio adopts a move that re-pours another item's fill: accepted with its side effects, undone whole", () => {
+    const scope = effectScope();
+    scope.run(() => {
+      const draft = useStudioDraft({
+        base: { source: ISLAND_SOURCE, revision: testRevision("island") },
+        profile: DEFAULT_V2_PROFILE,
+        lens: "art",
+        unlocks: NO_UNLOCKS,
+      });
+      const request = pictureAssistScope({
+        num: 1,
+        compiled: draft.compiled.value,
+        targetIds: ["island"],
+        lens: "art",
+      });
+      const moved = ISLAND_SOURCE.replace("rect 20,40 40,60", "rect 28,40 48,60");
+      const outcome = draft.adopt(moved, "AI edit", request);
+      assert.ok(outcome.ok);
+      assert.deepEqual(outcome.sideEffects?.items, [
+        { itemId: "grass", label: "Grass", cells: ISLAND_MOVE.cells, fill: true },
+      ]);
+      assert.equal(draft.source.value, moved);
+      assert.equal(draft.undo(), true);
+      assert.equal(draft.source.value, ISLAND_SOURCE);
+      // Rewriting the grass itself is no side effect: refused.
+      const reseeded = ISLAND_SOURCE.replace("fill 80,100", "fill 90,100");
+      const other = draft.adopt(reseeded, "AI edit", request);
+      assert.ok(!other.ok);
+      assert.match(
+        other.refusal.detail ?? "",
+        /'grass' \("Grass"\) is not selected but would have its commands changed/,
+      );
+    });
+    scope.stop();
+  });
+
+  it("Room Studio accepts a whole mixed item moved in the Art lens, as a manual move passes", () => {
+    const pond = [
+      '# @item pond "Pond" mixed',
+      "vis 1",
+      "rect 20,20 40,30",
+      "vis off",
+      "pri 0",
+      "line 20,100 40,100",
+      "# @end",
+      "end",
+    ].join("\n");
+    const scope = effectScope();
+    scope.run(() => {
+      const draft = useStudioDraft({
+        base: { source: pond, revision: testRevision("pond") },
+        profile: DEFAULT_V2_PROFILE,
+        lens: "art",
+        unlocks: NO_UNLOCKS,
+      });
+      const request = pictureAssistScope({
+        num: 1,
+        compiled: draft.compiled.value,
+        targetIds: ["pond"],
+        lens: "art",
+      });
+      const moved = pond
+        .replace("rect 20,20 40,30", "rect 25,20 45,30")
+        .replace("line 20,100 40,100", "line 25,100 45,100");
+      assert.deepEqual(draft.adopt(moved, "AI edit", request), { ok: true });
+      // Repainting its walk line is no move: the Art lens keeps it.
+      const repainted = moved.replace("pri 0", "pri 2");
+      const locked = draft.adopt(repainted, "AI edit", {
+        ...request,
+        baseRevision: draftRevision({ kind: "picture", source: moved }),
+      });
+      assert.ok(!locked.ok);
+    });
+    scope.stop();
+  });
+
   it("Sprite Studio adopts a candidate on the targeted loop as one undo step", () => {
     const scope = effectScope();
     scope.run(() => {
@@ -518,15 +608,8 @@ describe("assist words", () => {
       "would change depth values and would change things outside the selection",
     );
     assert.equal(
-      refusalWords([{ constraint: "fill-spill", plane: "priority" }]),
-      "would spill a fill outside the selection",
-    );
-    assert.equal(
-      refusalWords([
-        { constraint: "locked-plane", plane: "priority" },
-        { constraint: "fill-spill", plane: "priority" },
-      ]),
-      "would change the depth",
+      refusalWords([{ constraint: "outside-mask", plane: "priority" }]),
+      "would draw outside the selection",
     );
     assert.equal(
       refusalWords([{ constraint: "extra-copy", plane: "visual" }]),
@@ -553,6 +636,29 @@ describe("assist words", () => {
       ]),
       ["Reading the selection…", "Refused: would change the depth; trying again", "Proposing…"],
     );
+  });
+
+  it("names the other items a proposal also changes", () => {
+    const item = (label: string, cells: number) => ({ itemId: label, label, cells, fill: true });
+    const report = (...items: ReturnType<typeof item>[]) => ({
+      items,
+      effects: [],
+      cells: items.reduce((sum, each) => sum + each.cells, 0),
+      mask: new Uint8Array(0),
+    });
+    assert.equal(
+      alsoChanges(report(item("Grass fill", 17802))),
+      "Also changes: Grass fill, 17,802 cells.",
+    );
+    assert.equal(
+      alsoChanges(report(item("Grass", 17802), item("Sky", 20))),
+      "Also changes: Grass and Sky, 17,822 cells.",
+    );
+    assert.equal(
+      alsoChanges(report(item("A", 1), item("B", 1), item("C", 1), item("D", 1))),
+      "Also changes: 4 other items, 4 cells.",
+    );
+    assert.equal(alsoChanges(report(item("A", 1))), "Also changes: A, 1 cell.");
   });
 
   it("builds scope chips and change summaries from decoded pixels", () => {
@@ -607,6 +713,48 @@ describe("assist words", () => {
     assert.equal(
       pictureChangeSummary({ visual: plane(1), priority: plane(4) }, art, "Bench", plane(0)),
       "3 art cells and 10 depth cells outside Bench",
+    );
+    // With side effects the count splits by owner, not by area: the other
+    // items' cells are the "Also changes" line's, never counted here too.
+    const spilled = plane(0).fill(1, 500, 503);
+    assert.equal(
+      pictureChangeSummary(
+        { visual: plane(1), priority: plane(4) },
+        art,
+        "Bench",
+        first400,
+        spilled,
+      ),
+      "Bench: 10 depth cells change",
+    );
+    // The island moved 8 right: its old and new outlines differ in 54 cells
+    // each (two 8-cell row ends and two 19-cell sides, 108 in all); the
+    // grass's 266 re-poured cells are its side effects.
+    const island = compileEditDocument(
+      parsePictureDocument(ISLAND_SOURCE).document,
+      DEFAULT_V2_PROFILE,
+    );
+    const movedIsland = compileEditDocument(
+      parsePictureDocument(ISLAND_SOURCE.replace("rect 20,40 40,60", "rect 28,40 48,60")).document,
+      DEFAULT_V2_PROFILE,
+    );
+    const request = pictureAssistScope({
+      num: 1,
+      compiled: island,
+      targetIds: ["island"],
+      lens: "art",
+    });
+    const report = checkCandidate(island, movedIsland, request).sideEffects!;
+    assert.equal(report.cells, ISLAND_MOVE.cells);
+    assert.equal(
+      pictureChangeSummary(
+        island,
+        movedIsland,
+        "Island",
+        selectionArea(island, ["island"]),
+        report.mask,
+      ),
+      "Island: 108 art cells change",
     );
     // No pixel changes: the summary names what the proposal does to the items.
     type Item = { id: string; label: string; kind: PictureItemKind; locked: boolean };

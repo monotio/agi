@@ -84,6 +84,7 @@ import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
 import {
+  alsoChanges,
   changedCells,
   labelList,
   pictureChangeSummary,
@@ -468,7 +469,10 @@ const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
 );
 const size = computed(() => pictureSize(draft.compiled.value.bytes.length, total.value));
 
-/** An AI proposal awaiting a verdict: compiled, with the cells it changes. */
+/**
+ * An AI proposal awaiting a verdict: compiled, with the cells it changes and
+ * its side effects (other items' cells it changes, outside the selection).
+ */
 const proposal = computed(() => {
   const candidate = assist.candidate.value;
   if (assist.phase.value !== "candidate" || candidate?.kind !== "picture") return null;
@@ -477,7 +481,11 @@ const proposal = computed(() => {
       parsePictureDocument(candidate.draft.source).document,
       profile,
     );
-    return { compiled, changed: changedCells(draft.compiled.value, compiled) };
+    return {
+      compiled,
+      changed: changedCells(draft.compiled.value, compiled),
+      sideEffects: candidate.check.sideEffects ?? null,
+    };
   } catch {
     return null;
   }
@@ -504,6 +512,7 @@ const assistChanges = computed(() => {
     next.compiled,
     labelList(scope.targetIds.map(itemLabel)),
     selectionArea(draft.compiled.value, scope.targetIds),
+    next.sideEffects?.mask ?? null,
   );
 });
 /** What the request is held to: the asked scope while it is open, else the selection's. */
@@ -731,6 +740,12 @@ const hoverPaths = computed(() =>
 );
 const selectionPaths = computed(() => pathsOf(selectionMask.value));
 const changedPaths = computed(() => (proposal.value ? pathsOf(proposal.value.changed) : null));
+const spilledPaths = computed(() => pathsOf(proposal.value?.sideEffects?.mask ?? null));
+/** "Also changes: Grass, 17,802 cells.": the proposal's side effects, by the items' names. */
+const assistAlso = computed(() => {
+  const effects = proposal.value?.sideEffects;
+  return effects ? alsoChanges(effects) : null;
+});
 const flashPaths = computed(() => pathsOf(editing.flash.value));
 const handleList = computed(() => {
   const id = editableId.value;
@@ -1263,7 +1278,12 @@ function onKeyup(event: KeyboardEvent): void {
         @end="seek(total)"
         @fix="applyFillFix"
       />
-      <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
+      <StudioAssistCompare
+        v-if="proposal"
+        v-model="compare"
+        :stale="assist.stale.value"
+        :spilled="proposal.sideEffects !== null"
+      />
       <span class="studio__spacer"></span>
       <StudioViewBar
         v-model:mode="mode"
@@ -1323,6 +1343,7 @@ function onKeyup(event: KeyboardEvent): void {
             :ghost="insertGhost"
             :flash="flashPaths"
             :changed="changedPaths"
+            :spilled="spilledPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
             @hover="input.pointer.hover"
@@ -1455,6 +1476,7 @@ function onKeyup(event: KeyboardEvent): void {
           :assist
           :chips="assistChips"
           :changes="assistChanges"
+          :also="assistAlso"
           :reference-target="walk && walk.room > 0 ? { kind: 'room', num: walk.room } : null"
           @reload="reopen(true)"
           noun="picture"

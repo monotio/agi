@@ -6,7 +6,8 @@ import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
 import type { StudioLens } from "../src/studio/studioView.ts";
 import { nearestInsertion } from "../../src/studio/editPoints.ts";
-import { movedWith } from "../src/studio/studioMessages.ts";
+import { movedWith, sideEffectNote } from "../src/studio/studioMessages.ts";
+import { keyLabel } from "../src/ui/keyLabel.ts";
 import { useStudioDrag } from "../src/studio/useStudioDrag.ts";
 import { useStudioEditing } from "../src/studio/useStudioEditing.ts";
 import {
@@ -317,14 +318,82 @@ describe("useStudioDraft", () => {
     assert.equal(draft.changes.value, 3);
   });
 
-  it("refuses an edit that reaches outside the edited items", () => {
+  it("lands an edit that changes another item's output, as one step with its side effects", () => {
     const { draft } = setup("art");
-    // Opening the box lets the paint flood the whole white room.
-    const result = draft.apply({ type: "deleteItem", itemId: "box" }, "Delete Box");
-    assert.ok(!result.ok && result.refusal.kind === "lock");
-    assert.equal(result.refusal.message, "This would change another object's art.");
-    assert.match(result.refusal.detail, /outside the edited item/);
+    // The box 20 right leaves the paint's seed outside it: the red floods the
+    // room. Refused before side effects were reported. Every cell turns red
+    // but the old and new boxes' 441 each, which share column 30 (861 in
+    // all): 26,019 cells, none of them the box's own. The new box's inside
+    // stays white, the old one's red.
+    const result = draft.apply(move("box", 20, 0), "Move Box");
+    assert.ok(result.ok);
+    assert.deepEqual(result.sideEffects?.items, [
+      { itemId: "paint", label: "Paint", cells: 26019, fill: true },
+    ]);
+    assert.deepEqual(
+      result.sideEffects?.effects.map((e) => [e.plane, e.count, e.bbox]),
+      [["art", 26019, { x0: 0, y0: 0, x1: 159, y1: 167 }]],
+    );
+    assert.deepEqual(
+      draft.history.value.past.map((step) => step.label),
+      ["Move Box"],
+    );
+    assert.equal(draft.undo(), true);
     assert.equal(draft.source.value, SOURCE);
+    // An edit that changes nothing else carries no report.
+    const own = draft.apply(move("occ", 0, 1), "Move Occluder");
+    assert.deepEqual(own, { ok: true });
+  });
+
+  it("works out a drag's side effects once, when it ends", () => {
+    const { draft } = setup("art");
+    draft.beginGesture("Move Box");
+    const frame = draft.moveGesture(move("box", 20, 0));
+    assert.deepEqual(frame, { ok: true }, "a preview frame skips the report");
+    const ended = draft.endGesture(move("box", 20, 0), "Move Box");
+    assert.ok(ended.ok);
+    assert.equal(ended.sideEffects?.cells, 26019);
+    assert.equal(draft.history.value.past.length, 1);
+  });
+
+  it("says in the status line what else changed, with the undo key, and clears it after", () => {
+    const { draft } = setup("art");
+    const scope = effectScope();
+    const editing = scope.run(() =>
+      useStudioEditing({ draft, selectedId: ref("box"), frozen: () => false, lens: () => "art" }),
+    )!;
+    assert.equal(editing.nudge(20, 0), true);
+    assert.equal(
+      editing.notice.value?.text,
+      `Paint flows differently: 26,019 cells changed. ${keyLabel("Mod+Z")} undoes it.`,
+    );
+    assert.equal(editing.notice.value?.tone, "ok");
+    assert.equal(
+      editing.notice.value?.detail,
+      "Side effects: other items' art changes. Paint: 26019 cells at 0,0..159,167 (its fill re-pours).",
+    );
+    assert.equal(editing.undo(), true);
+    assert.equal(editing.notice.value, null);
+    assert.equal(draft.source.value, SOURCE);
+    scope.stop();
+    const several = {
+      items: [
+        { itemId: "a", label: "A", cells: 2, fill: true },
+        { itemId: "b", label: "B", cells: 1, fill: false },
+        { itemId: null, label: "Loose steps", cells: 1, fill: false },
+      ],
+      effects: [],
+      cells: 17802,
+      mask: new Uint8Array(0),
+    };
+    assert.equal(
+      sideEffectNote(several, "⌘Z"),
+      "3 other items change: 17,802 cells. ⌘Z undoes it.",
+    );
+    assert.equal(
+      sideEffectNote({ ...several, items: several.items.slice(1, 2), cells: 1 }, "Ctrl+Z"),
+      "B changes too: 1 cell. Ctrl+Z undoes it.",
+    );
   });
 
   it("rebases on Keep and throws changes away on Discard", () => {
@@ -636,9 +705,11 @@ describe("several items as one", () => {
     assert.equal(draft.source.value, SOURCE);
     // The outline alone, 20 px right, leaves the paint's seed outside: the red floods the room.
     const alone = draft.apply(move("box", 20, 0), "Move Box");
-    assert.ok(!alone.ok && alone.refusal.kind === "lock");
-    assert.equal(alone.refusal.message, "This would change another object's art.");
-    assert.equal(draft.apply(both(20, 0), "Move 2 items").ok, true);
+    assert.ok(alone.ok);
+    assert.equal(alone.sideEffects?.items[0]?.label, "Paint");
+    assert.equal(draft.undo(), true);
+    // Together, the paint moves with its outline: nothing else changes.
+    assert.deepEqual(draft.apply(both(20, 0), "Move 2 items"), { ok: true });
   });
 
   it("refuses the whole batch when one member breaks a lens lock", () => {

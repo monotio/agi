@@ -552,29 +552,30 @@ test("Room Studio: an edit while the AI works makes its proposal stale", async (
   }
 });
 
-test("Room Studio: a fill spilling out of the selection is refused in the activity", async ({
+test("Room Studio: drawing outside the selection is refused in the activity; a fill that pours past it is proposed with its side effects", async ({
   page,
 }) => {
   let requests = 0;
+  const opOf = (given: Record<string, unknown>) =>
+    Object.fromEntries(pictureOpFields.map((field) => [field, given[field] ?? null]));
+  // A walkway rect drawn on across the unselected river to the left edge.
+  const across = opOf({
+    ...walkwayOp,
+    shape: { ...(walkwayOp["shape"] as object), x1: 0 },
+  });
   // Water seeded in the floor above the river: it floods rows 0..119, of
   // which only the bridge's rows 118 and 119 are selected.
-  const spill = Object.fromEntries(
-    pictureOpFields.map((field) => [
-      field,
-      (
-        {
-          type: "insertFill",
-          atLine: AFTER_BRIDGE,
-          x: 80,
-          y: 60,
-          priority: 3,
-          id: "puddle",
-          label: "Puddle",
-        } as Record<string, unknown>
-      )[field] ?? null,
-    ]),
-  );
+  const puddle = opOf({
+    type: "insertFill",
+    atLine: AFTER_BRIDGE,
+    x: 80,
+    y: 60,
+    priority: 3,
+    id: "puddle",
+    label: "Puddle",
+  });
   let refusal = "";
+  let proposed = "";
   await page.route("**/api/openai/v1/responses", async (route) => {
     const request = ++requests;
     if (request === 1) return fulfil(route, call("r1", "read_edit_context", { images: false }));
@@ -587,12 +588,13 @@ test("Room Studio: a fill spilling out of the selection is refused in the activi
         pictureOps: ops,
         spriteOps: null,
       });
-    if (request === 2) return fulfil(route, propose("p1", [spill]));
+    if (request === 2) return fulfil(route, propose("p1", [across]));
     if (request === 3) {
       refusal = sent;
-      return fulfil(route, propose("p2", [walkwayOp]));
+      return fulfil(route, propose("p2", [puddle]));
     }
-    return fulfil(route, say(`s${request}`, "Opened the barrier under the bridge."));
+    proposed = sent;
+    return fulfil(route, say(`s${request}`, "Flooded the floor above the river."));
   });
   await bootAssistGame(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
@@ -602,12 +604,18 @@ test("Room Studio: a fill spilling out of the selection is refused in the activi
   await expect(studio.getByTestId("assist-candidate")).toBeVisible();
   await expect(studio.getByTestId("assist-steps").locator("li")).toHaveText([
     "Read the selection",
-    "Refused: would spill a fill outside the selection; trying again",
+    "Refused: would draw outside the selection; trying again",
     "Proposed a change",
   ]);
-  // The model read the refusal in words it can act on.
+  // The model read the refusal, and then the side effects, in plain words.
   expect(refusal).toContain(
-    "the Puddle fill would spill outside the selection (19,120 cells); close the outline or keep the fill seed inside it",
+    "138 cells at 0,120..59,139 of the depth and walk (priority plane) outside the selection would change",
+  );
+  expect(proposed).toContain(
+    "Side effects: other items' walk lines change. Blank area: 19120 cells at 0,0..159,119.",
+  );
+  await expect(studio.getByTestId("assist-also")).toHaveText(
+    "Also changes: Blank area, 19,120 cells.",
   );
   await reviewShot(page, "room-spill-refusal");
 });

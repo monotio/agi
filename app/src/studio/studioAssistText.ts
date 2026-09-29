@@ -7,6 +7,7 @@
 import type { PictureItem, PictureItemKind } from "../../../src/studio/pictureDocument.ts";
 import type { SpriteCel, SpriteDocument } from "../../../src/view/spriteDocument.ts";
 import type { CelRef } from "../../../src/studio/sprite/spriteOperations.ts";
+import type { SideEffectReport } from "../../../src/studio/sideEffects.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
@@ -33,6 +34,23 @@ export function numberList(values: readonly number[]): string {
     i = j + 1;
   }
   return parts.join(", ");
+}
+
+/**
+ * The other items a picture candidate changes, as its side effects name
+ * them: "Also changes: Grass, 17,802 cells."; "Also changes: Grass and Sky,
+ * 17,822 cells."; four or more items are counted.
+ */
+export function alsoChanges(report: SideEffectReport): string {
+  const labels = report.items.map((item) => item.label);
+  const who =
+    labels.length > 3
+      ? `${labels.length} other items`
+      : labels.length === 1
+        ? labels[0]!
+        : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)!}`;
+  const cells = `${report.cells.toLocaleString("en-US")} ${report.cells === 1 ? "cell" : "cells"}`;
+  return `Also changes: ${who}, ${cells}.`;
 }
 
 /** "Bench occluder"; "Bench, Bench shadow"; "Bench and 3 more". */
@@ -133,10 +151,12 @@ const KIND_WORDS: Record<PictureItemKind, string> = {
  * What a picture candidate changes, per plane, inside `area` (the selection's
  * cells when it was asked) and outside it, so no cell is called "inside"
  * that is not: "80 depth cells inside Bridge"; "12 art cells and 80 depth
- * cells inside Bench"; "80 depth cells inside Bridge, 12 outside". A
- * candidate that changes no pixel says what it changes instead, read from
- * the documents when both sides carry one: "No pixels change: relabels
- * Bench occluder as "Old bench"".
+ * cells inside Bench"; "80 depth cells inside Bridge, 12 outside". With
+ * `spilled` (its side effects' cells, which "Also changes" names) it counts
+ * by owner instead, only the cells outside them: "Island: 108 art cells
+ * change". A candidate that changes no pixel says what it changes instead,
+ * read from the documents when both sides carry one: "No pixels change:
+ * relabels Bench occluder as "Old bench"".
  */
 export function pictureChangeSummary(
   before: {
@@ -151,9 +171,25 @@ export function pictureChangeSummary(
   },
   where: string,
   area: Uint8Array,
+  spilled: Uint8Array | null = null,
 ): string {
   const inside = { art: 0, depth: 0 };
   const outside = { art: 0, depth: 0 };
+  if (spilled) {
+    for (let i = 0; i < CELLS; i++) {
+      if (spilled[i] === 1) continue;
+      if (before.visual[i] !== after.visual[i]) inside.art++;
+      if (before.priority[i] !== after.priority[i]) inside.depth++;
+    }
+    const own = [
+      ...(inside.art ? [plural(inside.art, "art cell")] : []),
+      ...(inside.depth ? [plural(inside.depth, "depth cell")] : []),
+    ];
+    const total = inside.art + inside.depth;
+    return own.length
+      ? `${where}: ${own.join(" and ")} ${total === 1 ? "changes" : "change"}`
+      : `${where}: none of its own cells change`;
+  }
   for (let i = 0; i < CELLS; i++) {
     const side = area[i] === 1 ? inside : outside;
     if (before.visual[i] !== after.visual[i]) side.art++;
