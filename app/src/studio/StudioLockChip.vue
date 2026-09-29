@@ -8,9 +8,10 @@ import { explain, type StudioTerm } from "./studioTerms.ts";
 import type { StudioLens } from "./studioView.ts";
 
 /**
- * What the lens keeps from changing, as one chip: "Depth" in the Art lens,
- * "Art" in the Depth lens, "Art · Depth 4–15" in the Walk lens, each with a
- * lock. Its ⓘ says why in one sentence and holds the way out: Unlock for now
+ * What the lens keeps from changing, as one chip: "Depth & walk lines" in
+ * the Art lens (both live on AGI's priority plane), "Art" in the Depth lens,
+ * "Art & depth" in the Walk lens, each with a lock. The locks guard painting
+ * within those planes; moving a whole item takes all of them along. Its ⓘ says why in one sentence and holds the way out: Unlock for now
  * (Unlock art and Allow depth in the Walk lens), which lasts for this Studio
  * session, and Lock again. It sits beside the lens tabs and again in Ask's scope row,
  * where the same locks hold the AI. In a narrow top bar (under 960 px) the
@@ -34,10 +35,10 @@ const planeLocked = computed(() => lockedPlanes(lens, unlocks.value).length > 0)
 const depthLocked = computed(() => depthValuesLocked(lens, unlocks.value));
 const locked = computed(() => planeLocked.value || depthLocked.value);
 const text = computed(() => {
-  const name = plane.value === "priority" ? "Depth" : "Art";
+  const name = plane.value === "priority" ? "Depth & walk lines" : "Art";
   if (lens !== "walk") return planeLocked.value ? name : `${name} unlocked`;
-  const parts = [planeLocked.value && "Art", depthLocked.value && "Depth 4–15"].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "Unlocked";
+  if (planeLocked.value && depthLocked.value) return "Art & depth";
+  return planeLocked.value ? "Art" : depthLocked.value ? "Depth" : "Unlocked";
 });
 
 function toggle(which: keyof LensUnlocks, close: () => void): void {

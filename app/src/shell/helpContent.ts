@@ -158,7 +158,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-locks",
         title: "Locks",
         body: [
-          "Each lens locks the planes outside its job, and the chip beside the lens tabs names them: the Art lens keeps depth as it is, the Depth lens keeps the art, and the Walk lens keeps both and draws walk lines 0–3 only. Its ⓘ holds Unlock for now (Unlock art and Allow depth in the Walk lens), which lasts until you close Studio. The AI's Ask works under the same locks.",
+          "Each lens locks the planes outside its job, and the chip beside the lens tabs names them: the Art lens keeps depth and walk lines as they are (AGI keeps both on one plane, priority), the Depth lens keeps the art, and the Walk lens keeps both and draws walk lines 0–3 only. The locks guard painting: new shapes, fills, colours, depth values and points. Moving, copying or deleting a whole item takes every plane it draws along, in any lens, and the status line says when a move took lines the lens hides. The chip's ⓘ holds Unlock for now (Unlock art and Allow depth in the Walk lens), which lasts until you close Studio. The AI's Ask works under the same locks.",
           "An item's own Lock, in the inspector, keeps that item's place and colours until you unlock it.",
         ],
       },
@@ -182,8 +182,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-select",
         title: "Select, move and group",
         body: [
-          "Select an item to edit it: drag it or its points, nudge it with the arrow keys (Shift for 8 pixels), or change its colour, depth and draw order in the inspector. To add a point to a selected line, Alt+click it (a plus shows where while Alt is held) and drag the new point into place, or press Alt+Enter (or Insert) to add one where the line passes nearest the keyboard cursor.",
-          "To work on several items at once, Shift+click them on the canvas or in the Scene list, click a group row, Shift+drag a box around them, or press Shift+Alt+arrows to add the next one; dragging or nudging then moves them all as one step, so an imported bush's outline and its fill travel together, and Group (⌘G, or Ctrl+G) in the bar above the canvas turns neighbours in the draw order into one named item, keeping every pixel as it is. Ungroup (⇧⌘G, or Ctrl+Shift+G) splits a group back into the items it was made of, or an item into its drawing elements.",
+          "With Select (V), click an item to select it, or drag a box to select the items wholly inside it; a click beside the picture selects nothing. Drag the selection to move it, or nudge it with the arrow keys (Shift for 8 pixels): it stops at the picture's edge. Change its colour, depth and draw order in the inspector. Points (A) moves single points by their handles. To add a point to a selected line, Alt+click it (a plus shows where while Alt is held) and drag the new point into place, or press Alt+Enter (or Insert) to add one where the line passes nearest the keyboard cursor.",
+          "To work on several items at once, Shift+click them on the canvas or in the Scene list, click a group row, drag a box around them (Shift+drag adds to the selection), or press Shift+Alt+arrows to add the next one; dragging or nudging then moves them all as one step, so an imported bush's outline and its fill travel together, and Group (⌘G, or Ctrl+G) in the bar above the canvas turns neighbours in the draw order into one named item, keeping every pixel as it is. Ungroup (⇧⌘G, or Ctrl+Shift+G) splits a group back into the items it was made of, or an item into its drawing elements.",
         ],
       },
       {

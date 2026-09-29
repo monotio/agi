@@ -178,7 +178,7 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   await expect(studio.getByTestId("assist-chip")).toHaveText(["Bridge"]);
   // The lens's locks hold the AI too: the same lock chip as by the lens tabs.
   await expect(studio.getByTestId("studio-assist").getByTestId("studio-lock-chip")).toHaveText(
-    "Art · Depth 4–15",
+    "Art & depth",
   );
   // `/` on the canvas focuses the box; the options bar's Ask does too.
   await studio.locator(".studio__stage").focus();
@@ -239,7 +239,7 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   await expect(studio.getByTestId("assist-chip")).toHaveText(["Bridge"]);
   // The lens's locks hold the AI too: the same lock chip as by the lens tabs.
   await expect(studio.getByTestId("studio-assist").getByTestId("studio-lock-chip")).toHaveText(
-    "Art · Depth 4–15",
+    "Art & depth",
   );
   await reviewShot(page, "room-held-lens");
   // Nothing is applied before Accept.

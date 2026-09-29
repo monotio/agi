@@ -1,26 +1,45 @@
 /**
- * Direct manipulation on the Room Studio canvas. A press on a handle drags
- * that point (setPoint); an Alt+press by the selected item's line adds a
- * point on its nearest segment and drags the new point (insertPoint, one
- * undo step with the drag); a press on the selected item, or on an item it
- * selects, drags the item (moveItem). The pane captures the pointer, so the
- * drag follows it past the edge. Pointer moves only store the latest cell;
- * one animation frame previews the edit from the gesture's start, so a burst
- * of moves costs one kernel run. Release records one undo step or snaps
- * back with the reason; a cancelled pointer or Escape abandons the drag.
+ * Direct manipulation on the Room Studio canvas, following vector editors
+ * (Figma, Inkscape, tldraw): selecting and moving are separate gestures.
  *
- * With several items selected, a press on any of them drags them all (one
- * batch of moves, one undo step) and keeps the selection; a click without a
- * drag selects just the item clicked. Shift+click adds
- * the item under the pointer or takes it away; Shift+drag draws a marquee
- * whose box selects the items inside it.
+ * - A press on the selection (any of its pixels, on every plane) drags it:
+ *   the one item, or all of several as one batch and one undo step.
+ * - A plain press anywhere else draws a selection box that replaces the
+ *   selection with the items lying wholly inside it; Shift+press draws one
+ *   that adds to it. A press in the margin around the picture does the same.
+ * - A click (no drag) selects the item under the pointer, Shift+click adds
+ *   or removes it, and a click in the margin clears the selection. A click
+ *   on a selection of several selects just the item clicked.
+ * - A press on a handle drags that point (setPoint); an Alt+press by the
+ *   selected item's line adds a point on its nearest segment and drags the
+ *   new point (insertPoint, one undo step with the drag).
+ *
+ * The Point tool (`movesItems` false) never moves items or draws a plain
+ * box: its press selects, and its handles drag points.
+ *
+ * A move stops at the picture's edge: its offset is cut, per axis, to the
+ * largest that keeps every moved coordinate on the surface (limitMove), so
+ * the preview and the recorded step agree. A move stopped dead says which
+ * item is at which edge.
+ *
+ * The pane captures the pointer, so the drag follows it past the edge.
+ * Pointer moves only store the latest cell; one animation frame previews the
+ * edit from the gesture's start, so a burst of moves costs one kernel run.
+ * Release records one undo step or snaps back with the reason; a cancelled
+ * pointer or Escape abandons the drag.
  */
 
 import { nextTick, readonly, ref } from "vue";
-import type { EditOperation } from "../../../src/studio/editOperations.ts";
+import {
+  limitMove,
+  type EditOperation,
+  type MoveLimit,
+} from "../../../src/studio/editOperations.ts";
+import { onSurface } from "../../../src/studio/editSource.ts";
 import type { LineHandle, PointInsertion } from "../../../src/studio/editPoints.ts";
 import type { ViewportPoint } from "../../../src/studio/viewport.ts";
 import type { PanePress } from "./StudioCanvas.vue";
+import { edgeRefusal } from "./studioMessages.ts";
 import type { RectCorners } from "./studioTools.ts";
 import type { DraftEdit, StudioDraft, DraftOutcome } from "./useStudioDraft.ts";
 
@@ -32,17 +51,24 @@ export interface StudioDragOptions {
   readonly editableIds?: () => readonly string[];
   /** Shift+click at `cell`: add its item to the selection or take it away. */
   readonly extend?: (cell: ViewportPoint) => void;
-  /** Shift+drag let go: select the items inside `box` (logical cells, inclusive). */
-  readonly marquee?: (box: RectCorners) => void;
-  /** Select what a press lands on (and pin the cell), as a click would. */
+  /**
+   * A selection box let go: select the items inside `box` (logical cells,
+   * inclusive), added to the selection (Shift) or in its place.
+   */
+  readonly marquee?: (box: RectCorners, add: boolean) => void;
+  /** Select what a click lands on (and pin the cell). */
   readonly pick: (cell: ViewportPoint) => void;
-  /** Whether `cell` shows the selected item on the current lens. */
+  /** A click in the margin around the picture: select nothing. */
+  readonly clear?: () => void;
+  /** Whether `cell` shows the selection, on either plane. */
   readonly onSelection: (cell: ViewportPoint) => boolean;
   /** The item's label, for the undo step. */
   readonly labelOf: (id: string) => string;
   /** Say what happened: a refusal, or null when the edit went through. */
   readonly report: (outcome: DraftOutcome) => void;
-  /** Whether a press on the item body drags it; false for the Point tool (handles only). */
+  /** Items `ids` were moved (a whole-item drag, kept). */
+  readonly moved?: (ids: readonly string[]) => void;
+  /** Whether a press on the selection drags it and elsewhere draws a box; false for the Point tool. */
   readonly movesItems?: () => boolean;
   /** Where an Alt+press at `cell` adds a point to the item's line; undefined when it adds none. */
   readonly insertAt?: (itemId: string, cell: ViewportPoint) => PointInsertion | undefined;
@@ -63,14 +89,22 @@ interface Armed {
   latest: ViewportPoint;
 }
 
+/** A selection box: a click selects (or toggles, or clears) instead. */
+interface Lasso {
+  readonly start: ViewportPoint;
+  /** Shift: the box adds to the selection, and a click toggles. */
+  readonly add: boolean;
+  moved: boolean;
+}
+
 export function useStudioDrag(options: StudioDragOptions) {
   const frame = options.frame ?? ((callback) => requestAnimationFrame(callback));
   const cancelFrame = options.cancelFrame ?? ((handle) => cancelAnimationFrame(handle));
   const dragging = ref(false);
   let armed: Armed | null = null;
   let pending: number | null = null;
-  /** A Shift+press: a click toggles, a drag draws the marquee. */
-  let lasso: { start: ViewportPoint; moved: boolean } | null = null;
+  /** A press that selects: a click picks, a drag draws the marquee. */
+  let lasso: Lasso | null = null;
   /** The marquee being drawn, in logical cells; undefined when none is. */
   const marqueeBox = ref<RectCorners>();
   const boxOf = (a: ViewportPoint, b: ViewportPoint): RectCorners => ({
@@ -80,9 +114,32 @@ export function useStudioDrag(options: StudioDragOptions) {
     y2: Math.min(167, Math.max(a.y, b.y)),
   });
 
-  function operation(drag: Armed): DraftEdit {
+  /** A move's offset, stopped at the picture's edge; undefined for a point edit. */
+  function limitOf(drag: Armed): MoveLimit | undefined {
+    if (drag.handle || drag.insert) return undefined;
+    return limitMove(
+      options.draft.document.value,
+      drag.itemIds ?? [drag.itemId],
+      drag.latest.x - drag.start.x,
+      drag.latest.y - drag.start.y,
+    );
+  }
+
+  /** The refusal when a move cannot go even one pixel the way it is dragged. */
+  function stoppedDead(drag: Armed, limit: MoveLimit | undefined): DraftOutcome | undefined {
+    const stop = limit?.stops[0];
+    if (!limit || !stop || limit.dx !== 0 || limit.dy !== 0) return undefined;
     const dx = drag.latest.x - drag.start.x;
     const dy = drag.latest.y - drag.start.y;
+    return {
+      ok: false,
+      refusal: { kind: "kernel", ...edgeRefusal(options.draft.document.value, stop, dx, dy) },
+    };
+  }
+
+  function operation(drag: Armed, limit: MoveLimit | undefined): DraftEdit {
+    const dx = limit?.dx ?? drag.latest.x - drag.start.x;
+    const dy = limit?.dy ?? drag.latest.y - drag.start.y;
     if (drag.itemIds)
       return drag.itemIds.map((itemId): EditOperation => ({ type: "moveItem", itemId, dx, dy }));
     const { handle, insert } = drag;
@@ -115,8 +172,9 @@ export function useStudioDrag(options: StudioDragOptions) {
     const drag = armed;
     if (!drag?.started) return;
     const start = performance.now();
-    const outcome = options.draft.moveGesture(operation(drag));
-    options.report(outcome);
+    const limit = limitOf(drag);
+    const outcome = options.draft.moveGesture(operation(drag, limit));
+    options.report(stoppedDead(drag, limit) ?? outcome);
     // The frame's cost: the kernel, the checks and the canvas repaint (a post-flush watcher).
     void nextTick(() =>
       performance.measure?.("studio:drag-frame", { start, end: performance.now() }),
@@ -132,18 +190,20 @@ export function useStudioDrag(options: StudioDragOptions) {
   }
 
   function press({ event, cell, handle }: PanePress): void {
+    armed = null;
+    lasso = null;
+    const moves = options.movesItems?.() ?? true;
+    if (!handle && !onSurface(cell.x, cell.y)) {
+      // The margin around the picture is empty canvas.
+      if (moves) lasso = { start: cell, add: event.shiftKey, moved: false };
+      return;
+    }
     if (event.shiftKey && !handle && options.extend) {
-      armed = null;
-      lasso = { start: cell, moved: false };
+      lasso = { start: cell, add: true, moved: false };
       return;
     }
     const several = options.editableIds?.() ?? [];
-    if (
-      several.length > 1 &&
-      !handle &&
-      (options.movesItems?.() ?? true) &&
-      options.onSelection(cell)
-    ) {
+    if (several.length > 1 && !handle && moves && options.onSelection(cell)) {
       armed = {
         start: cell,
         latest: cell,
@@ -169,18 +229,24 @@ export function useStudioDrag(options: StudioDragOptions) {
       armed = { start: cell, latest: cell, itemId: selected, handle, started: false };
       return;
     }
-    options.pick(cell);
-    const now = options.editableId();
-    armed =
-      now !== undefined && (options.movesItems?.() ?? true) && options.onSelection(cell)
-        ? { start: cell, latest: cell, itemId: now, handle: undefined, started: false }
-        : null;
+    if (!moves) {
+      options.pick(cell);
+      return;
+    }
+    if (selected !== undefined && options.onSelection(cell)) {
+      armed = { start: cell, latest: cell, itemId: selected, handle: undefined, started: false };
+      return;
+    }
+    lasso = { start: cell, add: false, moved: false };
   }
 
   function drag({ cell }: PanePress): void {
     if (lasso) {
       lasso.moved ||= cell.x !== lasso.start.x || cell.y !== lasso.start.y;
-      if (lasso.moved) marqueeBox.value = boxOf(lasso.start, cell);
+      if (!lasso.moved) return;
+      const box = boxOf(lasso.start, cell);
+      // A box wholly in the margin covers no cell of the picture.
+      marqueeBox.value = box.x1 <= box.x2 && box.y1 <= box.y2 ? box : undefined;
       return;
     }
     const current = armed;
@@ -199,23 +265,37 @@ export function useStudioDrag(options: StudioDragOptions) {
   }
 
   function release(press: PanePress): void {
-    const shifted = lasso;
+    const selecting = lasso;
     lasso = null;
-    if (shifted) {
+    if (selecting) {
       marqueeBox.value = undefined;
-      if (!shifted.moved) options.extend?.(shifted.start);
-      else options.marquee?.(boxOf(shifted.start, press.cell));
+      const { start: at, add } = selecting;
+      if (selecting.moved) options.marquee?.(boxOf(at, press.cell), add);
+      else if (!onSurface(at.x, at.y)) {
+        if (!add) options.clear?.();
+      } else if (add) options.extend?.(at);
+      else options.pick(at);
       return;
     }
     const current = armed;
     armed = null;
     stopFrame();
-    // A click on a selection of several, without a drag, selects just the item clicked.
-    if (current?.itemIds && !current.started) options.pick(current.start);
+    // A click on the selection, without a drag, selects just the item clicked.
+    if (current && !current.started && !current.handle) options.pick(current.start);
     if (!current?.started) return;
     current.latest = press.cell;
     dragging.value = false;
-    options.report(options.draft.endGesture(operation(current), label(current)));
+    const limit = limitOf(current);
+    const stopped = stoppedDead(current, limit);
+    if (stopped) {
+      options.draft.cancelGesture();
+      options.report(stopped);
+      return;
+    }
+    const outcome = options.draft.endGesture(operation(current, limit), label(current));
+    options.report(outcome);
+    if (outcome.ok && limit && (limit.dx !== 0 || limit.dy !== 0))
+      options.moved?.(current.itemIds ?? [current.itemId]);
   }
 
   /** Abandon a drag in progress: nothing changes. Returns whether one was. */

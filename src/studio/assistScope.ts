@@ -27,7 +27,9 @@
  * further repeat, or one in other colours, is an `extra-copy` where it lands
  * outside the allowed cells. The lens rules a manual edit passes
  * (lensRules.ts: the Walk lens keeps depth values 4–15) apply too, with the
- * targets and the items the candidate creates as the edited items.
+ * targets and the items the candidate creates as the edited items; and as
+ * for a manual edit, a candidate that only moves or copies whole targets
+ * carries every plane they draw past the lens locks (`editUnlocks`).
  * `pictureAssistScope` licenses the selection's on-screen area on every
  * unlocked plane, so "make this bridge walkable" in the Walk lens may paint
  * priority under the selected bridge art.
@@ -56,12 +58,16 @@ import { commandTokens, EditRefusal, translateLine } from "./editSource.ts";
 import { commandHead, drawStateBeforeLine } from "./editState.ts";
 import {
   checkLensRules,
+  editUnlocks,
   lockedPlanes,
   NO_UNLOCKS,
   type LensUnlocks,
   type StudioLens,
 } from "./lensRules.ts";
 import {
+  isPictureDirective,
+  pictureCommandText,
+  pictureItemAtLine,
   serializePictureDocument,
   type PictureDocument,
   type PictureItem,
@@ -354,7 +360,31 @@ interface Licence {
   readonly cells: Record<PicturePlane, Uint8Array>;
   /** New items repeating a target without a licence, by id. */
   readonly strays: ReadonlyMap<string, Stray>;
+  /**
+   * The candidate only moves or copies whole targets: each stays as it was
+   * or moves in its own colours, every new item is a licensed copy, and no
+   * loose line changes. Whole items move whole (lensRules.ts editUnlocks).
+   */
+  readonly whole: boolean;
 }
+
+/** Whether two items hold the same command lines. */
+const sameBody = (
+  a: PictureDocument,
+  itemA: PictureItem,
+  b: PictureDocument,
+  itemB: PictureItem,
+): boolean =>
+  itemA.commandLines.map((line) => pictureCommandText(a.lines[line - 1]!)).join("\n") ===
+  itemB.commandLines.map((line) => pictureCommandText(b.lines[line - 1]!)).join("\n");
+
+/** The commands outside every item, in order. */
+const looseCommands = (document: PictureDocument): string[] =>
+  document.lines.flatMap((text, index) =>
+    pictureItemAtLine(document, index + 1) || isPictureDirective(text)
+      ? []
+      : [pictureCommandText(text)].filter((command) => command.length > 0),
+  );
 
 /**
  * Each plane's allowed cells: the ask-time area (the targets' old footprints
@@ -376,11 +406,14 @@ function licence(
   const moved: Record<PicturePlane, Uint8Array[]> = { visual: [], priority: [] };
   const copies = new Set<string>();
   const strays = new Map<string, Stray>();
+  let whole = true;
   for (const id of scope.targetIds) {
     const original = before.document.items.find((item) => item.id === id);
     if (!original) continue;
     const own = after.document.items.find((item) => item.id === id);
     const offset = own && translation(before, original, after, own);
+    if (!offset?.sameState && !(own && sameBody(before.document, original, after.document, own)))
+      whole = false;
     let placed = !!offset && (offset.dx !== 0 || offset.dy !== 0);
     if (offset && placed) {
       const area = shifted(footprintMask(before, id, "both"), offset.dx, offset.dy);
@@ -401,6 +434,10 @@ function licence(
     }
   }
   for (const id of copies) strays.delete(id);
+  whole &&=
+    strays.size === 0 &&
+    created.every((item) => copies.has(item.id)) &&
+    looseCommands(before.document).join("\n") === looseCommands(after.document).join("\n");
   const cells = (plane: PicturePlane) => {
     const extra = extraCells(scope.allowedMask, plane);
     return unionMask(
@@ -412,7 +449,7 @@ function licence(
       ]),
     );
   };
-  return { cells: { visual: cells("visual"), priority: cells("priority") }, strays };
+  return { cells: { visual: cells("visual"), priority: cells("priority") }, strays, whole };
 }
 
 const PLANE_WORDS: Record<PicturePlane, string> = {
@@ -493,9 +530,11 @@ function checkPicture(
     });
   }
   const created = after.document.items.flatMap((item) => (known.has(item.id) ? [] : [item.id]));
-  const { cells: allowed, strays } = licence(before, after, scope);
+  const { cells: allowed, strays, whole } = licence(before, after, scope);
+  // Whole items move whole, in any lens, as a manual move or copy does.
+  const unlocks = editUnlocks(scope.unlocks, whole);
   const result = validateEdit(before, after, {
-    lockedPlanes: scope.lockedPlanes,
+    lockedPlanes: whole ? lockedPlanes(scope.lens, unlocks) : scope.lockedPlanes,
     allowedMask: allowed,
     maxBytes: scope.maxBytes,
   });
@@ -589,7 +628,7 @@ function checkPicture(
     after,
     [...scope.targetIds, ...created],
     scope.lens,
-    scope.unlocks,
+    unlocks,
   ))
     violations.push({ constraint, plane, count, bbox, message });
   return { ok: violations.length === 0, violations };

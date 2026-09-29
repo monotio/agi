@@ -21,6 +21,8 @@ import {
   parsePictureDocument,
   pictureItemAtLine,
 } from "../../../src/studio/pictureDocument.ts";
+import { itemsInside } from "../../../src/studio/pictureQuery.ts";
+import type { ViewportPoint } from "../../../src/studio/viewport.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
 import type { RuleSession } from "../../../src/studio/rules/ruleEdit.ts";
@@ -91,7 +93,6 @@ import { HOLD_TEXT, useStudioAssist, type StudioAssistHost } from "./useStudioAs
 import {
   bandGuides,
   controlLabels,
-  insideBox,
   maskFillPath,
   maskOutlinePath,
   PANE_LABELS,
@@ -419,6 +420,7 @@ const editing = useStudioEditing({
   frozen,
   paused: () => assist.holds.value,
   doors: () => followingDoors.value,
+  lens: () => lens.value,
   offer: (check) => {
     const rules = check.violations.map((violation) => violation.rule);
     const [plane] = lockedPlanes(lens.value, unlocks.value);
@@ -513,7 +515,11 @@ const assistChips = computed(() => {
 });
 const assistPanel = useTemplateRef("assistPanel");
 const editableId = computed(() => editing.editable.value?.id);
-/** The selection's cells on the canvas: while a drag previews, the moving items' footprints. */
+/**
+ * The selection's cells on the canvas, on both planes in every lens (a move
+ * takes an item's art, depth and walk lines along); while a drag previews,
+ * the moving items' footprints. Unassigned lines show under the lens.
+ */
 const selectionMask = computed(() => {
   const ids = selection.selectedIds.value;
   if (ids.length === 0) return null;
@@ -521,10 +527,14 @@ const selectionMask = computed(() => {
   const moving = editableId.value !== undefined ? [editableId.value] : editableIds.value;
   if (preview && moving.length > 0)
     return unionMask(...moving.map((id) => footprintMask(preview.compiled, id, "both")));
-  return ids.length === 1
-    ? doc.rowMask(ids[0]!, lens.value)
-    : unionMask(...ids.map((id) => doc.rowMask(id, lens.value)));
+  const items = selection.itemIds.value;
+  if (items.length === 0) return doc.rowMask(ids[0]!, lens.value);
+  return unionMask(
+    ...items.flatMap((id) => [doc.maskFor(id, "visual"), doc.maskFor(id, "priority")]),
+  );
 });
+/** Whether `cell` shows the selection. */
+const onSelection = ({ x, y }: ViewportPoint): boolean => selectionMask.value?.[y * 160 + x] === 1;
 const pathsOf = (mask: Uint8Array | null): MaskPaths | null =>
   mask && { fill: maskFillPath(mask), outline: maskOutlinePath(mask) };
 /** Where an Alt+click at `cell` adds a point to item `id`'s line: within reach of it only. */
@@ -534,16 +544,20 @@ function insertionNear(id: string, cell: Point): PointInsertion | undefined {
     ? insertion
     : undefined;
 }
-/** A Shift+drag's box: the items all of whose cells lie in it join the selection. */
-function selectInside(box: { x1: number; y1: number; x2: number; y2: number }): void {
-  const caught = draft.document.value.items
-    .map((item) => item.id)
-    .filter((id) => insideBox(doc.rowMask(id, lens.value), box));
-  selection.selectItems([...selection.itemIds.value, ...caught]);
+/**
+ * A selection box let go: the items wholly inside it, on every plane they
+ * draw, become the selection, or with Shift join it. A box that catches
+ * nothing clears a plain selection and says so.
+ */
+function selectInside(box: { x1: number; y1: number; x2: number; y2: number }, add: boolean): void {
+  const caught = itemsInside(doc.view.value, model.value.document, box);
+  selection.selectItems(add ? [...selection.itemIds.value, ...caught] : caught);
+  const count = selection.itemIds.value.length;
+  if (caught.length === 0) editing.say({ tone: "ok", text: "No item lies wholly inside the box." });
   input.spoken.value =
     caught.length === 0
       ? "No item lies wholly inside the box"
-      : `${selection.itemIds.value.length} items selected`;
+      : `${count} ${count === 1 ? "item" : "items"} selected`;
 }
 const drag = useStudioDrag({
   draft,
@@ -552,12 +566,84 @@ const drag = useStudioDrag({
   extend: (cell) => selection.pick(cell, true),
   marquee: selectInside,
   pick: selection.pick,
-  onSelection: ({ x, y }) => selectionMask.value?.[y * 160 + x] === 1,
+  clear: () => selection.selectItems([]),
+  onSelection,
   labelOf: (id) => editing.item.value?.label ?? id,
   report: editing.report,
+  moved: editing.carried,
   movesItems: () => tools.tool.value !== "point",
   insertAt: insertionNear,
 });
+/** The canvas cursor is a crosshair for the tools that place points; Select and Point show the arrow. */
+const drawsOnCanvas = computed(() => !["select", "point", "hand"].includes(tools.tool.value));
+/** The move cursor: over the selection's pixels with Select, and while it is dragged. */
+const movable = computed(() => {
+  if (tools.tool.value !== "select" || editing.editableItems.value.length === 0) return false;
+  const cell = selection.canvasCell.value;
+  return drag.dragging.value || (cell !== undefined && onSelection(cell));
+});
+/**
+ * The margin around the picture is empty canvas: with Select, a click there
+ * clears the selection and a drag draws a selection box (useStudioDrag.ts);
+ * Space or the Hand pans from it too. Cells are measured from the first
+ * pane, so they lie off the picture.
+ */
+const margin = (() => {
+  let pointer: number | null = null;
+  const cellOf = (event: PointerEvent): ViewportPoint | undefined => {
+    const pane = stage.value?.querySelector(".studio-pane");
+    if (!pane) return undefined;
+    const rect = pane.getBoundingClientRect();
+    const { pixelAspect, zoom } = viewport.value;
+    return {
+      x: Math.floor((event.clientX - rect.left) / (pixelAspect * zoom)),
+      y: Math.floor((event.clientY - rect.top) / zoom),
+    };
+  };
+  const pressOf = (event: PointerEvent, cell: ViewportPoint) => ({
+    event,
+    cell,
+    handle: undefined,
+  });
+  return {
+    down(event: PointerEvent): void {
+      if (event.button !== 0 || pointer !== null) return;
+      if ((event.target as Element | null)?.closest(".studio-pane")) return;
+      if (tools.tool.value !== "select" && !tools.panning.value) return;
+      const target = event.currentTarget as HTMLElement;
+      const box = target.getBoundingClientRect();
+      // A press on the stage's own scrollbars scrolls it.
+      if (
+        event.clientX - box.left >= target.clientLeft + target.clientWidth ||
+        event.clientY - box.top >= target.clientTop + target.clientHeight
+      )
+        return;
+      const cell = cellOf(event);
+      if (!cell) return;
+      pointer = event.pointerId;
+      target.setPointerCapture(event.pointerId);
+      input.pointer.press(pressOf(event, cell));
+    },
+    move(event: PointerEvent): void {
+      input.altHeld.value = event.altKey;
+      if (event.pointerId !== pointer) return;
+      const cell = cellOf(event);
+      if (cell) input.pointer.drag(pressOf(event, cell));
+    },
+    up(event: PointerEvent): void {
+      if (event.pointerId !== pointer) return;
+      pointer = null;
+      const cell = cellOf(event);
+      if (cell) input.pointer.release(pressOf(event, cell));
+      else input.pointer.abort();
+    },
+    lost(event: PointerEvent): void {
+      if (event.pointerId !== pointer) return;
+      pointer = null;
+      input.pointer.abort();
+    },
+  };
+})();
 /** Ego's size and rules as the live game holds them (the estimate's actor). */
 const ego = shallowRef<EgoShape>(DEFAULT_EGO);
 onMounted(async () => {
@@ -652,8 +738,13 @@ const handleList = computed(() => {
     ? []
     : itemHandles(draft.preview.value?.document ?? draft.document.value, id);
 });
+/** The selected item's point handles: the Point tool's alone, as Select moves whole items. */
 const handles = computed(() =>
-  handleList.value.length > 0 && handleList.value.length <= MAX_HANDLES ? handleList.value : null,
+  tools.tool.value === "point" &&
+  handleList.value.length > 0 &&
+  handleList.value.length <= MAX_HANDLES
+    ? handleList.value
+    : null,
 );
 /** Alt held over the selected line with Select or Point: the "+" where a click adds a point. */
 const insertGhost = computed(() => {
@@ -1202,13 +1293,17 @@ function onKeyup(event: KeyboardEvent): void {
       <div
         ref="stage"
         class="studio__stage"
-        :class="{ 'is-panning': tools.panning.value, 'is-drawing': tools.tool.value !== 'select' }"
+        :class="{ 'is-panning': tools.panning.value, 'is-drawing': drawsOnCanvas }"
         tabindex="0"
         role="group"
         :aria-label="input.label.value"
         @focus="input.focus"
         @blur="input.blur"
-        @pointermove="input.altHeld.value = $event.altKey"
+        @pointerdown="margin.down"
+        @pointermove="margin.move"
+        @pointerup="margin.up"
+        @pointercancel="margin.lost"
+        @lostpointercapture="margin.lost"
       >
         <div class="studio__panes">
           <StudioCanvas
@@ -1228,7 +1323,7 @@ function onKeyup(event: KeyboardEvent): void {
             :ghost="insertGhost"
             :flash="flashPaths"
             :changed="changedPaths"
-            :movable="editing.editableItems.value.length > 0 && tools.tool.value === 'select'"
+            :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
             @hover="input.pointer.hover"
             @press="input.pointer.press"

@@ -1174,3 +1174,42 @@ test("a view exactly at its byte budget fits; a byte over is refused with the ov
     },
   ]);
 });
+
+test("in the Art lens a proposal may move or copy a whole mixed target, walk lines and all, but not repaint them", () => {
+  // The pond: water art and a barrier line (priority 0) far below it.
+  const before = compile(
+    [
+      '# @item pond "Pond" mixed',
+      "vis 1",
+      "rect 20,20 40,30",
+      "vis off",
+      "pri 0",
+      "line 20,100 40,100",
+      "# @end",
+      "end",
+    ].join("\n"),
+  );
+  const scope = pictureAssistScope({ num: 1, compiled: before, targetIds: ["pond"], lens: "art" });
+  assert.deepEqual(scope.lockedPlanes, ["priority"]);
+  const moved = edit(before, { type: "moveItem", itemId: "pond", dx: 6, dy: 4 });
+  assert.deepEqual(checkCandidate(before, moved, scope).violations, []);
+  const copied = edit(before, {
+    type: "duplicateItem",
+    itemId: "pond",
+    dx: 50,
+    dy: 0,
+    newId: "pond-copy",
+    newLabel: "Pond copy",
+  });
+  assert.deepEqual(checkCandidate(before, copied, scope).violations, []);
+  // Moving it and recolouring its barrier is painting within the locked plane.
+  const repainted = edit(
+    before,
+    { type: "moveItem", itemId: "pond", dx: 6, dy: 4 },
+    { type: "setItemColor", itemId: "pond", plane: "priority", value: 3 },
+  );
+  assert.deepEqual(
+    checkCandidate(before, repainted, scope).violations.map((v) => v.constraint),
+    ["locked-plane"],
+  );
+});

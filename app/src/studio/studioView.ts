@@ -174,21 +174,6 @@ export function maskBox(mask: Uint8Array): MaskBox | null {
   return maxX < 0 ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
-/** Whether `mask` has a set cell and every one lies inside `box` (inclusive): a marquee's catch. */
-export function insideBox(
-  mask: Uint8Array,
-  box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number },
-): boolean {
-  const b = maskBox(mask);
-  return (
-    b !== null &&
-    b.x >= box.x1 &&
-    b.y >= box.y1 &&
-    b.x + b.width - 1 <= box.x2 &&
-    b.y + b.height - 1 <= box.y2
-  );
-}
-
 const cell = (mask: Uint8Array, x: number, y: number): boolean =>
   x >= 0 && x < SCREEN_WIDTH && y >= 0 && y < SCREEN_HEIGHT && mask[y * SCREEN_WIDTH + x] === 1;
 

@@ -100,13 +100,13 @@ for (const [width, height] of [
     const ask = studio.getByTestId("studio-assist");
     await expect(ask.getByRole("heading", { level: 3 })).toHaveText(/^Ask/);
     await expect(ask.getByTestId("assist-chip")).toHaveText(["These 2 items"]);
-    await expect(ask.getByTestId("studio-lock-chip")).toHaveText("Depth");
+    await expect(ask.getByTestId("studio-lock-chip")).toHaveText("Depth & walk lines");
     await expect(studio.getByTestId("inspector-details")).toHaveAttribute("aria-expanded", "false");
     await expect(studio.getByTestId("inspector-commands")).toHaveCount(0);
     await expect(studio.getByTestId("inspector-foot")).toHaveText(ROOM_GROUP_HINT);
     // The lens's lock is one chip beside the tabs; the Scene footer counts and offers Group.
     await expect(studio.locator(".top-bar__lens").getByTestId("studio-lock-chip")).toHaveText(
-      "Depth",
+      "Depth & walk lines",
     );
     await expect(studio.locator('[data-role="scene-count"]')).toHaveText("30 items");
     await expect(studio.getByTestId("scene-group")).toBeVisible();
@@ -174,17 +174,19 @@ test("the lock chip's Unlock for now lets a depth edit through in the Art lens, 
   // Locked: the depth picker in the options bar is off and says why.
   await studio.getByTestId("selection-priority").click();
   await expect(studio.getByTestId("selection-picker")).toContainText(
-    "Depth is locked in the Art lens.",
+    "Depth and walk lines are locked in the Art lens.",
   );
   await page.keyboard.press("Escape");
 
   await chip.getByTestId("explain-lens-lock-depth").click();
   const pop = page.getByTestId("explain-pop");
-  await expect(pop).toContainText("Depth locked");
+  await expect(pop).toContainText("Depth & walk lines");
+  await expect(pop).toContainText("Moving a whole item takes its lines along.");
+  await reviewShot(page, "lock-chip-art-lens");
   await pop.getByTestId("studio-unlock").click();
   await expect(pop).toBeHidden();
   await expect(chip).toHaveAttribute("data-locked", "false");
-  await expect(chip).toHaveText("Depth unlocked");
+  await expect(chip).toHaveText("Depth & walk lines unlocked");
   await expect(chip.getByTestId("explain-lens-lock-depth")).toBeFocused();
 
   await studio.getByTestId("selection-priority").click();

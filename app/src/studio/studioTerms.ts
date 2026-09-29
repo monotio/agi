@@ -16,18 +16,18 @@ const topic = (id: string): HelpTarget => ({ section: "creating", topic: id });
 
 export const STUDIO_TERMS = {
   "lens-lock-depth": {
-    name: "Depth locked",
-    says: "The Art lens keeps depth as it is, so a change here moves only what the player sees.",
+    name: "Depth & walk lines",
+    says: "The Art lens paints only what the player sees. Depth and walk lines stay as they are. Moving a whole item takes its lines along.",
     help: topic("studio-locks"),
   },
   "lens-lock-art": {
     name: "Art locked",
-    says: "The Depth lens keeps the art as it is, so a change here moves only what stands in front.",
+    says: "The Depth lens paints only depth. The art stays as it is. Moving a whole item takes its art along.",
     help: topic("studio-locks"),
   },
   "lens-lock-walk": {
     name: "Walk lens locks",
-    says: "The Walk lens keeps art and depth as they are and draws walk lines 0–3 only.",
+    says: "The Walk lens draws walk lines 0–3 only. Art and depth stay as they are. Moving a whole item takes them along.",
     help: topic("studio-locks"),
   },
   "item-lock": {
