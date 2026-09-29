@@ -1,5 +1,6 @@
 import { assembleLogic, AssemblerError, type AssembleResult } from "../logic/assembler.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
+import { scanLogicTokens } from "../logic/syntax.ts";
 
 interface ProjectLogicContext {
   readonly profile: AgiProfile;
@@ -24,7 +25,14 @@ export function compileProjectLogic(
   source: string,
   context: ProjectLogicContext,
 ): ProjectLogicBuild {
-  const defined = new Set([...source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]));
+  const tokens = scanLogicTokens(source);
+  const defined = new Set(
+    tokens.flatMap((token, index) =>
+      token.type === "directive" && token.text === "#define" && tokens[index + 1]?.type === "ident"
+        ? [tokens[index + 1]!.text]
+        : [],
+    ),
+  );
   const lines = Object.entries(context.bindings)
     .filter(([name]) => !defined.has(name))
     .map(([name, binding]) => `#define ${name} ${binding.num}`);

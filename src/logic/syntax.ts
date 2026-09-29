@@ -24,7 +24,7 @@ export const MAX_DEPTH = 128;
 
 // ---------- Lexer ----------
 
-type TokenType = "ident" | "number" | "string" | "punct" | "directive" | "eof";
+type TokenType = "ident" | "number" | "string" | "punct" | "directive" | "invalid" | "eof";
 
 export interface Token {
   readonly type: TokenType;
@@ -35,7 +35,15 @@ export interface Token {
   readonly end: number;
 }
 
-function lex(source: string): Token[] {
+const MAX_DIAGNOSTICS = 100;
+
+function recordError(errors: AssemblerError[], error: AssemblerError): void {
+  if (errors.length >= MAX_DIAGNOSTICS)
+    throw new AssemblerError("analysis diagnostic limit exceeded", error.line, error.col);
+  errors.push(error);
+}
+
+function lex(source: string, errors?: AssemblerError[]): Token[] {
   const tokens: Token[] = [];
   let i = 0;
   let line = 1;
@@ -55,140 +63,165 @@ function lex(source: string): Token[] {
 
   while (i < source.length) {
     tokenStart = i;
-    const ch = source[i]!;
-    if (ch === "\n") {
-      line++;
-      i++;
-      lineStart = i;
-      continue;
-    }
-    if (ch === " " || ch === "\t" || ch === "\r") {
-      i++;
-      continue;
-    }
-    if (ch === "/" && source[i + 1] === "/") {
-      while (i < source.length && source[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === "#") {
-      const start = i;
-      const c = col();
-      i++;
-      while (i < source.length && /[a-zA-Z]/.test(source[i]!)) i++;
-      const dir = source.slice(start, i);
-      if (dir === "#message" || dir === "#define") {
-        append({ type: "directive", text: dir, line, col: c });
+    const tokenLine = line;
+    const tokenCol = col();
+    try {
+      const ch = source[i]!;
+      if (ch === "\n") {
+        line++;
+        i++;
+        lineStart = i;
         continue;
       }
-      while (i < source.length && source[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === '"') {
-      const c = col();
-      i++;
-      let text = "";
-      for (;;) {
-        if (i >= source.length || source[i] === "\n") {
-          throw new AssemblerError("unterminated string", line, c);
-        }
-        const s = source[i]!;
-        if (s === '"') break;
-        if (s !== "\\") {
-          text += s;
-          i++;
+      if (ch === " " || ch === "\t" || ch === "\r") {
+        i++;
+        continue;
+      }
+      if (ch === "/" && source[i + 1] === "/") {
+        while (i < source.length && source[i] !== "\n") i++;
+        continue;
+      }
+      if (ch === "#") {
+        const start = i;
+        const c = col();
+        i++;
+        while (i < source.length && /[a-zA-Z]/.test(source[i]!)) i++;
+        const dir = source.slice(start, i);
+        if (dir === "#message" || dir === "#define") {
+          append({ type: "directive", text: dir, line, col: c });
           continue;
         }
-        const esc = source[i + 1];
-        if (esc === undefined) throw new AssemblerError("unterminated string", line, c);
-        if (esc === "n") text += "\n";
-        else if (esc === "r") text += "\r";
-        else if (esc === "\\") text += "\\";
-        else if (esc === '"') text += '"';
-        else if (esc === "x") {
-          const hex = source.slice(i + 2, i + 4);
-          if (!/^[0-9a-fA-F]{2}$/.test(hex)) {
-            throw new AssemblerError(`\\x needs two hex digits, got '${hex}'`, line, col());
-          }
-          text += String.fromCharCode(parseInt(hex, 16));
-          i += 2;
-        } else {
-          throw new AssemblerError(
-            `unknown escape '\\${esc}' (use \\n, \\r, \\\\, \\" or \\xNN)`,
-            line,
-            col(),
-          );
-        }
-        i += 2;
+        while (i < source.length && source[i] !== "\n") i++;
+        continue;
       }
-      i++;
-      append({ type: "string", text, line, col: c });
-      continue;
+      if (ch === '"') {
+        const c = col();
+        i++;
+        let text = "";
+        for (;;) {
+          if (i >= source.length || source[i] === "\n") {
+            throw new AssemblerError("unterminated string", line, c);
+          }
+          const s = source[i]!;
+          if (s === '"') break;
+          if (s !== "\\") {
+            text += s;
+            i++;
+            continue;
+          }
+          const esc = source[i + 1];
+          if (esc === undefined) throw new AssemblerError("unterminated string", line, c);
+          if (esc === "n") text += "\n";
+          else if (esc === "r") text += "\r";
+          else if (esc === "\\") text += "\\";
+          else if (esc === '"') text += '"';
+          else if (esc === "x") {
+            const hex = source.slice(i + 2, i + 4);
+            if (!/^[0-9a-fA-F]{2}$/.test(hex)) {
+              throw new AssemblerError(`\\x needs two hex digits, got '${hex}'`, line, col());
+            }
+            text += String.fromCharCode(parseInt(hex, 16));
+            i += 2;
+          } else {
+            throw new AssemblerError(
+              `unknown escape '\\${esc}' (use \\n, \\r, \\\\, \\" or \\xNN)`,
+              line,
+              col(),
+            );
+          }
+          i += 2;
+        }
+        i++;
+        append({ type: "string", text, line, col: c });
+        continue;
+      }
+      if (/[0-9]/.test(ch)) {
+        const start = i;
+        const c = col();
+        while (i < source.length && /[0-9]/.test(source[i]!)) i++;
+        append({ type: "number", text: source.slice(start, i), line, col: c });
+        continue;
+      }
+      if (/[a-zA-Z_.]/.test(ch)) {
+        const start = i;
+        const c = col();
+        while (i < source.length && /[a-zA-Z0-9_.]/.test(source[i]!)) i++;
+        append({ type: "ident", text: source.slice(start, i), line, col: c });
+        continue;
+      }
+      if (ch === "&" && source[i + 1] === "&") {
+        append({ type: "punct", text: "&&", line, col: col() });
+        i += 2;
+        continue;
+      }
+      if (ch === "|" && source[i + 1] === "|") {
+        append({ type: "punct", text: "||", line, col: col() });
+        i += 2;
+        continue;
+      }
+      if (ch === "=" && source[i + 1] === "=") {
+        append({ type: "punct", text: "==", line, col: col() });
+        i += 2;
+        continue;
+      }
+      if (ch === "!" && source[i + 1] === "=") {
+        append({ type: "punct", text: "!=", line, col: col() });
+        i += 2;
+        continue;
+      }
+      if (ch === "<" && source[i + 1] === "=") {
+        append({ type: "punct", text: "<=", line, col: col() });
+        i += 2;
+        continue;
+      }
+      if (ch === ">" && source[i + 1] === "=") {
+        append({ type: "punct", text: ">=", line, col: col() });
+        i += 2;
+        continue;
+      }
+      if (ch === "<") {
+        append({ type: "punct", text: "<", line, col: col() });
+        i++;
+        continue;
+      }
+      if (ch === ">") {
+        append({ type: "punct", text: ">", line, col: col() });
+        i++;
+        continue;
+      }
+      if (ch === "=") {
+        append({ type: "punct", text: "=", line, col: col() });
+        i++;
+        continue;
+      }
+      if ("(){};:,!".includes(ch)) {
+        append({ type: "punct", text: ch, line, col: col() });
+        i++;
+        continue;
+      }
+      throw new AssemblerError(`unexpected character '${ch}'`, line, col());
+    } catch (error) {
+      if (!errors || !(error instanceof AssemblerError) || tokens.length >= MAX_TOKENS) throw error;
+      recordError(errors, error);
+      i = Math.max(i, tokenStart + 1);
+      if (source[tokenStart] === '"') {
+        // A malformed literal stays one invalid token, ending before a new
+        // line. Never reinterpret its contents as executable statements.
+        while (i < source.length && source[i] !== "\n") {
+          const ch = source[i++];
+          if (ch === '"') break;
+          if (ch === "\\" && i < source.length && source[i] !== "\n") i++;
+        }
+      }
+      tokens.push({
+        type: "invalid",
+        text: source.slice(tokenStart, i),
+        start: tokenStart,
+        end: i,
+        line: tokenLine,
+        col: tokenCol,
+      });
     }
-    if (/[0-9]/.test(ch)) {
-      const start = i;
-      const c = col();
-      while (i < source.length && /[0-9]/.test(source[i]!)) i++;
-      append({ type: "number", text: source.slice(start, i), line, col: c });
-      continue;
-    }
-    if (/[a-zA-Z_.]/.test(ch)) {
-      const start = i;
-      const c = col();
-      while (i < source.length && /[a-zA-Z0-9_.]/.test(source[i]!)) i++;
-      append({ type: "ident", text: source.slice(start, i), line, col: c });
-      continue;
-    }
-    if (ch === "&" && source[i + 1] === "&") {
-      append({ type: "punct", text: "&&", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "|" && source[i + 1] === "|") {
-      append({ type: "punct", text: "||", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "=" && source[i + 1] === "=") {
-      append({ type: "punct", text: "==", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "!" && source[i + 1] === "=") {
-      append({ type: "punct", text: "!=", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "<" && source[i + 1] === "=") {
-      append({ type: "punct", text: "<=", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === ">" && source[i + 1] === "=") {
-      append({ type: "punct", text: ">=", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "<") {
-      append({ type: "punct", text: "<", line, col: col() });
-      i++;
-      continue;
-    }
-    if (ch === ">") {
-      append({ type: "punct", text: ">", line, col: col() });
-      i++;
-      continue;
-    }
-    if (ch === "=") {
-      append({ type: "punct", text: "=", line, col: col() });
-      i++;
-      continue;
-    }
-    if ("(){};:,!".includes(ch)) {
-      append({ type: "punct", text: ch, line, col: col() });
-      i++;
-      continue;
-    }
-    throw new AssemblerError(`unexpected character '${ch}'`, line, col());
   }
   append({ type: "eof", text: "", line, col: col() });
   return tokens;
@@ -223,6 +256,16 @@ export type Stmt = StmtBody & {
   readonly statementId: number;
 };
 
+interface NamedDefinition {
+  readonly kind: "define" | "label";
+  readonly name: string;
+  readonly start: number;
+  readonly end: number;
+}
+interface NamedReference extends NamedDefinition {
+  readonly definitionStart?: number;
+}
+
 // ---------- Parser ----------
 
 class Parser {
@@ -241,19 +284,56 @@ class Parser {
   /** The program in source order; labels are statements that emit no bytes. */
   readonly program: Stmt[] = [];
   readonly labels = new Set<string>();
+  readonly definitions: NamedDefinition[] = [];
+  readonly references: NamedReference[] = [];
+  private defineStarts = new Map<string, number>();
+  private labelStarts = new Map<string, number>();
+
+  private addDefinition(kind: NamedDefinition["kind"], token: Token): void {
+    this.definitions.push({ kind, name: token.text, start: token.start, end: token.end });
+    (kind === "define" ? this.defineStarts : this.labelStarts).set(token.text, token.start);
+  }
+
+  private reference(kind: NamedDefinition["kind"], token: Token): void {
+    const definitionStart = kind === "define" ? this.defineStarts.get(token.text) : undefined;
+    this.references.push({
+      kind,
+      name: token.text,
+      start: token.start,
+      end: token.end,
+      ...(definitionStart === undefined ? {} : { definitionStart }),
+    });
+  }
+
+  resolvedReferences(): NamedReference[] {
+    return this.references
+      .map((reference) => {
+        const definitionStart =
+          reference.kind === "label"
+            ? this.labelStarts.get(reference.name)
+            : reference.definitionStart;
+        return { ...reference, ...(definitionStart === undefined ? {} : { definitionStart }) };
+      })
+      .sort((left, right) => left.start - right.start);
+  }
 
   private readonly tokens: Token[];
 
-  constructor(tokens: Token[]) {
+  private readonly errors: AssemblerError[] | undefined;
+
+  constructor(tokens: Token[], errors?: AssemblerError[]) {
     this.tokens = tokens;
+    this.errors = errors;
   }
 
   private peek(): Token {
-    return this.tokens[this.pos]!;
+    return this.tokens[Math.min(this.pos, this.tokens.length - 1)]!;
   }
 
   private next(): Token {
-    return this.tokens[this.pos++]!;
+    const token = this.peek();
+    if (token.type !== "eof") this.pos++;
+    return token;
   }
 
   private expect(type: TokenType, text?: string): Token {
@@ -269,12 +349,30 @@ class Parser {
   }
 
   parseProgram(): void {
-    while (this.peek().type !== "eof") {
-      if (this.peek().type === "directive") {
-        this.parseDirective();
-        continue;
-      }
-      this.program.push(this.parseLabel() ?? this.parseStmt());
+    while (this.peek().type !== "eof") this.parseEntry(this.program, false);
+  }
+
+  private parseEntry(out: Stmt[], inBlock: boolean): void {
+    const start = this.pos;
+    const depth = this.depth;
+    try {
+      if (!inBlock && this.peek().type === "directive") this.parseDirective();
+      else out.push(this.parseLabel() ?? this.parseStmt());
+    } catch (error) {
+      if (!this.errors || !(error instanceof AssemblerError)) throw error;
+      recordError(this.errors, error);
+      this.depth = depth;
+      // Resume at a statement boundary, preserving the closing brace for
+      // parseBlock. Every recovery either advances or reaches EOF.
+      while (
+        this.peek().type !== "eof" &&
+        this.peek().line <= error.line &&
+        this.peek().text !== ";" &&
+        this.peek().text !== "}"
+      )
+        this.next();
+      if (this.peek().text === ";" || (!inBlock && this.peek().text === "}")) this.next();
+      if (this.pos === start && this.peek().type !== "eof") this.next();
     }
   }
 
@@ -288,6 +386,7 @@ class Parser {
       throw new AssemblerError(`duplicate label '${tok.text}'`, tok.line, tok.col);
     }
     this.labels.add(tok.text);
+    this.addDefinition("label", tok);
     return {
       type: "label",
       name: tok.text,
@@ -322,6 +421,7 @@ class Parser {
         throw new AssemblerError(`duplicate #define '${name.text}'`, name.line, name.col);
       }
       this.defines.set(name.text, n);
+      this.addDefinition("define", name);
     } else {
       throw new AssemblerError(
         `unknown directive '${dir.text}' (want #message or #define)`,
@@ -338,7 +438,7 @@ class Parser {
       if (this.peek().type === "eof") {
         throw new AssemblerError("unterminated block", this.peek().line, this.peek().col);
       }
-      out.push(this.parseLabel() ?? this.parseStmt());
+      this.parseEntry(out, true);
     }
     this.expect("punct", "}");
     return out;
@@ -384,6 +484,7 @@ class Parser {
         left = { kind: "v", index: Number(m[1]) };
       } else {
         const defined = this.defines.get(tok.text);
+        this.reference("define", tok);
         if (defined !== undefined) left = { kind: "v", index: defined };
         else throw new AssemblerError(`cannot assign to '${tok.text}'`, tok.line, tok.col);
       }
@@ -398,6 +499,7 @@ class Parser {
     }
     if (tok.text === "goto") {
       const label = this.expect("ident");
+      this.reference("label", label);
       this.expect("punct", ";");
       return { type: "goto", label: label.text, tok };
     }
@@ -458,6 +560,7 @@ class Parser {
         return { kind: m[1] as "v" | "f" | "o" | "m" | "s", index: idx };
       }
       const defined = this.defines.get(tok.text);
+      this.reference("define", tok);
       if (defined !== undefined) return { kind: "num", value: defined };
       throw new AssemblerError(
         `unknown identifier '${tok.text}' (want vN/fN/oN/mN/sN, a number, or a #define)`,
@@ -634,6 +737,19 @@ export function parseLogicSyntax(source: string): {
   readonly program: Stmt[];
   readonly explicitMessages: Map<number, string | null>;
 } {
+  const tokens = scanLogicTokens(source);
+  const parser = new Parser(tokens);
+  parser.parseProgram();
+  return { tokens, program: parser.program, explicitMessages: parser.explicitMessages };
+}
+
+/** Tokenize the same strict source grammar without resolving names or emitting bytes. */
+export function scanLogicTokens(source: string): Token[] {
+  checkSourceSize(source);
+  return lex(source);
+}
+
+function checkSourceSize(source: string): void {
   // Count UTF-8 input bytes without a platform encoder or intermediate buffer.
   let sourceBytes = 0;
   for (let i = 0; i < source.length; i++) {
@@ -643,8 +759,59 @@ export function parseLogicSyntax(source: string): {
     if (sourceBytes > MAX_SOURCE_BYTES)
       throw new AssemblerError("source byte limit exceeded", 1, 1);
   }
-  const tokens = lex(source);
-  const parser = new Parser(tokens);
-  parser.parseProgram();
-  return { tokens, program: parser.program, explicitMessages: parser.explicitMessages };
+}
+
+/**
+ * Editor analysis recovers incomplete statements using the strict parser's own
+ * grammar. Recovered trees are for navigation only; compilation always reparses
+ * strictly. Work/size failures become bounded diagnostics, never partial bytes.
+ */
+export function analyzeLogicSyntax(source: string): {
+  readonly tokens: readonly Token[];
+  readonly program: readonly Stmt[];
+  readonly definitions: readonly NamedDefinition[];
+  readonly references: readonly NamedReference[];
+  readonly diagnostics: readonly {
+    readonly message: string;
+    readonly start: number;
+    readonly end: number;
+    readonly line: number;
+    readonly col: number;
+  }[];
+} {
+  const errors: AssemblerError[] = [];
+  let tokens: Token[] = [];
+  let parser: Parser | undefined;
+  try {
+    checkSourceSize(source);
+    tokens = lex(source, errors);
+    parser = new Parser(tokens, errors);
+    parser.parseProgram();
+  } catch (error) {
+    if (!(error instanceof AssemblerError)) throw error;
+    errors.push(error);
+  }
+  const lines = [0];
+  for (let i = 0; i < Math.min(source.length, MAX_SOURCE_BYTES); i++)
+    if (source[i] === "\n") lines.push(i + 1);
+  return {
+    tokens,
+    program: parser?.program ?? [],
+    definitions: parser?.definitions ?? [],
+    references: parser?.resolvedReferences() ?? [],
+    diagnostics: errors.map((error) => {
+      const start = Math.min(
+        source.length,
+        (lines[error.line - 1] ?? source.length) + error.col - 1,
+      );
+      const token = tokens.find((entry) => entry.start <= start && entry.end > start);
+      return {
+        message: error.message,
+        start,
+        end: token?.end ?? Math.min(source.length, start + 1),
+        line: error.line,
+        col: error.col,
+      };
+    }),
+  };
 }

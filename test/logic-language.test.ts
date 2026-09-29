@@ -1,0 +1,108 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createLogicLanguageSnapshot } from "../src/logic/language.ts";
+import { PROFILES } from "../src/runtime/profile.ts";
+
+const context = {
+  profile: PROFILES["2.936"],
+  dictionary: new Map([
+    ["open", 100],
+    ["door", 101],
+  ]),
+};
+
+test("completion and signature help work inside an unfinished condition", () => {
+  const source = 'if (said("open", ';
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.equal(language.signatureAt(source.length)?.label, "said(word, ...)");
+  assert.equal(language.signatureAt(source.length)?.activeParameter, 1);
+  const condition = createLogicLanguageSnapshot({ source: "if (iss", ...context });
+  assert.ok(condition.completeAt(7).some((entry) => entry.label === "isset"));
+  assert.equal(
+    condition.completeAt(7).some((entry) => entry.label === "set"),
+    false,
+  );
+  const action = createLogicLanguageSnapshot({ source: "set.", ...context });
+  assert.ok(action.completeAt(4).some((entry) => entry.label === "set.view"));
+});
+
+test("hover documentation uses profile-filtered command metadata and ignores strings/comments", () => {
+  const source = 'set.view(o0, 1); print("set.view"); // set.view';
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.match(language.hoverAt(2)?.text ?? "", /VIEW/);
+  assert.equal(language.hoverAt(source.indexOf('"set.view') + 2), null);
+  assert.deepEqual(language.completeAt(source.length), []);
+  const early = createLogicLanguageSnapshot({ source: "mouse.posn", ...context });
+  assert.equal(early.hoverAt(2), null);
+});
+
+test("local definitions, references and rename use resolved tokens, preserving comments and strings", () => {
+  const source = '#define door 41\nset(door); print("door"); // door\nreturn;';
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  const use = source.indexOf("set(door") + 4;
+  assert.equal(language.definitionAt(use)?.start, source.indexOf("door"));
+  assert.equal(language.referencesAt(use).length, 2);
+  const edits = language.renameAt(use, "gate");
+  assert.equal(edits.length, 2);
+  let changed = source;
+  for (const edit of [...edits].sort((a, b) => b.start - a.start))
+    changed = changed.slice(0, edit.start) + edit.text + changed.slice(edit.end);
+  assert.equal(changed, '#define gate 41\nset(gate); print("door"); // door\nreturn;');
+});
+
+test("rename refuses unresolved names, collisions, register spellings and incomplete builds", () => {
+  const source = "#define door 41\n#define gate 42\nset(door); return;";
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  const use = source.indexOf("set(door") + 4;
+  for (const name of ["gate", "f41", "two names", ""])
+    assert.throws(() => language.renameAt(use, name));
+  assert.throws(
+    () => createLogicLanguageSnapshot({ source: "set(missing);", ...context }).renameAt(5, "found"),
+    /unresolved|definition/i,
+  );
+  assert.throws(
+    () =>
+      createLogicLanguageSnapshot({ source: source + " if (", ...context }).renameAt(use, "arch"),
+    /invalid|incomplete|compile/i,
+  );
+});
+
+test("strict diagnostics include semantic errors which tolerant syntax alone cannot detect", () => {
+  const source = "not.a.command(); return;";
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.ok(language.diagnostics.some((entry) => /unknown action/.test(entry.message)));
+  assert.equal(language.diagnostics[0]?.start, 0);
+});
+
+test("language snapshots own their dictionary and reject invalid cursor positions", () => {
+  const dictionary = new Map([["open", 100]]);
+  const source = 'if (said("open")) { return; }';
+  const language = createLogicLanguageSnapshot({ source, profile: context.profile, dictionary });
+  dictionary.clear();
+  assert.equal(language.diagnostics.length, 0);
+  for (const offset of [-1, 0.5, source.length + 1, NaN])
+    assert.throws(() => language.completeAt(offset), RangeError);
+});
+
+test("punctuation inside string tokens cannot alter call context", () => {
+  const source = 'if (said(")", ';
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.equal(language.signatureAt(source.length)?.label, "said(word, ...)");
+  assert.equal(language.signatureAt(source.length)?.activeParameter, 1);
+  assert.ok(language.completeAt(source.length).some((entry) => entry.label === "open"));
+});
+
+test("hover follows a local definition even when its name is also an opcode", () => {
+  const source = "#define set.view 31\nset(set.view); return;";
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.equal(language.hoverAt(source.indexOf("set(set.view") + 5)?.text, "#define set.view 31");
+});
+
+test("statement completion includes AGI control syntax without inventing command calls", () => {
+  const language = createLogicLanguageSnapshot({ source: "ret", ...context });
+  assert.ok(
+    language.completeAt(3).some((entry) => entry.label === "return" && entry.text === "return"),
+  );
+  const directive = createLogicLanguageSnapshot({ source: "#def", ...context });
+  assert.ok(directive.completeAt(4).some((entry) => entry.label === "#define"));
+});

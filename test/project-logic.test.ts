@@ -31,3 +31,9 @@ test("source definitions shadow generated bindings and body errors retain author
     (error: unknown) => error instanceof AssemblerError && error.line === 2 && error.col === 1,
   );
 });
+
+test("a dotted source definition does not shadow a different project binding", () => {
+  const build = compileProjectLogic("#define door.other 51\nset(door); return;", context);
+  assert.deepEqual([...build.assembly.code], [12, 50, 0]);
+  assert.equal(build.expansion.prelude, "#define door 50\n#define score 30\n");
+});
