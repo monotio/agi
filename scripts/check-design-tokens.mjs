@@ -29,12 +29,22 @@ const RULES = [
 const vueStyles = (text) =>
   [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
 
+/** `text` with `pattern` removed until none is left: a removal can join two halves into a new match. */
+const removeAll = (text, pattern) => {
+  let before;
+  do {
+    before = text;
+    text = text.replace(pattern, "");
+  } while (text !== before);
+  return text;
+};
+
 /** Block, HTML and line comments out; a `//` counts only after whitespace or punctuation (not `https://`). */
 const uncommented = (text) =>
-  text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/(^|[\s;{}(),])\/\/.*$/gm, "$1");
+  removeAll(removeAll(text, /\/\*[\s\S]*?\*\//g), /<!--[\s\S]*?-->/g).replace(
+    /(^|[\s;{}(),])\/\/.*$/gm,
+    "$1",
+  );
 
 /** Each token's value as tokens.css declares it first. */
 function tokenValues() {
