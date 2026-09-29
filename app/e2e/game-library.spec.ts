@@ -249,30 +249,54 @@ test("index recovery preserves a game saved while another entry is being reconci
   expect(retained).toEqual(["before-recovery", "during-recovery"]);
 });
 
-test("a vanished saved game fails locally without contacting a provider", async ({ page }) => {
-  let providerCalls = 0;
-  await page.route("**/api/**", (route) => {
-    providerCalls++;
-    return route.abort();
-  });
-  await isolateStorage(page);
-  await page.goto("/");
-  const { zip } = tinyGame();
-  await page.getByTestId("game-zip-input").setInputFiles({
-    name: "vanishing.zip",
-    mimeType: "application/zip",
-    buffer: zip,
-  });
-  const card = savedGameCard(page, "vanishing");
-  await expect(card.getByTestId("btn-resume-cached")).toBeVisible();
-  await page.evaluate(() => {
-    const key = Object.keys(localStorage).find((item) => item.startsWith("monotio_agi.authored."));
-    if (key) localStorage.removeItem(key);
-  });
-  await card.getByTestId("btn-resume-cached").click();
-  await expect(page.getByTestId("error-panel")).toContainText("is missing from this browser");
-  expect(providerCalls).toBe(0);
-});
+for (const missingBody of [false, true]) {
+  test(
+    missingBody
+      ? "a vanished saved game fails locally without contacting a provider"
+      : "a saved game survives index loss without contacting a provider",
+    async ({ page }) => {
+      let providerCalls = 0;
+      await page.route("**/api/**", (route) => {
+        providerCalls++;
+        return route.abort();
+      });
+      await isolateStorage(page);
+      await page.goto("/");
+      const { zip } = tinyGame();
+      await page.getByTestId("game-zip-input").setInputFiles({
+        name: "vanishing.zip",
+        mimeType: "application/zip",
+        buffer: zip,
+      });
+      const card = savedGameCard(page, "vanishing");
+      await expect(card.getByTestId("btn-resume-cached")).toBeVisible();
+      const projectId = await card.getAttribute("data-project-id");
+      if (!projectId) throw new Error("Imported game has no project identity");
+      await page.evaluate(
+        async ({ projectId, missingBody }) => {
+          localStorage.removeItem(`monotio_agi.authored.${projectId}`);
+          if (missingBody) {
+            const storage = await import("/src/project/gameStorage.ts");
+            // Simulate storage loss after the card rendered, without a UI delete event.
+            await storage.bodyTransaction("readwrite", (store) => store.delete(projectId));
+          }
+        },
+        { projectId, missingBody },
+      );
+      await card.getByTestId("btn-resume-cached").click();
+      if (missingBody) {
+        await expect(page.getByTestId("error-panel")).toContainText("is missing from this browser");
+      } else {
+        await expect.poll(async () => (await textHook(page)).room).toBe(1);
+        await expect
+          .poll(async () => (await textHook(page)).rows.join(" "))
+          .toContain("A library adventure.");
+        await expect(page.getByTestId("error-panel")).toBeHidden();
+      }
+      expect(providerCalls).toBe(0);
+    },
+  );
+}
 
 test("the offline tutorial has a generated thumbnail and fits a phone", async ({ page }) => {
   let providerCalls = 0;
