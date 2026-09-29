@@ -48,6 +48,9 @@ import {
   copyRange,
   EditRefusal,
   insertLinePoint,
+  lineVertices,
+  MAX_X,
+  MAX_Y,
   onSurface,
   rawIncludes,
   replaceTokens,
@@ -199,6 +202,69 @@ function moveItems(ctx: Context, moves: readonly Move[]): EditResult {
     return move ? { ...line, text: translateLine(line.text, line.from!, move.dx, move.dy) } : line;
   });
   return finish(slots, ctx);
+}
+
+/** A side of the 160x168 surface. */
+export type SurfaceEdge = "left" | "right" | "top" | "bottom";
+
+/** How far a move may go: the allowed offset, and what stops it on each axis it was cut short. */
+export interface MoveLimit {
+  readonly dx: number;
+  readonly dy: number;
+  /** Per clamped axis (x first), the item that reaches the edge and which edge. */
+  readonly stops: readonly { readonly itemId: string; readonly edge: SurfaceEdge }[];
+}
+
+/**
+ * The part of dx,dy by which `itemIds` can all move together and keep on the
+ * surface, per axis: each axis keeps its direction and stops where the
+ * first of the items' `lineVertices` (the coordinates `moveItem` checks)
+ * would reach the edge. Items the document lacks and lines without
+ * coordinates set no limit; locks, copies and raw lines are left to the
+ * move itself.
+ */
+export function limitMove(
+  document: PictureDocument,
+  itemIds: readonly string[],
+  dx: number,
+  dy: number,
+): MoveLimit {
+  let left: { at: number; itemId: string } | undefined;
+  let right: typeof left;
+  let top: typeof left;
+  let bottom: typeof left;
+  for (const item of document.items) {
+    if (!itemIds.includes(item.id)) continue;
+    for (let line = item.openLine + 1; line < item.closeLine; line++) {
+      for (const [x, y] of lineVertices(document.lines[line - 1] ?? "")) {
+        if (!left || x < left.at) left = { at: x, itemId: item.id };
+        if (!right || x > right.at) right = { at: x, itemId: item.id };
+        if (!top || y < top.at) top = { at: y, itemId: item.id };
+        if (!bottom || y > bottom.at) bottom = { at: y, itemId: item.id };
+      }
+    }
+  }
+  const stops: { itemId: string; edge: SurfaceEdge }[] = [];
+  const axis = (
+    d: number,
+    low: typeof left,
+    high: typeof left,
+    max: number,
+    edges: readonly [SurfaceEdge, SurfaceEdge],
+  ): number => {
+    if (d < 0 && low && d < -low.at) {
+      stops.push({ itemId: low.itemId, edge: edges[0] });
+      return low.at > 0 ? -low.at : 0;
+    }
+    if (d > 0 && high && d > max - high.at) {
+      stops.push({ itemId: high.itemId, edge: edges[1] });
+      return high.at < max ? max - high.at : 0;
+    }
+    return d;
+  };
+  const x = axis(dx, left, right, MAX_X, ["left", "right"]);
+  const y = axis(dy, top, bottom, MAX_Y, ["top", "bottom"]);
+  return { dx: x, dy: y, stops };
 }
 
 function setPoint(ctx: Context, line: number, index: number, x: number, y: number): EditResult {

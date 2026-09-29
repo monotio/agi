@@ -20,6 +20,8 @@ export interface VerifyOptions {
   readonly attempts: number;
   readonly delayMs: number;
   readonly log: (line: string) => void;
+  /** Waits `ms` between attempts; a timer by default, injectable for tests. */
+  readonly wait?: (ms: number) => Promise<void>;
 }
 
 interface Attempt {
@@ -190,12 +192,13 @@ export const verifyDeploy = async (options: VerifyOptions): Promise<VerifyResult
   const artifactRoot = resolve(options.artifact);
   const artifactIndex = await readFile(resolve(artifactRoot, "index.html"), "utf8");
   const attempts = Math.max(1, Math.floor(options.attempts));
+  const wait = options.wait ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
   let last: Attempt = { problems: [], report: [] };
   for (let attempt = 1; attempt <= attempts; attempt++) {
     last = await verifyOnce(base, options.commit, artifactRoot, artifactIndex);
     if (last.problems.length === 0) return { ok: true, attempts: attempt, ...last };
     options.log(`Attempt ${attempt}/${attempts}: ${last.problems.join("; ")}`);
-    if (attempt < attempts) await new Promise((done) => setTimeout(done, options.delayMs));
+    if (attempt < attempts) await wait(options.delayMs);
   }
   return { ok: false, attempts, ...last };
 };

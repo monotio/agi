@@ -59,27 +59,64 @@ function relVertices(tokens: readonly string[]): [number, number][] {
 const stepIsX = (head: string, k: number): boolean => (head === "xcorner") === (k % 2 === 1);
 
 /**
+ * Every coordinate of the line that a move must keep on the surface: all
+ * pairs of line/polyline/polygon/rect/fill/plot, each vertex of `rel` (its
+ * start and every point its deltas reach), and the start of `xcorner`/
+ * `ycorner` and the vertex after each step. Empty for state lines and for
+ * `copy` and `raw`, which a move refuses outright.
+ */
+export function lineVertices(line: string): [number, number][] {
+  const tokens = commandTokens(line);
+  const head = commandHead(line);
+  switch (head) {
+    case "line":
+    case "polyline":
+    case "polygon":
+    case "rect":
+    case "fill":
+    case "plot":
+      return tokens.slice(1).flatMap((token) => {
+        const point = pair(token);
+        return point ? [point] : [];
+      });
+    case "rel":
+      return relVertices(tokens);
+    case "xcorner":
+    case "ycorner": {
+      const [x0, y0] = pair(tokens[1]!)!;
+      const vertex: [number, number] = [x0, y0];
+      const out: [number, number][] = [[x0, y0]];
+      tokens.slice(2).forEach((token, index) => {
+        vertex[stepIsX(head, index + 1) ? 0 : 1] = Number(token);
+        out.push([vertex[0], vertex[1]]);
+      });
+      return out;
+    }
+    default:
+      return [];
+  }
+}
+
+/**
  * The line with every absolute coordinate moved by dx,dy: all pairs of
  * line/polyline/polygon/rect/fill/plot, the start of `rel` (its deltas stay),
  * and the start and each step of `xcorner`/`ycorner` on the step's own axis.
  * State lines are returned unchanged. Refuses `copy` and `raw` lines and any
- * coordinate (including a `rel` vertex) that would leave the surface.
+ * of the line's `lineVertices` that would leave the surface.
  */
 export function translateLine(line: string, lineNo: number, dx: number, dy: number): string {
   const tokens = commandTokens(line);
   const head = commandHead(line);
-  const check = (x: number, y: number): void => {
-    if (!onSurface(x, y)) {
+  for (const [x, y] of lineVertices(line)) {
+    if (!onSurface(x + dx, y + dy)) {
       throw new EditRefusal(
-        `moving by ${dx},${dy} puts line ${lineNo} off the surface at ${x},${y} (x 0..${MAX_X}, y 0..${MAX_Y})`,
+        `moving by ${dx},${dy} puts line ${lineNo} off the surface at ${x + dx},${y + dy} (x 0..${MAX_X}, y 0..${MAX_Y})`,
       );
     }
-  };
+  }
   const shift = (token: string): string => {
     const point = pair(token);
-    if (!point) return token;
-    check(point[0] + dx, point[1] + dy);
-    return `${point[0] + dx},${point[1] + dy}`;
+    return point ? `${point[0] + dx},${point[1] + dy}` : token;
   };
   switch (head) {
     case "line":
@@ -90,18 +127,13 @@ export function translateLine(line: string, lineNo: number, dx: number, dy: numb
     case "plot":
       return replaceTokens(line, [tokens[0]!, ...tokens.slice(1).map(shift)]);
     case "rel":
-      for (const [x, y] of relVertices(tokens)) check(x + dx, y + dy);
       return replaceTokens(line, [tokens[0]!, shift(tokens[1]!), ...tokens.slice(2)]);
     case "xcorner":
     case "ycorner": {
       const out = [tokens[0]!, shift(tokens[1]!)];
-      const [x0, y0] = pair(tokens[1]!)!;
-      const vertex = [x0 + dx, y0 + dy];
       tokens.slice(2).forEach((token, index) => {
-        const axis = stepIsX(head, index + 1) ? 0 : 1;
-        vertex[axis] = Number(token) + (axis === 0 ? dx : dy);
-        check(vertex[0]!, vertex[1]!);
-        out.push(String(vertex[axis]));
+        const isX = stepIsX(head, index + 1);
+        out.push(String(Number(token) + (isX ? dx : dy)));
       });
       return replaceTokens(line, out);
     }

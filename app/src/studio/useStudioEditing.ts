@@ -10,7 +10,7 @@
  */
 
 import { computed, onScopeDispose, shallowRef, type Ref } from "vue";
-import type { EditOperation } from "../../../src/studio/editOperations.ts";
+import { limitMove, type EditOperation } from "../../../src/studio/editOperations.ts";
 import {
   groupPart,
   itemRun,
@@ -19,7 +19,9 @@ import {
 } from "../../../src/studio/pictureDocument.ts";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
 import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
-import type { StudioCheck } from "./studioLocks.ts";
+import { carriedPlanes, type StudioCheck } from "./studioLocks.ts";
+import { edgeRefusal, movedWith } from "./studioMessages.ts";
+import type { StudioLens } from "./studioView.ts";
 import { freshItemId, itemIdFor, type DraftOutcome, type StudioDraft } from "./useStudioDraft.ts";
 import { useStudioNotice, type NoticeAction } from "./useStudioNotice.ts";
 
@@ -49,6 +51,8 @@ export function useStudioEditing(options: {
   readonly offer?: (check: StudioCheck) => NoticeAction | undefined;
   /** Doors that follow a picture item: their label and the item's id. */
   readonly doors?: () => readonly { readonly item: string; readonly label: string }[];
+  /** The lens, for what a move carried that it does not show. */
+  readonly lens?: () => StudioLens;
 }) {
   const { draft, selectedId } = options;
   const { notice, say, dismiss } = useStudioNotice();
@@ -111,10 +115,41 @@ export function useStudioEditing(options: {
     return outcome.ok;
   }
 
-  const nudge = (dx: number, dy: number): boolean =>
-    several.value
-      ? runAll((target) => ({ type: "moveItem", itemId: target.id, dx, dy }), "Nudge")
-      : run((target) => ({ type: "moveItem", itemId: target.id, dx, dy }), "Nudge");
+  /** Nudge the selection by dx,dy, stopping at the picture's edge (limitMove). */
+  function nudge(dx: number, dy: number): boolean {
+    const ids = several.value
+      ? editableItems.value.map((target) => target.id)
+      : editable.value
+        ? [editable.value.id]
+        : [];
+    if (ids.length === 0) return false;
+    const limit = limitMove(draft.document.value, ids, dx, dy);
+    const stop = limit.stops[0];
+    if (stop && limit.dx === 0 && limit.dy === 0) {
+      const refusal = edgeRefusal(draft.document.value, stop, dx, dy);
+      report({ ok: false, refusal: { kind: "kernel", ...refusal } });
+      return false;
+    }
+    const move = (target: PictureItem): EditOperation => ({
+      type: "moveItem",
+      itemId: target.id,
+      dx: limit.dx,
+      dy: limit.dy,
+    });
+    const done = several.value ? runAll(move, "Nudge") : run(move, "Nudge");
+    if (done) carried(ids);
+    return done;
+  }
+
+  /** After items `ids` moved: say which planes the lens hides they took along, if any. */
+  function carried(ids: readonly string[]): void {
+    const lens = options.lens?.();
+    if (!lens) return;
+    const items = draft.document.value.items.filter((candidate) => ids.includes(candidate.id));
+    const what = items.length === 1 ? items[0]!.label : `${items.length} items`;
+    const text = movedWith(what, items.length > 1, carriedPlanes(draft.compiled.value, ids, lens));
+    if (text) say({ tone: "ok", text });
+  }
 
   function duplicate(): boolean {
     const list = several.value ? editableItems.value : editable.value ? [editable.value] : [];
@@ -277,6 +312,7 @@ export function useStudioEditing(options: {
     editableItems,
     between,
     notice,
+    carried,
     flash,
     say,
     dismiss,

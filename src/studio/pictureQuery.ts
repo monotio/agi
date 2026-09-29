@@ -110,6 +110,39 @@ export function itemMask(
   return mask;
 }
 
+/**
+ * The ids of the items, in draw order, whose final cells on both planes all
+ * lie inside `box` (inclusive) and that own at least one: a selection box's
+ * catch. A mixed item is caught only with its art, depth and walk lines all
+ * inside, since a move takes every plane along. One pass over the owners.
+ */
+export function itemsInside(
+  compiled: CompiledPictureDocument,
+  document: PictureDocument,
+  box: { readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number },
+): string[] {
+  const { items } = document;
+  const lineItem = new Int32Array(document.lines.length + 1).fill(-1);
+  items.forEach((item, index) => lineItem.fill(index, item.openLine + 1, item.closeLine));
+  const byteItem = new Int32Array(compiled.bytes.length).fill(-1);
+  for (const span of compiled.spans) byteItem.fill(lineItem[span.line] ?? -1, span.start, span.end);
+  const owns = new Uint8Array(items.length);
+  const outside = new Uint8Array(items.length);
+  for (const plane of ["visual", "priority"] as const) {
+    const owners = compiled.owners[plane];
+    for (let i = 0; i < owners.length; i++) {
+      const owner = owners[i]!;
+      const index = owner < 0 ? -1 : byteItem[owner]!;
+      if (index < 0) continue;
+      owns[index] = 1;
+      const x = i % SCREEN_WIDTH;
+      const y = (i - x) / SCREEN_WIDTH;
+      if (x < box.x1 || x > box.x2 || y < box.y1 || y > box.y2) outside[index] = 1;
+    }
+  }
+  return items.flatMap((item, index) => (owns[index] && !outside[index] ? [item.id] : []));
+}
+
 export interface TimelineEntry {
   /** 1-based source line. */
   line: number;

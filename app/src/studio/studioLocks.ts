@@ -38,9 +38,7 @@ export { depthValuesLocked, lockedPlanes, NO_UNLOCKS, type LensUnlocks };
 export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
   const locked = lockedPlanes(lens, unlocks);
   const reason = (plane: PicturePlane): string | null =>
-    locked.includes(plane)
-      ? `${PLANE_NAMES[plane]} is locked in the ${lensName(lens)} lens.`
-      : null;
+    locked.includes(plane) ? `${LOCKED_PLANES[plane]} in the ${lensName(lens)} lens.` : null;
   return {
     visual: reason("visual"),
     priority: reason("priority"),
@@ -49,7 +47,16 @@ export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
 }
 
 /** The creator's name for a plane. */
-export const PLANE_NAMES: Record<PicturePlane, string> = { visual: "Art", priority: "Depth" };
+const PLANE_NAMES: Record<PicturePlane, string> = { visual: "Art", priority: "Depth" };
+
+/**
+ * A locked plane, as the lock chip names it, with its verb: the priority
+ * plane holds both depth and walk lines.
+ */
+export const LOCKED_PLANES: Record<PicturePlane, string> = {
+  visual: "Art is locked",
+  priority: "Depth and walk lines are locked",
+};
 
 /** One reason an edit was refused, with the cells to highlight. */
 interface StudioViolation {
@@ -149,8 +156,8 @@ export function checkStudioEdit(
       ? {
           rule,
           plane,
-          message: `${PLANE_NAMES[plane]} is locked in the ${lensName(lens)} lens.`,
-          detail: `${PLANE_NAMES[plane]} is locked in the ${lensName(lens)} lens: ${where(count, bbox)} would change.`,
+          message: `${LOCKED_PLANES[plane]} in the ${lensName(lens)} lens.`,
+          detail: `${LOCKED_PLANES[plane]} in the ${lensName(lens)} lens: ${where(count, bbox)} would change.`,
           count,
           bbox,
           mask,
@@ -201,4 +208,43 @@ export function refusalText(check: StudioCheck): { message: string; detail: stri
 /** The cell-wise OR of every violation's cells, for the canvas flash. */
 export function violationCells(check: StudioCheck): Uint8Array {
   return unionMask(...check.violations.map((violation) => violation.mask));
+}
+
+/**
+ * What moving `ids` carried that `lens` does not paint, in the lock chip's
+ * words: "depth" and "walk lines" (priority 4–15 and 0–3) in the Art lens,
+ * "art" in the Depth lens, "art" and "depth" in the Walk lens. Read from the
+ * cells the items own in `compiled`, so lines drawn over entirely count for
+ * nothing.
+ */
+export function carriedPlanes(
+  compiled: CompiledDocument,
+  ids: readonly string[],
+  lens: StudioLens,
+): string[] {
+  let art = false;
+  let depth = false;
+  let walk = false;
+  for (const id of ids) {
+    art ||= footprintMask(compiled, id, "visual").includes(1);
+    const priority = footprintMask(compiled, id, "priority");
+    for (let i = 0; i < CELLS; i++) {
+      if (priority[i] !== 1) continue;
+      if (compiled.priority[i]! < 4) walk = true;
+      else depth = true;
+    }
+  }
+  const hidden: readonly [string, boolean][] =
+    lens === "art"
+      ? [
+          ["depth", depth],
+          ["walk lines", walk],
+        ]
+      : lens === "depth"
+        ? [["art", art]]
+        : [
+            ["art", art],
+            ["depth", depth],
+          ];
+  return hidden.flatMap(([name, carried]) => (carried ? [name] : []));
 }

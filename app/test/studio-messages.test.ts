@@ -32,10 +32,10 @@ describe("plainKernelRefusal", () => {
   it("says a move would leave the picture, without coordinates", () => {
     const [technical, plain] = refusal({ type: "moveItem", itemId: "edge", dx: 0, dy: -1 });
     assert.match(technical, /moving by 0,-1 puts line 3 off the surface at 0,-1/);
-    assert.equal(plain, "The picture ends there.");
+    assert.equal(plain, "That would move part of it off the picture.");
     assert.equal(
       refusal({ type: "moveItem", itemId: "edge", dx: -1, dy: -1 })[1],
-      "The picture ends there.",
+      "That would move part of it off the picture.",
     );
     assert.equal(
       refusal({

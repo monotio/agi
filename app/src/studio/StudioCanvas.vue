@@ -67,9 +67,9 @@ const {
   flash?: MaskPaths | null;
   /** Cells an AI proposal changes, outlined while it awaits a verdict. */
   changed?: MaskPaths | null;
-  /** The selection can be dragged: the pointer shows it. */
+  /** The pointer is over the selection, which a drag moves: the move cursor. */
   movable?: boolean;
-  /** A Shift+drag's box being drawn, in logical cells (inclusive). */
+  /** A selection box being drawn, in logical cells (inclusive). */
   marquee?: { x1: number; y1: number; x2: number; y2: number } | null;
 }>();
 const emit = defineEmits<{
@@ -366,7 +366,7 @@ function onLeave(): void {
   position: relative;
   flex: none;
   box-shadow: var(--shadow-stage);
-  cursor: crosshair;
+  cursor: default;
 }
 .studio-pane.is-movable {
   cursor: move;

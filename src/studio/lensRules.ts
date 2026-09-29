@@ -4,7 +4,9 @@
  * pass the same validators. Each lens locks the planes it is not about: Art
  * locks the priority plane, Depth and Walk the visual plane, and Walk also
  * keeps depth values (priority 4–15) off limits unless they are unlocked.
- * Unlocking is explicit and lasts for the Studio session.
+ * Unlocking is explicit and lasts for the Studio session. The locks guard
+ * painting and editing within a plane; whole items move whole
+ * (`editUnlocks`).
  */
 
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
@@ -26,6 +28,22 @@ export interface LensUnlocks {
 }
 
 export const NO_UNLOCKS: LensUnlocks = { visual: false, priority: false, depthInWalk: false };
+const ALL_UNLOCKS: LensUnlocks = { visual: true, priority: true, depthInWalk: true };
+
+/** The edit operations that take whole items: a move, a copy, a delete. */
+export const WHOLE_ITEM_OPERATIONS: readonly string[] = ["moveItem", "duplicateItem", "deleteItem"];
+
+/**
+ * Whole items move whole: an edit that only moves, copies or deletes whole
+ * items carries every plane they draw (art, depth and walk lines) in any
+ * lens, so no lens lock refuses it. The locks guard painting and editing
+ * within a plane: new shapes, fills, colours, depth values and points. The
+ * unlocks an edit is checked under, `wholeItems` saying whether it only
+ * takes whole items.
+ */
+export function editUnlocks(unlocks: LensUnlocks, wholeItems: boolean): LensUnlocks {
+  return wholeItems ? ALL_UNLOCKS : unlocks;
+}
 
 /** The planes `lens` keeps locked, less those unlocked. */
 export function lockedPlanes(lens: StudioLens, unlocks: LensUnlocks): PicturePlane[] {

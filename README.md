@@ -174,19 +174,22 @@ waving robot._
   the hero. A scrubber replays the draw order command by command, the
   scene list names what the picture draws, and clicking a pixel shows the
   command that put it there.
-- **Editing** works on items: drag one or its points, nudge it with the arrow
-  keys, change its colour, priority or draw order, duplicate or delete it.
+- **Editing** works on items: click one to select it, or drag a box to select
+  the items wholly inside it; drag the selection, or its points with the Point
+  tool, nudge it with the arrow keys (a move stops at the picture's edge),
+  change its colour, priority or draw order, duplicate or delete it.
   Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
-  Shift+click, a group row, a Shift+drag box or Shift+Alt+arrows select several
+  A box, Shift+click, a group row or Shift+Alt+arrows select several
   items, which then move, copy and delete together as one step, so an imported
   bush's outline and fill stay together; Group (⌘G) names neighbours as one
   item without changing a byte, and Ungroup (⇧⌘G) splits it again.
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
   the scrubber's point in the draw order, and a ghost actor shows whether a
   character would stand in front of the scene or behind it.
-- **Keep** saves the picture into the game. Each lens locks the other planes
-  until you unlock them, every change can be undone, even after Keep, and
-  leaving with unkept changes asks first.
+- **Keep** saves the picture into the game. Each lens locks painting on the
+  other planes until you unlock them, while a whole item moves with all its
+  planes; every change can be undone, even after Keep, and leaving with
+  unkept changes asks first.
 - **Test walks and doors** live in the Walk lens. A test walk runs the real game
   in a throwaway copy and reports Reached, Blocked at whatever was in the way,
   the room it went to, or the message that stopped it. A goal on a door box or
