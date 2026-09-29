@@ -602,9 +602,6 @@ watch(
         @update:debug-open="debugOpen = $event"
         @trigger-key="(code) => playArea?.triggerKey(code)"
         @export-zip="(project) => lib.onExportAgiZip(true, project)"
-        @start-over="
-          workspace.confirmStudioLeave().then((go) => (go ? lib.onStartOver() : undefined))
-        "
         @start-walkthrough="onStartWalkthrough"
         @developer-activity="openDeveloperActivity"
       >

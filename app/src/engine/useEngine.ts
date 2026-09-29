@@ -40,6 +40,8 @@ import { useStartOverNote } from "../history/useStartOverNote.ts";
 import { loadTapeOutline } from "../history/historyStorage.ts";
 import type { TransportModel } from "../history/useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
+import { createPauseHolds } from "./pauseHolds.ts";
+import { createStartOver } from "./startOver.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "../world/useRoomMap.ts";
 import type { WorkerInbound, WorkerQueryPayload } from "../worker/workerProtocol.ts";
@@ -193,6 +195,12 @@ export function useEngine(
     getActiveWalkthroughSession: () => activeWalkthroughSession,
     observationListeners,
     onBehindStorage: tellBehindStorage,
+  });
+  const { pauseEngine, resumeEngine, resetPauseOwners } = createPauseHolds({
+    post: (paused) =>
+      link.getWorker()?.postMessage({ type: "pause", paused } satisfies WorkerInbound),
+    audio,
+    state,
   });
 
   const input = useInputController({
@@ -417,42 +425,6 @@ export function useEngine(
   }
 
   /**
-   * Freeze / unfreeze the interpreter. Pause is an ordinary worker message:
-   * messages from one sender are delivered in order, so a pause posted before
-   * a query is always applied before the query is served — at most one more
-   * cycle runs first, and nobody reads state before the freeze lands. The
-   * worker's `paused` reply mirrors the real state into the test hook.
-   *
-   * Several overlays can hold the pause at once (map, remix bubble, history
-   * transport, AI settings). Each caller owns its hold: the freeze message
-   * goes out when the first owner parks, and the resume only when the last
-   * owner releases — nobody's pause ends while another is still open.
-   */
-  const pauseOwners = new Set<string>();
-
-  function pauseEngine(owner = "generic"): void {
-    if (pauseOwners.size === 0)
-      link.getWorker()?.postMessage({ type: "pause", paused: true } satisfies WorkerInbound);
-    pauseOwners.add(owner);
-    audio.setPaused(true);
-    state.paused = true;
-  }
-
-  function resumeEngine(owner = "generic"): void {
-    pauseOwners.delete(owner);
-    if (pauseOwners.size === 0) {
-      link.getWorker()?.postMessage({ type: "pause", paused: false } satisfies WorkerInbound);
-      audio.setPaused(false);
-      state.paused = false;
-    }
-  }
-
-  /** A replaced worker takes its freeze with it; no owner survives the swap. */
-  function resetPauseOwners(): void {
-    pauseOwners.clear();
-  }
-
-  /**
    * Play here: the live game jumps to a room with ego's baseline at (x, y),
    * keeping its flags (app/src/worker/playHere.ts). The jump runs under its
    * own pause hold; any other owner's hold keeps the game frozen after it.
@@ -468,33 +440,23 @@ export function useEngine(
 
   const { openPowerUp, closePowerUp, submitPowerUp } = authoringController;
 
-  /**
-   * Start over, and when the game's timeline already holds a session to go
-   * back to, the note that offers Undo start over. A running session is
-   * sealed first, as Exit seals it, so Undo returns to its last moment; the
-   * check then reads the tape before the fresh boot adds its own segment.
-   */
-  async function startOver(targetKey: string, config: LlmConfig): Promise<void> {
-    const running = lifecycle.getBootedGame() !== null ? link.getWorker() : null;
-    if (running) {
-      pauseEngine("startOver");
-      await lifecycle.sealHistory().catch((error: unknown) => {
-        logAgent("error", `Start over could not save the session's timeline: ${String(error)}`);
-      });
-    }
-    const earlier = await loadTapeOutline(targetKey)
-      .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
-      .catch(() => false);
-    // Only this tab knows the fresh boot it is about to make is a Start over.
-    historyView.expectStartOver();
-    await autosaveController.startOver(targetKey, config);
-    const rebooted = link.getWorker() !== running && state.phase !== "error";
-    if (!rebooted) historyView.expectStartOver(false);
-    // No boot replaced the sealed worker: it plays on under a new segment.
-    if (running && link.getWorker() === running) resumeEngine("startOver");
-    if (earlier && state.phase !== "error" && lifecycle.getBootedGame() !== null)
-      startOverNote.show();
-  }
+  const startOver = createStartOver({
+    state,
+    getBootedGame: lifecycle.getBootedGame,
+    getWorker: link.getWorker,
+    sealHistory: lifecycle.sealHistory,
+    drainHistoryCommits: historyController.drainHistoryCommits,
+    pauseEngine,
+    resumeEngine,
+    hasEarlierSession: (targetKey) =>
+      loadTapeOutline(targetKey)
+        .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
+        .catch(() => false),
+    // historyView is built below; the closure reads it once it exists.
+    expectStartOver: (expected) => historyView.expectStartOver(expected),
+    bootFresh: autosaveController.startOver,
+    showNote: startOverNote.show,
+  });
 
   /** Undo start over: back to where the earlier session ended. */
   async function undoStartOver(): Promise<boolean> {

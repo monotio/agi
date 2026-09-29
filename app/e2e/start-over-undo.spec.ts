@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { expect, reviewShot, test } from "./test.ts";
 import {
   isolateStorage,
+  openGameOptions,
   openLibraryActions,
   savedGameCard,
   textHook,
@@ -137,4 +138,93 @@ test("Undo after the game's own Start over returns to the exact moment it was us
   await expect.poll(async () => (await textHook(page)).egoX).toBe(stopped.egoX);
   const back = await textHook(page);
   expect([back.room, back.egoX, back.egoY]).toEqual([stopped.room, stopped.egoX, stopped.egoY]);
+});
+
+/** Storage refuses (true) or takes (false) this game's timeline writes. */
+async function refuseTimeline(page: Page, refuse: boolean): Promise<void> {
+  await page.evaluate((on) => {
+    const w = window as unknown as { refuseHistory?: boolean };
+    if (w.refuseHistory === undefined) {
+      const put = IDBObjectStore.prototype.put;
+      IDBObjectStore.prototype.put = function (value, key) {
+        if (w.refuseHistory && (value as { projectId?: string }).projectId?.startsWith("history/"))
+          throw new Error("Injected history write refusal");
+        return key === undefined ? put.call(this, value) : put.call(this, value, key);
+      };
+    }
+    w.refuseHistory = on;
+  }, refuse);
+}
+
+test("the game's Start over waits for an unsaved timeline, and Start over anyway goes without it @webkit-desktop", async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  await isolateStorage(page);
+  await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForCycles(page, 2);
+  const spawnX = (await textHook(page)).egoX;
+  const walkEastAndStop = async () => {
+    await page.getByTestId("input-line").focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(spawnX + 12);
+    await page.keyboard.press("ArrowRight");
+    await waitForCycles(page, 4);
+    const stopped = await textHook(page);
+    expect(stopped.room).toBe(1);
+    return stopped;
+  };
+  const startOver = async () => {
+    await openGameOptions(page, "settings-menu");
+    await page.getByTestId("btn-start-over").click();
+  };
+  const notice = page.getByTestId("start-over-history");
+  const refused = async (stopped: { room: number; egoX: number; egoY: number }) => {
+    await expect(notice.locator("p")).toHaveText(
+      "This session's rewind timeline is not saved yet, so Start over stopped. Your game is as you left it.",
+      { timeout: 15_000 },
+    );
+    // The game plays on where it was.
+    await waitForCycles(page, 2);
+    const here = await textHook(page);
+    expect([here.room, here.egoX, here.egoY]).toEqual([stopped.room, stopped.egoX, stopped.egoY]);
+  };
+
+  const stopped = await walkEastAndStop();
+  await refuseTimeline(page, true);
+  await startOver();
+  await refused(stopped);
+  await expect(page.getByTestId("start-over-note")).toHaveCount(0);
+  expect(
+    await notice.evaluate((el) => el.contains(document.activeElement)),
+    "the notice never takes focus",
+  ).toBe(false);
+  await reviewShot(page, "start-over-refused");
+
+  // Try again while storage still refuses: refused again.
+  await page.getByTestId("start-over-retry").click();
+  await expect(notice).toBeHidden();
+  await refused(stopped);
+  // Stay, from the keyboard.
+  await page.getByTestId("start-over-stay").focus();
+  await page.keyboard.press("Enter");
+  await expect(notice).toBeHidden();
+
+  // Start over anyway goes without the unsaved timeline.
+  await startOver();
+  await refused(stopped);
+  await page.getByTestId("start-over-anyway").click();
+  await expect.poll(async () => (await textHook(page)).egoX).toBe(spawnX);
+  await expect(notice).toBeHidden();
+
+  // Once storage takes the timeline again, Start over goes ahead.
+  const again = await walkEastAndStop();
+  expect(again.egoX).not.toBe(spawnX);
+  await refuseTimeline(page, false);
+  await startOver();
+  await expect.poll(async () => (await textHook(page)).egoX, { timeout: 20_000 }).toBe(spawnX);
+  await expect(notice).toBeHidden();
 });

@@ -210,7 +210,7 @@ function startCreating(templateId: string): void {
               role="menuitem"
               data-testid="btn-start-over-picker"
               title="Discard the autosave and play this game from the beginning"
-              @click="onStartOver"
+              @click="onStartOver()"
             >
               Start over
             </button>
