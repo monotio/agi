@@ -149,6 +149,9 @@ code, comments or documentation.
   non-string keys. No one-expression wrapper functions unless the name is a public
   contract.
 - Renderer and bytecode expectations are hand-computed, never snapshot-then-trust.
+- Name editor features with vendor-neutral terms: code intelligence, completion,
+  signature help and hover documentation. Avoid branded feature names in our
+  code, UI and documentation.
 - UI copy says plainly what a thing is or does. Headings and labels name it in one
   or two calm words; body text is brief and positive. The `plain-copy-*` ast-grep
   rules flag definitions by negation and dash asides.
