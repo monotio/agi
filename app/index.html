@@ -6,20 +6,27 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"
     />
+    <!-- The mark: the wordmark's cyan full stop. SVG where supported, PNG and
+         ICO for the rest, and a full-bleed tile for home screens. -->
     <link rel="icon" href="%BASE_URL%favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" href="%BASE_URL%favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" sizes="any" />
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
     <title>AGI IS HERE — Play. Create. Remix. | Monotio</title>
     <meta
       name="description"
       content="Adventure Game Interpreter. Create pixel adventures with AI, play AGI classics, and remix any world. Open source by Monotio."
     />
     <style>
+      /* Tokens load with the app (styles/tokens.css); the fallbacks paint the
+         page before it. A sans root keeps 1rem at the browser's 16px, which
+         the rem-based type tokens assume (a monospace root makes it 13px). */
       html,
       body {
         margin: 0;
-        background: #000;
-        color: #aaa;
-        font-family: monospace;
+        background: var(--surface-0, #070b0d);
+        color: var(--ink, #e6f1f2);
+        font-family: var(--font-sans, system-ui, sans-serif);
       }
       #app {
         display: flex;

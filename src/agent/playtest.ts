@@ -27,7 +27,7 @@ import {
   type NavigationOutcome,
 } from "./navigationController.ts";
 import { resourceSetHint } from "./authoringState.ts";
-import type { AgentSessionState, AgentToolResult } from "./tools.ts";
+import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
 
 const DEFAULT_CYCLES = 600;
 /** The most logic cycles one scenario may run: a playtest's cycleBudget or a step's ticks. */
@@ -603,7 +603,19 @@ function occlusionProbe(engine: Engine) {
 export function playtestRoom(
   state: AgentSessionState,
   args: Record<string, unknown>,
-  options: { setupImage?: Uint8Array; replay?: RecordedReplay } = {},
+  options: {
+    setupImage?: Uint8Array;
+    replay?: RecordedReplay;
+    /**
+     * Flags and variables written after boot, before the room is entered, so
+     * the room's entry logic sees them; the room is always re-entered. Host
+     * setup like the direct entry itself, not evidence a player gets there.
+     */
+    preset?: {
+      flags?: readonly { id: number; value: boolean }[];
+      vars?: readonly { id: number; value: number }[];
+    };
+  } = {},
 ): AgentToolResult {
   let simulation: Simulation | undefined;
   try {
@@ -611,6 +623,17 @@ export function playtestRoom(
     const setupImage = options.setupImage;
     const recording = options.replay ? validateRecordedReplay(options.replay) : null;
     if (recording && !setupImage) throw new Error("Recorded replay requires its setup image.");
+    const preset = options.preset;
+    if (preset && setupImage) throw new Error("A preset applies to a boot, not a setup image.");
+    const presetFlags = (preset?.flags ?? []).map(({ id, value }, index) => {
+      if (typeof value !== "boolean")
+        throw new Error(`preset.flags[${index}].value must be boolean.`);
+      return { id: integer(id, `preset.flags[${index}].id`, 0, 255), value };
+    });
+    const presetVars = (preset?.vars ?? []).map(({ id, value }, index) => ({
+      id: integer(id, `preset.vars[${index}].id`, 0, 255),
+      value: integer(value, `preset.vars[${index}].value`, 0, 255),
+    }));
     const steps = args["steps"] ?? [];
     if (!Array.isArray(steps) || steps.length > 256)
       throw new Error("steps must contain at most 256 actions.");
@@ -698,7 +721,9 @@ export function playtestRoom(
       engine.restoreImage(setupImage, { preservePresentation: Boolean(recording) });
     } else {
       simulation.tick();
-      if (engine.vars[0] !== room) {
+      for (const { id, value } of presetFlags) engine.flags[id] = value ? 1 : 0;
+      for (const { id, value } of presetVars) engine.vars[id] = value;
+      if (engine.vars[0] !== room || preset) {
         // This is explicit room setup, not evidence that a player can reach it.
         for (let i = 0; engine.modalKind && i < 8; i++) engine.ackPrint();
         if (engine.modalKind)
@@ -1134,8 +1159,11 @@ export function playtestRoom(
       if (assertions["printed"] != null) {
         if (typeof assertions["printed"] !== "string" || assertions["printed"].length > 200)
           throw new Error("expect.printed must be text of at most 200 characters.");
-        const wanted = assertions["printed"];
-        if (!simulation.messages.some((message) => message.includes(wanted))) {
+        // Line breaks and runs of spaces count as one space, as the recorder
+        // stores a printed message, so a window laid out with \n still matches.
+        const flat = (text: string) => text.replace(/\s+/g, " ");
+        const wanted = flat(assertions["printed"]);
+        if (!simulation.messages.some((message) => flat(message).includes(wanted))) {
           failures.push(
             `Expected a printed message containing ${JSON.stringify(wanted)}; none did.`,
           );

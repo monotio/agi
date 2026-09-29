@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,15 +10,17 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "e2e": "playwright test",
+    "e2e": "playwright test --grep-invert @perf",
+    "e2e:perf": "playwright test --grep @perf --workers=1",
     "e2e:phone": "playwright test --config playwright.phone.config.ts",
+    "e2e:webkit-desktop": "playwright test --config playwright.webkit.config.ts",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && vue-tsc --noEmit -p tsconfig.worker.json",
     "e2e:production": "playwright test --config playwright.production.config.ts",
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.127.0",
-    "openai": "^7.19.0",
+    "@anthropic-ai/sdk": "^0.128.0",
+    "openai": "^7.22.0",
     "three": "^0.186.0",
     "vue": "^3.5.43"
   },

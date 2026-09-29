@@ -1,0 +1,81 @@
+/*
+ * The one motion recipe. Things arrive; nothing bounces and nothing leaves
+ * with a show. Every entrance is a short fade plus a small move, timed by the
+ * tokens' --duration-* and --ease-out:
+ *
+ *   dialogs      fade and scale from 0.98 to 1        (UiDialog, every modal)
+ *   sheets       fade and slide 8px from their edge   (Settings, the Ask drawer)
+ *   menus        fade and move 2px from their trigger (ActionMenu)
+ *   toasts       slide 8px up into place              (UiToast)
+ *   attention    one soft ring pulse, once            (.ui-pulse-once)
+ *
+ * Components name these keyframes; nothing else defines entrance motion.
+ * Reduced motion: the tokens collapse every duration to zero, and the block
+ * at the end removes the animations outright so no frame starts displaced.
+ */
+
+@keyframes ui-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes ui-sheet-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@keyframes ui-sheet-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+@keyframes ui-sheet-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes ui-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+@keyframes ui-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--action-line);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+/* Every modal dialog, native or UiDialog, arrives the same way. A dialog
+   shown non-modally (the Settings sheet) is a sheet and names its own. */
+dialog:modal {
+  animation: ui-dialog-in var(--duration) var(--ease-out);
+}
+dialog:modal::backdrop {
+  animation: ui-fade-in var(--duration) var(--ease-out);
+}
+
+/* One ring pulse when something becomes ready to act on. */
+.ui-pulse-once {
+  animation: ui-pulse var(--duration-slow) var(--ease-out) 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog:modal,
+  dialog:modal::backdrop,
+  .ui-pulse-once {
+    animation: none !important;
+  }
+}

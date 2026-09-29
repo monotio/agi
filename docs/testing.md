@@ -22,8 +22,9 @@ enable the compatibility suites for that edition.
 Place a game's files in any subfolder under `games/`, such as `games/kq1/` or
 `games/kings-quest-1/`. Fixture discovery indexes games by content hash
 (SHA-256 of `WORDS.TOK`), so folder names are arbitrary. Fan-made and
-self-authored games with `WORDS.TOK` (or `METADATA.JSON`) are recognized and
-playable in tests and in the app. Development discovery recognizes AGI v2 split
+self-authored games are recognized by `WORDS.TOK` or `GAME.JSON` and playable
+in tests and in the app; a `METADATA.JSON` may supply a title and author for
+one the catalog does not know. Development discovery recognizes AGI v2 split
 directories and v3 combined directories; play them from the same **Your games**
 gallery as saved projects. Installed game folders are ignored by git and
 excluded from production builds.
@@ -36,19 +37,21 @@ clone's passing synthetic tests do not establish fixture compatibility. See
 [test/fixtures.ts](../test/fixtures.ts) for the shared checks and
 [test/game-fixture.ts](../test/game-fixture.ts) for loading resources.
 
-Commercial game data belongs in local fixtures, not contributions. AGI resource
+Commercial game data belongs in local fixtures. AGI resource
 filenames and original resources are welcome; provenance determines what can be
 included.
 
 **Editions on other platforms.** Editions of the same game on different
 platforms (DOS, Amiga, IIgs) share the `WORDS.TOK` vocabulary hash but ship
 their own `OBJECT`. The game catalog fingerprints a release by the
-`(WORDS.TOK, OBJECT)` pair, so a bare hash or alias query resolves to the
-catalogued PC edition (the release the tests and walkthroughs were verified
-against), while a port resolves to its own catalog entry through its own pair
-and stays reachable by folder name. Two installations of the same edition, or
-editions outside the catalog, still report an ambiguous query that asks for the
-fixture folder.
+`(WORDS.TOK, OBJECT)` pair, and a catalogued query resolves by that pair: a bare
+`WORDS.TOK` hash or PC alias finds only the catalogued PC edition (the release
+the tests and walkthroughs were verified against), a port alias such as
+`sq2-amiga` only the port, and a query skips when its edition is not installed,
+even when the other platform's files are present. Every edition also stays
+reachable by folder name. Two installations of the same edition, or editions
+outside the catalog, still report an ambiguous query that asks for the fixture
+folder.
 
 Platform ports ship the same containers under their own file names: Amiga v2
 releases use lowercase `logdir`, `vol.n`, `object` and `words.tok`, Amiga v3
@@ -106,12 +109,11 @@ resource readers still reject unavailable data if the scenario requests it.
 - **Donald Duck's Playground.** Supply DOS 1.50 resources and an interpreter.
   The opening test accepts the 2.272 and 2.440 profiles selected from the
   interpreter binary; it does not infer a profile from the game title. This
-  checks difficulty selection and movement, not whole-game conformance.
+  covers difficulty selection and movement.
   [ScummVM's release catalog](https://github.com/scummvm/scummvm/blob/master/engines/agi/detection_tables.h)
   identifies a 1.0C download containing Amiga resources packaged with a DOS
   interpreter. A title screen loading from that mixture does not establish DOS
-  compatibility; the static audit reports its format and opcode
-  inconsistencies.
+  compatibility; the static audit reports its format and opcode inconsistencies.
 - **Volumes the releases never shipped.** The local KQ4, MH2 and Gold Rush
   directory files match the
   [ScummVM detection fingerprints](https://github.com/scummvm/scummvm/blob/master/engines/agi/detection_tables.h)
@@ -120,14 +122,13 @@ resource readers still reject unavailable data if the scenario requests it.
   1988-12-22 3.5". The KQ4 directory indexes pictures 150–151 in a `KQ4VOL.6`
   and views 198–199 in a `KQ4VOL.7`; the MH2 directory indexes sounds 215–216 in
   an `MH2VOL.6`; the mh2-amiga `dirs` indexes picture 106 in a `VOL.15`. Those
-  volumes are absent from these releases' volume sets, so the entries are a
-  property of the matched directories rather than evidence of a damaged copy.
-  The strict volume check still reports them. Walkthrough tooling uses
-  `checkVolumes: "shipped"`, which exempts exactly those volumes for exactly
-  those directory hashes ([test/fixtures.ts](../test/fixtures.ts)); a route that
-  requests one of the six resources still fails at the load. A fingerprint
-  identifies the directory, not every volume byte, and does not show which
-  resources a playthrough requests.
+  volumes are absent from these releases' volume sets, so the entries come from
+  the matched directories themselves, as shipped. The strict volume check still
+  reports them. Walkthrough tooling uses `checkVolumes: "shipped"`, which
+  exempts exactly those volumes for exactly those directory hashes
+  ([test/fixtures.ts](../test/fixtures.ts)); a route that requests one of the
+  six resources still fails at the load. A fingerprint identifies the directory;
+  the volume bytes and the resources a playthrough requests lie outside it.
 - **3.002.149 handler comparison.** The handler comparison in
   `test/mh2-profile.test.ts` requires both 3.002.149 fixtures (`gr1` and `mh2`);
   its logic-reference test requires only `mh2`.
@@ -182,16 +183,16 @@ a nonzero exit.
   reliably.
 - A resource may be misindexed or unreferenced; an audit finding alone does not
   prove that a normal playthrough requests it. Compare matching original
-  directories and volumes before changing game data. The audit never repairs its
+  directories and volumes before changing game data. The audit only reads its
   inputs.
 
 The browser suite opens each documented fixture from the gallery and checks its
 profile, opening room and presented frame. Black Cauldron, Mother Goose and SQ2
-also replay their introductions through a player-controlled movement
-checkpoint; the corresponding engine routes run twice from a cold boot. Mother
-Goose must finish its arrival animation before movement counts. These checks
-establish their stated opening segments, not whole-game completion or a clean
-resource audit. Keep reports and captured game screenshots in the ignored
+also replay their introductions through a player-controlled movement checkpoint;
+the corresponding engine routes run twice from a cold boot. Mother Goose must
+finish its arrival animation before movement counts. These checks establish
+their stated opening segments; whole-game completion and the resource audit are
+separate checks. Keep reports and captured game screenshots in the ignored
 `.captures/` directory.
 
 ### Comparing with reference observations
@@ -223,19 +224,20 @@ word), `input` (a parser line), `save`/`restore` (a named local slot) or
 ```
 
 Use independently captured reference observations when assessing fidelity;
-repeating a seeded run checks reproducibility, not agreement with an original
-interpreter. Reusable scenario code and regression assertions belong in the
-test suite, gated by fixture availability. Keep captured saves, game resources,
-disassemblies, screenshots and transcripts with local fixtures.
+repeating a seeded run checks reproducibility, and agreement with an original
+interpreter needs its own reference observations. Reusable scenario code and
+regression assertions belong in the test suite, gated by fixture availability.
+Keep captured saves, game resources, disassemblies, screenshots and transcripts
+with local fixtures.
 
 ### Input and phone checks
 
 Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
 handling, held-key release ordering and modal input. Save-selector tests cover
 twelve slots, descriptions, cancellation, overwrite confirmation, signature
-filtering and failure outcomes. The browser supplies per-game storage instead of
-a DOS drive/path interface; exact platform dialog presentation and the
-completion of every game/version are not established by these checks.
+filtering and failure outcomes. Per-game browser storage stands in for the DOS
+drive/path interface; exact platform dialog presentation and the completion of
+every game/version are not established by these checks.
 
 Run `npm --prefix app run e2e -- phone-input.spec.ts movement-input.spec.ts game-controls.spec.ts`
 for synthetic browser input coverage. `npm --prefix app run e2e:phone` runs the
@@ -245,6 +247,13 @@ emulation does not emulate Samsung Keyboard or the iOS keyboard: verify device
 compatibility on physical Android and iPhone browsers with the keyboard open,
 rotation, interruption and save/restore. Full-game compatibility needs recorded
 completion runs on the specific game edition and interpreter profile.
+
+Desktop Studio runs in WebKit too: `npm --prefix app run e2e:webkit-desktop`
+(`app/playwright.webkit.config.ts`) runs the scenarios tagged `@webkit-desktop`,
+a Room Studio edit kept, reloaded and exported, an export reopened in a fresh
+browser, a mirrored cel repaired in Sprite Studio, a test walk with Play here,
+keyboard-only editing and the unkept-changes dialog. Tag a scenario by ending
+its title with `@webkit-desktop`; it runs from its existing spec.
 
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
@@ -319,7 +328,7 @@ incomplete ending fail the run. Completion requires all three royal treasures,
 159 points and the finished throne-room ending sequence. The JSON report
 defaults to `/tmp/agi-kq1-speedrun.json` (pass another path after
 `npm run prove:walkthrough -- kq1`); reports contain input events, resource
-hashes, checkpoints and the observed ending state, not game resources.
+hashes, checkpoints and the observed ending state, and no game resources.
 
 The browser command replays that report through actual desktop keys and phone
 controls in Chromium and WebKit, with only the test-mode host clock
@@ -336,15 +345,15 @@ After supplying the Manhunter: New York 3.002.107 fixture, run:
 npm run prove:walkthrough -- mh1
 ```
 
-The route in `test/speedrun/mh1.ts` plays all four days from the title screen
-to the closing card, using only the game's own inputs: arrow keys steer the
-cursor onto hotspots, Enter performs them, F3, C and Tab open the map, the MAD
-and the inventory, and name prompts are typed. The maze machine, the sewer
-network and the later arcade sequences are driven by fixed move lists recorded
-from the engine's own runs, so a changed engine behavior fails the replay
-instead of being routed around. `test/speedrun/mh2.ts` does the same for
-Manhunter 2's four days; its fixture's directory indexes two sounds in a volume
-the release never shipped, and no logic on the route loads them.
+The route in `test/speedrun/mh1.ts` plays all four days from the title screen to
+the closing card, using only the game's own inputs: arrow keys steer the cursor
+onto hotspots, Enter performs them, F3, C and Tab open the map, the MAD and the
+inventory, and name prompts are typed. The maze machine, the sewer network and
+the later arcade sequences are driven by fixed move lists recorded from the
+engine's own runs, so a changed engine behavior fails the replay.
+`test/speedrun/mh2.ts` does the same for Manhunter 2's four days; its fixture's
+directory indexes two sounds in a volume the release never shipped, and no logic
+on the route loads them.
 
 ### Route costs
 
@@ -370,7 +379,7 @@ these costs:
 | MH2                  |    148,362 |       27,590 |         27 |
 | Gold Rush            |    106,125 |       42,082 |         29 |
 | KQ4                  |    151,260 |       70,672 |         23 |
-| Adventure Department |      1,367 |           82 |          4 |
+| Adventure Department |      1,421 |          102 |          4 |
 
 The inexpensive [artifact quality check](../app/test/walkthrough-quality.test.ts)
 guards poll, cycle and action ceilings, duplicate/debug markers, and long gaps
@@ -410,10 +419,9 @@ compact example.
 
 Reusable route code and original regression tests can be contributed. Supply
 external game files locally as described under
-[Optional fixtures](#optional-fixtures); link to reference material rather than
-copying third-party walkthrough text or game resources into a test. See
-[Pull requests](../CONTRIBUTING.md#pull-requests) for contribution
-requirements.
+[Optional fixtures](#optional-fixtures); link to reference material, and keep
+third-party walkthrough text and game resources out of tests. See
+[Pull requests](../CONTRIBUTING.md#pull-requests) for contribution requirements.
 
 ## Walkthrough tools
 
@@ -486,9 +494,9 @@ controls, object bounds, target and candidate route.
 incremental executor used by detached playtests and `Speedrun.navigate`. It
 accepts position/region, explicit-waypoint and expected-room exit goals, emits
 ordinary player input and observes the real engine after each host poll. The
-host advances time and records inputs; frozen walkthrough playback never invokes
-the planner. Movement control is reported separately from parser availability.
-A terminal result and its counters describe the observed position. When ordinary
+host advances time and records inputs; frozen walkthrough playback runs without
+the planner. Movement control is reported separately from parser availability. A
+terminal result and its counters describe the observed position. When ordinary
 movement input is available, the stop key is consumed by the next input phase,
 not a direct direction-variable write. The synchronous `Speedrun` movement
 helpers also wait for that stop input phase within their remaining action and
@@ -517,15 +525,14 @@ normal inputs through the shared controller.
 
 `Speedrun.traverse` uses
 [`NavigationTraversal`](../src/agent/navigationTraversal.ts) for a declared
-approach, activation input, observed state change, passage and verified
-landing. An approach can finish on an explicit state predicate when a script
-takes over before the coordinate target. Each phase declares its geometry and
-trigger policy, while movement, polls, cycles, searches and replans share one
-allowance. Unknown prompts return `needs_input`; they are never acknowledged by
-the traversal. The optional [readiness tests](../test/navigation-readiness.test.ts)
-exercise KQ1's tree branch, KQ2's ladder and KQ3's staircase from ordinary
-inputs. Setup routes are separate from the single goal used for each tested
-crossing.
+approach, activation input, observed state change, passage and verified landing.
+An approach can finish on an explicit state predicate when a script takes over
+before the coordinate target. Each phase declares its geometry and trigger
+policy, while movement, polls, cycles, searches and replans share one allowance.
+Unknown prompts return `needs_input`, and the traversal leaves them unanswered.
+The optional [readiness tests](../test/navigation-readiness.test.ts) exercise
+KQ1's tree branch, KQ2's ladder and KQ3's staircase from ordinary inputs. Setup
+routes are separate from the single goal used for each tested crossing.
 
 ### Checkpoints and probes
 
@@ -538,8 +545,8 @@ simulation-poll ceilings. It reports polls, cycles, movement updates, elapsed
 time and omitted candidates; the returned branch can be retained without
 replaying the prefix. Callback code must terminate: poll ceilings do not
 interrupt arbitrary synchronous code. The retained input tape still needs
-independent cold-boot replay before publication. These checkpoints are process
-memory, not a durable session format.
+independent cold-boot replay before publication. These checkpoints live in
+process memory only.
 
 ### Writing robust routes
 
@@ -550,7 +557,7 @@ cycle-based random draws, so the two runs sit at different positions in the
 random stream. A route tuned to fixed tick counts or to one seed's luck can pass
 one host and fail the other. Drive chance from observed state instead: read the
 dealt cards or the wheel, scout alternatives with `fork()` or `probe()`, and
-wait on game state rather than on ticks. `type()` backspaces and retypes when a
+wait on game state. `type()` backspaces and retypes when a
 timed window swallows a letter mid-word.
 
 Static candidates do not predict arbitrary script hazards or prove a game can be
@@ -569,7 +576,7 @@ against current resources. Divergent or unconsumed calls fail the replay.
 `test/recording-replay.test.ts` and `app/e2e/game-test-recorder.spec.ts` verify
 this contract, including project export/import. Successful authoring mutations
 rerun affected tests conservatively; the verdict reports any tests not run.
-Stored tests travel only in project archives, never public game exports.
+Stored tests travel only in project archives.
 
 `read_game_tests` lists compact summaries or pages of editable JSON definitions;
 opaque snapshots and replay tapes stay out of model responses. Merge edits
@@ -579,12 +586,11 @@ its setup.
 
 ## World map
 
-The world map (**Help → Map**) merges three provenances that must stay
-distinct: **observed** transitions the live worker reported, **planned** rooms
-and exits from the authoring world, and **static** literal `new.room` targets
-found in logic resources. Restore, restart, re-entry and debug jumps are
-recorded in the journal but never drawn as exits; a variable target is an
-unknown exit, not a guess.
+The world map (**Help → Map**) merges three provenances that must stay distinct:
+**observed** transitions the live worker reported, **planned** rooms and exits
+from the authoring world, and **static** literal `new.room` targets found in
+logic resources. Restore, restart, re-entry and debug jumps are recorded in the
+journal and left off the exits; a variable target counts as an unknown exit.
 
 Coverage vocabulary is factual: a room is "visited" only when the journal saw
 it, "playtested" when a walkthrough checkpoint names it, and "validated by
@@ -599,7 +605,7 @@ in-degree is not reachability.
 | `app/e2e/world-map.spec.ts`     | The browser contract: pause ownership, imported static graphs, Watch from here, no provider request, phone layout, and measured open/select timings on a 256-room synthetic map |
 
 The sidecar (`MAP.JSON` in project archives, `monotio_agi.map.<key>` in storage)
-is validated by `app/src/roomMapStore.ts`; unknown versions read as empty.
+is validated by `app/src/world/roomMapStore.ts`; unknown versions read as empty.
 
 ## History and reference recovery
 
@@ -612,8 +618,7 @@ in both the desktop and phone configurations.
 
 `app/e2e/reference-art.spec.ts` checks reference uploads through actual provider
 request bodies using local stubs, including JPEG/WebP MIME types, pending
-composer attachments and explicit editing intent. It never calls paid
-providers.
+composer attachments and explicit editing intent. It calls no paid providers.
 
 The `app/e2e/history-bench.spec.ts` benchmark uses Chromium's Moto G4 emulation
 with 4× CPU throttling. Representative measurements:
@@ -627,18 +632,20 @@ with 4× CPU throttling. Representative measurements:
 | Near retention limit / append       |     0.9 ms |     1.3 ms |         12.6 KiB |   214.1 ms |
 | Near retention limit / whole record |   262.8 ms |   262.8 ms |      64405.5 KiB |          — |
 
-This is an emulation proxy, not physical-phone evidence. Reassembly measures
-`loadGameHistory`, not replay seeking. The near-limit whole-record comparison
-contains one representative commit; the append case contains 150. Heap delta
-was reported as zero and does not establish peak memory usage. All declared
-commit, write-size and reassembly budgets passed; seek latency and peak memory
-remain separate measurements.
+This is an emulation proxy for a phone. Reassembly measures `loadGameHistory`
+alone. The near-limit whole-record comparison contains one representative
+commit; the append case contains 150. Heap delta was reported as zero and does
+not establish peak memory usage. All declared commit, write-size and reassembly
+budgets passed; seek latency and peak memory remain separate measurements.
 
 ## Documentation captures
 
 The [media gallery](media/README.md) includes images returned by the actual
-agent tools and screenshots from browser tests, with source scenarios and
-reproduction commands. `scripts/capture-feedback.ts` generates tutorial feedback
-without a provider call. `app/playwright.capture.config.ts` records selected
-browser tests with original resources and mocked provider replies; generated
-recordings stay under `.captures/` until reviewed and edited.
+agent tools and screenshots of the app, with source scenarios and reproduction
+commands. `npm run media:capture` regenerates them: `app/e2e/media/docs.media.ts`
+drives the app in test mode with the stub provider and the app's own styles; the
+Play shot starts from the tutorial's recorded walkthrough, so its timeline reads
+the same on every run. `scripts/capture-feedback.ts` generates tutorial feedback without a provider
+call. `app/playwright.capture.config.ts` records selected browser tests with
+original resources and mocked provider replies; generated recordings stay under
+`.captures/` until reviewed and edited.

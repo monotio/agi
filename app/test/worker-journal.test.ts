@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
-import type { WorkerControl } from "../src/workerProtocol.ts";
+import type { WorkerControl } from "../src/worker/workerProtocol.ts";
 
 // Blue box — the same fixture bytes test/autosave uses.
 const PICTURE_1 = new Uint8Array([

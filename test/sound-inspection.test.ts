@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  createAgentSessionState,
-  executeAgentTool,
-  executeAgentToolAsync,
-} from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { ASK_TOOLS, executeAgentTool, executeAgentToolAsync } from "../src/agent/tools.ts";
 import { resourceCacheHint, validateAuthoringState } from "../src/agent/authoringState.ts";
 import {
   splitToolResult,
@@ -112,7 +109,7 @@ test("sound previews are read-only WAV attachments and provider requests keep on
     state,
     "preview_sound",
     { num: 5, startSeconds: 0, durationSeconds: 1, device: "tandy" },
-    { readOnly: true },
+    { allowedTools: ASK_TOOLS, readOnly: true },
   );
   assert.equal(result.success, true, result.error ?? "preview should succeed");
   assert.deepEqual(state.container.getResource("sound", 5), before);

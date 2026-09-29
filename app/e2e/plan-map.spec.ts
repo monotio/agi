@@ -4,8 +4,10 @@ import {
   isolateStorage,
   openCreateAdventure,
   openDeveloperActivity,
-  openGameOptions,
+  screenText,
   textHook,
+  waitForRoom,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 /**
@@ -31,18 +33,57 @@ async function createAdventure(page: Page): Promise<void> {
   await page.getByTestId("custom-adventure-input").fill("A small stub adventure.");
   await page.getByTestId("boot-game").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 }
 
 async function openMap(page: Page): Promise<void> {
-  await openGameOptions(page, "help-menu");
-  // The plan surface is the creator entry — "World map" is the player's
-  // discovered-rooms view and shows no plan.
+  // The plan surface is the creator entry — "Discovered" is the player's
+  // view and shows no plan.
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+}
+
+/**
+ * Type a parser command once the game is idle enough to hear it. A reply
+ * can surface a pass or two late — an entry print after new.room, the
+ * parser's refusal after an unmatched line — and a window that opens while
+ * a line is being typed spends the keystrokes on itself (the submitted line
+ * then sits in the worker's input queue behind the parked pass), so a lone
+ * `modal` check before typing races it. A parked window also freezes the
+ * interpreter's cycle counter, so require it to keep ticking for a few
+ * samples with no window open; every window that does surface gets an
+ * Enter and the count restarts.
+ */
+async function say(page: Page, text: string): Promise<void> {
+  const input = page.getByTestId("input-line");
+  await input.focus();
+  let lastCycle = -1;
+  let quietTicks = 0;
+  await expect
+    .poll(
+      async () => {
+        const hook = await textHook(page);
+        if (hook.paused) return "paused";
+        if (hook.modal !== null) {
+          await page.keyboard.press("Enter");
+          lastCycle = -1;
+          quietTicks = 0;
+          return "modal";
+        }
+        if (hook.cycle !== lastCycle) {
+          lastCycle = hook.cycle;
+          quietTicks += 1;
+        }
+        return quietTicks >= 3 ? "ready" : "ticking";
+      },
+      { timeout: 30_000, intervals: [100] },
+    )
+    .toBe("ready");
+  await input.fill(text);
+  await input.press("Enter");
 }
 
 test("a fresh create yields a playable room 1 and the planned map in one turn", async ({
@@ -64,9 +105,30 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
   await expect(page.getByTestId("map-room-1")).toBeVisible();
   await expect(page.getByTestId("map-room-2")).toContainText("The Hall");
   await expect(page.getByTestId("map-room-3")).toContainText("The Vault");
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("map-detail")).toContainText("planned");
   await page.screenshot({ path: "test-results/plan-map-created.png" });
+});
+
+test("Attach reference art opens the upload over the open world plan", async ({ page }) => {
+  await createAdventure(page);
+  await openMap(page);
+  await openWorldRoom(page.getByTestId("world-map"), 1);
+
+  // The map is a native modal on the top layer; a plain positioned overlay
+  // would land behind it. The upload must be a top-layer dialog itself.
+  await page.getByTestId("map-attach-reference").click();
+  const upload = page.getByTestId("reference-upload");
+  await expect(upload).toBeVisible();
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  expect(await upload.evaluate((element) => element.matches(":modal"))).toBe(true);
+  // Its first control holds focus while the map stays open beneath.
+  const uploadClose = upload.getByRole("button", { name: "Close", exact: true });
+  await expect(uploadClose).toBeFocused();
+
+  await uploadClose.click();
+  await expect(upload).toBeHidden();
+  await expect(page.getByTestId("world-map")).toBeVisible();
 });
 
 test("the player's world map shows walked rooms only — no plan, no controls", async ({ page }) => {
@@ -78,35 +140,38 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   // The player entry is the discovered view: room 1 was walked; rooms 2 and
   // 3 exist only in the creator's plan and must not appear — nor may any
   // plan affordance.
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   const map = page.getByTestId("world-map");
   await expect(map).toBeVisible();
   // The plan entry is the in-dialog switch — the player menu carries no
   // creator surface.
   await expect(page.getByTestId("btn-world-plan")).toBeVisible();
-  await expect(map).toContainText("World map");
+  await expect(map.getByRole("heading", { name: "Map" })).toBeVisible();
+  await expect(page.getByTestId("btn-world-discovered")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("map-room-1")).toBeVisible();
   await expect(page.getByTestId("map-room-2")).toHaveCount(0);
   await expect(page.getByTestId("map-room-3")).toHaveCount(0);
   await expect(map).not.toContainText("planned");
-  await expect(map).not.toContainText("named in logic");
+  await expect(map).not.toContainText("in code");
   await expect(page.getByTestId("map-add-room")).toHaveCount(0);
   // Even the visited room's detail carries no plan editor.
-  await page.getByTestId("map-room-1").click();
+  await openWorldRoom(page.getByTestId("world-map"), 1);
   await expect(page.getByTestId("plan-room-title")).toHaveCount(0);
   await page.screenshot({ path: "test-results/world-map-player.png" });
   await page.getByTestId("map-close").click();
 
   // The creator entry on the same session shows the full plan.
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
   await expect(map).toBeVisible();
-  await expect(map).toContainText("World plan");
+  await expect(page.getByTestId("btn-world-plan")).toHaveText("Plan");
+  await expect(page.getByTestId("btn-world-plan")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("map-room-2")).toContainText("The Hall");
   await expect(page.getByTestId("map-room-3")).toContainText("The Vault");
+  // The room picked earlier still shows; its list, with Add a room, is one step back.
+  await expect(map.getByTestId("map-detail")).toHaveAttribute("data-room", "1");
+  await map.getByTestId("world-all-rooms").click();
   await expect(page.getByTestId("map-add-room")).toBeVisible();
   await page.screenshot({ path: "test-results/world-map-creator.png" });
 });
@@ -117,7 +182,7 @@ test("editing a planned node and walking into it builds the edited version", asy
   // Rename the planned east neighbor and give it a brief — the edits commit
   // against the live world while the game is paused under the map.
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   const title = page.getByTestId("plan-room-title");
   await expect(title).toHaveValue("The Hall");
   await title.fill("The Gallery");
@@ -130,14 +195,7 @@ test("editing a planned node and walking into it builds the edited version", asy
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
   // Walk east into the unbuilt room: the just-in-time room turn authors it.
-  const input = page.getByTestId("input-line");
-  await input.focus();
-  if ((await textHook(page)).modal !== null) {
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  }
-  await input.fill("east");
-  await input.press("Enter");
+  await say(page, "east");
   await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
     timeout: 30_000,
   });
@@ -146,7 +204,7 @@ test("editing a planned node and walking into it builds the edited version", asy
   // World state kept the edits: the built node's plan entry still reads The
   // Gallery and its planned exits are the ones the player saw on the map.
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
   await expect(page.getByTestId("plan-room-brief")).toHaveValue("A long gallery of portraits.");
   await expect(page.getByTestId("map-detail")).toContainText("west");
@@ -172,7 +230,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   });
   await createAdventure(page);
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   const title = page.getByTestId("plan-room-title");
   await expect(title).toHaveValue("The Hall");
 
@@ -190,7 +248,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   await page.getByTestId("map-close").click();
   await expect(page.getByTestId("world-map")).toBeHidden();
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
   await expect(flag).toBeVisible();
 
@@ -201,7 +259,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   await page.getByTestId("map-plan-retry").click();
   await expect(flag).toBeHidden();
   const stored = await page.evaluate(async () => {
-    const { listCachedGames, loadAuthoredGame } = await import("/src/gameStorage.ts");
+    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     const id = listCachedGames()[0]!.projectId;
     const data = await loadAuthoredGame(id);
     const authoring = data?.authoringState?.["authoring"] as
@@ -216,7 +274,7 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   await page.getByTestId("btn-resume-cached").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
   await openMap(page);
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Gallery");
 });
 
@@ -228,7 +286,7 @@ test("the plan surface stays usable on a phone and under reduced motion", async 
 
   // The room list leads on a small screen; the plan editor is reachable.
   await expect(page.getByTestId("map-room-list")).toBeVisible();
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("plan-room-title")).toHaveValue("The Hall");
 
   // Nothing animates under reduced motion.
@@ -253,12 +311,12 @@ test("a running authored game extends from a planned map node", async ({ page })
   await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
     timeout: 30_000,
   });
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 
   await openMap(page);
 
   // Room 2 is in the plan but not yet authored: it offers "Build this room".
-  await page.getByTestId("map-room-2").click();
+  await openWorldRoom(page.getByTestId("world-map"), 2);
   const detail = page.getByTestId("map-detail");
   await expect(detail).toContainText("planned");
   await page.getByTestId("map-build-room").click();
@@ -274,14 +332,7 @@ test("a running authored game extends from a planned map node", async ({ page })
   await page.getByTestId("map-close").click();
   await expect(page.getByTestId("world-map")).toBeHidden();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
-  const input = page.getByTestId("input-line");
-  await input.focus();
-  if ((await textHook(page)).modal !== null) {
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  }
-  await input.fill("east");
-  await input.press("Enter");
+  await say(page, "east");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
 });
 
@@ -295,30 +346,24 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
     timeout: 30_000,
   });
-  await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(1);
-
-  const input = page.getByTestId("input-line");
-  const say = async (text: string) => {
-    await input.focus();
-    if ((await textHook(page)).modal !== null) {
-      await page.keyboard.press("Enter");
-      await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-    }
-    await input.fill(text);
-    await input.press("Enter");
-  };
+  await waitForRoom(page, 1, { coldBoot: true });
 
   // Walk east: room 2 authors just-in-time.
-  await say("east");
+  await say(page, "east");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(2);
 
-  // North is plan intent only — the compiled logic has no such route.
-  await say("north");
+  // North is plan intent only — the compiled logic has no such route, and
+  // the parser's refusal window is the proof the command was heard.
+  await say(page, "north");
+  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+  expect(await screenText(page)).toContain("Try LOOK, EAST or WEST.");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
   // Building the planned node rewrites room 2's logic in the same commit.
   await openMap(page);
-  await page.getByTestId("map-room-3").click();
+  await openWorldRoom(page.getByTestId("world-map"), 3);
   await expect(page.getByTestId("map-detail")).toContainText("planned");
   await page.getByTestId("map-build-room").click();
   await expect(page.getByTestId("agent-panel")).toContainText("authored room 3", {
@@ -331,10 +376,10 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
   // Ordinary input now crosses it — no teleport, no host-side rule.
-  await say("north");
+  await say(page, "north");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(3);
 
   // The return route the stub authored still works.
-  await say("west");
+  await say(page, "west");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 20_000 }).toBe(2);
 });

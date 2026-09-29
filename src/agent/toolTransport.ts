@@ -1,4 +1,5 @@
-import type { AgentToolImage, AgentToolResult, ToolDefinition } from "./tools.ts";
+import type { AgentToolImage, AgentToolResult } from "./agentState.ts";
+import type { ToolDefinition } from "./tools.ts";
 
 export interface ToolContent {
   text: string;
@@ -27,6 +28,15 @@ export type AnthropicToolBlock =
  */
 export const PROVIDER_IMAGE_BYTES = 7_500_000;
 export const PROVIDER_IMAGE_EDGE = 2000;
+
+/**
+ * Longest edge of a stored reference image; an upload is downscaled to it at
+ * intake. An AGI picture is 160x168, so 1024 keeps about six source pixels
+ * per game pixel for view_reference regions, and it is below the 1568 px
+ * Anthropic resizes to, so the model sees the stored pixels. A full view
+ * costs about 1,400 input tokens (width x height / 750).
+ */
+export const REFERENCE_WORKING_EDGE = 1024;
 
 /**
  * Serialized-character budget per `details` field. Larger fields move to the
@@ -203,8 +213,8 @@ export interface AnthropicToolDefinition {
  * constrained grammar with limits this catalog exceeds — numeric, string and
  * array constraints are rejected outright, at most 20 tools may be strict, at
  * most 16 parameters may be nullable or union-typed, and even 8 of these tools
- * overflow the compiled grammar (observed September 2026, e.g. request
- * req_011CekXFu7mEkGe69ybWwf5D). OpenAI strict mode keeps the same catalog.
+ * overflow the compiled grammar, observed against the live API. OpenAI
+ * strict mode keeps the same catalog.
  */
 export function anthropicToolDefinitions(
   tools: readonly ToolDefinition[],

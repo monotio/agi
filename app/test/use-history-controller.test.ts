@@ -8,8 +8,8 @@
 import { stampBoot } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { useHistoryController } from "../src/useHistoryController.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+import { useHistoryController } from "../src/history/useHistoryController.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 import type { HistoryBatch, HistoryBoot } from "../../src/agent/history.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -19,14 +19,14 @@ import {
   saveAuthoredGame,
   saveAuthoredGameWithLifetime,
   loadAuthoredGameWithHistoryLifetime,
-} from "../src/gameStorage.ts";
+} from "../src/project/gameStorage.ts";
 import {
   clearStagedOriginal,
   commitStagedOriginal,
   resolveStagedSwap,
   saveHistoryBookmark,
   stageRetainedOriginal,
-} from "../src/historyStorage.ts";
+} from "../src/history/historyStorage.ts";
 
 const records = installIndexedDbFixture();
 
@@ -160,7 +160,7 @@ test("a mid-session storage-key change migrates the tape instead of orphaning it
   assert.equal(state.historyUnsaved, null, "no batch is stranded by the key change");
 
   // The moved record holds the whole stream; a resend dedups under it.
-  const { loadGameHistory } = await import("../src/historyStorage.ts");
+  const { loadGameHistory } = await import("../src/history/historyStorage.ts");
   const moved = await loadGameHistory("hc-remix");
   assert.equal(moved?.segments.length, 1);
   assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: b(4) }), true);
@@ -404,6 +404,65 @@ test("a delayed first batch from a deleted game cannot join a recreated project"
     before,
     "stale metadata writers cannot touch the new lifetime",
   );
+});
+
+test("a removed game's timeline is not owed: nothing is retried or listed unsaved", async (t) => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  const id = testProjectId("hc-removed");
+  const lifetime = await saveAuthoredGameWithLifetime(id, {
+    title: "Removed",
+    provider: "stub",
+    model: "stub",
+    files: {},
+    words: [],
+  });
+  const booted: BootedGame = { ...game(id), historyLifetime: lifetime };
+  const state = {
+    historyPending: 0,
+    historyUnsaved: null as { batches: number; since: number } | null,
+  };
+  const controller = useHistoryController({
+    state,
+    getBootedGame: () => booted,
+    getProfile: () => "2.936",
+    logAgent: () => {},
+  });
+  const batch = (n: number): HistoryBatch => ({
+    segment: "sR.1",
+    batch: n,
+    seqStart: 0,
+    seqEnd: 0,
+    events: [],
+    marks: [],
+    sync: [],
+    ...(n === 1 ? { boot: BOOT } : {}),
+  });
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch(1) }), true);
+
+  // Another tab removes the game: its lifetime guard refuses the next batch,
+  // which would sit in the "saving is retrying" ledger for good.
+  await clearCachedGame(id);
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch(2) }), false);
+  assert.equal(state.historyUnsaved?.batches, 1);
+
+  // Once the game knows it was removed, nothing is owed or written.
+  booted.removed = true;
+  assert.equal(await controller.handleHistoryBatch({ epoch: 0, batch: batch(3) }), false);
+  assert.equal(state.historyUnsaved, null);
+  assert.equal(records.has(`history/${id}`), false);
 });
 
 test("an installed game records without a saved project body", async () => {

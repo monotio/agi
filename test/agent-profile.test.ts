@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openContainer } from "../src/container/container.ts";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { parseView, selectViewCel } from "../src/view/view.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 

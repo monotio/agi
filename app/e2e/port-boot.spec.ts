@@ -7,7 +7,7 @@ import { isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";
  * Browser-path proof that an Amiga or Apple IIgs edition boots under the
  * profile its own interpreter executable names — test/ports.test.ts covers
  * detection in Node, this covers the file set the app actually fetches. The
- * playable-file filter (isPlayableFileName in app/src/gameMetadata.ts) once
+ * playable-file filter (isPlayableFileName in app/src/project/gameMetadata.ts) once
  * dropped the hunk/SYS16 executables; the edition still resolved to the same
  * catalogued profile, but with "catalog" evidence instead of "binary", so
  * the kind is the assertion that catches that regression. The gallery card is

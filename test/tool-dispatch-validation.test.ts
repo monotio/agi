@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import {
   AGENT_TOOLS,
-  createAgentSessionState,
+  ASK_TOOLS,
   executeAgentTool,
   executeAgentToolAsync,
-  type AgentRuntimeDeps,
+  type AgentToolDeps,
 } from "../src/agent/tools.ts";
 
 test("every catalog tool rejects undeclared fields through both public dispatchers", async () => {
   for (const tool of AGENT_TOOLS) {
     const session = createAgentSessionState();
-    for (const execute of [executeAgentTool, executeAgentToolAsync]) {
-      const result = await execute(session, tool.name, { undeclared: true });
+    const every = { allowedTools: AGENT_TOOLS.map(({ name }) => name) };
+    for (const result of [
+      executeAgentTool(session, tool.name, { undeclared: true }),
+      await executeAgentToolAsync(session, tool.name, { undeclared: true }, every),
+    ]) {
       assert.equal(result.success, false, tool.name);
       assert.match(result.error ?? "", /^Invalid arguments for /, tool.name);
     }
@@ -38,8 +42,9 @@ for (const [name, args] of malformed) {
   for (const [label, input] of Object.entries(cases)) {
     test(`${name} rejects ${label} before accessing the live interpreter`, async () => {
       let reads = 0;
-      const deps: AgentRuntimeDeps = {
+      const deps: AgentToolDeps = {
         readOnly: true,
+        allowedTools: ASK_TOOLS,
         frames: {
           read() {
             reads++;

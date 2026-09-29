@@ -22,6 +22,14 @@ test("tutorial walking speed commands change movement without a modal", async ({
     await page.keyboard.press("ArrowRight");
     await waitForCycles(page, 2);
     expect(after.room).toBe(1);
+    // Walk back over the same floor, so a slow runner's overshoot never
+    // carries the next measurement off the room's east edge.
+    await page.keyboard.press("ArrowLeft");
+    await expect
+      .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+      .toBeLessThanOrEqual(before.egoX);
+    await page.keyboard.press("ArrowLeft");
+    await waitForCycles(page, 2);
     return (after.egoX - before.egoX) / (after.cycle - before.cycle);
   };
 
@@ -73,9 +81,13 @@ test("tutorial walls and three exhibits work through the real browser controls",
   await page.getByTestId("input-line").focus();
   await page.keyboard.press("ArrowUp");
   await waitForCycles(page, 55);
-  expect((await textHook(page)).egoY).toBe(126);
+  // The west wall's receding base stops the apprentice before the back wall.
+  expect((await textHook(page)).egoY).toBe(120);
   await page.keyboard.press("ArrowUp");
-  // The mural is painted from in front of the frame, so walk over first.
+  // The mural is painted from in front of the velvet rope, so step down and over.
+  await page.keyboard.press("ArrowDown");
+  await expect.poll(async () => (await textHook(page)).egoY).toBeGreaterThanOrEqual(130);
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowRight");
   await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThanOrEqual(60);
   await page.keyboard.press("ArrowRight");
@@ -92,6 +104,17 @@ test("tutorial walls and three exhibits work through the real browser controls",
   const leverBefore = await leverPixels(page);
   expect(leverBefore.brightRed).toBeGreaterThan(0);
   await page.screenshot({ path: test.info().outputPath("lab-lever-before.png"), fullPage: true });
+  // From the doorway the lever is out of reach; its plate's reach is x 26-56.
+  await command(page, "pull lever");
+  await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+  expect((await textHook(page)).rows.join(" ")).toContain("too far away");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+    .toBeGreaterThanOrEqual(28);
+  await page.keyboard.press("ArrowRight");
   await command(page, "pull lever");
   let leverDuring = leverBefore;
   await expect
@@ -121,6 +144,17 @@ test("tutorial walls and three exhibits work through the real browser controls",
   await expect.poll(async () => (await textHook(page)).room).toBe(3);
   await waitForCycles(page, 2);
   await page.screenshot({ path: test.info().outputPath("archive-before.png"), fullPage: true });
+  // From the doorway Felix is out of reach; his counter's reach is x 50-125.
+  await command(page, "fix priority");
+  await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+  expect((await textHook(page)).rows.join(" ")).toContain("too far away");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(async () => (await textHook(page)).egoX, { intervals: [20] })
+    .toBeGreaterThanOrEqual(52);
+  await page.keyboard.press("ArrowRight");
   await command(page, "fix priority");
   await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("priority");

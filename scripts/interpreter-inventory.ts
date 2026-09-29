@@ -143,7 +143,7 @@ export function inspectInterpreter(
   } else row.issues.push("Missing AGIDATA.OVL; overlay association unknown");
   const loaders = [...files.entries()]
     .filter(([name]) => /\.COM$/.test(name))
-    .sort(([a], [b]) => a.localeCompare(b));
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   row.loaders = loaders.map(([, file]) => identity(file.name, file.data));
   const raw = files.get("AGI");
   if (!raw) {
@@ -230,7 +230,7 @@ export function inventoryInterpreters(library: string) {
   if (!existsSync(library)) issues.push("Missing private fixture library");
   else
     for (const entry of readdirSync(library, { withFileTypes: true }).sort((a, b) =>
-      a.name.localeCompare(b.name),
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
     )) {
       if (
         !entry.isDirectory() &&

@@ -8,14 +8,16 @@
  * host image — runs the named cases, and reports cost, latency, cache
  * behavior and acceptance per run.
  *
- *   node --experimental-strip-types scripts/eval-remix.ts \
+ *   node --experimental-strip-types evals/remix-benchmark.ts \
  *     --game games/gr --case keys-help,recolor --provider openai --model gpt-6-astra \
- *     [--checkpoint autosave.bin] [--warm] [--repeats 3] [--out evals/results/remix]
+ *     --live --budget-usd 5 [--checkpoint autosave.bin] [--warm] [--repeats 3] [--out evals/results/remix]
  *
  * --warm runs the keyboard-help Ask first inside the same session so Remix
  * cases measure warm-prefix behavior; cold runs start a fresh session per
- * case. Live provider runs are billed to the key's account; --provider stub
- * exercises the whole harness offline.
+ * case. Live provider runs are billed to the key's account and need both
+ * --live and --budget-usd: each case gets the remaining allowance as its task
+ * budget and the runs stop once the cap is spent. --provider stub exercises
+ * the whole harness offline.
  */
 
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
@@ -26,6 +28,10 @@ import { AgentSession } from "../app/src/agent/agentSession.ts";
 import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
 import type { AgentFrame } from "../src/agent/frames.ts";
 import type { LlmConfig, LlmUsage } from "../app/src/agent/llmClient.ts";
+import { assertLiveRun } from "./lib/live-guard.ts";
+
+/** Below this remaining allowance no further run starts. */
+const MIN_RUN_USD = 0.01;
 
 interface BenchmarkCase {
   id: string;
@@ -83,6 +89,8 @@ interface Args {
   model?: string;
   effort?: LlmConfig["effort"];
   warm: boolean;
+  live: boolean;
+  budgetUsd?: number;
   repeats: number;
   out: string;
 }
@@ -93,6 +101,7 @@ function parseArgs(argv: string[]): Args {
     cases: [],
     provider: "stub",
     warm: false,
+    live: false,
     repeats: 1,
     out: "evals/results/remix",
   };
@@ -102,6 +111,10 @@ function parseArgs(argv: string[]): Args {
       args.warm = true;
       continue;
     }
+    if (key === "--live") {
+      args.live = true;
+      continue;
+    }
     const value = argv[++i];
     if (key === "--game") args.game = value!;
     else if (key === "--checkpoint") args.checkpoint = value!;
@@ -109,6 +122,7 @@ function parseArgs(argv: string[]): Args {
     else if (key === "--provider") args.provider = value!;
     else if (key === "--model") args.model = value!;
     else if (key === "--effort") args.effort = value as LlmConfig["effort"];
+    else if (key === "--budget-usd") args.budgetUsd = Number(value);
     else if (key === "--repeats") args.repeats = Number(value);
     else if (key === "--out") args.out = value!;
     else throw new Error(`Unknown option ${key}`);
@@ -119,6 +133,17 @@ function parseArgs(argv: string[]): Args {
   if (args.cases.length === 0 || args.cases.includes("all")) args.cases = Object.keys(CASES);
   for (const id of args.cases)
     if (!CASES[id]) throw new Error(`Unknown case ${id}; known: ${Object.keys(CASES).join(", ")}.`);
+  if (args.provider !== "stub") {
+    const model = args.model ?? DEFAULT_MODELS[args.provider as "openai" | "anthropic"];
+    if (!MODEL_CAPABILITIES[model]?.price)
+      throw new Error(`No price is known for ${model}, so --budget-usd could not be enforced.`);
+    args.budgetUsd = assertLiveRun({
+      live: args.live,
+      budgetUsd: args.budgetUsd,
+      plan: `the remix cases ${args.cases.join(", ")} on ${args.game} with ${args.provider} ${model}`,
+      offline: "--provider stub",
+    });
+  }
   return args;
 }
 
@@ -129,7 +154,7 @@ function loadGame(dir: string): Map<string, Uint8Array> {
   return files;
 }
 
-function configFor(args: Args): LlmConfig {
+function configFor(args: Args, budgetUsd?: number): LlmConfig {
   const provider = args.provider as LlmConfig["provider"];
   const apiKey =
     provider === "openai"
@@ -142,6 +167,7 @@ function configFor(args: Args): LlmConfig {
     apiKey,
     model: args.model ?? DEFAULT_MODELS[provider],
     ...(args.effort !== undefined ? { effort: args.effort } : {}),
+    ...(budgetUsd !== undefined ? { budgetUsd } : {}),
   };
 }
 
@@ -215,6 +241,7 @@ async function runCase(
   files: Map<string, Uint8Array>,
   args: Args,
   repeat: number,
+  allowance: number | undefined,
 ): Promise<{ report: RunReport; transcript: unknown }> {
   const telemetry: unknown[] = [];
   const calls: { tool: string; args: unknown }[] = [];
@@ -224,7 +251,7 @@ async function runCase(
   // each run its own buffers so a payload mutation can never reach the master.
   const runFiles = new Map([...files].map(([name, bytes]) => [name, new Uint8Array(bytes)]));
   const session = AgentSession.fromAuthoredData(
-    configFor(args),
+    configFor(args, allowance),
     (kind, _message, data) => {
       const details = data as Record<string, unknown> | undefined;
       if (kind === "telemetry") telemetry.push(details?.["telemetry"]);
@@ -357,6 +384,9 @@ async function main(): Promise<void> {
   if (!files.has("WORDS.TOK") || !files.has("OBJECT"))
     console.warn("warning: game directory has no WORDS.TOK/OBJECT; reads may be empty.");
   const reports: RunReport[] = [];
+  const skipped: { case: string; repeat: number; reason: string }[] = [];
+  const cap = args.budgetUsd ?? Infinity;
+  let spent = 0;
   const dir = join(
     args.out,
     `${new Date().toISOString().replace(/[:.]/g, "-")}-${args.provider}-${args.model ?? "default"}${args.warm ? "-warm" : ""}`,
@@ -364,7 +394,23 @@ async function main(): Promise<void> {
   mkdirSync(dir, { recursive: true });
   for (const id of args.cases) {
     for (let r = 0; r < args.repeats; r++) {
-      const { report, transcript } = await runCase(CASES[id]!, files, args, r + 1);
+      const remaining = cap - spent;
+      if (remaining < MIN_RUN_USD) {
+        skipped.push({
+          case: id,
+          repeat: r + 1,
+          reason: `budget spent ($${spent.toFixed(4)} of $${cap})`,
+        });
+        continue;
+      }
+      const { report, transcript } = await runCase(
+        CASES[id]!,
+        files,
+        args,
+        r + 1,
+        Number.isFinite(remaining) ? remaining : undefined,
+      );
+      spent += report.costUsd ?? 0;
       reports.push(report);
       writeFileSync(
         join(dir, `${report.case}-r${report.repeat}${report.warm ? "-warm" : ""}.transcript.json`),
@@ -383,7 +429,9 @@ async function main(): Promise<void> {
     provider: args.provider,
     model: configFor(args).model,
     warm: args.warm,
+    budgetUsd: Number.isFinite(cap) ? cap : null,
     runs: reports,
+    skipped,
     totals: {
       runs: reports.length,
       ok: reports.filter((r) => r.ok).length,

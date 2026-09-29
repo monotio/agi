@@ -9,7 +9,6 @@ playwright-report/
 *.pem
 *.key
 *.p12
-*.tsbuildinfo
 __pycache__/
 
 # Local game data of any name, files and directories alike; the original
@@ -24,3 +23,7 @@ games/*
 
 # Raw documentation screenshots, recordings and tool output.
 .captures/
+
+# Stryker mutation sandboxes and reports.
+.stryker-tmp/
+reports/

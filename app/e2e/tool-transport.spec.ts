@@ -29,7 +29,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     );
     await page.goto("/");
     const sizes = await page.evaluate(
-      async ({ vendor, toolsPath }) => {
+      async ({ vendor, toolsPath, agentStatePath }) => {
         const clientPath = "/src/agent/llmClient.ts";
         const client = await import(clientPath);
         const config = { provider: vendor, apiKey: "test-placeholder", model: "test" };
@@ -38,7 +38,8 @@ for (const provider of ["openai", "anthropic"] as const) {
             ? client.createOpenAiConversation(config)
             : client.createAnthropicConversation(config);
         const tools = await import(toolsPath);
-        const state = tools.createAgentSessionState();
+        const agentState = await import(agentStatePath);
+        const state = agentState.createAgentSessionState();
         const result = tools.executeAgentTool(state, "write_picture", {
           room: 1,
           source: "vis 1\nfill 0,0\nend",
@@ -73,6 +74,8 @@ for (const provider of ["openai", "anthropic"] as const) {
       {
         vendor: provider,
         toolsPath: "/@fs" + fileURLToPath(new URL("../../src/agent/tools.ts", import.meta.url)),
+        agentStatePath:
+          "/@fs" + fileURLToPath(new URL("../../src/agent/agentState.ts", import.meta.url)),
       },
     );
     expect(sizes).toBeGreaterThan(0);

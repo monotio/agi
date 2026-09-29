@@ -9,8 +9,7 @@
 
 import { CORE_AGENT_TOOLS } from "./coreToolDefinitions.ts";
 import { normalizeToolArguments, validateToolArguments } from "./schemaValidate.ts";
-import { AssemblerError, assembleLogic } from "../logic/assembler.ts";
-import { buildWordsTok, parseWordsTok, type WordEntry } from "../logic/words.ts";
+import { buildWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture, type PictureFillDiagnostic } from "../picture/renderer.ts";
 import {
   compilePictureSource,
@@ -32,19 +31,22 @@ import { viewFeedback } from "./viewFeedback.ts";
 import { normalizeAuthoredLogic } from "./logicText.ts";
 import { readInventoryObjects } from "./inventory.ts";
 import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
+import { resourceCacheHint, resourceSetHint } from "./authoringState.ts";
+import { AUTHORING_TOOLS } from "./authoringToolDefinitions.ts";
 import {
-  createAuthoringState,
-  resourceCacheHint,
-  resourceSetHint,
-  type AuthoringState,
-} from "./authoringState.ts";
-import {
-  AUTHORING_TOOLS,
   editableSource,
   executeAuthoringTool,
+  resolveSourceEdit,
   sourceContextRevision,
 } from "./authoringTools.ts";
 import { SPRITE_TOOLS, executeSpriteTool } from "./spriteTools.ts";
+import {
+  executeStudioAssistTool,
+  STUDIO_ASSIST_TOOL_NAMES,
+  STUDIO_ASSIST_TOOLS,
+  STUDIO_ONLY,
+  type StudioAssist,
+} from "./studioAssistTools.ts";
 import { compileViewSource, viewSourceWarnings } from "../view/viewSource.ts";
 import { SOUND_TOOLS, executeSoundTool } from "./soundTools.ts";
 import { PICTURE_TOOLS, executePictureTool } from "./pictureTools.ts";
@@ -57,6 +59,12 @@ import { ROOM_TOOLS, executeRoomTool } from "./roomTools.ts";
 import { verifyPlanConnections } from "./roomMap.ts";
 import { buildSound, type SoundNoteInput, type SoundTrackInput } from "./soundBuilder.ts";
 import { AUTHORING_GUIDE_TOOL, readAuthoringGuide } from "./authoringGuide.ts";
+import {
+  NO_REFERENCES,
+  VIEW_REFERENCE_TOOL,
+  viewReference,
+  type ReferenceSource,
+} from "./referenceTools.ts";
 import {
   GAME_TEST_TOOLS,
   executeGameTestTool,
@@ -74,14 +82,16 @@ import {
   type GameContainer,
   type ResourceKind,
 } from "../types.ts";
-import { createContainer } from "../container/container.ts";
-import {
-  detectProfile,
-  DEFAULT_V2_PROFILE,
-  type AgiProfile,
-  type ProfileId,
-} from "../runtime/profile.ts";
 import { describeKeyWord } from "../runtime/keys.ts";
+import {
+  assembleAuthoredLogic,
+  authoredLogicSource,
+  authoredPictureSource,
+  buildObjectFile,
+  type AgentSessionState,
+  type AgentToolImage,
+  type AgentToolResult,
+} from "./agentState.ts";
 import {
   FRAME_HEIGHT,
   FRAME_WIDTH,
@@ -107,172 +117,8 @@ export interface ToolDefinition {
   };
 }
 
-/**
- * A rendered image returned alongside a tool result. Provider-neutral on
- * purpose: the engine never knows whether it is talking to Anthropic content
- * blocks or OpenAI Responses items; the app's llmClient adapts.
- */
-export interface AgentToolImage {
-  /** Encoded image bytes; rendered tool images default to PNG. */
-  readonly png: Uint8Array;
-  readonly mime?: "image/png" | "image/jpeg" | "image/webp";
-  /** What the picture shows, for the accompanying text. */
-  readonly caption: string;
-}
-
-export interface AgentToolResult {
-  readonly success: boolean;
-  readonly error?: string | undefined;
-  readonly message?: string | undefined;
-  readonly adjustments?: readonly string[] | undefined;
-  readonly details?: Record<string, unknown> | undefined;
-  /** Images the model should look at. Adapted per provider by the caller. */
-  readonly images?: readonly AgentToolImage[] | undefined;
-  /** Local listening previews; provider adapters explicitly omit unsupported audio. */
-  readonly audio?: readonly AgentToolAudio[] | undefined;
-}
-
-export interface AgentToolAudio {
-  readonly wav: Uint8Array;
-  readonly mimeType: "audio/wav";
-  readonly caption: string;
-}
-
 export type { SoundNoteInput, SoundTrackInput } from "./soundBuilder.ts";
 export { buildSound, midiToAgiDivisor, parseNoteToMidi } from "./soundBuilder.ts";
-
-export interface AgentSourceStore {
-  logics: Map<number, string>;
-  /** Picture DSL source, keyed by picture number — what the agent wrote. */
-  pictures: Map<number, string>;
-  views: Map<number, BuildViewInput>;
-  words: Map<string, number>;
-  objects?: { name: string; startingRoom: number }[] | undefined;
-  sounds: Map<number, SoundTrackInput[]>;
-}
-
-export interface AgentSessionState {
-  authoring: AuthoringState;
-  readonly sources: AgentSourceStore;
-  readonly container: GameContainer;
-  readonly profile: AgiProfile;
-  wordsPayload?: Uint8Array | undefined;
-  objectPayload?: Uint8Array | undefined;
-  /** Stored game tests (TESTS.JSON) written this session; see gameTests.ts. */
-  testsPayload?: Uint8Array | undefined;
-  genesisComplete: boolean;
-  /**
-   * Full tool results evicted from the model-facing projection, retrievable by
-   * read_diagnostic for this session only. Shared across candidate forks;
-   * never serialized into files.
-   */
-  readonly diagnostics: Map<string, AgentToolResult>;
-  /**
-   * Reusable game-test verdicts keyed by resource-set + test-definition +
-   * profile + seed content identity. Session-scoped, shared across forks.
-   */
-  readonly testEvidence: Map<string, { outcome: unknown; result: AgentToolResult }>;
-  /**
-   * write_picture calls made per picture number this session. The harness
-   * reports the revision number for continuity across edits.
-   */
-  readonly pictureRounds: Map<number, number>;
-  getFiles(): Map<string, Uint8Array>;
-}
-
-const MESSAGE_KEY = "Avis Durgan";
-
-export function buildObjectFile(
-  items: readonly { name: string; startingRoom?: number | undefined }[],
-  profile: AgiProfile = DEFAULT_V2_PROFILE,
-  maximumDrawableObjectIndex = 255,
-): Uint8Array {
-  const header = profile.inventoryHeaderBytes;
-  const stride = profile.inventoryEntryBytes;
-  const tableSize = items.length * stride;
-  let totalNamesLen = 0;
-  for (const item of items) {
-    totalNamesLen += item.name.length + 1;
-  }
-  const plain = new Uint8Array(header + tableSize + totalNamesLen);
-  plain[0] = tableSize & 0xff;
-  plain[1] = (tableSize >> 8) & 0xff;
-  // The drawable-object index lives in header bytes 2..3 where the header has
-  // room (PC one byte, Amiga u16le); the two-byte 2.001 header omits it.
-  if (header >= 3) {
-    plain[2] = maximumDrawableObjectIndex & 0xff;
-    if (header === 4) plain[3] = (maximumDrawableObjectIndex >> 8) & 0xff;
-  }
-
-  let currentOffset = tableSize;
-  let poolAt = header + tableSize;
-
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]!;
-    const entryAt = header + i * stride;
-    plain[entryAt] = currentOffset & 0xff;
-    plain[entryAt + 1] = (currentOffset >> 8) & 0xff;
-    plain[entryAt + 2] = (item.startingRoom ?? 0) & 0xff;
-
-    for (let c = 0; c < item.name.length; c++) {
-      plain[poolAt++] = item.name.charCodeAt(c);
-    }
-    plain[poolAt++] = 0;
-    currentOffset += item.name.length + 1;
-  }
-
-  if (!profile.inventoryMetadataEncrypted) return plain;
-  const encrypted = new Uint8Array(plain.length);
-  for (let i = 0; i < plain.length; i++) {
-    encrypted[i] = plain[i]! ^ MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length);
-  }
-  return encrypted;
-}
-
-/**
- * `profile` is the game's interpreter override, when the player chose one;
- * without it the profile is detected from the container's files.
- */
-export function createAgentSessionState(
-  existingContainer?: GameContainer,
-  profile?: ProfileId | AgiProfile,
-): AgentSessionState {
-  const container = existingContainer ?? createContainer();
-  if (!existingContainer) container.putFile("OBJECT", buildObjectFile([]));
-  const dictionary = container.files.get("WORDS.TOK");
-  const wordsPayload: Uint8Array | undefined = undefined;
-  const objectPayload: Uint8Array | undefined = undefined;
-  return {
-    authoring: createAuthoringState(),
-    sources: {
-      logics: new Map(),
-      pictures: new Map(),
-      views: new Map(),
-      words: new Map(dictionary ? parseWordsTok(dictionary).map(({ word, id }) => [word, id]) : []),
-      sounds: new Map(),
-    },
-    container,
-    profile: detectProfile(container.files, profile),
-    wordsPayload,
-    objectPayload,
-    testsPayload: undefined,
-    genesisComplete: false,
-    diagnostics: new Map<string, AgentToolResult>(),
-    testEvidence: new Map<string, { outcome: unknown; result: AgentToolResult }>(),
-    pictureRounds: new Map<number, number>(),
-    getFiles() {
-      const files = new Map<string, Uint8Array>(container.files);
-      if (this.wordsPayload) {
-        files.set("WORDS.TOK", this.wordsPayload);
-      }
-      if (this.objectPayload) {
-        files.set("OBJECT", this.objectPayload);
-      }
-      if (this.testsPayload) files.set("TESTS.JSON", this.testsPayload);
-      return files;
-    },
-  };
-}
 
 /** Shared JSON Schemas: OpenAI uses strict mode; Anthropic uses non-strict transport. */
 export const AGENT_TOOLS: readonly ToolDefinition[] = [
@@ -285,7 +131,18 @@ export const AGENT_TOOLS: readonly ToolDefinition[] = [
   AUTHORING_GUIDE_TOOL,
   ...GAME_TEST_TOOLS,
   ...CORE_AGENT_TOOLS,
+  ...STUDIO_ASSIST_TOOLS,
+  VIEW_REFERENCE_TOOL,
 ];
+
+/**
+ * Every tool except the Studio assist tools: the availability of Genesis,
+ * room authoring and Remix. The studio tools need a creator's selection and
+ * are refused wherever no StudioAssist is attached.
+ */
+export const AUTHORING_TOOL_NAMES: readonly string[] = AGENT_TOOLS.map((tool) => tool.name).filter(
+  (name) => !STUDIO_ASSIST_TOOL_NAMES.includes(name),
+);
 
 const STANDARD_NAV_WORDS = [
   "look",
@@ -551,6 +408,21 @@ function readDiagnostic(
   };
 }
 
+/** edit_resource_source compiles its patched text through the ordinary logic or picture writer. */
+function executeSourceEdit(
+  session: AgentSessionState,
+  name: string,
+  args: Record<string, unknown>,
+): AgentToolResult | undefined {
+  if (name !== "edit_resource_source") return undefined;
+  const edit = resolveSourceEdit(session, args);
+  if ("success" in edit) return edit;
+  return executeAgentTool(session, edit.kind === "logic" ? "write_logic_source" : "write_picture", {
+    room: edit.num,
+    source: edit.source,
+  });
+}
+
 /** Internal dispatch for arguments already normalized and checked against the catalog. */
 function executeValidatedAgentTool(
   session: AgentSessionState,
@@ -559,6 +431,10 @@ function executeValidatedAgentTool(
   /** Ask-mode context: withhold creator intent. */
   readOnly = false,
 ): AgentToolResult {
+  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
+    return { success: false, error: `'${name}' ${STUDIO_ONLY}` };
+  // Reference pixels come from the host's source, which only the async dispatcher carries.
+  if (name === "view_reference") return { success: false, error: NO_REFERENCES };
   if (name === "read_command_reference") return readCommandReference(session.profile, args);
   if (name === "read_authoring_guide") return readAuthoringGuide(args);
   if (name === "read_diagnostic") return readDiagnostic(session, args);
@@ -582,6 +458,7 @@ function executeValidatedAgentTool(
   }
   try {
     result =
+      executeSourceEdit(session, name, args) ??
       executeAuthoringTool(session, name, args) ??
       executeSpriteTool(session, name, args) ??
       executeSoundTool(session, name, args) ??
@@ -1577,8 +1454,9 @@ function executeLegacyTool(
  * frames plus playtest_room's live checkpoint — read the INTERPRETER, which
  * lives in a Web Worker and answers asynchronously. The synchronous
  * `executeAgentTool` above cannot reach it, so the host passes these in to
- * `executeAgentToolAsync`. With no deps attached a section fails with a clear
- * message. The host selects the tools available during each phase.
+ * `executeAgentToolAsync`. With no source attached a section fails with a
+ * clear message. Which tools a task may run is not a source: each task names
+ * its list in AgentToolDeps.
  */
 export interface AgentRuntimeDeps {
   /**
@@ -1587,8 +1465,6 @@ export interface AgentRuntimeDeps {
    * read_room_context carries no plan entry.
    */
   readonly readOnly?: boolean;
-  /** Phase availability policy: names outside the list are denied before dispatch. */
-  readonly allowedTools?: readonly string[];
   readonly frames?: FrameSource | undefined;
   readonly engine?: EngineStateSource | undefined;
   /** Captures the paused interpreter's resumable image, or null when it cannot. */
@@ -1599,6 +1475,32 @@ export interface AgentRuntimeDeps {
    * claim.
    */
   readonly roomNotes?: ((room: number) => readonly string[]) | undefined;
+  /**
+   * A Studio assist request's selection, draft and candidate slot. Only with
+   * it do the Studio assist tools run; see studioAssistTools.ts.
+   */
+  readonly studio?: StudioAssist | undefined;
+  /**
+   * The reference art this task may view (referenceTools.ts). Without it
+   * view_reference refuses, and withReferences leaves it off the task's list.
+   */
+  readonly references?: ReferenceSource | undefined;
+  /**
+   * The project's reference art for a turn, with the images of the stored
+   * references the player attached (by record id) marked attached. The
+   * session resolves it into `references` when a turn starts.
+   */
+  readonly referenceArt?:
+    ((attached: readonly string[]) => Promise<ReferenceSource | undefined>) | undefined;
+}
+
+/**
+ * What one tool call dispatches with: the host's live sources plus the
+ * task's availability policy. The list is required — a task that names no
+ * tools may run none — and names outside it are denied before dispatch.
+ */
+export interface AgentToolDeps extends AgentRuntimeDeps {
+  readonly allowedTools: readonly string[];
 }
 
 /**
@@ -1631,69 +1533,41 @@ const NO_LIVE_GAME =
   "No live game is attached to this session, so live inspection is unavailable. Use read_logic, read_picture and inspect_world_bible instead.";
 
 /**
- * The picture text the agent wrote this session, only while it still compiles to
- * the stored resource bytes. An imported or stale source that disagrees with the
- * container is ignored so reads and edits never resurrect discarded work.
+ * Genesis: the whole authoring catalog except the Studio tools, which need a
+ * creator's selection. The three writing tasks share one list so the
+ * advertised catalog stays stable across phases for prompt-cache reuse; each
+ * keeps its own name, so narrowing one is a deliberate edit here. Each list
+ * includes view_reference; a turn without reference art drops it
+ * (withReferences).
  */
-export function authoredPictureSource(session: AgentSessionState, num: number): string | undefined {
-  const authored = session.sources.pictures.get(num);
-  const payload = session.container.getResource("picture", num);
-  if (authored === undefined || !payload) return undefined;
-  try {
-    const compiled = compilePictureSource(authored, { profile: session.profile }).bytes;
-    if (compiled.length !== payload.length) return undefined;
-    for (let index = 0; index < compiled.length; index++)
-      if (compiled[index] !== payload[index]) return undefined;
-    return authored;
-  } catch {
-    return undefined;
-  }
-}
+export const GENESIS_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
+
+/** Room writing (a just-in-time room, a map build): the Genesis catalog. */
+export const ROOM_AUTHORING_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
+
+/** Remix: the Genesis catalog, staged and committed by the host's verdict. */
+export const REMIX_TOOLS: readonly string[] = AUTHORING_TOOL_NAMES;
 
 /**
- * Assemble logic the agent wrote, with its named bindings. The bindings the
- * source does not define itself are prepended as #define lines; an error
- * position is mapped back to the agent's own line, which is what it reads.
+ * A Studio assist task: the Studio tools plus read-only inspection.
+ * Everything else is denied before dispatch.
  */
-function assembleAuthoredLogic(session: AgentSessionState, source: string) {
-  const defined = new Set([...source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]));
-  const prelude = Object.entries(session.authoring.bindings)
-    .filter(([name]) => !defined.has(name))
-    .map(([name, binding]) => `#define ${name} ${binding.num}`);
-  try {
-    return assembleLogic(prelude.length ? `${prelude.join("\n")}\n${source}` : source, {
-      dictionary: session.sources.words,
-      profile: session.profile,
-    });
-  } catch (error) {
-    if (!(error instanceof AssemblerError) || error.line <= prelude.length) throw error;
-    const detail = error.message.slice(`${error.line}:${error.col}: `.length);
-    throw new AssemblerError(detail, error.line - prelude.length, error.col);
-  }
-}
-
-/**
- * The logic text the agent wrote this session, only while it still compiles to
- * the stored resource bytes.
- */
-export function authoredLogicSource(session: AgentSessionState, num: number): string | undefined {
-  const authored = session.sources.logics.get(num);
-  const payload = session.container.getResource("logic", num);
-  if (authored === undefined || !payload) return undefined;
-  try {
-    const compiled = assembleAuthoredLogic(session, authored).payload;
-    if (compiled.length !== payload.length) return undefined;
-    for (let index = 0; index < compiled.length; index++)
-      if (compiled[index] !== payload[index]) return undefined;
-    return authored;
-  } catch {
-    return undefined;
-  }
-}
+export const STUDIO_ASSIST_TASK_TOOLS: readonly string[] = [
+  ...STUDIO_ASSIST_TOOL_NAMES,
+  "read_picture",
+  "read_view",
+  "read_logic",
+  "read_words",
+  "read_command_reference",
+  "read_authoring_guide",
+  "read_diagnostic",
+  "view_reference",
+];
 
 /** Explicit capabilities for a discussion turn; new tools require deliberate approval here. */
 export const ASK_TOOLS: readonly string[] = [
   "read_room_context",
+  "view_reference",
   "read_diagnostic",
   "read_picture",
   "read_logic",
@@ -1708,6 +1582,17 @@ export const ASK_TOOLS: readonly string[] = [
   "inspect_world_bible",
   "playtest_room",
 ];
+
+/**
+ * A task's list for one turn: view_reference only when the turn has
+ * reference art to view. Every other name is unchanged.
+ */
+export function withReferences(
+  list: readonly string[],
+  references: ReferenceSource | undefined,
+): readonly string[] {
+  return references?.art.length ? list : list.filter((name) => name !== "view_reference");
+}
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const n = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
@@ -1797,22 +1682,29 @@ export async function executeAgentToolAsync(
   session: AgentSessionState,
   name: string,
   args: Record<string, unknown>,
-  deps?: AgentRuntimeDeps,
+  deps: AgentToolDeps,
 ): Promise<AgentToolResult> {
-  if (deps?.allowedTools && !deps.allowedTools.includes(name))
-    return {
-      success: false,
-      error: `'${name}' is not available in this phase of the session.`,
-    };
+  // Ask's own wording first: the player can switch to Remix for a change.
   if (deps?.readOnly && !ASK_TOOLS.includes(name))
     return {
       success: false,
       error:
         "Ask mode is read-only. Explain the proposed change; the player can switch to Remix to apply it.",
     };
+  // Deny by default: a caller that names no list (untyped JavaScript) runs nothing.
+  if (!Array.isArray(deps?.allowedTools) || !deps.allowedTools.includes(name))
+    return {
+      success: false,
+      error: `'${name}' is not available in this phase of the session.`,
+    };
   const call = prepareAgentToolCall(name, args);
   if (!call.success) return call;
   args = call.args;
+  if (STUDIO_ASSIST_TOOL_NAMES.includes(name))
+    return deps?.studio
+      ? executeStudioAssistTool(session, deps.studio, name, args)!
+      : { success: false, error: `'${name}' ${STUDIO_ONLY}` };
+  if (name === "view_reference") return viewReference(deps.references, args);
   if (name === "read_room_context") {
     const stateArg = args["state"] as Record<string, unknown> | null | undefined;
     const framesArg = args["frames"] as Record<string, unknown> | null | undefined;

@@ -6,20 +6,38 @@ import { AgentRun } from "./agentRun.ts";
  */
 
 import {
-  AGENT_TOOLS,
+  createAgentSessionState,
+  type AgentSessionState,
+  type AgentSourceStore,
+  type AgentToolImage,
+  type AgentToolResult,
+} from "../../../src/agent/agentState.ts";
+import {
   ASK_TOOLS,
   buildSound,
   type SoundTrackInput,
-  createAgentSessionState,
   executeAgentTool,
   executeAgentToolAsync,
+  GENESIS_TOOLS,
+  REMIX_TOOLS,
+  ROOM_AUTHORING_TOOLS,
+  STUDIO_ASSIST_TASK_TOOLS,
+  withReferences,
   type AgentRuntimeDeps,
-  type AgentSessionState,
-  type AgentToolImage,
-  type AgentToolResult,
+  type AgentToolDeps,
 } from "../../../src/agent/tools.ts";
+import {
+  createReferenceWatch,
+  referenceManifest,
+  type ReferenceArt,
+  type ReferenceSource,
+} from "../../../src/agent/referenceTools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { resourceSetHint, validateAuthoringState } from "../../../src/agent/authoringState.ts";
+import {
+  resourceSetHint,
+  validateAuthoringState,
+  type AuthoringState,
+} from "../../../src/agent/authoringState.ts";
 import {
   adoptTurnState,
   forkAgentState,
@@ -56,14 +74,23 @@ import {
   type LlmTurnResult,
 } from "./llmClient.ts";
 import { GAME_DICTIONARY, StubAgent } from "./stubAgent.ts";
+import { createReferenceStub } from "./referenceStub.ts";
+import {
+  createStudioAssistPrompt,
+  createStudioAssistStub,
+  MAX_STUDIO_ROUNDS,
+  type StudioAssistRequest,
+  type StudioAssistResult,
+} from "./studioAssist.ts";
+import { createStudioAssist } from "../../../src/agent/studioAssistTools.ts";
 import { projectToolResult } from "../../../src/agent/toolTransport.ts";
 import { runGameTests } from "../../../src/agent/gameTests.ts";
 import { verifyPlanConnections } from "../../../src/agent/roomMap.ts";
 import type { AgentEventSink, AgentHandler, LlmRequest } from "./hostRequests.ts";
-import { continuationTranscript } from "../projectArchive.ts";
+import { continuationTranscript } from "../archive/projectArchive.ts";
 
 /** Resource the remix turn wrote and the host must patch into the live game. */
-export interface PatchedResource {
+interface PatchedResource {
   kind: "logic" | "picture" | "view" | "sound";
   num: number;
   payload: Uint8Array;
@@ -79,14 +106,31 @@ export interface PowerUpResult {
   files?: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
 }
 
-/** Tools active during Genesis and Room Authoring. Stable across both phases for prompt cache reuse. */
-const AUTHORING_SESSION_TOOLS = AGENT_TOOLS.map((tool) => tool.name);
-
 export interface BootResources {
   files: Record<string, Uint8Array>;
   words: [string, number][];
   transcript?: unknown[] | undefined;
   sessionId?: string | undefined;
+}
+
+/** What a player turn carries besides its text. */
+export interface TurnReferences {
+  /** Stored reference records the player attached to this request. */
+  readonly referenceIds?: readonly string[] | undefined;
+  /**
+   * Full images in the request, the way references travelled before
+   * handles. Only the reference eval's comparison arm passes them
+   * (evals/reference-benchmark.ts).
+   */
+  readonly legacyImages?: readonly AgentToolImage[] | undefined;
+}
+
+/** A turn's reference art: what its tools may view and what its request carries. */
+interface ReferenceTurn {
+  readonly references: ReferenceSource | undefined;
+  /** The manifest, prefixed to the request text; empty when none rides it. */
+  readonly text: string;
+  readonly images: AgentToolImage[] | undefined;
 }
 
 export interface AgentChatMessage {
@@ -98,7 +142,7 @@ export interface AgentChatMessage {
  * The remix user turn. A tail appended to the transcript, never an edit of
  * the cached system prefix.
  */
-export function createPowerUpPrompt(instruction: string, room: number): string {
+function createPowerUpPrompt(instruction: string, room: number): string {
   return `### LIVE PATCH REQUEST
 
 The world is frozen at a cycle boundary in room ${room}, and the player has asked for a change:
@@ -248,6 +292,8 @@ export class AgentSession implements AgentHandler {
   /** Context is attached to the first submitted request, never sent on panel open. */
   private oriented = false;
   private orientation: Pick<OrientationInput, "game" | "profile"> | undefined;
+  /** The reference ids the last manifest this session sent listed. */
+  private manifestKey = "";
 
   constructor(
     config: LlmConfig,
@@ -282,6 +328,9 @@ export class AgentSession implements AgentHandler {
         this.task,
       );
       this.stubFallback = null;
+    } else if (config.provider === "stub" && config.stubScript) {
+      this.conversation = createReferenceStub(config.stubScript);
+      this.stubFallback = null;
     } else if (config.provider === "stub") {
       this.conversation = null;
       this.stubFallback = new StubAgent(onEvent);
@@ -299,20 +348,16 @@ export class AgentSession implements AgentHandler {
     this.runtime = deps;
   }
 
-  runAsk(question: string, room: number, images?: readonly AgentToolImage[]): Promise<string> {
-    return this.task.run(() => this.ask(question, room, images));
+  runAsk(question: string, room: number, attachments?: TurnReferences): Promise<string> {
+    return this.task.run(() => this.ask(question, room, attachments));
   }
-  private async ask(
-    question: string,
-    room: number,
-    images?: readonly AgentToolImage[],
-  ): Promise<string> {
+  private async ask(question: string, room: number, attachments?: TurnReferences): Promise<string> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: question });
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
-    const context = await this.orientationContext(room);
+    const context = await this.orientationContext(room, ASK_TOOLS, true);
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
@@ -322,7 +367,7 @@ export class AgentSession implements AgentHandler {
           state: { compact: true, variables: null, flags: null },
           frames: null,
         },
-        { ...this.runtime, readOnly: true },
+        { ...this.runtime, readOnly: true, allowedTools: ASK_TOOLS },
       );
       const text = result.success
         ? `You are in room ${room}. This test provider can inspect the game; connect a model for hints and debugging.`
@@ -331,17 +376,20 @@ export class AgentSession implements AgentHandler {
       this.messages.push({ role: "assistant", text });
       return text;
     }
-    this.conversation.setAvailableTools(ASK_TOOLS);
+    const art = await this.referenceTurn(attachments);
+    const tools = withReferences(ASK_TOOLS, art.references);
+    this.conversation.setAvailableTools(tools);
     const inspected = forkAgentState(this.state);
+    const watch = createReferenceWatch(art.references);
     try {
       let turn = await this.observeTurn(
         this.conversation.sendUserMessage(
-          `${context}### ASK REQUEST
+          `${context}${art.text}### ASK REQUEST
 The game is paused in room ${room}. This turn is a read-only conversation, not a request to edit.
 ${question.trim()}
 
 Answer the player's question using evidence from inspection when needed. For hints, avoid spoilers beyond what was requested. Distinguish game logic from suspected engine faults and explain what you observed and what remains uncertain. playtest_room starts from boot, not the live checkpoint. Do not claim to have replayed earlier events or inspected a call stack unless a tool actually supplies it. If a content fix would help, describe it for the player to apply in Remix. Engine implementation changes belong in the development workflow. Keep the reply concise and useful; this conversation stays open.`,
-          images,
+          art.images,
         ),
         "ask",
       );
@@ -351,10 +399,16 @@ Answer the player's question using evidence from inspection when needed. For hin
           await this.task.checkpoint(false);
           this.onEvent("request", `[Ask] ${call.name}`, { tool: call.name });
           const toolStart = performance.now();
-          const result = await executeAgentToolAsync(inspected, call.name, call.input, {
-            ...this.runtime,
-            readOnly: true,
-          });
+          const result = watch.record(
+            call.name,
+            call.input,
+            await executeAgentToolAsync(inspected, call.name, call.input, {
+              ...this.runtime,
+              readOnly: true,
+              allowedTools: tools,
+              references: art.references,
+            }),
+          );
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             result.success ? "response" : "error",
@@ -368,6 +422,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         turn = await this.observeTurn(this.conversation.complete(), "ask");
       }
       const text = turn.text || "What would you like to explore next?";
+      this.noteUnviewed("Ask", watch.unviewed(text));
       this.onEvent("response", `[Ask] ${text}`, { text });
       this.messages.push({ role: "assistant", text });
       return text;
@@ -384,7 +439,17 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.oriented) this.orientation = input;
   }
 
-  private async orientationContext(room: number): Promise<string> {
+  /**
+   * The first request's scene brief, read under the task's own list. Ask
+   * (`readOnly`) reads the room as its read_room_context calls do, so the
+   * plan entry that tool withholds from the player's surface stays out of
+   * the brief too.
+   */
+  private async orientationContext(
+    room: number,
+    allowedTools: readonly string[],
+    readOnly = false,
+  ): Promise<string> {
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
     // The compact scene brief reads through the same tools the model uses —
@@ -395,7 +460,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         this.state,
         "read_room_context",
         { room, state: null, frames: null },
-        this.runtime,
+        { ...this.runtime, allowedTools, readOnly },
       ),
       executeAgentTool(this.state, "read_picture", { num: room }),
     ];
@@ -427,25 +492,30 @@ Answer the player's question using evidence from inspection when needed. For hin
    * frozen. The agent inspects the live game with the runtime tools, patches
    * resources, and finishes with a text turn; every tool call streams into
    * the bubble through onEvent. Returns what to patch into the interpreter.
+   * `beforeAdopt` is the host's commit gate, awaited once the turn's work is
+   * done but before its staged candidate is adopted — a refusal discards the
+   * turn exactly like a failed one: nothing reaches the session's resources.
    */
   runPowerUp(
     instruction: string,
     room: number,
-    images?: readonly AgentToolImage[],
+    attachments?: TurnReferences,
+    beforeAdopt?: () => Promise<void>,
   ): Promise<PowerUpResult> {
-    return this.task.run(() => this.remix(instruction, room, images));
+    return this.task.run(() => this.remix(instruction, room, attachments, beforeAdopt));
   }
   private async remix(
     instruction: string,
     room: number,
-    images?: readonly AgentToolImage[],
+    attachments: TurnReferences | undefined,
+    beforeAdopt: (() => Promise<void>) | undefined,
   ): Promise<PowerUpResult> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before using Ask or Remix.");
     this.messages.push({ role: "user", text: instruction });
     this.onEvent("request", `[Remix] "${instruction}" (room ${room})`, { instruction, room });
-    const prompt = (await this.orientationContext(room)) + createPowerUpPrompt(instruction, room);
+    const orientation = await this.orientationContext(room, REMIX_TOOLS);
     if (this.stubFallback) {
       // The stub looks at the running game before it patches, exactly as the
       // model path does. That keeps the offline e2e a proof of the whole
@@ -458,7 +528,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           state: null,
           frames: { count: 4, stride: 1, sheet: true, plane: null },
         },
-        this.runtime,
+        { ...this.runtime, allowedTools: REMIX_TOOLS },
       );
       this.onEvent(
         frames.success ? "response" : "error",
@@ -466,6 +536,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         { images: frames.images?.map((i) => i.caption) },
       );
       const result = await this.stubFallback.powerUp(instruction, room);
+      // The commit gate runs before anything staged lands: a refusal leaves
+      // the session's resources as the turn found them.
+      await beforeAdopt?.();
       this.messages.push({ role: "assistant", text: result.text });
       for (const resource of result.patched)
         this.state.container.putResource(resource.kind, resource.num, resource.payload);
@@ -473,12 +546,19 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
     if (!this.conversation) throw new Error("No conversation provider configured");
 
-    this.conversation.setAvailableTools();
+    const art = await this.referenceTurn(attachments);
+    const tools = withReferences(REMIX_TOOLS, art.references);
+    this.conversation.setAvailableTools(tools);
+    const watch = createReferenceWatch(art.references);
+    const prompt = orientation + art.text + createPowerUpPrompt(instruction, room);
 
     const staged = forkAgentState(this.state);
     const forkRevision = worldRevision(this.state.authoring.world);
     try {
-      let turn = await this.observeTurn(this.conversation.sendUserMessage(prompt, images), "remix");
+      let turn = await this.observeTurn(
+        this.conversation.sendUserMessage(prompt, art.images),
+        "remix",
+      );
 
       // Nothing staged may reach the game on the provider's word alone. A
       // text turn closes the remix in one of two ways: no write succeeded,
@@ -530,7 +610,15 @@ Answer the player's question using evidence from inspection when needed. For hin
                 "Not executed: this turn ended at a successful handover. Ask for this change in the next Remix request.",
             };
           } else {
-            res = await executeAgentToolAsync(candidate, tc.name, tc.input, this.runtime);
+            res = watch.record(
+              tc.name,
+              tc.input,
+              await executeAgentToolAsync(candidate, tc.name, tc.input, {
+                ...this.runtime,
+                allowedTools: tools,
+                references: art.references,
+              }),
+            );
           }
           if (res.success) {
             Object.assign(staged, candidate);
@@ -564,6 +652,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         turn = await this.observeTurn(this.conversation.complete(), "remix");
       }
 
+      // The host's commit gate: a refusal throws into the turn's failure
+      // path, which discards the staged candidate untouched.
+      await beforeAdopt?.();
       const patched = changedResources(this.state, staged);
       const files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>> = {};
       for (const name of ["WORDS.TOK", "OBJECT", "TESTS.JSON"] as const) {
@@ -583,6 +674,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           "[Remix] A map edit landed mid-remix; the turn's plan change was superseded.",
         );
       const text = turn.text || "Changes are ready.";
+      this.noteUnviewed("Remix", watch.unviewed(text));
       this.messages.push({ role: "assistant", text });
       this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, {
         text,
@@ -598,6 +690,152 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
+   * One Studio assist request: the creator's selection in Room Studio or
+   * Sprite Studio and what they asked for it. The model reads the focus and
+   * proposes candidates through the Studio tools only; nothing reaches the
+   * game or this session's resources. The result's candidate is what the UI
+   * previews and, on accept, applies as one undo step. The stub provider
+   * runs the same loop with a scripted conversation.
+   */
+  runStudioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
+    return this.task.run(() => this.studioAssist(request));
+  }
+  private async studioAssist(request: StudioAssistRequest): Promise<StudioAssistResult> {
+    this.assertAdoptable();
+    const conversation =
+      this.conversation ?? (this.stubFallback ? createStudioAssistStub(request.instruction) : null);
+    if (!conversation)
+      throw new Error("Connect an API key in AI settings before asking the Studio assistant.");
+    const { instruction, focus } = request;
+    const assist = createStudioAssist(
+      focus,
+      request.maxProposals === undefined ? {} : { maxProposals: request.maxProposals },
+    );
+    const label = `${focus.scope.kind} ${focus.scope.num}`;
+    this.messages.push({ role: "user", text: instruction });
+    this.onEvent("request", `[Studio] "${instruction}" (${label})`, { instruction, scope: label });
+    const art = await this.referenceTurn({ referenceIds: request.referenceIds });
+    const tools = withReferences(STUDIO_ASSIST_TASK_TOOLS, art.references);
+    conversation.setAvailableTools(tools);
+    const deps: AgentToolDeps = {
+      allowedTools: tools,
+      studio: assist,
+      references: art.references,
+    };
+    const watch = createReferenceWatch(art.references);
+    // Inspection reads a fork, as Ask does: nothing this turn runs may
+    // reach the session's resources. It reads under the draft's profile,
+    // the one Accept re-checks the candidate with.
+    const inspected = forkAgentState(this.state);
+    if (focus.profile) Object.assign(inspected, { profile: focus.profile });
+    try {
+      let turn = await this.observeTurn(
+        conversation.sendUserMessage(
+          art.text + createStudioAssistPrompt(instruction, focus),
+          art.images,
+        ),
+        "studio",
+      );
+      for (let round = 1; turn.toolCalls.length; round++) {
+        const results: { toolCallId: string; result: AgentToolResult }[] = [];
+        for (const call of turn.toolCalls) {
+          await this.task.checkpoint(false);
+          this.onEvent("request", `[Studio] ${call.name}`, { tool: call.name, args: call.input });
+          const toolStart = performance.now();
+          const result =
+            round > MAX_STUDIO_ROUNDS
+              ? {
+                  success: false,
+                  error: `Not executed: this request reached its ${MAX_STUDIO_ROUNDS}-round limit.`,
+                }
+              : watch.record(
+                  call.name,
+                  call.input,
+                  await executeAgentToolAsync(inspected, call.name, call.input, deps),
+                );
+          this.pendingToolMs += performance.now() - toolStart;
+          this.onEvent(
+            result.success ? "response" : "error",
+            `[Studio] ${call.name} -> ${result.success ? (result.message ?? "ok").split("\n")[0] : result.error}`,
+            { tool: call.name, result: { ...result, images: undefined } },
+          );
+          this.task.recordTool(call.name, call.input, result);
+          results.push({ toolCallId: call.id, result: this.projectForModel(result) });
+        }
+        conversation.appendToolResults(results);
+        if (round > MAX_STUDIO_ROUNDS) break;
+        turn = await this.observeTurn(conversation.complete(), "studio");
+      }
+      const text =
+        turn.toolCalls.length === 0 && turn.text
+          ? turn.text
+          : (assist.candidate?.summary ?? "No change was proposed.");
+      this.noteUnviewed("Studio", watch.unviewed(text));
+      this.messages.push({ role: "assistant", text });
+      this.onEvent("response", `[Studio] ${text.slice(0, 300)}`, {
+        text,
+        candidate: assist.candidate?.candidateId ?? null,
+        proposals: assist.proposals,
+        refusals: assist.refusals,
+      });
+      return {
+        text,
+        candidate: assist.candidate,
+        proposals: assist.proposals,
+        refusals: assist.refusals,
+      };
+    } catch (error) {
+      conversation.recordInterruption?.(
+        `The Studio assist request was interrupted. Nothing was applied. ${String(error)}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * The turn's reference art. The manifest rides the request when the player
+   * attached art to it or the project's art changed since the last manifest
+   * this session sent; otherwise the earlier manifest is still in the
+   * conversation. `alsoAttached` marks art the task itself is about, such as
+   * the room a room build writes.
+   */
+  private async referenceTurn(
+    attachments: TurnReferences | undefined,
+    alsoAttached?: (art: ReferenceArt) => boolean,
+  ): Promise<ReferenceTurn> {
+    const loaded = await this.runtime.referenceArt?.(attachments?.referenceIds ?? []);
+    const references: ReferenceSource | undefined = loaded?.art.length
+      ? {
+          art: loaded.art.map((art) =>
+            !art.attached && alsoAttached?.(art) ? { ...art, attached: true } : art,
+          ),
+        }
+      : undefined;
+    const images = [...(attachments?.legacyImages ?? [])];
+    let text = "";
+    if (references) {
+      const key = references.art.map((art) => art.id).join(",");
+      if (key !== this.manifestKey || references.art.some((art) => art.attached)) {
+        const manifest = await referenceManifest(references);
+        text = `${manifest.text}\n\n`;
+        images.unshift(manifest.image);
+        this.manifestKey = key;
+      }
+    }
+    return { references, text, images: images.length ? images : undefined };
+  }
+
+  /** Log attached art a turn wrote from, or said it matched, without viewing it. */
+  private noteUnviewed(phase: string, unviewed: readonly string[]): void {
+    if (unviewed.length)
+      this.onEvent(
+        "error",
+        `[${phase}] Reference art attached to the request was not viewed: ${unviewed.join(", ")}`,
+        { unviewedReferences: unviewed },
+      );
+  }
+
+  /**
    * The compact model-facing projection of a tool result. The full result is
    * kept in the session diagnostic store under a diagnosticId the projected
    * details point at; earlier transcript items are never rewritten.
@@ -608,7 +846,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   private async observeTurn(
     pending: Promise<LlmTurnResult>,
-    phase: "ask" | "remix" | "genesis" | "room",
+    phase: "ask" | "remix" | "genesis" | "room" | "studio",
   ): Promise<LlmTurnResult> {
     try {
       const turn = await pending;
@@ -621,9 +859,13 @@ Answer the player's question using evidence from inspection when needed. For hin
       if (turn.telemetry) {
         const toolMs = this.pendingToolMs;
         this.pendingToolMs = 0;
+        const cache =
+          turn.telemetry.cacheHitShare === undefined
+            ? ""
+            : ` · ${Math.round(turn.telemetry.cacheHitShare * 100)}% cached`;
         this.onEvent(
           "telemetry",
-          `[Request] ${phase} #${turn.telemetry.requestIndex} ${turn.telemetry.usageIncomplete ? "(incomplete usage) " : ""}${turn.telemetry.responseMs.toFixed(0)}ms`,
+          `[Request] ${phase} #${turn.telemetry.requestIndex} ${turn.telemetry.usageIncomplete ? "(incomplete usage) " : ""}${turn.telemetry.responseMs.toFixed(0)}ms${cache}`,
           { phase, telemetry: turn.telemetry, toolMs },
         );
       }
@@ -701,24 +943,29 @@ Answer the player's question using evidence from inspection when needed. For hin
   reserveMutation(reason: string): () => void {
     this.assertAdoptable();
     if (this.task.snapshot().status !== "idle")
-      throw new Error("Wait for the current agent turn before keeping a staged view.");
+      throw new Error("Wait for the current agent turn before keeping an edit.");
     this.mutationHold = reason;
     return () => {
       this.mutationHold = null;
     };
   }
 
-  /** Validate a VIEW candidate without changing this session before storage succeeds. */
-  prepareViewPatch(
+  /**
+   * Validate a resource edit's candidate state — the edited files plus the
+   * source (and bindings) `stage` records for them — without changing this session before
+   * storage succeeds. `changed` is what `stage` reported: whether the
+   * recorded source differs from the one this session holds.
+   */
+  prepareSourcePatch(
     files: Record<string, Uint8Array>,
-    num: number,
-    input: BuildViewInput,
+    stage: (sources: AgentSourceStore, authoring: AuthoringState) => boolean,
   ): {
     authoringState: Record<string, unknown>;
+    changed: boolean;
     adopt: () => void;
   } {
     const candidate = forkAgentState(this.state);
-    candidate.sources.views.set(num, structuredClone(input));
+    const changed = stage(candidate.sources, candidate.authoring);
     const snapshot = this.getAuthoringState(candidate);
     const next = stateFromAuthoredData(
       files,
@@ -729,6 +976,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     next.genesisComplete = this.state.genesisComplete;
     return {
       authoringState: snapshot,
+      changed,
       adopt: () => {
         Object.assign(this.state, next);
       },
@@ -916,7 +1164,9 @@ Answer the player's question using evidence from inspection when needed. For hin
     // Seed editable boilerplate before the first model turn. These are
     // ordinary resources the agent can use, extend or replace.
     installBaseTemplate(this.state, this.state.profile);
-    this.conversation?.setAvailableTools(AUTHORING_SESSION_TOOLS);
+    // Genesis carries no reference art yet, so view_reference stays off its list.
+    const genesisTools = withReferences(GENESIS_TOOLS, undefined);
+    this.conversation?.setAvailableTools(genesisTools);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
       // The stub records its world plan through the same update_world tool —
@@ -963,7 +1213,7 @@ Answer the player's question using evidence from inspection when needed. For hin
                   "Not executed: this turn ended at a successful handover. Use an Ask or Remix request for further changes.",
               }
             : await executeAgentToolAsync(this.state, tc.name, tc.input, {
-                allowedTools: AUTHORING_SESSION_TOOLS,
+                allowedTools: genesisTools,
               });
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
@@ -1003,16 +1253,27 @@ Answer the player's question using evidence from inspection when needed. For hin
     return { files, words, transcript, sessionId };
   }
 
-  handle(req: LlmRequest): Promise<string> {
-    return this.task.run(() => this.prepareRoom(req));
+  handle(
+    req: LlmRequest,
+    beforeAdopt?: () => Promise<void>,
+    attachments?: TurnReferences,
+  ): Promise<string> {
+    return this.task.run(() => this.prepareRoom(req, beforeAdopt, attachments));
   }
-  private async prepareRoom(req: LlmRequest): Promise<string> {
+  private async prepareRoom(
+    req: LlmRequest,
+    beforeAdopt?: () => Promise<void>,
+    attachments?: TurnReferences,
+  ): Promise<string> {
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating the next room.");
     if (this.stubFallback) {
       const response = await this.stubFallback.handle(req);
       if (req.op === "room" && response) {
+        // Same commit gate as a remix turn: refuse before the staged room
+        // lands in the session's container.
+        await beforeAdopt?.();
         const patch = prepareRoomPatch(
           openContainer(this.state.getFiles()),
           Number(req.context["room"]),
@@ -1037,9 +1298,17 @@ Answer the player's question using evidence from inspection when needed. For hin
     const forkRevision = worldRevision(this.state.authoring.world);
     staged.genesisComplete = true;
     staged.sources.objects = readInventoryObjects(staged.getFiles().get("OBJECT"), staged.profile);
-    this.conversation.setAvailableTools(AUTHORING_SESSION_TOOLS);
-    const snapshot: AgentRuntimeDeps = {
-      allowedTools: AUTHORING_SESSION_TOOLS,
+    // Art aimed at the room being written counts as attached to the request.
+    const art = await this.referenceTurn(
+      attachments,
+      (candidate) => candidate.target.kind === "room" && candidate.target.num === room,
+    );
+    const tools = withReferences(ROOM_AUTHORING_TOOLS, art.references);
+    this.conversation.setAvailableTools(tools);
+    const watch = createReferenceWatch(art.references);
+    const snapshot: AgentToolDeps = {
+      allowedTools: tools,
+      references: art.references,
       engine: {
         state: () => req.context["state"] ?? null,
         objects: () => req.context["objects"] ?? [],
@@ -1076,8 +1345,10 @@ Answer the player's question using evidence from inspection when needed. For hin
     try {
       let turn = await this.observeTurn(
         this.conversation.sendUserMessage(
-          createRuntimeRoomPrompt(room, from, playerNotes, plannedExit) +
+          art.text +
+            createRuntimeRoomPrompt(room, from, playerNotes, plannedExit) +
             `\nResources: ${resources.message ?? ""}\nInventory (preserve this order): ${JSON.stringify(staged.sources.objects)}\nPrevious room logic:\n${previous.message ?? ""}`,
+          art.images,
         ),
         "room",
       );
@@ -1138,7 +1409,11 @@ Answer the player's question using evidence from inspection when needed. For hin
                 };
               }
             } else {
-              result = await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot);
+              result = watch.record(
+                tc.name,
+                tc.input,
+                await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot),
+              );
               if (result.success) {
                 validateRoomCandidate(this.state, staged, candidate);
                 staged = candidate;
@@ -1171,7 +1446,11 @@ Answer the player's question using evidence from inspection when needed. For hin
         turn = await this.observeTurn(this.conversation.complete(), "room");
       }
       if (!completed) throw new Error(`Room ${room} authoring did not finish.`);
+      this.noteUnviewed("Room", watch.unviewed(turn.text ?? ""));
 
+      // The host's commit gate: a refusal discards the staged room through
+      // the turn's failure path.
+      await beforeAdopt?.();
       const changed = changedResources(this.state, staged).map(({ kind, num, payload }) => ({
         kind,
         num,

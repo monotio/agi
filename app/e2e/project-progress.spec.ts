@@ -1,9 +1,9 @@
 import { expect, test } from "./test.ts";
 import { testProjectId, testRevision } from "../test/identity.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/gameZip.ts";
-import { buildProjectZip } from "../src/projectArchive.ts";
-import { buildZip } from "../src/zip.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { buildProjectZip } from "../src/archive/projectArchive.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -19,7 +19,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
 
 test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
   const container = createContainer();
@@ -87,13 +87,15 @@ test("project import names each stored and refused progress entry", async ({ pag
     mimeType: "application/zip",
     buffer: Buffer.from(archive),
   });
-  const notice = page.locator(".import-notice");
-  await expect(notice).toContainText("save slot 1 stored");
-  await expect(notice).toContainText("save slot 7 could not be stored");
-  await expect(notice).toContainText("autosave could not be stored");
+  const notice = page.getByTestId("game-import-ready");
+  // One plain sentence for what came along, one for what storage refused.
+  await expect(notice).toHaveText(
+    "Storage report added to your library, with its save slot 1. " +
+      "Its saved progress and save slot 7 could not be stored.",
+  );
   const stored = await page.evaluate(async () => {
-    const { listCachedGames } = await import("/src/gameStorage.ts");
-    const { readGameSaves } = await import("/src/gameSaves.ts");
+    const { listCachedGames } = await import("/src/project/gameStorage.ts");
+    const { readGameSaves } = await import("/src/saves/gameSaves.ts");
     const projectId = listCachedGames()[0]!.projectId;
     return {
       slots: Object.keys(readGameSaves(localStorage, projectId)),
@@ -135,7 +137,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The project download from the running game carries the checkpoint.
   const projectDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-download-game").click();
   const saved = await projectDownload;
   const savedPath = (await saved.path())!;
@@ -146,7 +148,7 @@ test("the project archive moves the autosave to another browser; the game export
 
   // The game export is for publishing: no progress in it.
   const publicDownload = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await page.getByTestId("btn-export-game").click();
   const published = await publicDownload;
   const publicGame = await readGameZip(new Uint8Array(await readFile((await published.path())!)));
@@ -167,11 +169,13 @@ test("the project archive moves the autosave to another browser; the game export
     const other = await fresh.newPage();
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles(savedPath);
-    await expect(other.getByText(/added to your library.*autosave stored/)).toBeVisible();
+    await expect(other.getByTestId("game-import-ready")).toContainText(
+      /added to your library, with its saved progress[^()]*\.$/,
+    );
     const resume = other.getByTestId("btn-resume-cached");
     await expect(resume).toHaveText("Resume");
     const projectId = await other.evaluate(async () => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const store = await import(path);
       return store.listCachedGames()[0].projectId as string;
     });
@@ -301,4 +305,71 @@ test("a reload resumes the parked window in an agent-authored room", async ({ pa
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
+});
+
+/**
+ * A text window the game keeps up while it runs on (a print with f15 set, as
+ * the demo pack captions its demonstrations) has no parked pass to carry, so
+ * no checkpoint is taken while it is up. That is no reason to hold Exit: the
+ * last save point stays, the timeline is sealed, and the player is Home.
+ */
+test("Exit leaves a moment it cannot checkpoint and keeps the last save point", async ({
+  page,
+}) => {
+  const game = createContainer();
+  game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(!isset(f200)){set(f200);new.room(1);}call(1);return;", {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if(isset(f5)){assignn(v50,1);load.pic(v50);draw.pic(v50);show.pic();}" +
+        'if(!isset(f201)){if(have.key()){set(f201);set(f15);print("A window the game keeps up");}}' +
+        "return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const archive = buildZip(
+    [...game.files]
+      .map(([name, data]) => ({ name, data }))
+      .concat([{ name: "WORDS.TOK", data: buildWordsTok([]) }]),
+  );
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "running-window.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archive),
+  });
+  await savedGameCard(page, "running-window").getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForAutosaveAfter(page, 0);
+
+  // Any key opens the window; the interpreter keeps cycling under it.
+  await page.locator("body").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("x");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("A window the game keeps up");
+  const windowUp = await textHook(page);
+  expect(windowUp.modal, "the window does not pause the game").toBeNull();
+  await waitForCycles(page, 2);
+
+  const projectId = await page.evaluate(async () => {
+    const path = "/src/project/gameStorage.ts";
+    const store = await import(path);
+    return store.listCachedGames()[0].projectId as string;
+  });
+  await page.getByTestId("btn-exit").click();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  await expect(page.getByTestId("eject-refusal")).toHaveCount(0);
+  const kept = (await storedAutosave(page, projectId))?.cycle ?? 0;
+  expect(kept, "the save point from before the window is kept").toBeGreaterThan(0);
+  expect(kept).toBeLessThan(windowUp.cycle);
 });

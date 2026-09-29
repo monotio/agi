@@ -1,0 +1,7 @@
+id: vue-no-usetemplateref-generic
+valid:
+  - 'const input = useTemplateRef("input");'
+  - "const input = ref<HTMLInputElement>();"
+invalid:
+  - 'const input = useTemplateRef<HTMLInputElement>("input");'
+  - 'const canvas = useTemplateRef<InstanceType<typeof StudioCanvas>>("canvas");'

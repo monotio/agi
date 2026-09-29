@@ -74,7 +74,7 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       tailBatches: number;
       boot: HistoryBoot;
     }) => {
-      const storage = await import("/src/historyStorage.ts");
+      const storage = await import("/src/history/historyStorage.ts");
       const identity = {
         project: "bench-game" as never,
         revision: "0000000000000000000000000000000000000000000000000000000000000001" as never,

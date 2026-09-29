@@ -187,5 +187,3 @@ export function createJournal(ctx: WorkerContext) {
     markJump,
   };
 }
-
-export type JournalModule = ReturnType<typeof createJournal>;

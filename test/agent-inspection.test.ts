@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createAgentSessionState, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 
 test("source inspection pages exact editable text with a revision and total lines", () => {
   const state = createAgentSessionState();
@@ -39,9 +40,10 @@ test("picture inspection can request only the image; vocabulary supports exact s
 });
 
 test("live inspection filters state and object tables without losing requested zero values", async () => {
-  const { executeAgentToolAsync } = await import("../src/agent/tools.ts");
+  const { AUTHORING_TOOL_NAMES, executeAgentToolAsync } = await import("../src/agent/tools.ts");
   const state = createAgentSessionState();
   const deps = {
+    allowedTools: AUTHORING_TOOL_NAMES,
     engine: {
       state: async () => ({ room: 1, vars: [0, 5, 0], flags: [false, true, false] }),
       objects: async () => [{ num: 0 }, { num: 1 }],

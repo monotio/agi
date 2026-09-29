@@ -2,9 +2,9 @@
  * The autosave snapshot and the flush/checkpoint messages around it. Pure
  * functions of the worker context — importable under Node.
  */
-import { createProgressPreview } from "../progressPreview.ts";
-import { bytesToBase64 } from "../bytes.ts";
-import type { WorkerPresentation } from "../workerProtocol.ts";
+import { createProgressPreview, isBlackFrame } from "../saves/progressPreview.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
+import type { WorkerPresentation } from "./workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 /**
@@ -23,14 +23,18 @@ export function createAutosave(ctx: WorkerContext) {
    *
    * The engine refuses the snapshot while a live host request owns the answer
    * (a prompt, the save/restore selector, a confirmation), while a text screen
-   * owns the surface, or before a room has drawn; a parked window or key wait
-   * serializes into the image's continuation instead. The worker adds the cheap
+   * owns the surface, while an f15 window stays up with no parked pass, or
+   * before a room has drawn; a parked window or key wait serializes into the
+   * image's continuation instead. The worker adds the cheap
    * gate on top: an image is encoded only when the interpreter actually
    * advanced since the last one, so a parked or idle game costs nothing.
    */
   function autosave(force: boolean): boolean {
     if (!ctx.engine) return false;
     if (!force && ctx.cycle.cycleCount === ctx.autosave.lastAutosaveCycle) return false;
+    // A game that quit has ended: its image would resume a stopped
+    // interpreter. The autosave taken before the quit stays the one to continue.
+    if (ctx.engine.readLeanState().terminated) return false;
     let image: Uint8Array | null;
     try {
       image = ctx.engine.autosaveImage();
@@ -51,11 +55,13 @@ export function createAutosave(ctx: WorkerContext) {
     };
     try {
       const presentation = ctx.engine.getPresentation();
-      msg.preview = createProgressPreview({
+      const frame = {
         visual: presentation.visual,
         text: presentation.text,
         picRow: ctx.engine.displayBase,
-      });
+      };
+      // A black screen leaves the card's previous picture in place.
+      if (!isBlackFrame(frame)) msg.preview = createProgressPreview(frame);
     } catch (error) {
       ctx.ports.presentation({
         type: "log",
@@ -104,14 +110,8 @@ export function createAutosave(ctx: WorkerContext) {
       id: msg.id,
       taken,
       cycle: ctx.cycle.cycleCount,
-      hasEngine: Boolean(ctx.engine),
-      modal: ctx.engine ? ctx.engine.modalOpen : false,
-      textMode: ctx.engine ? ctx.engine.textModeActive : false,
-      pictureShown: ctx.engine ? ctx.engine.isPictureShown : false,
     });
   }
 
   return { autosave, onCheckpoint, onFlush };
 }
-
-export type AutosaveModule = ReturnType<typeof createAutosave>;

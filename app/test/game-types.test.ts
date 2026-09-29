@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeTextRows, findInstalledFolder } from "../src/gameTypes.ts";
+import { decodeTextRows, findInstalledFolder } from "../src/project/gameTypes.ts";
 
 test("decodeTextRows decodes 40x25 buffer into rows, handling nulls, glyphs, and ascii", () => {
   const buffer = new Uint8Array(40 * 25 * 2);

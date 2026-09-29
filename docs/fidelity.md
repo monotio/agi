@@ -185,15 +185,24 @@ pass waits for a key. Each elapsed second normalizes the clock variables,
 checking seconds, minutes and hours independently, so out-of-range values a
 script wrote roll over.
 
+Keys enter the event queue raw. A script's `set.key` mappings apply only when
+the cycle's input phase consumes a key; `have.key` reads the queue itself and
+never maps. So a mapped key satisfies `have.key` when it arrives during the
+logic pass, as it always does for a busy loop, and becomes a controller when the
+next input phase takes it first. The engine delivers host keys at the cycle
+boundary, so a once-per-cycle poll sees a mapped key as its controller: the
+Demo Pack title, which maps Enter, waits for another key.
+
 The engine models these as host waits: the worker suspends the logic pass
 instead of blocking, and the host clock keeps advancing. It normalizes twenty
 pacing increments and sixty sound increments to one second of host time.
 
 **Evidence:**
 [Original scheduler and modal timing](#original-scheduler-and-modal-timing),
-[Timer-interrupt sound during blocking input](#timer-interrupt-sound-during-blocking-input)
-and [Have key polling](#have-key-polling). The host side is described under
-[Parked host waits](#parked-host-waits).
+[Timer-interrupt sound during blocking input](#timer-interrupt-sound-during-blocking-input),
+[Have key polling](#have-key-polling) and
+[Script key mappings and have.key](#script-key-mappings-and-havekey). The host
+side is described under [Parked host waits](#parked-host-waits).
 
 ### Objects in motion
 
@@ -312,7 +321,7 @@ v21 when it closes. `obj.status.v` is a real modal window, not a log line.
 ### Text beyond ASCII
 
 The originals drew text with each machine's own font. This project draws it
-with its own 8×8 font (`app/src/font8x8.ts`) in the same 40 × 25 character
+with its own 8×8 font (`app/src/render/font8x8.ts`) in the same 40 × 25 character
 grid, so letter shapes are the project's, not Sierra's or IBM's.
 
 A scan of every logic message in the catalogued releases found these
@@ -399,7 +408,9 @@ random-number state is not among them. Restoring reads the blocks back, replays
 the resource-loading history, and resumes loaded logic at saved offsets. A
 successful restore or restart sets f12 or f6 and restarts logic 0 in the same
 cycle, abandoning the old script position. Restart keeps the random stream and
-the sound preference.
+the sound preference. The game signature that `set.game.id` sets names the save
+files and is part of the first block, so a restore brings it back; the save
+selector lists only files carrying the running game's signature.
 
 The engine writes authentic save images for authentic save and restore, and
 keeps its stronger host checkpoints (which also capture randomness and input)
@@ -408,7 +419,8 @@ as an ordinary message window.
 
 **Evidence:**
 [Original save and restart audit](#original-save-and-restart-audit),
-[Startup and reconstruction execution](#startup-and-reconstruction-execution)
+[Startup and reconstruction execution](#startup-and-reconstruction-execution),
+[Game signature across restore](#game-signature-across-restore)
 and [Restore error window](#restore-error-window).
 
 ### The memory report
@@ -715,6 +727,7 @@ names its builds, method and addresses, then the engine mapping and tests.
   [scheduler and modal timing](#original-scheduler-and-modal-timing),
   [timer-interrupt sound](#timer-interrupt-sound-during-blocking-input),
   [have.key polling](#have-key-polling),
+  [script key mappings and have.key](#script-key-mappings-and-havekey),
   [free memory in v8](#free-memory-in-v8)
 - **Motion and animation:**
   [complete movement and follow audit](#original-complete-movement-and-follow-audit),
@@ -1022,6 +1035,63 @@ logic to keep running. (No load-module offsets recorded.)
 
 **Tests:** [parser-input.test.ts](../test/parser-input.test.ts),
 [input-contract.test.ts](../test/input-contract.test.ts).
+
+### Script key mappings and have.key
+
+Static disassembly of seven PC builds (hashes under
+[Verified inputs](#verified-inputs); KQ1, KQ2 and KQ3 decoded with
+`scripts/descramble-agi.ts`). Load-module offsets for DEMOPAC4 3.002.102:
+
+- The INT1Ch timer service (0x8353, the same routine as MH1's in
+  [Original scheduler and modal timing](#original-scheduler-and-modal-timing))
+  calls 0x48ce, whose loop 0x4ac3 drains the BIOS keyboard (0x5eb3, INT 16h) and
+  enqueues each key through 0x48dd: navigation words as type 2, every other key
+  as type 1 with its ASCII byte. Nothing on this path reads the key map.
+- `set.key` (0x5080 region) fills the key map at DS 0x145 (raw word) and 0x147
+  (status), 39 four-byte entries.
+- The key-map lookup 0x499a turns a type-1 event whose word matches an entry
+  into type 3 with the status number. Its only caller is the input phase
+  (0x3931), which clears v19 and v9, then dequeues (0x492d) and maps each event
+  before dispatching it: type 1 stores v19 and reaches the line editor, type 3
+  raises the controller.
+- The `have.key` condition (0x0c13) returns true when v19 is nonzero; otherwise
+  it loops on 0x49d2, which dequeues without the key-map lookup, normalizes
+  keypad words through 0x4a78 and returns the type-1 value (other types are
+  discarded).
+
+Every build has one key-map lookup, called only from its input phase, and a
+`have.key` dequeue helper that calls no lookup:
+
+| Build              | have.key | dequeue helper | key-map lookup | input-phase call |
+| ------------------ | -------- | -------------- | -------------- | ---------------- |
+| KQ2 2.411          | 0x098b   | 0x4468         | 0x4430         | 0x3497           |
+| KQ1 2.917          | 0x09be   | 0x459e         | 0x4566         | 0x3599           |
+| KQ3 2.936          | 0x09be   | 0x459e         | 0x4566         | 0x3599           |
+| KQ4 3.002.086      | 0x0bfd   | 0x49bc         | 0x4984         | 0x3936           |
+| DEMOPAC4 3.002.102 | 0x0c13   | 0x49d2         | 0x499a         | 0x394c           |
+| MH1 3.002.107      | 0x0c13   | 0x49d2         | 0x499a         | 0x394c           |
+| GR1 3.002.149      | 0x0c0c   | 0x47e9         | 0x47b1         | 0x38eb           |
+
+**Facts:** mappings apply in the input phase only; `have.key` reads raw type-1
+keys, mapped or not; keys are queued by the timer interrupt, asynchronously to
+the logic pass.
+
+**Inference:** whether a once-per-cycle `have.key` sees a mapped key depends on
+when it arrives: during the logic pass, before the poll, it is raw; otherwise
+the next input phase maps it. A busy loop spins inside the logic pass, so it
+always sees the key raw. The Demo Pack title (logic 1) polls `have.key` once
+per cycle while logic 0 maps Enter to controller 14, at speed v10 = 0.
+
+**Engine mapping:** the queue holds raw keys; the input phase maps them;
+`have.key` never does. The host delivers keys at the cycle boundary, before the
+input phase (the spec's cycle-boundary input contract), so a once-per-cycle poll
+sees a mapped key as its controller, while a key that reaches a busy loop, or a
+poll after the input phase, is raw. The Play screen's key hint names only
+unmapped keys for such a title.
+
+**Tests:** [input-fidelity.test.ts](../test/input-fidelity.test.ts),
+[demopac4.test.ts](../test/demopac4.test.ts) (fixture-gated). Each was observed
+failing while the engine mapped keys as they were queued.
 
 ### Free memory in v8
 
@@ -2099,6 +2169,49 @@ Across the two builds the probe checks 204 controlled vectors: preserved I/O
 and restart cases, 56 reconstruction/return cases, 12 object lifecycle cases,
 24 stationary cases, eight startup cases, 76 opcode flag mutations and four
 main-loop continuation cases.
+
+### Game signature across restore
+
+**Fact (GR1 3.002.149, static disassembly).** Input `gr1` under
+[Verified inputs](#verified-inputs); its data segment comes from `AGIDATA.OVL`
+(`914990f09b49109a34d511011c7764abb5575581fbc190c8cebc930b1027f804`).
+
+| Routine        | Offset | Behavior                                                                                                                                |
+| -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `set.game.id`  | 0x108c | copies the message into DS0x0002, at most 7 bytes including its NUL, then 0x5ede compares it with the built-in id and exits on mismatch |
+| save file name | 0x5f01 | formats `"%s%s%ssg.%d"` (DS0x1164) from directory, separator, DS0x0002 and slot                                                         |
+| slot candidate | 0x8ee4 | reads the 31-byte description, skips the block length, reads 7 bytes and compares them with DS0x0002 as NUL-terminated strings (0x50b0) |
+| selector scan  | 0x8b2c | save (0x73) shows all 12 slots, a rejected one blank; restore lists only accepted slots, else "There are no games to restore"           |
+| restore core   | 0x2856 | reads block 1 to DS0x0002 (see [the audit](#original-save-and-restart-audit)), the signature area included                              |
+
+So a successful restore replaces the running signature with the file's, and a
+file carrying another signature is neither listed for restore nor, since its
+name carries that other signature, overwritten by a save. A game sets the
+signature only when it runs `set.game.id`: KQ1's logic 0 does so only while v0
+is 0, on its boot pass (game bytecode), so after a restore the file is its only
+source.
+
+**Inference.** The other PC profiles share this: the spec gives every profile
+the same block-1 signature area and candidate check, and the Amiga and IIgs
+readers restore the region `set.game.id` writes
+([Save image](#save-image-fact),
+[Bounds, objects and the save image](#bounds-objects-and-the-save-image-fact)).
+
+**Engine contract.** `applyRestore` reinstates the signature from the image's
+first seven block-1 bytes, up to the first NUL, for `restore.game` and host
+resumes alike; the engine selector keeps the strict filter. The engine compares
+all seven bytes where the original stops at the NUL; the two agree on every
+image the engine writes, since it zero-pads the area. App storage keys saves by
+game and slot, not by the signature-stemmed name, so a save written under a
+wrong signature replaces the slot the original would have left alone. Images a
+resume wrote before this fix carry an all-zero signature: the game's own
+selector does not list them, as the original would not, and an autosave such a
+session wrote resumes unsigned until a restart runs the game's `set.game.id`
+again.
+
+**Tests:** `test/autosave.test.ts` (hand-computed signature bytes through a host
+resume), `test/kq1.test.ts` (KQ1 slots across a resume, fixture-gated) and
+`app/test/worker-save-signature.test.ts` (the worker boot resume and selector).
 
 ### 3-002-107-is-3-002-102
 

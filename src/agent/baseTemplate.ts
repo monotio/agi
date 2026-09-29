@@ -10,7 +10,7 @@
 import { assembleLogic } from "../logic/assembler.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { buildSound, type SoundTrackInput } from "./soundBuilder.ts";
-import type { AgentSessionState } from "./tools.ts";
+import type { AgentSessionState } from "./agentState.ts";
 
 /** The shared death logic a room invokes with `call(255)`. */
 export const TEMPLATE_DEATH_LOGIC = 255;

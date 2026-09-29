@@ -1,0 +1,74 @@
+id: disabled-needs-reason
+snapshots:
+  <UiButton :disabled="!built" @click="open">Open</UiButton>:
+    labels:
+    - source: <UiButton :disabled="!built" @click="open">
+      style: primary
+      start: 0
+      end: 43
+    - source: UiButton
+      style: secondary
+      start: 1
+      end: 9
+    - source: :disabled
+      style: secondary
+      start: 10
+      end: 19
+    - source: :disabled="!built"
+      style: secondary
+      start: 10
+      end: 28
+  <UiIconButton icon="pencil" label="Edit" :disabled="studioOpen" />:
+    labels:
+    - source: <UiIconButton icon="pencil" label="Edit" :disabled="studioOpen" />
+      style: primary
+      start: 0
+      end: 66
+    - source: UiIconButton
+      style: secondary
+      start: 1
+      end: 13
+    - source: :disabled
+      style: secondary
+      start: 41
+      end: 50
+    - source: :disabled="studioOpen"
+      style: secondary
+      start: 41
+      end: 63
+  <button :disabled="!fits" aria-label="Open">Open</button>:
+    labels:
+    - source: <button :disabled="!fits" aria-label="Open">
+      style: primary
+      start: 0
+      end: 44
+    - source: button
+      style: secondary
+      start: 1
+      end: 7
+    - source: :disabled
+      style: secondary
+      start: 8
+      end: 17
+    - source: :disabled="!fits"
+      style: secondary
+      start: 8
+      end: 25
+  <button disabled>Open</button>:
+    labels:
+    - source: <button disabled>
+      style: primary
+      start: 0
+      end: 17
+    - source: button
+      style: secondary
+      start: 1
+      end: 7
+    - source: disabled
+      style: secondary
+      start: 8
+      end: 16
+    - source: disabled
+      style: secondary
+      start: 8
+      end: 16

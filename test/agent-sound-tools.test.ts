@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createAgentSessionState } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { executeSoundTool, SOUND_TOOLS } from "../src/agent/soundTools.ts";
 import { parseSound } from "../src/sound/sound.ts";
 

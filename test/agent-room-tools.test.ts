@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAgentSessionState, buildObjectFile, executeAgentTool } from "../src/agent/tools.ts";
+import { createAgentSessionState, buildObjectFile } from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { buildView } from "../src/view/view.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
+import { parseLogicResource } from "../src/logic/resource.ts";
 import { buildWordsTok, parseWordsTok } from "../src/logic/words.ts";
 import { ROOM_TOOLS, executeRoomTool } from "../src/agent/roomTools.ts";
 import { installBaseTemplate } from "../src/agent/baseTemplate.ts";
@@ -239,6 +241,40 @@ test("room interactions test carried inventory before applying effects", () => {
     expect: { flags: [{ id: flag, value: false }] },
   });
   assert.equal(played.success, true, played.error ?? "");
+});
+
+// put's second operand is a location variable (spec "Action opcodes: inventory
+// locations", 0x5f), so put(n, 0) reads v0 and files the item in the current
+// room; drop (0x5e) writes location 0, which no room holds and no one carries.
+test("a removed item leaves the room and the inventory: drop, not put(n, 0)", () => {
+  const state = setup();
+  const result = executeRoomTool(state, "write_room", {
+    ...args(),
+    exits: [],
+    interactions: [
+      { commands: ["take key"], response: "Taken", giveItem: 0 },
+      { commands: ["use key"], response: "It breaks.", requiresItem: 0, removeItem: 0 },
+    ],
+  })!;
+  assert.equal(result.success, true, result.error ?? "");
+  const code = parseLogicResource(state.container.getResource("logic", 1)!).code;
+  const hasPair = (a: number, b: number) =>
+    code.some((byte, index) => byte === a && code[index + 1] === b);
+  assert.ok(hasPair(0x5e, 0x00), "drop(0) is emitted");
+  assert.doesNotMatch(state.sources.logics.get(1) ?? "", /\bput\(/);
+
+  const played = playtestRoom(state, {
+    room: 1,
+    steps: [
+      { action: "command", command: "take key" },
+      { action: "command", command: "use key" },
+    ],
+    expect: {},
+  });
+  assert.equal(played.success, true, played.error ?? "");
+  const details = played.details as { state: { room: number; inventory: { room: number }[] } };
+  assert.equal(details.state.room, 1);
+  assert.equal(details.state.inventory[0]?.room, 0, "neither in room 1 nor carried (255)");
 });
 
 test("room scaffolds reject boot overrides and duplicate edge definitions", () => {

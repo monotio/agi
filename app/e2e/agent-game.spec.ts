@@ -14,6 +14,7 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 /**
@@ -107,6 +108,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   expect(await printWindowText(page)).toContain("generated room 2");
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-room")).toContainText("room 2");
   await page.getByTestId("agent-bubble-input").fill("put up a sign by the road");
@@ -120,9 +122,9 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   await page.keyboard.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   const downloadPromise = page.waitForEvent("download");
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   // A growing world says what a published copy of it is before it is exported.
-  await expect(page.getByTestId("export-work-in-progress")).toContainText("Work in progress");
+  await expect(page.getByTestId("export-work-in-progress")).toContainText("work in progress");
   await page.getByTestId("btn-export-game").click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("agi-custom-game.zip");
@@ -140,7 +142,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
     offset = start + size;
   }
   const cachedFiles = await page.evaluate(async () => {
-    const modulePath = "/src/gameStorage.ts";
+    const modulePath = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(modulePath);
     const cached = await loadAuthoredGame("custom");
     return Object.fromEntries(
@@ -166,7 +168,7 @@ test("in-game ZIP exports the live game after a patch and reload", async ({ page
   await expect(page.getByText("Resumed where you left off")).toBeVisible({ timeout: 15_000 });
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  await openGameOptions(page, "game-menu");
+  await openGameOptions(page, "settings-menu");
   await expect(page.getByTestId("btn-export-game")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(0);
   // Re-entering room 2 runs its patched entry code: the sign is really there.
@@ -308,22 +310,24 @@ test("sound controls allow toggling mute and switching sound chip mode", async (
   await page.getByTestId("boot-agent").click();
   await openGameOptions(page, "settings-menu");
   const muteBtn = page.getByTestId("toggle-mute");
-  // Sound-chip emulation is an Advanced setting.
-  await page.getByTestId("settings-advanced").click();
+  // Sound-chip emulation is an Advanced setting (already open when Developer
+  // activity was reached through it).
+  const advanced = page.getByTestId("settings-advanced");
+  if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
   const modeBtn = page.getByTestId("toggle-sound-mode");
 
   await expect(muteBtn).toBeVisible();
   await expect(modeBtn).toBeVisible();
 
   // Initial state: Sound on, Tandy 4-Voice chip
-  await expect(muteBtn.locator(".setting-value")).toHaveText("On");
+  await expect(muteBtn).toHaveAttribute("aria-checked", "true");
   await expect(modeBtn).toContainText("Tandy 4-Voice");
 
   // Toggle mute
   await muteBtn.click();
-  await expect(muteBtn.locator(".setting-value")).toHaveText("Off");
+  await expect(muteBtn).toHaveAttribute("aria-checked", "false");
   await muteBtn.click();
-  await expect(muteBtn.locator(".setting-value")).toHaveText("On");
+  await expect(muteBtn).toHaveAttribute("aria-checked", "true");
 
   // A PC edition cycles between its two sound chips; Amiga and Apple IIgs
   // editions play through their own fixed family.
@@ -347,6 +351,7 @@ test("power-up: freezes the world, patches the room live, resumes", async ({ pag
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await expect.poll(async () => cycleOf(page)).toBeGreaterThanOrEqual(4);
 
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect(page.getByTestId("agent-bubble-room")).toContainText("room 1");
@@ -391,6 +396,7 @@ test("power-up: Escape closes the bubble and resumes without changing anything",
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   const before = (await settled(page)).picHash;
 
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);

@@ -1,0 +1,106 @@
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: var(--control-h-touch);
+  box-sizing: border-box;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: var(--weight-bold) var(--text-md) / 1.4 var(--font-sans);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.ui-button--primary {
+  border-color: var(--ui-action);
+  color: var(--ui-action-ink);
+  background: var(--ui-action);
+}
+
+.ui-button--primary:hover:not(:disabled) {
+  border-color: var(--ui-action-hover);
+  background: var(--ui-action-hover);
+}
+
+.ui-button--secondary {
+  border-color: var(--ui-action);
+  color: var(--ui-action);
+  background: transparent;
+}
+
+.ui-button--secondary:hover:not(:disabled) {
+  color: var(--ui-action-hover);
+  border-color: var(--ui-action-hover);
+  background: var(--ui-action-surface-hover);
+}
+
+.ui-button--danger {
+  border-color: var(--ui-danger);
+  color: var(--ui-danger);
+  background: transparent;
+}
+
+.ui-button--danger:hover:not(:disabled) {
+  color: var(--ui-danger-hover);
+  border-color: var(--ui-danger-hover);
+  background: var(--ui-action-surface);
+}
+
+.ui-button--icon {
+  width: var(--control-h-touch);
+  height: var(--control-h-touch);
+  flex: none;
+  padding: 0;
+}
+
+/* One keyboard focus ring for every control, whichever component renders it. */
+:is(
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"]
+):focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Shared refusal/warning line used by App.vue and WalkthroughBar.vue. */
+.export-refusal {
+  color: var(--warn);
+  font-size: var(--text-xs);
+  width: var(--shell-width);
+  margin: 6px 0 16px;
+  line-height: 1.5;
+}
+
+/* Quiet status for background retries — a note, not an alarm. */
+.history-unsaved {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  width: var(--shell-width);
+  margin: 6px 0 16px;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.history-unsaved p {
+  margin: 0;
+}

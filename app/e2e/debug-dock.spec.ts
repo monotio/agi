@@ -1,4 +1,4 @@
-import { cacheGame, textHook, waitForCycles } from "./engineProbe.ts";
+import { cacheGame, textHook, waitForCycles, openInspector } from "./engineProbe.ts";
 import { expect, test } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -62,11 +62,8 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   await page.getByTestId("btn-resume-cached").click();
   await waitForCycles(page, 4);
 
-  // The inspector entry lives in the power-up header alongside Ask/Remix.
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
-  // The bubble floats above the inspector's overlay marks — dismiss it.
-  await page.keyboard.press("Escape");
+  // The inspector entry lives under Settings > Advanced in Play mode.
+  await openInspector(page);
   const dock = page.getByTestId("debug-dock");
   await expect(dock).toBeVisible();
 
@@ -251,9 +248,7 @@ test("show.obj renders as its own layer in flat and exploded views, then restore
   await page.getByTestId("btn-resume-cached").click();
   await waitForCycles(page, 4);
 
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
-  await page.keyboard.press("Escape");
+  await openInspector(page);
   const dock = page.getByTestId("debug-dock");
   await expect(dock).toBeVisible();
 

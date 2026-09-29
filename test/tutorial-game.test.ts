@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GAME_TESTS_FILE, readStoredTests, runGameTests } from "../src/agent/gameTests.ts";
-import { createAgentSessionState } from "../src/agent/tools.ts";
+import { GAME_TESTS_FILE } from "../src/agent/gameTestFormat.ts";
+import { readStoredTests, runGameTests } from "../src/agent/gameTests.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { openContainer } from "../src/container/container.ts";
 import { TUTORIAL_GAME_TESTS } from "../games/adventure-department/tests.ts";
 import { renderPicture, type PictureFillDiagnostic } from "../src/picture/renderer.ts";
@@ -9,8 +10,10 @@ import { compilePictureSource } from "../src/picture/source.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { createPictureSurface, SCREEN_WIDTH } from "../src/types.ts";
 import { buildView, parseView } from "../src/view/view.ts";
-import { GAME_CATALOG } from "../app/src/gameCatalog.ts";
-import { gameRevision } from "../app/src/gameMetadata.ts";
+import { parsePictureDocument, pictureCommandText } from "../src/studio/pictureDocument.ts";
+import { createHash } from "node:crypto";
+import { GAME_CATALOG } from "../app/src/library/gameCatalog.ts";
+import { gameRevision } from "../app/src/project/gameMetadata.ts";
 import {
   TUTORIAL_LOGIC_SOURCES,
   TUTORIAL_PICTURE_SOURCES,
@@ -66,9 +69,10 @@ test("character animation preserves fixed masses and changes only the intended f
   const fixedRobot = Array.from(robotCels[0]!.pixels);
   for (let cel = 1; cel < robotCels.length; cel++) {
     const candidate = Array.from(robotCels[cel]!.pixels);
-    for (let y = 0; y < 32; y++) {
+    for (let y = 0; y < 28; y++) {
       for (let x = 0; x < 14; x++) {
-        if (x <= 2 && y >= 6 && y <= 21) continue;
+        // Only the waving arm, right of the head, moves between cels.
+        if (x >= 10 && y >= 4 && y <= 20) continue;
         const index = y * 14 + x;
         assert.equal(
           candidate[index],
@@ -78,6 +82,8 @@ test("character animation preserves fixed masses and changes only the intended f
       }
     }
   }
+  // Loop 1 is loop 0 mirrored, so the awake robot can face either way.
+  assert.deepEqual(TUTORIAL_VIEW_SOURCES[2]!.loops[1], { mirrorLoop: 0 });
 
   const felixCels = TUTORIAL_VIEW_SOURCES[3]!.loops[0]!.cels!;
   const open = Array.from(felixCels[0]!.pixels);
@@ -85,8 +91,8 @@ test("character animation preserves fixed masses and changes only the intended f
   const changed = open.flatMap((color, index) => (color === closed[index] ? [] : [index]));
   assert.deepEqual(
     changed,
-    [6 * 14 + 4, 6 * 14 + 5, 6 * 14 + 8, 6 * 14 + 9],
-    "Felix's blink changes only the two compact eye clusters",
+    [7 * 14 + 4, 7 * 14 + 9],
+    "Felix's blink changes only his two eye highlights",
   );
 });
 
@@ -169,6 +175,28 @@ function walkUntilX(
   assert.ok(reached(engine.readObjects()[0]!.x), "arrow-key travel did not reach the exhibit");
 }
 
+/**
+ * Walk from the lab's west doorway to the WAKE lever and stop there: the
+ * doorway (x 18) is outside the lever's posn() box (x 26-56).
+ */
+function walkToLever(engine: Engine, host: TutorialHost): void {
+  walkUntilX(engine, host, 0x4d00, (x) => x >= 30);
+  host.keys.push(0x4d00);
+  engine.tick();
+  assert.ok(engine.readObjects()[0]!.x <= 56, "ego stops within the lever's reach");
+}
+
+/**
+ * Walk from the archive's west doorway up to Felix's counter and stop: the
+ * doorway (x 18) is outside the counter's posn() box (x 50-125).
+ */
+function walkToCounter(engine: Engine, host: TutorialHost): void {
+  walkUntilX(engine, host, 0x4d00, (x) => x >= 52);
+  host.keys.push(0x4d00);
+  engine.tick();
+  assert.ok(engine.readObjects()[0]!.x <= 125, "ego stops within the counter's reach");
+}
+
 function visualDifferences(
   actual: Uint8Array,
   background: Uint8Array,
@@ -218,7 +246,7 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.equal(game.project?.authoringState?.["sources"] instanceof Object, true);
 
   const catalogEntry = GAME_CATALOG.find(({ id }) => id === "adventure-department");
-  assert.equal(catalogEntry?.version, "1.0.0");
+  assert.equal(catalogEntry?.version, "1.1.0");
   assert.equal(catalogEntry?.author, "Monotio");
   const catalogGame = await catalogEntry!.load();
   assert.ok(catalogGame.project?.authoringState?.["sources"]);
@@ -259,13 +287,63 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 
 // The library keys a stored release on (projectId, revision, version): changed
 // resources at the same catalog version would appear beside a player's saved
-// release instead of replacing it. This release is unpublished, so the version
-// stays 1.0.0 and only the pin moves when the compiled bytes change.
+// release instead of replacing it. 1.1.0 is the rewritten tutorial; while it is
+// unpublished, only the pin moves when the compiled bytes change.
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "cea77c79b10524206e9ad09881b00dcf856fca0e3ae640917f7e3ca391042f2b",
-    "tutorial resources changed: re-pin this revision (the version stays 1.0.0 until the release; bump it in app/src/gameCatalog.ts only for a published release)",
+    "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a",
+    "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
+  );
+});
+
+// Room Studio opens the tutorial's pictures on their authored sources, so
+// every drawing command sits in a named item. The items are comments: the
+// bytes are pinned per picture (and by the revision above) to what the
+// sources compiled to before they were annotated.
+test("the tutorial pictures are named Studio items without moving a byte", () => {
+  const pinned: Record<string, string> = {
+    1: "80913e1c0e69cfc9fd953d52a046de1634494a1a3d0c2451c9068b602a10fed0",
+    2: "2f34a21875ce5f91e4135600055790ee9b05a6b12941d1ef6c30b09a81fdfe40",
+    3: "21eb04f69bab01ef077f8529aa1921deb06dc0e0cb73bb74a4b636b65f84d9e3",
+    4: "0091ae20430495ddba236529e00878e2d0881d383aa23e14ebbd91f743cf638f",
+  };
+  const shipped = buildTutorial();
+  const container = openContainer(new Map(Object.entries(shipped.files)));
+  const stored = new Map(
+    (shipped.project!.authoringState!["sources"] as { pictures: [number, string][] }).pictures,
+  );
+  for (const [num, source] of Object.entries(TUTORIAL_PICTURE_SOURCES)) {
+    const bytes = compilePictureSource(source).bytes;
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), pinned[num], `PIC ${num} bytes`);
+    assert.deepEqual(container.getResource("picture", Number(num)), bytes);
+    // The catalog project carries the annotated text, which Studio trusts.
+    assert.equal(stored.get(Number(num)), source);
+    const { document, diagnostics } = parsePictureDocument(source);
+    assert.deepEqual(diagnostics, [], `PIC ${num}`);
+    const covered = new Set(document.items.flatMap((item) => item.commandLines));
+    const loose = document.lines.flatMap((line, i) =>
+      pictureCommandText(line) && pictureCommandText(line) !== "end" && !covered.has(i + 1)
+        ? [`${i + 1}: ${line}`]
+        : [],
+    );
+    assert.deepEqual(loose, [], `PIC ${num}: every drawing command is in an item`);
+    const labels = document.items.map((item) => item.label);
+    assert.ok(labels.length >= 10, `PIC ${num} has ${labels.length} items`);
+    assert.equal(new Set(labels).size, labels.length, `PIC ${num} labels are distinct`);
+  }
+  // The priority exhibit's counter is the depth item; the barrier lines are walk items.
+  const archive = parsePictureDocument(TUTORIAL_PICTURE_SOURCES[3]!).document.items;
+  assert.deepEqual(
+    archive.filter((item) => item.kind !== "art").map(({ id, kind }) => [id, kind]),
+    [
+      ["counter-depth", "depth"],
+      ["globe-depth", "depth"],
+      ["wall-base", "walk"],
+      ["counter-barrier", "walk"],
+      ["stand-barrier", "walk"],
+      ["globe-barrier", "walk"],
+    ],
   );
 });
 
@@ -328,6 +406,10 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
   enter(engine, host, "look logic");
   assert.match(host.prints.at(-1) ?? "", /Logic selects.*view.*loop.*cel/i);
   enter(engine, host, "pull lever");
+  assert.equal(engine.flags[31], 0, "the lever cannot be pulled from the doorway");
+  assert.match(host.prints.at(-1) ?? "", /too far away.*lever/i);
+  walkToLever(engine, host);
+  enter(engine, host, "pull lever");
   assert.equal(engine.flags[31], 1);
   assert.equal(engine.readObjects()[1]!.view, 2);
   for (let cycle = 0; cycle < 16; cycle++) engine.tick();
@@ -354,6 +436,10 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
   assert.equal(host.priorityScreens, 1);
   assert.match(host.priorityNotes[0]!, /Counter:11.*Felix:15/);
   enter(engine, host, "fix priority");
+  assert.equal(engine.flags[32], 0, "Felix cannot be fixed from the doorway");
+  assert.match(host.prints.at(-1) ?? "", /too far away.*counter/i);
+  walkToCounter(engine, host);
+  enter(engine, host, "fix priority");
   assert.equal(engine.flags[32], 1);
   assert.equal(engine.flags[33], 1, "all three repairs trigger the ending");
   assert.equal(
@@ -363,6 +449,8 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
   );
   assert.match(host.prints.at(-1) ?? "", /graduated/i);
   assert.match(host.prints.at(-2) ?? "", /priority 15 to 10/i);
+  enter(engine, host, "look exhibits");
+  assert.match(host.prints.at(-1) ?? "", /All three exhibits work/);
 
   enter(engine, host, "west");
   assert.equal(engine.vars[0], 2, "the finished game remains freely explorable");
@@ -370,90 +458,70 @@ test("the complete tutorial teaches movement, pictures, sprites, logic, and prio
 
 test("room geometry blocks closed walls and leaves only the intended side exits", () => {
   const { engine, host } = startTutorial();
-  assert.equal(engine.horizon, 112, "the walkable floor begins at its visible top edge");
-
-  const assertEdgeColor = (
-    x1: number,
-    x2: number,
-    y1: number,
-    y2: number,
-    color: number,
-    message: string,
-  ): void => {
-    for (let y = y1; y <= y2; y++) {
-      for (let x = x1; x <= x2; x++) {
-        assert.equal(engine.surface.visual[y * SCREEN_WIDTH + x], color, `${message} at ${x},${y}`);
-      }
-    }
-  };
+  assert.equal(engine.horizon, 112, "the walkable floor begins at the back wall's base");
+  const at = (plane: Uint8Array, x: number, y: number) => plane[y * SCREEN_WIDTH + x]!;
 
   const room1Ego = engine.readObjects()[0]!;
   assert.deepEqual(
     { x: room1Ego.x, y: room1Ego.y, width: room1Ego.width, height: room1Ego.height },
     { x: 18, y: 151, width: 10, height: 32 },
   );
-  assert.equal(engine.surface.priority[128 * SCREEN_WIDTH + 3], 0, "west wall is solid");
-  assert.equal(engine.surface.priority[140 * SCREEN_WIDTH + 3], 0, "room 1 has no west exit");
-  assert.equal(
-    engine.surface.priority[128 * SCREEN_WIDTH + 156],
-    0,
-    "east wall is solid above the exit",
-  );
-  assert.ok(
-    engine.surface.priority[140 * SCREEN_WIDTH + 156]! >= 4,
-    "room 1 east corridor is walkable",
-  );
-  assertEdgeColor(0, 7, 94, 167, 6, "room 1 closed west wall stays plain brown");
-  assertEdgeColor(152, 159, 94, 128, 6, "room 1 east wall reaches its native base");
-  assertEdgeColor(152, 159, 129, 167, 1, "room 1 east passage carries floor to the edge");
+  // Room 1: a marble bust closes the west corner; the east doorway opens on the lab.
+  assert.equal(at(engine.surface.priority, 15, 140), 0, "the bust's barrier closes the west");
+  assert.equal(at(engine.surface.priority, 5, 150), 14, "the bust stands in front, priority 14");
+  assert.equal(at(engine.surface.priority, 153, 126), 0, "the doorway's sill is a barrier");
+  assert.equal(at(engine.surface.priority, 141, 119), 0, "the east wall's base is a barrier");
+  assert.ok(at(engine.surface.priority, 156, 140)! >= 4, "the floor runs out through the doorway");
+  assert.equal(at(engine.surface.visual, 153, 100), 1, "the doorway shows the lab's blue wall");
+  assert.equal(at(engine.surface.visual, 5, 150), 7, "the plinth is painted over the corner");
 
   host.keys.push(0x4800);
   for (let cycle = 0; cycle < 55; cycle++) engine.tick();
   assert.equal(
     engine.readObjects()[0]!.y,
-    126,
-    "the angled wall base stops ego before the rear-wall horizon",
+    120,
+    "the west wall's receding base stops ego before the rear-wall horizon",
   );
   host.keys.push(0x4b00);
   for (let cycle = 0; cycle < 20; cycle++) engine.tick();
   assert.equal(engine.vars[0], 1);
-  assert.equal(
-    engine.readObjects()[0]!.x,
-    17,
-    "the apprentice stops along the visible angled wall",
-  );
+  assert.equal(engine.readObjects()[0]!.x, 18, "the angled wall base holds the apprentice");
   assert.equal(engine.readObjects()[0]!.cycling, false, "ego rests when a wall stops movement");
+
+  const corner = startTutorial();
+  corner.host.keys.push(0x4b00);
+  for (let cycle = 0; cycle < 40; cycle++) corner.engine.tick();
+  assert.deepEqual(
+    { room: corner.engine.vars[0], x: corner.engine.readObjects()[0]!.x },
+    { room: 1, x: 16 },
+    "the bust's plinth stops the apprentice: room 1 has no west exit",
+  );
 
   const fresh = startTutorial();
   walkUntilRoom(fresh.engine, fresh.host, 0x4d00, 2);
   assert.equal(fresh.engine.readObjects()[0]!.x, 18, "eastward travel enters on the left");
   fresh.engine.tick();
   assert.equal(fresh.engine.vars[0], 2, "entry placement does not immediately bounce rooms");
-  for (const x of [3, 156]) {
-    assert.equal(fresh.engine.surface.visual[119 * SCREEN_WIDTH + x], 6);
-    assert.equal(fresh.engine.surface.visual[120 * SCREEN_WIDTH + x], 1);
-    assert.equal(fresh.engine.surface.visual[167 * SCREEN_WIDTH + x], 1);
-    assert.equal(fresh.engine.surface.priority[119 * SCREEN_WIDTH + x], 0);
-    assert.ok(fresh.engine.surface.priority[120 * SCREEN_WIDTH + x]! >= 4);
-    assert.ok(fresh.engine.surface.priority[167 * SCREEN_WIDTH + x]! >= 4);
+  const lab = fresh.engine.surface;
+  assert.equal(at(lab.visual, 5, 100), 4, "the west doorway shows the gallery's red wall");
+  assert.equal(at(lab.visual, 154, 100), 2, "the east doorway shows the archive's green wall");
+  for (const x of [5, 154]) {
+    assert.equal(at(lab.priority, x, 126), 0, `the doorway sill at ${x} is a barrier`);
+    assert.ok(at(lab.priority, x, 150)! >= 4, `the floor runs out through the doorway at ${x}`);
   }
 
   walkUntilRoom(fresh.engine, fresh.host, 0x4d00, 3);
-  for (let y = 94; y <= 167; y++) {
-    for (let x = 152; x <= 159; x++) {
-      assert.equal(
-        fresh.engine.surface.visual[y * SCREEN_WIDTH + x],
-        6,
-        `room 3 closed east wall stays plain brown at ${x},${y}`,
-      );
-    }
-  }
-  assert.equal(fresh.engine.surface.visual[124 * SCREEN_WIDTH + 3], 6);
-  assert.equal(fresh.engine.surface.visual[125 * SCREEN_WIDTH + 3], 1);
-  assert.equal(fresh.engine.surface.visual[167 * SCREEN_WIDTH + 3], 1);
-  assert.equal(fresh.engine.surface.priority[124 * SCREEN_WIDTH + 3], 0);
-  assert.ok(fresh.engine.surface.priority[125 * SCREEN_WIDTH + 3]! >= 4);
-  assert.ok(fresh.engine.surface.priority[167 * SCREEN_WIDTH + 3]! >= 4);
+  const archive = fresh.engine.surface;
+  assert.equal(at(archive.visual, 5, 100), 1, "the west doorway shows the lab's blue wall");
+  assert.equal(at(archive.priority, 143, 150), 0, "the globe's barrier closes the east");
+  assert.equal(at(archive.priority, 150, 150), 14, "the globe stands in front, priority 14");
+  fresh.host.keys.push(0x4d00);
+  for (let cycle = 0; cycle < 300; cycle++) fresh.engine.tick();
+  assert.deepEqual(
+    { room: fresh.engine.vars[0], x: fresh.engine.readObjects()[0]!.x },
+    { room: 3, x: 133 },
+    "the globe stops the apprentice: room 3 has no east exit",
+  );
 });
 
 test("room transitions place ego on the correct side and closed directions explain themselves", () => {
@@ -461,7 +529,7 @@ test("room transitions place ego on the correct side and closed directions expla
 
   enter(engine, host, "west");
   assert.equal(engine.vars[0], 1);
-  assert.match(host.prints.at(-1) ?? "", /west wall.*solid.*east/i);
+  assert.match(host.prints.at(-1) ?? "", /bust.*Sprite Lab is EAST/i);
 
   enter(engine, host, "east");
   assert.deepEqual(
@@ -477,8 +545,8 @@ test("room transitions place ego on the correct side and closed directions expla
   enter(engine, host, "east");
   assert.equal(engine.vars[0], 3);
   assert.match(host.prints.at(-1) ?? "", /east wall.*west/i);
-  assert.ok(engine.surface.priority[140 * SCREEN_WIDTH + 3]! >= 4);
-  assert.equal(engine.surface.priority[140 * SCREEN_WIDTH + 156], 0);
+  assert.ok(engine.surface.priority[140 * SCREEN_WIDTH + 3]! >= 4, "the west doorway is open");
+  assert.equal(engine.surface.priority[140 * SCREEN_WIDTH + 143], 0, "the globe closes the east");
 
   enter(engine, host, "west");
   assert.deepEqual(
@@ -582,10 +650,11 @@ test("movement and sprite animation use readable pacing and ego rests on an idle
   let robot = engine.readObjects()[1]!;
   assert.deepEqual(
     { x: robot.x, y: robot.y, width: robot.width, height: robot.height },
-    { x: 98, y: 108, width: 14, height: 32 },
+    { x: 98, y: 108, width: 14, height: 28 },
   );
   assert.equal(robot.cycleTime, 10, "the robot holds each dance pose for 500ms");
   assert.equal(robot.cycling, false, "the switched-off robot is still");
+  walkToLever(engine, host);
   enter(engine, host, "pull lever");
   robot = engine.readObjects()[1]!;
   assert.equal(robot.cycling, true);
@@ -628,6 +697,7 @@ test("the lab lever sweeps around a fixed pivot and retains its repaired positio
   assert.equal(engine.getFrame().visual[78 * SCREEN_WIDTH + 30], 12, "off grip is bright red");
   const pivot = visualRegion(engine.getFrame().visual, 35, 98, 41, 103);
 
+  walkToLever(engine, host);
   const printsBefore = host.prints.length;
   enter(engine, host, "pull lever");
   assert.equal(engine.flags[31], 1);
@@ -684,6 +754,7 @@ test("the lab lever sweeps around a fixed pivot and retains its repaired positio
 
   const interrupted = startTutorial();
   enter(interrupted.engine, interrupted.host, "east");
+  walkToLever(interrupted.engine, interrupted.host);
   enter(interrupted.engine, interrupted.host, "pull lever");
   interrupted.engine.tick();
   interrupted.engine.tick();
@@ -777,6 +848,7 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
   assert.ok(headInFront > 0, "the clerk's head clears the counter");
   assert.ok(torsoInFront > 0, "priority 15 incorrectly puts the torso in front");
 
+  walkToCounter(engine, host);
   enter(engine, host, "fix priority");
   assert.equal(engine.readObjects()[1]!.priority, 10);
   assert.equal(engine.readObjects().find(({ num }) => num === 2)!.cel, 1);
@@ -821,6 +893,90 @@ test("priority repair demonstrates scenery occlusion without changing ego depth"
     "room re-entry rebuilds the repaired lamp from the repair flag",
   );
   assert.equal(engine.getFrame().visual[72 * SCREEN_WIDTH + 112], 10);
+});
+
+test("the ledger stand's missing depth explains itself the first time ego walks behind it", () => {
+  const { engine, host } = startTutorial();
+  enter(engine, host, "east");
+  enter(engine, host, "east");
+  assert.equal(engine.vars[0], 3);
+  // The stand's barrier blocks its front, so the way behind it is up the west side.
+  walkUntilX(engine, host, 0x4d00, (x) => x >= 29);
+  host.keys.push(0x4800);
+  for (let cycle = 0; cycle < 120 && engine.readObjects()[0]!.y > 113; cycle++) engine.tick();
+  assert.equal(engine.readObjects()[0]!.y, 113, "ego reaches the horizon beside the bookcase");
+  const before = host.prints.length;
+  host.keys.push(0x4d00);
+  for (let cycle = 0; cycle < 80 && engine.readObjects()[0]!.x < 52; cycle++) engine.tick();
+  const told = host.prints.slice(before).filter((text) => /BEHIND the ledger stand/.test(text));
+  assert.equal(told.length, 1, "the tag's note prints once as ego passes behind the stand");
+  assert.match(told[0]!, /DEPTH PENDING/);
+  // Priority 4 everywhere on the stand is the lesson's hook: ego still draws over it.
+  assert.equal(engine.surface.priority[100 * SCREEN_WIDTH + 45], 4, "the stand has no depth");
+
+  host.keys.push(0x4b00);
+  for (let cycle = 0; cycle < 80 && engine.readObjects()[0]!.x > 30; cycle++) engine.tick();
+  enter(engine, host, "look tag");
+  assert.match(host.prints.at(-1) ?? "", /paper tag.*DEPTH PENDING/);
+  assert.equal(
+    host.prints.filter((text) => /BEHIND the ledger stand/.test(text)).length,
+    1,
+    "walking back behind the stand does not repeat it",
+  );
+});
+
+// Phrasings a playtest typed: each gets a reply that points somewhere useful.
+test("the parser answers hugs, questions and the exhibits' other names", () => {
+  const { engine, host } = startTutorial();
+  const reply = (command: string): string => {
+    enter(engine, host, command);
+    return (host.prints.at(-1) ?? "").replace(/\s+/g, " ");
+  };
+  assert.match(reply("look sun"), /pencil sketch/, "the sun is part of the mural");
+  // The hint row says "Fix 3 exhibits": the word is known everywhere.
+  assert.match(reply("look exhibits"), /mural.*Picture Gallery.*robot.*Sprite Lab.*Felix/);
+  assert.equal(reply("fix exhibits"), "Each exhibit has its own fix. Try PAINT MURAL or HELP.");
+  assert.equal(
+    reply("how do i paint"),
+    "Just type what to do, in a word or two. Try PAINT MURAL or HELP.",
+  );
+  assert.match(reply("hug robot"), /hug never fixed an exhibit/, "no robot in the gallery");
+  enter(engine, host, "east");
+  assert.match(reply("look bay"), /charging bay's sprite editor/);
+  assert.match(reply("hug robot"), /hug the sleeping robot.*WAKE lever/);
+  enter(engine, host, "east");
+  assert.equal(
+    reply("fix stand"),
+    "The stand's depth isn't a typed fix. It's a Room Studio job: LOOK STAND explains.",
+  );
+  assert.match(reply("fix ledger"), /Room Studio job/);
+  assert.equal(engine.flags[32], 0);
+  walkToCounter(engine, host);
+  assert.match(reply("give felix priority"), /You change Felix from priority 15 to 10/);
+  assert.equal(engine.flags[32], 1);
+  assert.match(reply("set priority"), /fixed already/);
+  assert.match(reply("look exhibit"), /Three exhibits need fixing.*The other exhibits are WEST\./);
+});
+
+test("the archive globe stands fully inside the picture", () => {
+  const surface = createPictureSurface();
+  renderPicture(compilePictureSource(TUTORIAL_PICTURE_SOURCES[3]!).bytes, surface);
+  const shipped = parsePictureDocument(TUTORIAL_PICTURE_SOURCES[3]!).document;
+  const globe = shipped.items.find((item) => item.id === "globe")!;
+  const points = globe.commandLines.flatMap((line) =>
+    [...pictureCommandText(shipped.lines[line - 1]!).matchAll(/(\d+),(\d+)/g)].map(
+      ([, x, y]) => [Number(x), Number(y)] as const,
+    ),
+  );
+  assert.ok(points.length > 20);
+  for (const [x, y] of points) {
+    assert.ok(x >= 2 && x <= 157 && y <= 160, `globe point ${x},${y} keeps a margin from the edge`);
+  }
+  // Its depth covers it; the walk barrier keeps the apprentice out from behind it.
+  assert.equal(surface.priority[130 * SCREEN_WIDTH + 147], 14);
+  assert.equal(surface.priority[150 * SCREEN_WIDTH + 143], 0);
+  assert.equal(surface.priority[157 * SCREEN_WIDTH + 150], 0);
+  assert.ok(surface.priority[162 * SCREEN_WIDTH + 150]! >= 4, "the floor in front of it is open");
 });
 
 test("Felix rests with open eyes and only closes them for a brief native cel blink", () => {
@@ -875,7 +1031,9 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
 
   enter(engine, host, "east");
   enter(engine, host, "east");
+  walkToCounter(engine, host);
   enter(engine, host, "fix priority");
+  assert.equal(engine.flags[32], 1);
   assert.equal(engine.flags[33], 0);
   enter(engine, host, "west");
   walkUntilX(engine, host, 0x4b00, (x) => x <= 50);
@@ -887,7 +1045,7 @@ test("graduation triggers regardless of which exhibit is repaired last", () => {
 
   assert.equal(engine.flags[33], 1);
   assert.equal(engine.vars[3], 30);
-  assert.match(host.prints.at(-1) ?? "", /graduated.*PICTURE.*VIEW.*PRIORITY.*LOGIC.*main menu/i);
+  assert.match(host.prints.at(-1) ?? "", /graduated.*PICTURE.*VIEW.*PRIORITY.*LOGIC.*home screen/i);
 });
 
 test("the tutorial ships stored game tests that its game passes", () => {
@@ -899,5 +1057,5 @@ test("the tutorial ships stored game tests that its game passes", () => {
   assert.equal(readStoredTests(session).length, TUTORIAL_GAME_TESTS.length);
   const verdict = runGameTests(session, null);
   assert.equal(verdict.success, true, verdict.error ?? "");
-  assert.match(verdict.message ?? "", /^4 game tests pass, 0 fail\./);
+  assert.match(verdict.message ?? "", /^7 game tests pass, 0 fail\./);
 });

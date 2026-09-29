@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { providerReply } from "../../test/provider-stream.ts";
-import { isolateStorage, openAiSettings, textHook } from "./engineProbe.ts";
+import { isolateStorage, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
   page,
@@ -14,7 +14,8 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await page.goto("/");
   const create = page.getByTestId("create-adventure-disclosure");
   await expect(create.getByTestId("api-key-input")).toHaveCount(0);
-  await page.getByTestId("template-custom").click();
+  await page.getByTestId("shelf-template-custom").click();
+  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-pressed", "true");
   await page.getByLabel("Adventure name").fill("The Quiet Observatory");
   await page.getByTestId("custom-adventure-input").fill("Find the missing moon chart.");
   await page.getByTestId("connect-create-ai").click();
@@ -95,6 +96,7 @@ test("AI settings pause only their own game interaction and preserve the assista
   expect((await textHook(page)).egoX).toBe(before.egoX);
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
@@ -153,6 +155,7 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");

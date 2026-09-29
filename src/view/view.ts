@@ -31,7 +31,7 @@ export interface ViewCel {
   readonly pixels: Uint8Array;
 }
 
-export interface ViewLoop {
+interface ViewLoop {
   readonly cels: ViewCel[];
 }
 
@@ -515,7 +515,7 @@ export function drawCel(
  * that paints inside `visit` reproduces drawCel exactly.
  */
 export function forEachPaintedPixel(
-  surface: PictureSurface,
+  surface: Pick<PictureSurface, "priority">,
   cel: ViewCel,
   x: number,
   yBaseline: number,

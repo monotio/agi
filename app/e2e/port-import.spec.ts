@@ -4,8 +4,8 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { getKnownGameByAlias } from "../../src/games/knownGames.ts";
 import { fixtureSkip } from "../../test/fixtures.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
-import { readGameZip } from "../src/gameZip.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
 import { isolateStorage, openGameOptions, textHook } from "./engineProbe.ts";
 
 /**
@@ -25,7 +25,7 @@ const PORTS: readonly { alias: string; executable: string }[] = [
 
 async function storedRevision(page: Page): Promise<string | undefined> {
   return page.evaluate(async () => {
-    const path = "/src/gameStorage.ts";
+    const path = "/src/project/gameStorage.ts";
     const store = await import(path);
     return store.listCachedGames()[0]?.library?.revision;
   });
@@ -57,7 +57,7 @@ for (const port of PORTS) {
     expect(await storedRevision(page)).toBe(revision);
 
     const pending = page.waitForEvent("download");
-    await openGameOptions(page, "game-menu");
+    await openGameOptions(page, "settings-menu");
     await page.getByTestId("btn-export-game").click();
     const exported = (await (await pending).path())!;
     const game = await readGameZip(new Uint8Array(await readFile(exported)));

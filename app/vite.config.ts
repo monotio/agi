@@ -1,12 +1,21 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative } from "node:path";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig, type Plugin } from "vite";
 import { scanFixtures } from "../test/fixtures.ts";
 import { BUILTIN_GAME_BUILDERS } from "../test/game-fixture.ts";
 import { KNOWN_GAMES, detectKnownGameByHashes } from "../src/games/knownGames.ts";
 import { canonicalResourceName } from "../src/types.ts";
-import { gameRevision, isPlayableFileName } from "./src/gameMetadata.ts";
+import { gameRevision, isPlayableFileName } from "./src/project/gameMetadata.ts";
+import { BUNDLE_GRAPH_PATH } from "./bundle-graph.config.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
@@ -197,8 +206,67 @@ function fixtureServer(): Plugin {
   };
 }
 
+/**
+ * Records the production chunk graph, with each chunk's source modules
+ * relative to the repository root (which Vite's manifest omits), at
+ * BUNDLE_GRAPH_PATH for scripts/check-bundle-budget.ts — outside the output
+ * directory, so a deploy of `dist` never carries it. Each build removes the
+ * previous graph before it starts, so one that fails leaves none behind
+ * rather than a graph of an older build.
+ */
+function bundleGraph(): Plugin {
+  const repository = join(import.meta.dirname, "..");
+  const local = (id: string): string =>
+    relative(repository, id.split("?")[0]!).replaceAll("\\", "/");
+  return {
+    name: "agi-bundle-graph",
+    apply: "build",
+    buildStart() {
+      rmSync(BUNDLE_GRAPH_PATH, { force: true });
+    },
+    generateBundle(_options, bundle) {
+      const chunks = [];
+      const assets = [];
+      for (const output of Object.values(bundle)) {
+        if (output.type === "chunk") {
+          chunks.push({
+            file: output.fileName,
+            isEntry: output.isEntry,
+            imports: output.imports,
+            dynamicImports: output.dynamicImports,
+            css: [...(output.viteMetadata?.importedCss ?? [])],
+            modules: output.moduleIds.map(local),
+          });
+        } else {
+          assets.push({ file: output.fileName });
+        }
+      }
+      mkdirSync(dirname(BUNDLE_GRAPH_PATH), { recursive: true });
+      writeFileSync(BUNDLE_GRAPH_PATH, JSON.stringify({ chunks, assets }, null, 1));
+    },
+  };
+}
+
+/**
+ * Stamps `<meta name="agi-build">` into index.html: the commit SHA CI builds
+ * (GITHUB_SHA), or `local` for any other build. scripts/verify-deploy.ts
+ * compares it with the deployed commit. It holds nothing but the public commit
+ * id, so one commit always builds the same page.
+ */
+function buildIdentity(): Plugin {
+  const commit = process.env["GITHUB_SHA"];
+  if (commit !== undefined && !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(commit))
+    throw new Error(`GITHUB_SHA is not a commit id: ${JSON.stringify(commit)}`);
+  return {
+    name: "agi-build-identity",
+    transformIndexHtml: () => [
+      { tag: "meta", attrs: { name: "agi-build", content: commit ?? "local" }, injectTo: "head" },
+    ],
+  };
+}
+
 export default defineConfig({
-  plugins: [vue(), fixtureServer()],
+  plugins: [vue(), fixtureServer(), bundleGraph(), buildIdentity()],
   server: {
     proxy: {
       "/api/openai": {

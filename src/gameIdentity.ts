@@ -7,7 +7,7 @@
  * adventure, a copy, a remix. Renaming the entry's title does not change it;
  * a remix stores its parent's identity in the same record type.
  * `ResourceRevision` is the digest of the canonical playable bytes — the
- * sorted-name SHA-256 bundle scheme in app/src/gameMetadata.ts. The same
+ * sorted-name SHA-256 bundle scheme in app/src/project/gameMetadata.ts. The same
  * bytes give the same value, including after a no-op patch or an undo;
  * notes, references, tests, history and archive timestamps never move it.
  *
@@ -79,19 +79,8 @@ export function gameIdentity(value: unknown): GameIdentity | null {
 }
 
 /** Validate a serialized identity record; throws naming the bad value. */
-export function requireGameIdentity(value: unknown): GameIdentity {
-  const identity = gameIdentity(value);
-  if (identity === null) throw new Error(`Invalid game identity: ${JSON.stringify(value)}`);
-  return identity;
-}
 
 /** The plain serialized shape of a GameIdentity. */
-export function serializeGameIdentity(identity: GameIdentity): {
-  project: string;
-  revision: string;
-} {
-  return { project: identity.project, revision: identity.revision };
-}
 
 /** Compile-time pin: a bare string must never satisfy either brand. */
 type AssertFalse<T extends false> = T;

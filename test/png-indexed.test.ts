@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { inflateSync } from "node:zlib";
-import { encodePngPaletteRgb } from "../src/picture/png.ts";
+import { deflateSync, inflateSync } from "node:zlib";
+import { encodePngPaletteRgb, encodePngPaletteRgbDeflated } from "../src/picture/png.ts";
 import { PROVIDER_IMAGE_BYTES } from "../src/agent/toolTransport.ts";
 
 interface ParsedPng {
@@ -76,6 +76,22 @@ describe("indexed palette PNG encoder", () => {
     assert.deepEqual(
       [...new Uint8Array(inflateSync(parsed.chunks.get("IDAT")!))],
       [0, 0, 1, 0, 2, 0],
+    );
+    assert.deepEqual(reconstruct(parsed), rgb);
+  });
+
+  it("wraps the host's zlib stream of the same scanlines when a deflate is supplied", async () => {
+    const rgb = Uint8Array.of(255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 0);
+    const seen: number[][] = [];
+    const png = await encodePngPaletteRgbDeflated(2, 2, rgb, (raw) => {
+      seen.push([...raw]);
+      return Promise.resolve(new Uint8Array(deflateSync(raw, { level: 9 })));
+    });
+    assert.deepEqual(seen, [[0, 0, 1, 0, 2, 0]]);
+    const parsed = parsePng(png);
+    assert.deepEqual(
+      parsed.chunks.get("IDAT"),
+      new Uint8Array(deflateSync(Uint8Array.of(0, 0, 1, 0, 2, 0), { level: 9 })),
     );
     assert.deepEqual(reconstruct(parsed), rgb);
   });

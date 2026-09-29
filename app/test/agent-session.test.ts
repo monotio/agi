@@ -2,7 +2,7 @@ import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import { createAgentSessionState } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok, buildWordsTok } from "../../src/logic/words.ts";
 import { buildView } from "../../src/view/view.ts";
@@ -891,4 +891,40 @@ test("a session keeps the game's interpreter override through adoption and recon
   assert.equal(replacement.state.profile.id, "2.089");
   const automatic = AgentSession.fromAuthoredData(config, () => {}, files, []);
   assert.equal(automatic.state.profile.id, "2.936");
+});
+
+test("Ask's first-turn brief withholds the room's plan entry, as read_room_context does in Ask", async (t) => {
+  const bodies: string[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    bodies.push(String(init.body));
+    const output = [
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "Look around." }],
+      },
+    ];
+    return new Response(providerSse("openai", { id: `ask${bodies.length}`, output }), {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const plan = (state: ReturnType<typeof createAgentSessionState>) => {
+    // Creator intent: the room's title, brief and an exit to a room not yet built.
+    state.authoring.world.rooms["4"] = {
+      title: "Vault antechamber",
+      description: "The lever behind the tapestry opens the vault.",
+      exits: { north: 9 },
+    };
+    return state;
+  };
+  const ask = new AgentSession(
+    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    () => {},
+    plan(createAgentSessionState()),
+  );
+  ask.setOrientation({ game: "vault", profile: "2.936" });
+  await ask.runAsk("Where do I go?", 4);
+  assert.match(bodies[0]!, /Room 4: logic revision/, "the brief was sent");
+  for (const secret of ["Vault antechamber", "lever behind the tapestry", "north"])
+    assert.doesNotMatch(bodies[0]!, new RegExp(secret), `Ask withholds ${secret}`);
 });

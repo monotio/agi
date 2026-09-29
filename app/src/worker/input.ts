@@ -219,5 +219,3 @@ export function createInput(ctx: WorkerContext) {
     onDismissPrint,
   };
 }
-
-export type InputModule = ReturnType<typeof createInput>;

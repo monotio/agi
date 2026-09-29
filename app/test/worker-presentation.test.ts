@@ -56,7 +56,7 @@ test("a resource patch republishes the frame carrying its own revision", () => {
   // A sound patch changes no visual, text, priority, or object byte — only
   // the container revision. The frame still ships so the inspector's latched
   // observations can pin the revision they describe.
-  ctx.engine!.patchResource("sound", 4, new Uint8Array([1, 2, 3]));
+  ctx.engine!.patchResources([{ kind: "sound", num: 4, payload: new Uint8Array([1, 2, 3]) }]);
   ctx.fns.postFrame();
   const frames = presentation.filter((m) => m.type === "frame");
   assert.ok(frames.length >= 2, "a patch alone publishes a frame");

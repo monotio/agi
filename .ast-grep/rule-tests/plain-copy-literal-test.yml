@@ -1,0 +1,15 @@
+id: plain-copy-literal
+valid:
+  - 'const title = "Ask about this game";'
+  - 'const note = "Not built yet";'
+  - 'const error = "Nothing is recorded yet. Play a little first.";'
+  - "const label = `${room} — ${brief}`;"
+  - "type Never = never;"
+invalid:
+  - 'const title = "Ask about this game — answers without changing it";'
+  - 'const error = "This game is no longer in your library.";'
+  - 'const note = "Game text uses its own font, rather than the built-in one.";'
+  - 'const hint = "Use Remix instead of Play.";'
+  - 'const hint = "Play here needs a live game, not a replay.";'
+  - 'const hint = "The backdrop is never saved.";'
+  - "const hint = `Room ${room} is already built — change it in Remix.`;"

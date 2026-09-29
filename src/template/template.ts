@@ -9,22 +9,22 @@
 
 import type { WordEntry } from "../logic/words.ts";
 
-export interface TemplatePoint {
+interface TemplatePoint {
   readonly points: number;
   readonly beat: string;
 }
 
-export interface TemplateNpc {
+interface TemplateNpc {
   readonly name: string;
   readonly description: string;
 }
 
-export interface SynonymGroup {
+interface SynonymGroup {
   readonly id: number;
   readonly words: readonly string[];
 }
 
-export interface TemplateLexicon {
+interface TemplateLexicon {
   readonly verbs: readonly string[];
   readonly nouns: readonly string[];
   readonly allWords: readonly string[];

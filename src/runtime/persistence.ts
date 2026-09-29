@@ -33,7 +33,7 @@ export const OBJECT_RECORD_BYTES = 0x2b;
 /** Repeating key of the v3 block-3 transform (spec "V3 block-3 transform"). */
 export const BLOCK3_XOR_KEY = "Avis Durgan";
 /** Logic number of the block-5 terminator record (spec "Profile 2.936 block 5"). */
-export const LOGIC_RESUME_TERMINATOR = 0xffff;
+const LOGIC_RESUME_TERMINATOR = 0xffff;
 
 /**
  * Ordering of the 24- or 28-byte middle section at block-1 position `0x012b`.
@@ -43,10 +43,10 @@ export const LOGIC_RESUME_TERMINATOR = 0xffff;
  * word, a previous-navigation word, a navigation-direction word and a reserved
  * startup count that the later profiles do not, and is four bytes longer.
  */
-export type Block1MiddleOrder = "early" | "common";
+type Block1MiddleOrder = "early" | "common";
 
 /** Positions and capacities of one PC profile's block 1. */
-export interface PcBlock1Layout {
+interface PcBlock1Layout {
   readonly kind: "pc";
   /** Exact block-1 length in bytes. */
   readonly size: number;
@@ -71,7 +71,7 @@ export interface PcBlock1Layout {
  * (docs/fidelity.md "Amiga interpreter profiles"). Every offset is read off
  * the shipped Save/ images and the save/restore disassembly.
  */
-export interface AmigaBlock1Layout {
+interface AmigaBlock1Layout {
   readonly kind: "amiga";
   /** Exact block-1 (state-hunk) length in bytes. */
   readonly size: number;
@@ -110,7 +110,7 @@ export interface AmigaBlock1Layout {
  * here, little-endian fields), the object records, the inventory payload,
  * the replay pairs and the logic-resume records.
  */
-export interface IigsBlock1Layout {
+interface IigsBlock1Layout {
   readonly kind: "iigs";
   /** Bytes of the leading block saved ahead of the state block: the
    * ~globals image $010d..$0144 ({@link IIGS_LEAD_WORDS}). */
@@ -147,7 +147,7 @@ const TEXT_BYTES = 20;
 /** Block-1 layout of each promoted profile (spec, the per-profile block tables). */
 const BLOCK1_LAYOUTS: Readonly<Record<ProfileId, Block1Layout>> = {
   // 2.001 save images are unverified (no observed 2.001 save); the earliest
-  // documented partition applies. docs/fidelity.md pc-booter-2.001-profile.
+  // documented partition applies. docs/fidelity.md pc-booter-2001-profile.
   "2.001": {
     kind: "pc",
     size: 0x03db,
@@ -455,7 +455,7 @@ export function layoutStringTotal(layout: Block1Layout): number {
 }
 
 /** One `raw_key:u16le, status:u16le` script key mapping (spec, block 1). */
-export interface KeyMapEntry {
+interface KeyMapEntry {
   rawKey: number;
   status: number;
 }
@@ -1195,7 +1195,7 @@ function decodeBlock2(block: Uint8Array): SaveObjectRecord[] {
 // ---------- Amiga/IIgs block 2 (0x48-byte runtime records) ----------
 
 /** Bytes of one Amiga/IIgs drawable-object record (docs/fidelity.md). */
-export const NATIVE_OBJECT_RECORD_BYTES = 0x48;
+const NATIVE_OBJECT_RECORD_BYTES = 0x48;
 
 /**
  * The native flag word (record +0x3e) of the Amiga and IIgs builds is its
@@ -1669,7 +1669,7 @@ const HOST_TEXT_CELLS = TEXT_COLS * TEXT_ROWS;
 const HOST_DRAW_COUNT = 256;
 const HOST_PRESENTATION_BYTES = 8 + HOST_TEXT_CELLS * 6 + HOST_DRAW_COUNT * 24;
 
-export interface HostDraw {
+interface HostDraw {
   drawSeq: number;
   drawnX: number;
   drawnY: number;

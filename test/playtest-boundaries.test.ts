@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createAgentSessionState } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildView } from "../src/view/view.ts";
 import { Engine } from "../src/runtime/engine.ts";
@@ -110,4 +110,56 @@ test("variable assertions reject mixed exact values and ranges", () => {
     min: null,
     max: null,
   });
+});
+
+test("a preset writes flags and variables before the room's entry logic runs", () => {
+  const state = createAgentSessionState();
+  state.container.putResource("picture", 1, Uint8Array.of(0xf0, 2, 0xf8, 0, 0, 0xff));
+  state.container.putResource(
+    "view",
+    0,
+    buildView({ loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }] }),
+  );
+  for (const [num, source] of [
+    [0, "if(equaln(v0,0)){new.room(1);}call(1);return;"],
+    [
+      1,
+      "if(isset(f5)){load.pic(v0);draw.pic(v0);show.pic();load.view(0);animate.obj(o0);set.view(o0,0);if(isset(f40)){position(o0,20,120);}else{position(o0,80,120);}if(equaln(v41,3)){assignn(v42,9);}draw(o0);accept.input();}return;",
+    ],
+  ] as const)
+    state.container.putResource(
+      "logic",
+      num,
+      assembleLogic(source, { dictionary: new Map() }).payload,
+    );
+  const spawn = (result: ReturnType<typeof playtestRoom>) =>
+    result.details as {
+      spawnX: number;
+      enteredDirectly: boolean;
+      state: { nonzeroVariables: unknown[] };
+    };
+
+  const plain = playtestRoom(state, { room: 1 });
+  assert.equal(plain.success, true, plain.error ?? "");
+  assert.equal(spawn(plain).spawnX, 80);
+  assert.equal(spawn(plain).enteredDirectly, false, "boot already lands in room 1");
+
+  const preset = playtestRoom(
+    state,
+    { room: 1 },
+    { preset: { flags: [{ id: 40, value: true }], vars: [{ id: 41, value: 3 }] } },
+  );
+  assert.equal(preset.success, true, preset.error ?? "");
+  assert.equal(spawn(preset).spawnX, 20, "the entry logic saw f40");
+  assert.equal(spawn(preset).enteredDirectly, true, "a preset re-enters the room");
+  assert.ok(
+    spawn(preset).state.nonzeroVariables.some(
+      (entry) => JSON.stringify(entry) === JSON.stringify({ id: 42, value: 9 }),
+    ),
+    "the entry logic saw v41",
+  );
+
+  const invalid = playtestRoom(state, { room: 1 }, { preset: { vars: [{ id: 41, value: 256 }] } });
+  assert.equal(invalid.success, false);
+  assert.match(invalid.error ?? "", /preset/);
 });

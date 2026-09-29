@@ -1,0 +1,66 @@
+{
+  "name": "studio-assist-mirror-propagation",
+  "description": "Recolouring the eyes of a loop that mirrors another with propagate set edits the shared data block, so the unselected loop changes too; the refusal names each unselected cel.",
+  "async": true,
+  "studio": {
+    "kind": "view",
+    "num": 2,
+    "payload": [
+      0, 0, 2, 40, 0, 9, 0, 9, 0, 2, 5, 0, 18, 0, 4, 3, 128, 1, 114, 0, 113, 193, 114, 0, 1, 114, 0,
+      4, 3, 128, 1, 114, 0, 114, 193, 113, 0, 1, 114, 0, 84, 101, 115, 116, 32, 114, 111, 98, 111,
+      116, 0
+    ],
+    "targetCels": [
+      {
+        "loop": 1,
+        "cel": 0
+      },
+      {
+        "loop": 1,
+        "cel": 1
+      }
+    ]
+  },
+  "tool": "propose_edit",
+  "args": {
+    "baseRevision": "view-51-54876f40",
+    "summary": "Blue eyes on the left-facing loop.",
+    "pictureOps": null,
+    "spriteOps": [
+      {
+        "type": "recolor",
+        "loop": null,
+        "cel": null,
+        "propagate": true,
+        "changes": null,
+        "x": null,
+        "y": null,
+        "color": null,
+        "recolorScope": "cels",
+        "cels": [
+          {
+            "loop": 1,
+            "cel": 0
+          },
+          {
+            "loop": 1,
+            "cel": 1
+          }
+        ],
+        "from": 12,
+        "to": 1,
+        "axis": null,
+        "dx": null,
+        "dy": null,
+        "width": null,
+        "height": null,
+        "anchor": null,
+        "remap": null,
+        "at": null,
+        "source": null
+      }
+    ]
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "loop 0, cel 0 is not selected, but 1 pixel of it would change; loop 0, cel 1 is not selected, but 1 pixel of it would change"
+}

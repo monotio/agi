@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fixtureSkip } from "../../test/fixtures.ts";
 import { OPENING_ROUTES, TITLE_SCREENS, openingRoute } from "../../test/speedrun/openings.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, revealFoldedBoot, textHook } from "./engineProbe.ts";
 import { BrowserReplay } from "./speedrunReplay.ts";
 
 // Opening-room checks exercise development discovery, loading and the worker.
@@ -18,6 +18,7 @@ for (const game of TITLE_SCREENS) {
     page.on("pageerror", (error) => errors.push(error.message));
     await isolateStorage(page);
     await page.goto("/?replaySeed=1");
+    await revealFoldedBoot(page, game.alias);
     await page
       .locator(
         `[data-hash="${game.hash}"], [data-alias="${game.alias}"], [data-testid="boot-${game.alias}"]`,

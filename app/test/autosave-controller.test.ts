@@ -5,16 +5,21 @@ import {
   readAutosave,
   clearAutosave,
   lastGameKey,
+  resumableAutosave,
   useAutosaveController,
   type AutosaveControllerContext,
-} from "../src/useAutosaveController.ts";
-import { writeAutosave, type AutosaveRecord } from "../src/gameProgress.ts";
-import { gameRevision } from "../src/gameMetadata.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
+} from "../src/saves/useAutosaveController.ts";
+import { writeAutosave, type AutosaveRecord } from "../src/saves/gameProgress.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
-import { saveAuthoredGame, clearCachedGame } from "../src/gameStorage.ts";
+import {
+  saveAuthoredGame,
+  clearCachedGame,
+  readHistoryLifetime,
+} from "../src/project/gameStorage.ts";
 
 installIndexedDbFixture();
 
@@ -257,9 +262,8 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
     roomGeneration: true,
   });
 
-  const revision = requireResourceRevision(
-    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  );
+  // A booted game runs the revision storage holds: its files' own.
+  const revision = await gameRevision(dummyFiles);
   const remixGame: BootedGame = {
     installed: false,
     projectId: testProjectId("remix-project-789"),
@@ -326,6 +330,248 @@ test("remixed project with Sierra alias uses projectId for autosave identity and
     clearAutosave("kq1");
     await clearCachedGame(testProjectId("remix-project-789"));
   }
+});
+
+test("reloading from storage resumes only a checkpoint of the stored bytes, else starts from the top", async (t) => {
+  const id = testProjectId("reload-from-storage");
+  // Hooks run in order: the record goes while the store is still installed.
+  t.after(() => clearCachedGame(id));
+  installLocalStorageMock(t);
+  const before = { "WORDS.TOK": Uint8Array.of(0, 0) };
+  const after = { "WORDS.TOK": Uint8Array.of(0, 0), OBJECT: Uint8Array.of(1) };
+  // Another tab kept an edit: storage holds `after` while this tab runs `before`.
+  await saveAuthoredGame(id, {
+    title: "Kept elsewhere",
+    provider: "stub",
+    model: "offline-stub",
+    files: after,
+    words: [],
+  });
+  let running: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Kept elsewhere",
+    revision: await gameRevision(before),
+    files: before,
+    words: [],
+  };
+  const boots: { restoreImage: string }[] = [];
+  const controller: ReturnType<typeof useAutosaveController> = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => running,
+    getWorker: () => null,
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => assert.fail("an authored project never boots as an edition"),
+    bootAuthoredGame: async (_prompt, _config, options) => {
+      assert.deepEqual(options, { projectId: id, useCached: true });
+      boots.push(await controller.takeResumeState(after));
+    },
+    configForGame: (_project, config) => config,
+  });
+  const config = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
+  const checkpoint = async (files: Record<string, Uint8Array>, image: string) =>
+    writeAutosave(localStorage, {
+      format: "monotio.agi.autosave",
+      version: 1,
+      image,
+      cycle: 7,
+      room: 1,
+      savedAt: Date.now(),
+      game: { installed: false, identity: { project: id, revision: await gameRevision(files) } },
+    });
+
+  // This tab's own checkpoint names the bytes it runs, not the stored ones:
+  // the stored game starts from the top instead of refusing the mismatch.
+  await checkpoint(before, "this-tab");
+  assert.equal(await controller.reloadFromStorage(config), true);
+  // The other tab's Keep took a checkpoint of the stored bytes: that one resumes.
+  await checkpoint(after, "other-tab");
+  assert.equal(await controller.reloadFromStorage(config), true);
+  assert.deepEqual(
+    boots.map((boot) => boot.restoreImage),
+    ["", "other-tab"],
+  );
+  // An installed edition is no stored project to reload.
+  running = { ...running, installed: true, projectId: undefined, hash: "edition" };
+  assert.equal(await controller.reloadFromStorage(config), false);
+  assert.equal(boots.length, 2);
+});
+
+test("a tab behind storage never writes its checkpoint over the newer save's", async (t) => {
+  const id = testProjectId("checkpoint-behind-storage");
+  t.after(() => clearCachedGame(id));
+  installLocalStorageMock(t);
+  const before = { "WORDS.TOK": Uint8Array.of(0, 0) };
+  const after = { "WORDS.TOK": Uint8Array.of(0, 0), OBJECT: Uint8Array.of(1) };
+  // Another tab kept an edit and took a checkpoint of the kept bytes; this
+  // tab still runs `before` and has not heard of it yet.
+  await saveAuthoredGame(id, {
+    title: "Kept elsewhere",
+    provider: "stub",
+    model: "offline-stub",
+    files: after,
+    words: [],
+  });
+  writeAutosave(localStorage, {
+    format: "monotio.agi.autosave",
+    version: 1,
+    image: "other-tab",
+    cycle: 7,
+    room: 2,
+    savedAt: Date.now(),
+    game: { installed: false, identity: { project: id, revision: await gameRevision(after) } },
+  });
+  const running: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Kept elsewhere",
+    revision: await gameRevision(before),
+    files: before,
+    words: [],
+  };
+  let stored = 0;
+  const context = (game: BootedGame): AutosaveControllerContext => ({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => null,
+    onAutosaveStored: () => stored++,
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+  });
+  const controller = useAutosaveController(context(running));
+
+  // A checkpoint names this tab's revision, which storage no longer holds:
+  // it could never resume, and it would bury the other tab's.
+  controller.handleAutosave({ image: "this-tab", cycle: 90, room: 1 });
+  assert.equal(await controller.getAutosaveWrite(), false);
+  assert.equal(readAutosave(id)?.image, "other-tab");
+  assert.equal(stored, 0);
+
+  // A game on the stored revision checkpoints as before.
+  const current: BootedGame = { ...running, revision: await gameRevision(after), files: after };
+  const onStored = useAutosaveController(context(current));
+  // Unless it is marked behind (a removed-and-recreated project, a Keep
+  // that never installed): then nothing writes until it reloads.
+  current.behindStorage = true;
+  onStored.handleAutosave({ image: "marked", cycle: 91, room: 3 });
+  assert.equal(await onStored.getAutosaveWrite(), false);
+  delete current.behindStorage;
+  onStored.handleAutosave({ image: "current", cycle: 92, room: 3 });
+  assert.equal(await onStored.getAutosaveWrite(), true);
+  assert.equal(readAutosave(id)?.image, "current");
+  assert.equal(stored, 1);
+});
+
+test("a tab running a removed project never brings its checkpoint back, and a reload says why", async (t) => {
+  const id = testProjectId("checkpoint-removed-elsewhere");
+  t.after(() => clearCachedGame(id));
+  installLocalStorageMock(t);
+  const files = { "WORDS.TOK": Uint8Array.of(0, 0) };
+  await saveAuthoredGame(id, {
+    title: "Removed elsewhere",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  const game: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Removed elsewhere",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+    historyLifetime: await readHistoryLifetime(id),
+  };
+  let removed = 0;
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => null,
+    onRemoved: () => removed++,
+    logAgent: () => {},
+    isInstalledGame: () => false,
+    bootGame: async () => assert.fail("an authored project never boots as an edition"),
+    bootAuthoredGame: async () => assert.fail("a removed project never boots"),
+    configForGame: (_project, config) => config,
+  });
+  controller.handleAutosave({ image: "before", cycle: 10, room: 1 });
+  assert.equal(await controller.getAutosaveWrite(), true);
+
+  // Another tab removes the game; this tab heard nothing (no BroadcastChannel).
+  await clearCachedGame(id);
+  clearAutosave(id);
+  controller.handleAutosave({ image: "after", cycle: 20, room: 1 });
+  assert.equal(await controller.getAutosaveWrite(), false);
+  assert.equal(readAutosave(id), null, "the removed project's checkpoint stays gone");
+  assert.equal(lastGameKey(), null, "Home is pointed at nothing");
+  assert.equal(game.removed, true);
+  assert.equal(removed, 1);
+  controller.handleAutosave({ image: "later", cycle: 30, room: 1 });
+  assert.equal(await controller.getAutosaveWrite(), false);
+  assert.equal(readAutosave(id), null);
+  assert.equal(removed, 1, "said once");
+
+  // Reload game (or Studio's Reopen) finds nothing to reload: it says so again.
+  const config = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
+  assert.equal(await controller.reloadFromStorage(config), false);
+  assert.equal(removed, 2);
+});
+
+test("Home offers Continue only for a game that can still boot, and clears a removed one's leftover", async (t) => {
+  const id = testProjectId("continue-removed");
+  t.after(() => clearCachedGame(id));
+  const values = installLocalStorageMock(t);
+  const files = { "WORDS.TOK": Uint8Array.of(0, 0) };
+  const checkpoint = async (project: string, installed = false) => {
+    writeAutosave(localStorage, {
+      format: "monotio.agi.autosave",
+      version: 1,
+      image: "img",
+      cycle: 7,
+      room: 1,
+      savedAt: Date.now(),
+      game: {
+        installed,
+        identity: { project: testProjectId(project), revision: await gameRevision(files) },
+      },
+    });
+    localStorage.setItem("monotio_agi.lastGame", project);
+  };
+  assert.equal(resumableAutosave(), null, "nothing played yet");
+
+  await saveAuthoredGame(id, {
+    title: "Continue me",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+  });
+  await checkpoint(id);
+  assert.equal(resumableAutosave()?.game.identity.project, id);
+
+  // Removed in another tab after its checkpoint was taken: never offered,
+  // and the leftover under the removed project's own key goes.
+  await clearCachedGame(id);
+  assert.equal(resumableAutosave(), null);
+  assert.equal(readAutosave(id), null);
+  assert.equal(lastGameKey(), null);
+
+  // An installed edition's checkpoint stays offered (its card resolves it).
+  await checkpoint("gr1", true);
+  assert.equal(resumableAutosave()?.game.identity.project, "gr1");
+
+  // A project index this release cannot read is kept, but not offered.
+  const newer = testProjectId("continue-newer-format");
+  values.set(`monotio_agi.authored.${newer}`, JSON.stringify({ version: 2 }));
+  await checkpoint(newer);
+  assert.equal(resumableAutosave(), null);
+  assert.notEqual(readAutosave(newer), null);
+  assert.equal(lastGameKey(), newer);
 });
 
 test("useAutosaveController flushAutosave and drainFlushWaiters interact properly", async () => {
@@ -444,37 +690,16 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
 
   const controller = useAutosaveController(ctx);
 
-  // 1. When a modal window is open, reports not_checkpointable
+  // 1. A snapshot the worker refused past the last autosave reports not_checkpointable
   const flush1 = controller.flushAutosaveDetailed(2000);
   const flushMsg1 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
   controller.handleFlushed({
     id: flushMsg1.id,
     taken: false,
     cycle: 10,
-    hasEngine: true,
-    modal: true,
-    textMode: false,
-    pictureShown: true,
   });
   const res1 = await flush1;
   assert.equal(res1.status, "not_checkpointable");
-  assert.equal(res1.reason, "A dialog or menu is open.");
-
-  // 2. When text mode is active, reports not_checkpointable
-  const flush2 = controller.flushAutosaveDetailed(2000);
-  const flushMsg2 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
-  controller.handleFlushed({
-    id: flushMsg2.id,
-    taken: false,
-    cycle: 11,
-    hasEngine: true,
-    modal: false,
-    textMode: true,
-    pictureShown: true,
-  });
-  const res2 = await flush2;
-  assert.equal(res2.status, "not_checkpointable");
-  assert.equal(res2.reason, "Game is in text mode.");
 
   // 3. Clean opening at cycle 0 is already durable (does not trap player at start)
   const flush3 = controller.flushAutosaveDetailed(2000);
@@ -483,15 +708,11 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg3.id,
     taken: false,
     cycle: 0,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: false,
   });
   const res3 = await flush3;
   assert.equal(res3.status, "already_durable");
 
-  // 3b. Mid-game transition (cycle > lastCycle with unrendered picture) is not_checkpointable
+  // 3b. A refusal after progress moved past the last autosave is not_checkpointable
   controller.handleAutosave({
     image: "image-1",
     cycle: 10,
@@ -505,14 +726,9 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg3b.id,
     taken: false,
     cycle: 20,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: false,
   });
   const res3b = await flush3b;
   assert.equal(res3b.status, "not_checkpointable");
-  assert.equal(res3b.reason, "Interpreter is between transitions.");
 
   // 4. When already durable (last seen cycle <= last autosave cycle), reports already_durable
   controller.handleAutosave({
@@ -528,10 +744,6 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg4.id,
     taken: false,
     cycle: 50,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: true,
   });
   const res4 = await flush4;
   assert.equal(res4.status, "already_durable");
@@ -548,10 +760,6 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg5.id,
     taken: true,
     cycle: 55,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: true,
   });
   const res5 = await flush5;
   assert.equal(res5.status, "saved");
@@ -561,12 +769,46 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: -1,
     taken: false,
     cycle: 99,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: true,
   });
   const flush6 = controller.flushAutosaveDetailed(10);
   const res6 = await flush6;
   assert.equal(res6.status, "timeout");
+});
+
+test("an autosave without a preview keeps the card's previous picture", async (t) => {
+  installLocalStorageMock(t);
+  const { createProgressPreview } = await import("../src/saves/progressPreview.ts");
+  const visual = new Uint8Array(160 * 168).fill(2);
+  const preview = createProgressPreview({ visual, text: new Uint8Array(2000), picRow: 1 });
+  const bootedGame: BootedGame = {
+    installed: true,
+    title: "Test Game",
+    revision: testRevision("preview-rev"),
+    files: { LOGDIR: new Uint8Array([0, 1]) },
+    words: [],
+    alias: "kq4",
+    hash: "c".repeat(64),
+  };
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => bootedGame,
+    getWorker: () => null,
+    logAgent: () => {},
+    isInstalledGame: () => true,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_p, config) => config,
+  });
+  try {
+    controller.handleAutosave({ image: "image-1", preview, cycle: 10, room: 3 });
+    await controller.getAutosaveWrite();
+    // The next frame was black, so the worker sent no preview with it.
+    controller.handleAutosave({ image: "image-2", cycle: 20, room: 142 });
+    await controller.getAutosaveWrite();
+    const stored = readAutosave("c".repeat(64));
+    assert.equal(stored?.image, "image-2", "the position still moves on");
+    assert.equal(stored?.preview, preview, "the card keeps the last real picture");
+  } finally {
+    clearAutosave("c".repeat(64));
+  }
 });

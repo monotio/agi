@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { loadGame } from "./game-fixture.ts";
 import { createHash } from "node:crypto";
 import {
@@ -10,6 +10,7 @@ import {
   findFixture,
   fixtureDir,
   fixtureReadiness,
+  folderEntries,
   fixtureSkip,
   hasFixture,
   KNOWN_GAME_HASH,
@@ -251,6 +252,14 @@ test("the catalogued OBJECT fingerprint wins a hash query shared with a port edi
   assert.equal(portFixture?.title, basename(port));
   const catalogedFixture = findFixture(basename(cataloged));
   assert.equal(catalogedFixture?.known?.alias, "synthetic");
+
+  // With only the other edition installed, the catalogued alias and hash find
+  // nothing rather than the edition that merely shares the vocabulary.
+  rmSync(cataloged, { recursive: true, force: true });
+  clearFixtureCache();
+  assert.equal(findFixture("synthetic"), null, "the alias needs its own OBJECT fingerprint");
+  assert.equal(findFixture(wordsHash), null, "so does the catalogued vocabulary hash");
+  assert.equal(findFixture(basename(port))?.folder, basename(port));
 });
 
 test("a lowercase port installation is discovered and checked through its own file names", (t) => {
@@ -293,6 +302,13 @@ test("a dirs installation is discovered as a v3 combined edition with an empty p
     writeFileSync(join(dir, name), new Uint8Array());
   }
   assert.equal(fixtureSkip(target), false);
+});
+
+test("a folder that disappears during a scan is left out", () => {
+  const gone = mkdtempSync(fixtureDir("vanished-").slice(0, -1));
+  rmSync(gone, { recursive: true, force: true });
+  assert.equal(folderEntries(gone), null);
+  assert.deepEqual(folderEntries(dirname(gone)), readdirSync(dirname(gone)));
 });
 
 test("a plain edition outranks project exports that share its vocabulary hash", (t) => {

@@ -12,7 +12,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
 
 test("the tutorial shelf offers Resume and restores the checkpoint exactly", async ({ page }) => {
   await isolateStorage(page);
@@ -43,9 +43,6 @@ test("the tutorial shelf offers Resume and restores the checkpoint exactly", asy
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   expect(new URL(page.url()).hash, "the menu must not name a game in the URL").toBe("");
-  const tutorial = page.getByTestId("tutorial-disclosure");
-  if ((await tutorial.getAttribute("open")) === null)
-    await page.getByTestId("tutorial-toggle").click();
   const play = page.getByTestId("catalog-play-adventure-department");
   await expect
     .soft(play, "the shelf must offer the checkpoint, not a fresh start")

@@ -1,0 +1,26 @@
+{
+  "name": "view-reference-region-out-of-bounds",
+  "description": "The model asked for a region that runs past the reference's right edge, reading coordinates off the game's 160x168 surface instead of the reference's own pixels. The tool must refuse and state the reference's size, never clamp silently.",
+  "async": true,
+  "references": [
+    {
+      "id": "art-3f9a01c2d4",
+      "label": "Room plate",
+      "target": { "kind": "room", "num": 3 },
+      "note": "",
+      "attached": true,
+      "width": 320,
+      "height": 200,
+      "fill": [0, 0, 170]
+    }
+  ],
+  "tool": "view_reference",
+  "args": {
+    "id": "art-3f9a01c2d4",
+    "size": "full",
+    "region": { "x": 300, "y": 0, "w": 64, "h": 64 },
+    "grid": true
+  },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "That region ends at x 364, past the right edge of art-3f9a01c2d4 (320x200). Keep x + w within 320 and y + h within 200."
+}

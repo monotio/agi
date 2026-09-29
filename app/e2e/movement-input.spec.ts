@@ -1,8 +1,9 @@
+import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
-import { buildPublicGameZip } from "../src/projectArchive.ts";
+import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
 import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
 
 for (const hold of [false, true]) {
@@ -133,6 +134,24 @@ for (const hold of [false, true]) {
   });
 }
 
+/**
+ * Ego's x once a key has taken effect. A key reaches the worker a cycle or two
+ * after the browser event, later on a loaded runner, so this waits until two
+ * readings two cycles apart agree instead of assuming a fixed delay.
+ */
+async function settledEgoX(page: Page): Promise<number> {
+  let settled = -1;
+  await expect
+    .poll(async () => {
+      const before = (await textHook(page)).egoX;
+      await waitForCycles(page, 2);
+      settled = (await textHook(page)).egoX;
+      return settled === before;
+    })
+    .toBe(true);
+  return settled;
+}
+
 for (const hold of [false, true]) {
   test(`keyboard movement respects ${hold ? "hold.key" : "AGI toggle controls"}`, async ({
     page,
@@ -178,15 +197,16 @@ for (const hold of [false, true]) {
     await waitForCycles(page, 4);
     expect((await textHook(page)).egoX).toBeGreaterThan(held);
     await page.keyboard.up("ArrowRight");
-    await waitForCycles(page, 2);
-    const released = (await textHook(page)).egoX;
-    await waitForCycles(page, 4);
-    if (hold) expect((await textHook(page)).egoX).toBe(released);
-    else {
+    if (hold) {
+      const released = await settledEgoX(page);
+      await waitForCycles(page, 4);
+      expect((await textHook(page)).egoX).toBe(released);
+    } else {
+      const released = (await textHook(page)).egoX;
+      await waitForCycles(page, 4);
       expect((await textHook(page)).egoX).toBeGreaterThan(released);
       await page.keyboard.press("ArrowRight");
-      await waitForCycles(page, 2);
-      const stopped = (await textHook(page)).egoX;
+      const stopped = await settledEgoX(page);
       await waitForCycles(page, 4);
       expect((await textHook(page)).egoX).toBe(stopped);
     }

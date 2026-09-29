@@ -7,7 +7,8 @@
 import { assembleLogic } from "../../../src/logic/assembler.ts";
 import { buildView } from "../../../src/view/view.ts";
 import { compilePictureSource } from "../../../src/picture/source.ts";
-import { executeAgentTool, type AgentSessionState } from "../../../src/agent/tools.ts";
+import type { AgentSessionState } from "../../../src/agent/agentState.ts";
+import { executeAgentTool } from "../../../src/agent/tools.ts";
 import type { LlmRequest, AgentHandler, AgentEventSink } from "./hostRequests.ts";
 import type { RoomPatch } from "../../../src/agent/roomPatch.ts";
 
@@ -23,7 +24,7 @@ export const GAME_DICTIONARY = new Map<string, number>([
 ]);
 
 /** Minimal valid view: 1 loop, 1 cel, 1x1 pixel of color 5, built with buildView. */
-export const EGO_VIEW = buildView({
+const EGO_VIEW = buildView({
   loops: [
     {
       cels: [
@@ -77,7 +78,7 @@ return;
  * Written in the same DSL the LLM agent writes and compiled with the same
  * compiler, so the offline path exercises the real `write_picture` pipeline.
  */
-export function roomPictureSource(n: number): string {
+function roomPictureSource(n: number): string {
   const sky = (n % 14) + 1;
   const ground = ((n * 3) % 14) + 1;
   return [
@@ -96,7 +97,7 @@ export function roomPictureSource(n: number): string {
 }
 
 /** The compiled picture bytes for room n. */
-export function roomPicture(n: number): Uint8Array {
+function roomPicture(n: number): Uint8Array {
   return compilePictureSource(roomPictureSource(n)).bytes;
 }
 
@@ -114,9 +115,8 @@ export class StubAgent implements AgentHandler {
   }
 
   /**
-   * Deterministic remix turn: the offline twin of the LLM live-patch loop
-   *. It runs the REAL assembler and returns a
-   * real patched logic resource, so the e2e proves the whole path — freeze,
+   * Deterministic remix turn: the offline twin of the LLM live-patch loop.
+   * It runs the REAL assembler and returns a real patched logic resource, so the e2e proves the whole path — freeze,
    * patch, room re-entry, resume — with no API key in sight.
    *
    * The one instruction it understands is a sign: anything containing "sign"

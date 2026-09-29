@@ -8,10 +8,10 @@ import type { Engine, EngineHost } from "../../../src/runtime/engine.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import { CycleClock } from "../../../src/runtime/cycleClock.ts";
-import { SoundClock } from "../soundClock.ts";
-import { FrameRing } from "../frameRing.ts";
+import { SoundClock } from "./soundClock.ts";
+import { FrameRing } from "./frameRing.ts";
 import type { OperationRecorder } from "../../../src/agent/recordedReplay.ts";
-import type { RecordedEvent } from "../gameRecording.ts";
+import type { RecordedEvent } from "../authoring/gameRecording.ts";
 import type {
   DebugEvent,
   HostRequestOp,
@@ -19,7 +19,7 @@ import type {
   WorkerControl,
   WorkerInbound,
   WorkerPresentation,
-} from "../workerProtocol.ts";
+} from "./workerProtocol.ts";
 import { createInput } from "./input.ts";
 import { createHostRequests } from "./hostRequests.ts";
 import { createReplay } from "./replay.ts";
@@ -31,7 +31,8 @@ import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.t
 import { createJournal } from "./journal.ts";
 import { createHistory } from "./history.ts";
 import { createHistoryView } from "./historyView.ts";
-import type { HistoryDrive } from "./replay.ts";
+import { createPlayHere } from "./playHere.ts";
+import type { HistoryDrive } from "./historyDrive.ts";
 import type {
   HistoryAnchor,
   HistoryBatch,
@@ -45,7 +46,7 @@ import type {
   HistoryRoomMark,
   HistorySyncMark,
 } from "../../../src/agent/history.ts";
-import type { BootMessage } from "../workerProtocol.ts";
+import type { BootMessage } from "./workerProtocol.ts";
 import type { HostAnswerOutcome } from "./hostRequests.ts";
 
 /** The only platform access worker modules get: the post boundary and a clock. */
@@ -70,7 +71,7 @@ export interface WorkerPorts {
 }
 
 /** Settings the boot message owns; a replay reset keeps them. */
-export interface BootState {
+interface BootState {
   authorRooms: boolean;
   selectedSoundDevice: number;
   liveDictionary: Map<string, number>;
@@ -82,7 +83,7 @@ export interface BootState {
 }
 
 /** worker/input.ts */
-export interface InputState {
+interface InputState {
   /** Queued key presses; a parked key wait is answered straight from here. */
   keyQueue: number[];
   /** Admitted walking releases and later walking keys wait for ordinary input. */
@@ -95,7 +96,7 @@ export interface InputState {
 }
 
 /** worker/hostRequests.ts */
-export interface HostRequestsState {
+interface HostRequestsState {
   hostRequestSerial: number;
   /**
    * The host request currently in flight, or null when none is. The engine's
@@ -108,7 +109,7 @@ export interface HostRequestsState {
 }
 
 /** worker/replay.ts */
-export interface ReplayState {
+interface ReplayState {
   /** `random` is the RNG's 16-bit state word (docs/fidelity.md, "Original RNG"). */
   replay: { tick: number; revision: number; random: number } | null;
   /**
@@ -155,7 +156,7 @@ export interface ReplaySnapshot {
 }
 
 /** worker/cycle.ts */
-export interface CycleState {
+interface CycleState {
   timer: number | null;
   soundTimer: number | null;
   /** 60 Hz sound-clock ticks since session start — history's tick timeline. */
@@ -182,7 +183,7 @@ export interface CycleState {
 }
 
 /** worker/autosave.ts */
-export interface AutosaveState {
+interface AutosaveState {
   autosaveIntervalMs: number;
   autosaveFiles: boolean;
   lastAutosaveAt: number;
@@ -191,7 +192,7 @@ export interface AutosaveState {
 }
 
 /** worker/presentation.ts — the frame sameness cache. */
-export interface PresentationState {
+interface PresentationState {
   recentRing: FrameRing;
   historyRing: FrameRing;
   lastVisual: Uint8Array | null;
@@ -216,7 +217,7 @@ export interface PresentationState {
 }
 
 /** worker/debug.ts */
-export interface DebugState {
+interface DebugState {
   /** Inspector channels armed by the host; each costs real per-cycle work. */
   channels: { ownership: boolean; objects: boolean; trace: boolean; picture: boolean };
   debugEvents: DebugEvent[];
@@ -242,7 +243,7 @@ export interface DebugState {
 }
 
 /** worker/journal.ts — the world-map observation stream. */
-export interface JournalState {
+interface JournalState {
   /** Entries posted this session. */
   seq: number;
   /** Last observed room; null until the first boundary after boot. */
@@ -268,7 +269,7 @@ export interface JournalState {
 }
 
 /** worker/history.ts — the always-on recording stream. */
-export interface HistoryState {
+interface HistoryState {
   /**
    * Live RNG state — the interpreter's 16-bit word (docs/fidelity.md,
    * "Original RNG") — seeded per boot and recorded into every segment's
@@ -348,7 +349,7 @@ export interface HistoryState {
 }
 
 /** worker/historyView.ts — the scratch session replaying the live recording. */
-export interface HistoryViewState {
+interface HistoryViewState {
   /** The recording under view; null when no view session is open. */
   recording: HistoryRecording | null;
   /** Index into recording.segments the drive is on. */
@@ -368,7 +369,7 @@ export interface HistoryViewState {
 }
 
 /** worker/recording.ts */
-export interface RecordingState {
+interface RecordingState {
   /**
    * The active player-action recording for a stored game test: every player
    * action the interpreter receives, stamped with the interpreter cycle at
@@ -390,7 +391,7 @@ export type Inbound<T extends WorkerInbound["type"]> = Extract<WorkerInbound, { 
  * functions. createWorkerContext fills it from the modules that have landed;
  * engine.worker.ts seeds the rest while they still live there.
  */
-export interface WorkerFns {
+interface WorkerFns {
   // input.ts
   setKeyWaiting(waiting: boolean): void;
   flushDeferredMovement(): void;
@@ -412,6 +413,8 @@ export interface WorkerFns {
   ): HostAnswerOutcome | undefined;
   onHostAnswer(msg: Inbound<"hostAnswer">, committed?: HistoryCommittedPatch | null): void;
   onReenter(msg: Inbound<"reenter">): void;
+  // playHere.ts
+  onPlayHere(msg: Inbound<"playHere">): void;
   // replay.ts
   postReplay(blocked: string | null, fullState?: boolean): void;
   onReplayAdvance(msg: Inbound<"replayAdvance">): void;
@@ -672,72 +675,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createDebug(ctx));
   Object.assign(ctx.fns, createJournal(ctx));
   Object.assign(ctx.fns, createHistory(ctx));
-  Object.assign(ctx.fns, createHistoryView(ctx));
+  // The viewer opens scratch sessions of its own through this same factory.
+  Object.assign(ctx.fns, createHistoryView(ctx, createWorkerContext));
+  Object.assign(ctx.fns, createPlayHere(ctx));
   return ctx;
-}
-
-/**
- * The session reset both boot and resetReplay share: every field the two
- * handlers cleared identically lives here. Fields they reset differently —
- * isSeeking, currentSessionId, replay, keyWaiting, hostRequestOutstanding and
- * the boot-owned settings — stay in the handlers. applyTraceChannel and
- * captureStateDiffs run last so the diff ring baselines the fresh engine.
- */
-export function resetSession(ctx: WorkerContext): void {
-  const now = ctx.ports.now();
-  ctx.cycle.initialLogicStarted = false;
-  ctx.cycle.paused = false;
-  ctx.cycle.pendingClock = null;
-  ctx.input.inputBuffer = [];
-  ctx.input.keyQueue = [];
-  ctx.input.clickQueue = [];
-  ctx.input.deferredMovement.length = 0;
-  ctx.recording.recording = null;
-  ctx.hostRequests.pendingReenter = false;
-  const p = ctx.presentation;
-  p.lastVisual = null;
-  p.lastPriority = null;
-  p.lastText = null;
-  p.lastOwnership = null;
-  p.lastPreview = null;
-  p.lastPicture = null;
-  p.lastPicturePriority = null;
-  p.lastPicRow = -1;
-  p.lastTextMode = false;
-  p.lastInputEnabled = false;
-  p.lastReleaseGate = 0;
-  p.lastModal = null;
-  p.lastPatchGen = -1;
-  p.lastControls = "";
-  p.lastInputEdit = "";
-  p.lastSoundEnabled = null;
-  ctx.fns.stopTimers();
-  ctx.clocks.sound.reset(now);
-  ctx.clocks.cycle.reset(ctx.replay.replay ? 0 : now);
-  ctx.cycle.lastCycleReportAt = now;
-  ctx.cycle.lastHistoryAt = now;
-  ctx.cycle.tickCount = 0;
-  ctx.cycle.cycleCount = 0;
-  p.recentRing.reset();
-  p.historyRing.reset();
-  const d = ctx.debug;
-  d.debugEvents.length = 0;
-  d.debugEventSeq = 0;
-  d.prevVars = null;
-  d.prevFlags = null;
-  d.traceRing.length = 0;
-  d.traceSeq = 0;
-  d.pendingTrace = [];
-  d.traceEpoch++;
-  d.traceBatch = 0;
-  d.traceInFlight = 0;
-  d.traceDropped = 0;
-  ctx.journal.seq = 0;
-  ctx.journal.lastRoom = null;
-  ctx.journal.lastScore = 0;
-  ctx.journal.lastCarried = [];
-  ctx.journal.pendingCause = null;
-  ctx.journal.pending = [];
-  ctx.fns.applyTraceChannel();
-  ctx.fns.captureStateDiffs();
 }

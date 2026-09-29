@@ -40,7 +40,7 @@ export type ProfileId =
   | "iigs-1.014";
 
 /** Resource container family (conformance matrix, "Resource directory"). */
-export type ContainerKind = "v2-split" | "v3-combined";
+type ContainerKind = "v2-split" | "v3-combined";
 
 /**
  * Extra action slots above the shared 2.936 range (logic_bytecode "Version 3
@@ -48,22 +48,22 @@ export type ContainerKind = "v2-split" | "v3-combined";
  * docs/fidelity.md "Amiga interpreter profiles"; "iigs" is the Apple IIgs
  * 0xb0..0xb1 range, docs/fidelity.md "Apple IIgs interpreter").
  */
-export type ExtraActions = "none" | "v3-086" | "v3-full" | "amiga-2.31x" | "iigs";
+type ExtraActions = "none" | "v3-086" | "v3-full" | "amiga-2.31x" | "iigs";
 
 /** Menu-construction action support (conformance matrix, "Exit and menu actions"). */
-export type MenuActionSupport = "none" | "stub" | "full";
+type MenuActionSupport = "none" | "stub" | "full";
 
 /**
  * Action 0xa1 semantics: "effect" requests the menu interaction; "noop" is the
  * Amiga stub slot (menu interaction is native, docs/fidelity.md).
  */
-export type MenuInputAction = "effect" | "noop";
+type MenuInputAction = "effect" | "noop";
 
 /** Action 0xae semantics: "effect" sets the priority base; "noop" is the Amiga stub slot. */
-export type PriorityBaseAction = "effect" | "noop";
+type PriorityBaseAction = "effect" | "noop";
 
 /** Action 0xb4 semantics: "noop" on PC v3; Amiga writes the pointer position into its operands. */
-export type MousePosnAction = "noop" | "write-pointer";
+type MousePosnAction = "noop" | "write-pointer";
 
 /**
  * What a left click in the game window does (docs/fidelity.md "Original
@@ -74,7 +74,7 @@ export type MousePosnAction = "noop" | "write-pointer";
  * `adj.ego.move.to.x.y` nudge to the target. "iigs": the same starter,
  * ignoring clicks on the menu bar (screen rows 0-7) and taking no nudge.
  */
-export type ClickMoveRule = "none" | "amiga" | "amiga-2.31x" | "iigs";
+type ClickMoveRule = "none" | "amiga" | "amiga-2.31x" | "iigs";
 
 /**
  * Width of the wander countdown and follow delay (docs/fidelity.md
@@ -84,7 +84,7 @@ export type ClickMoveRule = "none" | "amiga" | "amiga-2.31x" | "iigs";
  * the follow delay subtracts and clamps at zero, and `wander` leaves the
  * countdown as it found it.
  */
-export type MotionCounters = "byte" | "word";
+type MotionCounters = "byte" | "word";
 
 /**
  * Condition 0x13 semantics for profiles whose dispatchers reach it. The
@@ -94,25 +94,25 @@ export type MotionCounters = "byte" | "word";
  * evaluating it has no defined behavior (docs/fidelity.md "Apple IIgs
  * interpreter", "Amiga interpreter profiles").
  */
-export type Condition0x13 = "click-move" | "constant-false" | "wild-dispatch";
+type Condition0x13 = "click-move" | "constant-false" | "wild-dispatch";
 
 /** Action 0xad semantics (input_text_and_menus "Tracked key release"). */
-export type ReleaseGateAction = "unavailable" | "increment" | "set" | "noop";
+type ReleaseGateAction = "unavailable" | "increment" | "set" | "noop";
 
 /** Actions 0xa3/0xa4 (conformance matrix, "Input-width actions"). */
-export type InputWidthActions = "effect" | "noop";
+type InputWidthActions = "effect" | "noop";
 
 /** Automatic direction-based loop selection (object_behavior "Direction and automatic loop selection"). */
-export type DirectionLoopRule = "exact-four" | "four-or-more" | "four-or-more-f20";
+type DirectionLoopRule = "exact-four" | "four-or-more" | "four-or-more-f20";
 
 /** When direction-based loop selection runs (object_behavior, same section). */
-export type DirectionLoopTiming = "every-pass" | "cadence-due";
+type DirectionLoopTiming = "every-pass" | "cadence-due";
 
 /** Position actions 0x25/0x26 ordering (conformance matrix, "Position and composition"). */
-export type PositionActionOrder = "erase-then-store" | "store-together";
+type PositionActionOrder = "erase-then-store" | "store-together";
 
 /** Ordering within the earlier-drawn partition (object_behavior "Drawing order and refresh"). */
-export type PartitionOrder = "object-number" | "drawing-key";
+type PartitionOrder = "object-number" | "drawing-key";
 
 /** Pattern-command profile for picture commands 0xf9/0xfa (picture chapter; version_profiles per profile). */
 /**
@@ -128,7 +128,7 @@ export type PatternProfile =
   "none" | "point-2.411" | "shaped-v2" | "v3-center-row" | "center-row-320" | "short-r1";
 
 /** Actions 0x4d/0x4e (conformance matrix, "Movement-clear actions"). */
-export type MovementClearRule = "early" | "later";
+type MovementClearRule = "early" | "later";
 
 /**
  * Sound output family (conformance matrix, "Sound output" / "Sound
@@ -137,7 +137,7 @@ export type MovementClearRule = "early" | "later";
  * "amiga-2.082" is the distinct older driver inside the SQ1 build,
  * docs/fidelity.md "Original Amiga sound player").
  */
-export type SoundProfile =
+type SoundProfile =
   | "booter-2.001"
   | "early-2.089"
   | "early-2.272"
@@ -160,7 +160,7 @@ export type SoundProfile =
  * 2.202..2.333 decay table ("amiga-2.202"); the driver code is identical
  * (docs/fidelity.md, "Original Amiga sound player").
  */
-export type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
+type SoundEnvelope = "2.917" | "3.002" | "amiga-2.176" | "amiga-2.202";
 
 export interface AgiProfile {
   /** Promoted profile identifier, e.g. "2.936". */
@@ -210,7 +210,7 @@ export interface AgiProfile {
    * Action 0x8f semantics:
    * - "max-drawn-objects": in 2.001 (load-module 0x0284), action 0x8f is
    *   `max.drawn.objects(count)`, which configures the animated/drawn object
-   *   table capacity (docs/fidelity.md pc-booter-action-0x8f).
+   *   table capacity (docs/fidelity.md pc-booter-action-0x8f-maxdrawnobjects).
    * - "set-game-id": in 2.089 and later, action 0x8f is `set.game.id(message_num)`,
    *   which copies up to seven message bytes into the runtime signature
    *   (spec "Save names and signatures").
@@ -511,7 +511,7 @@ export const PROFILES: Readonly<Record<ProfileId, AgiProfile>> = {
   // PC booter 2.001: no promoted spec profile exists (the catalog starts at
   // 2.089). Evidence-backed fields only; every other field inherits the
   // earliest documented contract and is listed as unverified in
-  // docs/fidelity.md (pc-booter-2.001-profile).
+  // docs/fidelity.md (pc-booter-2001-profile).
   "2.001": {
     ...BASE_EARLY,
     id: "2.001",
@@ -769,7 +769,7 @@ const BY_ID: Readonly<Record<string, AgiProfile | undefined>> = PROFILES;
 
 /** Fallback when no interpreter version string is available. */
 export const DEFAULT_V2_PROFILE = PROFILES["2.936"];
-export const DEFAULT_V3_PROFILE = PROFILES["3.002.149"];
+const DEFAULT_V3_PROFILE = PROFILES["3.002.149"];
 
 /**
  * Observed builds that the specification states select a promoted profile:
@@ -845,7 +845,7 @@ export function detectVersionString(files: ReadonlyMap<string, Uint8Array>): str
 }
 
 /** True when the file map looks like a combined v3 container (`<PREFIX>DIR` + `<PREFIX>VOL.n`). */
-export function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
+function hasCombinedDirectory(files: ReadonlyMap<string, Uint8Array>): boolean {
   const names = [...files.keys()].map(canonicalResourceName);
   for (const name of names) {
     const m = /^(.*)DIR$/.exec(name);
@@ -1017,4 +1017,4 @@ export function detectProfile(
 
 // The playable vocabulary lives in container/playableFiles.ts; detection
 // callers keep importing it from here.
-export { INTERPRETER_FILES, isInterpreterFileName } from "../container/playableFiles.ts";
+export { INTERPRETER_FILES } from "../container/playableFiles.ts";

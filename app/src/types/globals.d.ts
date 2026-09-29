@@ -5,9 +5,10 @@
  * Playwright specs read them (app/e2e/engineProbe.ts). Declaring them here is
  * what lets useEngine.ts publish them without an `any` cast.
  */
-import type { AgentLogEntry, EngineState, TextHook } from "../useEngine.ts";
-import type { ReplayDriver } from "../replay.ts";
+import type { AgentLogEntry, EngineState, TextHook } from "../engine/useEngine.ts";
+import type { ReplayDriver } from "../walkthrough/replay.ts";
 import type { AgiAudio } from "../audio/AgiAudio.ts";
+import type { Frame } from "../project/gameTypes.ts";
 
 declare global {
   interface Window {
@@ -21,5 +22,14 @@ declare global {
     __AGI_STATE__?: EngineState;
     /** Live audio presentation instance for inspection in tests. */
     __AGI_AUDIO__?: AgiAudio;
+    /** The latest presented frame (both screen planes), for sampling in tests. */
+    __AGI_FRAME__?: () => Frame | null;
+    /**
+     * The open Room Studio draft: its compiled PIC bytes and annotated source,
+     * and the room's logic draft (annotated source) when the Walk view edits it.
+     */
+    __AGI_STUDIO__?: { bytes(): Uint8Array; source(): string; logic?: () => string };
+    /** The open Sprite Studio draft: its encoded VIEW bytes. */
+    __AGI_SPRITE__?: { bytes(): Uint8Array };
   }
 }

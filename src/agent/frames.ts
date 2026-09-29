@@ -11,7 +11,7 @@
  * frame source with hand-computed dimensions.
  *
  * WHAT IS COMPOSITED. The engine core cannot draw text: the 8x8 glyph face
- * lives in the app shell (app/src/font8x8.ts) and `src/` may not import it.
+ * lives in the app shell (app/src/render/font8x8.ts) and `src/` may not import it.
  * So a composited frame here is the PICTURE BAND ONLY, positioned exactly
  * where the screen puts it: the 160x168 surface doubled horizontally to 320
  * pixels wide and drawn at text row `picRow` (eight logical rows per text
@@ -23,18 +23,18 @@
 import { EGA_RGB, encodePngRgb } from "../picture/png.ts";
 
 /** Logical picture surface. */
-export const PIC_WIDTH = 160;
-export const PIC_HEIGHT = 168;
+const PIC_WIDTH = 160;
+const PIC_HEIGHT = 168;
 /** Composed frame, exactly the screen's geometry. */
 export const FRAME_WIDTH = 320;
 export const FRAME_HEIGHT = 200;
 /** Text surface geometry (mirrors src/runtime/textSurface.ts). */
-export const TEXT_COLS = 40;
-export const TEXT_ROWS = 25;
+const TEXT_COLS = 40;
+const TEXT_ROWS = 25;
 /** Black gutter between contact-sheet tiles, in pixels. */
 export const SHEET_GAP = 4;
 /** Widest contact sheet we will build (keeps one image block under ~2 MB). */
-export const SHEET_MAX_COLS = 3;
+const SHEET_MAX_COLS = 3;
 /** Most frames one read_room_context call may return. */
 export const MAX_FRAMES = 9;
 

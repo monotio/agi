@@ -10,10 +10,12 @@ test("templates expose editable Markdown and genesis receives the edited brief",
   await configureAi(page, { provider: "stub" });
   const brief = page.getByTestId("custom-adventure-input");
   await expect(brief).toBeHidden();
+  // Home leads with play; creating is one step away and starts with no template chosen.
+  await expect(page.getByTestId("create-adventure-disclosure")).not.toHaveAttribute("open");
+  await openCreateAdventure(page);
   await expect(page.getByTestId("create-adventure-disclosure")).toHaveAttribute("open", "");
   await expect(page.locator('.template-card[aria-pressed="true"]')).toHaveCount(0);
   await expect(page.getByTestId("boot-game")).toBeDisabled();
-  await openCreateAdventure(page);
   for (const templateId of [
     "knights-trial",
     "badge-of-millhaven",

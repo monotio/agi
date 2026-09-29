@@ -4,6 +4,7 @@ import { createContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { Engine, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES, type ProfileId } from "../src/runtime/profile.ts";
+import { priorityForY } from "../src/runtime/priority.ts";
 import { decodeSave } from "../src/runtime/persistence.ts";
 import { buildView } from "../src/view/view.ts";
 
@@ -183,7 +184,9 @@ test("save and restore retain draw partitions", () => {
 test("picture rendering uses the selected early profile", () => {
   const engine = game("assignn(v60, 1); load.pic(v60); draw.pic(v60); return;", "2.411");
   // 2.411 ignores the radius and plots only the indicated center point.
-  engine.patchResource("picture", 1, new Uint8Array([0xf0, 1, 0xf9, 1, 0xfa, 20, 30, 0xff]));
+  engine.patchResources([
+    { kind: "picture", num: 1, payload: new Uint8Array([0xf0, 1, 0xf9, 1, 0xfa, 20, 30, 0xff]) },
+  ]);
   engine.tick();
   assert.equal(engine.surface.visual[30 * 160 + 20], 1);
   assert.equal(engine.surface.visual[29 * 160 + 20], 15);
@@ -195,11 +198,13 @@ test("engine loads packed 2.230 VIEW headers", () => {
     "2.230",
   );
   // One loop, header c1: mutable/mirrorable loop, orientation0, one cel.
-  engine.patchResource(
-    "view",
-    1,
-    new Uint8Array([0, 0, 1, 0, 0, 7, 0, 0xc1, 3, 0, 2, 1, 0, 0x11, 0x21, 0]),
-  );
+  engine.patchResources([
+    {
+      kind: "view",
+      num: 1,
+      payload: new Uint8Array([0, 0, 1, 0, 0, 7, 0, 0xc1, 3, 0, 2, 1, 0, 0x11, 0x21, 0]),
+    },
+  ]);
   engine.tick();
   assert.deepEqual(
     Array.from(engine.getFrame().visual.slice(100 * 160 + 20, 100 * 160 + 22)),
@@ -215,11 +220,15 @@ test("frame observation preserves shared sprite orientation selected by bytecode
     return;
   `);
   // Three loop aliases:0→1 mirrors the shared row,1→2 mirrors it back.
-  engine.patchResource(
-    "view",
-    1,
-    new Uint8Array([0, 0, 3, 0, 0, 11, 0, 11, 0, 11, 0, 1, 3, 0, 2, 1, 0x80, 0x11, 0x21, 0]),
-  );
+  engine.patchResources([
+    {
+      kind: "view",
+      num: 1,
+      payload: new Uint8Array([
+        0, 0, 3, 0, 0, 11, 0, 11, 0, 11, 0, 1, 3, 0, 2, 1, 0x80, 0x11, 0x21, 0,
+      ]),
+    },
+  ]);
   engine.tick();
   for (let i = 0; i < 2; i++) {
     assert.deepEqual(
@@ -243,11 +252,13 @@ test("distance uses cel centers and early profiles wrap overflow", () => {
   engine.tick();
   assert.equal(engine.vars[60], 69, "(158 + 167) modulo 256");
   const differentWidths = game(`${objects} distance(o0, o1, v60); return;`);
-  differentWidths.patchResource(
-    "view",
-    2,
-    buildView({ loops: [{ cels: [{ width: 4, height: 1, pixels: [2, 2, 2, 2] }] }] }),
-  );
+  differentWidths.patchResources([
+    {
+      kind: "view",
+      num: 2,
+      payload: buildView({ loops: [{ cels: [{ width: 4, height: 1, pixels: [2, 2, 2, 2] }] }] }),
+    },
+  ]);
   differentWidths.tick();
   assert.equal(differentWidths.vars[60], 0, "both centers are at X21");
 });
@@ -321,4 +332,23 @@ test("v3 extension dispatch consumes its profile operands and saves the menu gat
   const early = game("hide.mouse(42); assignn(v62, 17); return;", "3.002.086");
   early.tick();
   assert.equal(early.vars[62], 17);
+});
+
+// The pure band function the engine and the Room Studio's band guides share,
+// hand-computed from 5 + floor((y - base) * 10 / (168 - base)).
+test("priorityForY maps the default base 48 to bands 4..14", () => {
+  assert.equal(priorityForY(47), 4); // above the base
+  assert.equal(priorityForY(48), 5); // 5 + floor(0 / 120)
+  assert.equal(priorityForY(59), 5); // 5 + floor(110 / 120)
+  assert.equal(priorityForY(60), 6); // 5 + floor(120 / 120)
+  assert.equal(priorityForY(167), 14); // 5 + floor(1190 / 120)
+  assert.equal(priorityForY(167, 48), 14);
+});
+
+test("priorityForY follows a non-default base", () => {
+  assert.equal(priorityForY(59, 60), 4);
+  assert.equal(priorityForY(60, 60), 5);
+  assert.equal(priorityForY(113, 60), 9); // 5 + floor(530 / 108)
+  assert.equal(priorityForY(114, 60), 10); // 5 + floor(540 / 108)
+  assert.equal(priorityForY(167, 60), 14); // 5 + floor(1070 / 108)
 });

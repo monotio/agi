@@ -211,11 +211,13 @@ test("water and land commands independently preserve both restriction bits", () 
     "obj.on.land(o0); obj.on.water(o0);",
   ]) {
     const engine = game();
-    engine.patchResource(
-      "logic",
-      1,
-      assembleLogic(commands + "return;", { dictionary: new Map() }).payload,
-    );
+    engine.patchResources([
+      {
+        kind: "logic",
+        num: 1,
+        payload: assembleLogic(commands + "return;", { dictionary: new Map() }).payload,
+      },
+    ]);
     engine.execute(1);
     assert.equal(engine.screenObjects[0]!.waterGate, "both");
     engine.restoreImage(engine.serialize());
@@ -226,11 +228,15 @@ test("water and land commands independently preserve both restriction bits", () 
 test("combined terrain restrictions reject land and water unless priority 15 bypasses the scan", () => {
   for (const control of [3, 4]) {
     const engine = game();
-    engine.patchResource(
-      "logic",
-      1,
-      assembleLogic("obj.on.water(o0);obj.on.land(o0);return;", { dictionary: new Map() }).payload,
-    );
+    engine.patchResources([
+      {
+        kind: "logic",
+        num: 1,
+        payload: assembleLogic("obj.on.water(o0);obj.on.land(o0);return;", {
+          dictionary: new Map(),
+        }).payload,
+      },
+    ]);
     engine.execute(1);
     engine.surface.priority.fill(control);
     const ego = engine.screenObjects[0]!;
@@ -257,11 +263,13 @@ test("cel selection clips right/top overflow while leaving other in-bounds coord
     [158, 2, 4, 6, false, 156, 37, true],
   ] as const) {
     const engine = game("", [2, width], [1, height]);
-    engine.patchResource(
-      "logic",
-      1,
-      assembleLogic("set.cel(o0,1);return;", { dictionary: new Map() }).payload,
-    );
+    engine.patchResources([
+      {
+        kind: "logic",
+        num: 1,
+        payload: assembleLogic("set.cel(o0,1);return;", { dictionary: new Map() }).payload,
+      },
+    ]);
     const ego = engine.screenObjects[0]!;
     ego.x = x;
     ego.y = y;
@@ -292,11 +300,15 @@ test("an automatically selected wider cel suppresses only the next due movement 
 
 test("host history retains a parked out-of-bounds position while authentic restore executes cel clipping", () => {
   const engine = game("", [4, 4]);
-  engine.patchResource(
-    "logic",
-    1,
-    assembleLogic('position(o0,158,80);print("Wait.");return;', { dictionary: new Map() }).payload,
-  );
+  engine.patchResources([
+    {
+      kind: "logic",
+      num: 1,
+      payload: assembleLogic('position(o0,158,80);print("Wait.");return;', {
+        dictionary: new Map(),
+      }).payload,
+    },
+  ]);
   engine.execute(1);
   assert.equal(engine.modalKind, "print");
   const history = engine.autosaveImage();

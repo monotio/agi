@@ -1,0 +1,40 @@
+id: disabled-needs-reason
+language: html
+severity: error
+message: >-
+  A button that can be disabled says why: give it a title or aria-describedby
+  that names the reason
+note: |
+  A disabled control with no reason leaves the player guessing what to do.
+  A disabled expression about work in flight (busy, saving, leaving,
+  sending) explains itself through the label that work shows.
+  BAD:  <UiButton :disabled="!room.built" @click="open">Open</UiButton>
+  GOOD: <UiButton :disabled="!room.built" :title="room.built ? '' : 'Build the room first'">Open</UiButton>
+files:
+  - app/src/world/**/*.vue
+  - app/src/studio/**/*.vue
+rule:
+  any:
+    - kind: start_tag
+    - kind: self_closing_tag
+  all:
+    - has:
+        kind: tag_name
+        regex: ^(UiButton|UiIconButton|button)$
+    - has:
+        kind: attribute
+        all:
+          - has:
+              kind: attribute_name
+              regex: ^(:|v-bind:)?disabled$
+          - not:
+              has:
+                stopBy: end
+                kind: attribute_value
+                regex: busy|saving|leaving|sending
+    - not:
+        has:
+          kind: attribute
+          has:
+            kind: attribute_name
+            regex: ^(:|v-bind:)?(title|aria-describedby)$

@@ -20,9 +20,9 @@
  *
  * Pure functions of the worker context — importable under Node.
  */
-import { bytesToBase64 } from "../bytes.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
 import { OperationRecorder } from "../../../src/agent/recordedReplay.ts";
-import { recordedEventFromCause } from "../gameRecording.ts";
+import { recordedEventFromCause } from "../authoring/gameRecording.ts";
 import {
   HISTORY_BYTE_LIMIT,
   HISTORY_EVENT_LIMIT,
@@ -40,7 +40,7 @@ import {
 } from "../../../src/agent/history.ts";
 import { resourceSetHint } from "../../../src/agent/authoringState.ts";
 import type { EdgeSide } from "../../../src/agent/roomMap.ts";
-import type { BootMessage } from "../workerProtocol.ts";
+import type { BootMessage } from "./workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 /** One cheap divergence check per second of logic time, plus at every anchor. */
@@ -716,5 +716,3 @@ export function createHistory(ctx: WorkerContext) {
     onCancelRecording,
   };
 }
-
-export type HistoryModule = ReturnType<typeof createHistory>;

@@ -34,6 +34,8 @@ import {
   type ProfileId,
 } from "./profile.ts";
 import { TraceWindow } from "./trace.ts";
+import { footprintAccepted, scanFootprint } from "./controlCheck.ts";
+import { priorityForY } from "./priority.ts";
 import { InputQueue } from "./inputQueue.ts";
 import { AGI_KEY, NAV_KEYS, NAV_KEY_CODES, normalizeModalKey } from "./keys.ts";
 import { fnv1a32 } from "./hash.ts";
@@ -769,16 +771,24 @@ export class Engine {
   }
 
   /**
-   * Runtime container patch (the authoring agent's growth primitive):
-   * reclaims superseded records and repoints the directory transactionally.
-   * The engine picks it up on next load.
+   * Runtime container patch (the authoring agent's growth primitive), for one
+   * or several resources as a single transaction: the container takes every
+   * payload or refuses the set, leaving all of them on their old bytes. Each
+   * installed resource's cached parse is evicted — a loaded view re-parses in
+   * place and its objects re-clamp (see `evictPatched`).
    */
-  patchResource(
-    kind: "logic" | "picture" | "view" | "sound",
-    num: number,
-    payload: Uint8Array,
+  patchResources(
+    resources: readonly {
+      kind: "logic" | "picture" | "view" | "sound";
+      num: number;
+      payload: Uint8Array;
+    }[],
   ): void {
-    this.container.putResource(kind, num, payload);
+    this.container.putResources(resources);
+    for (const { kind, num } of resources) this.evictPatched(kind, num);
+  }
+
+  private evictPatched(kind: "logic" | "picture" | "view" | "sound", num: number): void {
     if (kind === "logic") this.logics.delete(num);
     else if (kind === "picture") {
       this.pictures.delete(num);
@@ -945,11 +955,6 @@ export class Engine {
   /** Whether a modal window or persistent window is active. */
   get modalOpen(): boolean {
     return this.modalKind !== null || this.persistentWindow !== null;
-  }
-
-  /** Whether the first room picture has been drawn. */
-  get isPictureShown(): boolean {
-    return this.pictureShown;
   }
 
   /** A message has suspended a cycle, including after its timeout expires. */
@@ -1239,7 +1244,7 @@ export class Engine {
         // is enqueued so the resumed poll sees it exactly like a live one.
         this.pendingInteraction = null;
         this.conditionReplayUntil = pending.condPc;
-        this.inputQueue.enqueueKey(Number(answer), this.keymap);
+        this.inputQueue.enqueueKey(Number(answer));
         break;
       }
       case "getstring": {
@@ -1352,7 +1357,7 @@ export class Engine {
    */
   releaseTrackedKey(eligible = this.keyReleaseGate !== 0): void {
     if (eligible) {
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
       this.inputQueue.enqueue({ type: 2, value: 0 });
     }
   }
@@ -1449,13 +1454,13 @@ export class Engine {
     this.drawInputRow();
   }
 
-  /** have.key discards navigation/status events and preserves the unread suffix. */
+  /**
+   * have.key discards navigation/status events and preserves the unread
+   * suffix. It applies no script mapping: a mapped key is raw here.
+   */
   private pollRawKey(): number | undefined {
     for (let event = this.inputQueue.dequeue(); event; event = this.inputQueue.dequeue()) {
-      if (event.type === 1) {
-        if (event.mapOnConsume && this.keymap.has(event.value)) continue;
-        return event.value;
-      }
+      if (event.type === 1) return event.value;
     }
     return undefined;
   }
@@ -2460,8 +2465,15 @@ export class Engine {
     this.saveDialogMode = null;
     this.stopSound();
 
-    // 1. Scalar, parser, object, inventory, replay, logic-resume, display and
-    //    session state.
+    // 1. Scalar, signature, parser, object, inventory, replay, logic-resume,
+    //    display and session state. The signature area belongs to the state
+    //    block restore reads back wholesale, so a game that issues set.game.id
+    //    only on its boot pass keeps its save namespace through a restore or a
+    //    host resume (docs/fidelity.md, "Game signature across restore").
+    const signatureEnd = s.signature.indexOf(0);
+    this.signature = String.fromCharCode(
+      ...s.signature.subarray(0, signatureEnd < 0 ? s.signature.length : signatureEnd),
+    );
     this.vars.set(s.vars);
     this.flags.set(s.flags);
     this.timerTicks = s.timerTicks;
@@ -2721,11 +2733,6 @@ export class Engine {
     }
   }
 
-  /** Stop the active sound before the host changes audio devices. */
-  stopSoundPlayback(): void {
-    this.stopSound();
-  }
-
   /** Advance the script-visible clock (v11..v14) from injected elapsed time. */
   advanceClock(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds < 0)
@@ -2782,8 +2789,11 @@ export class Engine {
     this.sounds.set(num, payload);
   }
 
-  /** stop.sound state teardown, shared with pause (spec: pause stops sound). */
-  private stopSound(): void {
+  /**
+   * stop.sound state teardown, shared with pause (spec: pause stops sound);
+   * the host also calls it before changing audio devices.
+   */
+  stopSound(): void {
     if (this.playingSound === null) return;
     for (const output of this.soundPlayback?.stop() ?? []) this.host.soundOutput?.(output);
     if (this.soundDoneFlag !== null) this.flags[this.soundDoneFlag] = 1;
@@ -2820,7 +2830,7 @@ export class Engine {
     // (docs/fidelity.md, "Original add.to.pic control box").
     const covered = new Set<number>();
     drawCel(this.surface, c, x, y, {
-      priority: (priority & 0x0f) === 0 ? this.priorityForY(y) : priority,
+      priority: (priority & 0x0f) === 0 ? priorityForY(y, this.priorityBase) : priority,
       onPixel: (pixel) => {
         const cell = this.textCellUnder(pixel);
         if (cell >= 0) covered.add(cell);
@@ -2844,9 +2854,9 @@ export class Engine {
     cel: { width: number; height: number },
     margin: number,
   ): void {
-    const band = this.priorityForY(y);
+    const band = priorityForY(y, this.priorityBase);
     let rows = 1;
-    while (rows <= y && this.priorityForY(y - rows) === band) rows++;
+    while (rows <= y && priorityForY(y - rows, this.priorityBase) === band) rows++;
     rows = Math.min(rows, cel.height);
     const left = x;
     const right = x + cel.width - 1;
@@ -3026,7 +3036,7 @@ export class Engine {
         this.inputQueue.enqueue({ type: 3, value: this.pendingController });
         this.pendingController = null;
       }
-      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+      for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
       // The original's message pump starts a click-move as the click arrives;
       // a direction event it queued alongside still cancels it below.
       for (const [x, y] of this.host.takePointerClicks?.() ?? []) this.pointerClick(x, y);
@@ -3040,7 +3050,9 @@ export class Engine {
           if (this.directionCoupling !== 0) this.objects[0]!.motionMode = MOTION_NORMAL;
         } else if (event.type === 3) this.controllers[event.value] = 1;
         else {
-          const mapped = event.mapOnConsume ? this.keymap.get(event.value) : undefined;
+          // Script key mappings apply here, and only here (docs/fidelity.md,
+          // "Script key mappings and have.key").
+          const mapped = this.keymap.get(event.value);
           if (mapped !== undefined) this.controllers[mapped] = 1;
           else this.handleKey(event.value);
         }
@@ -3431,7 +3443,7 @@ export class Engine {
 
     obj.x = nx;
     obj.y = ny;
-    if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
+    if (!obj.fixedPriority) obj.priority = priorityForY(ny, this.priorityBase);
     if (boundary !== 0) {
       if (obj === this.objects[0]) {
         this.vars[V_EDGE] = boundary;
@@ -3508,22 +3520,16 @@ export class Engine {
   }
 
   /**
-   * Footprint control acceptance: scan the priority/control cells along the
-   * baseline for exactly the cel width, left to right. Control 0 rejects;
-   * control 1 rejects unless ignore.blocks. The two class flags are:
-   *
-   * - trigger (f3): set when ANY scanned cell is control 2, never cleared by a
-   *   later cell;
-   * - water (f0): set only when EVERY scanned cell is control 3.
-   *
-   * The spec's "Footprint control acceptance" states a final-cell rule for
-   * both classes; the shipped interpreters and observed game data disagree.
-   * Priority 15 skips the scan, accepts the footprint, and for object 0
-   * clears both flags, as the same routine does.
-   * docs/fidelity.md: footprint-class-flags
+   * Footprint control acceptance (src/runtime/controlCheck.ts): an accepted
+   * scan sets ego's trigger flag (f3) when ANY cell is control 2 and its water
+   * flag (f0) only when EVERY cell is control 3. The spec's "Footprint control
+   * acceptance" states a final-cell rule for both classes; the shipped
+   * interpreters and observed game data disagree. Priority 15 skips the scan,
+   * accepts the footprint, and for object 0 clears both flags, as the same
+   * routine does. docs/fidelity.md: footprint-class-flags
    */
   private footprintAccepts(obj: ScreenObject, nx: number, ny: number): boolean {
-    if (!obj.fixedPriority) obj.priority = this.priorityForY(ny);
+    if (!obj.fixedPriority) obj.priority = priorityForY(ny, this.priorityBase);
     if (obj.priority === 15) {
       if (obj === this.objects[0]) {
         this.flags[3] = 0;
@@ -3532,24 +3538,11 @@ export class Engine {
       return true;
     }
     if (ny < 0 || ny > 167) return false;
-    let flag3 = false;
-    let flag0 = true;
-    for (let i = 0; i < obj.width; i++) {
-      const cx = nx + i;
-      if (cx < 0 || cx > 159) continue;
-      const v = this.surface.priority[ny * 160 + cx] ?? 4;
-      if (v === 0) return false;
-      if (v === 3) continue;
-      flag0 = false;
-      if (v === 1 && obj.observeBlocks) return false;
-      if (v === 2) flag3 = true;
-    }
-    if (obj.waterGate === "both") return false;
-    if (obj.waterGate === "on" && !flag0) return false; // obj.on.water: every cell is control 3
-    if (obj.waterGate === "off" && flag0) return false; // obj.on.land: not every cell is control 3
+    const controls = scanFootprint(this.surface.priority, nx, ny, obj.width);
+    if (!footprintAccepted(controls, obj.observeBlocks, obj.waterGate)) return false;
     if (obj === this.objects[0]) {
-      this.flags[3] = flag3 ? 1 : 0;
-      this.flags[0] = flag0 ? 1 : 0;
+      this.flags[3] = controls.signal ? 1 : 0;
+      this.flags[0] = controls.water ? 1 : 0;
     }
     return true;
   }
@@ -3770,7 +3763,7 @@ export class Engine {
       const view = this.views.get(o.view);
       const cel = view && readViewCel(view, o.loop, o.cel);
       if (!cel) continue;
-      const pri = o.fixedPriority ? o.priority : this.priorityForY(o.y);
+      const pri = o.fixedPriority ? o.priority : priorityForY(o.y, this.priorityBase);
       drawCel(frame, cel, o.x, o.y, {
         priority: pri,
         onPixel: (index: number) => {
@@ -3904,12 +3897,6 @@ export class Engine {
       this.ensurePresentationCurrent();
       this.flags[1] = this.cachedEgoVisible ? 0 : 1;
     }
-  }
-
-  /** Baseline priority bands (spec "Priority and horizon" and set.pri.base). */
-  private priorityForY(y: number): number {
-    if (y < this.priorityBase) return 4;
-    return Math.min(15, 5 + Math.floor(((y - this.priorityBase) * 10) / (168 - this.priorityBase)));
   }
 
   // ---------- parser ----------
@@ -4516,7 +4503,7 @@ export class Engine {
         // gets a synthesized Enter after a bounded number of polls so a
         // headless run never spins forever.
         if (this.vars[V_KEY] !== 0) return { result: true, next: pc + 1 };
-        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key, this.keymap);
+        for (const key of this.host.takeKeys()) this.inputQueue.enqueueKey(key);
         let pressed = this.pollRawKey();
         const blockingWait = this.host.waitKey;
         if (pressed === undefined) {
@@ -4528,7 +4515,7 @@ export class Engine {
               const delivered = this.hostCall({ kind: "key", condPc: pc }, () =>
                 blockingWait.call(this.host),
               );
-              this.inputQueue.enqueueKey(delivered ?? 0, this.keymap);
+              this.inputQueue.enqueueKey(delivered ?? 0);
               pressed = this.pollRawKey();
             }
           } else if (++this.haveKeyPolls > HAVE_KEY_POLL_LIMIT) {
@@ -4975,12 +4962,12 @@ export class Engine {
         return next;
       }
       case 0x29:
-        this.requireView(a(1));
+        this.loadView(a(1));
         this.setView(obj(0), a(1));
         return next;
       case 0x2a: {
         const view = this.vars[a(1)]!;
-        this.requireView(view);
+        this.loadView(view);
         this.setView(obj(0), view);
         return next;
       }
@@ -6015,10 +6002,6 @@ export class Engine {
     this.views.set(num, view);
     if (!this.viewOrder.includes(num)) this.viewOrder.push(num);
     return view;
-  }
-
-  private requireView(num: number): void {
-    this.loadView(num);
   }
 
   /** Cel count for an object's selected loop (1 when view missing). */

@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import { testRevision } from "./identity.ts";
 import assert from "node:assert/strict";
-import { useTestRecorder, type TestRecorderState } from "../src/useTestRecorder.ts";
-import type { BootedGame } from "../src/useEngine.ts";
+import { useTestRecorder, type TestRecorderState } from "../src/authoring/useTestRecorder.ts";
+import type { BootedGame } from "../src/engine/useEngine.ts";
 import type { LlmConfig } from "../src/agent/llmClient.ts";
-import type { RecordingSnapshot } from "../src/gameRecording.ts";
+import type { RecordingSnapshot } from "../src/authoring/gameRecording.ts";
 
 function createMockState(
   overrides: Partial<{
@@ -48,8 +48,7 @@ test("test recorder refuses to start on a live host request but not a parked win
     logAgent: () => {},
     getBootedGame: () => null,
     getOrCreateSession: async () => assert.fail("session should not be created"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
   await allowRecorder.startTestRecording();
@@ -64,8 +63,7 @@ test("test recorder refuses to start on a live host request but not a parked win
       logAgent: () => {},
       getBootedGame: () => null,
       getOrCreateSession: async () => assert.fail("session should not be created"),
-      markRemixNeedsSave: () => {},
-      persistRemix: async () => {},
+      commitTestsFile: async () => {},
       flushAutosave: async () => {},
     });
     await recorder.startTestRecording();
@@ -136,8 +134,7 @@ test("test recorder starts and stops successfully through worker queries", async
     logAgent: () => {},
     getBootedGame: () => null,
     getOrCreateSession: async () => assert.fail("session should not be called"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
 
@@ -196,8 +193,7 @@ test("test recorder cancels active recording and notifies worker", async () => {
     logAgent: () => {},
     getBootedGame: () => null,
     getOrCreateSession: async () => assert.fail("session should not be called"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
 
@@ -229,8 +225,7 @@ test("saveRecordedTest rejects tainted recordings", async () => {
     logAgent: () => {},
     getBootedGame: () => booted,
     getOrCreateSession: async () => assert.fail("session should not be created"),
-    markRemixNeedsSave: () => {},
-    persistRemix: async () => {},
+    commitTestsFile: async () => {},
     flushAutosave: async () => {},
   });
 

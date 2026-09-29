@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { useWorkerLink, type WorkerOutboundHandlers } from "../src/useWorkerLink.ts";
-import type { WorkerOutbound, WorkerQueryPayload, WorkerQueryType } from "../src/workerProtocol.ts";
-import type { EngineState, TextHook } from "../src/useEngineTypes.ts";
+import { useWorkerLink, type WorkerOutboundHandlers } from "../src/engine/useWorkerLink.ts";
+import type {
+  WorkerOutbound,
+  WorkerQueryPayload,
+  WorkerQueryType,
+} from "../src/worker/workerProtocol.ts";
+import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
-import type { ReplayObservation } from "../src/replay.ts";
+import type { ReplayObservation } from "../src/walkthrough/replay.ts";
 
 /**
  * The outbound dispatch table is a required mapped type — a WorkerOutbound
@@ -23,6 +27,7 @@ const OUTBOUND_TYPES = [
   "engineState",
   "objects",
   "debugWritten",
+  "playedHere",
   "debugEvents",
   "debugTrace",
   "checkpoint",
@@ -34,6 +39,7 @@ const OUTBOUND_TYPES = [
   "roomTransition",
   "flushed",
   "metadataPatched",
+  "patched",
   "frame",
   "trace",
   "print",
@@ -158,7 +164,7 @@ function makeLink() {
     handleRoomAuthoring: async () => "done",
     getAgentSession: () => null,
     getReplayDriver: () => driver,
-    ejectGame: () => depCalls.push("ejectGame"),
+    gameQuit: () => depCalls.push("gameQuit"),
   });
   return { link, state, hook, audioCalls, depCalls, logged, frames, driver };
 }
@@ -262,6 +268,18 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "debugWritten":
         await roundTrip(link, w, "debugWrite", { type, id: 0 });
         break;
+      case "playedHere": {
+        const r = await roundTrip(link, w, "playHere", {
+          type,
+          id: 0,
+          ok: true,
+          room: 2,
+          x: 30,
+          y: 140,
+        });
+        assert.equal((r as { room: number }).room, 2);
+        break;
+      }
       case "debugEvents": {
         const r = await roundTrip(link, w, "debugEvents", {
           type,
@@ -357,16 +375,19 @@ test("every WorkerOutbound member reaches its handler once", async () => {
           id: 1,
           taken: true,
           cycle: 2,
-          hasEngine: true,
-          modal: false,
-          textMode: false,
-          pictureShown: true,
         });
         assert.ok(depCalls.includes("flushed"));
         break;
       case "metadataPatched":
         deliver(w, { type });
         break; // deliberate no-op — the assertion is that it is handled.
+      case "patched": {
+        const resources = [{ kind: "picture" as const, num: 3, hint: "7-0000abcd" }];
+        const acked = link.awaitPatched(resources, 200);
+        deliver(w, { type, resources, patchGen: 4 });
+        assert.deepEqual(await acked, { resources, patchGen: 4 });
+        break;
+      }
       case "frame": {
         const visual = new Uint8Array(160 * 168);
         const priority = new Uint8Array(160 * 168);
@@ -547,7 +568,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.deepEqual(state.gameEdit, { text: "look" });
         break;
       case "cycle":
-        deliver(w, { type, cycle: 4, room: 2, egoX: 9, egoY: 10 });
+        deliver(w, { type, cycle: 4, room: 2, egoX: 9, egoY: 10, delay: 1 });
         assert.equal(hook.cycle, 4);
         assert.equal(hook.room, 2);
         break;
@@ -579,7 +600,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         break;
       case "quit":
         deliver(w, { type });
-        assert.ok(depCalls.includes("ejectGame"));
+        assert.ok(depCalls.includes("gameQuit"));
         break;
       case "log":
         deliver(w, { type, text: "hello" });

@@ -5,7 +5,7 @@ import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
-import { buildObjectFile } from "../../src/agent/tools.ts";
+import { buildObjectFile } from "../../src/agent/agentState.ts";
 import { textHook } from "./engineProbe.ts";
 
 for (const fail of [false, true])
@@ -138,7 +138,7 @@ for (const fail of [false, true])
       await expect(page.getByTestId("agent-bubble-input")).toBeHidden();
       await page.keyboard.press("Escape");
       await expect(panel).toBeVisible();
-      await expect(page.getByTestId("power-up")).toBeDisabled();
+      await expect(page.getByTestId("menu-assistant")).toBeDisabled();
       release();
       if (fail) {
         await expect(page.getByTestId("agent-bubble-error")).toContainText(

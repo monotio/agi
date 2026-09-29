@@ -63,7 +63,13 @@ test.describe("Synthetic Walkthrough", () => {
       )
       .toBe(50);
 
-    // Test marker click seek back to Start (marker 0)
+    // Marker click seeks back to Start (marker 0). A seek keeps play or pause,
+    // and at 8x a playing replay passes tick 50 within a third of a second, so
+    // pause first: the paused seek holds where it lands.
+    await page.getByTestId("btn-walkthrough-pause").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status))
+      .toBe("paused");
     const marker0 = page.getByTestId("walkthrough-marker-0");
     await expect(marker0).toBeVisible();
     await clickTimelineMark(page, marker0);
@@ -77,6 +83,7 @@ test.describe("Synthetic Walkthrough", () => {
         { timeout: 10_000 },
       )
       .toBeLessThan(50);
+    expect(await page.evaluate(() => window.__AGI_STATE__?.walkthrough.status)).toBe("paused");
 
     // Test Take Control
     const takeControlBtn = page.getByTestId("btn-walkthrough-take-control");

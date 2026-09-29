@@ -213,6 +213,32 @@ test("restoreImage replays an autosave into a fresh engine without unwinding", (
   assert.equal(fresh.vars[0], 1);
 });
 
+test("restoreImage reinstates the game signature from block 1", () => {
+  const engine = new Engine(buildGame(), new RecordingHost(), DICT);
+  engine.tick();
+  const unsigned = engine.autosaveImage()!;
+  const { image, screen, presentation, continuation } = decodeHostImage(unsigned);
+  // The signature area is the first seven block-1 bytes (spec "Save names and
+  // signatures"): file offset 31 (description) + 2 (block length) = 33.
+  assert.deepEqual(Array.from(image.subarray(33, 40)), [0, 0, 0, 0, 0, 0, 0]);
+  const signed = image.slice();
+  signed.set([0x53, 0x51, 0x32], 33); // "SQ2", then four NULs
+  const fresh = new Engine(buildGame(), new RecordingHost(), DICT);
+  fresh.restoreImage(
+    encodeHostImage(signed, screen ?? [], presentation ?? undefined, continuation),
+  );
+  assert.equal(fresh.gameSignature, "SQ2");
+  assert.deepEqual(
+    Array.from(fresh.serialize().subarray(33, 40)),
+    [0x53, 0x51, 0x32, 0, 0, 0, 0],
+    "the next save carries it",
+  );
+  // The block replaces the area wholesale, as restore.game's block read does:
+  // an unsigned image leaves an unsigned game.
+  fresh.restoreImage(unsigned);
+  assert.equal(fresh.gameSignature, "");
+});
+
 test("a game that blocks the script buffer still autosaves once a picture has drawn", () => {
   // The demo pack sets f7 before its first room, so its replay sequence stays
   // empty for the whole session; the shown picture is what makes the image

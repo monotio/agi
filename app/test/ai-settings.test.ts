@@ -5,13 +5,13 @@ import {
   MODEL_CAPABILITIES,
   modelEffortOptions,
 } from "../../src/agent/modelEffort.ts";
-import { DEFAULT_MODELS, MODEL_OPTIONS } from "../src/agent/llmClient.ts";
+import { DEFAULT_MODELS, MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import {
   AI_SETTINGS_KEY,
   loadAiSettings,
   saveAiSettings,
   type AiSettings,
-} from "../src/aiSettings.ts";
+} from "../src/settings/aiSettings.ts";
 
 class MemoryStorage {
   readonly values = new Map<string, string>();
@@ -127,10 +127,10 @@ test("one atomic record keeps provider keys and models isolated", () => {
 });
 
 test("the app offers the current models, each with its published price and effort", () => {
-  // Checked against the provider model pages on September 23, 2026.
+  // Provider model pages and list prices at the time of this release.
   assert.deepEqual(
     MODEL_OPTIONS.anthropic.map((option) => option.id),
-    ["claude-opus-5-5", "claude-fable-5-1"],
+    ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"],
   );
   assert.deepEqual(
     MODEL_OPTIONS.openai.map((option) => option.id),
@@ -143,6 +143,12 @@ test("the app offers the current models, each with its published price and effor
     output: 20,
     longContext: false,
     cacheRead: 0.2,
+  });
+  // Sonnet 5.5 reads cache at the default 10% of input: $0.20.
+  assert.deepEqual(MODEL_CAPABILITIES["claude-sonnet-5-5"]?.price, {
+    input: 2,
+    output: 10,
+    longContext: false,
   });
   assert.deepEqual(MODEL_CAPABILITIES["gpt-6-sol"]?.price, {
     input: 2,

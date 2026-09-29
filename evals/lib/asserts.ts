@@ -10,9 +10,10 @@
  * rendered PNG, so a model still emitting a raw byte array fails here.
  */
 
-import { createAgentSessionState, executeAgentTool } from "../../src/agent/tools.ts";
+import { createAgentSessionState } from "../../src/agent/agentState.ts";
+import { executeAgentTool } from "../../src/agent/tools.ts";
 
-import type { EntryResult } from "../../scripts/eval-picture.ts";
+import type { EntryResult } from "../picture-fidelity.ts";
 
 interface ToolOutput {
   tool_calls?: Array<{

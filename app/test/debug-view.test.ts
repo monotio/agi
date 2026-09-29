@@ -13,8 +13,8 @@ import {
   pickVisualSource,
   type DebugEvent,
   type PickPoint,
-} from "../src/debugView.ts";
-import type { Frame } from "../src/gameTypes.ts";
+} from "../src/inspector/debugView.ts";
+import type { Frame } from "../src/project/gameTypes.ts";
 import type { ScreenObjectState } from "../../src/runtime/engine.ts";
 
 function frameFixture(): Frame {

@@ -9,6 +9,8 @@ import {
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
+  openInspector,
+  openWorldRoom,
 } from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
@@ -64,16 +66,25 @@ async function bootTapeGame(page: Page): Promise<void> {
     files: Object.fromEntries(game.files),
     words: [],
   });
-  await page.reload();
+  // A fresh navigation reads the cached game. page.reload() here intermittently
+  // failed in CI with "WebKit encountered an internal error".
+  await page.goto("/");
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
-/** The inspector's flag write — the same drive the world-map spec uses. */
+/** Pause live play from the play bar — a seek from here keeps the tape still. */
+async function pauseLive(page: Page): Promise<void> {
+  await page.getByTestId("btn-transport-pause").click();
+  await expect.poll(async () => (await viewState(page))?.parked).toBe(true);
+}
+
+/**
+ * The inspector's flag write — the same drive the world-map spec uses. The
+ * inspector opens from Settings > Advanced, so the game stays in Play mode.
+ */
 async function writeFlag(page: Page, flag: number): Promise<void> {
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
-  await page.keyboard.press("Escape");
+  await openInspector(page);
   await page.getByTestId("dbg-tab-state").click();
   await page.getByTestId("dbg-flags").locator("button").nth(flag).click();
   // The flag button keeps focus; a later Space would re-click it instead of
@@ -102,8 +113,9 @@ async function viewState(page: Page): Promise<ViewState | null> {
 }
 
 /**
- * A timeline click during live play: the transport pauses first, then opens
- * the tape and lands at the clicked position — the agreed entry gesture.
+ * A timeline click: the transport parks live play, then opens the tape and
+ * lands at the clicked position — the agreed entry gesture. From running
+ * live play the tape plays on from there; from a paused game it opens paused.
  */
 async function scrubToTape(page: Page, fraction: number): Promise<void> {
   const timeline = page.getByTestId("history-timeline");
@@ -136,6 +148,8 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await pause.click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect.poll(async () => (await viewState(page))?.parked).toBe(true);
+  // Paused at LIVE, Resume carries the state: no card floats over the game.
+  await expect(page.locator(".transport-secondary:visible")).toHaveCount(0);
   await page.getByTestId("btn-transport-resume").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
@@ -144,7 +158,9 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await waitForCycles(page, 3);
 
-  // Clicking near the tape's start pauses live, then lands near the boot.
+  // From a paused game, a click near the tape's start lands near the boot
+  // and holds there.
+  await pauseLive(page);
   await scrubToTape(page, 0.05);
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect(page.getByTestId("history-pos")).toContainText("Room");
@@ -186,6 +202,92 @@ test("the transport rides live play from boot; the timeline enters the tape and 
   await waitForCycles(page, 2);
 });
 
+/** The settled tape position once the newest seek has landed. */
+async function landedTick(page: Page): Promise<number> {
+  await expect
+    .poll(async () => {
+      const v = await viewState(page);
+      return v !== null && v.active && !v.seeking && !v.loading;
+    })
+    .toBe(true);
+  return (await viewState(page))!.tick;
+}
+
+/** The tape plays on from where the seek landed. */
+async function tapePlaysOn(page: Page): Promise<void> {
+  const from = await landedTick(page);
+  await expect.poll(async () => (await viewState(page))!.tick).toBeGreaterThan(from);
+  await expect(page.getByTestId("btn-history-watch")).toHaveText(/Pause timeline/);
+}
+
+/** The tape holds where the seek landed. */
+async function tapeHolds(page: Page): Promise<void> {
+  const from = await landedTick(page);
+  await page.waitForTimeout(600);
+  expect((await viewState(page))!.tick, "the tape holds at the landing").toBe(from);
+  await expect(page.getByTestId("btn-history-watch")).not.toHaveText(/Pause timeline/);
+}
+
+/** A click, then a drag, then a step between marks — each one a seek. */
+async function seekThreeWays(page: Page, then: (page: Page) => Promise<void>): Promise<void> {
+  const timeline = page.getByTestId("history-timeline");
+  const box = (await timeline.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await timeline.click({ position: { x: box.width * 0.12, y: box.height / 2 } });
+  await then(page);
+  await page.mouse.move(box.x + box.width * 0.1, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.3, y, { steps: 8 });
+  await page.mouse.move(box.x + box.width * 0.22, y, { steps: 4 });
+  await page.mouse.up();
+  await then(page);
+  await page.keyboard.press("ArrowLeft");
+  await then(page);
+}
+
+test("a seek keeps a playing surface playing and a paused one paused", async ({ page }) => {
+  await isolateStorage(page);
+  await bootTapeGame(page);
+  await writeFlag(page, 6);
+  await expect.poll(async () => (await textHook(page)).room).toBe(2);
+  // A tape long enough that Watch is still playing through every check.
+  await waitForCycles(page, 160, 30_000);
+  const live = page.getByTestId("history-live");
+
+  // LIVE while live play runs changes nothing.
+  await live.click();
+  await expect(page.getByTestId("btn-transport-pause")).toBeVisible();
+  await waitForCycles(page, 3);
+
+  // Playing: a click from live play opens the tape watching, and every seek
+  // inside it plays on from where it lands.
+  await scrubToTape(page, 0.3);
+  await tapePlaysOn(page);
+  await seekThreeWays(page, tapePlaysOn);
+  expect((await textHook(page)).paused, "live play stays parked under the tape").toBe(true);
+  // LIVE from a playing tape resumes live play.
+  await live.click();
+  await expect.poll(async () => (await viewState(page))?.active).toBe(false);
+  await expect(page.getByTestId("btn-transport-pause")).toBeVisible();
+  await waitForCycles(page, 3);
+
+  // Paused: the tape opens paused, and every seek holds where it lands.
+  await pauseLive(page);
+  await scrubToTape(page, 0.3);
+  await tapeHolds(page);
+  await seekThreeWays(page, tapeHolds);
+  // LIVE from a paused tape returns to the game, still paused.
+  await live.click();
+  await expect.poll(async () => (await viewState(page))?.active).toBe(false);
+  await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
+  const held = (await textHook(page)).cycle;
+  await page.waitForTimeout(600);
+  expect((await textHook(page)).cycle, "the game stays paused").toBe(held);
+  // LIVE again on the parked game changes nothing.
+  await live.click();
+  await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
+});
+
 test("Resume from here continues from the viewed moment; Undo rewind restores the kept session", async ({
   page,
 }) => {
@@ -197,6 +299,8 @@ test("Resume from here continues from the viewed moment; Undo rewind restores th
 
   // Scrub into room 1 before the transition — past the tape's opening tick,
   // which precedes the first drawn frame and is legitimately unrestorable.
+  // Paused first, so the tape holds the viewed moment.
+  await pauseLive(page);
   await scrubToTape(page, 0.2);
   await expect.poll(async () => (await viewState(page))?.room, { timeout: 20_000 }).toBe(1);
 
@@ -236,28 +340,22 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   // Open and close the tape once: the open's drain commits the recorded tail
   // before the corruption lands. Keep LIVE paused so later anchors cannot
   // invalidate the deliberately corrupted replay interval.
+  await pauseLive(page);
   await scrubToTape(page, 0.5);
   await page.getByTestId("history-live").click();
   await expect.poll(async () => (await viewState(page))?.active).toBe(false);
   // Corrupt the stored tape: flip every sync mark's expected digest in the
-  // first segment's batch records, so any replay across one fails. A seek
-  // replays only from the nearest anchor at-or-before its target — marks
-  // behind that anchor never verify — so the target is chosen from the
-  // tape itself: a corrupted mark with no anchor sharing its neighborhood.
+  // first segment's batch records, so any replay across one fails.
   // The tape is append-oriented — each batch is its own record under
   // `history/<key>/s/<segment>/<batch>`.
-  const corruptedTick = await page.evaluate(async () => {
+  const corrupted = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open("monotio-agi-projects", 1);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
     interface StoredBatch {
-      projectId: string;
-      segment: string;
-      batch: number;
-      sync: { digest: string; tick: number }[];
-      anchors?: { tick: number }[];
+      sync: { digest: string }[];
     }
     const manifest = await new Promise<{ segments: { id: string }[] }>((resolve, reject) => {
       const req = db
@@ -278,8 +376,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
         typeof key === "string" &&
         key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
     );
-    const markTicks: number[] = [];
-    const anchorTicks: number[] = [];
+    let flipped = 0;
     const tx = db.transaction("projects", "readwrite");
     const store = tx.objectStore("projects");
     await new Promise<void>((resolve, reject) => {
@@ -291,22 +388,16 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
           const batch = req.result as StoredBatch | undefined;
           if (batch === undefined) return;
           for (const mark of batch.sync) {
-            markTicks.push(mark.tick);
             mark.digest = (mark.digest[0] === "0" ? "1" : "0") + mark.digest.slice(1);
+            flipped++;
           }
-          for (const anchor of batch.anchors ?? []) anchorTicks.push(anchor.tick);
           store.put(batch);
         };
       }
     });
-    // A seek target a few ticks past this mark replays across it: no anchor
-    // sits in the window the click could land in. Pick the earliest such
-    // mark — the live tail only grows after it.
-    for (const tick of markTicks.sort((a, b) => a - b)) {
-      if (anchorTicks.every((a) => a < tick - 3 || a > tick + 6)) return tick;
-    }
-    throw new Error("The fixture did not record a sync mark between resume anchors.");
+    return flipped;
   });
+  expect(corrupted, "the recorded tape holds sync marks to corrupt").toBeGreaterThan(0);
 
   // The live worker replays its in-memory tape; reload so the stored —
   // corrupted — recording is the one under view.
@@ -317,26 +408,130 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.historyPending)).toBe(0);
 
-  // Click the fraction that lands a few ticks past the chosen mark: the
-  // current total extent comes from the manifest's segment lanes.
-  const fraction = await page.evaluate(async (tick) => {
+  // Choose the click from the stored tape's own anatomy — read after the
+  // reload's pause has drained, so the resumed session's new segment is part
+  // of the axis. A seek replays only from the nearest anchor at-or-before
+  // its target — marks behind that anchor never verify — so the landing
+  // sits a few ticks past a corrupted sync mark and short of the next
+  // anchor. The timeline also resolves a click within 1.5% of a room notch
+  // to that notch, and every notch sits on an anchor's tick: a landing
+  // inside the snap radius restarts replay AT that anchor, past the
+  // corruption, and the divergence never surfaces. The total extent and the
+  // notches come from the manifest's segment lanes.
+  const aimed = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open("monotio-agi-projects", 1);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
-    const manifest = await new Promise<{ segments: { extent?: number }[] }>((resolve, reject) => {
-      const req = db
-        .transaction("projects", "readonly")
-        .objectStore("projects")
-        .get("history/history-transport-fixture");
-      req.onsuccess = () => resolve(req.result as { segments: { extent?: number }[] });
+    interface StoredBatch {
+      sync: { tick: number }[];
+      anchors?: { tick: number }[];
+    }
+    interface Manifest {
+      segments: { id: string; extent?: number; marks?: { tick: number }[] }[];
+    }
+    const readManifest = () =>
+      new Promise<Manifest>((resolve, reject) => {
+        const req = db
+          .transaction("projects", "readonly")
+          .objectStore("projects")
+          .get("history/history-transport-fixture");
+        req.onsuccess = () => resolve(req.result as Manifest);
+        req.onerror = () => reject(req.error);
+      });
+    // The click maps against the committed axis, and a batch still queued
+    // in the worker (the in-flight credit is bounded) lands after the
+    // pending drain — moving the landing under the pointer. Read until the
+    // manifest's shape holds still instead of trusting a single snapshot.
+    let manifest = await readManifest();
+    for (let i = 0; i < 40; i++) {
+      const shape = manifest.segments.map((seg) => seg.extent ?? 0).join(",");
+      await new Promise((r) => setTimeout(r, 150));
+      const again = await readManifest();
+      if (again.segments.map((seg) => seg.extent ?? 0).join(",") === shape) break;
+      manifest = again;
+    }
+    const firstSegment = manifest.segments[0]!.id;
+    const keys = (await new Promise<IDBValidKey[]>((resolve, reject) => {
+      const req = db.transaction("projects", "readonly").objectStore("projects").getAllKeys();
+      req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
+    })) as string[];
+    const targets = keys.filter(
+      (key) =>
+        typeof key === "string" &&
+        key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
+    );
+    const batches = await new Promise<StoredBatch[]>((resolve, reject) => {
+      const tx = db.transaction("projects", "readonly");
+      const store = tx.objectStore("projects");
+      const out: StoredBatch[] = [];
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = () => reject(tx.error);
+      for (const key of targets) {
+        const req = store.get(key);
+        req.onsuccess = () => {
+          if (req.result !== undefined) out.push(req.result as StoredBatch);
+        };
+      }
     });
-    const total = manifest.segments.reduce((sum, s) => sum + (s.extent ?? 0), 0);
-    return Math.min(0.95, (tick + 3) / Math.max(total, 1));
-  }, corruptedTick);
-  await scrubToTape(page, fraction);
+    const corruptedTicks = batches
+      .flatMap((batch) => batch.sync.map((mark) => mark.tick))
+      .sort((a, b) => a - b);
+    const anchorTicks = batches
+      .flatMap((batch) => (batch.anchors ?? []).map((anchor) => anchor.tick))
+      .sort((a, b) => a - b);
+    const extents = manifest.segments.map((seg) => seg.extent ?? 0);
+    const total = Math.max(
+      extents.reduce((sum, extent) => sum + extent, 0),
+      1,
+    );
+    const extent0 = extents[0] ?? 0;
+    // The timeline notches a click could snap to, in flattened axis ticks.
+    const notches: number[] = [];
+    let prefix = 0;
+    manifest.segments.forEach((seg, i) => {
+      for (const mark of seg.marks ?? []) notches.push(prefix + mark.tick);
+      prefix += extents[i]!;
+    });
+    // Snap radius in ticks, plus slack for a lane committing between this
+    // read and the click (the axis only grows while live play is paused).
+    const snapGuard = Math.ceil(total * 0.015) + 5;
+    const drift = 5;
+    for (const tick of corruptedTicks) {
+      const nextAnchor = anchorTicks.find((anchor) => anchor > tick) ?? Number.POSITIVE_INFINITY;
+      for (
+        let landing = tick + 3;
+        landing + drift < nextAnchor && landing + drift <= extent0;
+        landing++
+      ) {
+        if (notches.some((notch) => Math.abs(notch - landing) < snapGuard + drift)) continue;
+        if (landing / total > 0.9) break;
+        return { fraction: landing / total, landing };
+      }
+    }
+    throw new Error("The fixture recorded no corrupted mark with a snap-safe landing.");
+  });
+  await scrubToTape(page, aimed.fraction);
+  // The seek settles inside the corrupted segment — either parked on the
+  // aimed tick or halted early at the corrupted mark. A click deflected to
+  // a notch lands on the notch's own tick and fails this fast, rather than
+  // consuming the divergence timeout below.
+  await expect
+    .poll(
+      async () => {
+        const v = await viewState(page);
+        return v?.segment === 0 && !v.seeking ? v.tick : null;
+      },
+      { timeout: 20_000 },
+    )
+    .not.toBeNull();
+  const landed = (await viewState(page))!;
+  expect(
+    landed.diverged !== null || Math.abs(landed.tick - aimed.landing) <= 6,
+    "the click landed on the aimed tick — not snapped to a notch",
+  ).toBe(true);
   await expect
     .poll(async () => (await viewState(page))?.diverged !== null, { timeout: 20_000 })
     .toBe(true);
@@ -362,6 +557,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
 
   // Seal and commit the tail so a record exists to reject.
+  await pauseLive(page);
   await scrubToTape(page, 0.5);
   await page.getByTestId("history-live").click();
   await page.getByTestId("btn-transport-resume").click();
@@ -420,17 +616,72 @@ test("a map visit jumps straight to its moment on the tape", async ({ page }) =>
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await waitForCycles(page, 3);
 
-  await openWorldMap(page);
-  await page.getByTestId("map-room-1").click();
-  const jump = page.locator("[data-testid^='map-visit-jump-']").first();
-  await expect(jump).toBeVisible();
-  await jump.click();
+  const jumpToRoom1 = async (): Promise<void> => {
+    await openWorldMap(page);
+    await openWorldRoom(page.getByTestId("world-map"), 1);
+    const jump = page.locator("[data-testid^='map-visit-jump-']").first();
+    await expect(jump).toBeVisible();
+    await jump.click();
+    // The map hands over to the transport at the visit's recorded tick.
+    await expect(page.getByTestId("world-map")).toBeHidden();
+    await expect.poll(async () => (await viewState(page))?.active).toBe(true);
+  };
 
-  // The map hands over to the transport, parked at the visit's recorded tick.
-  await expect(page.getByTestId("world-map")).toBeHidden();
-  await expect.poll(async () => (await viewState(page))?.active).toBe(true);
+  // The map's own hold is not the player's pause: from running play the
+  // tape opens watching from the visit.
+  await jumpToRoom1();
+  await tapePlaysOn(page);
+  await page.getByTestId("history-live").click();
+  await expect(page.getByTestId("btn-transport-pause")).toBeVisible();
+
+  // Paused by the player, it opens paused at the visit.
+  await pauseLive(page);
+  await jumpToRoom1();
   await expect.poll(async () => (await viewState(page))!.room, { timeout: 20_000 }).toBe(1);
+  await tapeHolds(page);
 });
+
+/** The element hit-tested at Ask's centre is Ask itself: nothing floats over it. */
+async function askUncovered(page: Page): Promise<boolean> {
+  return page.getByTestId("menu-assistant").evaluate((ask) => {
+    const box = ask.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return hit !== null && ask.contains(hit);
+  });
+}
+
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 1024, height: 600 },
+]) {
+  test(`the transport's cards never cover Ask at ${viewport.width}×${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await isolateStorage(page);
+    await bootTapeGame(page);
+    await writeFlag(page, 6);
+    await expect.poll(async () => (await textHook(page)).room).toBe(2);
+    await waitForCycles(page, 3);
+    await expect(page.getByTestId("menu-assistant")).toBeVisible();
+
+    // Watch from here: the card a scrub opens.
+    await pauseLive(page);
+    await scrubToTape(page, 0.2);
+    await expect(page.getByTestId("btn-history-watch")).toBeVisible();
+    expect(await askUncovered(page), "Watch from here leaves Ask clear").toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`card-watch-${viewport.width}.png`) });
+
+    // Undo rewind: the card Resume from here leaves on live play.
+    await expect.poll(async () => (await viewState(page))?.room, { timeout: 20_000 }).toBe(1);
+    await expect(page.getByTestId("btn-history-resume")).toBeEnabled({ timeout: 20_000 });
+    await page.getByTestId("btn-history-resume").click();
+    await expect(page.getByTestId("btn-undo-rewind")).toBeVisible();
+    expect(await askUncovered(page), "Undo rewind leaves Ask clear").toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`card-undo-${viewport.width}.png`) });
+  });
+}
 
 test.describe("phone transport", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });

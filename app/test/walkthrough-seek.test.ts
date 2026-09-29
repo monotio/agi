@@ -5,11 +5,11 @@ import {
   useWalkthroughController,
   type WalkthroughControllerContext,
   type WalkthroughUiState,
-} from "../src/useWalkthroughController.ts";
-import type { ReplayDriver, ReplayObservation } from "../src/replay.ts";
+} from "../src/walkthrough/useWalkthroughController.ts";
+import type { ReplayDriver, ReplayObservation } from "../src/walkthrough/replay.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
-import type { BootedGame } from "../src/gameTypes.ts";
-import type { WorkerInbound } from "../src/workerProtocol.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
+import type { WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 const REVISION = "a".repeat(64);
 
@@ -220,6 +220,35 @@ test("lifting the pointer after a scrub wakes a runner parked on the scrub gate"
     await flush();
     assert.equal(options?.isPaused?.(), false);
     assert.equal(resumed, true, "the release wakes the parked runner");
+  } finally {
+    globalThis.fetch = originalFetch;
+    controller.abort();
+  }
+});
+
+test("a seek on a finished walkthrough lands paused at the new position", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => ARTIFACT,
+  })) as unknown as typeof fetch;
+  const { state, driver, restoreCalls, controller } = harness();
+  try {
+    void controller.startWalkthrough("kq1");
+    await flush();
+    // The run reached the end: nothing is playing any more.
+    state.walkthrough.status = "completed";
+    state.walkthrough.tick = 1500;
+    driver.latest = fakeObservation(1500);
+    await controller.seekToTick(700);
+    await flush();
+    assert.equal(restoreCalls.at(-1)?.tick, 700, "the seek restores near its target");
+    assert.equal(state.walkthrough.status, "paused", "a finished run is not playing");
+    assert.equal(controller.transport.play.aria, "Play", "the play button plays from here");
+
+    // Play from there, then the end's Replay still restarts from the top.
+    controller.toggleWalkthroughPause();
+    assert.equal(state.walkthrough.status, "playing");
   } finally {
     globalThis.fetch = originalFetch;
     controller.abort();

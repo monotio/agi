@@ -27,9 +27,9 @@ export interface SurfaceDims {
 }
 
 /** The real picture surface; tests pass tiny ones. */
-export const PICTURE_DIMS: SurfaceDims = { width: SCREEN_WIDTH, height: SCREEN_HEIGHT };
+const PICTURE_DIMS: SurfaceDims = { width: SCREEN_WIDTH, height: SCREEN_HEIGHT };
 
-export interface Box {
+interface Box {
   x0: number;
   y0: number;
   x1: number;
@@ -332,7 +332,7 @@ export function parseLayout(source: string): LayoutMass[] {
   return out;
 }
 
-export type LayoutVerdict = "OK" | "UNDERFILLED" | "SHIFTED" | "MISSING";
+type LayoutVerdict = "OK" | "UNDERFILLED" | "SHIFTED" | "MISSING";
 
 export interface LayoutMassDiff {
   mass: LayoutMass;

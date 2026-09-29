@@ -7,10 +7,12 @@
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
-import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import { resourceCacheHint } from "../../../src/agent/authoringState.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
-import { resetSession, type WorkerContext } from "./context.ts";
-import type { BootMessage, WorkerInbound } from "../workerProtocol.ts";
+import type { WorkerContext } from "./context.ts";
+import { resetSession } from "./session.ts";
+import type { BootMessage, WorkerInbound } from "./workerProtocol.ts";
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
   const control = ctx.ports.control;
@@ -184,6 +186,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.onReenter(msg);
       return;
     }
+    if (msg.type === "playHere") {
+      ctx.fns.onPlayHere(msg);
+      return;
+    }
     if (msg.type === "boot") {
       const boot: BootMessage = msg;
       // A fresh session discards any open history view — its scratch engine
@@ -301,15 +307,48 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "patch") {
-      if (!ctx.engine) return;
+      const resources = msg.resources.map(({ kind, num, payload }) => ({
+        kind,
+        num,
+        payload: new Uint8Array(payload),
+      }));
+      const refused = (patchGen: number, error: string) =>
+        control({
+          type: "patched",
+          resources: resources.map(({ kind, num }) => ({ kind, num, hint: null })),
+          patchGen,
+          error,
+        });
+      if (!ctx.engine) {
+        refused(0, "No game is running.");
+        return;
+      }
       if (ctx.recording.recording)
         ctx.recording.recording.tainted = "Game resources changed during recording.";
-      ctx.engine.patchResource(msg.kind, msg.num, new Uint8Array(msg.payload));
-      ctx.fns.historyRecord({
-        kind: "patch",
-        resource: msg.kind,
-        num: msg.num,
-        data: bytesToBase64(msg.payload),
+      try {
+        // All or none: a refusal leaves every resource on its old bytes.
+        ctx.engine.patchResources(resources);
+      } catch (e) {
+        // The ack names the refusal for a caller awaiting it; the rethrow
+        // keeps the session error every patch sender has always raised.
+        refused(ctx.engine.patchGeneration, String(e));
+        throw e;
+      }
+      for (const { kind, num, payload } of resources)
+        ctx.fns.historyRecord({
+          kind: "patch",
+          resource: kind,
+          num,
+          data: bytesToBase64(payload),
+        });
+      control({
+        type: "patched",
+        resources: resources.map(({ kind, num, payload }) => ({
+          kind,
+          num,
+          hint: resourceCacheHint(payload),
+        })),
+        patchGen: ctx.engine.patchGeneration,
       });
       return;
     }
@@ -339,7 +378,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       if (ctx.recording.recording)
         ctx.recording.recording.tainted = "The sound device changed during recording.";
       const device = msg.device === 0 ? 0 : 1;
-      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSoundPlayback();
+      if (device !== ctx.boot.selectedSoundDevice) ctx.engine?.stopSound();
       ctx.boot.selectedSoundDevice = device;
       if (ctx.engine) ctx.engine.vars[22] = device === 0 ? 1 : 3;
       ctx.fns.historyRecord({ kind: "device", device });

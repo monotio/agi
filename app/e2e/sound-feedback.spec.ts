@@ -1,11 +1,11 @@
-import { type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { providerReply } from "../../test/provider-stream.ts";
-import { buildZip } from "../src/zip.ts";
-import { configureAi, textHook } from "./engineProbe.ts";
+import { buildZip } from "../src/archive/zip.ts";
+import { configureAi, enterCreateMode, openDeveloperActivity, textHook } from "./engineProbe.ts";
 
 type ProviderItem = {
   type?: string;
@@ -130,6 +130,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   await page.goto("/");
   await importSoundGame(page);
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("agent-mode-ask").click();
@@ -185,10 +186,12 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   const download = preview.getByTestId("sound-preview-download");
   await expect(download).toHaveAttribute("download", /\.wav$/);
+  // The shared control height is --control-h (40px); touch gets 44px via the
+  // pointer:coarse media query.
   expect(
     (await download.boundingBox())!.height,
-    "Download WAV is a shared 44px control, not an inline link",
-  ).toBeGreaterThanOrEqual(44);
+    "Download WAV is a shared control, not an inline link",
+  ).toBeGreaterThanOrEqual(40);
   const wav = await download.evaluate(async (link: HTMLAnchorElement) => {
     const response = await fetch(link.href);
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -222,7 +225,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
   await expect(page.getByTestId("latest-sound-preview")).toBeVisible();
-  await page.getByTestId("agent-panel").locator("summary").click();
+  await openDeveloperActivity(page);
   await expect(page.getByTestId("agent-panel").getByTestId("sound-preview-audio")).toBeVisible();
 
   const blobUrl = await page

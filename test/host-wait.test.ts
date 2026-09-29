@@ -242,7 +242,9 @@ test("new.room suspends on prepareRoom and enters the room on delivery", () => {
   assert.deepEqual(host.prepareCalls, [5]);
   assert.equal(engine.vars[0], 0, "still in the old room while the host authors");
 
-  engine.patchResource("logic", 5, assembleLogic("return;", { dictionary: new Map() }).payload);
+  engine.patchResources([
+    { kind: "logic", num: 5, payload: assembleLogic("return;", { dictionary: new Map() }).payload },
+  ]);
   engine.deliverHostAnswer(true);
   engine.tick();
   assert.equal(engine.vars[0], 5);
@@ -281,7 +283,9 @@ test("reenterRoom suspends on prepareRoom and completes on a later poll", () => 
   assert.equal(engine.vars[0], 0, "parked on the room answer");
   assert.equal(engine.vars[60], 1, "no pass ran while parked");
 
-  engine.patchResource("logic", 9, assembleLogic("return;", { dictionary: new Map() }).payload);
+  engine.patchResources([
+    { kind: "logic", num: 9, payload: assembleLogic("return;", { dictionary: new Map() }).payload },
+  ]);
   engine.deliverHostAnswer(true);
   engine.tick();
   assert.equal(engine.vars[0], 9);

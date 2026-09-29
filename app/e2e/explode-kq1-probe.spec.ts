@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
-import { isolateStorage, textHook, waitForCycles } from "./engineProbe.ts";
+import { isolateStorage, textHook, waitForCycles, openInspector } from "./engineProbe.ts";
 
 const missingFixture = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
 test.skip(Boolean(missingFixture), missingFixture || "");
@@ -21,9 +21,7 @@ test("KQ1 courtyard exploded", async ({ page }) => {
     .toContain("Score:");
   await waitForCycles(page, 6);
 
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("inspect-toggle").click();
-  await page.keyboard.press("Escape");
+  await openInspector(page);
   await page.getByTestId("dbg-mode-explode").click();
   await page.getByTestId("dbg-collapse").click();
   await waitForCycles(page, 4);

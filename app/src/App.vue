@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import AgentLogPanel from "./AgentLogPanel.vue";
-import AgentBubble from "./AgentBubble.vue";
-import GameHeader from "./GameHeader.vue";
-import AiSettingsDialog from "./AiSettings.vue";
-import SoundPreview from "./SoundPreview.vue";
-import WalkthroughBar from "./WalkthroughBar.vue";
-import PlayArea from "./PlayArea.vue";
+import AgentLogPanel from "./authoring/AgentLogPanel.vue";
+import AgentBubble from "./authoring/AgentBubble.vue";
+import GameHeader from "./shell/GameHeader.vue";
+import AiSettingsDialog from "./settings/AiSettings.vue";
+import SoundPreview from "./authoring/SoundPreview.vue";
+import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
+import PlayArea from "./play/PlayArea.vue";
+import AssistantStart from "./shell/AssistantStart.vue";
+import CreateDock from "./shell/CreateDock.vue";
+import UiButton from "./ui/UiButton.vue";
+import UiDialog from "./ui/UiDialog.vue";
+import UiToast from "./ui/UiToast.vue";
 import {
   computed,
   defineAsyncComponent,
@@ -16,21 +21,29 @@ import {
   useTemplateRef,
   watch,
 } from "vue";
-import { useEngine, type AutosaveRecord, type ModalKind } from "./useEngine.ts";
-import { MODEL_OPTIONS } from "./agent/llmClient.ts";
-import { reconcileGameIndex } from "./gameStorage.ts";
+import { useEngine, type AutosaveRecord } from "./engine/useEngine.ts";
+import { MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
+import { reconcileGameIndex } from "./project/gameStorage.ts";
 import { resolveGameHash } from "../../src/games/knownGames.ts";
-import { findInstalledFolder, gameStorageKey } from "./gameTypes.ts";
-import { FUNCTION_KEYS, registeredKey, pcKey } from "./gameControls.ts";
+import { findInstalledFolder, gameStorageKey } from "./project/gameTypes.ts";
+import { useGameKeys } from "./play/useGameKeys.ts";
 
-import { provideEngine } from "./engineContext.ts";
-import { createShellBridge, provideShellBridge } from "./shellBridge.ts";
-import { createAiSettings, provideAiSettings } from "./useAiSettings.ts";
-import { createGameLibrary, provideGameLibrary } from "./useGameLibrary.ts";
-import { createPresentation, providePresentation } from "./usePresentation.ts";
-import SetupPanel from "./SetupPanel.vue";
-import { nextViewportLayout } from "./viewportLayout.ts";
-import ReferenceUpload from "./ReferenceUpload.vue";
+import { provideEngine } from "./engine/engineContext.ts";
+import { createShellBridge, provideShellBridge } from "./shell/shellBridge.ts";
+import { createAiSettings, provideAiSettings } from "./settings/useAiSettings.ts";
+import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.ts";
+import { createPresentation, providePresentation } from "./play/usePresentation.ts";
+import SetupPanel from "./home/SetupPanel.vue";
+import StaleTabNote from "./play/StaleTabNote.vue";
+import StartOverNote from "./play/StartOverNote.vue";
+import { nextViewportLayout } from "./play/viewportLayout.ts";
+import ReferenceUpload from "./references/ReferenceUpload.vue";
+import { createShell, provideShell } from "./shell/useShell.ts";
+import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
+import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
+import { useCreateMode } from "./shell/useCreateMode.ts";
+import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
+import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 
 const testMode = import.meta.env.MODE === "test";
 const touchControls = ref(
@@ -88,9 +101,12 @@ const engine = useEngine(
   },
 );
 provideEngine(engine);
+provideInspector(createInspector(engine, presentation));
 
 // The map's graph code loads only when the player opens it — never on boot.
-const WorldMap = defineAsyncComponent(() => import("./WorldMap.vue"));
+const WorldMap = defineAsyncComponent(() => import("./world/WorldMap.vue"));
+const RoomStudio = defineAsyncComponent(() => import("./studio/RoomStudio.vue"));
+const SpriteStudio = defineAsyncComponent(() => import("./studio/sprite/SpriteStudio.vue"));
 const mapOpen = engine.roomMap.open;
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
@@ -102,19 +118,12 @@ const {
   discoverGames,
   startWalkthrough,
   stopWalkthrough,
-  toggleWalkthroughPause,
-  advanceDialog,
-  resumeWalkthrough,
-  sendKey,
-  currentGame,
   releaseAgentAudioPreviews,
-  closePowerUp,
   resumeLastGame,
   resumeFromRecord,
   flushAutosave,
   lastAutosaveRecord,
   shutdownEngine,
-  historyView,
 } = engine;
 
 const shellBridge = createShellBridge();
@@ -141,30 +150,140 @@ const lib = createGameLibrary(engine, ai, shellBridge);
 provideGameLibrary(lib);
 const { exportBusy, exportRefusal } = lib;
 
+/** A phone held upright: Create is one view-only sheet instead of two docks. */
+const phone = computed(() => touchControls.value && viewport.value.height >= viewport.value.width);
+/**
+ * Room Studio needs a larger screen than the phone layouts give it: the touch
+ * portrait and short-landscape layouts, and any window as narrow as a phone.
+ */
+const studioFits = computed(() => {
+  const { width, height } = viewport.value;
+  return width > 600 && !(touchControls.value && (height >= width || height <= 600));
+});
+/** The Create docks' tabs and folds, and the centre's Studio (shell/useCreateWorkspace.ts). */
+const workspace = createCreateWorkspace({
+  pauseEngine: engine.pauseEngine,
+  resumeEngine: engine.resumeEngine,
+  focusGame: () => shellBridge.focusGameInput(),
+  viewOnly: () => phone.value,
+  studioFits: () => studioFits.value,
+});
+provideCreateWorkspace(workspace);
+/** Play or Create for the loaded game; the URL names both (shell/shellRoute.ts). */
+const shell = createShell({
+  engine,
+  bridge: shellBridge,
+  librarySource: (projectId) =>
+    lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
+  initialMode: parseGameHash(location.hash)?.mode ?? "play",
+  createGuard: { unkept: workspace.studioUnkept, confirm: workspace.confirmStudioLeave },
+});
+provideShell(shell);
+const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
+const studio = workspace.studio;
+/** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
+const studioOpen = computed(() => creating.value && studio.value !== null);
+const sheetOpen = workspace.sheetOpen;
+/** Room Studio's Play here: leave Studio, show Play, jump the game to the spot. */
+const playHereFromStudio = usePlayHereFromStudio({
+  closeStudio: () => workspace.closeStudio(),
+  showPlay: () => shell.setMode("play"),
+  playHere: (target) => engine.playHere(target),
+});
+const { onDockKey } = useCreateMode({
+  state,
+  workspace,
+  roomMap: engine.roomMap,
+  creating,
+  phone,
+  debugOpen,
+  gameInput: () => playArea.value?.inputEl,
+});
+const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
+  engine,
+  playArea: () => playArea.value,
+  // Create's dock keys, and Studio holding the paused game: nothing reaches it.
+  intercept: (ev) => onDockKey(ev) || studio.value !== null,
+});
+/** Create keeps Developer activity in its Activity tab while that shows. */
+const activityDocked = computed(
+  () =>
+    creating.value &&
+    !phone.value &&
+    workspace.active.right === "activity" &&
+    !workspace.collapsed.right,
+);
+/**
+ * Developer activity is off the page everywhere: Settings → Advanced opens
+ * it, as a dialog — or, in Create on a desktop, as the Activity tab.
+ */
+const activitySheetOpen = ref(false);
+function openDeveloperActivity(): void {
+  if (creating.value && !phone.value) workspace.showPanel("activity");
+  else activitySheetOpen.value = true;
+}
+const assistantShown = computed(() =>
+  phone.value
+    ? sheetOpen.value && workspace.active.sheet === "assistant"
+    : workspace.active.right === "assistant" && !workspace.collapsed.right,
+);
+
+watch(shell.mode, (mode) => {
+  releaseMovement();
+  // The switch keeps focus otherwise, and a focused control swallows game keys.
+  if (mode === "play" && !state.powerUp.open && !touchControls.value)
+    nextTick(() => playArea.value?.focusInput());
+});
+// A game that starts from the keyboard (Enter on a Play button) takes the
+// keyboard once its input line first accepts text: the button that had
+// focus left with the menu. Focus another control or a dialog holds (the
+// profile picker, AI settings) stays where it is.
+let claimKeyboard = false;
+watch(
+  () => [state.phase, state.inputReady] as const,
+  ([phase, ready], previous) => {
+    if (phase !== "running") {
+      claimKeyboard = false;
+      return;
+    }
+    if (previous?.[0] !== "running") claimKeyboard = !touchControls.value;
+    if (!claimKeyboard || !ready) return;
+    claimKeyboard = false;
+    void nextTick(() => {
+      const focused = document.activeElement;
+      if (state.walkthrough.active || (focused && focused !== document.body)) return;
+      playArea.value?.focusInput();
+    });
+  },
+);
+// A walkthrough owns the stage and its own #watch route: it plays in Play.
+watch(
+  () => state.walkthrough.active,
+  (active) => {
+    if (active) shell.reset();
+  },
+);
+// Remix lives in Create: an idle remix surface in Play steps back to Ask.
+watch(
+  () => [shell.mode.value, state.powerUp.open, state.powerUp.mode, state.powerUp.busy] as const,
+  ([mode, open, surface, busy]) => {
+    if (mode === "play" && open && surface === "remix" && !busy) state.powerUp.mode = "ask";
+  },
+);
+
+/** Back and Forward between Play and Create; at the menu a stale game route is cleared. */
+function onPopState(): void {
+  if (state.phase === "running") shell.followRoute(location.hash);
+  else if (state.phase === "idle" && isGameRoute(location.hash)) clearPlayHash();
+}
+
 async function onStartWalkthrough(targetGame: string): Promise<void> {
+  if (!(await workspace.confirmStudioLeave())) return;
   await resumeAudio();
   clearPlayHash();
   await startWalkthrough(targetGame);
 }
 shellBridge.startWalkthrough = (target) => void onStartWalkthrough(target);
-
-const PLAY_HASH_PREFIX = "#play/";
-
-/** The target key the URL says is being played, or null outside a game. */
-function playHashGameKey(): string | null {
-  if (!location.hash.startsWith(PLAY_HASH_PREFIX)) return null;
-  try {
-    return decodeURIComponent(location.hash.slice(PLAY_HASH_PREFIX.length));
-  } catch {
-    return null;
-  }
-}
-
-/** The URL is the source of truth for "a game is running": name it. */
-function markPlayHash(targetKey: string): void {
-  const target = `${PLAY_HASH_PREFIX}${encodeURIComponent(targetKey)}`;
-  if (location.hash !== target) history.replaceState(null, "", target);
-}
 
 const WATCH_HASH_PREFIX = "#watch/";
 
@@ -224,7 +343,7 @@ function updateWatchHash(): void {
 /** Back at the picker the URL must not name a game any more. */
 function clearPlayHash(): void {
   cancelWatchHash();
-  if (location.hash.startsWith(PLAY_HASH_PREFIX) || location.hash.startsWith(WATCH_HASH_PREFIX))
+  if (isGameRoute(location.hash) || location.hash.startsWith(WATCH_HASH_PREFIX))
     history.replaceState(null, "", `${location.pathname}${location.search}`);
 }
 
@@ -232,191 +351,16 @@ const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
 );
 
-/**
- * Whole-page keyboard trapping: the browser chrome should disappear. Arrows
- * always steer ego (even while the input line is focused — the classic AGI
- * feel); any printable keystroke jumps into the input line; Enter dismisses
- * the print modal first, then submits.
- */
-function onGlobalKeydown(ev: KeyboardEvent): void {
-  resumeAudio();
-  const isInputReady =
-    state.walkthrough.active || state.historyView.active ? true : state.inputReady;
-  if (state.phase !== "running" || !isInputReady) return;
-  if (ev.isComposing || ev.keyCode === 229) return;
-  if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
-  // The bubble owns the keyboard while it is open: the world is frozen and
-  // nothing typed here may reach the interpreter's input line.
-  if (state.powerUp.open) {
-    if (ev.key === "Escape") {
-      ev.preventDefault();
-      closePowerUp();
-      if (!state.powerUp.open) playArea.value?.focusInput();
-    }
-    return;
-  }
-  // Page controls keep native keyboard behavior. The invisible input owns
-  // game keys; Shift+Tab lets a player leave it even during a game modal.
-  // These guards run before the walkthrough shortcuts too, so a map dialog's
-  // note field keeps its Space and Enter.
-  const target = ev.target;
-  if (
-    (target instanceof Element &&
-      target !== playArea.value?.inputEl &&
-      target.closest("button, input, textarea, select, a, audio, summary, dialog")) ||
-    (ev.key === "Tab" && ev.shiftKey)
-  ) {
-    return;
-  }
-  if (
-    state.walkthrough.active &&
-    (state.walkthrough.status === "playing" ||
-      state.walkthrough.status === "paused" ||
-      state.walkthrough.status === "completed")
-  ) {
-    // The walkthrough drives the game; human keys own playback shortcuts only.
-    if (ev.key === " ") {
-      ev.preventDefault();
-      toggleWalkthroughPause();
-      return;
-    }
-    if (ev.key === "Enter") {
-      ev.preventDefault();
-      if (state.walkthrough.status === "paused") {
-        resumeWalkthrough();
-        return;
-      }
-      if (advanceDialog()) return;
-    }
-    return;
-  }
-  if (state.historyView.active) {
-    // The tape owns the keyboard: playback shortcuts only — the parked
-    // engine gets nothing while the recording is under view.
-    if (ev.key === " ") {
-      ev.preventDefault();
-      historyView.transportToggle();
-      return;
-    }
-    if (ev.key === "Escape") {
-      ev.preventDefault();
-      historyView.exitHistory();
-      return;
-    }
-    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
-      ev.preventDefault();
-      void historyView.stepMark(ev.key === "ArrowRight" ? 1 : -1);
-      return;
-    }
-    return;
-  }
-  if (state.historyView.parked) {
-    // The transport holds a live pause: Space/Escape resume where the game
-    // froze; every other key queues into the paused engine exactly as it
-    // does under a map or bubble pause.
-    if (ev.key === " " || ev.key === "Escape") {
-      ev.preventDefault();
-      historyView.resumeLive();
-      return;
-    }
-  }
-  if (ev.key === "ScrollLock") {
-    ev.preventDefault();
-    sendKey(0x4600);
-    return;
-  }
-  if (state.prompt) {
-    playArea.value?.onPromptKey(ev);
-    return;
-  }
-  const activeModal =
-    state.walkthrough.active && window.__AGI_REPLAY__?.latest?.state.modalKind
-      ? (window.__AGI_REPLAY__?.latest?.state.modalKind as ModalKind)
-      : state.modal;
-  if (activeModal !== null) {
-    playArea.value?.onModalKey(ev);
-    return;
-  }
-
-  // Text screens can ask a specific question: preserve the actual key.
-  if (
-    state.textMode ||
-    state.waitingForKey ||
-    (state.walkthrough.active && window.__AGI_REPLAY__?.latest?.blocked === "waitkey")
-  ) {
-    const key = pcKey(ev);
-    if (key !== undefined) {
-      ev.preventDefault();
-      sendKey(key);
-    }
-    return;
-  }
-
-  // Intercept Function Keys F1..F10 (prevent browser reload, help, devtools)
-  if (ev.key in FUNCTION_KEYS && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
-    ev.preventDefault();
-    playArea.value?.triggerKey(FUNCTION_KEYS[ev.key]!);
-    return;
-  }
-
-  if (playArea.value?.movementKeyDown(ev)) return;
-
-  const shortcut = registeredKey(ev, state.controls);
-  if (shortcut !== undefined) {
-    ev.preventDefault();
-    playArea.value?.triggerKey(shortcut);
-    return;
-  }
-
-  if (!state.inputEnabled) {
-    const code = pcKey(ev);
-    if (code !== undefined) {
-      ev.preventDefault();
-      sendKey(code);
-    }
-    return;
-  }
-
-  if (ev.key === "Escape") {
-    ev.preventDefault();
-    sendKey(0x001b);
-    return;
-  }
-
-  const input = playArea.value?.inputEl;
-  // When input field is NOT focused:
-  if (!input || ev.target !== input) {
-    // If Enter or Space pressed while not typing, forward raw key event to wake have.key() (e.g. title screens)
-    if (ev.key === "Enter" || ev.key === " ") {
-      sendKey(ev.key === "Enter" ? 0x000d : 0x0020);
-      ev.preventDefault();
-      return;
-    }
-    if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-      playArea.value?.mirrorPrintableChar(ev.key);
-      ev.preventDefault();
-    }
-    return;
-  }
-
-  // When input field IS focused:
-  if (ev.key === "Enter") {
-    ev.preventDefault();
-    playArea.value?.submit();
-  }
-}
-
-function onGlobalKeyup(ev: KeyboardEvent): void {
-  playArea.value?.movementKeyUp(ev);
-}
-
 function releaseMovement(): void {
   playArea.value?.releaseMovement();
 }
 
 function onTakeControl(): void {
+  // A paused walkthrough hands over a paused game: the play bar's Resume starts it.
+  const paused = state.walkthrough.status === "paused";
   releaseMovement();
-  stopWalkthrough(true);
+  void stopWalkthrough(true);
+  if (paused) engine.historyView.pauseAtLive();
   nextTick(() => {
     playArea.value?.focusInput();
   });
@@ -487,12 +431,15 @@ if (import.meta.hot) {
 }
 
 onMounted(async () => {
+  // An unreadable game route can never resume: drop it before anything waits.
+  if (isGameRoute(location.hash) && !parseGameHash(location.hash)) clearPlayHash();
   window.addEventListener("blur", releaseMovement);
   window.visualViewport?.addEventListener("resize", resizeViewport);
   window.addEventListener("resize", resizeViewport);
   window.addEventListener("keydown", onGlobalKeydown);
   window.addEventListener("keyup", onGlobalKeyup);
   window.addEventListener("hashchange", onMenuHashChange);
+  window.addEventListener("popstate", onPopState);
   document.addEventListener("visibilitychange", onPageHidden);
   window.addEventListener("pagehide", onPageHide);
   try {
@@ -513,7 +460,7 @@ onMounted(async () => {
   const handover = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   lib.refreshPendingAutosave();
-  const playKey = playHashGameKey();
+  const playKey = parseGameHash(location.hash)?.key ?? null;
   const watchTarget = watchHashTarget();
   if (handover) await resumeFromRecord(handover, llmConfig());
   else if (watchTarget)
@@ -542,8 +489,44 @@ onMounted(async () => {
     })()
   )
     await resumeLastGame(llmConfig());
-  if (state.phase === "idle") clearPlayHash();
+  else if (playKey) await openRoutedGame(playKey);
+  if (state.phase === "idle") {
+    shell.reset();
+    clearPlayHash();
+  }
 });
+
+/** Home's note about the link it was opened with; cleared once any game runs. */
+const routeNote = ref("");
+
+/**
+ * A cold `#play/<target>` or `#create/<target>` whose game has no pending
+ * autosave: a link opened or pasted opens the stored library project or
+ * installed edition it names (its own autosave, or a fresh boot). A reload
+ * keeps landing on Home, which offers the game, as it always has. A game
+ * this browser does not hold gets a note either way.
+ */
+async function openRoutedGame(key: string): Promise<void> {
+  const stored = lib.savedGames.value.find((game) => game.projectId === key);
+  const norm = key.toLowerCase();
+  const installed = (state.installedGames ?? []).some((game) =>
+    [game.hash, game.alias, game.folder, game.wordsSha256].some(
+      (spelling) => spelling?.toLowerCase() === norm,
+    ),
+  );
+  if (!stored && !installed) {
+    routeNote.value = "That game isn't in this browser.";
+    return;
+  }
+  const navigation = performance.getEntriesByType("navigation")[0];
+  if (navigation instanceof PerformanceNavigationTiming && navigation.type === "reload") return;
+  if (stored) return lib.onPlayLibraryGame(stored);
+  try {
+    await lib.onPlayLocalGame(key);
+  } catch (error) {
+    lib.libraryActionError.value = String(error).replace(/^Error: /, "");
+  }
+}
 
 onUnmounted(() => {
   lib.unmountCatalog();
@@ -556,6 +539,7 @@ onUnmounted(() => {
   window.removeEventListener("keydown", onGlobalKeydown);
   window.removeEventListener("keyup", onGlobalKeyup);
   window.removeEventListener("hashchange", onMenuHashChange);
+  window.removeEventListener("popstate", onPopState);
   document.removeEventListener("visibilitychange", onPageHidden);
   window.removeEventListener("pagehide", onPageHide);
   releaseAgentAudioPreviews();
@@ -563,30 +547,25 @@ onUnmounted(() => {
   // worker would otherwise keep ticking (and autosaving) behind the new one.
   if (import.meta.hot) shutdownEngine();
 });
-// The URL is the source of truth for "a game is running": name it while the
-// game runs. A remix can turn the running game into a new game without
-// leaving the running phase, so the unpause after a remix turn re-asserts the
-// hash from whatever is booted then. Back at the picker (the player ejected,
-// or a boot failed) the hash is cleared and the autosave slot is re-read so
-// the offer below matches storage.
+// The URL is the source of truth for "a game is running": name it, and its
+// mode, while the game runs. A remix can turn the running game into a new
+// game without leaving the running phase, so the unpause after a remix turn
+// re-asserts the hash from whatever is booted then. Back at the picker (the
+// player ejected, or a boot failed) the hash is cleared, the next game opens
+// in Play, and the autosave slot is re-read so the offer below matches storage.
 watch(
   () => [state.phase, state.paused, state.walkthrough.active, state.walkthrough.tick] as const,
   ([phase, paused, watching]) => {
     if (phase === "running") {
+      routeNote.value = "";
       if (!paused) {
-        if (watching) {
-          updateWatchHash();
-        } else {
-          const game = currentGame();
-          const playIdentifier = game?.installed
-            ? (game.folder ?? game.hash ?? game.alias)
-            : game?.projectId;
-          if (playIdentifier) markPlayHash(playIdentifier);
-        }
+        if (watching) updateWatchHash();
+        else shell.markRoute();
       }
       return;
     }
     if (phase === "idle" || phase === "error") {
+      shell.reset();
       clearPlayHash();
       lib.syncMenuPhase();
     }
@@ -599,43 +578,186 @@ watch(
     class="app-container"
     :class="{
       'at-menu': state.phase === 'idle' || state.phase === 'error',
+      'in-game': state.phase === 'running',
+      'touch-layout': touchControls,
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
       'original-aspect': originalAspect,
+      'studio-open': studioOpen,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
-    <GameHeader
-      :touch-controls="touchControls"
-      :crt-enabled="crtEnabled"
-      :original-aspect="originalAspect"
-      :gpu-backend="gpuBackend"
-      :debug-open="debugOpen"
-      :export-busy="exportBusy"
-      :export-refusal="exportRefusal"
-      @update:touch-controls="touchControls = $event"
-      @update:crt-enabled="crtEnabled = $event"
-      @update:original-aspect="originalAspect = $event"
-      @update:debug-open="debugOpen = $event"
-      @trigger-key="(code) => playArea?.triggerKey(code)"
-      @export-zip="(project) => lib.onExportAgiZip(true, project)"
-      @start-over="lib.onStartOver"
-      @start-walkthrough="onStartWalkthrough"
-    >
-      <WalkthroughBar
-        v-if="state.walkthrough.active"
-        :walkthrough="state.walkthrough"
-        @take-control="onTakeControl"
-      />
-      <p
-        v-if="!state.walkthrough.active && state.walkthrough.error"
-        class="export-refusal"
-        data-testid="walkthrough-error"
-        role="alert"
+    <div class="shell">
+      <GameHeader
+        :touch-controls="touchControls"
+        :crt-enabled="crtEnabled"
+        :original-aspect="originalAspect"
+        :gpu-backend="gpuBackend"
+        :debug-open="debugOpen"
+        :export-busy="exportBusy"
+        :export-refusal="exportRefusal"
+        @update:touch-controls="touchControls = $event"
+        @update:crt-enabled="crtEnabled = $event"
+        @update:original-aspect="originalAspect = $event"
+        @update:debug-open="debugOpen = $event"
+        @trigger-key="(code) => playArea?.triggerKey(code)"
+        @export-zip="(project) => lib.onExportAgiZip(true, project)"
+        @start-walkthrough="onStartWalkthrough"
+        @developer-activity="openDeveloperActivity"
       >
-        {{ state.walkthrough.error }}
-      </p>
-    </GameHeader>
+        <WalkthroughBar
+          v-if="state.walkthrough.active"
+          :walkthrough="state.walkthrough"
+          @take-control="onTakeControl"
+        />
+        <p
+          v-if="!state.walkthrough.active && state.walkthrough.error"
+          class="export-refusal"
+          data-testid="walkthrough-error"
+          role="alert"
+        >
+          {{ state.walkthrough.error }}
+        </p>
+      </GameHeader>
+
+      <!-- One grid for both modes, so the live stage (and its GPU canvas) is
+           never remounted: Create adds docks around it, Play's Ask drawer
+           takes the right column. -->
+      <div
+        class="shell-body"
+        :class="{
+          'shell-body--create': creating,
+          'shell-body--studio': studioOpen,
+          'shell-body--sheet': creating && phone,
+          'shell-body--fold-left': creating && !phone && workspace.collapsed.left,
+          'shell-body--fold-right': creating && !phone && workspace.collapsed.right,
+          'shell-body--asking': !creating && state.phase === 'running' && state.powerUp.open,
+          'assistant-open': state.phase === 'running' && state.powerUp.open,
+        }"
+      >
+        <CreateDock
+          v-if="creating && !phone"
+          v-show="!studioOpen"
+          v-model:active="workspace.active.left"
+          side="left"
+          class="shell-dock shell-dock--left"
+          :collapsed="workspace.collapsed.left"
+          data-shell-keys
+          @toggle="workspace.toggleDock('left')"
+        />
+        <PlayArea
+          v-show="!studio"
+          ref="playArea"
+          :touch-controls="touchControls"
+          :crt-enabled="crtEnabled"
+          :original-aspect="originalAspect"
+          :inspector-docked="creating"
+        >
+          <template #stage-actions>
+            <UiToast
+              v-if="playHereFromStudio.note.value"
+              tone="warn"
+              dismissible
+              data-testid="play-here-note"
+              @dismiss="playHereFromStudio.dismiss()"
+            >
+              {{ playHereFromStudio.note.value }}
+            </UiToast>
+            <StaleTabNote />
+          </template>
+          <template #screen-notes>
+            <StartOverNote />
+          </template>
+          <template #strip-actions>
+            <UiButton
+              v-if="state.phase === 'running' && !creating"
+              icon="sparkles"
+              size="sm"
+              class="ask-button"
+              :class="{ 'ask-button--away': state.powerUp.open }"
+              data-testid="menu-assistant"
+              :aria-expanded="state.powerUp.open"
+              :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask about this game'"
+              :disabled="
+                (state.powerUp.mode === 'room' && state.powerUp.open) ||
+                state.recording.active ||
+                state.historyView.active
+              "
+              @click="shell.toggleAsk()"
+            >
+              Ask
+            </UiButton>
+          </template>
+        </PlayArea>
+        <RoomStudio
+          v-if="studioOpen && studio?.kind === 'picture'"
+          class="shell-center"
+          :picture-number="studio.pictureNumber"
+          :bytes="studio.bytes"
+          :authored-source="studio.authoredSource"
+          :profile="studio.profile"
+          :title="studio.title"
+          :subtitle="studio.subtitle"
+          :base-revision="studio.baseRevision"
+          :base-authoring="studio.baseAuthoring"
+          :files="studio.files"
+          :walk="studio.walk"
+          @close="workspace.closeStudio()"
+          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
+          @play-here="(target) => void playHereFromStudio.play(target)"
+        />
+        <SpriteStudio
+          v-else-if="studioOpen && studio?.kind === 'sprite'"
+          :key="`${studio.viewNumber}:${studio.baseRevision}:${studio.stagedReference ?? ''}`"
+          class="shell-center"
+          :view-number="studio.viewNumber"
+          :bytes="studio.bytes"
+          :profile="studio.profile"
+          :title="studio.title"
+          :base-revision="studio.baseRevision"
+          :base-authoring="studio.baseAuthoring"
+          :files="studio.files"
+          :usage="studio.usage"
+          :rooms="studio.rooms"
+          :speed="studio.speed"
+          :cyclers="studio.cyclers"
+          :priority-base="studio.priorityBase"
+          :staged-reference="studio.stagedReference"
+          @close="workspace.closeStudio()"
+          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
+        />
+        <aside
+          v-show="!studioOpen"
+          class="shell-side"
+          :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
+          :aria-label="creating ? 'Assistant panels' : 'Ask'"
+          data-shell-keys
+        >
+          <CreateDock
+            v-if="creating && phone"
+            v-model:active="workspace.active.sheet"
+            side="sheet"
+            :built-in="['assistant']"
+            :collapsed="!sheetOpen"
+            @toggle="workspace.sheetOpen.value = !workspace.sheetOpen.value"
+          />
+          <CreateDock
+            v-else-if="creating"
+            v-model:active="workspace.active.right"
+            side="right"
+            :built-in="['assistant']"
+            :collapsed="workspace.collapsed.right"
+            @toggle="workspace.toggleDock('right')"
+          />
+          <div v-show="!creating || assistantShown" class="assistant-host">
+            <!-- Mounted through the turn, so it sees the panel open and close. -->
+            <AssistantStart v-if="creating" v-show="!state.powerUp.open" :phone />
+            <AgentBubble :surface="creating && !phone ? 'dock' : 'drawer'" />
+          </div>
+        </aside>
+      </div>
+    </div>
+
     <AiSettingsDialog
       ref="aiSettingsDialog"
       :settings="aiSettings"
@@ -648,20 +770,26 @@ watch(
       @closed="onAiSettingsClosed"
     />
 
-    <SetupPanel />
+    <SetupPanel :route-note="routeNote" />
 
-    <!-- Screen Area (Hidden until game is running) -->
-    <PlayArea ref="playArea" :touch-controls="touchControls" :crt-enabled="crtEnabled">
-      <AgentBubble />
-    </PlayArea>
-
+    <!-- Below the fold: while Studio holds the page still they wait hidden,
+         out of Tab's reach. -->
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"
+      v-show="!studioOpen"
       :audio="latestAgentAudio"
       data-testid="latest-sound-preview"
     />
 
-    <AgentLogPanel />
+    <UiDialog
+      v-if="!activityDocked"
+      v-model:open="activitySheetOpen"
+      title="Developer activity"
+      size="lg"
+      data-testid="developer-activity-sheet"
+    >
+      <AgentLogPanel @booted="activitySheetOpen = false" />
+    </UiDialog>
 
     <ReferenceUpload v-if="state.phase === 'running'" />
 

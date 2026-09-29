@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
-import type { CachedGameData } from "../src/gameTypes.ts";
+import type { CachedGameData } from "../src/project/gameTypes.ts";
 
 export interface AiConfiguration {
   provider: "anthropic" | "openai" | "stub";
@@ -19,7 +19,7 @@ export interface AiConfiguration {
  * counter, and the pixels on the probe canvas.
  */
 
-/** Mirror of window.__AGI_TEXT__ (see app/src/useEngine.ts, TextHook). */
+/** Mirror of window.__AGI_TEXT__ (see app/src/engine/useEngine.ts, TextHook). */
 export interface TextHook {
   rows: string[];
   modal: string | null;
@@ -136,6 +136,31 @@ export async function waitForCycles(page: Page, n: number, timeout = 15_000): Pr
 }
 
 /**
+ * A cold Vite dev server transforms and serves the boot's whole module graph
+ * on first request, so the first game boot of a run — and any fresh page load
+ * or deep link — can sit far past the settled-state poll before room 1 shows.
+ */
+const COLD_BOOT_BUDGET_MS = 30_000;
+
+/**
+ * Wait until the engine reports `room`. `coldBoot` spends the cold-boot
+ * budget on a wait that covers a fresh boot; a warm room change keeps the
+ * default poll budget.
+ */
+export async function waitForRoom(
+  page: Page,
+  room: number,
+  options?: { coldBoot?: boolean },
+): Promise<void> {
+  await expect
+    .poll(
+      async () => (await textHook(page)).room,
+      options?.coldBoot === true ? { timeout: COLD_BOOT_BUDGET_MS } : {},
+    )
+    .toBe(room);
+}
+
+/**
  * The frame once the picture has stopped changing: boot and room re-entry
  * draw over several cycles, so a hash sampled at a fixed delay can catch the
  * screen mid-draw and make an "unchanged" comparison order-dependent. Settled
@@ -234,9 +259,12 @@ export async function isolateStorage(page: Page): Promise<void> {
       // The marker itself is what survives the reload, so the check has to be
       // in localStorage rather than in a page variable.
       if (localStorage.getItem("monotio_agi.e2e.isolated") === "1") return;
+      // The Studio tour's record, when a fixture seeded it (test.ts), outlives the clear.
+      const tour = localStorage.getItem("monotio_agi.studioTour");
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem("monotio_agi.e2e.isolated", "1");
+      if (tour !== null) localStorage.setItem("monotio_agi.studioTour", tour);
     } catch {
       /* a context that blocks storage is already isolated */
     }
@@ -249,16 +277,25 @@ export function savedGameCard(page: Page, title: string | RegExp): Locator {
     typeof title === "string"
       ? new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
       : title;
+  // A stored game's card carries its project id; the tutorial's stored copy is
+  // the tutorial's own card, so it is found here too.
   return page
     .getByTestId("saved-game-gallery")
-    .locator("[data-testid^='saved-game-card-']")
+    .locator("[data-project-id]")
     .filter({ has: page.getByTestId("saved-game-title").filter({ hasText: titlePattern }) });
 }
 
-/** Open a saved game's native Details disclosure without toggling it closed. */
-export async function openSavedGameDetails(card: Locator): Promise<void> {
-  const details = card.locator("details[data-testid^='game-details-']");
-  if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+/** Open a saved game's Details dialog from its ⋯ menu; returns the open dialog. */
+export async function openSavedGameDetails(card: Locator): Promise<Locator> {
+  const page = card.page();
+  await openLibraryActions(page, card);
+  await page
+    .getByRole("menu", { name: "Game actions", exact: true })
+    .getByTestId("game-details-item")
+    .click();
+  const dialog = page.locator("dialog[data-testid^='game-details-']");
+  await expect(dialog).toBeVisible();
+  return dialog;
 }
 
 /** Open the native Create an adventure disclosure without toggling it closed. */
@@ -268,11 +305,19 @@ export async function openCreateAdventure(page: Page): Promise<void> {
     await page.getByTestId("create-adventure-toggle").click();
 }
 
-/** Open the test/developer activity disclosure without toggling it closed. */
+/**
+ * Open Developer activity, which no screen keeps on the page: Settings →
+ * Advanced opens it — as a dialog, or as Create's Activity tab on a desktop.
+ * A panel already showing stays as it is.
+ */
 export async function openDeveloperActivity(page: Page): Promise<void> {
-  const details = page.getByTestId("agent-panel");
-  if ((await details.getAttribute("open")) === null)
-    await page.getByTestId("developer-activity-summary").click();
+  const panel = page.getByTestId("agent-panel");
+  if (await panel.isVisible()) return;
+  await openGameOptions(page, "settings-menu");
+  const advanced = page.getByTestId("settings-advanced");
+  if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
+  await page.getByTestId("settings-developer-activity").click();
+  await expect(panel).toBeVisible();
 }
 
 /** Configure the app-wide AI connection through the same dialog a player uses. */
@@ -336,6 +381,18 @@ export async function openCardMenu(page: Page, testId: string): Promise<void> {
 }
 
 /**
+ * The Home shelf shows one card per game: an installed development copy of
+ * the tutorial folds into the tutorial's card, and its boot control (with the
+ * usual data-hash, data-alias and boot-* hooks) is an item in that card's ⋯
+ * menu. Open the menu before looking for the control; other games keep theirs
+ * on their own cards.
+ */
+export async function revealFoldedBoot(page: Page, alias: string): Promise<void> {
+  if (alias === "adventure-department")
+    await openCardMenu(page, "game-actions-adventure-department");
+}
+
+/**
  * Click a transport timeline marker. Markers are visual-only (dense checkpoint
  * clusters overlap beyond DOM hit-testing), so the pointer clicks the marker's
  * position on the timeline and the transport resolves the nearest mark — the
@@ -348,14 +405,14 @@ export async function clickTimelineMark(page: Page, marker: Locator): Promise<vo
 }
 
 /**
- * Open a top-bar menu through its trigger without closing it on repeat calls.
- * `help-menu` holds Game controls, the map, hints and the walkthrough;
- * `game-menu` holds creator and export actions plus Start over;
- * `settings-menu` holds the AI provider, input, sound and display settings.
+ * Open a top-bar surface through its trigger without closing it on repeat calls.
+ * `help-menu` holds the Help guide, Game controls and the walkthrough;
+ * `settings-menu` opens the settings sheet: sound, display, input and AI
+ * settings, this game's edit, download and export actions, and Start over.
  */
 export async function openGameOptions(
   page: Page,
-  menu: "help-menu" | "settings-menu" | "game-menu",
+  menu: "help-menu" | "settings-menu",
 ): Promise<void> {
   const trigger = page.getByTestId(menu);
   if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
@@ -368,15 +425,53 @@ export async function openGameControls(page: Page): Promise<void> {
   await expect(page.getByTestId("game-controls")).toBeVisible();
 }
 
-/** Open the world map through Help; pass "create" to land on the plan view. */
+/** Open the world map from the top bar; pass "create" to land on the plan view. */
 export async function openWorldMap(
   page: Page,
   experience: "play" | "create" = "play",
 ): Promise<void> {
-  await openGameOptions(page, "help-menu");
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   if (experience === "create") await page.getByTestId("btn-world-plan").click();
+}
+
+/**
+ * Turn the inspector on through Settings > Advanced (Play mode keeps the
+ * whole stage for the game) and close the sheet again.
+ */
+export async function openInspector(page: Page): Promise<void> {
+  await openGameOptions(page, "settings-menu");
+  const advanced = page.getByTestId("settings-advanced");
+  if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
+  const inspect = page.getByTestId("settings-inspect");
+  if ((await inspect.getAttribute("aria-checked")) !== "true") await inspect.click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("debug-dock")).toBeVisible();
+}
+
+/**
+ * Show the running game in Create mode, where the assistant's Ask and Remix
+ * surface (the `power-up` entry) lives. Play mode offers the Ask drawer only.
+ */
+/**
+ * Show one room's card in Create's World panel as a user does: back to All
+ * rooms when another card shows (entering Create shows the player's room),
+ * then the room's row.
+ */
+export async function openWorldRoom(panel: Locator, room: number): Promise<void> {
+  const back = panel.getByTestId("world-all-rooms");
+  await expect(async () => {
+    if (await back.isVisible()) await back.click();
+    await panel.getByTestId(`map-room-${room}`).click({ timeout: 2_000 });
+  }).toPass();
+  await expect(panel.getByTestId("map-detail")).toHaveAttribute("data-room", String(room));
+}
+
+export async function enterCreateMode(page: Page): Promise<void> {
+  const create = page.getByRole("radio", { name: "Create", exact: true });
+  if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
+  await expect(create).toHaveAttribute("aria-checked", "true");
+  await expect(page).toHaveURL(/#create\//);
 }
 
 /** Seed through the production persistence boundary, so fixtures use the release contract. */
@@ -387,7 +482,7 @@ export async function cacheGame(
   const { files, ...metadata } = game;
   const saved = await page.evaluate(
     async ({ metadata, files }) => {
-      const path = "/src/gameStorage.ts";
+      const path = "/src/project/gameStorage.ts";
       const { saveAuthoredGame } = await import(path);
       return saveAuthoredGame(metadata.projectId, {
         ...metadata,

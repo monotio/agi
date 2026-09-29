@@ -9,7 +9,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { isolateStorage, observe, textHook, waitForCycles } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 
 /** 1 loop, 1 cel: a solid width x height block of color 5. */
 function solidView(width: number, height: number): Uint8Array {
@@ -57,7 +57,7 @@ async function bootClickGame(page: Page, name: string, profile: string): Promise
   await page.getByTestId("profile-picker-confirm").click();
   await expect(picker).toBeHidden();
   await page
-    .locator(".saved-game-card", { hasText: name })
+    .locator("[data-testid^='saved-game-card-']", { hasText: name })
     .getByTestId("btn-resume-cached")
     .click();
   await expect.poll(async () => (await textHook(page)).profile).toBe(profile);

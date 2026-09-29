@@ -8,9 +8,9 @@ import { HostWait } from "../../../src/runtime/engine.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 import { buildWordsTok, parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
-import { base64ToBytes, bytesToBase64 } from "../bytes.ts";
+import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
 import type { HistoryCommittedPatch } from "../../../src/agent/history.ts";
-import type { HostRequestOp } from "../workerProtocol.ts";
+import type { HostRequestOp } from "./workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
 /** The outcome an accepted host answer produced — what history records. */
@@ -82,8 +82,7 @@ export function createHostRequests(ctx: WorkerContext) {
     objects?: Uint8Array;
     tests?: Uint8Array;
   }): void {
-    for (const resource of patch.resources)
-      ctx.engine!.patchResource(resource.kind, resource.num, resource.payload);
+    ctx.engine!.patchResources(patch.resources);
     if (patch.words) {
       const entries = parseWordsTok(patch.words);
       ctx.boot.liveDictionary.clear();
@@ -358,5 +357,3 @@ export function createHostRequests(ctx: WorkerContext) {
     onReenter,
   };
 }
-
-export type HostRequestsModule = ReturnType<typeof createHostRequests>;

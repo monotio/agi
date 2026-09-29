@@ -1,0 +1,21 @@
+{
+  "name": "view-reference-unknown-id",
+  "description": "The model asked for a reference id that is not in this request's manifest (a guessed or stale handle). The tool must refuse in plain words and list the ids it has, never fall back to another image.",
+  "async": true,
+  "references": [
+    {
+      "id": "art-3f9a01c2d4",
+      "label": "Room plate",
+      "target": { "kind": "room", "num": 3 },
+      "note": "a harbour at dawn",
+      "attached": true,
+      "width": 320,
+      "height": 200,
+      "fill": [0, 0, 170]
+    }
+  ],
+  "tool": "view_reference",
+  "args": { "id": "art-0000000000", "size": "full", "region": null, "grid": null },
+  "expectedSuccess": false,
+  "expectedErrorSnippet": "No reference art has the id art-0000000000. This request has art-3f9a01c2d4."
+}

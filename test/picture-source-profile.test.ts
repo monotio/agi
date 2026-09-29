@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   analyzePictureStructure,
-  annotatePictureSource,
   compilePictureSource,
   disassemblePicture,
   readPictureSource,
 } from "../src/picture/source.ts";
+import { annotatePictureSource } from "../src/picture/elements.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 
 // In 2.411 f9 ignores its raw operand; fa plots plain pairs even when that

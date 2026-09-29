@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createAgentSessionState, type AgentToolResult } from "../src/agent/agentState.ts";
 import {
   AGENT_TOOLS,
-  createAgentSessionState,
+  AUTHORING_TOOL_NAMES,
   executeAgentTool,
   executeAgentToolAsync,
-  type AgentToolResult,
 } from "../src/agent/tools.ts";
 import {
   splitToolResult,
@@ -25,6 +25,11 @@ import { buildView } from "../src/view/view.ts";
 import { openContainer } from "../src/container/container.ts";
 import { Engine } from "../src/runtime/engine.ts";
 import { assertNoImageData } from "./modelText.ts";
+import { createStudioAssist, STUDIO_ASSIST_TOOLS } from "../src/agent/studioAssistTools.ts";
+import { draftRevision, pictureAssistScope } from "../src/studio/assistScope.ts";
+import { compileEditDocument } from "../src/studio/editValidation.ts";
+import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
+import { AFTER_BRIDGE, BRIDGE_SOURCE } from "./studioAssistFixtures.ts";
 
 const picture = { room: 1, source: "vis 1\nfill 0,0\nend" };
 
@@ -412,6 +417,68 @@ test("every catalog tool produces bounded binary-free transport on real success 
       bad: { room: 99 },
     },
   };
+  // The Studio tools run against a creator's selection: the river-and-bridge
+  // fixture in the Walk lens, attached to the shared deps below.
+  const bridge = compileEditDocument(parsePictureDocument(BRIDGE_SOURCE).document, session.profile);
+  const studio = createStudioAssist({
+    scope: pictureAssistScope({
+      num: 1,
+      compiled: bridge,
+      targetIds: ["bridge"],
+      lens: "walk",
+    }),
+    draft: () => ({ kind: "picture", source: BRIDGE_SOURCE }),
+    lens: "walk",
+  });
+  const proposeTool = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const opFields = (
+    proposeTool.parameters.properties["pictureOps"] as { items: { required: string[] } }
+  ).items.required;
+  const crossing = Object.fromEntries(
+    opFields.map((field) => [
+      field,
+      (
+        {
+          type: "insertShape",
+          atLine: AFTER_BRIDGE,
+          shape: {
+            kind: "rect",
+            color: null,
+            priority: 3,
+            filled: true,
+            x1: 60,
+            y1: 120,
+            x2: 99,
+            y2: 139,
+            points: null,
+          },
+          id: "crossing",
+          label: "Crossing",
+          kind: "walk",
+        } as Record<string, unknown>
+      )[field] ?? null,
+    ]),
+  );
+  const proposal = (baseRevision: string) => ({
+    baseRevision,
+    summary: "A walkway under the bridge.",
+    pictureOps: [crossing],
+    spriteOps: null,
+  });
+  cases["read_edit_context"] = { good: { images: true }, bad: { images: "yes" } };
+  cases["view_reference"] = {
+    good: { id: "art-0123456789", size: "small", region: null, grid: true },
+    bad: { id: "art-0000000000", size: "small", region: null, grid: null },
+  };
+  cases["propose_edit"] = {
+    good: proposal(draftRevision({ kind: "picture", source: BRIDGE_SOURCE })),
+    bad: proposal("picture-1-00000000"),
+  };
+  // After propose_edit's candidate: the first call withdraws it, the second finds none.
+  cases["withdraw_edit"] = {
+    good: { reason: "It cannot meet the request." },
+    bad: { reason: "It cannot meet the request." },
+  };
   const directCases = cases;
   for (const [name, value] of Object.entries(directCases)) {
     if ("good" in value && "bad" in value) continue;
@@ -430,6 +497,24 @@ test("every catalog tool produces bounded binary-free transport on real success 
     directCases[name] = { good, bad };
   }
   const deps = {
+    allowedTools: AGENT_TOOLS.map((tool) => tool.name),
+    studio,
+    references: {
+      art: [
+        {
+          id: "art-0123456789",
+          label: "Room plate",
+          target: { kind: "room" as const, num: 1 },
+          note: "",
+          attached: true,
+          pixels: () => ({
+            width: 320,
+            height: 200,
+            rgba: new Uint8Array(320 * 200 * 4).fill(200),
+          }),
+        },
+      ],
+    },
     frames: {
       read: async () => [
         {
@@ -463,9 +548,11 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "patch_view_cels",
     "playtest_room",
     "preview_sound",
+    "propose_edit",
     "read_authoring_guide",
     "read_command_reference",
     "read_diagnostic",
+    "read_edit_context",
     "read_game_tests",
     "read_logic",
     "read_picture",
@@ -476,6 +563,8 @@ test("every catalog tool produces bounded binary-free transport on real success 
     "reserve_binding",
     "run_game_tests",
     "update_world",
+    "view_reference",
+    "withdraw_edit",
     "write_game_tests",
     "write_inventory_objects",
     "write_logic_source",
@@ -661,7 +750,10 @@ test("tool results carry explicit evidence origins and a resource-set identity",
     session,
     "read_room_context",
     { room: 1, state: { variables: null, flags: null, compact: null }, frames: null },
-    { engine: { objects: () => [{ num: 0 }], state: () => ({ room: 1 }) } },
+    {
+      allowedTools: AUTHORING_TOOL_NAMES,
+      engine: { objects: () => [{ num: 0 }], state: () => ({ room: 1 }) },
+    },
   );
   const liveState = live.details?.["state"] as Record<string, unknown>;
   const liveOrigin = liveState["origin"] as Record<string, unknown>;
@@ -701,6 +793,7 @@ test("fromLiveCheckpoint restores the captured live image into the staged candid
     fromLiveCheckpoint: true,
   };
   const candidate = await executeAgentToolAsync(session, "playtest_room", args, {
+    allowedTools: AUTHORING_TOOL_NAMES,
     checkpoint: () => image,
   });
   assert.equal(candidate.success, true, candidate.error ?? "");
@@ -717,7 +810,9 @@ test("fromLiveCheckpoint restores the captured live image into the staged candid
   )["resourceSet"];
   assert.equal(origin["resourceSet"], stagedSet);
 
-  const detached = await executeAgentToolAsync(session, "playtest_room", args, {});
+  const detached = await executeAgentToolAsync(session, "playtest_room", args, {
+    allowedTools: AUTHORING_TOOL_NAMES,
+  });
   assert.equal(detached.success, false);
   assert.match(detached.error ?? "", /live game/);
 });

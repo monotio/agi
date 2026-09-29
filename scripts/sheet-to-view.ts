@@ -168,7 +168,7 @@ function parseArgs(argv: readonly string[]): Record<string, string> {
 }
 
 /** `"0-3;mirror:0;4,6,8"` -> loop layouts. */
-export function parseLayoutSpec(spec: string): SheetLoopLayout[] {
+function parseLayoutSpec(spec: string): SheetLoopLayout[] {
   return spec
     .split(";")
     .map((part) => part.trim())

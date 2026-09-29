@@ -1,5 +1,5 @@
 import type { LlmUsage } from "./llmClient.ts";
-import type { AgentToolResult } from "../../../src/agent/tools.ts";
+import type { AgentToolResult } from "../../../src/agent/agentState.ts";
 import { MODEL_CAPABILITIES } from "../../../src/agent/modelEffort.ts";
 export interface AgentRunState {
   progress: AgentProgress | null;
@@ -11,6 +11,8 @@ export interface AgentRunState {
   requests: number;
   usageIncomplete: boolean;
   priceKnown: boolean;
+  /** Share of this task's input tokens served from the provider's prompt cache; null before any input. */
+  cacheHitShare: number | null;
 }
 
 /** Ephemeral provider activity; never part of a saved conversation or game. */
@@ -40,6 +42,9 @@ export class AgentRun {
   /** Projected input cost of the next request: last cost grown by the observed ratio. */
   private expectedInputCost = 0;
   private outputRate = 0;
+  /** This task's input tokens and the cached share of them, for the hit share. */
+  private taskInput = 0;
+  private taskCachedInput = 0;
   private progressTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -61,6 +66,7 @@ export class AgentRun {
       requests: 0,
       usageIncomplete: false,
       priceKnown: !!MODEL_CAPABILITIES[model]?.price,
+      cacheHitShare: null,
     };
     this.outputRate = MODEL_CAPABILITIES[model]?.price?.output ?? 0;
   }
@@ -100,7 +106,10 @@ export class AgentRun {
       budget: this.allowance,
       requests: 0,
       usageIncomplete: false,
+      cacheHitShare: null,
     };
+    this.taskInput = 0;
+    this.taskCachedInput = 0;
     this.stopped = false;
     this.cancelled = false;
     this.signatures = [];
@@ -139,9 +148,13 @@ export class AgentRun {
     this.wake?.();
   }
   recordUsage(usage: LlmUsage): void {
+    this.taskInput += usage.input;
+    this.taskCachedInput += Math.min(usage.input, usage.cachedInput);
+    this.state.cacheHitShare = this.taskInput > 0 ? this.taskCachedInput / this.taskInput : null;
     const rate = MODEL_CAPABILITIES[this.model]?.price;
     if (!rate) {
       this.state.usageIncomplete = true;
+      this.publish();
       return;
     }
     const long = rate.longContext && usage.input > 272000;
@@ -150,8 +163,17 @@ export class AgentRun {
     this.outputRate = rate.output * (long ? 1.5 : 1);
     const reads = Math.min(usage.input, usage.cachedInput);
     const writes = Math.min(usage.input - reads, usage.cacheWriteInput);
+    // A cache write costs 1.25x the input rate for a 5-minute entry and 2x
+    // for a 1-hour one (the static prefix, llmClient.ts); where the provider
+    // reports the split, price each part, else assume the 5-minute rate.
+    const writes1h = Math.min(writes, usage.cacheWrite1h ?? 0);
+    const writes5m = writes - writes1h;
     const inputCost =
-      ((usage.input - reads - writes) * input + reads * cacheRead + writes * input * 1.25) / 1e6;
+      ((usage.input - reads - writes) * input +
+        reads * cacheRead +
+        writes5m * input * 1.25 +
+        writes1h * input * 2) /
+      1e6;
     // Conversation input grows each request; the next one costs at least this
     // request's input scaled by the observed growth ratio, bounded at 2x.
     this.expectedInputCost =

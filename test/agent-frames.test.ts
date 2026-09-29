@@ -12,9 +12,10 @@ import {
   type AgentFrame,
   type FrameSource,
 } from "../src/agent/frames.ts";
-import { createAgentSessionState, executeAgentToolAsync } from "../src/agent/tools.ts";
+import { createAgentSessionState } from "../src/agent/agentState.ts";
+import { AUTHORING_TOOL_NAMES, executeAgentToolAsync } from "../src/agent/tools.ts";
 import { projectToolResult } from "../src/agent/toolTransport.ts";
-import { FrameRing, SURFACE_BYTES, TEXT_BYTES } from "../app/src/frameRing.ts";
+import { FrameRing, SURFACE_BYTES, TEXT_BYTES } from "../app/src/worker/frameRing.ts";
 
 /**
  * A deterministic fake frame source: frame `cycle` paints its whole visual
@@ -133,7 +134,7 @@ describe("read_room_context frames section", () => {
       session,
       "read_room_context",
       { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
-      { frames: fakeSource([7]) },
+      { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([7]) },
     );
     assert.equal(res.success, true);
     const frames = res.details?.["frames"] as Record<string, unknown>;
@@ -148,7 +149,7 @@ describe("read_room_context frames section", () => {
       session,
       "read_room_context",
       { room: 1, state: null, frames: { count: 3, stride: 1, sheet: false, plane: null } },
-      { frames: fakeSource([10, 11, 12]) },
+      { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([10, 11, 12]) },
     );
     assert.equal(res.success, true);
     assert.equal(res.images?.length, 3);
@@ -162,7 +163,7 @@ describe("read_room_context frames section", () => {
       session,
       "read_room_context",
       { room: 1, state: null, frames: { count: 5, stride: 1, sheet: true, plane: "visual" } },
-      { frames: fakeSource([1, 2, 3, 4, 5]) },
+      { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([1, 2, 3, 4, 5]) },
     );
     assert.equal(res.images?.length, 1);
     const caption = res.images![0]!.caption;
@@ -177,7 +178,10 @@ describe("read_room_context frames section", () => {
       session,
       "read_room_context",
       { room: 1, state: null, frames: { count: 9, stride: 1, sheet: false, plane: null } },
-      { frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) },
+      {
+        allowedTools: AUTHORING_TOOL_NAMES,
+        frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+      },
     );
     assert.equal(res.images?.length, 9);
   });
@@ -188,7 +192,10 @@ describe("read_room_context frames section", () => {
       session,
       "read_room_context",
       { room: 1, state: null, frames: { count: 99, stride: 1, sheet: null, plane: null } },
-      { frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) },
+      {
+        allowedTools: AUTHORING_TOOL_NAMES,
+        frames: fakeSource([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+      },
     );
     assert.equal(res.success, false);
     assert.match(res.error ?? "", /count must be <= 9, got 99/);
@@ -200,7 +207,7 @@ describe("read_room_context frames section", () => {
       session,
       "read_room_context",
       { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
-      { frames: { read: () => [] } },
+      { allowedTools: AUTHORING_TOOL_NAMES, frames: { read: () => [] } },
     );
     assert.equal(res.success, true);
     const frames = res.details?.["frames"] as Record<string, unknown>;
@@ -208,21 +215,31 @@ describe("read_room_context frames section", () => {
   });
 
   it("fails clearly when a null room has no live game to resolve", async () => {
-    const res = await executeAgentToolAsync(session, "read_room_context", {
-      room: null,
-      state: null,
-      frames: { count: 1, stride: 1, sheet: null, plane: null },
-    });
+    const res = await executeAgentToolAsync(
+      session,
+      "read_room_context",
+      {
+        room: null,
+        state: null,
+        frames: { count: 1, stride: 1, sheet: null, plane: null },
+      },
+      { allowedTools: AUTHORING_TOOL_NAMES },
+    );
     assert.equal(res.success, false);
     assert.match(res.error!, /no live room is attached/);
   });
 
   it("reports a missing live game per section when a room is given", async () => {
-    const res = await executeAgentToolAsync(session, "read_room_context", {
-      room: 1,
-      state: null,
-      frames: { count: 1, stride: 1, sheet: null, plane: null },
-    });
+    const res = await executeAgentToolAsync(
+      session,
+      "read_room_context",
+      {
+        room: 1,
+        state: null,
+        frames: { count: 1, stride: 1, sheet: null, plane: null },
+      },
+      { allowedTools: AUTHORING_TOOL_NAMES },
+    );
     assert.equal(res.success, true);
     const frames = res.details?.["frames"] as Record<string, unknown>;
     assert.match(String(frames["error"]), /No live game is attached/);
@@ -234,7 +251,7 @@ describe("read_room_context frames section", () => {
       session,
       "read_room_context",
       { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: "depth" } },
-      { frames: fakeSource([1]) },
+      { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([1]) },
     );
     assert.equal(res.success, true);
     const frames = res.details?.["frames"] as Record<string, unknown>;
@@ -264,7 +281,7 @@ describe("read_room_context state/objects sections", () => {
       session,
       "read_room_context",
       { room: null, state: null, frames: null },
-      { engine },
+      { allowedTools: AUTHORING_TOOL_NAMES, engine },
     );
     assert.equal(res.success, true);
     assert.deepEqual(res.details?.["liveObjects"], [{ num: 0, view: 1, x: 40, y: 120 }]);
@@ -303,6 +320,7 @@ describe("read_room_context state/objects sections", () => {
       "read_room_context",
       { room: null, state: null, frames: null },
       {
+        allowedTools: AUTHORING_TOOL_NAMES,
         engine: {
           objects: () => [objectRecord(0), objectRecord(1), objectRecord(2)],
           state: () => ({ room: 3, egoX: 40, egoY: 120, modalKind: null, inventory: [] }),
@@ -324,7 +342,7 @@ describe("read_room_context state/objects sections", () => {
         state: { variables: null, flags: null, compact: null },
         frames: null,
       },
-      { engine },
+      { allowedTools: AUTHORING_TOOL_NAMES, engine },
     );
     assert.equal(res.success, true);
     const section = res.details?.["state"] as Record<string, unknown>;
@@ -341,7 +359,7 @@ describe("read_room_context state/objects sections", () => {
         state: { variables: null, flags: null, compact: null },
         frames: { count: 1, stride: 1, sheet: null, plane: null },
       },
-      { engine, frames: fakeSource([9]) },
+      { allowedTools: AUTHORING_TOOL_NAMES, engine, frames: fakeSource([9]) },
     );
     assert.equal(res.success, true);
     assert.ok(res.details?.["state"]);
@@ -355,7 +373,7 @@ describe("read_room_context state/objects sections", () => {
       session,
       "read_room_context",
       { room: null, state: null, frames: null },
-      { engine },
+      { allowedTools: AUTHORING_TOOL_NAMES, engine },
     );
     assert.equal(res.success, true);
     assert.equal(res.details?.["state"], undefined);
@@ -372,7 +390,7 @@ describe("read_room_context state/objects sections", () => {
         state: { variables: null, flags: null, compact: null },
         frames: null,
       },
-      {},
+      { allowedTools: AUTHORING_TOOL_NAMES },
     );
     assert.equal(res.success, true);
     const stateSection = res.details?.["state"] as Record<string, unknown>;

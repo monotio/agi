@@ -1,9 +1,9 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import { expect, test } from "./test.ts";
-import { buildZip } from "../src/zip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { configureAi, textHook } from "./engineProbe.ts";
+import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
 
 test("remix progress follows activity, preserves reading position and jumps to latest", async ({
   page,
@@ -86,6 +86,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await expect(page).toHaveURL(/#play\//);
+    await enterCreateMode(page);
     await page.getByTestId("power-up").click();
     await configureAi(page, { provider: "openai", key: "test-placeholder" });
     await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
@@ -131,7 +132,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     await expect(page.getByTestId("agent-bubble")).toBeHidden();
     const savedTranscript = await page.evaluate(async () => {
       const key = Object.keys(localStorage).find((k) => k.startsWith("monotio_agi.authored."))!;
-      const modulePath = "/src/gameStorage.ts";
+      const modulePath = "/src/project/gameStorage.ts";
       const { loadAuthoredGame } = await import(modulePath);
       return JSON.stringify(
         (await loadAuthoredGame(key.slice("monotio_agi.authored.".length)))?.transcript,

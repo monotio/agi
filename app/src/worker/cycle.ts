@@ -6,7 +6,7 @@
 import type { Inbound, WorkerContext } from "./context.ts";
 
 /** Poll input/modal services at display cadence; v10 separately gates logic cycles. */
-const HOST_POLL_MS = 1000 / 60;
+export const HOST_POLL_MS = 1000 / 60;
 
 /** Liveness observations stay responsive at slow game-selected cycle speeds. */
 const CYCLE_REPORT_MS = 250;
@@ -172,6 +172,7 @@ export function createCycle(ctx: WorkerContext) {
         room: scalars.room,
         egoX: scalars.egoX,
         egoY: scalars.egoY,
+        delay: ctx.engine.vars[10]!,
       });
     }
     if (Date.now() - ctx.autosave.lastAutosaveAt >= ctx.autosave.autosaveIntervalMs)
@@ -235,5 +236,3 @@ export function createCycle(ctx: WorkerContext) {
     startTimers,
   };
 }
-
-export type CycleModule = ReturnType<typeof createCycle>;

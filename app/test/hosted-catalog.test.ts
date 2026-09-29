@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
-import { loadHostedCatalog, readHostedCatalogManifest } from "../src/hostedCatalog.ts";
+import { loadHostedCatalog, readHostedCatalogManifest } from "../src/library/hostedCatalog.ts";
 
 const base = new URL("https://games.example/sub/catalog.json");
 const manifest = (games: unknown[] = []) => ({

@@ -3,17 +3,113 @@ import { describe, it } from "node:test";
 import { assertNoImageData } from "../../test/modelText.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { createAgentSessionState, type AgentSessionState } from "../../src/agent/agentState.ts";
 import {
-  createAgentSessionState,
+  AUTHORING_TOOL_NAMES,
   executeAgentTool,
   executeAgentToolAsync,
+  STUDIO_ASSIST_TASK_TOOLS,
+  type AgentToolDeps,
 } from "../../src/agent/tools.ts";
+import { createStudioAssist } from "../../src/agent/studioAssistTools.ts";
+import { referenceUnderFetch, type ReferenceSource } from "../../src/agent/referenceTools.ts";
+import { pictureAssistScope, viewAssistScope } from "../../src/studio/assistScope.ts";
+import { compileEditDocument } from "../../src/studio/editValidation.ts";
+import { parsePictureDocument } from "../../src/studio/pictureDocument.ts";
+import type { LensUnlocks, StudioLens } from "../../src/studio/lensRules.ts";
+import { openSprite } from "../../src/view/spriteDocument.ts";
 import {
   anthropicToolContent,
   openAiToolContent,
   projectToolResult,
   splitToolResult,
 } from "../../src/agent/toolTransport.ts";
+
+/**
+ * A case's `studio` focus: the Studio selection a Studio assist tool call
+ * runs against. A picture gives its annotated `source`, `targetIds` and
+ * `lens` with optional `unlocks` and `horizon` (and `draftSource` when the
+ * creator changed the draft during the request); a view gives its `payload`
+ * bytes and `targetCels`. A case with `steps` runs each Studio call in turn
+ * on one request (each may expect an `expectedMessageSnippet`), graded on
+ * the last; `expectedCandidate` is the candidate id the creator is left
+ * with, or null for none.
+ */
+interface StudioCase {
+  kind: "picture" | "view";
+  num: number;
+  source?: string;
+  draftSource?: string;
+  targetIds?: string[];
+  lens?: StudioLens;
+  unlocks?: LensUnlocks;
+  horizon?: number;
+  payload?: number[];
+  targetCels?: { loop: number; cel: number }[];
+}
+
+/**
+ * A case's `references`: reference art the task may view, each a solid
+ * `fill` colour at `width` x `height`, under the manifest fields it declares.
+ */
+interface ReferenceCase {
+  id: string;
+  label: string;
+  target: { kind: "room" | "view"; num: number } | { kind: "general" };
+  note: string;
+  attached: boolean;
+  width: number;
+  height: number;
+  fill: [number, number, number];
+}
+
+function referenceSource(cases: readonly ReferenceCase[]): ReferenceSource {
+  return {
+    art: cases.map(({ width, height, fill, ...art }) => ({
+      ...art,
+      pixels: () => {
+        const rgba = new Uint8Array(width * height * 4);
+        for (let at = 0; at < rgba.length; at += 4) rgba.set([...fill, 255], at);
+        return { width, height, rgba };
+      },
+    })),
+  };
+}
+
+function studioDeps(session: AgentSessionState, studio: StudioCase): AgentToolDeps {
+  if (studio.kind === "picture") {
+    const source = studio.source!;
+    const compiled = compileEditDocument(parsePictureDocument(source).document, session.profile);
+    const draft = studio.draftSource ?? source;
+    return {
+      allowedTools: STUDIO_ASSIST_TASK_TOOLS,
+      studio: createStudioAssist({
+        scope: pictureAssistScope({
+          num: studio.num,
+          compiled,
+          targetIds: studio.targetIds ?? [],
+          lens: studio.lens ?? "art",
+          ...(studio.unlocks ? { unlocks: studio.unlocks } : {}),
+        }),
+        draft: () => ({ kind: "picture", source: draft }),
+        lens: studio.lens,
+        horizon: studio.horizon,
+      }),
+    };
+  }
+  const payload = Uint8Array.from(studio.payload ?? []);
+  return {
+    allowedTools: STUDIO_ASSIST_TASK_TOOLS,
+    studio: createStudioAssist({
+      scope: viewAssistScope({
+        num: studio.num,
+        document: openSprite(payload, session.profile),
+        targetCels: studio.targetCels ?? [],
+      }),
+      draft: () => ({ kind: "view", payload }),
+    }),
+  };
+}
 
 describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
   const badCasesDir = resolve("evals/fixtures/bad-cases");
@@ -24,19 +120,50 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
     const content = JSON.parse(readFileSync(filePath, "utf-8"));
 
     it(`replays bad case: ${content.name} (${file})`, async () => {
+      // A turn's tool log and reply, graded by the under-fetch rule.
+      if (content.referenceTurn) {
+        assert.deepEqual(
+          referenceUnderFetch(content.referenceTurn),
+          content.expectedUnviewed,
+          `${file}: unviewed references`,
+        );
+        return;
+      }
       const session = createAgentSessionState();
       for (const setup of content.setup ?? []) {
         const result = executeAgentTool(session, setup.tool, setup.args);
         assert.equal(result.success, true, `${file}: setup ${setup.tool}: ${result.error ?? ""}`);
       }
+      const studio = content.studio ? studioDeps(session, content.studio) : null;
+      let stepped: Awaited<ReturnType<typeof executeAgentToolAsync>> | null = null;
+      for (const step of content.steps ?? []) {
+        stepped = await executeAgentToolAsync(session, step.tool, step.args, studio!);
+        if (step.expectedMessageSnippet)
+          assert.ok(
+            stepped.message?.includes(step.expectedMessageSnippet),
+            `${file}: ${step.tool} said '${stepped.message ?? stepped.error}'`,
+          );
+      }
       // A literal `result` replays a transport-level failure (no tool call).
+      const tool = content.tool ?? content.steps?.at(-1)?.tool;
       const res =
         content.result ??
-        (await (content.async ? executeAgentToolAsync : executeAgentTool)(
-          session,
-          content.tool,
-          content.args,
-        ));
+        stepped ??
+        (studio
+          ? await executeAgentToolAsync(session, content.tool, content.args, studio)
+          : content.async
+            ? await executeAgentToolAsync(session, content.tool, content.args, {
+                allowedTools: AUTHORING_TOOL_NAMES,
+                ...(content.references ? { references: referenceSource(content.references) } : {}),
+              })
+            : executeAgentTool(session, content.tool, content.args));
+
+      if ("expectedCandidate" in content)
+        assert.equal(
+          studio?.studio?.candidate?.candidateId ?? null,
+          content.expectedCandidate,
+          `${file}: the candidate the creator is left with`,
+        );
 
       for (const [path, expected] of Object.entries(content.expectedFields ?? {})) {
         let actual: unknown = res;
@@ -94,13 +221,13 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
         assert.equal(
           res.success,
           true,
-          `Expected ${content.tool} to succeed for ${file}, but got error: ${res.error}`,
+          `Expected ${tool} to succeed for ${file}, but got error: ${res.error}`,
         );
       } else {
         assert.equal(
           res.success,
           false,
-          `Expected ${content.tool} to fail for ${file}, but it unexpectedly succeeded`,
+          `Expected ${tool} to fail for ${file}, but it unexpectedly succeeded`,
         );
         if (content.expectedErrorSnippet) {
           assert.ok(

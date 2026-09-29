@@ -8,10 +8,11 @@ import {
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
+  enterCreateMode,
 } from "./engineProbe.ts";
 
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.0.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
 
 test("forking the tutorial moves its checkpoint to the remix card", async ({ page }) => {
   const original = TUTORIAL_LOGIC_SOURCES[1]!;
@@ -62,18 +63,27 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).not.toBeNull();
 
   // Author a change to trigger a remix fork
+  await enterCreateMode(page);
   await page.getByTestId("power-up").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Rename the gallery");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect.poll(() => requests).toBe(2);
+  // The panel closes on the forked copy, but the request stays in view, with
+  // the answer and where the change went — not the empty first-run state.
+  const lastTurn = page.getByTestId("assistant-last-turn");
+  await expect(lastTurn).toContainText("Rename the gallery");
+  await expect(lastTurn).toContainText("The gallery is remixed.");
+  await expect(page.getByTestId("assistant-fork-note")).toContainText("Adventure Department Remix");
+  await expect(page.getByTestId("create-read-only")).toHaveCount(0);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("REMIX GALLERY");
   await page.screenshot({ path: test.info().outputPath("remix-after.png") });
   const remixProjectId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
   expect(remixProjectId).not.toBe(TUTORIAL_PROJECT_ID);
+  // The remix was made in Create mode, which the URL names with the project.
   expect(new URL(page.url()).hash, "the URL must follow the remix project ID").toBe(
-    `#play/${remixProjectId}`,
+    `#create/${remixProjectId}`,
   );
   // Progress now belongs to the remix: the original card must not offer a checkpoint.
   expect(await storedAutosave(page, TUTORIAL_PROJECT_ID)).toBeNull();
@@ -81,12 +91,12 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await page.getByTestId("btn-exit").click();
   await expect.poll(() => new URL(page.url()).hash).toBe("");
   const tutorialCard = savedGameCard(page, "Adventure Department");
-  await expect(tutorialCard.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(tutorialCard.getByRole("button", { name: "Play now", exact: true })).toBeVisible();
   await expect(tutorialCard.getByRole("button", { name: "Resume", exact: true })).toHaveCount(0);
   const remixCard = savedGameCard(page, "Adventure Department Remix");
   await expect(remixCard.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
 
-  await tutorialCard.getByRole("button", { name: "Play", exact: true }).click();
+  await tutorialCard.getByRole("button", { name: "Play now", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("PICTURE GALLERY");
   expect(new URL(page.url()).hash, "the replayed tutorial must be named in the URL").toBe(

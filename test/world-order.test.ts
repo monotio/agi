@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-// tools.ts must resolve before authoringTools.ts — the module spreads
-// AUTHORING_TOOLS at top level while authoringTools back-imports tool helpers.
 import {
   buildObjectFile,
   createAgentSessionState,
+  type AgentSessionState,
+} from "../src/agent/agentState.ts";
+import {
+  ASK_TOOLS,
+  AUTHORING_TOOL_NAMES,
   executeAgentTool,
   executeAgentToolAsync,
-  type AgentSessionState,
 } from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
 import { installBaseTemplate } from "../src/agent/baseTemplate.ts";
@@ -323,7 +325,7 @@ test("handover accepts declared exits whose source room is not built yet", () =>
 
 test("Ask mode withholds the authored plan from the assistant context", async () => {
   const state = buildForward();
-  const readOnly = { readOnly: true };
+  const readOnly = { readOnly: true, allowedTools: ASK_TOOLS };
 
   // The plan query itself is refused — intent is creator context.
   const bible = await executeAgentToolAsync(
@@ -367,11 +369,12 @@ test("Ask mode withholds the authored plan from the assistant context", async ()
     Object.keys((creator.details?.["entries"] as Record<string, unknown> | undefined) ?? {})
       .length > 0,
   );
-  const creatorRoom = await executeAgentToolAsync(state, "read_room_context", {
-    room: 3,
-    state: null,
-    frames: null,
-  });
+  const creatorRoom = await executeAgentToolAsync(
+    state,
+    "read_room_context",
+    { room: 3, state: null, frames: null },
+    { allowedTools: AUTHORING_TOOL_NAMES },
+  );
   assert.ok(
     Object.hasOwn(creatorRoom.details ?? {}, "intent"),
     "creator context keeps the room's plan entry",

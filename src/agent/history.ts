@@ -39,9 +39,9 @@ export const HISTORY_INFLIGHT_MAX = 4;
 export const HISTORY_SEGMENT_BYTE_LIMIT = 8 * 1024 * 1024;
 export const HISTORY_SEGMENT_EVENT_LIMIT = 25_000;
 
-export type HistoryPatchKind = "logic" | "picture" | "view" | "sound";
+type HistoryPatchKind = "logic" | "picture" | "view" | "sound";
 
-export interface HistoryCommittedResource {
+interface HistoryCommittedResource {
   kind: HistoryPatchKind;
   num: number;
   /** base64 resource payload. */
@@ -175,7 +175,7 @@ export interface HistorySyncMark {
 }
 
 /** Cycle-clock accumulators at a boundary (the host's time base is restored). */
-export interface HistoryClock {
+interface HistoryClock {
   remainder: number;
   increments: number;
   paused: boolean;
@@ -904,7 +904,8 @@ function profileId(value: unknown, label = "boot profile"): ProfileId {
   return value as ProfileId;
 }
 
-function boot(value: unknown): HistoryBoot {
+/** Validate a standalone boot record (a retained original carried over messages). */
+export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
   const files = value["files"];
   if (!isObj(files) || Object.keys(files).length > 1024) fail("boot.files must be a bounded map.");
@@ -962,11 +963,6 @@ function boot(value: unknown): HistoryBoot {
   return { ...out, fingerprint: stamp };
 }
 
-/** Validate a standalone boot record (a retained original carried over messages). */
-export function validateHistoryBoot(value: unknown): HistoryBoot {
-  return boot(value);
-}
-
 /** Validate untrusted history data (a project archive's HISTORY.JSON). */
 export function validateHistoryRecording(value: unknown): HistoryRecording {
   if (!isObj(value)) fail("recording must be an object.");
@@ -996,7 +992,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
       if (!isObj(s)) fail("segment must be an object.");
       const segment: HistorySegment = {
         id: text(s["id"], "segment id", 64),
-        boot: boot(s["boot"]),
+        boot: validateHistoryBoot(s["boot"]),
         anchors: Array.isArray(s["anchors"])
           ? s["anchors"].map(anchor)
           : fail("anchors must be a list."),
