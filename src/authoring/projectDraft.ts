@@ -28,6 +28,18 @@ interface DraftProposal {
   /** Detached copies for diff presentation; editing them cannot change the proposal. */
   changes(): readonly DocumentChange[];
 }
+interface DraftSelection {
+  readonly snapshot: DraftSnapshot;
+  readonly keys: readonly string[];
+  /** Kept documents overlaid with this selected draft closure, owned by the selection. */
+  documents(): Readonly<Record<string, DocumentContent>>;
+}
+interface SelectionState {
+  readonly snapshot: SnapshotState;
+  readonly keys: readonly string[];
+  readonly keptRevision: number;
+  acknowledged: boolean;
+}
 interface TransactionId {
   /** Display ordering only; the issued object itself carries workspace identity. */
   readonly sequence: number;
@@ -112,9 +124,15 @@ export class ProjectDraft {
   private proposals = new WeakMap<DraftProposal, ProposalState>();
   private transactions = new WeakMap<TransactionId, UndoState>();
   private nextTransaction = 1;
+  private kept: Readonly<Record<string, DocumentSlot>> = Object.create(null);
+  private keptRevision = 0;
+  private selections = new WeakMap<DraftSelection, SelectionState>();
+  private pendingGroups: { readonly revision: number; readonly keys: readonly string[] }[] = [];
 
   constructor(documents: Readonly<Record<string, DocumentContent>>) {
     this.write(copyChanges(Object.entries(documents).map(([key, content]) => ({ key, content }))));
+    this.kept = { ...this.documents };
+    this.pendingGroups = [];
   }
 
   capture(): DraftSnapshot {
@@ -141,6 +159,117 @@ export class ProjectDraft {
     });
     this.snapshots.set(snapshot, state);
     return snapshot;
+  }
+
+  /** Documents whose current content differs from the acknowledged saved baseline. */
+  dirtyKeys(): readonly string[] {
+    const keys = new Set([...Object.keys(this.documents), ...Object.keys(this.kept)]);
+    return [...keys]
+      .filter(
+        (key) =>
+          !sameContent(this.documents[key]?.content ?? null, this.kept[key]?.content ?? null),
+      )
+      .sort();
+  }
+
+  /**
+   * Select complete pending operations and the analysis-supplied dependency closure.
+   * Unselected documents come from the kept baseline, not unrelated unfinished edits.
+   * Dependency analysis must describe this current workspace and include any compiler
+   * context it changes (for example, vocabulary or named bindings).
+   */
+  select(
+    keys: readonly string[],
+    dependencies: Readonly<Record<string, readonly string[]>> = {},
+  ): DraftSelection {
+    const snapshot = this.capture();
+    const state = this.snapshots.get(snapshot)!;
+    const selected = new Set<string>();
+    const queue: string[] = [];
+    const add = (key: string): void => {
+      checkKey(key);
+      if (!selected.has(key)) {
+        selected.add(key);
+        queue.push(key);
+      }
+    };
+    keys.forEach(add);
+    for (let i = 0; i < queue.length; i++) {
+      const key = queue[i]!;
+      for (const dependency of dependencies[key] ?? []) add(dependency);
+      for (const group of this.pendingGroups) {
+        if (group.keys.includes(key)) group.keys.forEach(add);
+      }
+    }
+    const closedKeys = Object.freeze([...selected].sort());
+    const documents = { ...this.kept };
+    for (const key of closedKeys) {
+      const slot = state.documents[key];
+      if (slot) documents[key] = slot;
+      else delete documents[key];
+    }
+    const selection = Object.freeze({
+      snapshot,
+      keys: closedKeys,
+      documents(): Readonly<Record<string, DocumentContent>> {
+        return Object.freeze(
+          Object.fromEntries(
+            Object.entries(documents)
+              .filter(([, slot]) => slot.content !== null)
+              .map(([key, slot]) => [key, copyContent(slot.content)!]),
+          ),
+        );
+      },
+    });
+    this.selections.set(selection, {
+      snapshot: state,
+      keys: closedKeys,
+      keptRevision: this.keptRevision,
+      acknowledged: false,
+    });
+    return selection;
+  }
+
+  /** Recheck immediately before the caller admits a compiled candidate to storage. */
+  assertCurrent(selection: DraftSelection): void {
+    const state = this.selections.get(selection);
+    if (!state) throw new Error("Selection belongs to another workspace.");
+    if (state.snapshot.revision !== this.revision || state.keptRevision !== this.keptRevision)
+      throw new Error("Stale selection: rebuild against the current draft and kept project.");
+  }
+
+  /**
+   * Call only after a successful durable receipt for this exact selected candidate.
+   * This is a local acknowledgement, not a save. Newer typing stays dirty. False
+   * means another save baseline superseded this selection: reconcile with storage,
+   * without turning a durable success into a failure or rolling back newer content.
+   */
+  acknowledgeKept(selection: DraftSelection): boolean {
+    const state = this.selections.get(selection);
+    if (!state) throw new Error("Selection belongs to another workspace.");
+    if (state.acknowledged) return true;
+    if (state.keptRevision !== this.keptRevision) return false;
+    if (!Number.isSafeInteger(this.keptRevision + 1))
+      throw new Error("Kept revision exhausted; reopen the workspace.");
+    const kept = { ...this.kept };
+    for (const key of state.keys) {
+      const slot = state.snapshot.documents[key];
+      if (slot) kept[key] = slot;
+      else delete kept[key];
+    }
+    this.kept = kept;
+    this.keptRevision++;
+    state.acknowledged = true;
+    const dirty = new Set(this.dirtyKeys());
+    this.pendingGroups = this.pendingGroups.filter(
+      (group) =>
+        group.keys.some((key) => dirty.has(key)) &&
+        !(
+          group.revision <= state.snapshot.revision &&
+          group.keys.every((key) => state.keys.includes(key))
+        ),
+    );
+    return true;
   }
 
   /** Capture the complete consulted workspace, including dependencies not written. */
@@ -243,6 +372,12 @@ export class ProjectDraft {
     }
     this.documents = documents;
     this.revision = revision;
+    if (after.length > 1)
+      this.pendingGroups.push({ revision, keys: Object.freeze(after.map(({ key }) => key)) });
+    const dirty = new Set(this.dirtyKeys());
+    this.pendingGroups = this.pendingGroups.filter((group) =>
+      group.keys.some((key) => dirty.has(key)),
+    );
     return {
       before,
       after,
