@@ -35,6 +35,7 @@ const open = defineModel<boolean>("open", { required: true });
 const activeKey = shallowRef<string | null>(null);
 const diffHost = useTemplateRef("diffHost");
 let diffEditor: monaco.editor.IStandaloneDiffEditor | undefined;
+let attached: monaco.editor.IDiffEditorViewModel | undefined;
 const pairPool = new Map<
   string,
   { original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel }
@@ -93,17 +94,33 @@ function modelsFor(entry: LogicReviewEntry): {
   return pair;
 }
 
+/**
+ * Detach the diff binding. The view model we own must be disposed while the
+ * editor still references real text: disposing it cancels its pending worker
+ * diff synchronously, and the pooled text models are only freed afterwards so
+ * an in-flight computation can never resolve against a removed mirror.
+ */
+function detach(): void {
+  if (!diffEditor) return;
+  diffEditor.setModel(null);
+  attached?.dispose();
+  attached = undefined;
+}
+
 function show(entry: LogicReviewEntry | undefined): void {
   if (!diffEditor) return;
   const pair =
     entry !== undefined && typeof entry.before === "string" && typeof entry.after === "string"
       ? modelsFor(entry)
       : null;
-  // setModel rebuilds the diff's view model even for the same pair; skip
-  // no-ops so every redundant swap does not schedule a worker recompute.
-  const current = diffEditor.getModel();
+  // A rebuilt candidate refreshes the pooled models in place; the owned view
+  // model already covers that pair and recomputes from the content change.
+  const current = attached?.model;
   if (current?.original === pair?.original && current?.modified === pair?.modified) return;
-  diffEditor.setModel(pair);
+  detach();
+  if (pair === null || !diffEditor) return;
+  attached = diffEditor.createViewModel(pair);
+  diffEditor.setModel(attached);
 }
 
 watch(
@@ -136,6 +153,7 @@ watch(
 watch(active, (entry) => show(entry));
 
 function teardown(): void {
+  detach();
   diffEditor?.dispose();
   diffEditor = undefined;
   for (const pair of pairPool.values()) {

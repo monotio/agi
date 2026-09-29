@@ -29,6 +29,11 @@ async function appendComment(page: Page): Promise<void> {
 
 test("offline Logic Studio keeps an exact source-only edit and reopens it", async ({ page }) => {
   await isolateStorage(page);
+  // These editor scenarios use local projects rather than the development
+  // fixture shelf and its independent thumbnail fetches.
+  await page.route("**/fixtures/", (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   let providerCalls = 0;
@@ -74,6 +79,11 @@ test("a project switch asks about dirty Logic Studio work before changing identi
   page,
 }) => {
   await isolateStorage(page);
+  // These editor scenarios use local projects rather than the development
+  // fixture shelf and its independent thumbnail fetches.
+  await page.route("**/fixtures/", (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
   await page.goto("/");
   await seed(page, "First workspace");
   const second = await seed(page, "Second workspace");
@@ -98,6 +108,11 @@ test("an immediate Keep disposes the review without an unhandled diff failure", 
   page,
 }) => {
   await isolateStorage(page);
+  // These editor scenarios use local projects rather than the development
+  // fixture shelf and its independent thumbnail fetches.
+  await page.route("**/fixtures/", (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
@@ -121,6 +136,11 @@ test("failed draft discard keeps the workspace open and permits a truthful retry
   page,
 }) => {
   await isolateStorage(page);
+  // These editor scenarios use local projects rather than the development
+  // fixture shelf and its independent thumbnail fetches.
+  await page.route("**/fixtures/", (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
   await page.goto("/");
   const projectId = await seed(page, "Discard retry");
   await page.reload();
@@ -162,6 +182,11 @@ test("failed draft discard keeps the workspace open and permits a truthful retry
 
 test("a selected Keep leaves unrelated broken source recoverable", async ({ page }) => {
   await isolateStorage(page);
+  // These editor scenarios use local projects rather than the development
+  // fixture shelf and its independent thumbnail fetches.
+  await page.route("**/fixtures/", (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");

@@ -3,8 +3,14 @@ import { isolateStorage, openLibraryActions, savedGameCard, textHook } from "./e
 
 test("a no-key source and vocabulary edit changes the game a player actually runs", async ({
   page,
+  browserName,
 }) => {
   await isolateStorage(page);
+  // These editor scenarios use local projects rather than the development
+  // fixture shelf and its independent thumbnail fetches.
+  await page.route("**/fixtures/", (route) =>
+    route.fulfill({ contentType: "application/json", body: "[]" }),
+  );
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   let providerCalls = 0;
@@ -29,6 +35,10 @@ test("a no-key source and vocabulary edit changes the game a player actually run
       revision: data.library?.revision,
     };
   });
+  // Finish the opening preview before navigating away from this document.
+  await expect(
+    page.getByTestId("catalog-adventure-department").getByTestId("library-thumbnail"),
+  ).toBeVisible();
   await page.reload();
   const card = savedGameCard(page, "My secret garden");
   await openLibraryActions(page, card);
@@ -45,7 +55,8 @@ test("a no-key source and vocabulary edit changes the game a player actually run
   await explorer.getByTestId("logic-doc-logic:1").click();
   await editor.locator(".view-lines").click();
   await page.keyboard.press("ControlOrMeta+A");
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  if (browserName === "chromium")
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.evaluate((text) => navigator.clipboard.writeText(text), source);
   await page.keyboard.press("ControlOrMeta+V");
   const words = JSON.parse(prepared.words) as [string, number][];
