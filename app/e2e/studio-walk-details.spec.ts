@@ -78,3 +78,30 @@ test("Esc with a door selected lets go of the door; the next Esc stays in Studio
   await studio.getByTestId("studio-close").click();
   await expect(studio).toBeHidden();
 });
+
+test("a finished test walk leaves the picture by Clear, or by Esc once nothing else is in hand", async ({
+  page,
+}) => {
+  const studio = await openTutorialStudio(page, 1);
+  const walk = () => studio.locator('[data-role="walk-start"], [data-role="walk-goal"]');
+  const run = async () => {
+    await page.keyboard.press("t");
+    await clickCell(page, 40, 150);
+    await clickCell(page, 78, 150);
+    await expect(studio.getByTestId("walk-result")).toBeVisible({ timeout: 30_000 });
+    await expect(walk()).toHaveCount(2);
+  };
+
+  await run();
+  await studio.getByTestId("walk-clear").click();
+  await expect(walk()).toHaveCount(0);
+  await expect(studio.getByTestId("walk-result")).toBeHidden();
+
+  // Esc lets go of the Test walk tool first, then of the walk itself.
+  await run();
+  await page.keyboard.press("Escape");
+  await expect(walk()).toHaveCount(2);
+  await page.keyboard.press("Escape");
+  await expect(walk()).toHaveCount(0);
+  await expect(studio).toBeVisible();
+});

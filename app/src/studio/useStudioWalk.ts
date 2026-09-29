@@ -566,6 +566,10 @@ export function useStudioWalk(options: StudioWalkOptions) {
     return "Click to start another walk.";
   });
 
+  /**
+   * Clear (the Walk panel's button, or Esc once nothing else is in hand):
+   * the walk leaves the picture, and the doors it tested are untested again.
+   */
   function clearWalk(): void {
     run++;
     evidence.value = new Map();

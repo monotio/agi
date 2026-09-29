@@ -238,6 +238,9 @@ const roomChoices = computed(() => {
           <UiButton size="sm" icon="redo" data-testid="walk-again" @click="walk.again()">
             Test again
           </UiButton>
+          <UiButton size="sm" variant="ghost" data-testid="walk-clear" @click="walk.clearWalk()">
+            Clear
+          </UiButton>
           <UiButton
             v-if="playSpot"
             size="sm"
