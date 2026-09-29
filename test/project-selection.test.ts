@@ -214,6 +214,21 @@ test("a vocabulary edit includes the current source repair when the kept source 
   assert.deepEqual(candidate.references.diagnostics, []);
 });
 
+test("an inventory location byte selects no logic, while a real room load still does", () => {
+  const input = workspace({
+    "logic:0": "new.room(42); return;",
+    "logic:42": "return;",
+    inventory: JSON.stringify([{ name: "key", startingRoom: 42 }]),
+  });
+  edit(input.draft, "inventory", JSON.stringify([{ name: "key", startingRoom: 43 }]));
+  edit(input.draft, "logic:42", "print(1); return;");
+  const candidate = compileProjectSelection({ ...input, keys: ["inventory"] });
+  assert.deepEqual(candidate.selection.keys, ["inventory"]);
+  assert.equal(candidate.compiled.documents()["logic:42"], "return;");
+  const room = compileProjectSelection({ ...input, keys: ["logic:0"] });
+  assert.deepEqual(room.selection.keys, ["logic:0", "logic:42"]);
+});
+
 test("recompiled kept logic brings its new binding target while leaving unfinished source typing aside", () => {
   const input = workspace({
     "logic:0": "load.view(hero); return;",

@@ -136,16 +136,7 @@ export function inspectProjectReferences(input: {
   }
   let inventoryCount: number | undefined;
   try {
-    const items = readInventoryObjects(container.files.get("OBJECT"), profile);
-    inventoryCount = items.length;
-    items.forEach((item) => {
-      if (item.startingRoom !== 0 && item.startingRoom !== 255)
-        add({
-          document: "inventory",
-          command: "startingRoom",
-          target: { kind: "logic", num: item.startingRoom },
-        });
-    });
+    inventoryCount = readInventoryObjects(container.files.get("OBJECT"), profile).length;
   } catch (error) {
     unreadable("inventory", error);
   }

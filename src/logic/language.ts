@@ -99,15 +99,15 @@ export function createLogicLanguageSnapshot(input: {
           end: offset,
           text: name,
         }));
-    const at =
-      tokenAt(offset) ??
-      syntax.tokens.find(
-        (token) =>
-          token.end === offset &&
-          (token.type === "ident" ||
-            token.type === "string" ||
-            (token.type === "invalid" && source[token.start] === '"')),
-      );
+    const under = tokenAt(offset);
+    const endsAtCaret = syntax.tokens.find(
+      (token) =>
+        token.end === offset &&
+        (token.type === "ident" ||
+          token.type === "string" ||
+          (token.type === "invalid" && source[token.start] === '"')),
+    );
+    const at = under !== undefined && under.type !== "punct" ? under : endsAtCaret;
     const previous = syntax.tokens
       .filter((token) => token.end <= offset && token.type !== "eof")
       .at(-1);

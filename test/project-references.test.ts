@@ -69,7 +69,7 @@ test("variable targets remain explicitly unknown instead of being mistaken for n
   assert.deepEqual(result.dependencies["logic:0"], ["inventory"]);
 });
 
-test("said groups and inventory references include condition operands and auxiliary room locations", () => {
+test("said groups and item references resolve condition operands; inventory locations are not references", () => {
   const container = project("if (said(100, 1, 9999) && has(2)) { get(1); } return;");
   container.putFile("WORDS.TOK", buildWordsTok([{ word: "look", id: 100 }]));
   container.putFile(
@@ -89,7 +89,15 @@ test("said groups and inventory references include condition operands and auxili
     result.diagnostics.some((entry) => entry.code === "missing-word"),
     false,
   );
-  assert.deepEqual(result.dependencies["inventory"], ["logic:8"]);
+  assert.equal(
+    result.references.some((edge) => edge.document === "inventory"),
+    false,
+  );
+  assert.equal(
+    result.diagnostics.some((entry) => entry.document === "inventory"),
+    false,
+  );
+  assert.equal(result.dependencies["inventory"], undefined);
   assert.deepEqual(result.dependencies["logic:0"], ["inventory", "words"]);
 });
 

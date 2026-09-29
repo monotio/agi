@@ -504,3 +504,43 @@ test("logic Monaco registration replacement retires listeners and markers withou
   expect(result.listeners).toBe(0);
   await unmountEditor(page);
 });
+
+for (const [marked, suggestion, expected] of [
+  ["load.v|();", "load.view", "load.view();"],
+  ["if (said(|)) { return; }", "look", 'if (said("look")) { return; }'],
+  [
+    "#define object_id 1\nset.view(object_i|, 2);",
+    "object_id",
+    "#define object_id 1\nset.view(object_id, 2);",
+  ],
+] as const) {
+  test(`logic Monaco accepts a completion at an existing delimiter: ${suggestion}`, async ({
+    page,
+  }) => {
+    await mountEditor(page);
+    const source = marked.replace("|", "");
+    await replaceSource(page, 20, source);
+    await page.evaluate((offset) => {
+      const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+      h.editor.setPosition(h.model.getPositionAt(offset));
+      h.editor.focus();
+      h.editor.trigger("spec", "editor.action.triggerSuggest", {});
+    }, marked.indexOf("|"));
+    const widget = page.locator(".suggest-widget.visible");
+    await expect(widget).toBeVisible();
+    const label = widget
+      .locator(".label-name")
+      .filter({ hasText: new RegExp(`^${suggestion.replaceAll(".", "\\.")}$`) });
+    await expect(label).toHaveCount(1);
+    await label.dblclick();
+    const text = () =>
+      page.evaluate(() =>
+        (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.model.getValue(),
+      );
+    await expect.poll(text).toBe(expected);
+    await reviewShot(page, `logic-completion-${suggestion.replaceAll(".", "-")}`);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(text).toBe(source);
+    await unmountEditor(page);
+  });
+}
