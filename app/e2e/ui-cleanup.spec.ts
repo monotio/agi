@@ -13,7 +13,9 @@ test.beforeEach(async ({ page }) => {
 
 test("the start page uses concise tutorial copy and readable primary actions", async ({ page }) => {
   await expect(
-    page.getByText("Play Sierra-style adventures, build your own with AI", { exact: false }),
+    page.getByText("Play Sierra-style adventures, build your own locally with or without AI", {
+      exact: false,
+    }),
   ).toBeVisible();
   await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Play the tutorial" })).toBeVisible();

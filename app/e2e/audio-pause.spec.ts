@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 // AudioContext clock — scheduled one-shots and envelope ramps hold mid-flight
 // and continue from that point on release — where a muted gain cannot stop
 // time. @webkit-desktop admits the same checks to the desktop WebKit project.
-test.use({ launchOptions: { args: ["--autoplay-policy=no-user-gesture-required"] } });
+// Use a real gesture so the same audio checks run in Chromium and WebKit.
 
 test("pause freezes scheduled playback; release continues it from that point @webkit-desktop", async ({
   page,
@@ -15,6 +15,7 @@ test("pause freezes scheduled playback; release continues it from that point @we
     return route.abort();
   });
   await page.goto("/");
+  await page.locator("body").click({ position: { x: 1, y: 1 } });
   const result = await page.evaluate(async () => {
     const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
     const context = new AudioContext();
@@ -98,10 +99,23 @@ test("a pause before the first context, an unlock request, and a named owner @we
     return route.abort();
   });
   await page.goto("/");
+  await page.locator("body").click({ position: { x: 1, y: 1 } });
   const result = await page.evaluate(async () => {
     const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
     let context: AudioContext | null = null;
-    const audio = new AgiAudio({ contextFactory: () => (context = new AudioContext()) });
+    let suspensionSettled = false;
+    const audio = new AgiAudio({
+      contextFactory: () => {
+        const ctx = new AudioContext();
+        const suspend = ctx.suspend.bind(ctx);
+        ctx.suspend = async () => {
+          await suspend();
+          suspensionSettled = true;
+        };
+        context = ctx;
+        return ctx;
+      },
+    });
     const elapse = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
     const until = async (predicate: () => boolean, tries = 60) => {
       for (let i = 0; i < tries && !predicate(); i++) await elapse(20);
@@ -112,7 +126,11 @@ test("a pause before the first context, an unlock request, and a named owner @we
       audio.setPaused(true);
       audio.output({ kind: "speaker", divisor: 2712 });
       const ctx = context!;
-      await until(() => ctx.state === "suspended");
+      // WebKit initially reports suspended, then starts the context. Observe
+      // the app's completed suspension rather than that provisional state.
+      if (!(await until(() => suspensionSettled && ctx.state === "suspended"))) {
+        throw new Error("The app did not settle the initial audio suspension.");
+      }
       const frozenAt = ctx.currentTime;
       await elapse(150);
       const firstContext = { state: ctx.state, drift: ctx.currentTime - frozenAt };

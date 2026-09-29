@@ -69,7 +69,9 @@ test("Download project resumes private history in a fresh browser; Download game
   expect(saved.suggestedFilename()).toMatch(/-project.zip$/);
   const data = await readGameZip(new Uint8Array(await readFile((await saved.path())!)));
   expect(data.project?.transcript).toEqual(transcript);
-  expect(data.files["OBJECT"]).toEqual(Uint8Array.of(65, 118, 150));
+  // A private backup preserves the exact resource revision, including absence.
+  // Only the public Game export below supplies a missing inventory file.
+  expect(data.files).toEqual(files);
   expect(data.project?.authoringState).toEqual(context.authoringState);
   const publicDownload = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
