@@ -375,10 +375,6 @@ test("every WorkerOutbound member reaches its handler once", async () => {
           id: 1,
           taken: true,
           cycle: 2,
-          hasEngine: true,
-          modal: false,
-          textMode: false,
-          pictureShown: true,
         });
         assert.ok(depCalls.includes("flushed"));
         break;

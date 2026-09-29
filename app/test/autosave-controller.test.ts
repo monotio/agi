@@ -690,37 +690,16 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
 
   const controller = useAutosaveController(ctx);
 
-  // 1. When a modal window is open, reports not_checkpointable
+  // 1. A snapshot the worker refused past the last autosave reports not_checkpointable
   const flush1 = controller.flushAutosaveDetailed(2000);
   const flushMsg1 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
   controller.handleFlushed({
     id: flushMsg1.id,
     taken: false,
     cycle: 10,
-    hasEngine: true,
-    modal: true,
-    textMode: false,
-    pictureShown: true,
   });
   const res1 = await flush1;
   assert.equal(res1.status, "not_checkpointable");
-  assert.equal(res1.reason, "A dialog or menu is open.");
-
-  // 2. When text mode is active, reports not_checkpointable
-  const flush2 = controller.flushAutosaveDetailed(2000);
-  const flushMsg2 = postedMessages[postedMessages.length - 1] as { type: string; id: number };
-  controller.handleFlushed({
-    id: flushMsg2.id,
-    taken: false,
-    cycle: 11,
-    hasEngine: true,
-    modal: false,
-    textMode: true,
-    pictureShown: true,
-  });
-  const res2 = await flush2;
-  assert.equal(res2.status, "not_checkpointable");
-  assert.equal(res2.reason, "Game is in text mode.");
 
   // 3. Clean opening at cycle 0 is already durable (does not trap player at start)
   const flush3 = controller.flushAutosaveDetailed(2000);
@@ -729,15 +708,11 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg3.id,
     taken: false,
     cycle: 0,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: false,
   });
   const res3 = await flush3;
   assert.equal(res3.status, "already_durable");
 
-  // 3b. Mid-game transition (cycle > lastCycle with unrendered picture) is not_checkpointable
+  // 3b. A refusal after progress moved past the last autosave is not_checkpointable
   controller.handleAutosave({
     image: "image-1",
     cycle: 10,
@@ -751,14 +726,9 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg3b.id,
     taken: false,
     cycle: 20,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: false,
   });
   const res3b = await flush3b;
   assert.equal(res3b.status, "not_checkpointable");
-  assert.equal(res3b.reason, "Interpreter is between transitions.");
 
   // 4. When already durable (last seen cycle <= last autosave cycle), reports already_durable
   controller.handleAutosave({
@@ -774,10 +744,6 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg4.id,
     taken: false,
     cycle: 50,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: true,
   });
   const res4 = await flush4;
   assert.equal(res4.status, "already_durable");
@@ -794,10 +760,6 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: flushMsg5.id,
     taken: true,
     cycle: 55,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: true,
   });
   const res5 = await flush5;
   assert.equal(res5.status, "saved");
@@ -807,10 +769,6 @@ test("flushAutosaveDetailed reports not_checkpointable, timeout, already_durable
     id: -1,
     taken: false,
     cycle: 99,
-    hasEngine: true,
-    modal: false,
-    textMode: false,
-    pictureShown: true,
   });
   const flush6 = controller.flushAutosaveDetailed(10);
   const res6 = await flush6;

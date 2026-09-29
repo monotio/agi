@@ -725,18 +725,14 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
   const container = openContainer(new Map(Object.entries(imported.files)));
   expect(disassembleLogic(container.getResource("logic", 1)!)).toContain("weathered sign");
   expect(await page.evaluate(() => localStorage.getItem("monotio_agi.authored.kq1"))).toBeNull();
-  // The remix resumes into queued print windows ("press enter"). Ejecting
-  // while one is open cannot take a fresh checkpoint, so the app asks for an
-  // explicit choice: leave anyway keeps the already-saved remix project.
+  // The remix resumes into queued print windows ("press enter"). Exit leaves
+  // with or without a fresh checkpoint of that moment: the remix project is
+  // already saved.
   const savedCard = page
     .getByTestId("saved-game-gallery")
     .locator("[data-testid^='saved-game-card-']");
-  const leaveAnyway = page.getByTestId("eject-leave-anyway");
   await page.getByTestId("btn-exit").click();
-  await expect
-    .poll(async () => (await leaveAnyway.isVisible()) || (await savedCard.count()) > 0)
-    .toBe(true);
-  if (await leaveAnyway.isVisible()) await leaveAnyway.click();
+  await expect(savedCard).toHaveCount(1);
 
   // The remix is a saved game of its own; it must not overwrite the
   // installed game's storage identity. The world map's discovery record is
@@ -745,7 +741,6 @@ test("a locally loaded patched game can be downloaded and imported", async ({ pa
     Object.keys(localStorage).filter((k) => k.includes("kq1") && !k.startsWith("monotio_agi.map.")),
   );
   expect(stored).toEqual([]);
-  await expect(savedCard).toHaveCount(1);
   await openLibraryActions(page, savedCard);
   await expect(page.getByTestId("export-library-game")).toBeVisible();
 });

@@ -306,3 +306,70 @@ test("a reload resumes the parked window in an agent-authored room", async ({ pa
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
 });
+
+/**
+ * A text window the game keeps up while it runs on (a print with f15 set, as
+ * the demo pack captions its demonstrations) has no parked pass to carry, so
+ * no checkpoint is taken while it is up. That is no reason to hold Exit: the
+ * last save point stays, the timeline is sealed, and the player is Home.
+ */
+test("Exit leaves a moment it cannot checkpoint and keeps the last save point", async ({
+  page,
+}) => {
+  const game = createContainer();
+  game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("if(!isset(f200)){set(f200);new.room(1);}call(1);return;", {
+      dictionary: new Map(),
+    }).payload,
+  );
+  game.putResource(
+    "logic",
+    1,
+    assembleLogic(
+      "if(isset(f5)){assignn(v50,1);load.pic(v50);draw.pic(v50);show.pic();}" +
+        'if(!isset(f201)){if(have.key()){set(f201);set(f15);print("A window the game keeps up");}}' +
+        "return;",
+      { dictionary: new Map() },
+    ).payload,
+  );
+  const archive = buildZip(
+    [...game.files]
+      .map(([name, data]) => ({ name, data }))
+      .concat([{ name: "WORDS.TOK", data: buildWordsTok([]) }]),
+  );
+  await isolateStorage(page);
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "running-window.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archive),
+  });
+  await savedGameCard(page, "running-window").getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForAutosaveAfter(page, 0);
+
+  // Any key opens the window; the interpreter keeps cycling under it.
+  await page.locator("body").click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press("x");
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("A window the game keeps up");
+  const windowUp = await textHook(page);
+  expect(windowUp.modal, "the window does not pause the game").toBeNull();
+  await waitForCycles(page, 2);
+
+  const projectId = await page.evaluate(async () => {
+    const path = "/src/project/gameStorage.ts";
+    const store = await import(path);
+    return store.listCachedGames()[0].projectId as string;
+  });
+  await page.getByTestId("btn-exit").click();
+  await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
+  await expect(page.getByTestId("eject-refusal")).toHaveCount(0);
+  const kept = (await storedAutosave(page, projectId))?.cycle ?? 0;
+  expect(kept, "the save point from before the window is kept").toBeGreaterThan(0);
+  expect(kept).toBeLessThan(windowUp.cycle);
+});

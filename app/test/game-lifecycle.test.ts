@@ -252,7 +252,7 @@ test("Leaving a game behind storage saves nothing over the newer project, and is
   }
 });
 
-function quitHarness() {
+function quitHarness(flushResult: object = { status: "saved" }) {
   const calls: string[] = [];
   const state = {
     leaving: false,
@@ -271,9 +271,9 @@ function quitHarness() {
     autosave: {
       flushAutosaveDetailed: async () => {
         calls.push("flush");
-        return { status: "saved" };
+        return flushResult;
       },
-      lastAutosaveRecord: () => null,
+      clearAutosave: () => calls.push("clear autosave"),
       reset: noop,
       resetScreen: noop,
     },
@@ -317,4 +317,25 @@ test("A game that quits returns Home with its ending noted and no autosave taken
   assert.deepEqual(calls, ["historyEnd", "terminate"], "the ended interpreter is not flushed");
   assert.equal(state.phase, "idle");
   assert.deepEqual(state.gameEnded, { projectId, title: "Quiz Game" });
+});
+
+/**
+ * A moment the interpreter cannot checkpoint — here the demo pack's f15 text
+ * window, which stays up while the game runs on — is not a data risk: the
+ * last save point stays and the sealed timeline holds the rest. Exit leaves.
+ */
+test("Exit leaves quietly when the current moment cannot be checkpointed", async () => {
+  const { calls, state, lifecycle } = quitHarness({ status: "not_checkpointable" });
+  await lifecycle.ejectGame();
+  assert.deepEqual(calls, ["flush", "historyEnd", "terminate"], "the timeline is still sealed");
+  assert.equal(state.leaving, false);
+});
+
+test("Exit still refuses when browser storage fails or the autosave times out", async () => {
+  for (const status of ["storage_failure", "timeout"]) {
+    const { calls, state, lifecycle } = quitHarness({ status });
+    await assert.rejects(lifecycle.ejectGame(), /Settings → This game → Download game…/);
+    assert.deepEqual(calls, ["flush"], `${status} keeps the game running`);
+    assert.equal(state.leaving, false);
+  }
 });
