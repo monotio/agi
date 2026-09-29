@@ -731,6 +731,22 @@ function readLibrary(data: CachedGameData): LibraryMetadata {
     if (!Object.hasOwn(LIBRARY_FIELDS, key)) library[key] = value;
   return library as unknown as LibraryMetadata;
 }
+/** Validate the authoritative body inside another project record's transaction. */
+export function projectBodyGuard(
+  projectId: ProjectId,
+  check: (data: CachedGameData) => void,
+): { key: string; check: (raw: unknown) => void } {
+  return {
+    key: projectId,
+    check(raw) {
+      if (raw === undefined) throw new ProjectDeletedError("This project was removed.");
+      const data = readStoredBody(raw as StoredGameBody, projectId);
+      data.library = readLibrary(data);
+      check(data);
+    },
+  };
+}
+
 async function stampLibraryMetadata(
   data: CachedGameData,
   protectCatalog: boolean,
@@ -1365,15 +1381,16 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
       } satisfies HistoryLifetime);
       store.delete(`conversation/${projectId}`);
       store.delete(`history/${projectId}`);
-      const children = store.openCursor(
-        IDBKeyRange.bound(`history/${projectId}/`, `history/${projectId}/￿`),
-      );
-      children.onsuccess = () => {
-        const cursor = children.result;
-        if (cursor === null) return;
-        cursor.delete();
-        cursor.continue();
-      };
+      store.delete(`draft/${projectId}`);
+      for (const prefix of [`history/${projectId}/`, `draft/${projectId}/`]) {
+        const children = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}￿`));
+        children.onsuccess = () => {
+          const cursor = children.result;
+          if (cursor === null) return;
+          cursor.delete();
+          cursor.continue();
+        };
+      }
       return store.delete(projectId);
     });
     localStorage.removeItem(getStorageKey(projectId));

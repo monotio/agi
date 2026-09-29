@@ -8,6 +8,12 @@ interface DocumentChange {
   readonly key: string;
   readonly content: DocumentContent | null;
 }
+/** Detached recovery data; the persistence adapter validates its envelope and base. */
+export interface DraftRecovery {
+  readonly changes: readonly (DocumentChange & { readonly version: number })[];
+  /** Connected groups retain coordinated selection, not session-local undo authority. */
+  readonly groups: readonly (readonly string[])[];
+}
 interface DraftDocument {
   readonly key: string;
   readonly version: number;
@@ -72,7 +78,7 @@ interface UndoState {
   applied: boolean;
 }
 
-function checkKey(key: string): void {
+export function checkProjectDocumentKey(key: string): void {
   if (
     !/^(?:logic|picture|view|sound):(0|[1-9]\d{0,2})$/.test(key) &&
     !["words", "inventory", "bindings", "world", "tests", "references"].includes(key)
@@ -103,7 +109,7 @@ function copyChanges(changes: readonly DocumentChange[]): readonly DocumentChang
   const seen = new Set<string>();
   return Object.freeze(
     changes.map(({ key, content }) => {
-      checkKey(key);
+      checkProjectDocumentKey(key);
       if (seen.has(key)) throw new Error(`Duplicate project document: ${key}`);
       seen.add(key);
       return Object.freeze({ key, content: copyContent(content) });
@@ -135,6 +141,74 @@ export class ProjectDraft {
     this.pendingGroups = [];
   }
 
+  /**
+   * Reopen accepted recovery against the kept document set. The caller must
+   * first check its saved-base identities and obtain the user's Restore choice.
+   * Document versions restart in this new workspace; old proposals, selections
+   * and undo handles retain no authority here.
+   */
+  static recover(
+    documents: Readonly<Record<string, DocumentContent>>,
+    recovery: DraftRecovery,
+  ): ProjectDraft {
+    for (const change of recovery.changes) {
+      if (!Number.isSafeInteger(change.version) || change.version < 1)
+        throw new Error("Invalid recovered document version.");
+    }
+    const changes = copyChanges(recovery.changes);
+    const groups = recovery.groups.map((group) => {
+      group.forEach(checkProjectDocumentKey);
+      if (group.length < 2 || new Set(group).size !== group.length)
+        throw new Error("Invalid recovered operation group.");
+      return Object.freeze([...group].sort());
+    });
+    const draft = new ProjectDraft(documents);
+    draft.write(changes);
+    const dirty = new Set(draft.dirtyKeys());
+    // Restoring all text at once must not couple otherwise independent edits.
+    draft.pendingGroups = groups
+      .filter((keys) => keys.some((key) => dirty.has(key)))
+      .map((keys) => ({ revision: draft.revision, keys }));
+    return draft;
+  }
+
+  /**
+   * Capture only unsaved differences. Overlapping operations are compacted into
+   * connected groups, which preserves their exact transitive selection closure
+   * without persisting session-local transaction handles or an unbounded log.
+   */
+  captureRecovery(): DraftRecovery {
+    const changes = this.dirtyKeys().map((key) => {
+      const slot = this.documents[key]!;
+      return Object.freeze({ key, version: slot.version, content: copyContent(slot.content) });
+    });
+    const edges: Record<string, Set<string>> = Object.create(null);
+    for (const group of this.pendingGroups) {
+      const first = group.keys[0]!;
+      for (const key of group.keys) {
+        (edges[first] ??= new Set()).add(key);
+        (edges[key] ??= new Set()).add(first);
+      }
+    }
+    const visited = new Set<string>();
+    const groups: (readonly string[])[] = [];
+    for (const key of Object.keys(edges).sort()) {
+      if (visited.has(key)) continue;
+      const queue = [key];
+      visited.add(key);
+      for (let index = 0; index < queue.length; index++) {
+        for (const next of edges[queue[index]!] ?? []) {
+          if (!visited.has(next)) {
+            visited.add(next);
+            queue.push(next);
+          }
+        }
+      }
+      groups.push(Object.freeze(queue.sort()));
+    }
+    return Object.freeze({ changes: Object.freeze(changes), groups: Object.freeze(groups) });
+  }
+
   capture(): DraftSnapshot {
     // Internal slots/buffers are replaced, never mutated; snapshots may share them.
     const documents = Object.freeze({ ...this.documents });
@@ -147,13 +221,13 @@ export class ProjectDraft {
           .sort(),
       ),
       read(key: string): DraftDocument | undefined {
-        checkKey(key);
+        checkProjectDocumentKey(key);
         const slot = documents[key];
         if (!slot || slot.content === null) return undefined;
         return Object.freeze({ key, version: slot.version, content: copyContent(slot.content)! });
       },
       version(key: string): number {
-        checkKey(key);
+        checkProjectDocumentKey(key);
         return documents[key]?.version ?? 0;
       },
     });
@@ -187,7 +261,7 @@ export class ProjectDraft {
     const selected = new Set<string>();
     const queue: string[] = [];
     const add = (key: string): void => {
-      checkKey(key);
+      checkProjectDocumentKey(key);
       if (!selected.has(key)) {
         selected.add(key);
         queue.push(key);
@@ -311,7 +385,7 @@ export class ProjectDraft {
 
   /** Native editor typing/undo checks only that document, without an agent lock. */
   edit(key: string, content: DocumentContent | null, expectedVersion: number): void {
-    checkKey(key);
+    checkProjectDocumentKey(key);
     if ((this.documents[key]?.version ?? 0) !== expectedVersion)
       throw new Error(`Stale document: ${key}`);
     this.write(copyChanges([{ key, content }]));
