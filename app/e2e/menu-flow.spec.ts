@@ -119,7 +119,7 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await expect(renamed).toBeVisible();
   await expect(page.getByTestId("start-library-game-over")).toBeHidden();
   await expect(page.getByTestId("download-library-game")).toBeHidden();
-  await renamed.getByRole("button", { name: "Game actions", exact: true }).click();
+  await openLibraryActions(page, renamed);
   const menu = page.getByRole("menu", { name: "Game actions", exact: true });
   await expect(menu.getByRole("menuitem", { name: "Start over", exact: true })).toBeVisible();
   await page.keyboard.press("End");
@@ -127,7 +127,7 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
   await page.keyboard.press("Escape");
   await expect(renamed.getByRole("button", { name: "Game actions", exact: true })).toBeFocused();
   await expect(renamed.getByRole("button", { name: "Download", exact: true })).toHaveCount(0);
-  await renamed.getByRole("button", { name: "Game actions", exact: true }).click();
+  await openLibraryActions(page, renamed);
   await expect(menu.getByTestId("export-library-game")).toBeVisible();
   await expect(menu.getByTestId("download-library-game")).toBeVisible();
   await expect(menu.getByRole("separator")).toHaveCount(2);
@@ -144,7 +144,7 @@ test("library puts rename inline and secondary actions into menus", async ({ pag
       path: test.info().outputPath(`game-card-${width}.png`),
       animations: "disabled",
     });
-    await renamed.getByRole("button", { name: "Game actions", exact: true }).click();
+    await openLibraryActions(page, renamed);
     const box = (await menu.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(width);

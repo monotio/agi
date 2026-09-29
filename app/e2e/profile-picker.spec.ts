@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, openLibraryActions, textHook } from "./engineProbe.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
@@ -79,7 +79,7 @@ test("keeping the default or pressing Escape stores no override", async ({ page 
   await expect(picker).toBeHidden();
 
   const card = savedGameCard(page, "synthetic-keep");
-  await card.getByRole("button", { name: "Game actions" }).click();
+  await openLibraryActions(page, card);
   await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
     "2.936 (container default)",
   );
@@ -100,7 +100,7 @@ test("the card menu changes the profile and returns it to automatic", async ({ p
   const picker = page.getByTestId("profile-picker-dialog");
   const select = page.getByTestId("profile-picker-select");
 
-  await card.getByRole("button", { name: "Game actions" }).click();
+  await openLibraryActions(page, card);
   await menuItem.click();
   await expect(picker).toBeVisible();
   await expect(select).toHaveValue("");
@@ -112,13 +112,13 @@ test("the card menu changes the profile and returns it to automatic", async ({ p
   await expect.poll(async () => (await textHook(page)).profile).toBe("2.440");
 
   await page.goto("/");
-  await card.getByRole("button", { name: "Game actions" }).click();
+  await openLibraryActions(page, card);
   await expect(menuItem).toContainText("2.440 (your override)");
   await menuItem.click();
   await expect(select).toHaveValue("2.440");
   await select.selectOption("");
   await page.getByTestId("profile-picker-confirm").click();
   await expect(picker).toBeHidden();
-  await card.getByRole("button", { name: "Game actions" }).click();
+  await openLibraryActions(page, card);
   await expect(menuItem).toContainText("2.936 (container default)");
 });

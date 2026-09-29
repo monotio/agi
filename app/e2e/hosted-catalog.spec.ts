@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, openLibraryActions, textHook } from "./engineProbe.ts";
 import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 
@@ -105,7 +105,7 @@ test("a hosted game's declared interpreter is the one its library entry and play
   // production bundle runs this too).
   await page.getByTestId("btn-exit").click();
   const saved = page.getByTestId("saved-game-card-catalog-declared-1.0.0");
-  await saved.getByRole("button", { name: "Game actions" }).click();
+  await openLibraryActions(page, saved);
   await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
     "2.089 (your override)",
   );
