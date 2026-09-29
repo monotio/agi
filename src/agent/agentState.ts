@@ -5,7 +5,9 @@
  * Play boot path — a project export, a Studio Keep, the Studio's source
  * reader — can use them without loading the authoring tools.
  */
-import { AssemblerError, assembleLogic } from "../logic/assembler.ts";
+import { compileProjectLogic } from "../authoring/projectLogic.ts";
+import { buildObjectFile } from "../authoring/inventory.ts";
+export { buildObjectFile } from "../authoring/inventory.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import { sourceCompilesTo } from "../picture/source.ts";
 import { createAuthoringState, type AuthoringState } from "./authoringState.ts";
@@ -13,12 +15,7 @@ import type { SoundTrackInput } from "./soundBuilder.ts";
 import type { BuildViewInput } from "../view/view.ts";
 import type { GameContainer } from "../types.ts";
 import { createContainer } from "../container/container.ts";
-import {
-  detectProfile,
-  DEFAULT_V2_PROFILE,
-  type AgiProfile,
-  type ProfileId,
-} from "../runtime/profile.ts";
+import { detectProfile, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
 
 /**
  * A rendered image returned alongside a tool result. Provider-neutral on
@@ -90,55 +87,6 @@ export interface AgentSessionState {
   getFiles(): Map<string, Uint8Array>;
 }
 
-const MESSAGE_KEY = "Avis Durgan";
-
-export function buildObjectFile(
-  items: readonly { name: string; startingRoom?: number | undefined }[],
-  profile: AgiProfile = DEFAULT_V2_PROFILE,
-  maximumDrawableObjectIndex = 255,
-): Uint8Array {
-  const header = profile.inventoryHeaderBytes;
-  const stride = profile.inventoryEntryBytes;
-  const tableSize = items.length * stride;
-  let totalNamesLen = 0;
-  for (const item of items) {
-    totalNamesLen += item.name.length + 1;
-  }
-  const plain = new Uint8Array(header + tableSize + totalNamesLen);
-  plain[0] = tableSize & 0xff;
-  plain[1] = (tableSize >> 8) & 0xff;
-  // The drawable-object index lives in header bytes 2..3 where the header has
-  // room (PC one byte, Amiga u16le); the two-byte 2.001 header omits it.
-  if (header >= 3) {
-    plain[2] = maximumDrawableObjectIndex & 0xff;
-    if (header === 4) plain[3] = (maximumDrawableObjectIndex >> 8) & 0xff;
-  }
-
-  let currentOffset = tableSize;
-  let poolAt = header + tableSize;
-
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]!;
-    const entryAt = header + i * stride;
-    plain[entryAt] = currentOffset & 0xff;
-    plain[entryAt + 1] = (currentOffset >> 8) & 0xff;
-    plain[entryAt + 2] = (item.startingRoom ?? 0) & 0xff;
-
-    for (let c = 0; c < item.name.length; c++) {
-      plain[poolAt++] = item.name.charCodeAt(c);
-    }
-    plain[poolAt++] = 0;
-    currentOffset += item.name.length + 1;
-  }
-
-  if (!profile.inventoryMetadataEncrypted) return plain;
-  const encrypted = new Uint8Array(plain.length);
-  for (let i = 0; i < plain.length; i++) {
-    encrypted[i] = plain[i]! ^ MESSAGE_KEY.charCodeAt(i % MESSAGE_KEY.length);
-  }
-  return encrypted;
-}
-
 /**
  * `profile` is the game's interpreter override, when the player chose one;
  * without it the profile is detected from the container's files.
@@ -208,20 +156,11 @@ export function assembleAuthoredLogic(
   },
   source: string,
 ) {
-  const defined = new Set([...source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]));
-  const prelude = Object.entries(session.authoring.bindings)
-    .filter(([name]) => !defined.has(name))
-    .map(([name, binding]) => `#define ${name} ${binding.num}`);
-  try {
-    return assembleLogic(prelude.length ? `${prelude.join("\n")}\n${source}` : source, {
-      dictionary: session.sources.words,
-      profile: session.profile,
-    });
-  } catch (error) {
-    if (!(error instanceof AssemblerError) || error.line <= prelude.length) throw error;
-    const detail = error.message.slice(`${error.line}:${error.col}: `.length);
-    throw new AssemblerError(detail, error.line - prelude.length, error.col);
-  }
+  return compileProjectLogic(source, {
+    profile: session.profile,
+    bindings: session.authoring.bindings,
+    dictionary: session.sources.words,
+  }).assembly;
 }
 
 /**

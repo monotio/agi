@@ -269,7 +269,9 @@ export async function bodyTransaction<T>(
 export async function updateBodyRecords<T>(
   key: string,
   update: (stored: unknown) => { result: T; puts?: unknown[]; deletes?: string[] },
-  guard?: { key: string; check: (stored: unknown) => void },
+  guard?:
+    | { key: string; check: (stored: unknown) => void }
+    | readonly { key: string; check: (stored: unknown) => void }[],
 ): Promise<T> {
   const db = await openDatabase();
   return new Promise<T>((resolve, reject) => {
@@ -291,13 +293,16 @@ export async function updateBodyRecords<T>(
           transaction.abort();
         }
       };
-      if (guard === undefined) apply();
-      else {
-        const guarded = store.get(guard.key);
+      const guards = guard === undefined ? [] : Array.isArray(guard) ? guard : [guard];
+      let remaining = guards.length;
+      if (remaining === 0) apply();
+      for (const each of guards) {
+        const guarded = store.get(each.key);
         guarded.onsuccess = () => {
+          if (contractError) return;
           try {
-            guard.check(guarded.result);
-            apply();
+            each.check(guarded.result);
+            if (--remaining === 0) apply();
           } catch (error) {
             contractError = error instanceof Error ? error : new Error(String(error));
             transaction.abort();
@@ -692,18 +697,11 @@ async function readBody(
   projectId: ProjectId,
   onLifetime?: (lifetime: string | null) => void,
 ): Promise<CachedGameData | null> {
-  const raw = localStorage.getItem(getStorageKey(projectId));
-  if (!raw) return null;
-  const index = JSON.parse(raw) as Record<string, unknown>;
-  if (
-    index["format"] !== "monotio.agi.project-index" ||
-    index["version"] !== 1 ||
-    index["storage"] !== "indexeddb"
-  )
-    throw new Error(UNREADABLE_PROJECT_MESSAGE);
+  const raw = readableIndex(projectId);
   const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
   const stored = snapshot.head as StoredGameBody | undefined;
   onLifetime?.(liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime));
+  if (!stored && raw === null) return null;
   if (!stored)
     throw new Error(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
@@ -810,6 +808,247 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
   }
   return written.lifetime;
 }
+/** IndexedDB is authoritative; an inaccessible cache must not hide a committed body. */
+function readableIndex(id: ProjectId): string | null {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(getStorageKey(id));
+  } catch {
+    return null;
+  }
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const index = parsed as Record<string, unknown>;
+  if (
+    index["format"] !== "monotio.agi.project-index" ||
+    index["version"] !== 1 ||
+    index["storage"] !== "indexeddb"
+  )
+    throw new Error(UNREADABLE_PROJECT_MESSAGE);
+  return raw;
+}
+
+interface CommittedProjectIdentity {
+  readonly projectId: ProjectId;
+  readonly generation: number;
+  readonly lifetime: string;
+  readonly revision: ResourceRevision;
+  readonly authoring: AuthoringFingerprint;
+  readonly buildId: string;
+}
+
+export interface ProjectCommitRequest {
+  readonly projectId: ProjectId;
+  readonly commitId: string;
+  readonly workspaceId: string;
+  readonly buildId: string;
+  readonly expected: CommittedProjectIdentity | null;
+  readonly documents: readonly { readonly key: string; readonly version: number }[];
+  readonly data: Omit<CachedGameData, "projectId" | "authoredAt" | "generation">;
+}
+
+export interface ProjectCommitReceipt {
+  readonly commitId: string;
+  readonly workspaceId: string;
+  readonly candidateHash: string;
+  readonly documents: readonly { readonly key: string; readonly version: number }[];
+  readonly saved: CommittedProjectIdentity;
+}
+
+interface StoredProjectCommit {
+  projectId: string;
+  format: "monotio.agi.project-commit";
+  version: 1;
+  receipt: ProjectCommitReceipt;
+}
+
+// Tags distinguish byte arrays, arrays and records. JSON escapes lone UTF-16
+// surrogates, so source spelling survives hashing as well as storage.
+function commitContent(value: unknown): unknown {
+  if (value === undefined) return ["undefined"];
+  if (Object.is(value, -0)) return ["negative-zero"];
+  if (value instanceof Uint8Array) return ["bytes", Array.from(value)];
+  if (Array.isArray(value)) return ["array", Array.from(value, commitContent)];
+  if (value !== null && typeof value === "object") {
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
+      throw new Error("A project commit contains an unsupported value.");
+    return [
+      "record",
+      Object.keys(value)
+        .sort(compareCodePoints)
+        .map((key) => [key, commitContent((value as Record<string, unknown>)[key])]),
+    ];
+  }
+  if (typeof value === "number" && !Number.isFinite(value))
+    throw new Error("A project commit contains a non-finite number.");
+  if (value !== null && !["string", "number", "boolean"].includes(typeof value))
+    throw new Error("A project commit contains an unsupported value.");
+  return value;
+}
+
+/**
+ * Publish a complete, already validated candidate and its retry receipt in one
+ * transaction. A receipt acknowledges durable storage only; installing the build
+ * in a worker is a separate operation. The caller owns compilation and references.
+ * Candidate metadata accepts finite JSON values, undefined and Uint8Array bytes;
+ * other structured-clone types are rejected before storage.
+ */
+export async function commitProject(input: ProjectCommitRequest): Promise<{
+  receipt: ProjectCommitReceipt;
+  warnings: readonly "indexRepairPending"[];
+}> {
+  // Ownership precedes every await, including waiting behind another writer.
+  const request = structuredClone(input);
+  if (
+    projectId(request.projectId) === null ||
+    projectId(request.commitId) === null ||
+    projectId(request.workspaceId) === null ||
+    resourceRevision(request.buildId) === null
+  )
+    throw new Error("Invalid project commit identity.");
+  const keys = new Set<string>();
+  for (const document of request.documents) {
+    if (
+      typeof document.key !== "string" ||
+      !document.key ||
+      keys.has(document.key) ||
+      !Number.isSafeInteger(document.version) ||
+      document.version < 0
+    )
+      throw new Error("Invalid captured document version.");
+    keys.add(document.key);
+  }
+  if (request.expected !== null && request.expected.projectId !== request.projectId)
+    throw new Error("The commit base belongs to another project.");
+  const candidateHash = sha256Hex(new TextEncoder().encode(JSON.stringify(commitContent(request))));
+  return serializeWrite(request.projectId, async () => {
+    readableIndex(request.projectId);
+    const data: CachedGameData = {
+      ...request.data,
+      projectId: request.projectId,
+      authoredAt: new Date().toISOString(),
+    };
+    await stampLibraryMetadata(data, true);
+    let current: StoredGameBody | undefined;
+    let previousLifetime: HistoryLifetime | undefined;
+    const receiptKey = `commit/${request.projectId}/${request.commitId}`;
+    const committed = await updateBodyRecords(
+      receiptKey,
+      (raw) => {
+        if (current !== undefined) {
+          readStoredBody(current, request.projectId);
+          readLibrary(current);
+        }
+        const lifetime = liveLifetime(previousLifetime);
+        if (raw !== undefined) {
+          const stored = raw as StoredProjectCommit;
+          if (stored.format !== "monotio.agi.project-commit" || stored.version !== 1)
+            throw new Error("This project commit version is not supported by this app.");
+          if (stored.projectId !== receiptKey || stored.receipt.candidateHash !== candidateHash)
+            throw new Error("This commit ID was reused for a different candidate.");
+          if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
+            throw new ProjectDeletedError(
+              "This commit belongs to a removed or replaced project lifetime.",
+            );
+          return { result: { receipt: stored.receipt, body: current, changed: false } };
+        }
+        const expected = request.expected;
+        if (expected === null) {
+          if (current !== undefined) throw new ProjectExistsError("This project already exists.");
+        } else {
+          if (current === undefined || lifetime !== expected.lifetime)
+            throw new ProjectDeletedError(
+              "This project was removed or replaced by another window.",
+            );
+          if (
+            generationOf(current) !== expected.generation ||
+            current.library?.revision !== expected.revision ||
+            authoringFingerprint(current.authoringState) !== expected.authoring
+          )
+            throw new ConcurrencyConflictError(
+              "This project was modified by another window.",
+              current,
+            );
+        }
+        data.generation = generationOf(current) + 1;
+        if (!Number.isSafeInteger(data.generation))
+          throw new Error("Project generation limit reached.");
+        const epoch = current === undefined ? crypto.randomUUID() : lifetime;
+        if (epoch === null) throw new ProjectDeletedError("This project lifetime was removed.");
+        const receipt: ProjectCommitReceipt = {
+          commitId: request.commitId,
+          workspaceId: request.workspaceId,
+          candidateHash,
+          documents: request.documents,
+          saved: {
+            projectId: request.projectId,
+            generation: data.generation,
+            lifetime: epoch,
+            revision: data.library!.revision,
+            authoring: authoringFingerprint(data.authoringState),
+            buildId: request.buildId,
+          },
+        };
+        const body = storedBody(data);
+        const puts: unknown[] = [
+          body,
+          {
+            projectId: receiptKey,
+            format: "monotio.agi.project-commit",
+            version: 1,
+            receipt,
+          } satisfies StoredProjectCommit,
+        ];
+        if (current === undefined)
+          puts.push({
+            projectId: `lifetime/${request.projectId}`,
+            epoch,
+            deleted: false,
+          } satisfies HistoryLifetime);
+        return { result: { receipt, body, changed: true }, puts };
+      },
+      [
+        {
+          key: request.projectId,
+          check: (raw) => {
+            current = raw as StoredGameBody | undefined;
+          },
+        },
+        {
+          key: `lifetime/${request.projectId}`,
+          check: (raw) => {
+            previousLifetime = raw as HistoryLifetime | undefined;
+          },
+        },
+      ],
+    );
+    const warnings: "indexRepairPending"[] = [];
+    try {
+      // An old retry must refresh from the current body, never its old candidate.
+      localStorage.setItem(
+        getStorageKey(request.projectId),
+        JSON.stringify(storedIndex(committed.body)),
+      );
+    } catch {
+      warnings.push("indexRepairPending");
+    }
+    if (committed.changed)
+      announceProjectWrite({
+        projectId: request.projectId,
+        generation: committed.receipt.saved.generation,
+        revision: committed.receipt.saved.revision,
+        fingerprint: committed.receipt.saved.authoring,
+      });
+    return { receipt: structuredClone(committed.receipt), warnings };
+  });
+}
+
 export function serializeWrite<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const next = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(operation);
   writes.set(key, next);
@@ -1172,13 +1411,12 @@ export function updateGamePreview(
   });
 }
 
-/** Rebuild the disposable index from committed IndexedDB bodies after an interrupted write. */
-export async function reconcileGameIndex(): Promise<void> {
+async function storedProjects(): Promise<StoredGameBody[]> {
   // Keys first: the shared store also carries history batch/blob bodies, and
   // getAll() would clone every tape into memory just to name the projects.
   // Only the candidate project bodies are read — history keys all live under
   // `history/` and `conversation/` prefixes.
-  const bodies = await (async (): Promise<StoredGameBody[]> => {
+  return (async (): Promise<StoredGameBody[]> => {
     const db = await openDatabase();
     return new Promise<StoredGameBody[]>((resolve, reject) => {
       const transaction = db.transaction("projects", "readonly");
@@ -1209,6 +1447,34 @@ export async function reconcileGameIndex(): Promise<void> {
         reject(transaction.error ?? new Error("Project storage transaction aborted."));
     });
   })();
+}
+
+/** Discover committed projects even when the disposable metadata cache is unavailable. */
+export async function listStoredProjects(): Promise<CachedGameMeta[]> {
+  const bodies = await storedProjects();
+  const entries: CachedGameMeta[] = [];
+  for (const body of bodies) {
+    if (
+      typeof body.title !== "string" ||
+      typeof body.authoredAt !== "string" ||
+      typeof body.provider !== "string" ||
+      typeof body.model !== "string"
+    )
+      continue;
+    try {
+      const data = readStoredBody(body, body.projectId);
+      data.library = readLibrary(data);
+      entries.push(metadata(data));
+    } catch {
+      // An unreadable record stays untouched and cannot hide the readable ones.
+    }
+  }
+  return entries.sort((a, b) => compareCodePoints(b.authoredAt, a.authoredAt));
+}
+
+/** Rebuild the disposable index from committed IndexedDB bodies after an interrupted write. */
+export async function reconcileGameIndex(): Promise<void> {
+  const bodies = await storedProjects();
   const projectIds = bodies.map((data) => data.projectId);
   for (const projectId of projectIds) {
     await serializeWrite(projectId, async () => {

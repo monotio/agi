@@ -1,3 +1,4 @@
+import { resourceRevisionBytes } from "../../../src/authoring/resourceRevision.ts";
 import { detectKnownGameByHashes, type KnownAgiGame } from "../../../src/games/knownGames.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import {
@@ -7,7 +8,7 @@ import {
   type ResourceRevision,
 } from "../../../src/gameIdentity.ts";
 import { sha256Hex } from "./crypto.ts";
-import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
+import { canonicalResourceName } from "../../../src/container/playableFiles.ts";
 import type { BootedGame } from "./gameTypes.ts";
 import {
   PROFILES,
@@ -198,34 +199,7 @@ export { isPlayableFileName } from "../../../src/container/playableFiles.ts";
  * playable bytes give the same revision.
  */
 export async function gameRevision(files: Record<string, Uint8Array>): Promise<ResourceRevision> {
-  const encoder = new TextEncoder();
-  const normalized = new Map<string, Uint8Array>();
-  for (const [name, bytes] of Object.entries(files)) {
-    if (!isPlayableFileName(name)) continue;
-    const key = canonicalResourceName(name);
-    if (normalized.has(key)) throw new Error(`Duplicate game resource name: ${name}.`);
-    normalized.set(key, bytes);
-  }
-  const entries = [...normalized].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  const parts = entries.map(([name, bytes]) => ({
-    name: encoder.encode(name),
-    bytes,
-  }));
-  const packed = new Uint8Array(
-    parts.reduce((n, entry) => n + 8 + entry.name.length + entry.bytes.length, 0),
-  );
-  const view = new DataView(packed.buffer);
-  let offset = 0;
-  for (const { name, bytes } of parts) {
-    view.setUint32(offset, name.length);
-    view.setUint32(offset + 4, bytes.length);
-    packed.set(name, offset + 8);
-    packed.set(bytes, offset + 8 + name.length);
-    offset += 8 + name.length + bytes.length;
-  }
-  // The packed digest is a ResourceRevision by construction; validate it the
-  // same way a serialized one is, so the brand is never an unchecked cast.
-  return resourceRevision(await sha256Hex(packed))!;
+  return resourceRevision(await sha256Hex(resourceRevisionBytes(files)))!;
 }
 
 /** Identify a collection of game files by hashing WORDS.TOK. */

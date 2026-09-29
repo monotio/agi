@@ -456,10 +456,41 @@ interface ClockBranch {
   clauses: ClockConditionTerm[][];
 }
 
+/** A session-local pre-execution occurrence, detached from mutable engine frames. */
+export interface ExecutionBoundary {
+  readonly sequence: number;
+  readonly logic: number;
+  readonly pc: number;
+  readonly kind: "action" | "return" | "goto" | "if" | "predicate";
+  /** Actual handler opcode; pc includes a condition's NOT source-map prefix. */
+  readonly opcodePc: number;
+  readonly frames: readonly {
+    readonly invocationId: number;
+    readonly logic: number;
+    readonly pc: number;
+    readonly callsite: number | null;
+  }[];
+}
+
+interface ConditionCursor {
+  pc: number;
+  or: boolean;
+  satisfied: boolean;
+  negate: boolean;
+  failed: boolean;
+}
+
+/** Cooperative yields carry no AGI event, time advance or host answer. */
+class ExecutionYield {}
+
 interface LogicFrame {
   logic: number;
   resource: LogicResource;
   pc: number;
+  condition?: ConditionCursor;
+  invocationId?: number;
+  callsite?: number;
+  boundary?: ExecutionBoundary;
   /** Clock conditions evaluated in this invocation and their untaken successors. */
   clockBranches?: Map<number, ClockBranch>;
   clockWrites?: Map<number, number[]>;
@@ -723,6 +754,14 @@ export class Engine {
   private readonly dictionary: ReadonlyMap<string, number> | undefined;
   private readonly instructionBudget: number;
   private remainingInstructions: number;
+  private executionGate: ((boundary: ExecutionBoundary) => boolean) | null = null;
+  private stoppedExecution: ExecutionBoundary | null = null;
+  private resumedSequence: number | null = null;
+  private executionSequence = 0;
+  private invocationSequence = 0;
+  private executionSlice = 1024;
+  private yieldedExecution = false;
+  private executionFault: unknown = null;
 
   constructor(
     container: GameContainer,
@@ -784,6 +823,7 @@ export class Engine {
       payload: Uint8Array;
     }[],
   ): void {
+    this.assertExecutionBoundary();
     this.container.putResources(resources);
     for (const { kind, num } of resources) this.evictPatched(kind, num);
   }
@@ -825,6 +865,7 @@ export class Engine {
     objects?: Uint8Array;
     tests?: Uint8Array;
   }): void {
+    this.assertExecutionBoundary();
     const existingItems = this.inventoryMetadata().entryCount;
     if (files.words) this.container.putFile("WORDS.TOK", files.words);
     if (files.tests) this.container.putFile("TESTS.JSON", files.tests);
@@ -955,6 +996,44 @@ export class Engine {
   /** Whether a modal window or persistent window is active. */
   get modalOpen(): boolean {
     return this.modalKind !== null || this.persistentWindow !== null;
+  }
+
+  private assertExecutionBoundary(): void {
+    if (this.executionFault !== null) throw this.executionFault;
+    if (
+      this.executionGate !== null &&
+      (this.pendingLogic !== null || this.stoppedExecution !== null || this.yieldedExecution)
+    )
+      throw new Error(
+        "Cannot replace or bypass parked execution; finish the cycle or start a new engine.",
+      );
+  }
+
+  /** Install control only between cycles; callbacks return true to stop before mutation. */
+  setExecutionGate(gate: ((boundary: ExecutionBoundary) => boolean) | null): void {
+    if (
+      this.pendingLogic !== null ||
+      this.pendingInteraction !== null ||
+      this.executionFault !== null
+    )
+      throw new Error("Execution control can change only at a completed cycle boundary.");
+    this.executionGate = gate;
+  }
+
+  get executionStop(): ExecutionBoundary | null {
+    return this.stoppedExecution;
+  }
+
+  get executionYieldPending(): boolean {
+    return this.yieldedExecution;
+  }
+
+  /** Resume precisely the reported occurrence once, including a loop at the same PC. */
+  resumeExecution(): void {
+    if (this.executionFault !== null) throw this.executionFault;
+    if (this.stoppedExecution === null) throw new Error("Execution is not stopped.");
+    this.resumedSequence = this.stoppedExecution.sequence;
+    this.stoppedExecution = null;
   }
 
   /** A message has suspended a cycle, including after its timeout expires. */
@@ -2085,6 +2164,7 @@ export class Engine {
 
   /** Restore host-only recording state after restoreImage; authentic save semantics stay unchanged. */
   restoreReplayState(value: unknown): void {
+    this.assertExecutionBoundary();
     const state = validateEngineReplayState(value);
     const views = new Map<number, AgiView>();
     for (const num of state.viewCache.loaded) {
@@ -2164,6 +2244,8 @@ export class Engine {
    * without the answer only the host can produce.
    */
   private captureContinuation(): ParkedContinuation | null {
+    if (this.executionGate !== null && this.pendingLogic !== null)
+      throw new Error("Instruction debugging requires a completed cycle checkpoint.");
     if (this.pendingLogic === null) return null;
     if (this.parkedClockWait) return null;
     if (this.pendingInteraction !== null && this.pendingInteraction.kind !== "key") return null;
@@ -2381,6 +2463,7 @@ export class Engine {
    * game untouched.
    */
   restoreImage(bytes: Uint8Array, options: { preservePresentation?: boolean } = {}): void {
+    this.assertExecutionBoundary();
     const { image, screen, presentation, continuation } = decodeHostImage(bytes);
     // Run the same restore against disposable state and a silent host first.
     // This validates both packet grammar and referenced resources before the
@@ -2737,7 +2820,15 @@ export class Engine {
   advanceClock(milliseconds: number): void {
     if (!Number.isFinite(milliseconds) || milliseconds < 0)
       throw new RangeError("Elapsed game time must be finite and nonnegative.");
-    if (this.terminated || this.timerPaused) return;
+    if (
+      this.terminated ||
+      this.executionFault !== null ||
+      this.timerPaused ||
+      this.stoppedExecution !== null ||
+      this.resumedSequence !== null ||
+      this.yieldedExecution
+    )
+      return;
     const modal = this.modal;
     if (modal !== null) {
       if (modal.kind === "print" && modal.remainingMs !== null) {
@@ -2773,6 +2864,13 @@ export class Engine {
 
   /** Advance one independent 60Hz sound tick, including during modal waits. */
   soundTick(): void {
+    if (
+      this.stoppedExecution !== null ||
+      this.resumedSequence !== null ||
+      this.yieldedExecution ||
+      this.executionFault !== null
+    )
+      return;
     if (!this.soundPlayback) return;
     const tick = this.soundPlayback.tick(
       this.flags[F_SOUND_ENABLED] !== 0,
@@ -2971,10 +3069,27 @@ export class Engine {
 
   /** One synchronous interpreter cycle (spec: top-level cycle order). */
   tick(): void {
-    this.remainingInstructions = this.instructionBudget;
-    this.backwardJumps = 0;
-    this.clockReadLogic = -1;
-    this.clockReadPc = -1;
+    if (this.executionFault !== null) throw this.executionFault;
+    try {
+      this.tickExecution();
+    } catch (error) {
+      if (this.executionGate !== null) this.executionFault = error;
+      throw error;
+    }
+  }
+
+  private tickExecution(): void {
+    if (this.stoppedExecution !== null) return;
+    this.executionSlice = 1024;
+    this.yieldedExecution = false;
+    // Compatibility Play replenishes at host segments. Armed execution retains
+    // its whole-pass budget and clock-loop bookkeeping across stops and waits.
+    if (this.executionGate === null || this.pendingLogic === null) {
+      this.remainingInstructions = this.instructionBudget;
+      this.backwardJumps = 0;
+      this.clockReadLogic = -1;
+      this.clockReadPc = -1;
+    }
     if (this.terminated) return;
     // A suspended host interaction freezes the cycle until its answer lands;
     // the host's own event loop keeps serving application commands meanwhile.
@@ -3099,7 +3214,15 @@ export class Engine {
           try {
             this.applyInteraction(frames);
           } catch (wait) {
-            if (!(wait instanceof HostWait)) throw wait;
+            if (!(wait instanceof HostWait)) {
+              if (
+                this.executionGate !== null &&
+                !(wait instanceof RoomChange) &&
+                !(wait instanceof ContinuationAbort)
+              )
+                this.pendingLogic = frames;
+              throw wait;
+            }
             this.parkedClockWait = false;
             this.pendingLogic = frames;
             return;
@@ -3966,6 +4089,7 @@ export class Engine {
 
   /** Execute until return, stream end, or a modal instruction suspends the call stack. */
   execute(logicNum: number): void {
+    this.assertExecutionBoundary();
     const resource = this.loadLogic(logicNum);
     this.runLogicStack([{ logic: logicNum, resource, pc: this.scanStart.get(logicNum) ?? 0 }]);
   }
@@ -3981,10 +4105,23 @@ export class Engine {
           frames.pop();
           continue;
         }
-        this.consumeInstructionBudget();
         const pc = frame.pc;
         const op = code[pc]!;
-        if (op !== IF) this.traceInstruction(code, pc);
+        if (frame.condition === undefined) {
+          this.checkExecutionSlice();
+          if (
+            this.gateExecution(
+              frames,
+              pc,
+              op === IF ? "if" : op === GOTO ? "goto" : op === 0 ? "return" : "action",
+            )
+          ) {
+            this.pendingLogic = frames;
+            return;
+          }
+          this.consumeInstructionBudget();
+          if (op !== IF) this.traceInstruction(code, pc);
+        }
         if (op === 0x00) {
           frames.pop();
           continue;
@@ -4024,12 +4161,24 @@ export class Engine {
           continue;
         }
         if (op === IF) {
-          this.clockReadPc = -1;
-          // A have.key suspension resumes the same list: the conditions it
-          // already passed replay their recorded outcomes instead of
-          // re-running their side effects.
-          if (this.conditionReplayUntil < 0) this.conditionOutcomes.clear();
-          const { result, next } = this.evalConditionList(code, pc + 1);
+          if (frame.condition === undefined) {
+            this.clockReadPc = -1;
+            if (this.conditionReplayUntil < 0) this.conditionOutcomes.clear();
+            frame.condition = {
+              pc: pc + 1,
+              or: false,
+              satisfied: false,
+              negate: false,
+              failed: false,
+            };
+          }
+          const outcome = this.evalConditionList(code, frames);
+          if (outcome === null) {
+            this.pendingLogic = frames;
+            return;
+          }
+          const { result, next } = outcome;
+          delete frame.condition;
           this.conditionReplayUntil = -1;
           const body = next + 2;
           const end = body + readS16(code, next);
@@ -4050,7 +4199,12 @@ export class Engine {
           const logic = op === 0x16 ? code[pc + 1]! : this.vars[code[pc + 1]!]!;
           const resource = this.loadLogic(logic);
           frame.pc = pc + 2;
-          frames.push({ logic, resource, pc: this.scanStart.get(logic) ?? 0 });
+          frames.push({
+            logic,
+            resource,
+            pc: this.scanStart.get(logic) ?? 0,
+            ...(this.executionGate === null ? {} : { callsite: pc }),
+          });
           continue;
         }
         const clockWrites = this.actionClockWrites(code, pc);
@@ -4077,10 +4231,19 @@ export class Engine {
     } catch (wait) {
       // A host interaction that cannot answer synchronously suspends the pass:
       // the stack parks beside the pending interaction the throw armed.
-      if (wait instanceof HostWait) {
+      if (wait instanceof HostWait || wait instanceof ExecutionYield) {
         this.parkedClockWait = false;
         this.pendingLogic = frames;
+        this.yieldedExecution = wait instanceof ExecutionYield;
         return;
+      }
+      if (
+        this.executionGate !== null &&
+        !(wait instanceof RoomChange) &&
+        !(wait instanceof ContinuationAbort)
+      ) {
+        this.executionFault = wait;
+        this.pendingLogic = frames;
       }
       throw wait;
     } finally {
@@ -4298,68 +4461,100 @@ export class Engine {
     return seen;
   }
 
-  /** Evaluate a condition list starting at `from` (just after opening 0xff). */
-  private evalConditionList(code: Uint8Array, from: number): { result: boolean; next: number } {
-    let pc = from;
-    let negateNext = false;
+  private checkExecutionSlice(): void {
+    if (this.executionGate !== null && this.executionSlice-- === 0) throw new ExecutionYield();
+  }
+
+  private gateExecution(
+    frames: LogicFrame[],
+    pc: number,
+    kind: ExecutionBoundary["kind"],
+    opcodePc = pc,
+  ): boolean {
+    if (this.executionGate === null) return false;
+    const frame = frames[frames.length - 1]!;
+    const boundary =
+      frame.boundary ??
+      Object.freeze({
+        sequence: ++this.executionSequence,
+        logic: frame.logic,
+        pc,
+        kind,
+        opcodePc,
+        frames: Object.freeze(
+          frames.map((active) =>
+            Object.freeze({
+              invocationId: (active.invocationId ??= ++this.invocationSequence),
+              logic: active.logic,
+              pc: active === frame ? pc : active.pc,
+              callsite: active.callsite ?? null,
+            }),
+          ),
+        ),
+      });
+    if (boundary.sequence === this.resumedSequence) {
+      this.resumedSequence = null;
+    } else if (this.executionGate(boundary)) {
+      frame.boundary = boundary;
+      this.stoppedExecution = boundary;
+      return true;
+    }
+    delete frame.boundary;
+    return false;
+  }
+
+  /** One retained cursor for normal, host-suspended and debugger-stepped IFs. */
+  private evalConditionList(
+    code: Uint8Array,
+    frames: LogicFrame[],
+  ): { result: boolean; next: number } | null {
+    const cursor = frames[frames.length - 1]!.condition!;
     for (;;) {
-      this.consumeInstructionBudget();
+      this.checkExecutionSlice();
+      const pc = cursor.pc;
       const b = code[pc]!;
-      if (b === IF) return { result: true, next: pc + 1 }; // all terms held
-      if (b === NOT) {
-        negateNext = true;
-        pc++;
+      const predicatePc = cursor.or && b === NOT ? pc + 1 : pc;
+      const evaluate =
+        !cursor.failed && b !== IF && b !== OR && (cursor.or ? !cursor.satisfied : b !== NOT);
+      const originPc = cursor.or ? pc : cursor.negate ? pc - 1 : pc;
+      if (evaluate && this.gateExecution(frames, originPc, "predicate", predicatePc)) return null;
+      this.consumeInstructionBudget();
+      if (b === IF) {
+        if (cursor.or) throw new Error("invalid condition byte 0xff in unterminated OR group");
+        return { result: !cursor.failed, next: pc + 1 };
+      }
+      if (cursor.failed) {
+        cursor.pc = b === OR || b === NOT ? pc + 1 : this.skipCondition(code, pc);
         continue;
       }
       if (b === OR) {
-        // OR group: terms until closing 0xfc; first true term satisfies it,
-        // and the original skips the remaining members' handlers entirely —
-        // their bytes are stepped over without side effects (a skipped said
-        // or have.key never runs).
-        pc++;
-        let satisfied = false;
-        for (;;) {
-          this.consumeInstructionBudget();
-          const t = code[pc]!;
-          if (t === OR) {
-            pc++;
-            break;
-          }
-          let neg = false;
-          if (t === NOT) {
-            neg = true;
-            pc++;
-          }
-          if (satisfied) {
-            pc = this.skipCondition(code, pc);
-            continue;
-          }
-          const { result, next } = this.evalOneCondition(code, pc);
-          pc = next;
-          if (result !== neg) satisfied = true;
+        if (cursor.or) {
+          cursor.or = false;
+          if (!cursor.satisfied) cursor.failed = true;
+        } else {
+          cursor.or = true;
+          cursor.satisfied = false;
         }
-        if (!satisfied) return this.failList(code, pc);
+        cursor.pc++;
         continue;
       }
-      const { result, next } = this.evalOneCondition(code, pc);
-      pc = next;
-      if (result === negateNext) return this.failList(code, pc);
-      negateNext = false;
-    }
-  }
-
-  /** Skip the rest of the list to locate the closing 0xff for the false jump. */
-  private failList(code: Uint8Array, from: number): { result: false; next: number } {
-    let pc = from;
-    for (;;) {
-      this.consumeInstructionBudget();
-      const b = code[pc]!;
-      if (b === IF) return { result: false, next: pc + 1 };
-      if (b === OR || b === NOT) {
-        pc++;
+      if (!cursor.or && b === NOT) {
+        cursor.negate = true;
+        cursor.pc++;
         continue;
       }
-      pc = this.skipCondition(code, pc);
+      if (cursor.or && cursor.satisfied) {
+        cursor.pc = this.skipCondition(code, predicatePc);
+        continue;
+      }
+      const { result, next } = this.evalOneCondition(code, predicatePc);
+      cursor.pc = next;
+      if (cursor.or) {
+        if (result !== (b === NOT)) cursor.satisfied = true;
+      } else {
+        if (result === cursor.negate) cursor.failed = true;
+        cursor.negate = false;
+      }
     }
   }
 
@@ -6265,6 +6460,7 @@ export class Engine {
    * post-switch sequence tick() runs is applied directly.
    */
   reenterRoom(room: number = this.vars[V_ROOM]!): void {
+    this.assertExecutionBoundary();
     try {
       this.newRoom(room);
     } catch (rc) {

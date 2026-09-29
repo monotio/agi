@@ -72,8 +72,11 @@ only for released formats and keep their original fixtures.
   `test/profile.test.ts`). Hashes and canonical serializations order by code
   point, never by locale.
 
-Releases flow through `release/X.Y` and reach `main`, which deploys, only by
-pull request (docs/hosting.md, "Release branches").
+Release candidates use `rc/X.Y-rc.N` pull requests into `release/X.Y`, with both
+package versions set to `X.Y.0-rc.N`. Squash-merge a candidate only after CI passes
+and the owner accepts it. After release QA, bump both versions to `X.Y.0` and open
+`release/X.Y` into `main`, which deploys. Tag and publish the release only after
+deployment verification (docs/hosting.md, "Release branches").
 
 Local release plans stay uncommitted and must not be referenced by committed
 code, comments or documentation.
@@ -127,8 +130,10 @@ code, comments or documentation.
 - Studio code (`src/studio/`, `app/src/studio/`) stays off the Play boot path: the
   shell loads it through dynamic `import()`, and `npm run check:bundle` fails a
   build that pulls it in.
-- Browser-only, BYOK, no server. Playwright runs Vite in `test` mode with the
-  deterministic stub provider; browser tests never call paid providers.
+- The browser app is BYOK and requires no server. Optional local developer tools
+  may expose stdio protocols; Node and protocol SDK dependencies stay in
+  `scripts/`, outside `src/` and the browser graph. Playwright runs Vite in `test`
+  mode with the deterministic stub provider; browser tests never call paid providers.
 - Host interactions that cannot answer synchronously (authoring, prompts, key
   waits, save/restore) suspend the interpreter as a resumable continuation: the
   worker posts a `hostRequest` message and resumes the parked interaction when
@@ -149,6 +154,9 @@ code, comments or documentation.
   non-string keys. No one-expression wrapper functions unless the name is a public
   contract.
 - Renderer and bytecode expectations are hand-computed, never snapshot-then-trust.
+- Name editor features with vendor-neutral terms: code intelligence, completion,
+  signature help and hover documentation. Avoid branded feature names in our
+  code, UI and documentation.
 - UI copy says plainly what a thing is or does. Headings and labels name it in one
   or two calm words; body text is brief and positive. The `plain-copy-*` ast-grep
   rules flag definitions by negation and dash asides.

@@ -32,6 +32,7 @@ export default defineConfig([
     "app/test-results/",
     "app/playwright-report/",
     ".captures/",
+    ".local/",
     // Stryker mutation sandboxes and reports are generated output, not source.
     ".stryker-tmp/",
     "reports/",

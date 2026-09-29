@@ -12,6 +12,7 @@
   "exclude": [
     "src/worker/engine.worker.ts",
     "src/library/preview.worker.ts",
-    "src/studio/route.worker.ts"
+    "src/studio/route.worker.ts",
+    "src/studio/logic/analysis.worker.ts"
   ]
 }

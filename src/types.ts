@@ -58,12 +58,13 @@ export interface GameContainer {
   putResource(kind: ResourceKind, num: number, payload: Uint8Array): void;
 
   /**
-   * Add or replace several resources as one transaction: every replacement
-   * lands, or (on any refusal) none does. A later entry for the same
-   * resource wins.
+   * Add, replace or remove several resources as one transaction: every entry
+   * lands, or (on any refusal) none does. A null payload removes the resource,
+   * leaving an absent directory entry; removing an absent ID is a no-op. A
+   * later entry for the same resource wins.
    */
   putResources(
-    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[],
+    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array | null }[],
   ): void;
 
   /** Replace auxiliary game metadata with an owned copy for live remix and export. */
