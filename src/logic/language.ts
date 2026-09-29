@@ -105,7 +105,7 @@ export function createLogicLanguageSnapshot(input: {
     const previous = syntax.tokens
       .filter((token) => token.end <= offset && token.type !== "eof")
       .at(-1);
-    const gap = source.slice(previous?.end ?? 0, offset);
+    const gap = source.slice(Math.max(previous?.end ?? 0, lineStart), offset);
     if ((!at || at.type === "eof") && (gap.includes("//") || gap.trimStart().startsWith("#")))
       return [];
     const context = contextAt(offset);

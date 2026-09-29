@@ -481,7 +481,9 @@ class Parser {
       let left: Ref;
       const m = /^v(\d{1,3})$/.exec(tok.text);
       if (m) {
-        left = { kind: "v", index: Number(m[1]) };
+        const index = Number(m[1]);
+        if (index > 255) throw new AssemblerError("index out of range 0..255", tok.line, tok.col);
+        left = { kind: "v", index };
       } else {
         const defined = this.defines.get(tok.text);
         this.reference("define", tok);

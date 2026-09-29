@@ -107,3 +107,20 @@ test("undefined names remain unresolved and assignment targets retain their own 
   assert.equal(source.slice(target.start, target.end), "score");
   assert.equal(target.start, source.indexOf("score ="));
 });
+
+test("assignment destinations reject out-of-range registers instead of wrapping their byte", () => {
+  for (const source of ["v256 = 1;", "v300 = v1;", "v999 = 0;"]) {
+    assert.throws(
+      () => assembleLogic(source, { dictionary: new Map() }),
+      /index out of range 0\.\.255/,
+    );
+    const analysis = analyzeLogicSyntax(source + "\nreturn;");
+    assert.match(analysis.diagnostics[0]?.message ?? "", /index out of range/);
+    assert.equal(analysis.diagnostics[0]?.start, 0);
+    assert.equal(analysis.program.at(-1)?.type, "return");
+  }
+  assert.deepEqual(
+    [...assembleLogic("v255 = 1; return;", { dictionary: new Map() }).code],
+    [3, 255, 1, 0],
+  );
+});

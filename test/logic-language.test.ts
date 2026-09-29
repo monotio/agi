@@ -106,3 +106,15 @@ test("statement completion includes AGI control syntax without inventing command
   const directive = createLogicLanguageSnapshot({ source: "#def", ...context });
   assert.ok(directive.completeAt(4).some((entry) => entry.label === "#define"));
 });
+
+test("a previous line's comment does not suppress completion on the next line", () => {
+  for (const source of ["// room logic\n", "return; // done\n", "// room logic\r\n  "]) {
+    const language = createLogicLanguageSnapshot({ source, ...context });
+    assert.ok(language.completeAt(source.length).some((entry) => entry.label === "if"));
+  }
+  const source = "return; // still a comment";
+  assert.deepEqual(
+    createLogicLanguageSnapshot({ source, ...context }).completeAt(source.length),
+    [],
+  );
+});
