@@ -296,8 +296,12 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
     pendingAutosave.value = resumableAutosave() ?? undefined;
   }
 
-  /** Discard the resumed game's progress and boot it from the top. */
-  async function onStartOver(): Promise<void> {
+  /**
+   * Discard the resumed game's progress and boot it from the top. A running
+   * game's unsaved timeline refuses it (HistoryUnsavedError) unless
+   * `abandonHistory` starts over without that tail.
+   */
+  async function onStartOver(options?: { abandonHistory?: boolean }): Promise<void> {
     const current = currentGame();
     const pending = pendingAutosave.value?.game;
     const target =
@@ -306,7 +310,7 @@ export function createGameLibrary(engine: EngineApi, ai: AiSettingsApi, bridge: 
       lastGameKey();
     if (!target) return;
     await resumeAudio();
-    await startOver(target, llmConfig());
+    await startOver(target, llmConfig(), options);
     refreshPendingAutosave();
   }
 
