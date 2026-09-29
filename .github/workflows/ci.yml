@@ -97,7 +97,7 @@ jobs:
   e2e:
     name: Playwright (${{ matrix.label }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
