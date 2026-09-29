@@ -194,9 +194,10 @@ export function filledCell(
 
 /**
  * 160x168 mask: 1 where item `itemId` owns the final cell on `plane` (or on
- * either plane for "both"); all zero when the document has no such item. The
- * UI builds each plane's `allowedMask` as the OR of the edited items' masks
- * on that plane, before and after the edit. `commands` keeps only the cells
+ * either plane for "both"); all zero when the document has no such item.
+ * Room Studio reports as side effects the changed cells outside the OR of the
+ * edited items' masks on each plane, before and after the edit
+ * (app/src/studio/studioLocks.ts). `commands` keeps only the cells
  * whose owning command is a fill ("fills") or is not ("bounded"), read from
  * the opcode the renderer recorded as the cell's owner.
  */

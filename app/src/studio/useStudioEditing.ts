@@ -4,9 +4,11 @@
  * Ungroup for one item; nudge, duplicate, delete, priority and Group for
  * several. Each is one kernel edit (a batch for several items) and one undo
  * step, and the short notice that says what was refused (with the refused
- * cells flashed on the canvas) or kept. Draw order moves one item at a time.
- * A group takes the id of a member a door follows, so the door follows the
- * group (src/studio/rules/ruleBinding.ts followedItem).
+ * cells flashed on the canvas), or what else changed: another item's fill
+ * that pours differently, which the edit's own undo step takes back. Draw
+ * order moves one item at a time. A group takes the id of a member a door
+ * follows, so the door follows the group (src/studio/rules/ruleBinding.ts
+ * followedItem).
  */
 
 import { computed, onScopeDispose, shallowRef, type Ref } from "vue";
@@ -20,15 +22,19 @@ import {
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
 import { followedItem } from "../../../src/studio/rules/ruleBinding.ts";
 import { carriedPlanes, type StudioCheck } from "./studioLocks.ts";
-import { edgeRefusal, movedWith } from "./studioMessages.ts";
+import { sideEffectLine } from "../../../src/studio/sideEffects.ts";
+import { keyLabel } from "../ui/keyLabel.ts";
+import { edgeRefusal, movedWith, sideEffectNote } from "./studioMessages.ts";
 import type { StudioLens } from "./studioView.ts";
 import { freshItemId, itemIdFor, type DraftOutcome, type StudioDraft } from "./useStudioDraft.ts";
-import { useStudioNotice, type NoticeAction } from "./useStudioNotice.ts";
+import { useStudioNotice, type NoticeAction, type StudioNotice } from "./useStudioNotice.ts";
 
 /** How far Cmd/Ctrl+D offsets a copy, in logical pixels. */
 const DUPLICATE_OFFSET = 4;
 /** How long a refusal's cells stay highlighted. */
 const FLASH_MS = 1600;
+/** The undo key, as the side-effect note names it. */
+const UNDO = keyLabel("Mod+Z");
 
 export interface ItemMetaPatch {
   readonly label?: string;
@@ -81,10 +87,23 @@ export function useStudioEditing(options: {
   /** The selected items, when the creator may edit them now. */
   const editableItems = computed(() => (blocked() ? [] : targets.value));
 
-  /** Show what an edit did: a refusal's reason (and its cells), or nothing. */
+  /** The last side-effect note shown; the next edit clears it. */
+  let spilled: StudioNotice | null = null;
+
+  /**
+   * Show what an edit did: a refusal's reason (and its cells), what else it
+   * changed (its side effects on other items), or nothing.
+   */
   function report(outcome: DraftOutcome): void {
     if (outcome.ok) {
-      if (notice.value?.tone === "warn") say(null);
+      if (outcome.sideEffects) {
+        spilled = {
+          tone: "ok",
+          text: sideEffectNote(outcome.sideEffects, UNDO),
+          detail: sideEffectLine(outcome.sideEffects),
+        };
+        say(spilled);
+      } else if (notice.value?.tone === "warn" || notice.value === spilled) say(null);
       return;
     }
     const { refusal } = outcome;
@@ -148,7 +167,14 @@ export function useStudioEditing(options: {
     const items = draft.document.value.items.filter((candidate) => ids.includes(candidate.id));
     const what = items.length === 1 ? items[0]!.label : `${items.length} items`;
     const text = movedWith(what, items.length > 1, carriedPlanes(draft.compiled.value, ids, lens));
-    if (text) say({ tone: "ok", text });
+    if (!text) return;
+    // A move that also changed other items keeps saying so.
+    const also = notice.value !== null && notice.value === spilled ? spilled : null;
+    const next: StudioNotice = also
+      ? { ...also, text: `${text} ${also.text}` }
+      : { tone: "ok", text };
+    if (also) spilled = next;
+    say(next);
   }
 
   function duplicate(): boolean {

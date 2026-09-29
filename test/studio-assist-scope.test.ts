@@ -25,6 +25,8 @@ import {
   AFTER_BRIDGE,
   BRIDGE_AREA,
   BRIDGE_SOURCE,
+  ISLAND_MOVE,
+  ISLAND_SOURCE,
   RIVER_UNDER_BRIDGE,
   ROBOT_CELS,
   ROBOT_VIEW,
@@ -71,6 +73,17 @@ function walkScope(before: CompiledDocument, overrides: Partial<PictureAssistSco
     ...overrides,
   };
 }
+
+/** Each side effect as its item id, label, plane, cell count, bounding box and fill flag. */
+const effects = (check: AssistCheck) =>
+  (check.sideEffects?.effects ?? []).map((e) => [
+    e.itemId,
+    e.label,
+    e.plane,
+    e.count,
+    e.bbox,
+    e.fill,
+  ]);
 
 test("the draft revision names the exact text or bytes", () => {
   assert.equal(
@@ -172,6 +185,46 @@ test("an item outside the selection keeps its identity", () => {
   );
 });
 
+test("moving an outline drawn before another item's fill passes, the fill's new pour reported", () => {
+  // The grass pours around the island: moved 8 right, the island takes the
+  // grass along its new outline. Refused before side effects were reported.
+  const before = compile(ISLAND_SOURCE);
+  const after = edit(before, { type: "moveItem", itemId: "island", dx: ISLAND_MOVE.dx, dy: 0 });
+  const check = checkCandidate(before, after, artScope(before, "island"));
+  assert.equal(check.ok, true);
+  assert.deepEqual(check.violations, []);
+  assert.deepEqual(effects(check), [
+    ["grass", "Grass", "art", ISLAND_MOVE.cells, ISLAND_MOVE.bbox, true],
+  ]);
+  assert.deepEqual(check.sideEffects?.items, [
+    { itemId: "grass", label: "Grass", cells: ISLAND_MOVE.cells, fill: true },
+  ]);
+  assert.equal(check.sideEffects?.cells, ISLAND_MOVE.cells);
+});
+
+test("an unselected item's commands, and the loose steps, stay: the check refuses a rewrite", () => {
+  const before = compile(ISLAND_SOURCE);
+  // The grass reseeded: its pixels are the same, its commands are not.
+  const reseeded = compile(ISLAND_SOURCE.replace("fill 80,100", "fill 90,100"));
+  assert.deepEqual(
+    checkCandidate(before, reseeded, artScope(before, "island")).violations.map((v) => [
+      v.constraint,
+      v.message,
+    ]),
+    [
+      [
+        "outside-target",
+        `item 'grass' ("Grass") is not selected but would have its commands changed`,
+      ],
+    ],
+  );
+  const loose = compile(ISLAND_SOURCE.replace("\nend\n", "\nvis 4\nline 0,0 5,0\nend\n"));
+  assert.deepEqual(
+    checkCandidate(before, loose, artScope(before, "island")).violations.map((v) => v.message),
+    ["the loose steps outside every item would change"],
+  );
+});
+
 test("a candidate from another draft is stale", () => {
   const before = compile(BRIDGE_SOURCE);
   const scope = walkScope(compile(BRIDGE_SOURCE.replace('"Sky"', '"Clouds"')));
@@ -246,12 +299,13 @@ test("a footprint splits into the item's fills and its bounded commands", () => 
   assert.equal(cells(footprintMask(before, "river", "visual", "fills")), 0, "the river has no art");
 });
 
-test("a target's fill that escapes its shrunken outline is refused, in words the model can act on", () => {
+test("a target's fill that escapes its shrunken outline is a side effect, reported with its cells", () => {
   // QA probe: the river's rect shrinks to 0,120..3,122, leaving its fill
   // seed 5,130 outside. The priority fill (3) floods every floor cell (4):
-  // the 23,680 cells above and below the river rows. Inside the river rows
-  // 356 cells change too (the old outline and the new corner), which the
-  // river's own cells license.
+  // the 23,680 cells above and below the river rows, which no command drew
+  // before (the sky is art only). Inside the river rows 356 cells change too
+  // (the old outline and the new corner), which the river's own cells
+  // license.
   const before = compile(BRIDGE_SOURCE);
   const scope = pictureAssistScope({
     num: 1,
@@ -263,14 +317,11 @@ test("a target's fill that escapes its shrunken outline is refused, in words the
   const area = footprintMask(before, "river", "both");
   assert.deepEqual(priorityChanges(before, after, area), { changed: 24036, outside: 23680 });
   const check = checkCandidate(before, after, scope);
-  assert.deepEqual(
-    check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]),
-    [["fill-spill", "priority", 23680, { x0: 0, y0: 0, x1: 159, y1: 167 }]],
-  );
-  assert.equal(
-    assistRefusalText(check),
-    "the River fill would spill outside the selection (23,680 cells); close the outline or keep the fill seed inside it",
-  );
+  assert.deepEqual(check.violations, []);
+  assert.deepEqual(effects(check), [
+    [null, "Blank area", "walk", 23680, { x0: 0, y0: 0, x1: 159, y1: 167 }, false],
+  ]);
+  assert.equal(check.sideEffects?.cells, 23680);
 });
 
 test("a reshaped line keeps its licence past the selection: bounded geometry", () => {
@@ -318,7 +369,7 @@ test("a moved target's fill may land in its old area moved by the same offset", 
   assert.deepEqual(checkCandidate(before, after, scope), { ok: true, violations: [] });
 });
 
-test("a fill the proposal inserts is refused where it spills out of the selection", () => {
+test("a fill the proposal inserts reports what it pours over outside the selection", () => {
   // A water fill seeded in the floor above the river floods the floor down
   // to the river's top bank, which spans the screen: rows 0..119, 160 x 120
   // = 19,200 cells, none of them in the river's rows.
@@ -340,14 +391,10 @@ test("a fill the proposal inserts is refused where it spills out of the selectio
     lens: "walk",
   });
   const check = checkCandidate(before, after, scope);
-  assert.deepEqual(
-    check.violations.map((v) => [v.constraint, v.plane, v.count, v.bbox]),
-    [["fill-spill", "priority", 19200, { x0: 0, y0: 0, x1: 159, y1: 119 }]],
-  );
-  assert.equal(
-    assistRefusalText(check),
-    "the Puddle fill would spill outside the selection (19,200 cells); close the outline or keep the fill seed inside it",
-  );
+  assert.equal(check.ok, true);
+  assert.deepEqual(effects(check), [
+    [null, "Blank area", "walk", 19200, { x0: 0, y0: 0, x1: 159, y1: 119 }, false],
+  ]);
 });
 
 test("a new bare fill does not pass as a moved copy of a selected bare fill", () => {
@@ -373,10 +420,12 @@ test("a new bare fill does not pass as a moved copy of a selected bare fill", ()
     lens: "art",
     unlocks: { ...NO_UNLOCKS, priority: true },
   });
-  assert.deepEqual(
-    checkCandidate(before, after, scope).violations.map((v) => [v.constraint, v.count, v.bbox]),
-    [["fill-spill", 80, { x0: 60, y0: 118, x1: 99, y1: 119 }]],
-  );
+  // Not licensed as a copy: those 80 cells are side effects.
+  const check = checkCandidate(before, after, scope);
+  assert.deepEqual(check.violations, []);
+  assert.deepEqual(effects(check), [
+    [null, "Blank area", "depth", 80, { x0: 60, y0: 118, x1: 99, y1: 119 }, false],
+  ]);
 });
 
 /** A picture from source lines. */
@@ -580,21 +629,22 @@ test("a target's fill follows it only when the seed moved with the outline", () 
   // The square 20,20..40,40 filled with colour 1, moved 50 right. Its new
   // interior 71..89 x 21..39 (19 x 19 = 361 cells) lies outside its old area:
   // licensed as that area moved 50 right when the seed moves 50 right too,
-  // and a fill spill when the seed lands elsewhere inside the square.
+  // and a side effect when the seed lands elsewhere inside the square.
   const item = (square: string, seed: string) =>
     picture('# @item t "T" art', "vis 1", square, seed, "# @end", "end");
   const before = item("rect 20,20 40,40", "fill 30,30");
   const scope = artScope(before, "t");
   const moved = item("rect 70,20 90,40", "fill 80,30");
   assert.deepEqual(checkCandidate(before, moved, scope), { ok: true, violations: [] });
-  const reseeded = item("rect 70,20 90,40", "fill 75,25");
-  assert.deepEqual(shape(checkCandidate(before, reseeded, scope)), [
-    ["fill-spill", "visual", 361, { x0: 71, y0: 21, x1: 89, y1: 39 }],
+  const reseeded = checkCandidate(before, item("rect 70,20 90,40", "fill 75,25"), scope);
+  assert.deepEqual(reseeded.violations, []);
+  assert.deepEqual(effects(reseeded), [
+    [null, "Blank area", "art", 361, { x0: 71, y0: 21, x1: 89, y1: 39 }, false],
   ]);
 });
 
-test("an unselected copy of the target is not the target moved", () => {
-  // U repeats T's square 50 right; recolouring U changes its 80 outline cells.
+test("an unselected copy of the target is not the target: its commands stay", () => {
+  // U repeats T's square 50 right; recolouring U rewrites its commands.
   const square = (id: string, colour: number, corners: string) => [
     `# @item ${id} "${id.toUpperCase()}" art`,
     `vis ${colour}`,
@@ -604,9 +654,11 @@ test("an unselected copy of the target is not the target moved", () => {
   const t = square("t", 1, "20,20 40,40");
   const before = picture(...t, ...square("u", 1, "70,20 90,40"), "end");
   const after = picture(...t, ...square("u", 3, "70,20 90,40"), "end");
-  assert.deepEqual(shape(checkCandidate(before, after, artScope(before, "t"))), [
-    ["outside-mask", "visual", 80, { x0: 70, y0: 20, x1: 90, y1: 40 }],
-  ]);
+  const check = checkCandidate(before, after, artScope(before, "t"));
+  assert.deepEqual(
+    check.violations.map((v) => [v.constraint, v.message]),
+    [["outside-target", `item 'u' ("U") is not selected but would have its commands changed`]],
+  );
 });
 
 test("a moved fill's licence is its old area moved, dropping cells pushed off the surface", () => {
@@ -690,7 +742,7 @@ test("a target whose first command opens with a stipple seed is compared without
   });
 });
 
-test("the refusal text leaves out what a locked plane already says, per plane", () => {
+test("a locked plane refuses its changes whole; on the others new outlines outside the selection are refused and their fills reported", () => {
   // Under the Walk lens (art locked) a new mixed item draws the outline
   // 50,50..52,52 (8 cells) and fills its one interior cell 51,51 on both
   // planes; none of it is in the selection.
@@ -707,16 +759,13 @@ test("the refusal text leaves out what a locked plane already says, per plane", 
   const seed = { x0: 51, y0: 51, x1: 51, y1: 51 };
   assert.deepEqual(shape(check), [
     ["locked-plane", "visual", 9, outline],
-    ["outside-mask", "visual", 8, outline],
     ["outside-mask", "priority", 8, outline],
-    ["fill-spill", "visual", 1, seed],
-    ["fill-spill", "priority", 1, seed],
   ]);
+  assert.deepEqual(effects(check), [[null, "Blank area", "walk", 1, seed, false]]);
   assert.equal(
     assistRefusalText(check),
     "the art (visual plane) is locked, but 9 cells at 50,50..52,52 would change; " +
-      "8 cells at 50,50..52,52 of the depth and walk (priority plane) outside the selection would change; " +
-      "the Pond fill would spill outside the selection (1 cell); close the outline or keep the fill seed inside it",
+      "8 cells at 50,50..52,52 of the depth and walk (priority plane) outside the selection would change",
   );
 });
 

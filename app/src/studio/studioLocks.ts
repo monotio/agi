@@ -2,12 +2,12 @@
  * Lens locks for Room Studio edits, judged on decoded pixels, never on the
  * edit's operations. The lens rules themselves
  * (src/studio/lensRules.ts) are shared with AI proposals (assistScope.ts),
- * so both pass the same validators. Every candidate edit is checked on its decoded planes by
- * the kernel's validateEdit, with the edited items' old and new footprints on
- * each plane as the only cells that plane may change, so an edit that changes
- * another object's output indirectly (a pre-empted fill) is refused. A
- * refusal says why in plain words, keeps the technical account as its
- * detail, and carries the cells to flash.
+ * so both pass the same validators. A refusal says why in plain words, keeps
+ * the technical account as its detail, and carries the cells to flash. An
+ * edit may change other items' output indirectly (a fill that pours
+ * differently around a moved outline): that is no refusal but a side effect,
+ * reported (src/studio/sideEffects.ts) from the cells outside the edited
+ * items' old and new footprints on each plane.
  */
 
 import { PAYLOAD_MAX_BYTES } from "../../../src/container/container.ts";
@@ -19,6 +19,7 @@ import {
   type CompiledDocument,
   type EditViolation,
 } from "../../../src/studio/editValidation.ts";
+import { sideEffects, type SideEffectReport } from "../../../src/studio/sideEffects.ts";
 import type { PicturePlane } from "../../../src/studio/pictureQuery.ts";
 import {
   checkLensRules,
@@ -46,9 +47,6 @@ export function lensItemLocks(lens: StudioLens, unlocks: LensUnlocks) {
   };
 }
 
-/** The creator's name for a plane. */
-const PLANE_NAMES: Record<PicturePlane, string> = { visual: "Art", priority: "Depth" };
-
 /**
  * A locked plane, as the lock chip names it, with its verb: the priority
  * plane holds both depth and walk lines.
@@ -60,8 +58,8 @@ export const LOCKED_PLANES: Record<PicturePlane, string> = {
 
 /** One reason an edit was refused, with the cells to highlight. */
 interface StudioViolation {
-  /** The rule it breaks: the kernel's constraints, and the Walk lens depth rule. */
-  readonly rule: EditViolation["constraint"] | "walk-depth";
+  /** The rule it breaks: a locked plane, the byte limit, or the Walk lens depth rule. */
+  readonly rule: Exclude<EditViolation["constraint"], "outside-mask"> | "walk-depth";
   /** The plane it is about; null for the byte limit. */
   readonly plane: PicturePlane | null;
   /** What the creator reads: short and plain. */
@@ -98,7 +96,7 @@ function diffMask(
   return mask;
 }
 
-/** The edited items' footprints on `plane`, before and after: the cells that plane may change. */
+/** The edited items' footprints on `plane`, before and after: the cells the edit draws itself. */
 function footprints(
   before: CompiledDocument,
   after: CompiledDocument,
@@ -112,8 +110,8 @@ function footprints(
 
 /**
  * Check a candidate edit from `before` to `after` that edits the items
- * `edited`: the kernel's plane and per-plane footprint rules under the lens
- * locks, the container's record size, and the Walk lens depth rule.
+ * `edited`: the lens's locked planes, the container's record size, and the
+ * Walk lens depth rule.
  */
 export function checkStudioEdit(
   before: CompiledDocument,
@@ -122,56 +120,39 @@ export function checkStudioEdit(
   lens: StudioLens,
   unlocks: LensUnlocks,
 ): StudioCheck {
-  const allowed: Record<PicturePlane, Uint8Array> = {
-    visual: footprints(before, after, edited, "visual"),
-    priority: footprints(before, after, edited, "priority"),
-  };
   const result = validateEdit(before, after, {
     lockedPlanes: lockedPlanes(lens, unlocks),
-    allowedMask: allowed,
     maxBytes: PAYLOAD_MAX_BYTES,
   });
-  const violations: StudioViolation[] = result.violations.map((violation) => {
-    if (violation.constraint === "max-bytes")
-      return {
-        rule: "max-bytes",
-        plane: null,
-        message: `This would make the picture too big to keep (over ${violation.maxBytes} bytes).`,
-        detail: `The picture would be ${violation.bytes} bytes, over the ${violation.maxBytes}-byte resource limit.`,
-        count: 0,
-        bbox: null,
-        mask: new Uint8Array(CELLS),
-      };
-    const { plane, count, bbox } = violation;
-    const locked = violation.constraint === "locked-plane";
-    const mask = diffMask(
-      before,
-      after,
-      plane,
-      locked ? () => true : (i) => allowed[plane][i] === 0,
-    );
-    const name = PLANE_NAMES[plane].toLowerCase();
-    const rule = violation.constraint;
-    return locked
-      ? {
-          rule,
+  const violations: StudioViolation[] = result.violations.flatMap(
+    (violation): StudioViolation[] => {
+      if (violation.constraint === "max-bytes")
+        return [
+          {
+            rule: "max-bytes",
+            plane: null,
+            message: `This would make the picture too big to keep (over ${violation.maxBytes} bytes).`,
+            detail: `The picture would be ${violation.bytes} bytes, over the ${violation.maxBytes}-byte resource limit.`,
+            count: 0,
+            bbox: null,
+            mask: new Uint8Array(CELLS),
+          },
+        ];
+      if (violation.constraint !== "locked-plane") return [];
+      const { plane, count, bbox } = violation;
+      return [
+        {
+          rule: "locked-plane",
           plane,
           message: `${LOCKED_PLANES[plane]} in the ${lensName(lens)} lens.`,
           detail: `${LOCKED_PLANES[plane]} in the ${lensName(lens)} lens: ${where(count, bbox)} would change.`,
           count,
           bbox,
-          mask,
-        }
-      : {
-          rule,
-          plane,
-          message: `This would change another object's ${name}.`,
-          detail: `The edit reaches outside the edited item: ${where(count, bbox)} of other items' ${name} would change.`,
-          count,
-          bbox,
-          mask,
-        };
-  });
+          mask: diffMask(before, after, plane, () => true),
+        },
+      ];
+    },
+  );
   for (const depth of checkLensRules(before, after, edited, lens, unlocks))
     violations.push({
       rule: depth.constraint,
@@ -186,9 +167,30 @@ export function checkStudioEdit(
 }
 
 /**
+ * What an accepted edit does to other items: the changed cells outside the
+ * edited items' old and new footprints on each plane, put down to the items
+ * whose output changed there; null when there are none.
+ */
+export function studioSideEffects(
+  before: CompiledDocument,
+  after: CompiledDocument,
+  edited: readonly string[],
+): SideEffectReport | null {
+  const outside = (plane: PicturePlane) => {
+    const own = footprints(before, after, edited, plane);
+    return diffMask(before, after, plane, (i) => own[i] === 0);
+  };
+  return sideEffects(
+    before,
+    after,
+    { visual: outside("visual"), priority: outside("priority") },
+    new Set(edited),
+  );
+}
+
+/**
  * What a refusal says: the first reason for each plane (a locked plane says
- * it all; else another object's output; else the Walk depth rule) plus the
- * byte limit, and the technical account of every violation, one per line,
+ * it all; else the Walk depth rule) plus the byte limit, and the technical account of every violation, one per line,
  * as the detail.
  */
 export function refusalText(check: StudioCheck): { message: string; detail: string } {

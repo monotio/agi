@@ -82,9 +82,7 @@ export function refusalWords(violations: readonly Violation[]): string {
       case "locked-plane":
         return [v.plane === "visual" ? "would change the art" : "would change the depth"];
       case "outside-mask":
-        return locked.has(v.plane) ? [] : ["would change things outside the selection"];
-      case "fill-spill":
-        return locked.has(v.plane) ? [] : ["would spill a fill outside the selection"];
+        return locked.has(v.plane) ? [] : ["would draw outside the selection"];
       case "extra-copy":
         return locked.has(v.plane)
           ? []

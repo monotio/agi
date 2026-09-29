@@ -8,6 +8,7 @@
 import type { EditOperation, SurfaceEdge } from "../../../src/studio/editOperations.ts";
 import { MAX_X, MAX_Y } from "../../../src/studio/editSource.ts";
 import type { PictureDocument } from "../../../src/studio/pictureDocument.ts";
+import type { SideEffectReport } from "../../../src/studio/sideEffects.ts";
 
 /** Kernel refusal patterns, first match wins, each with its plain sentence. */
 const PLAIN: readonly (readonly [
@@ -118,4 +119,21 @@ export function insertionText(index: number, steps: number): string {
 export function insertionShort(index: number, steps: number): string {
   if (steps === 0 || index === 0) return "Before step 1";
   return `After step ${Math.min(index, steps)}`;
+}
+
+/**
+ * What an accepted edit did to other items, for the status line, with the
+ * undo key: "Grass flows differently: 17,802 cells changed. ⌘Z undoes it.";
+ * "3 other items change: 17,802 cells. ⌘Z undoes it."
+ */
+export function sideEffectNote(report: SideEffectReport, undo: string): string {
+  const cells = `${report.cells.toLocaleString("en-US")} ${report.cells === 1 ? "cell" : "cells"}`;
+  const [only, ...more] = report.items;
+  const what =
+    only && more.length === 0
+      ? only.fill
+        ? `${only.label} flows differently: ${cells} changed.`
+        : `${only.label} changes too: ${cells}.`
+      : `${report.items.length} other items change: ${cells}.`;
+  return `${what} ${undo} undoes it.`;
 }

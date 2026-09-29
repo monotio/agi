@@ -46,6 +46,7 @@ const {
   ghost = null,
   flash = null,
   changed = null,
+  spilled = null,
   movable = false,
   marquee = null,
 } = defineProps<{
@@ -67,6 +68,8 @@ const {
   flash?: MaskPaths | null;
   /** Cells an AI proposal changes, outlined while it awaits a verdict. */
   changed?: MaskPaths | null;
+  /** The proposal's side effects: cells of other items it changes, outside the selection. */
+  spilled?: MaskPaths | null;
   /** The pointer is over the selection, which a drag moves: the move cursor. */
   movable?: boolean;
   /** A selection box being drawn, in logical cells (inclusive). */
@@ -294,6 +297,14 @@ function onLeave(): void {
           vector-effect="non-scaling-stroke"
         />
       </g>
+      <g v-if="spilled" data-role="spilled">
+        <path class="studio-pane__spilled-fill" :d="spilled.fill" />
+        <path
+          class="studio-pane__spilled-line"
+          :d="spilled.outline"
+          vector-effect="non-scaling-stroke"
+        />
+      </g>
       <g v-if="flash" data-role="refused">
         <path class="studio-pane__flash-fill" :d="flash.fill" />
         <path
@@ -435,6 +446,16 @@ function onLeave(): void {
 .studio-pane__changed-line {
   fill: none;
   stroke: var(--ok);
+  stroke-width: 2px;
+  stroke-dasharray: 4 2;
+}
+.studio-pane__spilled-fill {
+  fill: var(--warn);
+  fill-opacity: 0.12;
+}
+.studio-pane__spilled-line {
+  fill: none;
+  stroke: var(--warn);
   stroke-width: 2px;
   stroke-dasharray: 4 2;
 }

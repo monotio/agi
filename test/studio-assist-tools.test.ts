@@ -29,7 +29,14 @@ import { parsePictureDocument } from "../src/studio/pictureDocument.ts";
 import { openSprite } from "../src/view/spriteDocument.ts";
 import { parseView } from "../src/view/view.ts";
 import { DEFAULT_V2_PROFILE } from "../src/runtime/profile.ts";
-import { AFTER_BRIDGE, BRIDGE_SOURCE, DOT_EGO, ROBOT_VIEW } from "./studioAssistFixtures.ts";
+import {
+  AFTER_BRIDGE,
+  BRIDGE_SOURCE,
+  DOT_EGO,
+  ISLAND_MOVE,
+  ISLAND_SOURCE,
+  ROBOT_VIEW,
+} from "./studioAssistFixtures.ts";
 
 /** Width and height from a PNG's IHDR. */
 function pngSize(png: Uint8Array): [number, number] {
@@ -294,13 +301,14 @@ test("propose_edit takes insertPoint: a new vertex on the selected item's line",
   assert.match(source, /# @item bridge "Bridge" art/, "the item keeps its id");
 });
 
-test("a fill spilling out of the selection is refused with what to do about it", async () => {
+test("a fill pouring out of the selection is proposed, its side effects told to the model", async () => {
   // A water fill seeded in the floor above the river floods rows 0..119
   // (19,200 cells); the bridge's area holds 80 of them (x 60..99, rows 118
-  // and 119), so 19,120 spill.
+  // and 119), so 19,120 lie outside the selection, where no command drew
+  // before.
   const state = session();
   const assist = bridgeAssist();
-  const refused = await propose(state, assist, [
+  const proposed = await propose(state, assist, [
     op("pictureOps", {
       type: "insertFill",
       atLine: AFTER_BRIDGE,
@@ -311,13 +319,54 @@ test("a fill spilling out of the selection is refused with what to do about it",
       label: "Puddle",
     }),
   ]);
+  assert.equal(proposed.success, true, proposed.error ?? "");
   assert.match(
-    refused.error ?? "",
-    /^Refused; nothing was proposed: the Puddle fill would spill outside the selection \(19,120 cells\); close the outline or keep the fill seed inside it\. Keep every fill inside a closed outline within the selection\./,
+    proposed.message ?? "",
+    /\nSide effects: other items' walk lines change\. Blank area: 19120 cells at 0,0\.\.159,119\.\n/,
   );
-  assert.deepEqual(
-    (refused.details!["violations"] as { constraint: string }[]).map((v) => v.constraint),
-    ["fill-spill"],
+});
+
+test("a move that re-pours another item's fill is a candidate, the side effect in its result", async () => {
+  const state = session();
+  const compiled = compileEditDocument(
+    parsePictureDocument(ISLAND_SOURCE).document,
+    DEFAULT_V2_PROFILE,
+  );
+  const assist = createStudioAssist({
+    scope: pictureAssistScope({ num: 1, compiled, targetIds: ["island"], lens: "art" }),
+    draft: () => ({ kind: "picture", source: ISLAND_SOURCE }),
+    lens: "art",
+  });
+  const moved = await propose(state, assist, [
+    op("pictureOps", { type: "moveItem", itemId: "island", dx: ISLAND_MOVE.dx, dy: 0 }),
+  ]);
+  assert.equal(moved.success, true, moved.error ?? "");
+  assert.equal(assist.candidate?.candidateId, "c1");
+  assert.match(
+    moved.message ?? "",
+    /\nSide effects: other items' art changes\. Grass: 266 cells at 21,41\.\.47,59 \(its fill re-pours\)\.\n/,
+  );
+  assert.deepEqual(moved.details!["sideEffects"], {
+    cells: ISLAND_MOVE.cells,
+    items: [{ itemId: "grass", label: "Grass", cells: ISLAND_MOVE.cells, fill: true }],
+    effects: [
+      {
+        itemId: "grass",
+        label: "Grass",
+        plane: "art",
+        count: ISLAND_MOVE.cells,
+        bbox: ISLAND_MOVE.bbox,
+        fill: true,
+      },
+    ],
+  });
+  // Editing the grass itself stays out of scope.
+  const reseeded = await propose(state, assist, [
+    op("pictureOps", { type: "moveItem", itemId: "grass", dx: 1, dy: 0 }),
+  ]);
+  assert.match(
+    reseeded.error ?? "",
+    /pictureOps\[0\] \(moveItem\) edits grass, which is not selected/,
   );
 });
 

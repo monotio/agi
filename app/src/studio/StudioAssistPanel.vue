@@ -25,6 +25,7 @@ const {
   assist,
   chips,
   changes = null,
+  also = null,
   noun,
   empty,
   collapsible = false,
@@ -34,6 +35,8 @@ const {
   chips: readonly ScopeChip[];
   /** What the candidate changes, counted on decoded pixels. */
   changes?: string | null;
+  /** The other items it changes too (its side effects), by name. */
+  also?: string | null;
   /** "picture" or "view", for the words. */
   noun: "picture" | "view";
   /** What to select first, when nothing is. */
@@ -122,7 +125,7 @@ const spoken = computed(() => {
     case "candidate":
       return assist.stale.value
         ? staleText.value
-        : `Proposal ready: ${candidate?.summary ?? ""} ${changes ?? ""}`.trim();
+        : `Proposal ready: ${candidate?.summary ?? ""} ${changes ?? ""} ${also ?? ""}`.trim();
     case "declined":
       return `The AI left the ${thing.value} as it was: ${assist.reply.value}`;
     case "failed":
@@ -305,6 +308,9 @@ defineExpose({ focus });
         </p>
         <p v-if="changes" class="assist__changes" data-testid="assist-changes">
           <UiIcon name="circle-check" :size="12" />{{ changes }}
+        </p>
+        <p v-if="also" class="assist__also" data-testid="assist-also">
+          <UiIcon name="warning" :size="12" />{{ also }}
         </p>
         <template v-if="walkable">
           <p class="assist__walkable" data-testid="assist-walkable">{{ walkable.line }}</p>
@@ -584,6 +590,14 @@ defineExpose({ focus });
   gap: var(--space-1);
   margin: 0;
   color: var(--ok);
+  font-size: var(--text-2xs);
+}
+.assist__also {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--warn);
   font-size: var(--text-2xs);
 }
 .assist__walkable {
