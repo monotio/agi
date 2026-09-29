@@ -72,8 +72,11 @@ only for released formats and keep their original fixtures.
   `test/profile.test.ts`). Hashes and canonical serializations order by code
   point, never by locale.
 
-Releases flow through `release/X.Y` and reach `main`, which deploys, only by
-pull request (docs/hosting.md, "Release branches").
+Release candidates use `rc/X.Y-rc.N` pull requests into `release/X.Y`, with both
+package versions set to `X.Y.0-rc.N`. Squash-merge a candidate only after CI passes
+and the owner accepts it. After release QA, bump both versions to `X.Y.0` and open
+`release/X.Y` into `main`, which deploys. Tag and publish the release only after
+deployment verification (docs/hosting.md, "Release branches").
 
 Local release plans stay uncommitted and must not be referenced by committed
 code, comments or documentation.
