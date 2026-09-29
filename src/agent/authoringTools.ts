@@ -89,6 +89,7 @@ export function executeAuthoringTool(
 
       const reservedList: { name: string; kind: BindingKind; num: number; define: string }[] = [];
       const messages: string[] = [];
+      const allocationWarnings = new Set<string>();
 
       for (const item of items) {
         const symbol = item.name;
@@ -113,7 +114,7 @@ export function executeAuthoringTool(
           num = existing.num;
         } else if (num == null) {
           // Earlier batch items are already bound, so the live record covers them.
-          num = allocateProjectIds(
+          const allocation = allocateProjectIds(
             {
               container: state.container,
               profile: state.profile,
@@ -121,7 +122,9 @@ export function executeAuthoringTool(
               bindings: state.authoring.bindings,
             },
             kind,
-          )[0]!;
+          );
+          num = allocation.ids[0]!;
+          for (const warning of allocation.warnings) allocationWarnings.add(warning);
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
@@ -145,6 +148,7 @@ export function executeAuthoringTool(
             kind: first.kind,
             num: first.num,
             define: first.define,
+            ...(allocationWarnings.size ? { warnings: [...allocationWarnings] } : {}),
             authoringChanged: true,
           },
         };
@@ -156,6 +160,7 @@ export function executeAuthoringTool(
         details: {
           bindings: reservedList,
           defines: reservedList.map((r) => r.define).join("\n"),
+          ...(allocationWarnings.size ? { warnings: [...allocationWarnings] } : {}),
           authoringChanged: true,
         },
       };

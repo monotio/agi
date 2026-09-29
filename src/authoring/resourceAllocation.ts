@@ -2,11 +2,14 @@
  * Automatic binding-ID allocation against a project snapshot. Occupied numbers
  * come from three places: the container's indexed resources, the existing
  * binding records, and — for flags and variables — the operands every compiled
- * logic actually uses. Pure and provider-independent: it reads a structural
+ * logic actually uses, plus formatted message/view/inventory text. Pure and provider-independent: it reads a structural
  * context and returns fresh numbers; nothing here mutates the container or
  * the bindings record, and a failed call reserves nothing.
  */
-import { disassembleLogic } from "../logic/disassembler.ts";
+import { inspectLogicResource } from "../logic/disassembler.ts";
+import { actionSpec, CONDITION_BY_NAME } from "../logic/opcodes.ts";
+import { parseView } from "../view/view.ts";
+import { readInventoryObjects } from "./inventory.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 import { RESOURCE_KINDS, type GameContainer, type ResourceKind } from "../types.ts";
 
@@ -29,7 +32,11 @@ export interface AllocationContext {
 }
 
 /** Discover static operands; refuse automatic allocation where runtime indirection obscures usage. */
-function occupiedIds(context: AllocationContext, kind: AllocationKind): Set<number> {
+function occupiedIds(
+  context: AllocationContext,
+  kind: AllocationKind,
+  warnings: Set<string>,
+): Set<number> {
   const used = new Set<number>();
   for (const binding of Object.values(context.bindings)) {
     if (binding.kind === kind) used.add(binding.num);
@@ -48,23 +55,82 @@ function occupiedIds(context: AllocationContext, kind: AllocationKind): Set<numb
   for (let num = 0; num < 256; num++) {
     const payload = context.container.getResource("logic", num);
     if (!payload) continue;
-    const source = disassembleLogic(payload, {
+    const decoded = inspectLogicResource(payload, {
       profile: context.profile,
       dictionary: context.dictionary,
     });
+    const calls = [
+      ...decoded.instructions
+        .filter((instruction) => instruction.kind === "action")
+        .map((instruction) => ({
+          name: instruction.name!,
+          args: instruction.args!,
+          operands: actionSpec(instruction.name!, context.profile)!.operands,
+        })),
+      ...decoded.predicates.map((predicate) => ({
+        ...predicate,
+        operands: CONDITION_BY_NAME[predicate.name]!.operands,
+      })),
+    ];
     if (
-      source.includes("// !!") ||
-      /\b(?:lindirectv|rindirect|lindirectn|set\.v|reset\.v|toggle\.v|isset\.v)\s*\(/.test(source)
+      decoded.warnings.length > 0 ||
+      calls.some(({ name }) =>
+        [
+          "lindirectv",
+          "rindirect",
+          "lindirectn",
+          "set.v",
+          "reset.v",
+          "toggle.v",
+          "isset.v",
+        ].includes(name),
+      )
     )
       throw new Error(
         `Logic ${num} has indirect or undecodable state access. Read its logic and bind an explicit ID; automatic allocation cannot establish a free ${kind}.`,
       );
-    // Remove literals/comments: a message saying 'f32' is not an operand.
-    const code = source.replace(/\/\/[^\n]*|"(?:\\[^\n]|[^"\\\n])*"/g, "");
-    for (const match of code.matchAll(kind === "flag" ? /\bf(\d+)\b/g : /\bv(\d+)\b/g))
-      used.add(Number(match[1]));
+    for (const call of calls) {
+      call.operands.forEach((operand, index) => {
+        if (operand === (kind === "flag" ? "flag" : "var")) used.add(call.args[index]!);
+      });
+    }
+    if (kind === "variable")
+      for (const message of decoded.messages)
+        reserveFormattedVariables(message ?? "", used, warnings);
+  }
+  if (kind === "variable") {
+    for (let num = 0; num < 256; num++) {
+      const payload = context.container.getResource("view", num);
+      if (payload)
+        reserveFormattedVariables(
+          parseView(payload, context.profile).description ?? "",
+          used,
+          warnings,
+        );
+    }
+    for (const item of readInventoryObjects(context.container.files.get("OBJECT"), context.profile))
+      reserveFormattedVariables(item.name, used, warnings);
   }
   return used;
+}
+
+/** Mirrors formatter token consumption; %o reads a variable holding an item ID. */
+function reserveFormattedVariables(text: string, used: Set<number>, warnings: Set<string>): void {
+  for (let at = 0; at < text.length;) {
+    if (text[at++] !== "%") continue;
+    const code = text[at++] ?? "";
+    if (!"vsmgow".includes(code) || code === "") continue;
+    let number = 0;
+    while (at < text.length && text.charCodeAt(at) >= 48 && text.charCodeAt(at) <= 57)
+      number = number * 10 + text.charCodeAt(at++) - 48;
+    if ((code === "v" || code === "o") && number <= 255) used.add(number);
+    // Runtime strings/parsed words are recursively formatted. Their contents
+    // can name variables that no stored operand or message reveals.
+    if (code === "s" || code === "w")
+      warnings.add(
+        "Runtime formatted text can read additional variables. Allocated IDs avoid known stored references; runtime text reads remain unknown.",
+      );
+  }
 }
 
 /**
@@ -73,14 +139,15 @@ function occupiedIds(context: AllocationContext, kind: AllocationKind): Set<numb
  * interpreter state. Numbers already bound or used by compiled logic stay
  * occupied; a logic whose state access cannot be proven static — indirect
  * operands or bytecode the disassembler cannot reconstruct — refuses the
- * whole allocation rather than guess. The batch is atomic: either `count`
+ * whole allocation rather than guess. Runtime text reads are reported as warnings,
+ * since player input can mention any variable. The batch is atomic: either `count`
  * distinct numbers come back, or an error and nothing is reserved.
  */
 export function allocateProjectIds(
   context: AllocationContext,
   kind: AllocationKind,
   count = 1,
-): readonly number[] {
+): { readonly ids: readonly number[]; readonly warnings: readonly string[] } {
   if (
     kind !== "flag" &&
     kind !== "variable" &&
@@ -89,7 +156,8 @@ export function allocateProjectIds(
     throw new Error(`Invalid allocation kind '${String(kind)}'.`);
   if (!Number.isInteger(count) || count < 1 || count > 256)
     throw new RangeError("count must be an integer in 1..256.");
-  const used = occupiedIds(context, kind);
+  const warnings = new Set<string>();
+  const used = occupiedIds(context, kind, warnings);
   const start = kind === "flag" || kind === "variable" ? 32 : 1;
   const ids: number[] = [];
   for (let candidate = start; candidate < 256 && ids.length < count; candidate++) {
@@ -98,5 +166,5 @@ export function allocateProjectIds(
     ids.push(candidate);
   }
   if (ids.length < count) throw new Error(`No free ${kind} IDs remain.`);
-  return ids;
+  return { ids, warnings: [...warnings] };
 }

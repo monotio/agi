@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { allocateProjectIds } from "../src/authoring/resourceAllocation.ts";
+import { buildObjectFile } from "../src/authoring/inventory.ts";
+import { buildView } from "../src/view/view.ts";
 import { createAgentSessionState, type AgentSessionState } from "../src/agent/agentState.ts";
 import { executeAgentTool } from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
@@ -36,12 +38,12 @@ test("allocation starts above the system slots and skips operands logic uses", (
     true,
   );
   const context = contextOf(state);
-  assert.deepEqual(allocateProjectIds(context, "flag"), [33]);
-  assert.deepEqual(allocateProjectIds(context, "variable"), [33]);
+  assert.deepEqual(allocateProjectIds(context, "flag").ids, [33]);
+  assert.deepEqual(allocateProjectIds(context, "variable").ids, [33]);
   // Flags and variables 0..31 are interpreter-owned; nothing offers them.
-  assert.deepEqual(allocateProjectIds(context, "flag", 3), [33, 34, 35]);
+  assert.deepEqual(allocateProjectIds(context, "flag", 3).ids, [33, 34, 35]);
   // Resources number from 1 even while slot 0 is absent.
-  assert.deepEqual(allocateProjectIds(context, "picture"), [1]);
+  assert.deepEqual(allocateProjectIds(context, "picture").ids, [1]);
 });
 
 test("allocation is a pure read: nothing mutates and a repeat call sees the same world", () => {
@@ -49,9 +51,9 @@ test("allocation is a pure read: nothing mutates and a repeat call sees the same
   const context = contextOf(state);
   const filesBefore = filesSnapshot(state);
   const bindingsBefore = JSON.stringify(state.authoring.bindings);
-  assert.deepEqual(allocateProjectIds(context, "flag", 2), [32, 33]);
+  assert.deepEqual(allocateProjectIds(context, "flag", 2).ids, [32, 33]);
   // A batch reserves inside its own list only; no phantom reservation remains.
-  assert.deepEqual(allocateProjectIds(context, "flag", 2), [32, 33]);
+  assert.deepEqual(allocateProjectIds(context, "flag", 2).ids, [32, 33]);
   assert.equal(JSON.stringify(state.authoring.bindings), bindingsBefore);
   assert.equal(filesSnapshot(state), filesBefore);
 });
@@ -62,21 +64,21 @@ test("bound names hold their ids, scoped to their own kind", () => {
   state.authoring.bindings["score_copy"] = { kind: "variable", num: 32 };
   state.authoring.bindings["title_pic"] = { kind: "picture", num: 1 };
   const context = contextOf(state);
-  assert.deepEqual(allocateProjectIds(context, "flag"), [33]);
+  assert.deepEqual(allocateProjectIds(context, "flag").ids, [33]);
   // A variable binding does not hold flag 33, nor flag 32 the variable's.
-  assert.deepEqual(allocateProjectIds(context, "variable"), [33]);
-  assert.deepEqual(allocateProjectIds(context, "picture"), [2]);
+  assert.deepEqual(allocateProjectIds(context, "variable").ids, [33]);
+  assert.deepEqual(allocateProjectIds(context, "picture").ids, [2]);
 });
 
 test("batch allocation reserves within its list and rejects exhaustion atomically", () => {
   const state = createAgentSessionState();
   const context = contextOf(state);
-  assert.deepEqual(allocateProjectIds(context, "sound", 3), [1, 2, 3]);
+  assert.deepEqual(allocateProjectIds(context, "sound", 3).ids, [1, 2, 3]);
   // State ids run 32..255 (224 slots) and resources 1..255 (255 slots).
-  assert.throws(() => allocateProjectIds(context, "flag", 225), /No free flag IDs remain/);
-  assert.throws(() => allocateProjectIds(context, "sound", 256), /No free sound IDs remain/);
+  assert.throws(() => allocateProjectIds(context, "flag", 225).ids, /No free flag IDs remain/);
+  assert.throws(() => allocateProjectIds(context, "sound", 256).ids, /No free sound IDs remain/);
   state.authoring.bindings["only_flag"] = { kind: "flag", num: 33 };
-  const ids = allocateProjectIds(context, "flag", 223);
+  const ids = allocateProjectIds(context, "flag", 223).ids;
   assert.equal(ids.length, 223);
   assert.deepEqual(
     [...ids].sort((a, b) => a - b),
@@ -84,13 +86,13 @@ test("batch allocation reserves within its list and rejects exhaustion atomicall
     "ids come back ascending",
   );
   assert.ok(!ids.includes(33));
-  assert.throws(() => allocateProjectIds(context, "flag", 224), /No free flag IDs remain/);
+  assert.throws(() => allocateProjectIds(context, "flag", 224).ids, /No free flag IDs remain/);
 });
 
 test("count must be a positive integer no larger than 256", () => {
   const context = contextOf(createAgentSessionState());
   for (const count of [0, -1, 1.5, Number.NaN, 257])
-    assert.throws(() => allocateProjectIds(context, "flag", count), /1\.\.256/);
+    assert.throws(() => allocateProjectIds(context, "flag", count).ids, /1\.\.256/);
 });
 
 test("aliased and damaged directory slots stay occupied", () => {
@@ -120,7 +122,7 @@ test("aliased and damaged directory slots stay occupied", () => {
   };
   assert.throws(() => container.getResource("view", 7), /corrupt container/);
   assert.throws(() => container.getResource("view", 8), /corrupt container/);
-  assert.deepEqual(allocateProjectIds(context, "view", 6), [1, 2, 3, 4, 9, 10]);
+  assert.deepEqual(allocateProjectIds(context, "view", 6).ids, [1, 2, 3, 4, 9, 10]);
   // The damaged entries are still there and still unloadable afterwards.
   assert.throws(() => container.getResource("view", 8), /corrupt container/);
 });
@@ -135,7 +137,7 @@ test("indirect or undecodable state access refuses automatic flag and variable i
   const context = contextOf(state);
   for (const kind of ["flag", "variable"] as const)
     assert.throws(
-      () => allocateProjectIds(context, kind),
+      () => allocateProjectIds(context, kind).ids,
       new RegExp(`Logic 3 has indirect or undecodable state access.*free ${kind}`),
     );
 
@@ -144,7 +146,7 @@ test("indirect or undecodable state access refuses automatic flag and variable i
   const undecodable = createAgentSessionState();
   undecodable.container.putResource("logic", 9, buildLogicResource(Uint8Array.of(0xf0, 0x00), []));
   assert.throws(
-    () => allocateProjectIds(contextOf(undecodable), "flag"),
+    () => allocateProjectIds(contextOf(undecodable), "flag").ids,
     /Logic 9 has indirect or undecodable state access/,
   );
 });
@@ -160,8 +162,8 @@ test("message text naming f32 or v32 is not an operand", () => {
   );
   const context = contextOf(state);
   // Only the real operands f41/v42 are held; the quoted lookalikes are free.
-  assert.deepEqual(allocateProjectIds(context, "flag"), [32]);
-  assert.deepEqual(allocateProjectIds(context, "variable"), [32]);
+  assert.deepEqual(allocateProjectIds(context, "flag").ids, [32]);
+  assert.deepEqual(allocateProjectIds(context, "variable").ids, [32]);
 });
 
 test("reserve_binding allocates through the same scan, batch order and refusal included", () => {
@@ -199,4 +201,65 @@ test("reserve_binding allocates through the same scan, batch order and refusal i
   assert.equal(refused.success, false);
   assert.match(String(refused.error), /indirect or undecodable state access/);
   assert.equal(state.authoring.bindings["attic_open"], undefined);
+});
+
+test("formatted message reads reserve variables even when no opcode names them", () => {
+  const state = createAgentSessionState();
+  assert.equal(
+    executeAgentTool(state, "write_logic_source", {
+      room: 1,
+      source: 'print("Count %v32, item %o33"); return;',
+    }).success,
+    true,
+  );
+  assert.deepEqual(allocateProjectIds(contextOf(state), "variable").ids, [34]);
+});
+
+test("indirection-looking literal text is not an opcode or a decoding warning", () => {
+  const state = createAgentSessionState();
+  assert.equal(
+    executeAgentTool(state, "write_logic_source", {
+      room: 1,
+      source: 'print("set.v(v40) // !! v32 f32 %%v33"); return;',
+    }).success,
+    true,
+  );
+  assert.deepEqual(allocateProjectIds(contextOf(state), "variable").ids, [32]);
+  assert.deepEqual(allocateProjectIds(contextOf(state), "flag").ids, [32]);
+});
+
+test("view descriptions and inventory names participate in formatted variable reads", () => {
+  const state = createAgentSessionState();
+  state.container.putResource(
+    "view",
+    1,
+    buildView({
+      loops: [{ cels: [{ width: 1, height: 1, pixels: [1] }] }],
+      description: "%v32",
+    }),
+  );
+  state.container.putFile("OBJECT", buildObjectFile([{ name: "%o33" }]));
+  assert.deepEqual(allocateProjectIds(contextOf(state), "variable").ids, [34]);
+});
+
+test("runtime-inserted formatter text reports uncertainty instead of promising a free variable", () => {
+  const state = createAgentSessionState();
+  assert.equal(
+    executeAgentTool(state, "write_logic_source", {
+      room: 1,
+      source: 'print("%s1"); return;',
+    }).success,
+    true,
+  );
+  const allocation = allocateProjectIds(contextOf(state), "variable");
+  assert.deepEqual(allocation.ids, [32]);
+  assert.match(allocation.warnings.join(" "), /runtime.*text/i);
+  const reserved = executeAuthoringTool(state, "reserve_binding", {
+    kind: "variable",
+    name: "room_state",
+    id: null,
+  })!;
+  assert.equal(reserved.success, true);
+  assert.deepEqual(reserved.details?.["warnings"], allocation.warnings);
+  assert.deepEqual(allocateProjectIds(contextOf(state), "flag").ids, [32]);
 });
