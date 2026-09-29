@@ -358,10 +358,6 @@ export type WorkerControl =
       id: number;
       taken: boolean;
       cycle: number;
-      hasEngine: boolean;
-      modal: boolean;
-      textMode: boolean;
-      pictureShown: boolean;
     }
   | { type: "metadataPatched" }
   /**

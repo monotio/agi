@@ -23,8 +23,9 @@ export function createAutosave(ctx: WorkerContext) {
    *
    * The engine refuses the snapshot while a live host request owns the answer
    * (a prompt, the save/restore selector, a confirmation), while a text screen
-   * owns the surface, or before a room has drawn; a parked window or key wait
-   * serializes into the image's continuation instead. The worker adds the cheap
+   * owns the surface, while an f15 window stays up with no parked pass, or
+   * before a room has drawn; a parked window or key wait serializes into the
+   * image's continuation instead. The worker adds the cheap
    * gate on top: an image is encoded only when the interpreter actually
    * advanced since the last one, so a parked or idle game costs nothing.
    */
@@ -109,10 +110,6 @@ export function createAutosave(ctx: WorkerContext) {
       id: msg.id,
       taken,
       cycle: ctx.cycle.cycleCount,
-      hasEngine: Boolean(ctx.engine),
-      modal: ctx.engine ? ctx.engine.modalOpen : false,
-      textMode: ctx.engine ? ctx.engine.textModeActive : false,
-      pictureShown: ctx.engine ? ctx.engine.isPictureShown : false,
     });
   }
 
