@@ -84,7 +84,47 @@ export class AssemblerError extends Error {
   }
 }
 
+export interface LogicSourceEntry {
+  readonly emissionId: number;
+  readonly statementId: number;
+  readonly kind: "action" | "return" | "goto" | "if" | "predicate" | "generated-jump";
+  /** Half-open offsets into the exact input source, in UTF-16 code units. */
+  readonly start: number;
+  readonly end: number;
+  /** Half-open byte offsets into code, excluding resource/message framing. */
+  readonly pc: number;
+  readonly endPc: number;
+}
+
+export interface LogicSourceMap {
+  readonly version: 1;
+  /** Exact compiler input, including any caller-supplied prelude. */
+  readonly source: string;
+  readonly profileId: string;
+  readonly codeLength: number;
+  readonly entries: readonly LogicSourceEntry[];
+}
+
+export interface AssembleDiagnostic {
+  readonly code: "condition-effects";
+  readonly message: string;
+  readonly start: number;
+  readonly end: number;
+  readonly line: number;
+  readonly col: number;
+}
+
+// Application work ceilings, not interpreter format limits. Bound both parsing
+// and strict lowering before allocating expanded condition trees.
+const MAX_SOURCE_BYTES = 256 * 1024;
+const MAX_TOKENS = 100_000;
+const MAX_DEPTH = 128;
+const MAX_LOWERING_WORK = 100_000;
+const MAX_CLAUSE_UNITS = 16_384;
+
 export interface AssembleOptions {
+  /** Capture origins for this exact input; never implicitly bind to a live run. */
+  readonly sourceMap?: boolean;
   /** Instruction vocabulary and widths; defaults to AGI 2.936. */
   readonly profile?: AgiProfile;
   /** Lowercase word -> dictionary id, for said() resolution. */
@@ -98,6 +138,8 @@ export interface AssembleResult {
   readonly code: Uint8Array;
   /** 1-based message table (index 0 unused placeholder; `null` = absent slot). */
   readonly messages: readonly (string | null)[];
+  readonly diagnostics: readonly AssembleDiagnostic[];
+  readonly sourceMap?: LogicSourceMap;
 }
 
 // ---------- Lexer ----------
@@ -109,6 +151,8 @@ interface Token {
   readonly text: string;
   readonly line: number;
   readonly col: number;
+  readonly start: number;
+  readonly end: number;
 }
 
 function lex(source: string): Token[] {
@@ -117,8 +161,20 @@ function lex(source: string): Token[] {
   let line = 1;
   let lineStart = 0;
   const col = () => i - lineStart + 1;
+  let tokenStart = 0;
+  const append = (token: Omit<Token, "start" | "end">): void => {
+    if (tokens.length >= MAX_TOKENS) {
+      throw new AssemblerError("token limit exceeded", token.line, token.col);
+    }
+    tokens.push({
+      ...token,
+      start: token.type === "eof" ? i : tokenStart,
+      end: token.type === "punct" ? i + token.text.length : i,
+    });
+  };
 
   while (i < source.length) {
+    tokenStart = i;
     const ch = source[i]!;
     if (ch === "\n") {
       line++;
@@ -141,7 +197,7 @@ function lex(source: string): Token[] {
       while (i < source.length && /[a-zA-Z]/.test(source[i]!)) i++;
       const dir = source.slice(start, i);
       if (dir === "#message" || dir === "#define") {
-        tokens.push({ type: "directive", text: dir, line, col: c });
+        append({ type: "directive", text: dir, line, col: c });
         continue;
       }
       while (i < source.length && source[i] !== "\n") i++;
@@ -185,76 +241,76 @@ function lex(source: string): Token[] {
         i += 2;
       }
       i++;
-      tokens.push({ type: "string", text, line, col: c });
+      append({ type: "string", text, line, col: c });
       continue;
     }
     if (/[0-9]/.test(ch)) {
       const start = i;
       const c = col();
       while (i < source.length && /[0-9]/.test(source[i]!)) i++;
-      tokens.push({ type: "number", text: source.slice(start, i), line, col: c });
+      append({ type: "number", text: source.slice(start, i), line, col: c });
       continue;
     }
     if (/[a-zA-Z_.]/.test(ch)) {
       const start = i;
       const c = col();
       while (i < source.length && /[a-zA-Z0-9_.]/.test(source[i]!)) i++;
-      tokens.push({ type: "ident", text: source.slice(start, i), line, col: c });
+      append({ type: "ident", text: source.slice(start, i), line, col: c });
       continue;
     }
     if (ch === "&" && source[i + 1] === "&") {
-      tokens.push({ type: "punct", text: "&&", line, col: col() });
+      append({ type: "punct", text: "&&", line, col: col() });
       i += 2;
       continue;
     }
     if (ch === "|" && source[i + 1] === "|") {
-      tokens.push({ type: "punct", text: "||", line, col: col() });
+      append({ type: "punct", text: "||", line, col: col() });
       i += 2;
       continue;
     }
     if (ch === "=" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: "==", line, col: col() });
+      append({ type: "punct", text: "==", line, col: col() });
       i += 2;
       continue;
     }
     if (ch === "!" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: "!=", line, col: col() });
+      append({ type: "punct", text: "!=", line, col: col() });
       i += 2;
       continue;
     }
     if (ch === "<" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: "<=", line, col: col() });
+      append({ type: "punct", text: "<=", line, col: col() });
       i += 2;
       continue;
     }
     if (ch === ">" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: ">=", line, col: col() });
+      append({ type: "punct", text: ">=", line, col: col() });
       i += 2;
       continue;
     }
     if (ch === "<") {
-      tokens.push({ type: "punct", text: "<", line, col: col() });
+      append({ type: "punct", text: "<", line, col: col() });
       i++;
       continue;
     }
     if (ch === ">") {
-      tokens.push({ type: "punct", text: ">", line, col: col() });
+      append({ type: "punct", text: ">", line, col: col() });
       i++;
       continue;
     }
     if (ch === "=") {
-      tokens.push({ type: "punct", text: "=", line, col: col() });
+      append({ type: "punct", text: "=", line, col: col() });
       i++;
       continue;
     }
     if ("(){};:,!".includes(ch)) {
-      tokens.push({ type: "punct", text: ch, line, col: col() });
+      append({ type: "punct", text: ch, line, col: col() });
       i++;
       continue;
     }
     throw new AssemblerError(`unexpected character '${ch}'`, line, col());
   }
-  tokens.push({ type: "eof", text: "", line, col: col() });
+  append({ type: "eof", text: "", line, col: col() });
   return tokens;
 }
 
@@ -267,24 +323,34 @@ type Ref =
   | { kind: "str"; text: string };
 
 type TestExpr =
-  | { type: "cond"; name: string; args: Ref[]; tok: Token }
+  | { type: "cond"; name: string; args: Ref[]; tok: Token; end?: number }
   | { type: "not"; inner: TestExpr }
   | { type: "and"; parts: TestExpr[] }
   | { type: "or"; parts: TestExpr[] }
   /** Parentheses the author put around a single literal: emit 0xfc markers. */
   | { type: "group"; inner: TestExpr };
 
-type Stmt =
+type StmtBody =
   | { type: "action"; name: string; args: Ref[]; tok: Token }
   | { type: "return" }
   | { type: "goto"; label: string; tok: Token }
   | { type: "label"; name: string; tok: Token }
   | { type: "if"; test: TestExpr; then: Stmt[]; else_: Stmt[] | null };
 
+type Stmt = StmtBody & { readonly tok: Token; readonly end: number; readonly statementId: number };
+
 // ---------- Parser ----------
 
 class Parser {
   private pos = 0;
+  private depth = 0;
+  private nextStatementId = 0;
+
+  private enter(tok: Token): void {
+    if (++this.depth > MAX_DEPTH) {
+      throw new AssemblerError("syntax nesting limit exceeded", tok.line, tok.col);
+    }
+  }
   readonly defines = new Map<string, number>();
   /** Declared message slots; `null` is an explicitly absent slot. */
   readonly explicitMessages = new Map<number, string | null>();
@@ -338,7 +404,13 @@ class Parser {
       throw new AssemblerError(`duplicate label '${tok.text}'`, tok.line, tok.col);
     }
     this.labels.add(tok.text);
-    return { type: "label", name: tok.text, tok };
+    return {
+      type: "label",
+      name: tok.text,
+      tok,
+      end: this.tokens[this.pos - 1]!.end,
+      statementId: this.nextStatementId++,
+    };
   }
 
   private parseDirective(): void {
@@ -389,6 +461,15 @@ class Parser {
   }
 
   private parseStmt(): Stmt {
+    const tok = this.peek();
+    const statementId = this.nextStatementId++;
+    this.enter(tok);
+    const body = this.parseStmtBody();
+    this.depth--;
+    return { ...body, tok, end: this.tokens[this.pos - 1]!.end, statementId };
+  }
+
+  private parseStmtBody(): StmtBody {
     const tok = this.next();
     if (tok.type !== "ident") {
       throw new AssemblerError(
@@ -531,6 +612,19 @@ class Parser {
 
   private parseUnary(): TestExpr {
     const tok = this.peek();
+    this.enter(tok);
+    let result = this.parseUnaryBody();
+    this.depth--;
+    const end = this.tokens[this.pos - 1]!.end;
+    if (result.type === "cond") result = { ...result, end };
+    else if (result.type === "not" && result.inner.type === "cond") {
+      result = { ...result, inner: { ...result.inner, end } };
+    }
+    return result;
+  }
+
+  private parseUnaryBody(): TestExpr {
+    const tok = this.peek();
     if (tok.text === "!") {
       this.next();
       return { type: "not", inner: this.parseUnary() };
@@ -650,42 +744,74 @@ class Parser {
 
 // ---------- Test normalization to CNF ----------
 
-function nnf(t: TestExpr, negate: boolean): TestExpr {
+class LoweringBudget {
+  private remaining = MAX_LOWERING_WORK;
+  private tok: Token;
+
+  constructor(tok: Token) {
+    this.tok = tok;
+  }
+
+  locate(tok: Token): void {
+    this.tok = tok;
+  }
+
+  charge(units = 1, depth = 0): void {
+    if (depth > MAX_DEPTH || units > this.remaining) {
+      throw new AssemblerError(
+        "condition lowering work limit exceeded",
+        this.tok.line,
+        this.tok.col,
+      );
+    }
+    this.remaining -= units;
+  }
+}
+
+function nnf(t: TestExpr, negate: boolean, budget: LoweringBudget, depth = 0): TestExpr {
+  budget.charge(1, depth);
   switch (t.type) {
     case "cond":
       return negate ? { type: "not", inner: t } : t;
     case "not":
-      return nnf(t.inner, !negate);
+      return nnf(t.inner, !negate, budget, depth + 1);
     case "and":
       return negate
-        ? { type: "or", parts: t.parts.map((p) => nnf(p, true)) }
-        : { type: "and", parts: t.parts.map((p) => nnf(p, false)) };
+        ? { type: "or", parts: t.parts.map((p) => nnf(p, true, budget, depth + 1)) }
+        : { type: "and", parts: t.parts.map((p) => nnf(p, false, budget, depth + 1)) };
     case "or":
       return negate
-        ? { type: "and", parts: t.parts.map((p) => nnf(p, true)) }
-        : { type: "or", parts: t.parts.map((p) => nnf(p, false)) };
+        ? { type: "and", parts: t.parts.map((p) => nnf(p, true, budget, depth + 1)) }
+        : { type: "or", parts: t.parts.map((p) => nnf(p, false, budget, depth + 1)) };
     case "group":
       // A group only ever wraps a literal, so negation stays inside it.
-      return { type: "group", inner: nnf(t.inner, negate) };
+      return { type: "group", inner: nnf(t.inner, negate, budget, depth + 1) };
   }
 }
 
 /** Distribute OR over AND until the root is an AND of clauses of ORs of literals. */
-function distribute(t: TestExpr): TestExpr {
+function distribute(t: TestExpr, budget: LoweringBudget, depth = 0): TestExpr {
+  budget.charge(1, depth);
   if (t.type !== "or") {
-    if (t.type === "and") return { type: "and", parts: t.parts.map(distribute) };
+    if (t.type === "and")
+      return { type: "and", parts: t.parts.map((part) => distribute(part, budget, depth + 1)) };
     return t;
   }
-  const parts = t.parts.map(distribute);
+  const parts = t.parts.map((part) => distribute(part, budget, depth + 1));
   const andIdx = parts.findIndex((p) => p.type === "and");
   if (andIdx === -1) return { type: "or", parts };
   const andPart = parts[andIdx] as { type: "and"; parts: TestExpr[] };
   const rest = parts.filter((_, i) => i !== andIdx);
   // (A && B) || rest  =>  (A || rest) && (B || rest)
-  return distribute({
-    type: "and",
-    parts: andPart.parts.map((p) => ({ type: "or", parts: [p, ...rest] })),
-  });
+  budget.charge(andPart.parts.length * (rest.length + 1), depth);
+  return distribute(
+    {
+      type: "and",
+      parts: andPart.parts.map((p) => ({ type: "or", parts: [p, ...rest] })),
+    },
+    budget,
+    depth + 1,
+  );
 }
 
 interface Literal {
@@ -708,22 +834,88 @@ function literalOf(expr: TestExpr): Literal {
   throw new AssemblerError("internal: non-literal in CNF clause", 0, 0);
 }
 
-function toClauses(test: TestExpr): Clause[] {
-  const normalized = distribute(nnf(test, false));
-  const andParts = normalized.type === "and" ? normalized.parts : [normalized];
-  return andParts.map((part): Clause => {
-    // A group surviving as a whole conjunct is the author's one-term OR group;
-    // inside a longer OR the markers are already there, so it just unwraps.
-    if (part.type === "group") return { lits: [literalOf(part.inner)], group: true };
-    const orParts = part.type === "or" ? part.parts : [part];
-    return { lits: orParts.map(literalOf), group: orParts.length > 1 };
-  });
+function toClauses(test: TestExpr, tok: Token, budget: LoweringBudget): Clause[] {
+  budget.locate(tok);
+  const normalized = distribute(nnf(test, false, budget), budget);
+  const clauses: Clause[] = [];
+  let units = 0;
+  const append = (part: TestExpr): void => {
+    budget.charge();
+    if (part.type === "and") {
+      for (const child of part.parts) append(child);
+      return;
+    }
+    const lits: Literal[] = [];
+    const collect = (expr: TestExpr): void => {
+      budget.charge();
+      if (expr.type === "or") {
+        for (const child of expr.parts) collect(child);
+      } else {
+        if (++units > MAX_CLAUSE_UNITS) {
+          throw new AssemblerError("condition clause/literal limit exceeded", tok.line, tok.col);
+        }
+        lits.push(literalOf(expr));
+      }
+    };
+    collect(part);
+    if (++units > MAX_CLAUSE_UNITS) {
+      throw new AssemblerError("condition clause/literal limit exceeded", tok.line, tok.col);
+    }
+    clauses.push({ lits, group: part.type === "group" || lits.length > 1 });
+  };
+  append(normalized);
+  return clauses;
 }
 
 // ---------- Emitter ----------
 
 class Emitter {
   private buf: number[] = [];
+  readonly entries: LogicSourceEntry[] = [];
+  readonly diagnostics: AssembleDiagnostic[] = [];
+  readonly lowering: LoweringBudget;
+  private readonly mapping: boolean;
+  private location: Token;
+
+  constructor(mapping: boolean, location: Token) {
+    this.mapping = mapping;
+    this.location = location;
+    this.lowering = new LoweringBudget(location);
+  }
+
+  locate(tok: Token): void {
+    this.location = tok;
+  }
+
+  record(
+    kind: LogicSourceEntry["kind"],
+    stmt: Stmt,
+    pc: number,
+    endPc: number,
+    origin: { tok: Token; end?: number } = stmt,
+  ): void {
+    if (!this.mapping) return;
+    this.entries.push({
+      emissionId: this.entries.length,
+      statementId: stmt.statementId,
+      kind,
+      start: origin.tok.start,
+      end: origin.end ?? origin.tok.end,
+      pc,
+      endPc,
+    });
+  }
+
+  checkCapacity(count: number): void {
+    // Even a LOGIC without messages needs five framing bytes in its u16 record.
+    if (this.buf.length + count > 65530) {
+      throw new AssemblerError(
+        "logic code length limit exceeded",
+        this.location.line,
+        this.location.col,
+      );
+    }
+  }
   private readonly fixups: { at: number; label: string; tok: Token }[] = [];
   readonly labelPos = new Map<string, number>();
 
@@ -732,20 +924,30 @@ class Emitter {
   }
 
   byte(b: number): void {
+    this.checkCapacity(1);
     this.buf.push(b & 0xff);
   }
 
   /** Signed 16-bit little-endian displacement; patched later or written now. */
   s16(value: number): void {
     if (value < -32768 || value > 32767) {
-      throw new AssemblerError("jump displacement out of s16 range (logic too large)", 0, 0);
+      throw new AssemblerError(
+        "jump displacement out of s16 range (logic too large)",
+        this.location.line,
+        this.location.col,
+      );
     }
+    this.checkCapacity(2);
     this.buf.push(value & 0xff, (value >> 8) & 0xff);
   }
 
   patchS16(at: number, value: number): void {
     if (value < -32768 || value > 32767) {
-      throw new AssemblerError("jump displacement out of s16 range (logic too large)", 0, 0);
+      throw new AssemblerError(
+        "jump displacement out of s16 range (logic too large)",
+        this.location.line,
+        this.location.col,
+      );
     }
     this.buf[at] = value & 0xff;
     this.buf[at + 1] = (value >> 8) & 0xff;
@@ -817,6 +1019,13 @@ function emitCondition(
     );
   }
   if (spec.name === "said") {
+    if (lit.cond.args.length > 255) {
+      throw new AssemblerError(
+        "said() supports at most 255 words",
+        lit.cond.tok.line,
+        lit.cond.tok.col,
+      );
+    }
     if (lit.cond.args.length === 0) {
       throw new AssemblerError(
         "said() needs at least one word",
@@ -847,6 +1056,13 @@ function emitCondition(
       } else {
         id = arg.kind === "num" ? arg.value : arg.index;
       }
+      if (!Number.isInteger(id) || id < 0 || id > 65535) {
+        throw new AssemblerError(
+          "said dictionary id must be 0..65535",
+          lit.cond.tok.line,
+          lit.cond.tok.col,
+        );
+      }
       e.byte(id & 0xff);
       e.byte((id >> 8) & 0xff);
     }
@@ -868,20 +1084,57 @@ function emitCondition(
 
 function emitTest(
   e: Emitter,
-  test: TestExpr,
+  stmt: Extract<Stmt, { type: "if" }>,
   dictionary: ReadonlyMap<string, number>,
   profile: AgiProfile,
 ): void {
-  e.byte(IF);
-  for (const clause of toClauses(test)) {
-    if (!clause.group) {
-      emitCondition(e, clause.lits[0]!, dictionary, profile);
-    } else {
-      e.byte(OR);
-      for (const lit of clause.lits) emitCondition(e, lit, dictionary, profile);
-      e.byte(OR);
-    }
+  const clauses = toClauses(stmt.test, stmt.tok, e.lowering);
+  const literals = clauses.flatMap((clause) => clause.lits);
+  const minimumAfter: number[] = [];
+  let minimum = Infinity;
+  for (let i = literals.length - 1; i >= 0; i--) {
+    minimumAfter[i] = minimum;
+    minimum = Math.min(minimum, literals[i]!.cond.tok.start);
   }
+  const counts = new Map<number, number>();
+  for (const { cond } of literals)
+    counts.set(cond.tok.start, (counts.get(cond.tok.start) ?? 0) + 1);
+  const warned = new Set<number>();
+  let maximumBefore = -1;
+  for (let i = 0; i < literals.length; i++) {
+    const { cond } = literals[i]!;
+    const at = cond.tok.start;
+    if (
+      (cond.name === "said" || cond.name === "have.key") &&
+      ((counts.get(at) ?? 0) > 1 || maximumBefore > at || minimumAfter[i]! < at) &&
+      !warned.has(at) &&
+      e.diagnostics.length < 200
+    ) {
+      warned.add(at);
+      e.diagnostics.push({
+        code: "condition-effects",
+        start: at,
+        end: cond.end ?? cond.tok.end,
+        line: cond.tok.line,
+        col: cond.tok.col,
+        message:
+          "Condition lowering repeats or reorders this stateful test; emitted AGI order is preserved.",
+      });
+    }
+    maximumBefore = Math.max(maximumBefore, at);
+  }
+  e.byte(IF);
+  for (const clause of clauses) {
+    if (clause.group) e.byte(OR);
+    for (const lit of clause.lits) {
+      const pc = e.position;
+      e.locate(lit.cond.tok);
+      emitCondition(e, lit, dictionary, profile);
+      e.record("predicate", stmt, pc, e.position, lit.cond);
+    }
+    if (clause.group) e.byte(OR);
+  }
+  e.locate(stmt.tok);
   e.byte(IF);
 }
 
@@ -941,9 +1194,12 @@ function emitStmt(
   dictionary: ReadonlyMap<string, number>,
   profile: AgiProfile,
 ): void {
+  e.locate(stmt.tok);
+  const pc = e.position;
   switch (stmt.type) {
     case "return":
       e.byte(RETURN);
+      e.record("return", stmt, pc, e.position);
       return;
     case "label":
       // Emits nothing; it just names the current byte offset for goto.
@@ -951,16 +1207,20 @@ function emitStmt(
       return;
     case "goto":
       e.emitGoto(stmt.label, stmt.tok);
+      e.record("goto", stmt, pc, e.position);
       return;
     case "if": {
-      emitTest(e, stmt.test, dictionary, profile);
+      emitTest(e, stmt, dictionary, profile);
       const falseDeltaAt = e.position;
       e.s16(0);
+      e.record("if", stmt, pc, e.position);
       for (const s of stmt.then) emitStmt(e, s, messages, dictionary, profile);
       if (stmt.else_ !== null) {
         const endGotoFixup = e.position;
+        e.locate(stmt.tok);
         e.byte(GOTO);
         e.s16(0);
+        e.record("generated-jump", stmt, endGotoFixup, e.position);
         // False path: skip the 2-byte goto+delta... i.e. land after the goto's delta.
         e.patchS16(falseDeltaAt, e.position - (falseDeltaAt + 2));
         for (const s of stmt.else_) emitStmt(e, s, messages, dictionary, profile);
@@ -995,6 +1255,7 @@ function emitStmt(
           e.byte(refByte(arg, false, stmt.tok, `action '${spec.name}'`));
         }
       });
+      e.record("action", stmt, pc, e.position);
       return;
     }
   }
@@ -1003,11 +1264,21 @@ function emitStmt(
 // ---------- Public entry ----------
 
 export function assembleLogic(source: string, opts: AssembleOptions): AssembleResult {
-  const parser = new Parser(lex(source));
+  // Count UTF-8 input bytes without a platform encoder or intermediate buffer.
+  let sourceBytes = 0;
+  for (let i = 0; i < source.length; i++) {
+    const point = source.codePointAt(i)!;
+    sourceBytes += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+    if (point > 0xffff) i++;
+    if (sourceBytes > MAX_SOURCE_BYTES)
+      throw new AssemblerError("source byte limit exceeded", 1, 1);
+  }
+  const tokens = lex(source);
+  const parser = new Parser(tokens);
   parser.parseProgram();
 
   const messages = new MessageTable(parser.explicitMessages);
-  const e = new Emitter();
+  const e = new Emitter(opts.sourceMap === true, tokens[0]!);
   for (const stmt of parser.program)
     emitStmt(e, stmt, messages, opts.dictionary, opts.profile ?? DEFAULT_V2_PROFILE);
   e.resolveFixups();
@@ -1015,6 +1286,34 @@ export function assembleLogic(source: string, opts: AssembleOptions): AssembleRe
   const code = e.bytes();
   const messageList = messages.finalize();
   // finalize() returns 1-based with placeholder at 0; resource builder wants 1..N.
-  const payload = buildLogicResource(code, messageList.slice(1));
-  return { payload, code, messages: messageList };
+  let payload: Uint8Array;
+  try {
+    payload = buildLogicResource(code, messageList.slice(1));
+  } catch (error) {
+    const at = tokens.find((token) => token.type === "string") ?? tokens[0]!;
+    throw new AssemblerError(
+      error instanceof Error ? error.message : String(error),
+      at.line,
+      at.col,
+    );
+  }
+  const result: AssembleResult = {
+    payload,
+    code,
+    messages: messageList,
+    diagnostics: e.diagnostics,
+  };
+  if (!opts.sourceMap) return result;
+  return {
+    ...result,
+    sourceMap: {
+      version: 1,
+      source,
+      profileId: (opts.profile ?? DEFAULT_V2_PROFILE).id,
+      codeLength: code.length,
+      entries: e.entries
+        .sort((a, b) => a.pc - b.pc)
+        .map((entry, emissionId) => ({ ...entry, emissionId })),
+    },
+  };
 }

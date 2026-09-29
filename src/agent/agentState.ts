@@ -5,7 +5,7 @@
  * Play boot path — a project export, a Studio Keep, the Studio's source
  * reader — can use them without loading the authoring tools.
  */
-import { AssemblerError, assembleLogic } from "../logic/assembler.ts";
+import { compileProjectLogic } from "../authoring/projectLogic.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import { sourceCompilesTo } from "../picture/source.ts";
 import { createAuthoringState, type AuthoringState } from "./authoringState.ts";
@@ -208,20 +208,11 @@ export function assembleAuthoredLogic(
   },
   source: string,
 ) {
-  const defined = new Set([...source.matchAll(/^\s*#define\s+(\w+)/gm)].map((match) => match[1]));
-  const prelude = Object.entries(session.authoring.bindings)
-    .filter(([name]) => !defined.has(name))
-    .map(([name, binding]) => `#define ${name} ${binding.num}`);
-  try {
-    return assembleLogic(prelude.length ? `${prelude.join("\n")}\n${source}` : source, {
-      dictionary: session.sources.words,
-      profile: session.profile,
-    });
-  } catch (error) {
-    if (!(error instanceof AssemblerError) || error.line <= prelude.length) throw error;
-    const detail = error.message.slice(`${error.line}:${error.col}: `.length);
-    throw new AssemblerError(detail, error.line - prelude.length, error.col);
-  }
+  return compileProjectLogic(source, {
+    profile: session.profile,
+    bindings: session.authoring.bindings,
+    dictionary: session.sources.words,
+  }).assembly;
 }
 
 /**

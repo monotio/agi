@@ -52,11 +52,26 @@ export function buildLogicResource(
   if (messages.length > 255) {
     throw new Error(`logic resource supports at most 255 messages, got ${messages.length}`);
   }
-  const encoded = messages.map((m, i) => (m === null ? null : encodeLatin1(m, i)));
   const tableBytes = (messages.length + 1) * 2;
-  const textBytes = encoded.reduce((sum, m) => sum + (m === null ? 0 : m.length + 1), 0);
-
-  const out = new Uint8Array(2 + code.length + 1 + tableBytes + textBytes);
+  const textBytes = messages.reduce((sum, m) => sum + (m === null ? 0 : m.length + 1), 0);
+  if (code.length > 0xffff) {
+    throw new Error(
+      `logic code of ${code.length} bytes exceeds the u16le code_length limit of 65535`,
+    );
+  }
+  if (tableBytes + textBytes > 0xffff) {
+    throw new Error(
+      `logic message region end of ${tableBytes + textBytes} exceeds the u16le offset limit of 65535`,
+    );
+  }
+  const totalBytes = 2 + code.length + 1 + tableBytes + textBytes;
+  if (totalBytes > 0xffff) {
+    throw new Error(
+      `logic resource payload of ${totalBytes} bytes exceeds the u16le record length limit of 65535`,
+    );
+  }
+  const encoded = messages.map((m, i) => (m === null ? null : encodeLatin1(m, i)));
+  const out = new Uint8Array(totalBytes);
   out[0] = code.length & 0xff;
   out[1] = (code.length >> 8) & 0xff;
   out.set(code, 2);
