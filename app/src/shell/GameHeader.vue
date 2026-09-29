@@ -2,7 +2,7 @@
 /**
  * The top chrome. At the menu screen: the brand, Help, GitHub and Settings.
  * While a game runs: the PlayBar, then the notices that belong above the
- * stage (export and eject refusals, history retries, the test-recording bar,
+ * stage (export, eject and Start over refusals, history retries, the test-recording bar,
  * the walkthrough bar passed in the default slot). It also owns the dialogs
  * those controls open: the settings sheet, the Help guide, Game controls and
  * the recorded-test save dialog. The engine API is injected, never passed.
@@ -21,6 +21,7 @@ import { useShellBridge } from "./shellBridge.ts";
 import { useShell } from "./useShell.ts";
 import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 import { useStudioLauncher } from "./useStudioLauncher.ts";
+import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { getCachedGameMeta } from "../project/gameStorage.ts";
 import { lessonCatalogId, lessonSetFor } from "../lessons/registry.ts";
 import type { LessonSet, StudioLesson } from "../lessons/types.ts";
@@ -58,7 +59,6 @@ const emit = defineEmits<{
   "update:debugOpen": [value: boolean];
   "trigger-key": [code: number];
   "export-zip": [project: boolean];
-  "start-over": [];
   "start-walkthrough": [target: string];
   "developer-activity": [];
 }>();
@@ -81,6 +81,7 @@ const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
 const workspace = useCreateWorkspace();
+const { onStartOver: startGameOver } = useGameLibrary();
 
 const controlsOpen = ref(false);
 const helpGuide = useTemplateRef("helpGuide");
@@ -238,6 +239,30 @@ async function onEjectGame(
 const ejectRefusal = ref<string>("");
 /** Exit waits on this session's timeline: leave without it, or stay. */
 const historyExit = ref(false);
+
+/**
+ * The game's own Start over. Like Exit it waits on this session's timeline;
+ * when that is not saved, the game plays on as it was and the notice offers
+ * Try again, Start over anyway (without the unsaved timeline) or Stay.
+ */
+async function onStartOver(anyway = false): Promise<void> {
+  historyStartOver.value = false;
+  // Room Studio's unkept changes are kept or thrown away before the game restarts.
+  if (!(await workspace.confirmStudioLeave())) return;
+  try {
+    await startGameOver(anyway ? { abandonHistory: true } : undefined);
+  } catch (error) {
+    if (!(error instanceof HistoryUnsavedError)) throw error;
+    historyStartOver.value = true;
+  }
+}
+const historyStartOver = ref(false);
+watch(
+  () => state.phase,
+  (phase) => {
+    if (phase !== "running") historyStartOver.value = false;
+  },
+);
 
 /**
  * The timeline notices. A tape this version cannot extend offers a new
@@ -459,6 +484,33 @@ async function onRecordSave(): Promise<void> {
       </div>
     </div>
     <div
+      v-if="historyStartOver"
+      class="export-refusal"
+      data-testid="start-over-history"
+      role="alert"
+    >
+      <p>
+        This session's rewind timeline is not saved yet, so Start over stopped. Your game is as you
+        left it.
+      </p>
+      <div class="notice-actions">
+        <UiButton size="sm" data-testid="start-over-retry" @click="onStartOver()">
+          Try again
+        </UiButton>
+        <UiButton size="sm" data-testid="start-over-anyway" @click="onStartOver(true)">
+          Start over anyway
+        </UiButton>
+        <UiButton
+          variant="primary"
+          size="sm"
+          data-testid="start-over-stay"
+          @click="historyStartOver = false"
+        >
+          Stay
+        </UiButton>
+      </div>
+    </div>
+    <div
       v-if="state.historyBlocked"
       class="history-unsaved"
       data-testid="history-blocked"
@@ -540,7 +592,7 @@ async function onRecordSave(): Promise<void> {
     @update:original-aspect="emit('update:originalAspect', $event)"
     @update:debug-open="emit('update:debugOpen', $event)"
     @export-zip="onExportAgiZip"
-    @start-over="emit('start-over')"
+    @start-over="onStartOver()"
     @developer-activity="emit('developer-activity')"
   />
   <HelpGuide
