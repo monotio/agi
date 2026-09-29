@@ -63,8 +63,10 @@ test("Undo start over returns to the earlier session, and the timeline marks the
   const noteBox = (await note(page).boundingBox())!;
   const screen = (await page.locator(".game-surface:visible").boundingBox())!;
   const inputRowTop = screen.y + (screen.height * 22) / 25;
+  // Fractional layout can land the note's edge a hair past the row (590.005
+  // against 590 on CI): half a pixel covers no pixel of the input line.
   expect(noteBox.y + noteBox.height, "the note does not cover the input line").toBeLessThanOrEqual(
-    inputRowTop,
+    inputRowTop + 0.5,
   );
   await reviewShot(page, "start-over-note");
 
