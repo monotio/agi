@@ -81,7 +81,11 @@ async function playTutorial(page: Page): Promise<void> {
  * `index`, taken over and resumed. The new session's transport has no marks
  * yet and fills once its first batch lands, the same on every run.
  */
-async function takeControlAt(page: Page, index: number): Promise<void> {
+async function takeControlAt(
+  page: Page,
+  index: number,
+  { resume = true }: { resume?: boolean } = {},
+): Promise<void> {
   await page.goto("/#watch/adventure-department");
   await expect(page.getByTestId("walkthrough-bar")).toBeVisible({ timeout: 30_000 });
   await page.getByTestId("btn-walkthrough-pause").click();
@@ -96,7 +100,7 @@ async function takeControlAt(page: Page, index: number): Promise<void> {
   await page.getByTestId("btn-walkthrough-take-control").click();
   await expect(page.getByTestId("walkthrough-bar")).toBeHidden();
   // A paused walkthrough hands over a paused game; Resume plays on from here.
-  await page.getByTestId("btn-transport-resume").click();
+  if (resume) await page.getByTestId("btn-transport-resume").click();
   await expect(page.locator(".play-strip .transport-progress-fill")).toHaveAttribute(
     "style",
     /width: 100%/,
@@ -146,6 +150,13 @@ test("tutorial-gallery", async ({ page }) => {
 
 test("create-mode", async ({ page }) => {
   await playTutorial(page);
+  // Pause from the play bar at a fixed cycle: the timeline's length, and so
+  // where its boot mark sits, is then the same on every capture.
+  await expect
+    .poll(async () => (await textHook(page)).cycle, { timeout: 20_000 })
+    .toBeGreaterThanOrEqual(80);
+  await page.getByTestId("btn-transport-pause").click();
+  await expect(page.getByTestId("btn-transport-resume")).toBeVisible();
   await configureAi(page, { provider: "stub" });
   await enterCreateMode(page);
   // All three rooms in the World panel's graph.
