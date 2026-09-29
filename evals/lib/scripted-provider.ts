@@ -203,7 +203,7 @@ function consumeOpenAi(
 function render(provider: ScriptProvider, turn: LlmTurnResult, index: number): string {
   if (provider === "anthropic") {
     const content: Record<string, unknown>[] = [
-      // Opus 5.5 and Fable 5.1 return their notes between tool calls as
+      // Opus 5.5, Sonnet 5.5 and Fable 5.1 return their notes between tool calls as
       // thinking blocks; the transcript carries them, so the probe does too.
       { type: "thinking", thinking: `Step ${index}.`, signature: `sig-${index}` },
     ];

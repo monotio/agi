@@ -18,6 +18,7 @@ export const DEFAULT_MODELS: Record<ModelProvider, string> = {
 export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[]> = {
   anthropic: [
     { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+    { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
     { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
   ],
   openai: [
@@ -53,7 +54,7 @@ export interface ModelCapability {
   strictSchema: boolean;
   /**
    * Anthropic adaptive thinking whose notes between tool calls come back
-   * empty unless a display is requested (Opus 5.5, Fable 5.1).
+   * empty unless a display is requested (Opus 5.5, Sonnet 5.5, Fable 5.1).
    * https://platform.claude.com/docs/en/models/opus-5-5/migration-guide#text-between-tool-calls
    */
   summarizedThinking?: true;
@@ -68,6 +69,7 @@ export interface ModelCapability {
  * https://developers.openai.com/api/docs/models/gpt-6-luna
  * https://platform.claude.com/docs/en/about-claude/pricing
  * https://platform.claude.com/docs/en/models/opus-5-5/overview
+ * https://platform.claude.com/docs/en/models/sonnet-5-5/overview
  */
 export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
   // Anthropic's default, and in the 1.0.0 Genesis benchmark medium matched
@@ -80,6 +82,19 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapability> = {
     strictSchema: false,
     summarizedThinking: true,
     price: { input: 4, output: 20, longContext: false, cacheRead: 0.2 },
+  },
+  // Anthropic's default effort is high. Its agentic guidance starts
+  // well-specified multistep tool work at medium; the player can choose it.
+  // It takes no forced tool_choice and binds thinking blocks to the
+  // conversation; this client forces no tool and keeps history append-only.
+  "claude-sonnet-5-5": {
+    provider: "anthropic",
+    effort: REASONING_LEVELS,
+    defaultEffort: "high",
+    caching: "breakpoint",
+    strictSchema: false,
+    summarizedThinking: true,
+    price: { input: 2, output: 10, longContext: false },
   },
   "claude-fable-5-1": {
     provider: "anthropic",
