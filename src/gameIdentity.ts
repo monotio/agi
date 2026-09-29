@@ -7,7 +7,7 @@
  * adventure, a copy, a remix. Renaming the entry's title does not change it;
  * a remix stores its parent's identity in the same record type.
  * `ResourceRevision` is the digest of the canonical playable bytes — the
- * sorted-name SHA-256 bundle scheme in app/src/project/gameMetadata.ts. The same
+ * sorted-name SHA-256 bundle scheme in src/authoring/resourceRevision.ts. The same
  * bytes give the same value, including after a no-op patch or an undo;
  * notes, references, tests, history and archive timestamps never move it.
  *
