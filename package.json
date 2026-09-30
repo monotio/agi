@@ -55,6 +55,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
+  "overrides": {
+    "typed-rest-client": {
+      "qs": "6.16.0"
+    }
+  },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.129.0",
     "@ast-grep/cli": "0.45.3",
