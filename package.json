@@ -1,6 +1,6 @@
 {
   "name": "agi-is-here",
-  "version": "1.2.0-rc.2",
+  "version": "1.2.0-rc.3",
   "description": "Create, play and remix authentic AGI adventures with AI. Open-source TypeScript engine and browser authoring tools by Monotio.",
   "type": "module",
   "license": "MIT",
@@ -56,24 +56,24 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
+    "@anthropic-ai/sdk": "^0.129.0",
     "@ast-grep/cli": "0.45.3",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.3",
     "dependency-cruiser": "^18.4.0",
     "eslint": "^10.11.0",
-    "eslint-plugin-vue": "^10.11.0",
+    "eslint-plugin-vue": "^10.11.1",
     "globals": "^17.12.0",
-    "knip": "^6.38.0",
+    "knip": "^6.39.0",
     "npm-run-all2": "^9.0.3",
-    "openai": "^7.22.0",
-    "prettier": "^3.9.8",
+    "openai": "^7.25.0",
+    "prettier": "^3.9.9",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.70.1",
-    "vscode-languageserver": "10.1.1",
-    "vscode-languageserver-protocol": "3.18.3",
-    "vscode-languageserver-textdocument": "1.0.14",
+    "typescript-eslint": "^8.71.0",
+    "vscode-languageserver": "10.1.2",
+    "vscode-languageserver-protocol": "3.18.4",
+    "vscode-languageserver-textdocument": "1.0.15",
     "vue-eslint-parser": "^10.4.1"
   }
 }
