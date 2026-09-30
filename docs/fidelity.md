@@ -1574,9 +1574,12 @@ KQ4's closing intro window shows the cycling wave through its top border.
 **Specification:** The spec's modal-text chapter does not address whether object updates continue under
 an open window.
 
-**Evidence:** The shipped main loops gate the object-update call on a state byte set only around the
-full-screen selector UI, never by the window-open routine: the gate byte is `[0x17c7]` in 3.002.086
-and `[0x1757]` in 2.936, set around the selector UI (0x3569 in 3.002.086); the window-open routine
+**Evidence:** The shipped main loops gate the object-update call on the text-screen mode byte, which
+the window-open routine never sets. In KQ4 3.002.086 (static disassembly) the main loop tests
+`[0x17c7]` at 0x241. Action 0x6a `text.screen` (handler 0x7b09, dispatch entry `AGIDATA.OVL`
+0x7c5) sets it at 0x7b14, and action 0x6b `graphics` (handler 0x7b41) clears it through 0x7d0a at
+0x7d0f. A search of the image finds no other direct write. 2.936 gates on `[0x1757]`, which the
+agi-re evidence book attributes to the same pair (0x6a handler 0x76ca). The window-open routine
 (0x204F in 3.002.086) sets `[0xd53]`, which no draw or update path reads.
 
 **Tests:** [kq4-regressions.test.ts](../test/kq4-regressions.test.ts).
@@ -1981,8 +1984,9 @@ Two failure modes arise if hardware latching semantics and rest notes are not mo
    Suppression is a deliberate presentation divergence, not reproduced original
    command-stream behavior. Resolve chip/device semantics before changing it.
 
-**Specification:** The AGI behavioral specification documents the 5-byte note structure and defines
-tone divisor 0 as silence/rest, but does not detail the TI SN76489 chip latching state machine.
+**Specification:** The AGI behavioral specification documents the 5-byte note structure and treats
+control attenuation `0x0f` as silence. It gives tone 0 no rest meaning of its own and does not detail
+the TI SN76489 chip latching state machine.
 
 **Tests:** [audio.test.ts](../app/test/audio.test.ts) (rejection of data bytes on attenuation latches),
 [sound-playback.test.ts](../test/sound-playback.test.ts) (rest note tone suppression).
