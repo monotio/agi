@@ -141,7 +141,10 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // Version 3 timeline readers synchronously verify document hashes and bounded
   // workspaces before replay: 166.6 kB gzip, 139.9 kB brotli. Admission and its
   // compiler remain outside the startup closure.
-  workers: { gzip: 167_000, brotli: 140_000 },
+  // Candidate room-entry checks share Engine's private idle/cache state and
+  // remain synchronous: 167.3 kB gzip, 140.3 kB brotli. Complete restart
+  // validation and project admission still load only for Create.
+  workers: { gzip: 167_500, brotli: 140_500 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {

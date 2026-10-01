@@ -16,7 +16,11 @@ import {
   openStagedContainer,
   type PreviewUpdatePlan,
 } from "../../../src/runtime/previewAdmission.ts";
-import type { ProfileId } from "../../../src/runtime/profile.ts";
+import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
+import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
+import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
+import { installProjectRestart } from "./projectRestart.ts";
+import { mintPreviewRunToken, newProjectAdmissionState } from "./projectAdmissionState.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 import type { ProjectAdmissionState } from "./projectAdmissionState.ts";
 import {
@@ -157,6 +161,7 @@ function requestDigest(msg: Inbound<"previewUpdate">): string {
     const manifest = JSON.stringify({
       runToken: msg?.runToken,
       expected: msg?.expected,
+      mode: msg?.mode,
       candidate: { ...candidate, files: sha256Hex(image) },
     });
     return sha256Hex(new TextEncoder().encode(manifest)) + ":" + sha256Hex(image);
@@ -211,8 +216,7 @@ interface ValidatedCandidate {
 
 /**
  * The wire-level candidate contract, checked before any deeper work: a
- * complete files record of real bytes, the declared profile equal to the
- * running one, string sources, a well-formed complete binding map, claimed
+ * complete files record of real bytes, a known declared profile, string sources, a well-formed complete binding map, claimed
  * identities and document-origin versions. Returns the refusal reason or
  * the detached, byte-copied candidate.
  */
@@ -238,8 +242,8 @@ function validateCandidate(
     return { error: error instanceof Error ? error.message : String(error) };
   }
   const profile = value["profile"];
-  if (profile !== undefined && profile !== engineProfileId)
-    return { error: "preview candidate declares a different profile" };
+  if (profile !== undefined && (typeof profile !== "string" || !Object.hasOwn(PROFILES, profile)))
+    return { error: "preview candidate declares an unknown profile" };
   const sourcesValue = value["sources"];
   if (!isRecord(sourcesValue) || Object.values(sourcesValue).some((s) => typeof s !== "string"))
     return { error: "preview candidate sources must map logic numbers to source text" };
@@ -285,9 +289,8 @@ function validateCandidate(
     candidate: {
       files: canonical,
       record,
-      // Any supplied value already equals the running profile — keep the
-      // wire value's own identity rather than re-deriving it.
-      profile: profile === undefined ? undefined : engineProfileId,
+      // Known profiles are verified under their own resource formats.
+      profile: profile === undefined ? engineProfileId : (profile as ProfileId),
       sources: { ...(sourcesValue as Record<string, string>) },
       sourceBindings,
       bindings: expressionBindings(sourceBindings),
@@ -392,10 +395,6 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       refuse("this run has no play-preview lane");
       return;
     }
-    if (runToken !== lane.runToken) {
-      refuse("run token does not match the play-preview lane");
-      return;
-    }
     // A request without a readable transaction id cannot enter the ledger:
     // it is refused without admission so a malformed id can never squat on
     // the serial a real first request would carry.
@@ -415,6 +414,10 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       } else {
         refuse(`preview transaction ${id} was already settled under different content`);
       }
+      return;
+    }
+    if (runToken !== lane.runToken) {
+      refuse("run token does not match the play-preview lane");
       return;
     }
     if (id <= lane.highWater) {
@@ -461,13 +464,22 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       return;
     }
     const candidate = validated.candidate;
+    const profile = PROFILES[candidate.profile ?? engine.profile.id]!;
+    if (msg.mode !== undefined && msg.mode !== "restart" && msg.mode !== "reenter") {
+      settleRefused("Unknown project admission action.");
+      return;
+    }
+    if (msg.mode !== undefined && ctx.projectAdmission !== lane) {
+      settleRefused("Open this game in Create to restart with changes.");
+      return;
+    }
     let captured: ReturnType<typeof CaptureProjectBuild>;
     let documentId: string | undefined;
     let admittedDocuments: PortableProjectWorkspace | undefined;
     try {
       captured = captureProjectBuild({
         files: candidate.record,
-        profileId: engine.profile.id,
+        profileId: profile.id,
         sources: candidate.sources,
         bindings: Object.fromEntries(
           Object.entries(candidate.sourceBindings).map(([name, b]) => [name, { num: b.num }]),
@@ -485,7 +497,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
           throw new Error("claimed project document identity differs from its documents");
         const compiled = compileProjectDocuments({
           files: candidate.record,
-          profileId: engine.profile.id,
+          profileId: profile.id,
           documents,
         });
         if (
@@ -541,9 +553,11 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     // host policy and is never inferred from the candidate here.
     let inspection: ReturnType<typeof inspectProjectReferences>;
     try {
+      const container = openStagedContainer(candidate.files, profile);
+      validateCompleteImage(container, profile, ctx.boot.selectedSoundDevice);
       inspection = inspectProjectReferences({
-        container: openStagedContainer(candidate.files, engine.profile),
-        profile: engine.profile,
+        container,
+        profile,
         bindings: candidate.sourceBindings,
         allowMissingRooms: ctx.projectAdmission === lane && ctx.boot.authorRooms,
       });
@@ -589,6 +603,49 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         `candidate fails detached project validation: ${first.document}: ${first.message}` +
           (violations.length > 1 ? ` (+${violations.length - 1} more)` : ""),
       );
+      return;
+    }
+
+    if (msg.mode === "restart") {
+      let replacement;
+      try {
+        replacement = prepareProjectRestart(
+          { files: candidate.files, profile: profile.id },
+          ctx.host,
+          engine.profile,
+        );
+      } catch (error) {
+        settleRefused(error instanceof Error ? error.message : String(error));
+        return;
+      }
+      // Replacement starts only after complete native, document and reference validation.
+      installProjectRestart(ctx, replacement);
+      const next = newProjectAdmissionState(mintPreviewRunToken(), replacement);
+      next.buildId = candidate.buildId;
+      next.documentId = documentId;
+      next.sources = candidate.sources;
+      next.sourceBindings = candidate.sourceBindings;
+      next.bindings = candidate.bindings;
+      next.highWater = lane.highWater;
+      next.results = lane.results;
+      ctx.projectAdmission = next;
+      ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
+      const words = candidate.files.get("WORDS.TOK");
+      ctx.boot.liveDictionary = new Map(
+        words === undefined ? [] : parseWordsTok(words).map(({ word, id }) => [word, id]),
+      );
+      ctx.boot.currentDictionary = ctx.boot.liveDictionary;
+      ctx.fns.debugSessionReplaced();
+      ctx.fns.historyResume();
+      ctx.fns.startTimers();
+      ctx.fns.postFrame(true);
+      settle({
+        status: "committed",
+        expected,
+        current: projectAdmissionIdentity(ctx, next),
+        patchGeneration: replacement.patchGeneration,
+        replacementRunToken: next.runToken,
+      });
       return;
     }
 
@@ -653,7 +710,13 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       settleRefused("the lane's identity moved while the candidate was staged");
       return;
     }
-    const result = engine.commitPreviewUpdate(plan, { sourceAuthorityChanged });
+    const result =
+      msg.mode === "reenter"
+        ? engine.commitRoomReentry(plan, () => {
+            ctx.fns.historyEnd("resume");
+            ctx.fns.markReenter();
+          })
+        : engine.commitPreviewUpdate(plan, { sourceAuthorityChanged });
 
     if (result.status === "deferred") {
       // A busy boundary is a terminal, honest answer: nothing is queued,
@@ -674,6 +737,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         current: projectAdmissionIdentity(ctx, liveLane()),
         patchGeneration: result.patchGeneration,
         ...(result.reason !== undefined ? { reason: result.reason } : {}),
+        ...(result.roomReentry === true ? { roomReentry: true } : {}),
       });
       return;
     }
@@ -687,7 +751,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     if (installed) {
       if (ctx.projectAdmission === lane)
         ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
-      if (ctx.projectAdmission === lane)
+      if (ctx.projectAdmission === lane && msg.mode !== "reenter")
         ctx.fns.historyRecord({
           kind: "projectImage",
           files: Object.fromEntries(
@@ -707,6 +771,9 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       // Every external image consumer re-points at the admitted bytes: the
       // engine's own staged container is the truth these mirrors follow.
       ctx.boot.currentBootFiles = new Map(engine.containerFiles);
+      // The session owns this complete image's body write. Progress autosave
+      // can carry the old run while a later edit waits for restart.
+      if (ctx.projectAdmission === lane) ctx.autosave.lastPatchGeneration = engine.patchGeneration;
       if (committedDictionary !== null && wordsFile !== undefined) {
         // The commit rebinds the engine's parser dictionary to the staged
         // map — liveDictionary keeps the boot-time content mirror (and
@@ -718,6 +785,11 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         ctx.boot.currentDictionary = ctx.boot.liveDictionary;
         ctx.boot.authoredWords = wordsFile.slice();
       }
+    }
+    if (installed && msg.mode === "reenter") {
+      ctx.fns.noteTransition();
+      ctx.fns.historyResume();
+      ctx.fns.postFrame(true);
     }
     settle({
       status: installed ? "committed" : "unchanged",

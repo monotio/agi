@@ -1107,6 +1107,25 @@ export class Engine {
     plan: PreviewUpdatePlan,
     admission?: { readonly sourceAuthorityChanged?: boolean },
   ): PreviewUpdateResult {
+    return this.commitPreparedPreview(plan, admission, false);
+  }
+
+  /** Explicit room-entry admission uses the same detached candidate and strict idle boundary. */
+  prepareRoomReentry(candidate: PreviewUpdateCandidate): PreviewUpdatePlan {
+    return this.preparePreviewUpdate(candidate);
+  }
+
+  /** The host seals the previous timeline segment after validation, before the first write. */
+  commitRoomReentry(plan: PreviewUpdatePlan, beforeEntry?: () => void): PreviewUpdateResult {
+    return this.commitPreparedPreview(plan, undefined, true, beforeEntry);
+  }
+
+  private commitPreparedPreview(
+    plan: PreviewUpdatePlan,
+    admission: { readonly sourceAuthorityChanged?: boolean } | undefined,
+    roomReentry: boolean,
+    beforeEntry?: () => void,
+  ): PreviewUpdateResult {
     const result = (status: PreviewUpdateStatus, reason?: string): PreviewUpdateResult => ({
       status,
       ...(reason === undefined ? {} : { reason }),
@@ -1136,10 +1155,17 @@ export class Engine {
       // the same idle boundary — deferred without consuming the plan.
       if (
         issued.terminal.status === "unchanged" &&
-        admission?.sourceAuthorityChanged === true &&
+        (admission?.sourceAuthorityChanged === true || roomReentry) &&
         !this.previewBoundaryIdle()
       ) {
         return result("deferred");
+      }
+      if (issued.terminal.status === "unchanged" && roomReentry) {
+        if (this.container.getResource("logic", this.vars[V_ROOM]!) === null)
+          return settle(result("refused", "The current room needs a LOGIC to re-enter."));
+        beforeEntry?.();
+        this.reenterRoom();
+        return settle(result("committed"));
       }
       return settle({ ...issued.terminal, patchGeneration: this.patchGen });
     }
@@ -1147,9 +1173,21 @@ export class Engine {
     if (issued.staged === null) {
       return settle(result("refused", "preview plan carries no staged candidate"));
     }
-    const blocked = this.previewDynamicBlock(issued.staged);
-    if (blocked !== null) return settle(result(blocked.status, blocked.reason));
+    const blocked = this.previewDynamicBlock(issued.staged, roomReentry);
+    if (blocked !== null)
+      return settle({
+        ...result(blocked.status, blocked.reason),
+        ...(!roomReentry && this.previewDynamicBlock(issued.staged, true) === null
+          ? { roomReentry: true as const }
+          : {}),
+      });
+    if (roomReentry) {
+      if (issued.staged.container.getResource("logic", this.vars[V_ROOM]!) === null)
+        return settle(result("refused", "The current room needs a LOGIC to re-enter."));
+      beforeEntry?.();
+    }
     this.commitStagedPreview(issued.staged);
+    if (roomReentry) this.reenterRoom();
     return settle(result("committed"));
   }
 
@@ -1340,6 +1378,7 @@ export class Engine {
    */
   private previewDynamicBlock(
     staged: StagedPreviewUpdate,
+    roomReentry = false,
   ): { readonly status: "refused" | "restartRequired"; readonly reason: string } | null {
     const composition = analyzePictureComposition(this.hostReplay, this.hostReplayOverflow);
     if (composition.fingerprint !== staged.composition.fingerprint) {
@@ -1348,19 +1387,23 @@ export class Engine {
         reason: "picture replay evidence moved between preparation and commit",
       };
     }
-    if (staged.compositionBlocked !== null) {
+    if (staged.compositionBlocked !== null && !roomReentry) {
       return { status: "restartRequired", reason: staged.compositionBlocked };
     }
     for (const change of staged.changed) {
       if (change.kind === "logic") {
         const entry = staged.logicParses.get(change.num);
-        if (entry?.codeChanged === true && (this.scanStart.get(change.num) ?? 0) !== 0) {
+        if (
+          entry?.codeChanged === true &&
+          (this.scanStart.get(change.num) ?? 0) !== 0 &&
+          !(roomReentry && change.num !== 0 && change.num === this.vars[V_ROOM])
+        ) {
           return {
             status: "restartRequired",
             reason: `logic ${change.num} holds a nonzero scan.start resume offset`,
           };
         }
-      } else if (change.kind === "view" && this.views.has(change.num)) {
+      } else if (change.kind === "view" && this.views.has(change.num) && !roomReentry) {
         const stagedView = staged.viewParses.get(change.num);
         const loadedView = this.views.get(change.num);
         if (stagedView === undefined || loadedView === undefined) continue;

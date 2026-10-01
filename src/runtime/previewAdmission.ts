@@ -37,6 +37,8 @@ export interface PreviewUpdateResult {
   readonly reason?: string;
   /** Installed native image revision observed by this result. */
   readonly patchGeneration: number;
+  /** All current blockers can be resolved by a real entry into the current room. */
+  readonly roomReentry?: true;
 }
 
 /**

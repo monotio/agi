@@ -1,10 +1,10 @@
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
 import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
-import type { ProjectSession } from "../project/projectSession.ts";
+import type { ProjectSession, PendingProjectRestart } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
-import { getCurrentScope, onScopeDispose, reactive, shallowReactive } from "vue";
+import { getCurrentScope, onScopeDispose, reactive, shallowReactive, shallowRef } from "vue";
 import { createAgentLogger } from "../agent/agentLog.ts";
 import type { ReplayObservation } from "../walkthrough/replay.ts";
 import { createReplayDriver } from "../walkthrough/useReplayDriver.ts";
@@ -84,6 +84,7 @@ export function useEngine(
 ) {
   let projectMode: "create" | "play" = "play";
   let projectSession: ProjectSession | null = null;
+  const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
   const audio = new AgiAudio();
 
@@ -321,6 +322,7 @@ export function useEngine(
     projectOpenEpoch++;
     projectSession?.dispose();
     projectSession = null;
+    pendingProjectRestart.value = null;
   };
   link.deps.projectBooted = (msg) => {
     const grant = msg.projectAdmission;
@@ -351,18 +353,24 @@ export function useEngine(
           current,
           publish(snapshot, data, outcome) {
             if (!current()) return;
-            game.files = structuredClone(data.files);
-            game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-            game.words =
-              data.files["WORDS.TOK"] === undefined
-                ? data.words
-                : parseWordsTok(data.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
+            const running = outcome?.status === "committed" || outcome?.status === "unchanged";
+            if (running) {
+              game.files = structuredClone(data.files);
+              game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
+              if (outcome.replacementRunToken !== undefined)
+                state.profile = snapshot.lastAdmissibleBuild!.identity.profileId;
+            }
+            if (running)
+              game.words =
+                data.files["WORDS.TOK"] === undefined
+                  ? data.words
+                  : parseWordsTok(data.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
             game.authoredGame = {
               ...data,
               projectId: game.projectId!,
               authoredAt: game.authoredGame!.authoredAt,
             };
-            audio.useGameFiles(game.files);
+            if (running) audio.useGameFiles(game.files);
             state.patchTick++;
             state.worldTick++;
             if (outcome?.status === "committed") {
@@ -372,7 +380,10 @@ export function useEngine(
             }
           },
           changed() {
-            if (current()) state.status = projectSession?.saveStatus().message ?? "";
+            if (current()) {
+              state.status = projectSession?.saveStatus().message ?? "";
+              pendingProjectRestart.value = projectSession?.pendingRestart ?? null;
+            }
           },
         });
       })
@@ -666,6 +677,13 @@ export function useEngine(
       projectMode = mode;
     },
     getProjectSession: () => projectSession,
+    pendingProjectRestart,
+    restartWithChanges() {
+      return projectSession?.restartWithChanges();
+    },
+    reenterRoom() {
+      return projectSession?.reenterRoom();
+    },
     submitProjectEdit(
       edit: { changes: readonly ProjectChange[] } & Omit<ProjectCommitMetadata, "time">,
     ) {
