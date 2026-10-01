@@ -1,18 +1,20 @@
+import { MAX_GAME_ZIP_BYTES } from "./gameZipLimits.ts";
 import { readProjectContext, type ProjectContext } from "./projectArchive.ts";
-import { readProgressEntries, type GameProgress } from "../saves/gameProgress.ts";
+import { readProgressEntries } from "../saves/gameProgressImport.ts";
+import type { GameProgress } from "../saves/gameProgress.ts";
 import { readMapArchive } from "../world/roomMapStore.ts";
 import { readHistoryArchive, type ProjectHistory } from "./historyArchive.ts";
 import type { RoomMapSidecar } from "../../../src/agent/roomMap.ts";
 import { crc32 } from "./zip.ts";
 import { readPublicMetadata, type PublicGameMetadata } from "../project/gameMetadata.ts";
-import type { ProfileId } from "../../../src/runtime/profile.ts";
+import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import { openContainer, DIRECTORY_FILES } from "../../../src/container/container.ts";
 import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
 import { decodeBooter, isBooterImage } from "../../../src/container/booter.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { parseLogicResource } from "../../../src/logic/resource.ts";
 
-export const MAX_GAME_ZIP_BYTES = 128 * 1024 * 1024;
+export { MAX_GAME_ZIP_BYTES };
 const MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 
@@ -250,7 +252,16 @@ export function readGameFiles(input: ReadonlyMap<string, Uint8Array>): OpenedGam
     id,
   ]);
   const projectBytes = entries.get(`${root}PROJECT.JSON`);
-  const project = projectBytes ? readProjectContext(projectBytes, entries, root) : undefined;
+  const project = projectBytes
+    ? // The container's own resolution — the same detectProfile the session
+      // applies — decides the profile a sound document source is checked
+      // against, and its stored SOUND bytes are the claim's authority. The
+      // claim's pinned profile is never trusted to choose the interpreter.
+      readProjectContext(projectBytes, entries, root, {
+        profileId: detectProfile(container.files, gameMetadata.profile).id,
+        nativeSound: (num) => container.getResource("sound", num),
+      })
+    : undefined;
   const progress = project
     ? readProgressEntries(entries, root, files, gameMetadata.profile)
     : undefined;

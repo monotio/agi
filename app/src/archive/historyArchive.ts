@@ -5,6 +5,12 @@
  * session. The `committed`/`bytes` dedup maps are transport bookkeeping and
  * do not travel.
  *
+ * The wrapper format is fixed at version 1; the nested `recording` carries
+ * its own version (validateHistoryRecording accepts the released 1 and the
+ * current 2, preserving the record's stamp — a reader never rewrites it).
+ * A nested version a build cannot validate fails the whole read loudly, so
+ * no release silently strips reasons written after it.
+ *
  * This module is pure data validation and serialization — no storage — so
  * the ZIP readers can reach it without pulling IndexedDB into programs that
  * run outside the app's DOM typings.
