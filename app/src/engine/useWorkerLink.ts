@@ -9,9 +9,10 @@ import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import type { AgiAudio } from "../audio/AgiAudio.ts";
 import type { BootedGame, Frame } from "../project/gameTypes.ts";
 import type { HistoryBatch } from "../../../src/agent/history.ts";
-import { decodeTextRows, gameStorageKey } from "../project/gameTypes.ts";
+import { decodeTextRows } from "../project/gameTypes.ts";
 import type { ReplayDriver, ReplayObservation } from "../walkthrough/replay.ts";
-import { LAST_GAME_KEY } from "../saves/useAutosaveController.ts";
+import { writeResumePointer } from "../saves/resumePointer.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
 import type { EngineState, ModalKind, TextHook } from "./useEngineTypes.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import { createPatchWaiters, createWorkerQueries } from "./workerQueries.ts";
@@ -38,6 +39,7 @@ interface WorkerLinkDeps {
   handleHistoryView(msg: Extract<WorkerOutbound, { type: "historyView" }>): void;
   handleFlushed(msg: Extract<WorkerOutbound, { type: "flushed" }>): void;
   handleRestored(msg: Extract<WorkerOutbound, { type: "restored" }>): void;
+  handleRecoveryError?(message: string): boolean;
   handleSaveSlotRequest(
     op: "restore" | "saveList" | "saveWrite",
     context: Record<string, unknown>,
@@ -60,6 +62,19 @@ interface WorkerLinkDeps {
   observeCycle?(msg: Extract<WorkerOutbound, { type: "cycle" }>): void;
   /** A live room transition — entering another room closes the Start over note. */
   observeRoom?(msg: Extract<WorkerOutbound, { type: "roomTransition" }>): void;
+  /**
+   * Debugger session events that are not query replies — stops, detach and
+   * session-reset notices, answer-ready and logpoint output.
+   */
+  handleDebugEvent?(
+    msg: Extract<
+      WorkerOutbound,
+      {
+        type:
+          "debugStopped" | "debugDetached" | "debugSessionReset" | "debugAnswerReady" | "debugLog";
+      }
+    >,
+  ): void;
 }
 
 /**
@@ -98,6 +113,23 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   const setWorkerAudioPause = (paused: boolean) => {
     if (typeof audio.setPauseOwner === "function") audio.setPauseOwner("worker", paused);
     else audio.setPaused(paused || state.paused);
+  };
+
+  /**
+   * The debugger's own audio hold — a distinct pause owner so releasing it
+   * never lifts the worker-authoring or ambient holds. Only the epoch that
+   * raised it may release it; a replaced worker's hold dies with the worker.
+   */
+  let debugAudioEpoch: number | null = null;
+  const setDebugAudioPause = (paused: boolean, epoch?: number) => {
+    if (typeof audio.setPauseOwner !== "function") return;
+    if (paused) {
+      debugAudioEpoch = epoch ?? null;
+      audio.setPauseOwner("debugger", true);
+    } else if (epoch === undefined || debugAudioEpoch === epoch) {
+      debugAudioEpoch = null;
+      audio.setPauseOwner("debugger", false);
+    }
   };
 
   let worker: Worker | null = null;
@@ -160,6 +192,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     worker = null;
     // A dead worker holds no audio pause.
     setWorkerAudioPause(false);
+    setDebugAudioPause(false);
     patchWaiters.drainPatchWaiters(new Error("engine worker stopped"));
   }
 
@@ -201,8 +234,37 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       playedHere: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugEvents: (msg) => workerQueries.resolveQuery(msg.id, msg),
       debugTrace: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      // The execution-controller protocol: replies settle their pending
+      // query (debugError settles it refused); session events forward to the
+      // debug session owner and the audio hold tracks its owning epoch.
+      debugAttached: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugAck: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugConfigured: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugInspection: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugEvaluation: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugSetValuesAck: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      debugError: (msg) => {
+        workerQueries.rejectQuery(msg.id, new Error(msg.error));
+      },
+      debugStopped: (msg) => deps.handleDebugEvent?.(msg),
+      debugAnswerReady: (msg) => deps.handleDebugEvent?.(msg),
+      debugLog: (msg) => deps.handleDebugEvent?.(msg),
+      debugSessionReset: (msg) => deps.handleDebugEvent?.(msg),
+      debugDetached: (msg) => {
+        setDebugAudioPause(false, msg.epoch);
+        deps.handleDebugEvent?.(msg);
+      },
+      debugAudio: (msg) => {
+        if (msg.paused) setDebugAudioPause(true, msg.epoch);
+        else setDebugAudioPause(false, msg.epoch);
+      },
       recordingStarted: (msg) => workerQueries.resolveQuery(msg.id, msg),
       recordingStopped: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      // The play-preview lane's protocol: each settles its pending query —
+      // the result is the request's one terminal settlement, the status its
+      // read-only reconciliation.
+      previewUpdateResult: (msg) => workerQueries.resolveQuery(msg.id, msg),
+      previewUpdateStatus: (msg) => workerQueries.resolveQuery(msg.id, msg),
       // The history transport's position reports: progress posts only update
       // the controller; the terminal one settles the requesting query.
       historyView: (msg) => {
@@ -435,9 +497,14 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       },
       booted: (msg) => {
         const booted = options.getBootedGame();
-        if (booted) {
+        // The resume pointer moves only to the physical address the booted
+        // game bound — a superseded boot's acknowledgement cannot arrive
+        // (a replaced worker's messages never land), so the game in the
+        // slot is the one this worker boots.
+        const locator = booted !== null ? (resolveProgressTarget(booted)?.locator ?? null) : null;
+        if (locator !== null) {
           try {
-            localStorage.setItem(LAST_GAME_KEY, gameStorageKey(booted));
+            writeResumePointer(localStorage, locator);
           } catch {
             /* Playback can continue without browser storage. */
           }
@@ -457,14 +524,23 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         publishHook();
       },
       error: (msg) => {
+        if (deps.handleRecoveryError?.(msg.message)) return;
         state.phase = "error";
         state.error = msg.message;
       },
     };
     worker = w;
-    // The replacement boundary: the previous run's sound-pause hold dies
-    // with it; this worker's own soundPaused messages re-arm it.
+    w.onerror = (event: ErrorEvent) => {
+      if (worker !== w) return;
+      const message = event.message || "The game worker stopped.";
+      if (deps.handleRecoveryError?.(message)) return;
+      state.phase = "error";
+      state.error = message;
+    };
+    // The replacement boundary: the previous run's sound-pause holds die
+    // with it; this worker's own soundPaused/debugAudio messages re-arm them.
     setWorkerAudioPause(false);
+    setDebugAudioPause(false);
     // A fresh worker boots with every debug channel disarmed; re-arm the set
     // the UI still expects so a game switch never silently blanks the dock.
     w.postMessage({
@@ -474,6 +550,12 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     w.onmessage = (ev: MessageEvent) => {
       // A replaced worker's messages never land here.
       if (worker !== w) return;
+      const game = options.getBootedGame();
+      if (
+        (game?.removed || game?.behindStorage) &&
+        deps.handleRecoveryError?.("The saved checkpoint's project changed during recovery.")
+      )
+        return;
       // Ingress validation for whatever structured clone delivered: unknown
       // or malformed messages drop instead of reaching a handler.
       const data = ev.data;

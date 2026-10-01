@@ -5,18 +5,21 @@ import {
   useGameLifecycle,
   type GameLifecycleOptions,
 } from "../src/engine/useGameLifecycle.ts";
+import type { ResumeBootCandidate, ResumeBootCarrier } from "../src/saves/useAutosaveController.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
 import {
   clearCachedGame,
   loadAuthoredGame,
+  readHistoryLifetime,
   saveAuthoredGame,
   updateAuthoredGameFiles,
   type CachedGameData,
 } from "../src/project/gameStorage.ts";
 import { gameRevision } from "../src/project/gameMetadata.ts";
+import { bindProgressTarget } from "../src/project/progressBinding.ts";
 import { createContainer } from "../../src/container/container.ts";
-import type { BootedGame } from "../src/project/gameTypes.ts";
+import type { BootedGame, ProjectId } from "../src/project/gameTypes.ts";
 
 installIndexedDbFixture();
 // The project index lives in localStorage; each test file runs in its own process.
@@ -36,7 +39,12 @@ test("Exit preserves the worker and session when autosave succeeds but history c
   const lifecycle = useGameLifecycle({
     state,
     authoring: { getSession: () => null },
-    autosave: { flushAutosaveDetailed: async () => ({ status: "saved" }) },
+    autosave: {
+      // No resume intent exists in this harness: an ordinary departure
+      // proceeds, a foreign carrier would refuse.
+      beginResumeBoot: (carrier?: ResumeBootCarrier) => carrier === undefined,
+      flushAutosaveDetailed: async () => ({ status: "saved" }),
+    },
     link: {
       query: async () => {
         throw new Error("history timeout");
@@ -64,6 +72,7 @@ function exitWithSilentHistory(state: Record<string, unknown>, calls: string[]) 
     audio: { stop: () => {}, setPaused: () => {} },
     authoring: { getSession: () => null, resetSession: () => {} },
     autosave: {
+      beginResumeBoot: (carrier?: ResumeBootCarrier) => carrier === undefined,
       flushAutosaveDetailed: async () => ({ status: "saved" }),
       reset: () => {},
       resetScreen: () => {},
@@ -138,7 +147,9 @@ test("Download game from a tab behind storage downloads the running game and nev
     revision: await gameRevision(files),
     files,
     words: [],
+    historyLifetime: await readHistoryLifetime(projectId),
   };
+  bindProgressTarget(game);
   // Another tab kept an edit after this game booted.
   const kept = createContainer();
   kept.putResource("logic", 0, Uint8Array.of(0));
@@ -164,8 +175,11 @@ test("Download game from a tab behind storage downloads the running game and nev
     logAgent: () => {},
   } as unknown as GameLifecycleOptions);
   lifecycle.setBootedGame(game);
-  const { data } = await lifecycle.exportCurrentGame();
+  const { data, progressKey, progressTarget } = await lifecycle.exportCurrentGame();
   assert.deepEqual(data.files, files, "the download is the running game");
+  assert.equal(progressTarget?.kind, "project");
+  assert.equal(progressKey, progressTarget?.locator, "the key is the bound locator");
+  assert.equal(progressKey, `project:${projectId}:${game.historyLifetime}`);
   const stored = (await loadAuthoredGame(projectId))!;
   assert.equal(stored.generation, newer.generation, "storage was not written");
   assert.deepEqual(stored.files, newer.files);
@@ -215,6 +229,7 @@ test("Leaving a game behind storage saves nothing over the newer project, and is
         resetSession: noop,
       },
       autosave: {
+        beginResumeBoot: (carrier?: ResumeBootCarrier) => carrier === undefined,
         flushAutosaveDetailed: async () => {
           calls.push("flush");
           return { status: "storage_failure" };
@@ -269,6 +284,7 @@ function quitHarness(flushResult: object = { status: "saved" }) {
     logAgent: noop,
     authoring: { getSession: () => null, resetSession: noop },
     autosave: {
+      beginResumeBoot: (carrier?: ResumeBootCarrier) => carrier === undefined,
       flushAutosaveDetailed: async () => {
         calls.push("flush");
         return flushResult;
@@ -338,4 +354,183 @@ test("Exit still refuses when browser storage fails or the autosave times out", 
     assert.deepEqual(calls, ["flush"], `${status} keeps the game running`);
     assert.equal(state.leaving, false);
   }
+});
+
+/** A boot-path lifecycle: real storage and binding, fake worker and session seams. */
+function bootHarness() {
+  const workers: { posted: unknown[]; postMessage(m: unknown): void }[] = [];
+  const sessions: unknown[] = [];
+  const noop = () => {};
+  const state = {
+    loading: null as unknown,
+    phase: "idle" as string,
+    error: "",
+    installedGames: [] as unknown[],
+    genesisStarter: null as unknown,
+    soundMode: "pc-speaker" as string,
+  };
+  const lifecycle = useGameLifecycle({
+    state,
+    hook: {},
+    audio: { useGameFiles: noop, stop: noop, setPaused: noop },
+    logAgent: noop,
+    link: {
+      spawnWorker: () => {
+        const worker = {
+          posted: [] as unknown[],
+          postMessage(msg: unknown) {
+            worker.posted.push(msg);
+          },
+          terminate: noop,
+        };
+        workers.push(worker);
+        return worker;
+      },
+      terminateWorker: noop,
+      drainPendingQueries: noop,
+      clearShake: noop,
+      query: async () => null,
+    },
+    autosave: {
+      // Ordinary boots only: no resume intent is armed here, so a foreign
+      // carrier refuses the gate and admission defers to its dead intent.
+      beginResumeBoot: (carrier?: ResumeBootCarrier) => carrier === undefined,
+      takeResumeState: async (boot: ResumeBootCandidate, carrier?: ResumeBootCarrier) =>
+        carrier === undefined ? { status: "none" as const } : carrier.admit(boot),
+      resetScreen: noop,
+      reset: noop,
+      drainFlushWaiters: noop,
+      flushAutosaveDetailed: async () => ({ status: "saved" }),
+    },
+    authoring: {
+      getSession: () => null,
+      setSession: (session: unknown) => sessions.push(session),
+      resetSession: noop,
+      attachSessionRuntime: noop,
+      postSessionSnapshot: noop,
+    },
+    testRecorder: { reset: noop },
+    promptCancel: noop,
+    releaseAgentAudioPreviews: noop,
+    pauseEngine: noop,
+    resumeEngine: noop,
+    resetPauseOwners: noop,
+    resetHistoryView: noop,
+    getSessionId: () => 1,
+    nextSessionId: () => 2,
+    getActiveReplaySeed: () => null,
+    setActiveReplaySeed: noop,
+    setActiveLlmConfig: noop,
+    getActiveLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
+    abortWalkthrough: noop,
+    drainHistoryCommits: async () => {},
+    stopHistoryWriter: noop,
+  } as unknown as GameLifecycleOptions);
+  return { lifecycle, workers, sessions, state };
+}
+
+const STUB_CONFIG = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
+
+function saveBody(id: ProjectId, fill: number) {
+  return saveAuthoredGame(id, {
+    title: id,
+    provider: "stub",
+    model: "offline-stub",
+    files: { "WORDS.TOK": Uint8Array.of(fill) },
+    words: [],
+  });
+}
+
+test("a saved-world boot binds its physical progress target before the worker boots", async (t) => {
+  const id = testProjectId("boot-binds-target");
+  t.after(() => clearCachedGame(id));
+  await saveBody(id, 7);
+  const epoch = await readHistoryLifetime(id);
+  const revision = await gameRevision({ "WORDS.TOK": Uint8Array.of(7) });
+  const { lifecycle, workers } = bootHarness();
+  await lifecycle.bootAuthoredGame("", STUB_CONFIG, { projectId: id, useCached: true });
+  const game = lifecycle.getBootedGame();
+  assert.equal(game?.projectId, id);
+  assert.equal(game?.historyLifetime, epoch, "the boot carries the atomic snapshot's epoch");
+  assert.equal(
+    game?.progressTarget?.locator,
+    `project:${id}:${epoch}`,
+    "the binding lands before any worker traffic",
+  );
+  assert.equal(game?.progressTarget?.identity.project, id);
+  assert.equal(game?.progressTarget?.identity.revision, revision);
+  assert.equal(
+    lifecycle.currentGame()?.progressTarget?.locator,
+    `project:${id}:${epoch}`,
+    "currentGame exposes the binding beside the released identity",
+  );
+  const boot = workers[0]?.posted.find((m) => (m as { type: string }).type === "boot");
+  assert.ok(boot, "the bound game is the one posted to the worker");
+});
+
+test("a cached boot superseded while storage answered never takes the slot", async (t) => {
+  const idA = testProjectId("superseded-a");
+  const idB = testProjectId("superseded-b");
+  t.after(async () => {
+    await clearCachedGame(idA);
+    await clearCachedGame(idB);
+  });
+  await saveBody(idA, 1);
+  await saveBody(idB, 2);
+  const { lifecycle, workers, sessions } = bootHarness();
+  // The first boot parks on the atomic body read; the second retires it
+  // before storage answers.
+  const first = lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+    projectId: idA,
+    useCached: true,
+  });
+  const second = lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+    projectId: idB,
+    useCached: true,
+  });
+  await Promise.all([first, second]);
+  const game = lifecycle.getBootedGame();
+  assert.equal(game?.projectId, idB, "the newer boot owns the slot");
+  assert.equal(game?.progressTarget?.locator, `project:${idB}:${await readHistoryLifetime(idB)}`);
+  assert.equal(workers.length, 1, "the retired boot never spawned a worker");
+  const boots = workers[0]!.posted.filter((m) => (m as { type: string }).type === "boot");
+  assert.equal(boots.length, 1);
+  assert.deepEqual(
+    (boots[0] as { files: Record<string, Uint8Array> }).files["WORDS.TOK"],
+    Uint8Array.of(2),
+    "only the newer game's bytes reach a worker",
+  );
+  assert.equal(sessions.length, 1, "the retired boot never touched the session");
+});
+
+test("a superseded creation's finish saves and boots nothing", async (t) => {
+  const id = testProjectId("superseded-finish");
+  t.after(() => clearCachedGame(id));
+  const { lifecycle, workers } = bootHarness();
+  const files = { "WORDS.TOK": Uint8Array.of(9) };
+  const session = { getAuthoringState: () => ({}) };
+  const resources = { files, words: [] as [string, number][], transcript: [], sessionId: "s1" };
+  const boot = { projectId: id, title: "Late world", config: STUB_CONFIG };
+  // Epoch 0 was this run's when it armed; a newer action has taken the slot
+  // since (shutdownEngine moves the clock), so the finish belongs to a
+  // retired run.
+  lifecycle.shutdownEngine();
+  await lifecycle.finishAuthoredBoot(session as never, resources, boot, 0);
+  assert.equal(await loadAuthoredGame(id), null, "the retired run's first save never lands");
+  assert.equal(lifecycle.getBootedGame(), null);
+  assert.equal(workers.length, 0);
+
+  // Positive control: the same finish with the live epoch runs the full
+  // save-and-boot, bound to the epoch its own save returned.
+  await lifecycle.finishAuthoredBoot(session as never, resources, boot);
+  const game = lifecycle.getBootedGame();
+  assert.equal(game?.projectId, id);
+  const epoch = await readHistoryLifetime(id);
+  assert.equal(
+    game?.progressTarget?.locator,
+    `project:${id}:${epoch}`,
+    "the saved body's own epoch binds the running game",
+  );
+  assert.equal(game?.historyLifetime, epoch);
+  assert.equal(workers.length, 1);
 });

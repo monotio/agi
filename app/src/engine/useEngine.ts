@@ -24,8 +24,10 @@ import {
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
 import { clearCachedGame } from "../project/gameStorage.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
 import { PROJECT_REMOVED_MESSAGE, watchProjectWrites } from "../project/projectTransaction.ts";
 import { clearGameSaves } from "../saves/gameSaves.ts";
+import { writeResumePointer } from "../saves/resumePointer.ts";
 import { removeMapSidecar } from "../world/roomMapStore.ts";
 import type { BootedGame, Frame, ProjectId } from "../project/gameTypes.ts";
 export type { BootedGame, Frame, ProjectId };
@@ -41,6 +43,7 @@ import { loadTapeOutline } from "../history/historyStorage.ts";
 import type { TransportModel } from "../history/useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { createPauseHolds } from "./pauseHolds.ts";
+import { createRuntimePauseLeaseAcquire } from "./runtimePauseLease.ts";
 import { createStartOver } from "./startOver.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "../world/useRoomMap.ts";
@@ -90,6 +93,7 @@ export function useEngine(
     gameEdit: null,
     phase: "idle",
     error: "",
+    genesisStarter: null,
     status: "",
     textMode: false,
     modal: null,
@@ -202,6 +206,12 @@ export function useEngine(
     audio,
     state,
   });
+  const acquireRuntimePauseLease = createRuntimePauseLeaseAcquire({
+    getWorker: () => link.getWorker(),
+    pause: pauseEngine,
+    resume: resumeEngine,
+    readState: () => link.query("state"),
+  });
 
   const input = useInputController({
     getWorker: link.getWorker,
@@ -241,6 +251,7 @@ export function useEngine(
    * refused turn does, and the stage's note says it while it is closed.
    */
   function tellBehindStorage(): void {
+    autosaveController.handleRecoveryError(STALE_SAVE_MESSAGE);
     logAgent("error", STALE_SAVE_MESSAGE);
     state.powerUp.error = STALE_SAVE_MESSAGE;
     state.powerUp.offerReload = true;
@@ -255,6 +266,7 @@ export function useEngine(
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {
+    autosaveController.handleRecoveryError(PROJECT_REMOVED_MESSAGE);
     logAgent("error", PROJECT_REMOVED_MESSAGE);
     state.powerUp.error = PROJECT_REMOVED_MESSAGE;
     state.powerUp.offerReload = false;
@@ -281,10 +293,15 @@ export function useEngine(
     onRemoved: tellRemoved,
     logAgent,
     isInstalledGame: (target) => lifecycle.isInstalledGame(target),
-    bootGame: (target) => lifecycle.bootGame(target),
+    bootGame: (target, carrier) => lifecycle.bootGame(target, carrier),
+    bootInstalledFresh: (selected, admission) => lifecycle.bootInstalledFresh(selected, admission),
     bootAuthoredGame: (template, config, bootOptions) =>
       lifecycle.bootAuthoredGame(template, config, bootOptions),
     configForGame: (projectId, config) => lifecycle.configForGame(projectId, config),
+    // A refused or unanswered restore retires the armed worker through the
+    // lifecycle's own seam: terminate, drain, error surface — the slot's
+    // checkpoint and pointer stay exactly as they were.
+    retireFailedRecovery: (game, message) => lifecycle.retireFailedRecovery(game, message),
   });
 
   // Another tab committing a newer revision of the running project marks it
@@ -325,7 +342,17 @@ export function useEngine(
     getAutosaveWrite: () => autosaveController.getAutosaveWrite(),
     clearAutosave,
     onRemixCreated: (remixProjectId) => {
-      localStorage.setItem("monotio_agi.lastGame", remixProjectId);
+      // The remix boot already installed and bound the saved body's physical
+      // target; the resume pointer names that exact locator — but only while
+      // the slot still holds the project this callback reports. A completion
+      // for a world that was replaced since writes nothing and resets nothing.
+      const booted = lifecycle.getBootedGame();
+      const target =
+        booted !== null && !booted.installed && booted.projectId === remixProjectId
+          ? resolveProgressTarget(booted)
+          : null;
+      if (target?.kind !== "project" || target.project !== remixProjectId) return;
+      writeResumePointer(localStorage, target.locator);
       autosaveController.reset();
       hook.autosave = -1;
     },
@@ -374,6 +401,7 @@ export function useEngine(
     setActiveLlmConfig: (config) => {
       activeLlmConfig = config;
     },
+    getActiveLlmConfig: () => activeLlmConfig,
     abortWalkthrough: () => walkthroughAbort(),
     drainHistoryCommits: historyController.drainHistoryCommits,
   });
@@ -392,6 +420,7 @@ export function useEngine(
     },
     handleFlushed: autosaveController.handleFlushed,
     handleRestored: autosaveController.handleRestored,
+    handleRecoveryError: autosaveController.handleRecoveryError,
     handleSaveSlotRequest: saveSlotController.handleSaveSlotRequest,
     handlePromptRequest: promptController.handlePromptRequest,
     handleRoomAuthoring: (req: LlmRequest, agent: AgentHandler) =>
@@ -444,17 +473,23 @@ export function useEngine(
     state,
     getBootedGame: lifecycle.getBootedGame,
     getWorker: link.getWorker,
+    // Every spawned worker session moves this counter, so a boot that
+    // replaced the slot mid-operation supersedes the parked call even when
+    // the game and target spell out the same.
+    getSessionId: () => activeWalkthroughSession,
     sealHistory: lifecycle.sealHistory,
     drainHistoryCommits: historyController.drainHistoryCommits,
     pauseEngine,
     resumeEngine,
-    hasEarlierSession: (targetKey) =>
-      loadTapeOutline(targetKey)
+    selectTarget: (targetKey, booted) => autosaveController.selectProgressTarget(targetKey, booted),
+    hasEarlierSession: (targetLocator) =>
+      loadTapeOutline(targetLocator)
         .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
         .catch(() => false),
     // historyView is built below; the closure reads it once it exists.
     expectStartOver: (expected) => historyView.expectStartOver(expected),
-    bootFresh: autosaveController.startOver,
+    bootFresh: (targetKey, config, admission) =>
+      autosaveController.startOver(targetKey, config, admission),
     showNote: startOverNote.show,
   });
 
@@ -481,6 +516,7 @@ export function useEngine(
     audio,
     replayDriver,
     getWorker: link.getWorker,
+    getWorkerProfile: () => state.profile,
     getBootedGame: lifecycle.getBootedGame,
     isCurrentGame: (target) =>
       Boolean(
@@ -555,6 +591,7 @@ export function useEngine(
     bootGame: lifecycle.bootGame,
     bootAgentGame: lifecycle.bootAgentGame,
     bootAuthoredGame: lifecycle.bootAuthoredGame,
+    openStarterRecovery: lifecycle.openStarterRecovery,
     startWalkthrough: walkthrough.startWalkthrough,
     stopWalkthrough: walkthrough.stopWalkthrough,
     setWalkthroughSpeed: walkthrough.setWalkthroughSpeed,
@@ -594,6 +631,12 @@ export function useEngine(
     releaseAgentAudioPreviews,
     pauseEngine,
     resumeEngine,
+    /**
+     * Preview surfaces' owned freeze: pauses under a unique token, awaits the
+     * same worker's FIFO state reply, and releases only that hold while the
+     * captured worker is still current. Resolves a no-op lease with no run.
+     */
+    acquireRuntimePauseLease,
     roomMap,
     historyView,
     /**
@@ -631,6 +674,7 @@ export function useEngine(
     commitViewEdit: authoringController.commitViewEdit,
     isInstalledGame: lifecycle.isInstalledGame,
     currentGame: lifecycle.currentGame,
+    getBootedGame: lifecycle.getBootedGame,
     exportCurrentGame: lifecycle.exportCurrentGame,
     recoverHistory: () => link.query("historyRecover"),
     startTestRecording,
@@ -639,6 +683,14 @@ export function useEngine(
     saveRecordedTest,
     resumeLastGame: autosaveController.resumeLastGame,
     resumeFromRecord: autosaveController.resumeFromRecord,
+    /**
+     * Earlier progress "Open checkpoint": a proven, rebound checkpoint into
+     * its explicitly selected destination — revalidated against the live
+     * body and settled only by the worker's real restore acknowledgement.
+     */
+    resumeEarlierCheckpoint: autosaveController.resumeEarlierCheckpoint,
+    /** The pending resume's proven destination while it awaits the ack. */
+    pendingProgressTarget: autosaveController.pendingProgressTarget,
     startOver,
     undoStartOver,
     dismissStartOverNote: startOverNote.hide,

@@ -8,6 +8,8 @@ export interface WorkerQueries {
     timeoutMs?: number,
   ) => Promise<T>;
   readonly resolveQuery: (id: number, value: unknown) => boolean;
+  /** Settle a pending query as refused — a structured worker error reply. */
+  readonly rejectQuery: (id: number, err: Error) => boolean;
   readonly drainPendingQueries: (err?: Error) => void;
 }
 
@@ -69,7 +71,16 @@ export function createWorkerQueries(): WorkerQueries {
     return true;
   }
 
-  return { query, resolveQuery, drainPendingQueries };
+  function rejectQuery(id: number, err: Error): boolean {
+    const q = pending.get(id);
+    if (!q) return false;
+    pending.delete(id);
+    clearTimeout(q.timer);
+    q.reject(err);
+    return true;
+  }
+
+  return { query, resolveQuery, rejectQuery, drainPendingQueries };
 }
 
 /** One resource a `patch` sends, named by the hint of its bytes. */
