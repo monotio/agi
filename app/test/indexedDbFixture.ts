@@ -186,7 +186,9 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
           request(transaction, () => [...view(transaction).keys()].sort() as IDBValidKey[]),
         openCursor: (range?: { lower?: IDBValidKey | null; upper?: IDBValidKey | null }) => {
           // Cursor over a key snapshot, in key order — enough surface for
-          // prefix deletes (key + delete() + continue()).
+          // prefix deletes (key + delete() + continue()). A failing key read
+          // or clone settles the transaction the way a failed request does:
+          // the request errors, then the transaction errors and aborts.
           const cursorRequest: Record<string, unknown> = {
             result: null,
             error: null,
@@ -194,24 +196,52 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
             onerror: null,
           };
           transaction["pending"] = Number(transaction["pending"]) + 1;
+          const fail = (error: unknown) => {
+            if (transaction["settled"]) return;
+            cursorRequest["error"] = error;
+            (cursorRequest["onerror"] as (() => void) | null)?.();
+            transaction["pending"] = Number(transaction["pending"]) - 1;
+            transaction["aborted"] = true;
+            transaction["settled"] = true;
+            transaction["error"] = error;
+            queueMicrotask(() => {
+              (transaction["onerror"] as (() => void) | null)?.();
+              (transaction["onabort"] as (() => void) | null)?.();
+              (transaction["release"] as (() => void) | undefined)?.();
+            });
+          };
           let keys: IDBValidKey[] = [];
           let index = -1;
           const advance = () => {
             if (transaction["settled"]) return;
             index++;
             const key = keys[index];
-            cursorRequest["result"] =
-              key === undefined
-                ? null
-                : {
-                    key,
-                    delete: () => {
-                      view(transaction).delete(key);
-                    },
-                    continue: () => advance(),
-                  };
-            (cursorRequest["onsuccess"] as (() => void) | null)?.();
-            if (key === undefined) {
+            let continued = false;
+            try {
+              cursorRequest["result"] =
+                key === undefined
+                  ? null
+                  : {
+                      key,
+                      value: structuredClone(view(transaction).get(key)),
+                      delete: () => {
+                        view(transaction).delete(key);
+                      },
+                      continue: () => {
+                        continued = true;
+                        advance();
+                      },
+                    };
+              (cursorRequest["onsuccess"] as (() => void) | null)?.();
+            } catch (error) {
+              fail(error);
+              return;
+            }
+            if (key === undefined || (!continued && !transaction["settled"])) {
+              // A drained cursor — or one parked by a handler that returned
+              // without continue() — has no further events; like real
+              // IndexedDB it settles, and the transaction may complete once
+              // nothing else is pending.
               transaction["pending"] = Number(transaction["pending"]) - 1;
               queueMicrotask(() => {
                 if (!transaction["aborted"] && transaction["pending"] === 0) complete(transaction);
@@ -220,14 +250,19 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
           };
           queueMicrotask(() => {
             const run = () => {
-              keys = [...view(transaction).keys()]
-                .filter(
-                  (key) =>
-                    typeof key === "string" &&
-                    (range?.lower == null || key >= range.lower) &&
-                    (range?.upper == null || key <= range.upper),
-                )
-                .sort();
+              try {
+                keys = [...view(transaction).keys()]
+                  .filter(
+                    (key) =>
+                      typeof key === "string" &&
+                      (range?.lower == null || key >= range.lower) &&
+                      (range?.upper == null || key <= range.upper),
+                  )
+                  .sort();
+              } catch (error) {
+                fail(error);
+                return;
+              }
               advance();
             };
             const gate = transaction["gate"] as Promise<void> | undefined;
@@ -242,6 +277,14 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
             view(transaction).set(key, structuredClone(value));
             return key;
           }),
+        add: (value: { projectId?: IDBValidKey }) =>
+          request(transaction, () => {
+            const key = value.projectId!;
+            if (view(transaction).get(key) !== undefined)
+              throw new DOMException("Key already exists in the object store.", "ConstraintError");
+            view(transaction).set(key, structuredClone(value));
+            return key;
+          }),
         delete: (key: IDBValidKey) =>
           request(transaction, () => {
             view(transaction).delete(key);
@@ -251,11 +294,14 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
       return transaction;
     },
   };
-  // The prefix-delete surface needs a key-range value; only bound() is used.
+  // The prefix-delete surface needs key-range values. The fake treats a
+  // bound as inclusive on both ends — callers that want an exclusive upper
+  // bound must still check each visited key's prefix themselves.
   Object.defineProperty(globalThis, "IDBKeyRange", {
     configurable: true,
     value: {
       bound: (lower: IDBValidKey, upper: IDBValidKey) => ({ lower, upper }),
+      lowerBound: (lower: IDBValidKey) => ({ lower }),
     },
   });
   Object.defineProperty(globalThis, "indexedDB", {

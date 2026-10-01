@@ -143,7 +143,7 @@ export function normalizeLibraryMetadata(
         status === "ready" || status === "needs-input" || status === "unverified"
           ? status
           : "unverified",
-      message: message ?? "Opening not checked yet.",
+      message: message ?? "Ready to check.",
       ...(profile ? { profile } : {}),
       ...(kind ? { kind } : {}),
       ...(build ? { build } : {}),

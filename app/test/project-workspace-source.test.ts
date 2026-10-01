@@ -340,6 +340,34 @@ describe("inspectEditableProject", () => {
     assert.equal(world.rooms["1"]!.title, "Empty room");
   });
 
+  test("a workspace music document is carried strictly and legacy music hydrates when absent", () => {
+    const tempo = '{"9":{"revision":"21-abcdef12","tempo":120}}';
+    const inspection = inspectEditableProject(
+      workspaceWith(manualProject("blank"), { music: tempo }),
+    );
+    assert.equal(inspection.documents["music"], tempo, "exact workspace text preserved");
+    assert.equal(inspection.rejectedSources["music"], undefined);
+
+    const malformed = inspectEditableProject(
+      workspaceWith(manualProject("blank"), { music: "{not json" }),
+    );
+    assert.equal(malformed.documents["music"], undefined);
+    assert.equal(malformed.rejectedSources["music"], "{not json");
+    assert.equal(malformed.requiresSourceReview, true);
+    assert.ok(malformed.diagnostics.some(({ key }) => key === "music"));
+
+    const legacy = legacyProject("blank");
+    (legacy.authoringState!["authoring"] as { music?: Record<string, unknown> }).music = {
+      "9": { revision: "21-abcdef12", tempo: 90 },
+    };
+    const hydrated = inspectEditableProject(legacy);
+    assert.equal(
+      hydrated.documents["music"],
+      JSON.stringify({ "9": { revision: "21-abcdef12", tempo: 90 } }),
+    );
+    assert.equal(hydrated.requiresSourceReview, false);
+  });
+
   test("inspection outputs are detached from the stored body", () => {
     const data = importedGame();
     const before = structuredClone(data);

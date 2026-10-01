@@ -64,7 +64,7 @@ export function prepareLocalProject(input: { readonly title: string; readonly ki
         revision: requireResourceRevision(seed.seed.digest),
         source: "authored",
         profile: seed.profileId,
-        validation: { status: "unverified", message: "Opening not checked yet." },
+        validation: { status: "unverified", message: "Ready to check." },
       },
     },
   };

@@ -5,7 +5,10 @@ import type { StoredReference } from "../references/referenceArt.ts";
 import type { ScreenObjectState } from "../../../src/runtime/engine.ts";
 import { projectId } from "../../../src/gameIdentity.ts";
 import { cellChar } from "../../../src/runtime/textSurface.ts";
-import type { ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
+import { detectKnownGameByHashes } from "../../../src/games/knownGames.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
+import type { GameIdentity, ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
+import type { ProgressTarget } from "./progressTarget.ts";
 
 /**
  * One library entry's stable id (an imported game, a created adventure, a
@@ -29,6 +32,16 @@ export interface CachedGameMeta {
   roomGeneration?: boolean | undefined;
 }
 
+/**
+ * The kept creative-catalog revision this body was published with. The
+ * sibling `creative/<projectId>` record is authoritative; the marker only
+ * pins which kept revision the body claims, so a missing or moved catalog
+ * refuses creative reads instead of pretending empty.
+ */
+export interface CreativeMarker {
+  readonly kept: number;
+}
+
 export interface CachedGameData extends CachedGameMeta {
   files: Record<string, Uint8Array>;
   words: [string, number][];
@@ -41,11 +54,21 @@ export interface CachedGameData extends CachedGameMeta {
   recoveryDraft?: PortableProjectRecovery | undefined;
   /** Exact kept authoring documents; source agreement is checked on editable open. */
   workspace?: PortableProjectWorkspace | undefined;
+  /** Kept creative catalog pin; present only on bodies published with creative assets. */
+  creative?: CreativeMarker | undefined;
 }
 
 export interface BootedGame {
   /** Captured before worker boot; deletion invalidates this history writer. */
   historyLifetime?: string | null;
+  /**
+   * The physical progress address this game writes under: save slots, the
+   * autosave record and the resume pointer take its `locator`, and stored
+   * records embed its `identity`. Ephemeral binding data resolved from the
+   * boot's evidence (progressBinding.ts), never persisted; a fresh boot or
+   * a revision change rebinds it.
+   */
+  progressTarget?: ProgressTarget | undefined;
   readonly installed: boolean;
   readonly title: string;
   revision: ResourceRevision;
@@ -55,6 +78,8 @@ export interface BootedGame {
   readonly alias?: string | undefined;
   readonly folder?: string | undefined;
   readonly projectId?: ProjectId | undefined;
+  /** An installed remix's declared immediate parent, captured at boot. */
+  readonly parent?: GameIdentity | undefined;
   authoredGame?: CachedGameData | undefined;
   /**
    * The stored project holds a newer save than the running game: a Keep
@@ -83,6 +108,10 @@ export interface InstalledGameDescriptor {
   /** Full bundle revision of the served file set — walkthrough offers key on it. */
   readonly revision?: ResourceRevision | undefined;
   readonly folder?: string | undefined;
+  /** The interpreter a GAME.JSON export declared; detection decides without one. */
+  readonly profile?: ProfileId | undefined;
+  /** A remix's declared immediate parent; absent on plain editions and originals. */
+  readonly parent?: GameIdentity | undefined;
 }
 
 export interface CurrentGame {
@@ -95,6 +124,13 @@ export interface CurrentGame {
   readonly alias?: string | undefined;
   readonly projectId?: ProjectId | undefined;
   readonly folder?: string | undefined;
+  /** An installed remix's declared immediate parent, captured at boot. */
+  readonly parent?: GameIdentity | undefined;
+  /**
+   * The physical progress address this game resolves to, bound when the
+   * card's storage evidence was captured. Ephemeral — never persisted.
+   */
+  readonly progressTarget?: ProgressTarget | undefined;
 }
 
 /**
@@ -117,21 +153,82 @@ export function gameStorageKey(game: {
   return game.hash ?? game.alias ?? "";
 }
 
+/**
+ * The catalogued edition among descriptors that answer to one spelling (a
+ * convenience hash, alias or folder query): ports share a WORDS.TOK
+ * vocabulary hash, so the vocabulary's (WORDS.TOK, OBJECT)-fingerprinted
+ * edition — the release walkthroughs and profiles were verified against —
+ * is the candidate set. A descriptor that supplies a full bundle revision
+ * different from that edition's pinned target is a derivative, not the
+ * original, and is excluded; descriptors without revision evidence keep the
+ * pair resolution they shipped with (ports pin no revision: the pair is
+ * their recognition). Null when no single candidate stands out — the caller
+ * refuses the ambiguity rather than choosing first.
+ */
+export function preferCatalogedEdition<
+  T extends {
+    wordsSha256?: string | undefined;
+    objectSha256?: string | undefined;
+    revision?: string | undefined;
+  },
+>(matches: readonly T[]): T | null {
+  const cataloged = matches.filter((m) => {
+    if (m.wordsSha256 === undefined) return false;
+    const detected = detectKnownGameByHashes(m.wordsSha256, m.objectSha256);
+    if (detected === null || detected !== detectKnownGameByHashes(m.wordsSha256)) return false;
+    return (
+      m.revision === undefined ||
+      detected.targetRevision === undefined ||
+      m.revision.toLowerCase() === detected.targetRevision.toLowerCase()
+    );
+  });
+  return cataloged.length === 1 ? cataloged[0]! : null;
+}
+
+/**
+ * Resolve a query spelling to an installed instance's folder. The folder is
+ * the explicit instance selector: its exact case-sensitive spelling wins
+ * over everything, and a folded spelling counts only when it names a single
+ * folder — a case-insensitive filesystem convenience, never a merge of two
+ * distinct folders. Hash, alias, revision and vocabulary spellings resolve
+ * only when one instance answers — with the catalogued exact edition
+ * preferred when revision evidence names it. An ambiguous spelling never
+ * lands on an arbitrary folder: the query returns unresolved, and the boot
+ * edge (resolveFixtureTarget, or the fixture server's resolveFixtureFolder)
+ * refuses it with the ambiguity error.
+ */
 export function findInstalledFolder(
   installedGames: readonly (string | InstalledGameDescriptor)[] | null | undefined,
   query: string,
 ): string {
+  const entries = installedGames ?? [];
+  const exact = entries.find((g) => (typeof g === "string" ? g === query : g.folder === query));
+  if (exact !== undefined) {
+    return typeof exact === "string" ? exact : exact.folder!;
+  }
   const norm = query.toLowerCase();
-  const match = (installedGames ?? []).find((g) => {
-    if (typeof g === "string") return g.toLowerCase() === norm;
-    return (
-      g.hash.toLowerCase() === norm ||
-      g.alias.toLowerCase() === norm ||
-      g.folder?.toLowerCase() === norm ||
-      g.wordsSha256?.toLowerCase() === norm
-    );
-  });
-  return typeof match === "string" ? match : (match?.folder ?? query);
+  const folded = entries.filter((g) =>
+    typeof g === "string" ? g.toLowerCase() === norm : g.folder?.toLowerCase() === norm,
+  );
+  if (folded.length > 1) return query;
+  if (folded.length === 1) {
+    const instance = folded[0]!;
+    return typeof instance === "string" ? instance : instance.folder!;
+  }
+  const matches = entries.filter(
+    (g): g is InstalledGameDescriptor =>
+      typeof g !== "string" &&
+      (g.hash.toLowerCase() === norm ||
+        g.alias.toLowerCase() === norm ||
+        g.wordsSha256?.toLowerCase() === norm ||
+        g.revision?.toLowerCase() === norm),
+  );
+  if (matches.length === 0) return query;
+  if (matches.length > 1) {
+    const cataloged = preferCatalogedEdition(matches);
+    return cataloged?.folder ?? query;
+  }
+  return matches[0]!.folder ?? query;
 }
 
 export interface Frame {

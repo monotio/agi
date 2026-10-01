@@ -15,9 +15,14 @@
  *
  * Bounded first slice: a project whose source claims need review refuses
  * build/Keep until an explicit resolution step exists; a candidate that
- * removes resources or changes the `tests`/`references` metadata documents is
- * refused at admission; a pending portable recoveryDraft is carried through
- * every body unchanged.
+ * changes the `tests`/`references` metadata documents is refused at
+ * admission; a pending portable recoveryDraft is carried through every body
+ * unchanged. Resource removal needs an explicit per-candidate review
+ * (reviewedRemovals) and an empty surviving-use inventory before Keep.
+ * A workspace's staged creative work publishes through the same candidate:
+ * prepareCreativeKeep seals exactly one prepared publication against the
+ * candidate, and the Keep carrying it commits body, catalog marker and
+ * receipt in the same transaction.
  */
 import {
   createAuthoringState,
@@ -25,17 +30,22 @@ import {
   type AuthoringState,
 } from "../../../src/authoring/authoringState.ts";
 import { captureProjectBuild } from "../../../src/authoring/projectBuild.ts";
-import { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
-import { readBindingsDocument } from "../../../src/authoring/projectDocuments.ts";
+import { ProjectDraft, type DraftKeepAdmission } from "../../../src/authoring/projectDraft.ts";
+import {
+  readBindingsDocument,
+  readMusicDocument,
+} from "../../../src/authoring/projectDocuments.ts";
 import {
   restoreProjectRecovery,
   type RecoveryBase,
 } from "../../../src/authoring/projectRecovery.ts";
+import { inspectProjectRemoval } from "../../../src/authoring/projectRemoval.ts";
 import { compileProjectSelection } from "../../../src/authoring/projectSelection.ts";
 import { writeProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
+import type { CreativeKeepRequest } from "../../../src/creative/catalog.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
-import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
+import { detectProfile, PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import {
   authoringFingerprint,
   commitProject,
@@ -45,6 +55,12 @@ import {
   type ProjectCommitRequest,
   type ProjectCommitReceipt,
 } from "./gameStorage.ts";
+import {
+  prepareWorkspaceCreativeKeep,
+  resolveWorkspaceCreativeKeep,
+  type CreativeKeepPreparation,
+  type EditableCreativeKeep,
+} from "./creativeWorkspaceKeep.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import { listProjectDrafts, type DraftReceipt } from "./projectDrafts.ts";
 import {
@@ -80,12 +96,29 @@ export interface EditableCandidate {
   readonly profileId: ProfileId;
   /** Reference findings on the built image; errors block Keep, warnings stay visible. */
   readonly diagnostics: ReferenceDiagnostics;
-  /** Kept resources this candidate deletes; this service refuses to keep them. */
+  /** Kept native resources this candidate deletes; Keep needs them reviewed. */
   readonly removedResources: readonly string[];
   /** The complete compiled document set, detached on every call. */
   documents(): Readonly<Record<string, EditableDocumentContent>>;
   /** The complete compiled file image, detached on every call. */
   files(): Readonly<Record<string, Uint8Array>>;
+}
+
+/**
+ * The caller's explicit review of a candidate's removals, supplied at Keep.
+ * `reviewedRemovals` must equal the candidate's own removedResources exactly:
+ * it records that the listed removals were seen, never which resources to
+ * delete — the issued candidate's image remains the only authority.
+ */
+export interface EditableKeepReview {
+  readonly reviewedRemovals?: readonly string[];
+  /**
+   * The creative publication prepared against this exact candidate through
+   * prepareCreativeKeep. A candidate that sealed one must be kept with that
+   * handle — omitting it, or passing another candidate's publication or a
+   * lookalike, refuses rather than silently changing the admitted intent.
+   */
+  readonly creative?: EditableCreativeKeep;
 }
 
 export interface EditableKeepResult {
@@ -94,6 +127,8 @@ export interface EditableKeepResult {
   readonly commitId: string;
   readonly saved: EditableSavedIdentity;
   readonly warnings: readonly "indexRepairPending"[];
+  /** The kept/head catalog revisions this Keep published, when it carried creative work. */
+  readonly creative?: { readonly kept: number; readonly head: number } | undefined;
 }
 
 /**
@@ -126,11 +161,33 @@ export interface EditableProject {
     dependencies?: Readonly<Record<string, readonly string[]>>,
   ): EditableCandidate;
   /**
+   * Prepare this workspace's staged creative work for publication through
+   * one issued candidate. Reads the creative catalog once and seals the
+   * captured intent into the candidate: the Keep that publishes it must
+   * carry the returned publication in `review.creative`, and no other. The
+   * prepared request freezes the catalog head, the consumed lease and its
+   * workspace/owner claim, so a moved catalog or expired lease refuses at
+   * the commit transaction. A candidate with no native change still
+   * publishes creative records through the same atomic Keep.
+   */
+  prepareCreativeKeep(
+    candidate: EditableCandidate,
+    preparation: CreativeKeepPreparation,
+  ): Promise<EditableCreativeKeep>;
+  /**
    * Admit one issued candidate through the durable commit. Synchronously
    * refuses foreign candidates and selections the draft has moved past; the
-   * receipt acknowledges only the admitted selection.
+   * receipt acknowledges only the admitted selection. A candidate that
+   * removes native resources additionally requires review.reviewedRemovals
+   * naming exactly those removals, and refuses while any surviving or
+   * unprovable use remains. A candidate with a sealed creative publication
+   * must be kept with that exact handle: its request commits body, catalog
+   * and receipt atomically.
    */
-  keepCandidate(candidate: EditableCandidate): Promise<EditableKeepResult>;
+  keepCandidate(
+    candidate: EditableCandidate,
+    review?: EditableKeepReview,
+  ): Promise<EditableKeepResult>;
 }
 
 type Selection = ReturnType<ProjectDraft["select"]>;
@@ -144,10 +201,18 @@ interface CandidateState {
   readonly buildId: string;
   readonly revision: ResourceRevision;
   readonly diagnostics: ReferenceDiagnostics;
+  /** inspectProjectReferences over the compiled candidate image, kept whole for removal review. */
+  readonly image: SelectionCompile["references"];
   readonly removedResources: readonly string[];
+  /** The kept baseline's named bindings, captured at build for draft review. */
+  readonly keptBindings: AuthoringState["bindings"];
   readonly documents: Readonly<Record<string, EditableDocumentContent>>;
   readonly files: Readonly<Record<string, Uint8Array>>;
   readonly versions: readonly { readonly key: string; readonly version: number }[];
+  /** The one creative publication this candidate may keep, sealed by prepareCreativeKeep. */
+  creative: EditableCreativeKeep | undefined;
+  /** A prepare is in flight: a Keep started meanwhile cannot claim an unsealed intent. */
+  creativePreparing: boolean;
   request: ProjectCommitRequest | undefined;
   pending: Promise<EditableKeepResult> | undefined;
   receipt: ProjectCommitReceipt | undefined;
@@ -308,6 +373,7 @@ class EditableProjectService implements EditableProject {
       ...(dependencies === undefined ? {} : { dependencies }),
       allowMissingRooms: this.allowMissingRooms,
     });
+    const keptBindings = this.draft.select([]).documents()["bindings"];
     const state: CandidateState = {
       selection: result.selection,
       commitId: crypto.randomUUID(),
@@ -315,13 +381,17 @@ class EditableProjectService implements EditableProject {
       buildId: result.compiled.build.identity.buildId,
       revision: result.compiled.build.identity.revision,
       diagnostics: result.references.diagnostics,
+      image: result.references,
       removedResources: result.removedResources,
+      keptBindings: readBindingsDocument(typeof keptBindings === "string" ? keptBindings : "{}"),
       documents: result.compiled.documents(),
       files: Object.fromEntries(result.compiled.files()),
       versions: result.selection.keys.map((key) => ({
         key,
         version: result.selection.snapshot.version(key),
       })),
+      creative: undefined,
+      creativePreparing: false,
       request: undefined,
       pending: undefined,
       receipt: undefined,
@@ -341,39 +411,144 @@ class EditableProjectService implements EditableProject {
     return candidate;
   }
 
-  async keepCandidate(candidate: EditableCandidate): Promise<EditableKeepResult> {
+  async prepareCreativeKeep(
+    candidate: EditableCandidate,
+    preparation: CreativeKeepPreparation,
+  ): Promise<EditableCreativeKeep> {
     const state = this.candidates.get(candidate);
     if (state === undefined)
       throw new Error("This candidate was created by another workspace or service.");
-    if (state.receipt !== undefined) return this.replayKeep(state);
-    if (state.pending !== undefined) return state.pending;
+    if (state.creative !== undefined || state.creativePreparing || state.request !== undefined)
+      throw new Error("This candidate's creative publication is already sealed.");
+    this.draft.assertCurrent(state.selection);
+    state.creativePreparing = true;
+    try {
+      const keep = await prepareWorkspaceCreativeKeep(
+        {
+          projectId: this.projectId,
+          workspaceId: this.workspaceId,
+          profileId: this.profileId,
+          selectionKeys: state.selection.keys,
+          removedResources: state.removedResources,
+          files: state.files,
+        },
+        candidate,
+        preparation,
+      );
+      // The seal is still singular: a Keep or a racing prepare admitted on
+      // this candidate during the catalog read cannot gain creative intent.
+      if (state.creative !== undefined || state.request !== undefined)
+        throw new Error("This candidate's creative publication is already sealed.");
+      state.creative = keep;
+      return keep;
+    } finally {
+      state.creativePreparing = false;
+    }
+  }
+
+  async keepCandidate(
+    candidate: EditableCandidate,
+    review?: EditableKeepReview,
+  ): Promise<EditableKeepResult> {
+    const state = this.candidates.get(candidate);
+    if (state === undefined)
+      throw new Error("This candidate was created by another workspace or service.");
     // Admission checks run while the caller is synchronous with the draft:
     // typing during the storage wait stays a valid newer draft instead of
-    // invalidating this already-admitted write.
+    // invalidating this already-admitted write. The review arguments are
+    // captured and checked here, before the first await and before a receipt
+    // replay: a candidate keeps exactly the creative intent it sealed — a
+    // different or absent publication refuses rather than replaying one
+    // receipt under a different promise.
+    const reviewedRemovals =
+      review?.reviewedRemovals === undefined
+        ? undefined
+        : Object.freeze([...review.reviewedRemovals]);
+    const creativeReview = review?.creative;
+    if (state.creativePreparing)
+      throw new Error("This candidate's creative publication is still being prepared.");
+    if (creativeReview !== state.creative) {
+      if (creativeReview !== undefined) resolveWorkspaceCreativeKeep(candidate, creativeReview);
+      throw new Error(
+        creativeReview === undefined
+          ? "This candidate's Keep must carry the creative publication prepared for it."
+          : "This candidate's creative publication is already sealed to a different intent.",
+      );
+    }
+    if (state.receipt !== undefined) return this.replayKeep(state);
+    if (state.pending !== undefined) return state.pending;
     this.draft.assertCurrent(state.selection);
-    state.request = this.admissionRequest(state);
-    const pending = this.tail.then(() => this.commitAdmitted(state));
-    state.pending = pending;
-    this.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    void pending.catch(() => {
-      if (state.pending === pending && state.receipt === undefined) state.pending = undefined;
-    });
-    return pending;
+    const creative =
+      state.creative === undefined
+        ? undefined
+        : resolveWorkspaceCreativeKeep(candidate, state.creative);
+    // The prospective request is built locally before admission: a review or
+    // build refusal reserves nothing, and the reservation — taken before the
+    // request is registered or the async tail opens — is what lets the draft
+    // hold a native history step out of this save's settlement window.
+    const request = this.admissionRequest(state, reviewedRemovals, creative);
+    const admission = this.draft.admitKeep(state.selection);
+    try {
+      state.request = request;
+      const pending = this.tail.then(() => this.commitAdmitted(state, admission));
+      state.pending = pending;
+      this.tail = pending.then(
+        () => undefined,
+        () => undefined,
+      );
+      void pending.catch(() => {
+        if (state.pending === pending && state.receipt === undefined) state.pending = undefined;
+      });
+      return pending;
+    } catch (error) {
+      this.draft.finishKeepAdmission(admission);
+      throw error;
+    }
   }
 
   /**
-   * The policy gate before storage: resource removals, `tests`/`references`
+   * The policy gate before storage: reviewed removals, `tests`/`references`
    * changes and reference errors are refused, then the committed body is
-   * derived. Throws before anything is written.
+   * derived. Throws before anything is written. The review argument is the
+   * caller's approval copy — it is matched against this candidate's own
+   * computed removals and can neither widen nor substitute them.
    */
-  private admissionRequest(state: CandidateState): ProjectCommitRequest {
-    if (state.removedResources.length > 0)
-      throw new Error(
-        `This candidate removes ${state.removedResources.join(", ")}; resource removal review is a separate step this service does not perform yet.`,
-      );
+  private admissionRequest(
+    state: CandidateState,
+    reviewedRemovals: readonly string[] | undefined,
+    creative: CreativeKeepRequest | undefined,
+  ): ProjectCommitRequest {
+    const removals = state.removedResources;
+    if (removals.length > 0 || reviewedRemovals !== undefined) {
+      this.checkRemovalApproval(removals, reviewedRemovals);
+      const profile = PROFILES[this.profileId];
+      if (!profile) throw new Error(`Unknown build profile: ${this.profileId}`);
+      const selected = new Set(state.selection.keys);
+      const drafts = this.draft
+        .dirtyKeys()
+        .filter((key) => !selected.has(key))
+        .flatMap((key) => {
+          const document = state.selection.snapshot.read(key);
+          return document === undefined ? [] : [{ key, content: document.content }];
+        });
+      const findings = inspectProjectRemoval({
+        removals,
+        image: state.image,
+        authoring: this.candidateAuthoring(state.documents),
+        tests: state.documents["tests"],
+        references: state.documents["references"],
+        drafts,
+        keptBindings: state.keptBindings,
+        profile,
+      });
+      if (findings.length > 0)
+        throw new Error(
+          `This candidate removes ${removals.join(", ")}; ${findings
+            .map((finding) => finding.message)
+            .join("; ")}`,
+        );
+    }
+
     for (const key of ["tests", "references"] as const) {
       if (!sameContent(state.documents[key], this.metadataBase[key]))
         throw new Error(
@@ -406,6 +581,13 @@ class EditableProjectService implements EditableProject {
       buildId: state.buildId,
       expected: state.expected,
       documents: state.versions,
+      // The commit transaction rechecks the kept creative catalog against
+      // this exact set: a kept recipe destination is a surviving use the
+      // synchronous review cannot see from documents alone.
+      removals: [...removals],
+      // The sealed publication rides this exact request: body, catalog
+      // marker and receipt commit as one transaction under one commitId.
+      ...(creative === undefined ? {} : { creative }),
       data: {
         ...rest,
         files,
@@ -417,18 +599,46 @@ class EditableProjectService implements EditableProject {
   }
 
   /**
-   * Rebuild the legacy authoring record from the candidate's exact documents:
-   * validated bindings and world, music and every unrelated field preserved,
-   * and claimed source only where the kept document is real authored text —
-   * byte-only or deleted resources lose their claim.
+   * The approval argument is review evidence, not authority: it must name
+   * exactly the removals the issued candidate computed from its own document
+   * set — every removal listed once, and nothing else. A mismatch refuses
+   * before any reference review runs.
    */
-  private syncedAuthoringState(
+  private checkRemovalApproval(
+    removals: readonly string[],
+    reviewed: readonly string[] | undefined,
+  ): void {
+    if (reviewed === undefined) {
+      if (removals.length > 0)
+        throw new Error(
+          `This candidate removes ${removals.join(", ")}; removal requires review: pass the exact list in 'reviewedRemovals'.`,
+        );
+      throw new Error("A removal review was given, but this candidate removes no resources.");
+    }
+    const seen = new Set<string>();
+    for (const key of reviewed) {
+      if (!removals.includes(key))
+        throw new Error(
+          `Removal review '${key}' names no removal in this candidate; reviewedRemovals must list exactly ${removals.join(", ")}.`,
+        );
+      if (seen.has(key))
+        throw new Error(`Removal review lists '${key}' twice; each removal is reviewed once.`);
+      seen.add(key);
+    }
+    const missing = removals.filter((key) => !seen.has(key));
+    if (missing.length > 0)
+      throw new Error(`Removal review is missing ${missing.join(", ")}; review every removal.`);
+  }
+
+  /**
+   * The candidate's validated authoring intent — bindings, world plan and
+   * music — read from its complete document set over the stored legacy record.
+   * Shared by admission's removal review and the committed body's sync.
+   */
+  private candidateAuthoring(
     documents: Readonly<Record<string, EditableDocumentContent>>,
-  ): Record<string, unknown> {
+  ): AuthoringState {
     const base = this.stored.authoringState ?? {};
-    const priorSources = base["sources"];
-    if (priorSources !== undefined && !isRecord(priorSources))
-      throw new Error("The stored source claims are malformed; keeping would discard them.");
     let prior: AuthoringState | undefined;
     if (base["authoring"] !== undefined) {
       try {
@@ -457,11 +667,24 @@ class EditableProjectService implements EditableProject {
         });
       }
     }
-    let authoring: AuthoringState;
+    // The candidate set is complete: an absent music document means absent
+    // intent (deleting it must not resurrect the stored value — the workspace
+    // envelope carries the same absence). Existing intent reaches here through
+    // inspection's own hydration, not a second authority.
+    const musicDocument = documents["music"];
+    let music: AuthoringState["music"];
+    if (musicDocument !== undefined) {
+      if (typeof musicDocument !== "string") throw new Error("The 'music' document must be text.");
+      try {
+        music = readMusicDocument(musicDocument);
+      } catch (error) {
+        throw new Error(`The 'music' document is invalid: ${reason(error)}`, { cause: error });
+      }
+    }
     try {
-      authoring = validateAuthoringState({
+      return validateAuthoringState({
         version: 1,
-        ...(prior?.music !== undefined ? { music: prior.music } : {}),
+        ...(music !== undefined ? { music } : {}),
         bindings,
         world,
       });
@@ -470,6 +693,23 @@ class EditableProjectService implements EditableProject {
         cause: error,
       });
     }
+  }
+
+  /**
+   * Rebuild the legacy authoring record from the candidate's exact documents:
+   * validated bindings and world, music read from the candidate's music
+   * document (absent means removed), and claimed source only where the kept
+   * document is real authored text — byte-only or deleted resources lose
+   * their claim.
+   */
+  private syncedAuthoringState(
+    documents: Readonly<Record<string, EditableDocumentContent>>,
+  ): Record<string, unknown> {
+    const base = this.stored.authoringState ?? {};
+    const priorSources = base["sources"];
+    if (priorSources !== undefined && !isRecord(priorSources))
+      throw new Error("The stored source claims are malformed; keeping would discard them.");
+    const authoring = this.candidateAuthoring(documents);
     const logics: [number, string][] = [];
     const pictures: [number, string][] = [];
     const views: [number, unknown][] = [];
@@ -506,23 +746,36 @@ class EditableProjectService implements EditableProject {
 
   /**
    * The durable write and the local acknowledgement. The draft moves to the
-   * committed baseline only when acknowledgeKept accepts this selection; a
-   * superseded selection leaves the newer baseline alone.
+   * committed baseline only when the admission's own acknowledgement accepts
+   * this exact selection; a superseded selection leaves the newer baseline
+   * alone. The reservation ends only after the durable result and the baseline
+   * bookkeeping have settled — success, refusal and supersession alike.
    */
-  private async commitAdmitted(state: CandidateState): Promise<EditableKeepResult> {
-    const result = await commitProject(state.request!);
-    state.receipt = result.receipt;
-    const saved: EditableSavedIdentity = Object.freeze({ ...result.receipt.saved });
-    if (this.draft.acknowledgeKept(state.selection)) {
-      this.saved = saved;
-      this.files = state.files;
+  private async commitAdmitted(
+    state: CandidateState,
+    admission: DraftKeepAdmission,
+  ): Promise<EditableKeepResult> {
+    try {
+      const result = await commitProject(state.request!);
+      state.receipt = result.receipt;
+      const saved: EditableSavedIdentity = Object.freeze({ ...result.receipt.saved });
+      if (this.draft.acknowledgeAdmittedKeep(admission)) {
+        this.saved = saved;
+        this.files = state.files;
+      }
+      return Object.freeze({
+        kind: "savedOnly",
+        commitId: state.commitId,
+        saved,
+        warnings: Object.freeze([...result.warnings]),
+        creative:
+          result.receipt.creative === undefined
+            ? undefined
+            : Object.freeze({ ...result.receipt.creative }),
+      });
+    } finally {
+      this.draft.finishKeepAdmission(admission);
     }
-    return Object.freeze({
-      kind: "savedOnly",
-      commitId: state.commitId,
-      saved,
-      warnings: Object.freeze([...result.warnings]),
-    });
   }
 
   /**
@@ -538,6 +791,10 @@ class EditableProjectService implements EditableProject {
         commitId: state.commitId,
         saved: Object.freeze({ ...result.receipt.saved }),
         warnings: Object.freeze([...result.warnings]),
+        creative:
+          result.receipt.creative === undefined
+            ? undefined
+            : Object.freeze({ ...result.receipt.creative }),
       });
     });
     this.tail = pending.then(
@@ -625,9 +882,7 @@ export async function openEditableProject(
     entry.expected.lifetime !== captured.lifetime ||
     entry.expected.generation !== generationOf(captured.data)
   )
-    throw new Error(
-      "This draft is stale: the saved project changed since it was written. It can be reviewed, downloaded or discarded, but not restored.",
-    );
+    throw new Error("This draft belongs to an older saved project. Choose Download or Discard.");
   if (
     entry.receipt.incarnation !== restore.receipt.incarnation ||
     entry.receipt.sequence !== restore.receipt.sequence

@@ -6,7 +6,7 @@ import {
   writeProjectRecovery,
   type PortableProjectRecovery,
   type RecoveryBase,
-} from "../../../src/authoring/projectRecovery.ts";
+} from "../../../src/authoring/projectRecoveryCodec.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import {
   authoringFingerprint,

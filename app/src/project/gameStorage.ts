@@ -6,8 +6,17 @@ import {
 import {
   readProjectRecovery,
   writeProjectRecovery,
-} from "../../../src/authoring/projectRecovery.ts";
+} from "../../../src/authoring/projectRecoveryCodec.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
+import type {
+  BlobHash,
+  BlobRef,
+  CreativeCatalog,
+  CreativeKeepRequest,
+} from "../../../src/creative/catalog.ts";
+import type { CreativeSnapshotOffer } from "../archive/projectArchive.ts";
+import type { CreativeWorkBasis, PortableCreativeWork } from "../../../src/creative/workArchive.ts";
+import type { CreativeWorkPlan } from "./creativeWorkArchive.ts";
 import {
   gameRevision,
   isLocalGamePreview,
@@ -20,11 +29,24 @@ import {
  */
 
 import type { CachedGameMeta, CachedGameData, ProjectId, ResourceRevision } from "./gameTypes.ts";
+import {
+  classifyLegacyProgressRecord,
+  isLegacyProgressKey,
+  legacyProgressPrefix,
+  newLegacyProgressRecord,
+  queuePrefixScan,
+  readLegacyProgressRecord,
+  type CapturedRecord,
+  type LegacyProgressRecord,
+  type LegacyProgressRow,
+  type RawLocalEntry,
+} from "./legacyProgressRecovery.ts";
+import { isProgressNamespace, type ProjectProgressTarget } from "./progressTarget.ts";
 import { announceProjectWrite } from "./projectBroadcast.ts";
 import { normalizeReferences, type StoredReference } from "../references/referenceArt.ts";
 import { projectId, resourceRevision } from "../../../src/gameIdentity.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
-import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
+import { PROFILES, detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 export type { CachedGameMeta, CachedGameData, ProjectId } from "./gameTypes.ts";
 
 interface StoredGameIndex extends CachedGameMeta {
@@ -276,10 +298,27 @@ export async function bodyTransaction<T>(
  * puts and deletes `update` returns. Append-only
  * tables use it to write an immutable record and its manifest update
  * atomically — a commit that dies mid-write leaves no half-published row.
+ * `update` may name `reads` it only knows after seeing the head record and
+ * finish in `complete`, still inside the one transaction.
  */
+type BodyRecordsOutcome<T> =
+  | {
+      readonly result: T;
+      readonly puts?: unknown[];
+      readonly deletes?: string[];
+    }
+  | {
+      readonly reads: readonly string[];
+      readonly complete: (records: Map<string, unknown>) => {
+        readonly result: T;
+        readonly puts?: unknown[];
+        readonly deletes?: string[];
+      };
+    };
+
 export async function updateBodyRecords<T>(
   key: string,
-  update: (stored: unknown) => { result: T; puts?: unknown[]; deletes?: string[] },
+  update: (stored: unknown) => BodyRecordsOutcome<T>,
   guard?:
     | { key: string; check: (stored: unknown) => void }
     | readonly { key: string; check: (stored: unknown) => void }[],
@@ -293,12 +332,43 @@ export async function updateBodyRecords<T>(
     let contractError: Error | undefined;
     request.onsuccess = () => {
       const apply = () => {
-        try {
-          outcome = update(request.result);
+        const settle = (settled: { result: T; puts?: unknown[]; deletes?: string[] }): void => {
+          outcome = settled;
           // Deletes first: a key that is replaced in the same transaction must
           // come out before its new record goes in.
-          for (const key of outcome.deletes ?? []) store.delete(key);
-          for (const put of outcome.puts ?? []) store.put(put);
+          for (const key of settled.deletes ?? []) store.delete(key);
+          for (const put of settled.puts ?? []) store.put(put);
+        };
+        try {
+          const produced = update(request.result);
+          if ("complete" in produced) {
+            // A deferred finish still runs inside this transaction: the keys
+            // were only nameable after the head record arrived (cross-record
+            // referential checks such as a catalog's blob references).
+            const records = new Map<string, unknown>();
+            let remaining = produced.reads.length;
+            if (remaining === 0) {
+              settle(produced.complete(records));
+              return;
+            }
+            for (const readKey of produced.reads) {
+              const each = store.get(readKey);
+              each.onsuccess = () => {
+                if (contractError !== undefined) return;
+                records.set(readKey, each.result);
+                if (--remaining === 0) {
+                  try {
+                    settle(produced.complete(records));
+                  } catch (error) {
+                    contractError = error instanceof Error ? error : new Error(String(error));
+                    transaction.abort();
+                  }
+                }
+              };
+            }
+            return;
+          }
+          settle(produced);
         } catch (error) {
           contractError = error instanceof Error ? error : new Error(String(error));
           transaction.abort();
@@ -346,7 +416,7 @@ export async function updateBodyRecords<T>(
 // The fourth identity, the resource revision, is the playable bytes' digest
 // (gameMetadata.ts `gameRevision`) that every write stamps into `library`.
 
-interface HistoryLifetime {
+export interface HistoryLifetime {
   projectId: string;
   epoch: string;
   deleted: boolean;
@@ -356,7 +426,7 @@ interface HistoryLifetime {
 const INITIAL_LIFETIME = "initial";
 
 /** A receipt's live lifetime: null once the game was removed. */
-function liveLifetime(receipt: HistoryLifetime | undefined): string | null {
+export function liveLifetime(receipt: HistoryLifetime | undefined): string | null {
   return receipt?.deleted ? null : (receipt?.epoch ?? INITIAL_LIFETIME);
 }
 
@@ -497,6 +567,31 @@ export async function readBodyRecords(
       reject(
         contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
       );
+  });
+}
+
+/**
+ * Snapshot several records in one readonly transaction. Creative storage
+ * needs the body and its catalog from the same view — a marker can only be
+ * checked against the catalog beside it — and `readBodyRecords` only follows
+ * keys the head record names, which a missing head cannot do.
+ */
+export async function readBodyRecordSet(keys: readonly string[]): Promise<Map<string, unknown>> {
+  const db = await openDatabase();
+  return new Promise<Map<string, unknown>>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const store = transaction.objectStore("projects");
+    const records = new Map<string, unknown>();
+    for (const key of keys) {
+      const each = store.get(key);
+      each.onsuccess = () => {
+        records.set(key, each.result);
+      };
+    }
+    transaction.oncomplete = () => resolve(records);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Project storage transaction aborted."));
   });
 }
 class ConcurrencyConflictError extends Error {
@@ -715,21 +810,32 @@ function storedIndex(data: CachedGameData): StoredGameIndex {
 function storedBody(data: CachedGameData): StoredGameBody {
   return { ...data, format: "monotio.agi.stored-project", version: 2 };
 }
-function readStoredBody(raw: StoredGameBody, projectId: ProjectId): CachedGameData {
-  if (raw.format !== "monotio.agi.stored-project" || ![1, 2].includes(raw.version))
+/**
+ * Validate a stored project body offered as unknown input — an IDB record,
+ * a captured snapshot — into the shape every project read shares. A value
+ * that is not a plain record, of another format or version, or bound to a
+ * different project refuses rather than reading as empty.
+ */
+export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameData {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw))
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
-  const storedId = raw.projectId;
+  const record = raw as StoredGameBody;
+  if (record.format !== "monotio.agi.stored-project" || ![1, 2].includes(record.version))
+    throw new Error(UNREADABLE_PROJECT_MESSAGE);
+  const storedId = record.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
-  const { format: _format, version: _version, ...data } = raw;
+  const { format: _format, version: _version, ...data } = record;
   const normalized = { ...data, projectId };
   if (
-    raw.version === 1 &&
+    record.version === 1 &&
     (normalized.recoveryDraft !== undefined || normalized.workspace !== undefined)
   )
     throw new Error("This saved project has recovery data outside its declared version.");
+  if (record.version === 1 && normalized.creative !== undefined)
+    throw new Error("This saved project has creative data outside its declared version.");
   if (
-    raw.version === 1 &&
+    record.version === 1 &&
     (typeof normalized.provider !== "string" || typeof normalized.model !== "string")
   )
     throw new Error("Invalid saved project model metadata.");
@@ -752,6 +858,18 @@ function readStoredBody(raw: StoredGameBody, projectId: ProjectId): CachedGameDa
   }
   if (normalized.references !== undefined)
     normalized.references = normalizeReferences(normalized.references);
+  if (normalized.creative !== undefined) {
+    const marker: unknown = normalized.creative;
+    if (
+      marker === null ||
+      typeof marker !== "object" ||
+      Array.isArray(marker) ||
+      !Number.isSafeInteger((marker as { kept?: unknown }).kept) ||
+      (marker as { kept: number }).kept < 1 ||
+      Object.keys(marker).length !== 1
+    )
+      throw new Error("Invalid saved project creative marker.");
+  }
   return normalized;
 }
 async function readBody(
@@ -827,7 +945,7 @@ async function stampLibraryMetadata(
           status: "unverified",
           message: "Resources changed. Check the opening again to refresh its preview.",
         }
-      : { status: "unverified", message: "Opening not checked yet." };
+      : { status: "unverified", message: "Ready to check." };
   }
   const merged = { ...previous, ...next };
   if (!previous || previous.revision !== revision) delete merged.preview;
@@ -928,7 +1046,23 @@ export interface ProjectCommitRequest {
   readonly buildId: string;
   readonly expected: CommittedProjectIdentity | null;
   readonly documents: readonly { readonly key: string; readonly version: number }[];
+  /**
+   * The candidate's own native removals (`logic:N`, `picture:N`, `view:N`,
+   * `sound:N`), when it deletes resources. Inside the write transaction the
+   * kept creative catalog is checked against this exact set: a kept recipe
+   * still preparing a removed destination refuses the whole commit. The
+   * candidate hash covers the field, so a same-id retry repeats it exactly.
+   */
+  readonly removals?: readonly string[] | undefined;
   readonly data: Omit<CachedGameData, "projectId" | "authoredAt" | "generation">;
+  /**
+   * An optional staged creative publication: the same transaction validates
+   * its live lease and expected catalog head, verifies every kept blob's
+   * bytes, moves the catalog's kept set and stamps the body's creative
+   * marker. The candidate hash covers this field, so a same-id retry must
+   * repeat the identical request — it is never published twice.
+   */
+  readonly creative?: CreativeKeepRequest | undefined;
 }
 
 export interface ProjectCommitReceipt {
@@ -937,6 +1071,8 @@ export interface ProjectCommitReceipt {
   readonly candidateHash: string;
   readonly documents: readonly { readonly key: string; readonly version: number }[];
   readonly saved: CommittedProjectIdentity;
+  /** The kept and head catalog revisions this commit published, when it carried creative work. */
+  readonly creative?: { readonly kept: number; readonly head: number } | undefined;
 }
 
 interface StoredProjectCommit {
@@ -971,6 +1107,244 @@ function commitContent(value: unknown): unknown {
 }
 
 /**
+ * Prospective archive admission for a commit whose result would carry kept
+ * creative data. The exact entry list a project download writes — native
+ * resources, versioned authored metadata, staged reference images and every
+ * unique kept creative binary — is measured with the writer's own packed
+ * arithmetic before the write transaction opens. An unexportable candidate
+ * refuses here, leaving the stored body, catalog and draft untouched;
+ * staging may still hold more unkept bytes. Progress, map and history stay
+ * independent download-time attachments and are not promised capacity.
+ *
+ * The caller's per-project queue serializes writes in this window. Other
+ * windows may write between the probe and commit; the write transaction
+ * checks the body/lifetime identity and the kept catalog or staging lease
+ * again before publication. A recorded commit receipt means this call is
+ * a retry or an id reuse, which the transaction itself adjudicates.
+ */
+async function admitCreativeArchive(
+  request: { readonly projectId: ProjectId; readonly commitId: string },
+  data: CachedGameData,
+  creative: CreativeKeepRequest | undefined,
+): Promise<void> {
+  // The creative codec, project manifest and archive measurer load with
+  // the admission, ahead of every record read: nothing outside a commit
+  // fetches them.
+  const [
+    { creativeProjectBlobHashes, deriveCreativeProjectManifest },
+    catalogCodec,
+    archiveModule,
+  ] = await Promise.all([
+    import("../../../src/creative/project.ts"),
+    import("../../../src/creative/catalog.ts"),
+    import("../archive/projectArchive.ts"),
+  ]);
+  const { collectProjectArchiveEntries, measureStoredArchive } = archiveModule;
+  const {
+    applyCreativeKeep,
+    creativeBlobKey,
+    creativeCatalogKey,
+    planCreativeKeep,
+    readCreativeCatalogRecord,
+    verifyCreativeBlob,
+  } = catalogCodec;
+  const workModule = await import("./creativeWorkArchive.ts");
+  const catalogKey = creativeCatalogKey(request.projectId);
+  const indexKey = workModule.creativeDraftIndexKey(request.projectId);
+  const undoIndexKey = workModule.creativeUndoIndexKey(request.projectId);
+  const probe = await readBodyRecordSet([
+    request.projectId,
+    catalogKey,
+    indexKey,
+    undoIndexKey,
+    `commit/${request.projectId}/${request.commitId}`,
+  ]);
+  if (probe.get(`commit/${request.projectId}/${request.commitId}`) !== undefined) return;
+  const current = probe.get(request.projectId) as StoredGameBody | undefined;
+  const catalogRaw = probe.get(catalogKey);
+  const storedMarker = current === undefined ? undefined : current.creative;
+  // The catalog the write transaction would publish from: an ordinary
+  // commit keeps the stored marker's set, a creative Keep derives the next
+  // kept set with the same planning functions the transaction re-runs.
+  let prospective: CreativeCatalog | undefined;
+  if (creative === undefined) {
+    if (storedMarker === undefined && catalogRaw === undefined) return;
+    if (catalogRaw === undefined) return;
+    const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
+    if (catalog === undefined) return;
+    if (storedMarker !== undefined && catalog.kept !== storedMarker.kept) return;
+    prospective = catalog;
+  } else {
+    if (catalogRaw === undefined) return;
+    const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
+    if (catalog === undefined) return;
+    if (storedMarker === undefined ? catalog.kept !== 0 : storedMarker.kept !== catalog.kept)
+      return;
+    prospective = applyCreativeKeep(
+      catalog,
+      creative,
+      planCreativeKeep(creative, catalog, Date.now()),
+    );
+  }
+  const nextGeneration = generationOf(current) + 1;
+  const archive: CachedGameData = {
+    ...data,
+    generation: nextGeneration,
+    ...(prospective.kept > 0 ? { creative: { kept: prospective.kept } } : {}),
+  };
+  const revision = await gameRevision(archive.files);
+  // The durable-work half of the same archive: index → rows → hold
+  // inventories → blob bytes, read in one coherent probe beside the
+  // prospective catalog and classified against this commit's identity.
+  // A corrupt or racing work layer skips the measure — the download path's
+  // own capture refuses that store anyway — but a coherent one is priced
+  // exactly, held bytes included.
+  let workBundle:
+    { work: PortableCreativeWork; blobs: Record<BlobHash, Uint8Array> } | null | undefined;
+  if (
+    prospective.holds.length > 0 ||
+    probe.get(indexKey) !== undefined ||
+    probe.get(undoIndexKey) !== undefined
+  ) {
+    const authoring = authoringFingerprint(data.authoringState, data.workspace);
+    const profileId = detectProfile(new Map(Object.entries(data.files)), data.library?.profile).id;
+    let lifetimeRaw: unknown;
+    let undoIndexRaw: unknown;
+    try {
+      workBundle = await updateBodyRecords(
+        indexKey,
+        (raw) => {
+          const workspaces = workModule.readCreativeDraftIndex(raw, indexKey);
+          const undoEntries = workModule.readCreativeUndoIndex(undoIndexRaw, undoIndexKey);
+          const rowKeys = workspaces.map((id) =>
+            workModule.creativeDraftKey(request.projectId, id),
+          );
+          const undoKeys = undoEntries.map((entry) =>
+            workModule.creativeUndoKey(request.projectId, entry.snapshot),
+          );
+          const hashKeys = [...new Set(prospective!.holds.flatMap((hold) => [...hold.hashes]))].map(
+            (hash) => creativeBlobKey(request.projectId, hash),
+          );
+          return {
+            reads: [...rowKeys, ...undoKeys, ...hashKeys],
+            complete: (records) => {
+              const rows = workspaces.map((id, i) =>
+                workModule.readCreativeDraftRow(records.get(rowKeys[i]!), rowKeys[i]!, id),
+              );
+              const undoRows = undoEntries.map((entry, i) =>
+                workModule.readCreativeUndoRow(
+                  records.get(undoKeys[i]!),
+                  undoKeys[i]!,
+                  entry.workspace,
+                  entry.snapshot,
+                ),
+              );
+              const bundle = workModule.assembleCreativeWorkCapture({
+                catalog: prospective!,
+                rows,
+                undos: undoRows,
+                axes: (row) => ({
+                  lifetimeMatches: lifetimeHolds(
+                    row.expected.lifetime,
+                    liveLifetime(lifetimeRaw as HistoryLifetime | undefined),
+                  ),
+                  body: {
+                    generation: nextGeneration,
+                    revision,
+                    authoring,
+                    profileId,
+                  },
+                  kept: prospective!.kept,
+                }),
+                basis: { revision, authoring, profileId, kept: prospective!.kept },
+              });
+              if (bundle === null) return { result: null };
+              const blobs: Record<BlobHash, Uint8Array> = {};
+              for (const hash of bundle.hashes)
+                blobs[hash] = verifyCreativeBlob(
+                  records.get(creativeBlobKey(request.projectId, hash)),
+                  request.projectId,
+                  bundle.work.blobs[hash]!,
+                );
+              return { result: { work: bundle.work, blobs } };
+            },
+          };
+        },
+        [
+          {
+            key: `lifetime/${request.projectId}`,
+            check: (raw) => {
+              lifetimeRaw = raw;
+            },
+          },
+          {
+            key: undoIndexKey,
+            check: (raw) => {
+              undoIndexRaw = raw;
+            },
+          },
+        ],
+      );
+    } catch {
+      workBundle = undefined;
+    }
+  }
+  if (prospective.kept < 1 && workBundle == null) return;
+  const manifest = prospective.kept >= 1 ? deriveCreativeProjectManifest(prospective) : null;
+  // Admission prices the exact binaries the archive would write: the kept
+  // blob records' real bytes, verified — never a resized or omitted stand-in.
+  const manifestHashes = manifest === null ? [] : creativeProjectBlobHashes(manifest);
+  const blobKeys = manifestHashes.map((hash) => creativeBlobKey(request.projectId, hash));
+  const blobRecords =
+    blobKeys.length === 0 ? new Map<string, unknown>() : await readBodyRecordSet(blobKeys);
+  const blobs: Record<BlobHash, Uint8Array> = {};
+  for (const hash of manifestHashes)
+    blobs[hash] = verifyCreativeBlob(
+      blobRecords.get(creativeBlobKey(request.projectId, hash)),
+      request.projectId,
+      manifest!.blobs[hash]!,
+    );
+  const offer: CreativeSnapshotOffer = {
+    projectId: request.projectId,
+    generation: nextGeneration,
+    kept: prospective.kept,
+    head: prospective.head,
+    revision,
+    manifest,
+    blobs,
+    work: workBundle?.work ?? null,
+    workBlobs: workBundle?.blobs ?? {},
+  };
+  measureStoredArchive(
+    await collectProjectArchiveEntries(archive, undefined, undefined, undefined, undefined, offer),
+  );
+}
+
+/**
+ * The kept recipe destinations a removal commit must not strand. A kept
+ * recipe's destination is a durable picture/view association of the same
+ * kind reference-art metadata carries, so deleting its resource leaves the
+ * recipe pointing at a missing slot. Only the catalog's kept set counts:
+ * staged leases and orphan blobs are not associations. This runs inside the
+ * write transaction against the catalog that transaction itself read, never
+ * a caller snapshot.
+ */
+function checkKeptRecipeDestinations(
+  catalog: CreativeCatalog,
+  removals: ReadonlySet<string>,
+  CatalogError: new (code: "invalid", message: string) => Error,
+): void {
+  for (const recipe of catalog.recipes) {
+    const key = `${recipe.destination.kind}:${recipe.destination.resourceId}`;
+    if (removals.has(key))
+      throw new CatalogError(
+        "invalid",
+        `Kept creative recipe '${recipe.identity.id}' still prepares destination ${key}; removing it would strand the recipe.`,
+      );
+  }
+}
+
+/**
  * Publish a complete, already validated candidate and its retry receipt in one
  * transaction. A receipt acknowledges durable storage only; installing the build
  * in a worker is a separate operation. The caller owns compilation and references.
@@ -1002,8 +1376,38 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
       throw new Error("Invalid captured document version.");
     keys.add(document.key);
   }
+  // The authoring codec and removal rules load with the commit — never on
+  // the menu's read paths — and ahead of every transaction this commit opens.
+  const [
+    {
+      CreativeCatalogError,
+      applyCreativeKeep,
+      creativeBlobKey,
+      creativeCatalogKey,
+      planCreativeKeep,
+      readCreativeCatalogRecord,
+      readCreativeKeepRequest,
+      verifyCreativeBlob,
+      writeCreativeCatalogRecord,
+    },
+    { PROJECT_RESOURCE_KEY },
+  ] = await Promise.all([
+    import("../../../src/creative/catalog.ts"),
+    import("../../../src/authoring/projectRemoval.ts"),
+  ]);
+  const removals = new Set<string>();
+  for (const key of request.removals ?? []) {
+    if (typeof key !== "string" || !PROJECT_RESOURCE_KEY.test(key) || removals.has(key))
+      throw new Error("Invalid project commit removal.");
+    removals.add(key);
+  }
   if (request.expected !== null && request.expected.projectId !== request.projectId)
     throw new Error("The commit base belongs to another project.");
+  // The staged publication is validated once here, ahead of the transaction;
+  // the candidate hash still covers the request as offered, so a same-id
+  // retry must carry the identical request.
+  const creative =
+    request.creative === undefined ? undefined : readCreativeKeepRequest(request.creative);
   const candidateHash = sha256Hex(new TextEncoder().encode(JSON.stringify(commitContent(request))));
   return serializeWrite(request.projectId, async () => {
     readableIndex(request.projectId);
@@ -1014,8 +1418,15 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
     };
     readStoredBody(storedBody(data), data.projectId);
     await stampLibraryMetadata(data, true);
+    // Prospective admission: a commit whose result carries kept creative
+    // data must still fit the project's own archive — measured with the
+    // writer's exact entries and arithmetic before the write transaction
+    // opens, so an unexportable candidate leaves the stored body, catalog
+    // and draft untouched.
+    await admitCreativeArchive(request, data, creative);
     let current: StoredGameBody | undefined;
     let previousLifetime: HistoryLifetime | undefined;
+    let catalogRaw: unknown;
     const receiptKey = `commit/${request.projectId}/${request.commitId}`;
     const committed = await updateBodyRecords(
       receiptKey,
@@ -1055,42 +1466,136 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
               current,
             );
         }
-        data.generation = generationOf(current) + 1;
-        if (!Number.isSafeInteger(data.generation))
-          throw new Error("Project generation limit reached.");
+        const generation = generationOf(current) + 1;
+        if (!Number.isSafeInteger(generation)) throw new Error("Project generation limit reached.");
+        data.generation = generation;
         const epoch = current === undefined ? crypto.randomUUID() : lifetime;
         if (epoch === null) throw new ProjectDeletedError("This project lifetime was removed.");
-        const receipt: ProjectCommitReceipt = {
-          commitId: request.commitId,
-          workspaceId: request.workspaceId,
-          candidateHash,
-          documents: request.documents,
-          saved: {
-            projectId: request.projectId,
-            generation: data.generation,
-            lifetime: epoch,
-            revision: data.library!.revision,
-            authoring: authoringFingerprint(data.authoringState, data.workspace),
-            buildId: request.buildId,
+        // One finish for both paths: the body, the commit receipt and, for a
+        // first commit, the lifetime receipt go in together. A creative
+        // publication adds its marker to the body and the new kept/head
+        // revisions to the receipt before they are written.
+        const finish = (published?: { kept: number; head: number }) => {
+          if (published !== undefined) data.creative = { kept: published.kept };
+          const receipt: ProjectCommitReceipt = {
+            commitId: request.commitId,
+            workspaceId: request.workspaceId,
+            candidateHash,
+            documents: request.documents,
+            saved: {
+              projectId: request.projectId,
+              generation,
+              lifetime: epoch,
+              revision: data.library!.revision,
+              authoring: authoringFingerprint(data.authoringState, data.workspace),
+              buildId: request.buildId,
+            },
+            ...(published !== undefined ? { creative: published } : {}),
+          };
+          const body = storedBody(data);
+          const puts: unknown[] = [
+            body,
+            {
+              projectId: receiptKey,
+              format: "monotio.agi.project-commit",
+              version: 1,
+              receipt,
+            } satisfies StoredProjectCommit,
+          ];
+          if (current === undefined)
+            puts.push({
+              projectId: `lifetime/${request.projectId}`,
+              epoch,
+              deleted: false,
+            } satisfies HistoryLifetime);
+          return { receipt, body, puts };
+        };
+        if (creative === undefined) {
+          // The creative marker is storage-owned admission output: an
+          // ordinary commit keeps the durable body's marker (verified against
+          // the catalog), and a candidate offering any other marker — or one
+          // with nothing behind it — is refused before any write.
+          const storedMarker = current === undefined ? undefined : current.creative;
+          const offered = data.creative;
+          if (
+            offered !== undefined &&
+            (storedMarker === undefined || offered.kept !== storedMarker.kept)
+          )
+            throw new CreativeCatalogError(
+              "invalid",
+              "The candidate's creative marker has no matching catalog publication.",
+            );
+          const pinned = readCreativeCatalogRecord(catalogRaw, request.projectId);
+          if (storedMarker === undefined) {
+            // A catalog that already published must stay pinned by the body;
+            // a marker lost from durable storage is damage, not a clean slate.
+            if (pinned !== undefined && pinned.kept !== 0)
+              throw new CreativeCatalogError(
+                "invalid",
+                "The kept creative catalog lost its body marker.",
+              );
+          } else {
+            if (pinned === undefined || pinned.kept !== storedMarker.kept)
+              throw new CreativeCatalogError(
+                "invalid",
+                "The stored creative marker has no matching catalog.",
+              );
+            data.creative = { kept: storedMarker.kept };
+          }
+          // The transaction's own catalog read is the authority: a kept
+          // recipe still preparing a removed destination refuses here. A
+          // corrupt record already threw from readCreativeCatalogRecord
+          // instead of parsing, so a damaged catalog cannot admit removal.
+          if (removals.size > 0 && pinned !== undefined)
+            checkKeptRecipeDestinations(pinned, removals, CreativeCatalogError);
+          const finished = finish();
+          return { result: { ...finished, changed: true }, puts: finished.puts };
+        }
+        const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
+        if (catalog === undefined)
+          throw new CreativeCatalogError(
+            "invalid",
+            "The commit's staged creative catalog is missing.",
+          );
+        // The same marker/catalog invariant as the ordinary path: a kept
+        // catalog must be pinned by the durable body, and a stored marker
+        // must pin this catalog — a publication never repairs damage by
+        // writing over it.
+        const storedMarker = current === undefined ? undefined : current.creative;
+        if (storedMarker === undefined ? catalog.kept !== 0 : storedMarker.kept !== catalog.kept)
+          throw new CreativeCatalogError(
+            "invalid",
+            "The body's creative marker does not pin this catalog.",
+          );
+        // Every admission check that can run against the captured catalog:
+        // expected head, lease liveness at the transaction's own clock,
+        // ownership and workspace, kept-set identities, budgets and blob
+        // descriptors.
+        const plan = planCreativeKeep(creative, catalog, Date.now());
+        const blobKeys = [
+          ...new Set(plan.referenced.map((ref) => creativeBlobKey(request.projectId, ref.hash))),
+        ];
+        return {
+          reads: blobKeys,
+          complete: (records) => {
+            // Exact-byte verification for every kept reference; a missing,
+            // foreign or tampered blob aborts body, catalog and receipt alike.
+            for (const ref of plan.referenced)
+              verifyCreativeBlob(
+                records.get(creativeBlobKey(request.projectId, ref.hash)),
+                request.projectId,
+                ref,
+              );
+            const next = applyCreativeKeep(catalog, creative, plan);
+            if (removals.size > 0)
+              checkKeptRecipeDestinations(next, removals, CreativeCatalogError);
+            const finished = finish({ kept: next.kept, head: next.head });
+            return {
+              result: { ...finished, changed: true },
+              puts: [...finished.puts, writeCreativeCatalogRecord(next)],
+            };
           },
         };
-        const body = storedBody(data);
-        const puts: unknown[] = [
-          body,
-          {
-            projectId: receiptKey,
-            format: "monotio.agi.project-commit",
-            version: 1,
-            receipt,
-          } satisfies StoredProjectCommit,
-        ];
-        if (current === undefined)
-          puts.push({
-            projectId: `lifetime/${request.projectId}`,
-            epoch,
-            deleted: false,
-          } satisfies HistoryLifetime);
-        return { result: { receipt, body, changed: true }, puts };
       },
       [
         {
@@ -1105,11 +1610,484 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
             previousLifetime = raw as HistoryLifetime | undefined;
           },
         },
+        {
+          // The catalog rides along on every commit: a creative Keep admits
+          // against it, and an ordinary one verifies the body's marker still
+          // pins the catalog it names.
+          key: creativeCatalogKey(request.projectId),
+          check: (raw: unknown) => {
+            catalogRaw = raw;
+          },
+        },
       ],
     );
     const warnings: "indexRepairPending"[] = [];
     try {
       // An old retry must refresh from the current body, never its old candidate.
+      localStorage.setItem(
+        getStorageKey(request.projectId),
+        JSON.stringify(storedIndex(committed.body)),
+      );
+    } catch {
+      warnings.push("indexRepairPending");
+    }
+    if (committed.changed)
+      announceProjectWrite({
+        projectId: request.projectId,
+        generation: committed.receipt.saved.generation,
+        revision: committed.receipt.saved.revision,
+        fingerprint: committed.receipt.saved.authoring,
+      });
+    return { receipt: structuredClone(committed.receipt), warnings };
+  });
+}
+
+/** The receipt an initial project publication acknowledges; a retry of the same candidate returns it. */
+export interface ProjectPublishReceipt {
+  readonly candidateHash: string;
+  readonly saved: {
+    readonly projectId: ProjectId;
+    readonly generation: number;
+    readonly lifetime: string;
+    readonly revision: ResourceRevision;
+    readonly authoring: AuthoringFingerprint;
+  };
+  /** The fresh kept and head catalog pins this publication wrote, when it carried creative data. */
+  readonly creative?: { readonly kept: number; readonly head: number } | undefined;
+}
+
+interface StoredProjectPublish {
+  projectId: string;
+  format: "monotio.agi.project-publish";
+  version: 1;
+  receipt: ProjectPublishReceipt;
+}
+
+/** The kept creative half of an initial publication, bound to the target project. */
+export interface NewProjectCreative {
+  /** A fresh kept-set catalog: portable data never supplies leases, holds or revisions. */
+  readonly catalog: CreativeCatalog;
+  /** The exact blob bodies the kept set claims, deduplicated by content hash. */
+  readonly blobs: readonly { readonly ref: BlobRef; readonly bytes: Uint8Array }[];
+}
+
+/** The durable creative-work half of an initial publication: portable data only. */
+export interface NewProjectWork {
+  /** The portable work envelope; the codec re-validates it before any write. */
+  readonly work: unknown;
+  /** The exact blob bodies the envelope's registry declares, deduplicated by hash. */
+  readonly blobs: Readonly<Record<string, Uint8Array>>;
+}
+
+/**
+ * Initial durable publication of a project that arrives whole — a private
+ * archive import or a copy — with its kept creative catalog. The body, its
+ * fresh lifetime receipt, the catalog record and every blob record land in
+ * ONE read-write transaction or not at all: the target body, catalog and
+ * blob keys must all be absent, so a colliding identity cannot overwrite
+ * another writer's records. Marker, generation and lifetime pins are
+ * derived here, never copied from portable data.
+ *
+ * The stored publication receipt is idempotent: a retry of the exact same
+ * candidate — a lost acknowledgment, or an index write that still needs
+ * repair — returns the receipt without writing anything again. The local
+ * index remains a repairable view: its write failure is reported as a
+ * warning, not a second publication.
+ */
+export async function publishNewProject(input: {
+  readonly projectId: ProjectId;
+  readonly data: Omit<CachedGameData, "projectId" | "authoredAt" | "generation">;
+  readonly creative?: NewProjectCreative | undefined;
+  readonly work?: NewProjectWork | undefined;
+}): Promise<{ receipt: ProjectPublishReceipt; warnings: readonly "indexRepairPending"[] }> {
+  // Ownership precedes every await, including waiting behind another writer.
+  const request = structuredClone(input);
+  if (projectId(request.projectId) === null) throw new Error("Invalid project identity.");
+  // The creative codecs load with the publication — never on the menu's read
+  // paths — and ahead of every transaction this publication opens.
+  const [
+    {
+      CreativeCatalogError,
+      checkRetainedBudgets,
+      compareCodePoints,
+      creativeCatalogKey,
+      mergeBlobRegistration,
+      readCreativeCatalogRecord,
+      readCreativeHold,
+      writeCreativeBlobRecord,
+      writeCreativeCatalogRecord,
+    },
+    workArchiveModule,
+    recoveryModule,
+    workHelpers,
+  ] = await Promise.all([
+    import("../../../src/creative/catalog.ts"),
+    request.work === undefined
+      ? Promise.resolve(undefined)
+      : import("../../../src/creative/workArchive.ts"),
+    request.work === undefined
+      ? Promise.resolve(undefined)
+      : import("../../../src/creative/recovery.ts"),
+    request.work === undefined ? Promise.resolve(undefined) : import("./creativeWorkArchive.ts"),
+  ]);
+  const { creativeRecoveryBlobHashes, readCreativeRecovery, writeCreativeRecovery } =
+    recoveryModule ?? {};
+  if (request.data.creative !== undefined)
+    throw new CreativeCatalogError(
+      "invalid",
+      "The candidate's creative marker is assigned by storage.",
+    );
+  // The creative half is validated before the first await: the catalog
+  // record must be canonical, bound to this project and a fresh kept set
+  // with no lease or hold authority, and the offered blob bodies must cover
+  // its registry exactly — each byte-verified by the record codec.
+  let catalog: CreativeCatalog | undefined;
+  let catalogRecord: Record<string, unknown> | undefined;
+  let blobRecords: Record<string, unknown>[] | undefined;
+  if (request.creative !== undefined) {
+    catalog = readCreativeCatalogRecord(
+      writeCreativeCatalogRecord(request.creative.catalog),
+      request.projectId,
+    );
+    if (
+      catalog === undefined ||
+      catalog.kept < 1 ||
+      catalog.leases.length !== 0 ||
+      catalog.holds.length !== 0
+    )
+      throw new CreativeCatalogError(
+        "invalid",
+        "A new project's catalog must hold a kept set without leases or holds.",
+      );
+    catalogRecord = writeCreativeCatalogRecord(catalog);
+    const declared = new Set(Object.keys(catalog.blobs));
+    const offered = new Set<string>();
+    blobRecords = request.creative.blobs.map((blob) => {
+      if (!declared.has(blob.ref.hash) || offered.has(blob.ref.hash))
+        throw new CreativeCatalogError(
+          "invalid",
+          `creative blob '${blob.ref.hash}' is not a declared kept blob.`,
+        );
+      offered.add(blob.ref.hash);
+      return writeCreativeBlobRecord(request.projectId, blob.ref, blob.bytes);
+    });
+    if (offered.size !== declared.size)
+      throw new CreativeCatalogError(
+        "invalid",
+        "The creative blobs do not cover the catalog's registry.",
+      );
+  }
+  // The durable-work half is validated ahead of the transaction too: the
+  // envelope re-canonicalizes through its strict codec (unknown fields,
+  // versions or formats refuse), the blob map must cover its registry
+  // exactly — byte-verified and owned — and retained undo snapshots
+  // republish as fresh target-local rows and incarnations below.
+  let workPlan: CreativeWorkPlan | undefined;
+  let workRecord: Record<string, unknown> | undefined;
+  let workBlobs: Record<string, Uint8Array> | undefined;
+  let workBasis: CreativeWorkBasis | undefined;
+  if (request.work !== undefined) {
+    const { readCreativeWork, writeCreativeWork } = workArchiveModule!;
+    const helpers = workHelpers!;
+    const work = helpers.ownCreativeWorkEnvelope(request.work.work);
+    workRecord = writeCreativeWork(work);
+    workBasis = work.basis;
+    workPlan = helpers.planCreativeWorkPublication(readCreativeWork(workRecord));
+    workBlobs = helpers.ownCreativeWorkBlobs(readCreativeWork(workRecord), request.work.blobs);
+  }
+  return serializeWrite(request.projectId, async () => {
+    readableIndex(request.projectId);
+    const data: CachedGameData = {
+      ...request.data,
+      projectId: request.projectId,
+      authoredAt: new Date().toISOString(),
+      generation: 1,
+      ...(catalog !== undefined ? { creative: { kept: catalog.kept } } : {}),
+    };
+    readStoredBody(storedBody(data), request.projectId);
+    await stampLibraryMetadata(data, true);
+    if (workPlan !== undefined) {
+      // The portable basis is trusted only once it equals the target's own
+      // freshly stamped identity — source counters never carry authority.
+      // A stale draft keeps its foreign base; only a claim verified current
+      // may translate its kept pin onto this catalog.
+      workHelpers!.checkCreativeWorkBasis(workBasis!, {
+        revision: data.library!.revision,
+        authoring: authoringFingerprint(data.authoringState, data.workspace),
+        profileId: detectProfile(new Map(Object.entries(data.files)), data.library?.profile).id,
+        keptSet: catalog !== undefined,
+      });
+      workHelpers!.checkCurrentWorkDrafts(workPlan, catalog);
+    }
+    // The receipt binds this exact candidate. The wall-clock stamp is the
+    // one field a retry legitimately regenerates, so it stays out of the
+    // hash — everything else, including the blob descriptors that pin the
+    // exact bytes, is covered.
+    const candidateHash = sha256Hex(
+      new TextEncoder().encode(
+        JSON.stringify(
+          commitContent({
+            body: { ...storedBody(data), authoredAt: "" },
+            ...(catalogRecord !== undefined
+              ? { catalog: catalogRecord, blobs: request.creative!.blobs.map(({ ref }) => ref) }
+              : {}),
+            ...(workRecord !== undefined
+              ? {
+                  work: workRecord,
+                  workBlobs: workPlan!.hashes.map((hash) => workPlan!.registry[hash]!),
+                }
+              : {}),
+          }),
+        ),
+      ),
+    );
+    const publishKey = `publish/${request.projectId}`;
+    let current: StoredGameBody | undefined;
+    let previousLifetime: HistoryLifetime | undefined;
+    let catalogRaw: unknown;
+    const committed = await updateBodyRecords(
+      publishKey,
+      (raw) => {
+        const lifetime = liveLifetime(previousLifetime);
+        if (raw !== undefined) {
+          const stored = raw as StoredProjectPublish;
+          if (stored.format !== "monotio.agi.project-publish" || stored.version !== 1)
+            throw new Error("This project publication version is not supported by this app.");
+          if (stored.projectId !== publishKey || stored.receipt.candidateHash !== candidateHash)
+            throw new Error("This publication identity was reused for a different candidate.");
+          if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
+            throw new ProjectDeletedError(
+              "This publication belongs to a removed or replaced project lifetime.",
+            );
+          return {
+            result: {
+              receipt: stored.receipt,
+              body: readStoredBody(current, request.projectId),
+              changed: false,
+            },
+          };
+        }
+        // The complete conflict check lives inside this transaction: the
+        // body, its catalog and every blob key must all be absent, so an
+        // identity collision cannot overwrite another writer's records.
+        if (current !== undefined)
+          throw new ProjectExistsError(`Project "${request.projectId}" already exists.`);
+        if (catalogRaw !== undefined)
+          throw new CreativeCatalogError(
+            "invalid",
+            "A creative catalog already exists for this project identity.",
+          );
+        const epoch = crypto.randomUUID();
+        // Durable work publishes as target-local records: fresh incarnations,
+        // fresh hold identities and the catalog built here — the portable
+        // envelope contributes data, never authority. A draft the source
+        // classified "current" keeps only its verified content: its kept pin
+        // and expected counters rebind to this publication, and every stale
+        // draft's recovery stays byte-identical to the carried claim.
+        let outCatalogRecord = catalogRecord;
+        let publishedPins: { kept: number; head: number } | undefined =
+          catalog === undefined ? undefined : { kept: catalog.kept, head: catalog.head };
+        const workPuts: unknown[] = [];
+        const absentWorkKeys: string[] = [];
+        const allBlobRecords: Record<string, unknown>[] = [...(blobRecords ?? [])];
+        if (workPlan !== undefined) {
+          const helpers = workHelpers!;
+          const holds = [...(catalog?.holds ?? [])];
+          const indexKey = helpers.creativeDraftIndexKey(request.projectId);
+          if (workPlan.drafts.length > 0) {
+            absentWorkKeys.push(indexKey);
+            workPuts.push(
+              helpers.writeCreativeDraftIndexRecord(
+                indexKey,
+                workPlan.drafts.map((draft) => draft.workspaceId),
+              ),
+            );
+          }
+          for (const draft of workPlan.drafts) {
+            const incarnation = crypto.randomUUID();
+            const stored = readCreativeRecovery!(
+              writeCreativeRecovery!(
+                draft.current
+                  ? {
+                      ...draft.recovery,
+                      base: { ...draft.recovery.base, kept: catalog?.kept ?? 0 },
+                    }
+                  : draft.recovery,
+              ),
+            );
+            const rowKey = helpers.creativeDraftKey(request.projectId, draft.workspaceId);
+            absentWorkKeys.push(rowKey);
+            workPuts.push(
+              helpers.writeCreativeDraftRowRecord(
+                rowKey,
+                draft.workspaceId,
+                { incarnation, sequence: 1 },
+                { generation: draft.current ? (data.generation ?? 1) : 0, lifetime: epoch },
+                stored,
+              ),
+            );
+            holds.push(
+              readCreativeHold({
+                id: helpers.creativeRecoveryHoldId(incarnation),
+                kind: "recovery",
+                hashes: creativeRecoveryBlobHashes!(stored),
+              }),
+            );
+          }
+          // Retained snapshots republish the same way: fresh target-local
+          // snapshot ids and incarnations, the index keeping the envelope's
+          // order, each row pinned by its own derived `retained-undo` hold.
+          const undoIndexKey = helpers.creativeUndoIndexKey(request.projectId);
+          if (workPlan.undos.length > 0) {
+            absentWorkKeys.push(undoIndexKey);
+            const undoEntries: { workspace: string; snapshot: string }[] = [];
+            for (const undo of workPlan.undos) {
+              const snapshotId = crypto.randomUUID();
+              const incarnation = crypto.randomUUID();
+              undoEntries.push({ workspace: undo.workspaceId, snapshot: snapshotId });
+              const stored = readCreativeRecovery!(
+                writeCreativeRecovery!(
+                  undo.current
+                    ? {
+                        ...undo.recovery,
+                        base: { ...undo.recovery.base, kept: catalog?.kept ?? 0 },
+                      }
+                    : undo.recovery,
+                ),
+              );
+              const rowKey = helpers.creativeUndoKey(request.projectId, snapshotId);
+              absentWorkKeys.push(rowKey);
+              workPuts.push(
+                helpers.writeCreativeUndoRowRecord(
+                  rowKey,
+                  undo.workspaceId,
+                  snapshotId,
+                  { incarnation, sequence: 1 },
+                  { generation: undo.current ? (data.generation ?? 1) : 0, lifetime: epoch },
+                  stored,
+                ),
+              );
+              holds.push(
+                readCreativeHold({
+                  id: helpers.creativeUndoHoldId(incarnation),
+                  kind: "retained-undo",
+                  hashes: creativeRecoveryBlobHashes!(stored),
+                }),
+              );
+            }
+            workPuts.push(helpers.writeCreativeUndoIndexRecord(undoIndexKey, undoEntries));
+          }
+          for (const inventory of workPlan.retained)
+            holds.push(
+              readCreativeHold({
+                id: `undo-${crypto.randomUUID()}`,
+                kind: "retained-undo",
+                hashes: [...inventory],
+              }),
+            );
+          const registry = { ...(catalog?.blobs ?? {}) };
+          for (const hash of workPlan.hashes)
+            for (const bucket of workPlan.registry[hash]!.buckets)
+              mergeBlobRegistration(registry, workPlan.registry[hash]!, bucket);
+          const merged: CreativeCatalog = {
+            projectId: creativeCatalogKey(request.projectId),
+            head: catalog?.head ?? 1,
+            kept: catalog?.kept ?? 0,
+            sources: catalog?.sources ?? [],
+            derivatives: catalog?.derivatives ?? [],
+            board: catalog?.board ?? [],
+            recipes: catalog?.recipes ?? [],
+            leases: catalog?.leases ?? [],
+            holds: holds.sort((a, b) => compareCodePoints(a.id, b.id)),
+            blobs: registry,
+          };
+          checkRetainedBudgets(merged, Date.now(), "creative work");
+          outCatalogRecord = writeCreativeCatalogRecord(merged);
+          publishedPins = { kept: merged.kept, head: merged.head };
+          const packed = new Set(allBlobRecords.map((record) => record["hash"] as string));
+          for (const hash of workPlan.hashes)
+            if (!packed.has(hash)) {
+              const descriptor = workPlan.registry[hash]!;
+              allBlobRecords.push(
+                writeCreativeBlobRecord(
+                  request.projectId,
+                  { hash, byteLength: descriptor.byteLength, mime: descriptor.mime },
+                  workBlobs![hash]!,
+                ),
+              );
+            }
+        }
+        const receipt: ProjectPublishReceipt = {
+          candidateHash,
+          saved: {
+            projectId: request.projectId,
+            generation: data.generation!,
+            lifetime: epoch,
+            revision: data.library!.revision,
+            authoring: authoringFingerprint(data.authoringState, data.workspace),
+          },
+          ...(publishedPins !== undefined ? { creative: publishedPins } : {}),
+        };
+        const puts: unknown[] = [
+          storedBody(data),
+          {
+            projectId: publishKey,
+            format: "monotio.agi.project-publish",
+            version: 1,
+            receipt,
+          } satisfies StoredProjectPublish,
+          {
+            projectId: `lifetime/${request.projectId}`,
+            epoch,
+            deleted: false,
+          } satisfies HistoryLifetime,
+          ...(outCatalogRecord !== undefined ? [outCatalogRecord] : []),
+        ];
+        const blobKeys = allBlobRecords.map((record) => record["projectId"] as string);
+        const absentKeys = [...blobKeys, ...absentWorkKeys];
+        if (absentKeys.length === 0)
+          return { result: { receipt, body: data, changed: true }, puts };
+        return {
+          reads: absentKeys,
+          complete: (records) => {
+            for (const key of absentKeys)
+              if (records.get(key) !== undefined)
+                throw new CreativeCatalogError(
+                  "invalid",
+                  `A project record already exists at '${key}'.`,
+                );
+            return {
+              result: { receipt, body: data, changed: true },
+              puts: [...puts, ...workPuts, ...allBlobRecords],
+            };
+          },
+        };
+      },
+      [
+        {
+          key: request.projectId,
+          check: (raw) => {
+            current = raw as StoredGameBody | undefined;
+          },
+        },
+        {
+          key: `lifetime/${request.projectId}`,
+          check: (raw) => {
+            previousLifetime = raw as HistoryLifetime | undefined;
+          },
+        },
+        {
+          key: creativeCatalogKey(request.projectId),
+          check: (raw) => {
+            catalogRaw = raw;
+          },
+        },
+      ],
+    );
+    const warnings: "indexRepairPending"[] = [];
+    try {
+      // The index is a repairable view over the durable commit; its write
+      // failing warns rather than publishing anything a second time.
       localStorage.setItem(
         getStorageKey(request.projectId),
         JSON.stringify(storedIndex(committed.body)),
@@ -1137,6 +2115,61 @@ export function serializeWrite<T>(key: string, operation: () => Promise<T>): Pro
     })
     .catch(() => {});
   return next;
+}
+
+/**
+ * The queue slot a `serializeWriteAction` action holds for its key while it
+ * runs. Opaque to every caller: `liveTurns` membership is the only
+ * authority, so a fabricated object never passes and a turn goes dead the
+ * moment its action settles. The action hands it to the one nested caller
+ * that must read inside the slot; nothing else may share it.
+ */
+export interface OwnedWriteTurn {
+  readonly _?: never;
+}
+
+const liveTurns = new WeakSet<OwnedWriteTurn>();
+const turnKeys = new WeakMap<OwnedWriteTurn, string>();
+
+/**
+ * Serialize an action that must hold this key's queue slot while it loads a
+ * module before opening a transaction — a coherent capture or publication
+ * whose implementation is fetched on demand. The action receives the owned
+ * turn for work it deliberately launches inside the slot; writers arriving
+ * from outside queue behind the whole action exactly as with
+ * `serializeWrite`, whether the action completes or refuses.
+ */
+export function serializeWriteAction<T>(
+  key: string,
+  operation: (turn: OwnedWriteTurn) => Promise<T>,
+): Promise<T> {
+  return serializeWrite(key, async () => {
+    const turn: OwnedWriteTurn = {};
+    liveTurns.add(turn);
+    turnKeys.set(turn, key);
+    try {
+      return await operation(turn);
+    } finally {
+      liveTurns.delete(turn);
+      turnKeys.delete(turn);
+    }
+  });
+}
+
+/**
+ * Run `operation` inside `turn` — the queue slot `serializeWriteAction`
+ * still holds for `key` — so the action's own nested reads never queue
+ * behind the module load that suspended it. A turn never issued, already
+ * settled, or issued for another key refuses by name.
+ */
+export function runInWriteTurn<T>(
+  turn: OwnedWriteTurn,
+  key: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (!liveTurns.has(turn) || turnKeys.get(turn) !== key)
+    return Promise.reject(new Error("This write turn is closed or was issued for another queue."));
+  return operation();
 }
 export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGameData | null> {
   return serializeWrite(projectId, () => readBody(projectId));
@@ -1426,43 +2459,445 @@ export function setLibraryGameProfile(
   });
 }
 
+/** What one removal transaction committed — the capture id and the lifetime it ended. */
+interface ProjectRemovalResult {
+  /** The durable recovery capture's record key, or null when nothing was observed. */
+  readonly recoveryId: string | null;
+  /** The history lifetime this removal ended — null when none was still live. */
+  readonly removedLifetime: string | null;
+}
+
+/**
+ * One read-write transaction retiring a saved project and every record its
+ * progress owned. Reads run first and delete nothing — body, lifetime
+ * receipt, conversation, the `history/<id>` manifest and a cursor over every
+ * `history/<id>/` descendant (`/next` timelines, unknown children and orphan
+ * records alike). An explicit `target` then demands the live body still
+ * exist at its captured epoch, so a stale selection can never delete a body
+ * recreated under the same id. Only once the checks pass is whatever legacy
+ * progress was observed copied raw — structured-clone values are captured
+ * untouched, never decoded — into an immutable `legacy-progress/` record
+ * queued with `store.add` beside the owned deletes: the lifetime receipt's
+ * retirement, the namespaced tape of the resolved epoch, the body,
+ * conversation, drafts and creative records. A guard, cursor, clone or
+ * quota failure aborts capture and removal together; nothing leaves unless
+ * everything was captured.
+ *
+ * Without `target` (the compatibility entrypoint) the live epoch is
+ * resolved inside the transaction and an absent body is an idempotent
+ * no-op: legacy keys, the receipt and any captures stay exactly as found,
+ * and no deletion UUID or recovery record is minted — data is never retired
+ * without a live body to own it. localStorage is never touched here — the
+ * caller detaches the observed legacy strings beforehand and clears its own
+ * retired namespaced keys after; the two stores are not claimed to commit
+ * atomically.
+ */
+async function removeProjectRecords(
+  project: ProjectId,
+  options?: {
+    target?: ProjectProgressTarget;
+    observedLocal?: readonly RawLocalEntry[];
+  },
+): Promise<ProjectRemovalResult> {
+  const db = await openDatabase();
+  return new Promise<ProjectRemovalResult>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readwrite");
+    const store = transaction.objectStore("projects");
+    let contractError: Error | undefined;
+    let outcome: ProjectRemovalResult | undefined;
+    const fail = (error: unknown): void => {
+      contractError ??= error instanceof Error ? error : new Error(String(error));
+      transaction.abort();
+    };
+    const captured: CapturedRecord[] = [];
+    const requests = [
+      store.get(project),
+      store.get(`lifetime/${project}`),
+      store.get(`conversation/${project}`),
+      store.get(`history/${project}`),
+    ];
+    let arrived = 0;
+    const settle = (): void => {
+      if (++arrived === requests.length + 1) remove();
+    };
+    for (const each of requests) each.onsuccess = settle;
+    // Observe every descendant without deleting — even when the root
+    // manifest is already absent. Whether anything leaves is decided only
+    // after the body and receipt have been checked.
+    queuePrefixScan(
+      store,
+      `history/${project}/`,
+      (key, cursor) => {
+        captured.push({ key, value: cursor.value });
+      },
+      settle,
+    );
+    const remove = (): void => {
+      try {
+        const body = requests[0]!.result;
+        const receipt = requests[1]!.result as HistoryLifetime | undefined;
+        const conversation = requests[2]!.result;
+        const historyHead = requests[3]!.result;
+        const target = options?.target;
+        if (target !== undefined) {
+          if (body === undefined)
+            throw new ProjectDeletedError(`Project "${project}" was removed.`);
+          if (!lifetimeHolds(target.bodyEpoch, liveLifetime(receipt)))
+            throw new ProjectDeletedError(
+              `Project "${project}" was removed or replaced by another window.`,
+            );
+        }
+        // Without a live body the removal owns nothing: orphaned keys, the
+        // receipt and earlier captures stay exactly as found.
+        if (body === undefined) {
+          outcome = { recoveryId: null, removedLifetime: null };
+          return;
+        }
+        // The namespaced tape the resolved epoch owned — the `project:<id>:<epoch>`
+        // locator layout progressTarget.ts defines.
+        const locator =
+          target?.locator ?? `project:${project}:${liveLifetime(receipt) ?? INITIAL_LIFETIME}`;
+        const records: CapturedRecord[] = [];
+        if (historyHead !== undefined)
+          records.push({ key: `history/${project}`, value: historyHead });
+        records.push(...captured);
+        if (conversation !== undefined)
+          records.push({ key: `conversation/${project}`, value: conversation });
+        if (receipt !== undefined) records.push({ key: `lifetime/${project}`, value: receipt });
+        const local = options?.observedLocal ?? [];
+        let recoveryId: string | null = null;
+        // A bare receipt alone is bookkeeping, not progress worth keeping.
+        if (
+          historyHead !== undefined ||
+          captured.length > 0 ||
+          conversation !== undefined ||
+          local.length > 0
+        ) {
+          const record = newLegacyProgressRecord(project, local, records);
+          recoveryId = record.projectId;
+          store.add(record);
+        }
+        store.delete(`history/${project}`);
+        for (const entry of captured) store.delete(entry.key);
+        store.delete(`conversation/${project}`);
+        store.delete(`draft/${project}`);
+        // The creative catalog and its staged/kept blobs belong to this
+        // lifetime: a reimport under the same id must not inherit them.
+        store.delete(`creative/${project}`);
+        // The namespaced tape the resolved epoch owned leaves with it.
+        store.delete(`history/${locator}`);
+        queuePrefixScan(store, `history/${locator}/`, (_key, cursor) => {
+          cursor.delete();
+        });
+        queuePrefixScan(store, `draft/${project}/`, (_key, cursor) => {
+          cursor.delete();
+        });
+        queuePrefixScan(store, `creative/${project}/`, (_key, cursor) => {
+          cursor.delete();
+        });
+        // Keep a small deletion receipt outside the history prefix. A writer
+        // in another tab must not recreate a tape, even if its boot arrives
+        // late.
+        store.put({
+          projectId: `lifetime/${project}`,
+          epoch: crypto.randomUUID(),
+          deleted: true,
+        } satisfies HistoryLifetime);
+        store.delete(project);
+        outcome = { recoveryId, removedLifetime: liveLifetime(receipt) };
+      } catch (error) {
+        fail(error);
+      }
+    };
+    transaction.oncomplete = () => {
+      if (outcome === undefined) reject(new Error("Project storage transaction closed early."));
+      else resolve(outcome);
+    };
+    transaction.onerror = () => reject(contractError ?? transaction.error);
+    transaction.onabort = () =>
+      reject(
+        contractError ?? transaction.error ?? new Error("Project storage transaction aborted."),
+      );
+  });
+}
+
 export function clearCachedGame(projectId: ProjectId): Promise<void> {
   return serializeWrite(projectId, async () => {
     // The body, its conversation and its history leave together: projectIds are
     // deterministic, so a game added again must not inherit the removed one's
-    // history. The manifest's batch and blob records key under
-    // `history/${id}/`, so a plain manifest delete would orphan them all —
-    // the cursor deletes every child key in the same transaction.
-    let ended: IDBRequest<HistoryLifetime | undefined> | undefined;
-    await bodyTransaction("readwrite", (store) => {
-      // The lifetime this removal ends, read before its receipt is replaced.
-      ended = store.get(`lifetime/${projectId}`) as IDBRequest<HistoryLifetime | undefined>;
-      // Keep a small deletion receipt outside the history prefix. A writer in
-      // another tab must not recreate a tape, even if its boot arrives late.
-      store.put({
-        projectId: `lifetime/${projectId}`,
-        epoch: crypto.randomUUID(),
-        deleted: true,
-      } satisfies HistoryLifetime);
-      store.delete(`conversation/${projectId}`);
-      store.delete(`history/${projectId}`);
-      store.delete(`draft/${projectId}`);
-      for (const prefix of [`history/${projectId}/`, `draft/${projectId}/`]) {
-        const children = store.openCursor(IDBKeyRange.bound(prefix, `${prefix}￿`));
-        children.onsuccess = () => {
-          const cursor = children.result;
-          if (cursor === null) return;
-          cursor.delete();
-          cursor.continue();
-        };
-      }
-      return store.delete(projectId);
-    });
+    // history — and the legacy progress under its bare id is captured into a
+    // durable recovery record before any of it leaves.
+    const removed = await removeProjectRecords(projectId);
     localStorage.removeItem(getStorageKey(projectId));
     // A tab running the removed lifetime stops writing for it at once; one
     // already removed has no lifetime left to end.
-    const removed = liveLifetime(ended?.result);
-    if (removed !== null) announceProjectWrite({ projectId, removed });
+    if (removed.removedLifetime !== null)
+      announceProjectWrite({ projectId, removed: removed.removedLifetime });
+  });
+}
+
+/**
+ * Remove a saved project together with the progress its bound body epoch
+ * owns. `target` is the progress address captured with the live body — a
+ * stale selection refuses instead of deleting a body recreated under the
+ * same id. Whatever legacy progress still sits at the released unscoped
+ * keys is captured into an immutable recovery record inside the same
+ * transaction, so nothing is deleted when the capture cannot commit.
+ * `retiredLocator` names the namespaced tape the epoch owned; the caller
+ * clears only that prefix's localStorage sidecars afterward — legacy
+ * localStorage strings are preserved inside the capture, never rewritten.
+ */
+export function removeProjectWithProgress(
+  target: ProjectProgressTarget,
+  observedLegacyLocal: readonly RawLocalEntry[],
+): Promise<{ recoveryId: string | null; retiredLocator: string }> {
+  return serializeWrite(target.project, async () => {
+    const removed = await removeProjectRecords(target.project, {
+      target,
+      observedLocal: observedLegacyLocal,
+    });
+    // The body is durably gone once the transaction resolves — an index or
+    // broadcast failure afterward must not read as a refusal, since the
+    // metadata index is a disposable cache reconcileGameIndex rebuilds.
+    try {
+      localStorage.removeItem(getStorageKey(target.project));
+      if (removed.removedLifetime !== null)
+        announceProjectWrite({ projectId: target.project, removed: removed.removedLifetime });
+    } catch (error) {
+      console.error("Project removal cleanup failed after the records left:", error);
+    }
+    return { recoveryId: removed.recoveryId, retiredLocator: target.locator };
+  });
+}
+
+/**
+ * Every recovery capture stored for one legacy source id — a bare project
+ * id, or an installed instance's released folder/hash spelling — or all
+ * captures when `source` is omitted. Read-only and independent of the
+ * removed body, so a deleted project's progress stays findable. A capture
+ * whose version or layout this build does not know refuses the listing,
+ * never rewrites the record.
+ */
+export async function listLegacyProgress(source?: string): Promise<LegacyProgressRecord[]> {
+  const db = await openDatabase();
+  return new Promise<LegacyProgressRecord[]>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const found: LegacyProgressRecord[] = [];
+    queuePrefixScan(
+      transaction.objectStore("projects"),
+      legacyProgressPrefix(source),
+      (_key, cursor) => {
+        const record = readLegacyProgressRecord(cursor.value);
+        if (record !== null) found.push(record);
+      },
+      () => resolve(found),
+    );
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Recovery listing was aborted."));
+  });
+}
+
+/**
+ * Load one recovery capture by its record key — the `recoveryId` a removal
+ * returned. `null` when no such record exists or the record is not a
+ * capture; a capture this build does not know is refused, never rewritten.
+ */
+export async function loadLegacyProgressRecord(
+  recoveryId: string,
+): Promise<LegacyProgressRecord | null> {
+  const db = await openDatabase();
+  return new Promise<LegacyProgressRecord | null>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const request = transaction.objectStore("projects").get(recoveryId);
+    request.onsuccess = () => resolve(readLegacyProgressRecord(request.result));
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Recovery lookup was aborted."));
+  });
+}
+
+/**
+ * Every `legacy-progress/` row stored for one source id — or all rows when
+ * `source` is omitted — each with the state this build can honestly report:
+ * `available` decodes into a capture, `unsupported` is a capture envelope of
+ * a version this build does not know, `unreadable` holds the prefix without
+ * a readable capture. One future or malformed row can never hide its
+ * neighbours, and refused rows carry their raw stored value untouched.
+ * `bounds.limit`/`bounds.after` page the listing for callers that render it;
+ * read-only and independent of the removed body.
+ */
+export async function listLegacyProgressRows(
+  source?: string,
+  bounds?: { after?: string; limit?: number },
+): Promise<LegacyProgressRow[]> {
+  const db = await openDatabase();
+  return new Promise<LegacyProgressRow[]>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const rows: LegacyProgressRow[] = [];
+    queuePrefixScan(
+      transaction.objectStore("projects"),
+      legacyProgressPrefix(source),
+      (key, cursor) => {
+        const state = classifyLegacyProgressRecord(cursor.value);
+        rows.push(
+          state === "available"
+            ? { key, state, record: cursor.value as LegacyProgressRecord }
+            : { key, state, value: cursor.value },
+        );
+      },
+      () => resolve(rows),
+      bounds,
+    );
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Recovery listing was aborted."));
+  });
+}
+
+/**
+ * One recovery row by its exact record key — `legacy-progress/<source>/<id>`.
+ * Any other key refuses up front, so the read can never be aimed at an
+ * unrelated record. A missing record reports `absent`; a capture this build
+ * cannot read reports `unsupported` or `unreadable` with its raw value —
+ * format refusal is never presented as missing data. Read-only and
+ * independent of whether a body still exists for the source.
+ */
+export async function readLegacyProgressRow(key: string): Promise<LegacyProgressRow> {
+  if (!isLegacyProgressKey(key)) throw new Error(`"${key}" is not a legacy progress record key.`);
+  const db = await openDatabase();
+  return new Promise<LegacyProgressRow>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const request = transaction.objectStore("projects").get(key);
+    let row: LegacyProgressRow | undefined;
+    request.onsuccess = () => {
+      const value = request.result as unknown;
+      if (value === undefined) {
+        row = { key, state: "absent" };
+        return;
+      }
+      const state = classifyLegacyProgressRecord(value);
+      row =
+        state === "available"
+          ? { key, state, record: value as LegacyProgressRecord }
+          : { key, state, value };
+    };
+    transaction.oncomplete = () => resolve(row ?? { key, state: "absent" });
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Recovery lookup was aborted."));
+  });
+}
+
+/**
+ * One legacy source's complete live unscoped records: `history/<source>` and
+ * every `history/<source>/` descendant — `/next` timelines, orphans and
+ * unknown record shapes alike — plus `conversation/<source>` and
+ * `lifetime/<source>`, all read inside a single readonly transaction and
+ * returned as detached raw clone entries: exact keys, structured-clone
+ * values never decoded, rewritten or reconstructed.
+ *
+ * `source` is an explicitly identified released storage key — a bare project
+ * id or an installed instance's released folder/hash spelling. Every
+ * recognized progress namespace spelling is refused — the current
+ * `installed:`/`project:` locators and the unreleased folder-only
+ * `installed:<digest>` predecessor alike: namespaced tapes have their own
+ * owner and never read through the legacy surface. The read needs
+ * no live body or current epoch — it only ever reads — and it fabricates no
+ * ownership: callers decide what the returned rows mean. localStorage
+ * observations are supplied separately by the caller's adapter; nothing here
+ * claims the two stores were observed atomically.
+ */
+export interface LegacySourceSnapshot {
+  /** The explicitly identified legacy storage id that was read. */
+  readonly source: string;
+  /** Every live record under the source's unscoped keys, in key order. */
+  readonly records: readonly CapturedRecord[];
+}
+
+export async function readLegacySourceSnapshot(source: string): Promise<LegacySourceSnapshot> {
+  if (typeof source !== "string" || source === "")
+    throw new Error("A legacy source names a released storage key.");
+  if (isProgressNamespace(source)) throw new Error("A progress locator is not a legacy source.");
+  const db = await openDatabase();
+  return new Promise<LegacySourceSnapshot>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const store = transaction.objectStore("projects");
+    const historyHead = store.get(`history/${source}`);
+    const conversation = store.get(`conversation/${source}`);
+    const receipt = store.get(`lifetime/${source}`);
+    const descendants: CapturedRecord[] = [];
+    queuePrefixScan(store, `history/${source}/`, (key, cursor) => {
+      descendants.push({ key, value: cursor.value });
+    });
+    transaction.oncomplete = () => {
+      const records: CapturedRecord[] = [];
+      if (historyHead.result !== undefined)
+        records.push({ key: `history/${source}`, value: historyHead.result });
+      records.push(...descendants);
+      if (conversation.result !== undefined)
+        records.push({ key: `conversation/${source}`, value: conversation.result });
+      if (receipt.result !== undefined)
+        records.push({ key: `lifetime/${source}`, value: receipt.result });
+      resolve({ source, records });
+    };
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Legacy source read was aborted."));
+  });
+}
+
+/** One bounded page of raw `history/` record keys for legacy-source discovery. */
+export interface LegacyHistoryKeyPage {
+  /** Up to `bounds.limit` keys under `history/`, in the store's ascending key order. */
+  readonly keys: readonly string[];
+  /**
+   * Resume key for the next page — the last key this page returned. Absent
+   * once the `history/` namespace drained: an exhausted page and a short
+   * final page both end discovery, and no key is ever skipped.
+   */
+  readonly after?: string | undefined;
+}
+
+/**
+ * Paged enumeration of the raw `history/` record keys — the unscoped tape
+ * namespace released builds wrote under bare storage keys. Read-only, and
+ * only record keys are consumed: the cursor never inspects values, so a page
+ * stays cheap even over large tapes. `bounds.limit` caps the records a page
+ * visits (default 256); a caller that wants every source keeps calling with
+ * `after` set to the previous page's resume key until it comes back absent.
+ * What a key belongs to is the caller's grammar — this reports raw keys only.
+ */
+export async function scanLegacyHistoryKeys(
+  page?: { after?: string },
+  bounds?: { limit?: number },
+): Promise<LegacyHistoryKeyPage> {
+  const limit = Math.max(1, bounds?.limit ?? 256);
+  const db = await openDatabase();
+  return new Promise<LegacyHistoryKeyPage>((resolve, reject) => {
+    const transaction = db.transaction("projects", "readonly");
+    const keys: string[] = [];
+    let more = false;
+    // One extra visit beyond the page size separates "the namespace drained"
+    // from "the page is full": the probe key is not returned, and the next
+    // page resumes strictly after this page's last key — no key is skipped
+    // or visited twice.
+    queuePrefixScan(
+      transaction.objectStore("projects"),
+      "history/",
+      (key) => {
+        if (keys.length < limit) keys.push(key);
+        else more = true;
+      },
+      () => resolve(more ? { keys, after: keys[keys.length - 1]! } : { keys }),
+      {
+        ...(page?.after === undefined ? {} : { after: page.after }),
+        limit: limit + 1,
+      },
+    );
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("History key scan was aborted."));
   });
 }
 

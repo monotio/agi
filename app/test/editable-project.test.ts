@@ -145,6 +145,69 @@ test("a vocabulary edit pulls the needing source into the kept closure", async (
   assert.equal(documents["logic:1"], said("unlock"));
 });
 
+test("a kept music document stores the authored tempo and reopening recovers it", async () => {
+  const projectId = await seedProject("ws-music");
+  const ws = await openEditableProject(projectId);
+  // The exact SOUND payload write_music builds for one A4 beat at tempo 120.
+  const sound = Uint8Array.of(
+    8,
+    0,
+    15,
+    0,
+    17,
+    0,
+    19,
+    0,
+    30,
+    0,
+    14,
+    130,
+    144,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+    255,
+  );
+  const snapshot = ws.draft.capture();
+  ws.draft.edit("sound:9", sound, snapshot.version("sound:9"));
+  const music = '{"9":{"revision":"21-12345678","tempo":120}}';
+  editSource(ws, "music", music);
+  await ws.keepCandidate(ws.buildSelected(["music", "sound:9"]));
+
+  const data = await storedBody(projectId);
+  const authoring = data.authoringState!["authoring"] as {
+    music?: Record<string, { revision: string; tempo: number }>;
+  };
+  assert.equal(authoring.music?.["9"]?.tempo, 120);
+  assert.equal(readProjectWorkspace(data.workspace)["music"], music);
+
+  const reopened = await openEditableProject(projectId);
+  assert.equal(reopened.draft.capture().read("music")!.content, music);
+});
+
+test("legacy authored music hydrates as a document and survives an unrelated Keep", async () => {
+  const projectId = await seedProject("ws-music-legacy", "blank", (data) => {
+    (data.authoringState!["authoring"] as { music?: Record<string, unknown> }).music = {
+      "9": { revision: "21-abcdef12", tempo: 90 },
+    };
+  });
+  const musicDoc = JSON.stringify({ "9": { revision: "21-abcdef12", tempo: 90 } });
+  const ws = await openEditableProject(projectId);
+  assert.equal(ws.draft.capture().read("music")!.content, musicDoc);
+  editSource(ws, "logic:1", ROOM1_REDRAW);
+  await ws.keepCandidate(ws.buildSelected(["logic:1"]));
+  const data = await storedBody(projectId);
+  const authoring = data.authoringState!["authoring"] as {
+    music?: Record<string, { tempo: number }>;
+  };
+  assert.equal(authoring.music?.["9"]?.tempo, 90);
+  const reopened = await openEditableProject(projectId);
+  assert.equal(reopened.draft.capture().read("music")!.content, musicDoc);
+});
+
 test("a source-only Keep advances authoring identity and leaves the playable revision", async () => {
   const projectId = await seedProject("ws-source-only");
   const ws = await openEditableProject(projectId);

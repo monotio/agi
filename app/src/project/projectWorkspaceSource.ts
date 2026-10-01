@@ -24,6 +24,7 @@ import {
 } from "../../../src/authoring/authoringState.ts";
 import {
   readBindingsDocument,
+  readMusicDocument,
   readProjectDocuments,
 } from "../../../src/authoring/projectDocuments.ts";
 import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
@@ -280,6 +281,27 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
             "Cannot open the project for editing: its workspace bindings are not readable text.",
           );
         bindingsText = content;
+      } else if (key === "music") {
+        // Authored tempo/inspection intent is a strict document: valid text
+        // is carried exactly; anything else is set aside, never dropped.
+        if (typeof content !== "string") {
+          diagnostics.push({
+            key,
+            message: "The workspace music document is not text and was set aside.",
+          });
+          rejected[key] = new Uint8Array(content);
+        } else {
+          try {
+            readMusicDocument(content);
+            metadata[key] = content;
+          } catch (error) {
+            diagnostics.push({
+              key,
+              message: `The workspace music document is invalid and was set aside (${reason(error)}).`,
+            });
+            rejected[key] = content;
+          }
+        }
       } else if (Object.hasOwn(METADATA_KEYS, key)) {
         metadata[key] = content instanceof Uint8Array ? new Uint8Array(content) : content;
       } else if (typeof content === "string") {
@@ -313,6 +335,16 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
   if (metadata["world"] === undefined) {
     authoring ??= legacyAuthoring(data.authoringState);
     if (authoring !== undefined) metadata["world"] = JSON.stringify(authoring.world);
+  }
+  if (
+    metadata["music"] === undefined &&
+    !(workspace !== undefined && Object.hasOwn(workspace, "music"))
+  ) {
+    // Older prepared workspaces have no music document; stored legacy intent
+    // hydrates as a canonical document instead of being lost. A workspace
+    // music document that was set aside is never shadowed by older state.
+    authoring ??= legacyAuthoring(data.authoringState);
+    if (authoring?.music !== undefined) metadata["music"] = JSON.stringify(authoring.music);
   }
 
   const read = readProjectDocuments({
