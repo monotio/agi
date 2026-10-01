@@ -156,6 +156,25 @@ function startTutorial(): { engine: Engine; host: TutorialHost } {
   return { engine, host };
 }
 
+test("tutorial binds the Sierra menu, help, save, restore, restart, quit and inventory keys", () => {
+  const { engine, host } = startTutorial();
+  assert.deepEqual(
+    engine.readControls().map(({ key, controller }) => [key, controller]),
+    [
+      [27, 200],
+      [0x3b00, 211],
+      [0x3f00, 201],
+      [0x4100, 202],
+      [0x4300, 203],
+      [0x2c00, 204],
+      [9, 213],
+    ],
+  );
+  host.keys.push(0x3b00);
+  engine.tick();
+  assert.match(host.prints.at(-1) ?? "", /TAB opens your inventory/);
+});
+
 function walkUntilRoom(engine: Engine, host: TutorialHost, key: number, room: number): void {
   host.keys.push(key);
   for (let cycle = 0; cycle < 260 && engine.vars[0] !== room; cycle++) engine.tick();
@@ -292,7 +311,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "f57a70aba797f21c5caa9ac44d0ce0a725b817fdab0dfad1281c0b5a2993991b",
+    "d501d87b3f00fa1e31615dae3cb29b138d4b509d7a10cc1d88778f2f3e3c834e",
     "tutorial resources changed: re-pin this revision (the version stays 1.2.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
   );
 });

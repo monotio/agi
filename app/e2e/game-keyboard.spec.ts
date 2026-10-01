@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { textHook } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/fixtures/", (route) => route.fulfill({ json: [] }));
@@ -30,9 +31,12 @@ test("page controls keep their keys and the play strip says where keys go", asyn
   await expect(command).toBeFocused();
   await expect(keys).toHaveText("Keys go to the game");
 
-  // Tab is a game key and keeps the keyboard in the game (workspace.spec checks the inventory).
+  // Tab opens the tutorial inventory and keeps the keyboard in the game.
   await page.keyboard.press("Tab");
+  await expect.poll(async () => (await textHook(page)).modal).toBe("inventory");
   await expect(command).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
 
   await command.focus();
 

@@ -2,10 +2,10 @@
   "schema": "monotio.agi.walkthrough.v1",
   "identity": {
     "project": "adventure-department",
-    "revision": "f57a70aba797f21c5caa9ac44d0ce0a725b817fdab0dfad1281c0b5a2993991b"
+    "revision": "d501d87b3f00fa1e31615dae3cb29b138d4b509d7a10cc1d88778f2f3e3c834e"
   },
   "supportedRevisions": [
-    "f57a70aba797f21c5caa9ac44d0ce0a725b817fdab0dfad1281c0b5a2993991b"
+    "d501d87b3f00fa1e31615dae3cb29b138d4b509d7a10cc1d88778f2f3e3c834e"
   ],
   "coverage": "complete-game",
   "profile": "2.936",
@@ -911,7 +911,7 @@
       0,
       0,
       0,
-      0,
+      1,
       0,
       0,
       0,
@@ -1198,7 +1198,79 @@
     "inputEnabled": true,
     "pictureShown": true,
     "terminated": false,
-    "controls": [],
+    "controls": [
+      {
+        "key": 27,
+        "controller": 200,
+        "menuItems": []
+      },
+      {
+        "key": 15104,
+        "controller": 211,
+        "menuItems": [
+          {
+            "heading": "Help",
+            "text": "Instructions   F1",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16128,
+        "controller": 201,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Save Game      F5",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 16640,
+        "controller": 202,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restore Game   F7",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 17152,
+        "controller": 203,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Restart Game   F9",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 11264,
+        "controller": 204,
+        "menuItems": [
+          {
+            "heading": "File",
+            "text": "Quit          Alt+Z",
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "key": 9,
+        "controller": 213,
+        "menuItems": [
+          {
+            "heading": "Help",
+            "text": "Inventory     Tab",
+            "enabled": true
+          }
+        ]
+      }
+    ],
     "inventory": []
   }
 }
