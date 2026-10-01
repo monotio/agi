@@ -6,7 +6,7 @@ import type { AgentRun } from "./agentRun.ts";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
-import { AGENT_TOOLS } from "../../../src/agent/tools.ts";
+import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
 import {
   splitToolResult,
   openAiToolContent,
@@ -251,6 +251,12 @@ export function createAnthropicConversation(
   config: LlmConfig,
   initialTranscript?: unknown[],
   run?: AgentRun,
+  /**
+   * A narrower catalog for a scoped session (e.g. the Logic Studio project
+   * assist). Copied at creation and stable for the conversation's life; the
+   * default stays the full AGENT_TOOLS for every existing caller.
+   */
+  catalog?: readonly ToolDefinition[],
 ): UnifiedConversation {
   const client = new Anthropic({
     apiKey: config.apiKey,
@@ -262,7 +268,11 @@ export function createAnthropicConversation(
     timeout: 600000,
   });
 
-  const tools = anthropicToolDefinitions(AGENT_TOOLS) as unknown as Anthropic.Tool[];
+  // A custom catalog is detached completely — names, descriptions and nested
+  // schemas — so caller mutation afterwards cannot rewrite the cached prefix.
+  const tools = anthropicToolDefinitions(
+    catalog ? catalog.map((tool) => structuredClone(tool)) : AGENT_TOOLS,
+  ) as unknown as Anthropic.Tool[];
   const totalUsage: LlmUsage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
   const catalogHash = fnv1a(JSON.stringify(tools));
   const promptHash = fnv1a(config.systemPrompt ?? AGI_SYSTEM_PROMPT);
@@ -494,6 +504,12 @@ export function createOpenAiConversation(
   initialTranscript?: unknown[],
   initialSessionId?: string,
   run?: AgentRun,
+  /**
+   * A narrower catalog for a scoped session (e.g. the Logic Studio project
+   * assist). Copied at creation and stable for the conversation's life;
+   * `setAvailableTools` filters against this list, not the global catalog.
+   */
+  catalog?: readonly ToolDefinition[],
 ): UnifiedConversation {
   const client = new OpenAI({
     apiKey: config.apiKey,
@@ -505,7 +521,11 @@ export function createOpenAiConversation(
     timeout: 600000,
   });
 
-  const tools: OpenAI.Responses.Tool[] = AGENT_TOOLS.map((t) => ({
+  // One captured snapshot drives both the advertised wire tools and the
+  // allowed-tools name lookup for the whole conversation; caller mutation of
+  // the offered records cannot rename or reshape either.
+  const catalogForSession = catalog ? catalog.map((tool) => structuredClone(tool)) : AGENT_TOOLS;
+  const tools: OpenAI.Responses.Tool[] = catalogForSession.map((t) => ({
     type: "function",
     name: t.name,
     description: t.description,
@@ -685,7 +705,7 @@ export function createOpenAiConversation(
   return {
     setAvailableTools(names) {
       allowedNames = names
-        ? [...names].filter((name) => AGENT_TOOLS.some((tool) => tool.name === name))
+        ? [...names].filter((name) => catalogForSession.some((tool) => tool.name === name))
         : undefined;
     },
     async sendUserMessage(

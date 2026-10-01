@@ -34,6 +34,10 @@ import {
 } from "../../../src/agent/referenceTools.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
 import {
+  isSoundDocumentEnvelopeClaim,
+  readSoundDocumentSource,
+} from "../../../src/sound/source.ts";
+import {
   resourceSetHint,
   validateAuthoringState,
   type AuthoringState,
@@ -47,7 +51,7 @@ import {
 import { readInventoryObjects } from "../../../src/agent/inventory.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
-import { installBaseTemplate } from "../../../src/agent/baseTemplate.ts";
+import { installStarterSeed } from "../../../src/agent/baseTemplate.ts";
 import { buildWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import {
@@ -261,8 +265,25 @@ function stateFromAuthoredData(
             buildView(entry[1] as BuildViewInput, state.profile);
             state.sources.views.set(entry[0], entry[1] as BuildViewInput);
           } else {
-            buildSound(entry[1] as SoundTrackInput[]);
-            state.sources.sounds.set(entry[0], entry[1] as SoundTrackInput[]);
+            const body: unknown = entry[1];
+            if (isSoundDocumentEnvelopeClaim(body)) {
+              // A tagged `agi.sound-document` claim is validated under this
+              // session's profile, must reproduce the native SOUND bytes
+              // exactly, and is stored as the owned envelope — never
+              // adopted over an absent or different resource, never read
+              // as legacy tracks.
+              state.sources.sounds.set(
+                entry[0],
+                readSoundDocumentSource(
+                  body,
+                  state.profile.id,
+                  container.getResource("sound", entry[0]),
+                ),
+              );
+            } else {
+              buildSound(body as SoundTrackInput[]);
+              state.sources.sounds.set(entry[0], body as SoundTrackInput[]);
+            }
           }
         }
       }
@@ -1161,9 +1182,12 @@ Answer the player's question using evidence from inspection when needed. For hin
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
-    // Seed editable boilerplate before the first model turn. These are
-    // ordinary resources the agent can use, extend or replace.
-    installBaseTemplate(this.state, this.state.profile);
+    // Install the complete deterministic Starter before the first model
+    // turn — the same playable snapshot manual Create produces without a
+    // provider. Admission is explicit: a blank session and the untouched
+    // seed are seeded; a session holding completed, imported or divergent
+    // authored work is refused rather than silently reseeded.
+    const seed = installStarterSeed(this.state);
     // Genesis carries no reference art yet, so view_reference stays off its list.
     const genesisTools = withReferences(GENESIS_TOOLS, undefined);
     this.conversation?.setAvailableTools(genesisTools);
@@ -1175,9 +1199,18 @@ Answer the player's question using evidence from inspection when needed. For hin
       const resources = this.stubFallback.initialResources();
       for (const res of resources) {
         this.state.container.putResource(res.kind, res.num, res.payload);
+        // Stub-authored bytes carry no recorded source: the seed's claim
+        // over a number the stub replaced would read as a false source.
+        if (res.kind === "logic") this.state.sources.logics.delete(res.num);
+        else if (res.kind === "picture") this.state.sources.pictures.delete(res.num);
+        else if (res.kind === "view") this.state.sources.views.delete(res.num);
+        else this.state.sources.sounds.delete(res.num);
       }
       this.state.genesisComplete = true;
       const stubWords: [string, number][] = [...GAME_DICTIONARY];
+      // The stub rebuilds WORDS.TOK from its own dictionary; the claims
+      // must describe the file it wrote, not the seeded vocabulary.
+      this.state.sources.words.clear();
       for (const [w, id] of stubWords) {
         this.state.sources.words.set(w, id);
       }
@@ -1193,7 +1226,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       `Beginning Genesis authoring with ${this.config.provider} (${this.config.model})`,
     );
 
-    const genesisPrompt = createGenesisPrompt(templateMarkdown);
+    const genesisPrompt = createGenesisPrompt(templateMarkdown, seed);
     let turn = await this.observeTurn(this.conversation.sendUserMessage(genesisPrompt), "genesis");
 
     while (!this.state.genesisComplete) {
@@ -1237,7 +1270,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         });
         turn = await this.observeTurn(
           this.conversation.sendUserMessage(
-            "Genesis resources are not complete yet. Please invoke write_words, write_view, write_picture, write_logic_source, and handover.",
+            "Genesis is not finished: record the world plan with update_world, adapt the seeded opening room to the brief with your write_* tools, then call handover.",
           ),
           "genesis",
         );
