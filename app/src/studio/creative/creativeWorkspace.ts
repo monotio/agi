@@ -2543,13 +2543,15 @@ class CreativeMaterialWorkspaceImpl implements CreativeMaterialWorkspace {
     // first await must still hold, or an external edit landed mid-read and
     // the restore refuses without a partial mutation.
     this.assertOperationBase(base);
+    // The shared draft can refuse a native history lease. Apply it before
+    // replacing the creative participants so that refusal preserves them.
+    this.applyDraftPlan(plan);
     this.sourceList = pending;
     this.retainedRaster = retained;
     this.boardAdditions = additions;
     this.boardRemovals = removals;
     this.underlayJob = jobs.underlay;
     this.viewJobState = jobs.view;
-    this.applyDraftPlan(plan);
     this.changed();
   }
 
