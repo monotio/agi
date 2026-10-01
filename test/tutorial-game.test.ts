@@ -246,7 +246,7 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.equal(game.project?.authoringState?.["sources"] instanceof Object, true);
 
   const catalogEntry = GAME_CATALOG.find(({ id }) => id === "adventure-department");
-  assert.equal(catalogEntry?.version, "1.1.0");
+  assert.equal(catalogEntry?.version, "1.2.0");
   assert.equal(catalogEntry?.author, "Monotio");
   const catalogGame = await catalogEntry!.load();
   assert.ok(catalogGame.project?.authoringState?.["sources"]);
@@ -287,13 +287,13 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 
 // The library keys a stored release on (projectId, revision, version): changed
 // resources at the same catalog version would appear beside a player's saved
-// release instead of replacing it. 1.1.0 is the rewritten tutorial; while it is
-// unpublished, only the pin moves when the compiled bytes change.
+// release instead of replacing it. 1.2.0 redraws the 1.1.0 characters; while it
+// is unpublished, only the pin moves when the compiled bytes change.
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
     "f57a70aba797f21c5caa9ac44d0ce0a725b817fdab0dfad1281c0b5a2993991b",
-    "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
+    "tutorial resources changed: re-pin this revision (the version stays 1.2.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
   );
 });
 

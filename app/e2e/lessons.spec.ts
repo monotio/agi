@@ -25,7 +25,7 @@ import { seedTutorial10 } from "./tutorialRelease.ts";
  * the resource behind it with a "Try this" card, and a Keep that meets its
  * challenge earns a badge. Edits go through the Studio UI: nudges from the
  * Scene list, a pencil in Sprite Studio, a rect in the Depth lens. The
- * lessons verify 1.1.0's resources, so a game derived from 1.0.0 has none.
+ * lessons verify 1.2.0's resources, so a game derived from 1.0.0 has none.
  */
 test.use({ viewport: { width: 1440, height: 900 } });
 

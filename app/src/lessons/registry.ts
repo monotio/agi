@@ -22,7 +22,7 @@ export interface LessonRelease {
 export const LESSON_RELEASES: readonly (LessonRelease & { load(): Promise<LessonSet> })[] = [
   {
     id: "adventure-department",
-    version: "1.1.0",
+    version: "1.2.0",
     load: async () =>
       (await import("../../../games/adventure-department/lessons.ts")).TUTORIAL_LESSONS,
   },

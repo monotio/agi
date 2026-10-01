@@ -202,7 +202,10 @@ export async function gameRevision(files: Record<string, Uint8Array>): Promise<R
   return resourceRevision(await sha256Hex(resourceRevisionBytes(files)))!;
 }
 
-/** Identify a collection of game files by hashing WORDS.TOK. */
+/**
+ * Identify a collection of game files by its WORDS.TOK and OBJECT hashes; the
+ * bundle revision tells apart releases that share both.
+ */
 export async function detectKnownGame(
   files: Record<string, Uint8Array>,
 ): Promise<KnownAgiGame | null> {
@@ -213,7 +216,8 @@ export async function detectKnownGame(
   const wordsSha = await sha256Hex(words);
   const obj = named("OBJECT");
   const objSha = obj ? await sha256Hex(obj) : undefined;
-  return detectKnownGameByHashes(wordsSha, objSha);
+  // Releases that share a vocabulary and object table differ by revision.
+  return detectKnownGameByHashes(wordsSha, objSha, await gameRevision(files));
 }
 
 /**
