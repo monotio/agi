@@ -1,3 +1,4 @@
+import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import type { PortableProjectRecovery } from "../../../src/authoring/projectRecovery.ts";
 import type { LibraryMetadata } from "./gameMetadata.ts";
@@ -43,6 +44,8 @@ export interface CreativeMarker {
 }
 
 export interface CachedGameData extends CachedGameMeta {
+  /** Immutable edit History, separate from player rewind recordings. */
+  projectHistory?: PortableProjectHistory | undefined;
   files: Record<string, Uint8Array>;
   words: [string, number][];
   transcript?: unknown[] | undefined;

@@ -27,6 +27,8 @@ export interface ProjectHistoryCommit extends ProjectCommitMetadata {
   readonly changed: readonly string[];
 }
 export interface ProjectHistoryState {
+  /** Missing ancestors explicitly removed by pruning; commit identities stay fixed. */
+  readonly prunedParents?: readonly string[];
   readonly blobs: Readonly<Record<string, ProjectContent>>;
   readonly commits: readonly ProjectHistoryCommit[];
   readonly cursor: string | null;

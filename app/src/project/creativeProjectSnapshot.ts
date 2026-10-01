@@ -1,3 +1,8 @@
+import {
+  historyBlobKeys,
+  hydrateProjectHistory,
+  type StoredProjectHistory,
+} from "./projectHistoryStorage.ts";
 /**
  * Coherent capture of a project's kept creative data and its durable
  * unfinished work for archive export.
@@ -318,11 +323,18 @@ async function captureProject(
         for (const hash of heldKeys) want(hash, undefined);
         return {
           reads: [
+            ...historyBlobKeys(
+              projectId,
+              (bodyRaw as { editHistory?: StoredProjectHistory }).editHistory,
+            ),
             ...wanted.map(([key]) => key),
             ...workspaces.map((workspaceId) => creativeDraftKey(projectId, workspaceId)),
             ...undoEntries.map((entry) => creativeUndoKey(projectId, entry.snapshot)),
           ],
           complete: (records) => {
+            const editHistory = (bodyRaw as { editHistory?: StoredProjectHistory }).editHistory;
+            if (editHistory !== undefined)
+              parsed.projectHistory = hydrateProjectHistory(projectId, editHistory, records);
             // Same transaction, deferred phase: the blob and row keys are
             // only nameable once the catalog and index have been read. A
             // claimed record absent here is damage, not an empty capture.

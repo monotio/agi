@@ -131,6 +131,7 @@ export async function addLibraryGame(
     conversationHistory: game.project?.conversationHistory,
     recoveryDraft: game.project?.recoveryDraft,
     workspace: game.project?.workspace,
+    projectHistory: game.project?.projectHistory,
     // A staged candidate verified against these exact bytes rebinds to the
     // imported project — an already-stale one keeps its refusal.
     references: rebindStagedReferences(game.project?.references, {

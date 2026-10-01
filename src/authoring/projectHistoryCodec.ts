@@ -28,6 +28,7 @@ type PortableBlob =
 export interface PortableProjectHistory {
   readonly format: typeof PROJECT_HISTORY_FORMAT;
   readonly version: 1;
+  readonly prunedParents?: readonly string[];
   readonly blobs: Readonly<Record<string, PortableBlob>>;
   readonly commits: readonly ProjectHistoryCommit[];
   readonly cursor: string | null;
@@ -79,7 +80,22 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
     throw new Error("Unsupported project history format.");
   if (envelope["version"] !== 1)
     throw new Error(`Unsupported project history version: ${String(envelope["version"])}.`);
-  fields(envelope, ["format", "version", "blobs", "commits", "cursor", "future", "tags"]);
+  fields(envelope, [
+    "format",
+    "version",
+    "blobs",
+    "commits",
+    "cursor",
+    "future",
+    "tags",
+    ...(Object.hasOwn(envelope, "prunedParents") ? ["prunedParents"] : []),
+  ]);
+  const boundaries = envelope["prunedParents"] ?? [];
+  if (!Array.isArray(boundaries) || boundaries.length > PROJECT_HISTORY_LIMITS.maxCommits)
+    invalid("pruned parent count exceeds the limit.");
+  const prunedParents = new Set(boundaries.map(hash));
+  if (prunedParents.size !== boundaries.length) invalid("duplicate pruned parent.");
+  const usedParents = new Set<string>();
   const storedBlobs = record(envelope["blobs"]);
   if (Object.keys(storedBlobs).length > PROJECT_HISTORY_LIMITS.maxBlobs)
     invalid("blob count exceeds the limit.");
@@ -140,7 +156,10 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
     const id = hash(stored["id"]);
     if (Object.hasOwn(byId, id)) invalid("duplicate commit identity.");
     const parent = stored["parent"] === null ? null : hash(stored["parent"]);
-    if (parent !== null && !Object.hasOwn(byId, parent)) invalid("parent must precede its child.");
+    const boundary = parent !== null && prunedParents.has(parent);
+    if (parent !== null && !Object.hasOwn(byId, parent) && !boundary)
+      invalid("parent must precede its child.");
+    if (boundary) usedParents.add(parent);
     if (parent === null && commits.length > 0) invalid("History must have one root commit.");
     const manifest = record(stored["documents"]);
     const keys = Object.keys(manifest).sort();
@@ -162,9 +181,20 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
         }),
       ),
     );
-    const parentDocuments = parent === null ? {} : byId[parent]!.documents;
+    const parentDocuments = parent === null || boundary ? {} : byId[parent]!.documents;
     const changed = stored["changed"];
-    const expected = changedProjectManifest(parentDocuments, documents);
+    const expected =
+      boundary && Array.isArray(changed)
+        ? [
+            ...new Set(
+              changed.map((key: unknown) => {
+                if (typeof key !== "string") invalid("changed key must be text.");
+                checkProjectDocumentKey(key);
+                return key;
+              }),
+            ),
+          ].sort()
+        : changedProjectManifest(parentDocuments, documents);
     if (
       !Array.isArray(changed) ||
       changed.length !== expected.length ||
@@ -194,6 +224,8 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
     commits.push(commit);
     byId[id] = commit;
   }
+  if ([...prunedParents].some((id) => Object.hasOwn(byId, id) || !usedParents.has(id)))
+    invalid("pruned parent must name a missing ancestor of a retained commit.");
   const cursor = envelope["cursor"] === null ? null : hash(envelope["cursor"]);
   if (
     (commits.length === 0) !== (cursor === null) ||
@@ -229,6 +261,7 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
     ),
   );
   return Object.freeze({
+    ...(prunedParents.size > 0 ? { prunedParents: Object.freeze([...prunedParents].sort()) } : {}),
     blobs: Object.freeze(blobs),
     commits: Object.freeze(commits),
     cursor,
@@ -256,6 +289,7 @@ export function writeProjectHistory(
   const portable: PortableProjectHistory = {
     format: PROJECT_HISTORY_FORMAT,
     version: 1 as const,
+    ...(state.prunedParents !== undefined ? { prunedParents: [...state.prunedParents] } : {}),
     blobs: Object.fromEntries(
       entries
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

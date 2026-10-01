@@ -22,12 +22,12 @@ const PROFILE: ProfileId = "2.411";
 
 /** Modules only the execution controller reaches — off the Play boot path. */
 const DEBUGGER_MODULES = [
-  /^app\/src\/worker\/debugController\.ts$/,
+  /^app\/src\/worker\/(debugController|previewAdmission|projectAdmission)\.ts$/,
   /^src\/runtime\/(debugExpression|debugBreakpoints|debugStep|debugWatchpoints)\.ts$/,
 ];
 /** Request paths carrying controller code — dev modules or the built chunk. */
 const DEBUGGER_REQUEST =
-  /debugController|debugExpression|debugBreakpoints|debugStep|debugWatchpoints/;
+  /debugController|debugExpression|debugBreakpoints|debugStep|debugWatchpoints|\/src\/worker\/(?:previewAdmission|projectAdmission)\.ts/;
 
 const repository = join(import.meta.dirname, "..", "..");
 const app = join(repository, "app");
@@ -253,7 +253,7 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
   );
   const origin = new URL(baseURL!).origin;
   await isolateStorage(page);
-  const modules: string[] = [];
+  const moduleURLs: URL[] = [];
   const pathnames: string[] = [];
   const offOrigin: string[] = [];
   page.on("request", (request) => {
@@ -262,12 +262,15 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
     if (url.origin !== origin || url.pathname.startsWith("/api/")) offOrigin.push(url.href);
     else {
       pathnames.push(decodeURIComponent(url.pathname));
-      modules.push(...modulesOf(url));
+      moduleURLs.push(url);
     }
   });
+  // Vite publishes optimizer metadata during the initial requests; inspect
+  // their module inventory after the worker's boot acknowledgement.
+  const modules = () => moduleURLs.flatMap((url) => modulesOf(url));
   const debuggerRequests = () => pathnames.filter((path) => DEBUGGER_REQUEST.test(path));
   const debuggerModules = () =>
-    modules.filter((module) => DEBUGGER_MODULES.some((pattern) => pattern.test(module)));
+    modules().filter((module) => DEBUGGER_MODULES.some((pattern) => pattern.test(module)));
 
   // A cold Home → Play boot: the engine worker starts, the controller stays
   // on the server.
@@ -281,7 +284,7 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
 
   const engineWorkerPath = pathnames.find((path) => /engine\.worker/.test(path));
   expect(engineWorkerPath, "the engine worker booted Play").toBeDefined();
-  expect(modules).toContain("app/src/worker/engine.worker.ts");
+  expect(modules()).toContain("app/src/worker/engine.worker.ts");
   expect(debuggerRequests(), "no debugger request from Home to a cold Play").toEqual([]);
   expect(debuggerModules(), "no debugger module fetched from Home to a cold Play").toEqual([]);
 
