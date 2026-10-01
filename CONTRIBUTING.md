@@ -23,7 +23,10 @@ npm run dev
 The app opens at `http://localhost:5199/` with the manual editors ready to use.
 `npm --prefix app run dev -- --mode test --port 5199` runs the same app with the
 offline stub provider the browser tests use; to choose another port, pass
-`-- --port N` to this app script. The repository has two package roots: the root
+`-- --port N` to this app script. `AGI_DEV_KEYS=1 npm run dev` fills the AI
+settings from `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in your environment for
+browsers on this machine; keys already entered in Settings stay. Requests made
+with these keys are billed to your provider account. The repository has two package roots: the root
 holds the engine, tests and scripts, and `app/` the Vue shell. A third,
 `evals/`, holds the evaluation runners; its own package adds only promptfoo,
 which the live comparisons need (`npm --prefix evals install`). After switching
