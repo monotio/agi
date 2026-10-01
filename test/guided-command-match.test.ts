@@ -158,7 +158,7 @@ test("a prepared two-word command is answered by the real interpreter", () => {
   tickUntil(() => host.printed.includes("Trees to the north."), 20, "the guided reply");
   assert.ok(
     !host.printed.includes(
-      "You stand in a sunny clearing. A worn path leads north into the trees.",
+      "You stand in a sunny clearing. A path leads past a grey cottage and a big leafy tree.",
     ),
     "the literal look handler did not answer the longer command",
   );
@@ -170,7 +170,7 @@ test("a prepared two-word command is answered by the real interpreter", () => {
   tickUntil(
     () =>
       host.printed.includes(
-        "You stand in a sunny clearing. A worn path leads north into the trees.",
+        "You stand in a sunny clearing. A path leads past a grey cottage and a big leafy tree.",
       ),
     20,
     "the seeded look reply",

@@ -1,5 +1,13 @@
-import { test, expect } from "./test.ts";
-import { canvasPicHash, isolateStorage, savedGameCard, textHook } from "./engineProbe.ts";
+import { test, expect, reviewShot } from "./test.ts";
+import {
+  canvasPicHash,
+  enterCreateMode,
+  isolateStorage,
+  savedGameCard,
+  textHook,
+} from "./engineProbe.ts";
+
+test.use({ viewport: { width: 1440, height: 900 } });
 
 test("Starter stands still for 60 cycles, walks and returns to its standing pose", async ({
   page,
@@ -52,4 +60,9 @@ test("Starter stands still for 60 cycles, walks and returns to its standing pose
     )
     .toBeGreaterThanOrEqual(stopped + 60);
   expect([...hashes]).toEqual([standing]);
+
+  await enterCreateMode(page);
+  const createCycle = (await textHook(page)).cycle;
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(createCycle);
+  await reviewShot(page, "starter-create");
 });
