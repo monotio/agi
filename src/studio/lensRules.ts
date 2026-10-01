@@ -11,6 +11,8 @@
 
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../types.ts";
 import { unionMask, type CellBox, type CompiledDocument } from "./editValidation.ts";
+import type { EditOperation } from "./editOperations.ts";
+import { pictureItemAtLine, type PictureDocument } from "./pictureDocument.ts";
 import { itemMask, type PicturePlane } from "./pictureQuery.ts";
 
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
@@ -30,8 +32,13 @@ export interface LensUnlocks {
 export const NO_UNLOCKS: LensUnlocks = { visual: false, priority: false, depthInWalk: false };
 const ALL_UNLOCKS: LensUnlocks = { visual: true, priority: true, depthInWalk: true };
 
-/** The edit operations that take whole items: a move, a copy, a delete. */
-export const WHOLE_ITEM_OPERATIONS: readonly string[] = ["moveItem", "duplicateItem", "deleteItem"];
+/** Operations that intentionally change whole items, including derived depth. */
+export const WHOLE_ITEM_OPERATIONS: readonly string[] = [
+  "moveItem",
+  "duplicateItem",
+  "deleteItem",
+  "standItemUp",
+];
 
 /**
  * Whole items move whole: an edit that only moves, copies or deletes whole
@@ -43,6 +50,34 @@ export const WHOLE_ITEM_OPERATIONS: readonly string[] = ["moveItem", "duplicateI
  */
 export function editUnlocks(unlocks: LensUnlocks, wholeItems: boolean): LensUnlocks {
   return wholeItems ? ALL_UNLOCKS : unlocks;
+}
+
+/**
+ * Unlock depth accompanying an item's art reshape. Manual priority painting
+ * keeps the lens's ordinary locks; art keeps its lock under Depth and Walk.
+ * Hosts can use this in place of the whole-item boolean for edit batches.
+ */
+export function editOperationUnlocks(
+  document: PictureDocument,
+  ops: readonly EditOperation[],
+  unlocks: LensUnlocks,
+): LensUnlocks {
+  if (ops.length === 0) return unlocks;
+  if (ops.every((op) => WHOLE_ITEM_OPERATIONS.includes(op.type))) return ALL_UNLOCKS;
+  const derived = ops.every((op) => {
+    if (WHOLE_ITEM_OPERATIONS.includes(op.type)) return true;
+    if (op.type === "setItemColor") {
+      return (
+        op.plane === "visual" && document.items.some((item) => item.id === op.itemId && item.depth)
+      );
+    }
+    if (op.type !== "setPoint" && op.type !== "insertPoint") return false;
+    const item = pictureItemAtLine(document, op.line);
+    return (
+      item?.depth !== undefined && (op.line < item.depth.openLine || op.line > item.depth.closeLine)
+    );
+  });
+  return derived ? { ...unlocks, priority: true, depthInWalk: true } : unlocks;
 }
 
 /** The planes `lens` keeps locked, less those unlocked. */

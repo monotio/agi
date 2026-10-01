@@ -40,7 +40,8 @@ import {
   type PictureItem,
   type PictureItemKind,
 } from "./pictureDocument.ts";
-import type { PicturePlane } from "./pictureQuery.ts";
+import { itemVisualFootprint, type PicturePlane } from "./pictureQuery.ts";
+import { clearItemDepth, standItemUp } from "./pictureDepth.ts";
 import { shapeSource, validateSimplePolygon, type Point, type SceneShape } from "./shapes.ts";
 import { commandHead, registerLine, registersRead } from "./editState.ts";
 import {
@@ -78,6 +79,13 @@ import {
 } from "./editSegments.ts";
 
 export type EditOperation =
+  | {
+      /** Derive priority from the item's visual pixels and chosen baseline. */
+      readonly type: "standItemUp";
+      readonly itemId: string;
+      /** Defaults to the lowest drawn visual row. */
+      readonly baseY?: number;
+    }
   | { readonly type: "moveItem"; readonly itemId: string; readonly dx: number; readonly dy: number }
   | {
       readonly type: "setPoint";
@@ -182,11 +190,13 @@ export type EditResult = EditSuccess | { readonly error: string };
 export interface EditOptions {
   /** Command vocabulary for compiling; defaults to AGI 2.936. */
   readonly profile?: AgiProfile;
+  /** The room's known set.pri.base; profiles with a stub use 48. */
+  readonly priorityBase?: number;
 }
 
 type Move = Extract<EditOperation, { type: "moveItem" }>;
 
-/** Move each item by its own offset in one pass: moves rewrite lines in place, never add any. */
+/** Translate each item in one pass, before regenerating derived depth. */
 function moveItems(ctx: Context, moves: readonly Move[]): EditResult {
   const offsets = new Map<PictureItem, Move>();
   for (const move of moves) {
@@ -315,6 +325,13 @@ function setItemColor(
   refuseCopiesOf(ctx, item, "recolouring");
   const heads = PLANE_HEADS[plane];
   const body = bodyOf(ctx, item).map((line) => {
+    if (
+      plane === "visual" &&
+      item.depth &&
+      line.from! >= item.depth.openLine &&
+      line.from! <= item.depth.closeLine
+    )
+      return line;
     if (rawIncludes(line.text, PLANE_COMMANDS[plane])) {
       throw new EditRefusal(
         `line ${line.from} sets the ${plane} state in raw bytes, which cannot be rewritten`,
@@ -571,11 +588,13 @@ function combineItems(
     [
       ...inputLines(ctx, 1, first.openLine - 1),
       newLine(ctx, directive(op.id, op.label, kind, false)),
-      ...inputLines(ctx, first.openLine, last.closeLine).map((line) => {
-        const member = opens.get(line.from!);
-        if (member) return newLine(ctx, partLine(member.id, member.label, member.kind));
-        return closes.has(line.from!) ? newLine(ctx, PART_END_LINE) : line;
-      }),
+      ...inputLines(ctx, first.openLine, last.closeLine)
+        .filter((line) => !/^#\s*@depth(?=\s|$)/.test(line.text.trim()))
+        .map((line) => {
+          const member = opens.get(line.from!);
+          if (member) return newLine(ctx, partLine(member.id, member.label, member.kind));
+          return closes.has(line.from!) ? newLine(ctx, PART_END_LINE) : line;
+        }),
       newLine(ctx, "# @end"),
       ...inputLines(ctx, last.closeLine + 1, ctx.lines.length),
     ],
@@ -625,7 +644,9 @@ function elementParts(ctx: Context, item: PictureItem): Line[] {
     joinContinuations: true,
   });
   const taken = new Set(ctx.document.items.filter((other) => other !== item).map((o) => o.id));
-  const body = bodyOf(ctx, item).filter((line) => groupPart(line.text) === undefined);
+  const body = bodyOf(ctx, item).filter(
+    (line) => groupPart(line.text) === undefined && !/^#\s*@depth(?=\s|$)/.test(line.text.trim()),
+  );
   const out: Line[] = [];
   let runs = 0;
   for (let k = 0; k < body.length;) {
@@ -687,8 +708,15 @@ function setItemMeta(
   return finish(slots, ctx);
 }
 
-function dispatch(ctx: Context, op: EditOperation): EditResult {
+function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditResult {
   switch (op.type) {
+    case "standItemUp":
+      return standItemUp(
+        ctx,
+        op.itemId,
+        op.baseY,
+        options?.priorityBase ?? findItem(ctx, op.itemId).depth?.priorityBase,
+      );
     case "moveItem":
       return moveItems(ctx, [op]);
     case "setPoint":
@@ -718,6 +746,68 @@ function dispatch(ctx: Context, op: EditOperation): EditResult {
   }
 }
 
+/** Regeneration and manual-depth conversion belong to the same atomic edit. */
+function maintainDepth(
+  ctx: Context,
+  ops: readonly EditOperation[],
+  initial: EditResult,
+  options?: EditOptions,
+): EditResult {
+  if ("error" in initial) return initial;
+  let result = initial;
+  for (const op of ops) {
+    const oldItem =
+      op.type === "setPoint"
+        ? pictureItemAtLine(ctx.document, op.line)
+        : "itemId" in op
+          ? ctx.document.items.find((item) => item.id === op.itemId)
+          : undefined;
+    if (!oldItem?.depth) continue;
+    const depth = oldItem.depth;
+    const point = op.type === "setPoint" || op.type === "insertPoint";
+    const manual =
+      (op.type === "setItemColor" && op.plane === "priority") ||
+      (point &&
+        ((op.line > depth.openLine && op.line < depth.closeLine) ||
+          (stateBefore(ctx, op.line).visual === null &&
+            stateBefore(ctx, op.line).priority !== null)));
+    const target = op.type === "duplicateItem" ? op.newId : oldItem.id;
+    if (manual) {
+      const cleared = withContext(result.document, options, (next) =>
+        clearItemDepth(next, findItem(next, target)),
+      );
+      if ("error" in cleared) return cleared;
+      result = cleared;
+    } else if (
+      op.type === "moveItem" ||
+      op.type === "duplicateItem" ||
+      point ||
+      (op.type === "setItemColor" && op.plane === "visual")
+    ) {
+      const oldBottom = itemVisualFootprint(ctx.document, oldItem.id, ctx.profile).bottom;
+      const newBottom = itemVisualFootprint(result.document, target, ctx.profile).bottom;
+      const delta =
+        oldBottom !== null && newBottom !== null
+          ? newBottom - oldBottom
+          : op.type === "moveItem" || op.type === "duplicateItem"
+            ? op.dy
+            : 0;
+      const regenerated = withContext(result.document, options, (next) =>
+        standItemUp(next, target, depth.baseY + delta, options?.priorityBase ?? depth.priorityBase),
+      );
+      if ("error" in regenerated) return regenerated;
+      result = regenerated;
+    }
+  }
+  if (result === initial) return result;
+  return {
+    document: result.document,
+    changedLines: result.document.lines.flatMap((text, i) =>
+      text === ctx.lines[i] ? [] : [i + 1],
+    ),
+  };
+}
+
 /**
  * Apply one edit. The input is never mutated; the result is a freshly parsed
  * document, or `{ error }` when the edit is refused or its source would not
@@ -728,7 +818,9 @@ export function applyEdit(
   op: EditOperation,
   options?: EditOptions,
 ): EditResult {
-  return withContext(document, options, (ctx) => dispatch(ctx, op));
+  return withContext(document, options, (ctx) =>
+    maintainDepth(ctx, [op], dispatch(ctx, op, options), options),
+  );
 }
 
 /**
@@ -744,7 +836,9 @@ export function applyEdits(
 ): EditResult {
   if (ops.length === 0) return { document, changedLines: [] };
   if (ops.every((op): op is Move => op.type === "moveItem"))
-    return withContext(document, options, (ctx) => moveItems(ctx, ops));
+    return withContext(document, options, (ctx) =>
+      maintainDepth(ctx, ops, moveItems(ctx, ops), options),
+    );
   let result: EditResult = { document, changedLines: [] };
   for (const op of ops) {
     result = applyEdit(result.document, op, options);

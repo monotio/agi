@@ -4,6 +4,16 @@
  *
  *   # @item <id> "<label>" [art|depth|walk|mixed] [locked]   opens an item
  *   # @end                                                   closes it
+ *   # @depth base=<y> [pri-base=<y>] ... # @depth end         derived depth
+ *
+ * A depth block inside an item holds ordinary priority commands and their
+ * register restoration. Its base is a surface row; pri-base records the
+ * effective set.pri.base (48 when omitted). Edits regenerate its raster
+ * coverage and shift the chosen base by the change in the lowest art row.
+ * Removing the two markers makes those commands hand-painted. Older readers
+ * treat these annotations as comments and compile the same bytes. Group and
+ * Ungroup keep the drawing bytes and convert derived depth to painted depth;
+ * Stand it up derives one base for the resulting item.
  *
  * Items are flat and cover consecutive source lines; lines outside items are
  * loose. A malformed directive is reported and otherwise read as a plain
@@ -26,11 +36,19 @@ export type PictureItemKind = "art" | "depth" | "walk" | "mixed";
 
 export const PICTURE_ITEM_KINDS: readonly PictureItemKind[] = ["art", "depth", "walk", "mixed"];
 
+interface DerivedPictureDepth {
+  readonly baseY: number;
+  readonly priorityBase: number;
+  readonly openLine: number;
+  readonly closeLine: number;
+}
+
 export interface PictureItem {
   readonly id: string;
   readonly label: string;
   readonly kind: PictureItemKind;
   readonly locked: boolean;
+  readonly depth?: DerivedPictureDepth;
   /** 1-based line of the `@item` directive. */
   readonly openLine: number;
   /** 1-based line of the `@end`; one past the last line when unterminated. */
@@ -223,7 +241,31 @@ export function parsePictureDocument(source: string): {
     );
     items.push({ ...open, closeLine: lines.length + 1, commandLines });
   }
-  return { document: { lines, items }, diagnostics };
+  const annotated = items.map((item) => {
+    let depth: DerivedPictureDepth | undefined;
+    let start: { baseY: number; priorityBase: number; openLine: number } | undefined;
+    for (let line = item.openLine + 1; line < item.closeLine; line++) {
+      const text = lines[line - 1]!.trim();
+      if (!/^#\s*@depth(?=\s|$)/.test(text)) continue;
+      const match = /^#\s*@depth base=(\d+)(?: pri-base=(\d+))?$/.exec(text);
+      if (match && !start && !depth && Number(match[1]) <= 167 && Number(match[2] ?? 48) <= 167) {
+        start = { baseY: Number(match[1]), priorityBase: Number(match[2] ?? 48), openLine: line };
+      } else if (/^#\s*@depth end$/.test(text) && start) {
+        depth = { ...start, closeLine: line };
+        start = undefined;
+      } else {
+        report(
+          line,
+          "bad-directive",
+          "depth needs one base row 0..167 and a matching end",
+          item.id,
+        );
+      }
+    }
+    if (start) report(start.openLine, "bad-directive", "depth needs a matching end", item.id);
+    return depth ? { ...item, depth } : item;
+  });
+  return { document: { lines, items: annotated }, diagnostics };
 }
 
 /** The document's source text; the exact original text when nothing was edited. */
