@@ -293,7 +293,7 @@ function onPrimary(): void {
           :aria-expanded="createOpen"
           @click="bridge.openCreateSection()"
         >
-          Create an adventure
+          Make a new game
         </UiButton>
       </div>
       <p v-if="ended" class="hero-ended" role="status" data-testid="game-ended">

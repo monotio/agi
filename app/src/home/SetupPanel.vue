@@ -5,12 +5,14 @@
  * shelf; dropping a ZIP or folder anywhere on it imports a game. The splash
  * shows while a new game is generated or a plain boot runs long.
  */
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
 import HomeHero from "./HomeHero.vue";
+import EmptyProjectStage from "./EmptyProjectStage.vue";
+import { emptyProject } from "./emptyProjectRoute.ts";
 import BootCard from "../ui/BootCard.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
@@ -35,6 +37,15 @@ async function openStarter(): Promise<void> {
 }
 const { activeTemplate, onGameDrop } = useGameLibrary();
 const createOpen = ref(false);
+watch(emptyProject, (project) => {
+  if (project) createOpen.value = false;
+});
+watch(
+  () => state.phase,
+  (phase) => {
+    if (phase === "loading" || phase === "running") createOpen.value = false;
+  },
+);
 
 /** Nested dragenter/dragleave pairs: the outline stays while anything is over Home. */
 const dragDepth = ref(0);
@@ -47,7 +58,7 @@ function onDrop(event: DragEvent): void {
   <div
     v-if="state.phase === 'idle' || state.phase === 'error'"
     class="setup-panel"
-    :class="{ dragging: dragDepth > 0 }"
+    :class="{ dragging: dragDepth > 0, 'new-game-page': createOpen }"
     data-testid="game-zip-drop"
     @dragenter.prevent="dragDepth++"
     @dragleave="dragDepth = Math.max(0, dragDepth - 1)"
@@ -57,8 +68,14 @@ function onDrop(event: DragEvent): void {
     <p v-if="routeNote" class="route-note" role="status" data-testid="route-note">
       {{ routeNote }}
     </p>
-    <HomeHero :create-open="createOpen" />
-    <div v-if="state.phase === 'error'" class="error-banner" data-testid="error-panel" role="alert">
+    <EmptyProjectStage v-if="emptyProject" :project="emptyProject" />
+    <HomeHero v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
+    <div
+      v-if="state.phase === 'error' && !emptyProject"
+      class="error-banner"
+      data-testid="error-panel"
+      role="alert"
+    >
       <span class="error-badge">ERROR</span>
       <span class="error-msg">{{ state.error }}</span>
       <UiButton
@@ -71,8 +88,8 @@ function onDrop(event: DragEvent): void {
         Open starter
       </UiButton>
     </div>
-    <CreatePanel v-model:open="createOpen" />
-    <LibraryPanel />
+    <CreatePanel v-if="!emptyProject" v-model:open="createOpen" />
+    <LibraryPanel v-if="!emptyProject" v-show="!createOpen" />
   </div>
 
   <!-- Interstitial Splash / Loading Screen during Genesis -->
@@ -133,6 +150,14 @@ function onDrop(event: DragEvent): void {
   outline: 2px dashed transparent;
   outline-offset: var(--space-4);
   transition: outline-color var(--duration-fast) var(--ease-out);
+}
+.new-game-page {
+  margin-top: calc(-1 * var(--space-8));
+}
+@media (max-width: 700px) {
+  .new-game-page {
+    margin-top: calc(-1 * var(--space-5));
+  }
 }
 .route-note {
   margin: 0;

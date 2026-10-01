@@ -298,11 +298,12 @@ export async function openSavedGameDetails(card: Locator): Promise<Locator> {
   return dialog;
 }
 
-/** Open the native Create an adventure disclosure without toggling it closed. */
+/** Open the new game page on its AI starting point. */
 export async function openCreateAdventure(page: Page): Promise<void> {
   const details = page.getByTestId("create-adventure-disclosure");
   if ((await details.getAttribute("open")) === null)
     await page.getByTestId("create-adventure-toggle").click();
+  await page.getByTestId("local-create-kind-ai").click();
 }
 
 /**

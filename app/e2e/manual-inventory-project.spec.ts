@@ -93,7 +93,7 @@ async function command(page: Page, text: string, reply: string): Promise<void> {
     .toContain(reply);
 }
 
-for (const kind of ["blank", "starter"] as const) {
+for (const kind of ["boilerplate", "starter"] as const) {
   test(`${kind} supports a manually authored vocabulary and inventory puzzle @webkit-desktop`, async ({
     page,
   }) => {
@@ -105,7 +105,7 @@ for (const kind of ["blank", "starter"] as const) {
     await page.goto("/");
     await page.getByTestId("create-adventure-toggle").click();
     await page.getByTestId("local-create-title").fill(title);
-    await page.getByTestId(`local-create-kind-${kind}`).check();
+    await page.getByTestId(`local-create-kind-${kind}`).click();
     await page.getByTestId("local-create-submit").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await page.getByTestId("btn-exit").click();
@@ -174,6 +174,12 @@ return;
     await openLibraryActions(page, savedGameCard(page, title));
     await page.getByTestId("start-library-game-over").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
+    if (kind === "boilerplate") {
+      await expect.poll(async () => (await textHook(page)).modal).toBe("print");
+      await page.locator(".screen").click();
+      await page.keyboard.press("Enter");
+      await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+    }
     await command(page, "open gate", "Find the bronze relic to open the gate.");
     await page.keyboard.press("Enter");
     await command(page, "collect relic", "You pick up the bronze relic.");

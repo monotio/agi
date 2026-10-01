@@ -274,7 +274,7 @@ test("template picker displays built-in templates and allows selection", async (
   await expect(page.getByTestId("template-custom")).toBeVisible();
 
   await page.getByTestId("template-mop-jockey").click();
-  await expect(page.getByTestId("template-mop-jockey")).toHaveClass(/selected/);
+  await expect(page.getByTestId("template-mop-jockey")).toHaveAttribute("aria-selected", "true");
 
   await page.getByTestId("template-custom").click();
   await expect(page.getByTestId("custom-adventure-input")).toBeVisible();

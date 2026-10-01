@@ -43,13 +43,14 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await expect(create).not.toHaveAttribute("open");
   await gallery.getByTestId("shelf-template-custom").click();
   await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-selected", "true");
   expect(
     await create.evaluate((element) => {
       const importer = document.getElementById("open-game")!;
       return Boolean(element.compareDocumentPosition(importer) & Node.DOCUMENT_POSITION_FOLLOWING);
     }),
   ).toBe(true);
+  await page.getByTestId("create-adventure-close").click();
   await page.getByRole("button", { name: "Add game", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: /ZIP/i })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /folder/i })).toBeVisible();
@@ -83,7 +84,7 @@ test("Create is a focused panel that its hash reopens and Close, Escape or Back 
   await page.keyboard.press("Enter");
   await expect(create).toHaveAttribute("open");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("heading", { name: "Create an adventure" })).toBeFocused();
+  await expect(page.getByTestId("local-create-title")).toBeFocused();
   await expect(page).toHaveURL(/#create-adventure$/);
   await page.reload();
   await expect(create).toHaveAttribute("open");
@@ -95,6 +96,7 @@ test("Create is a focused panel that its hash reopens and Close, Escape or Back 
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(create).toHaveAttribute("open");
+  await expect(page.getByTestId("local-create-title")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(create).not.toHaveAttribute("open");
   await expect(toggle).toBeFocused();
@@ -270,7 +272,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
   };
   expect(await cards.nth(1).getByTestId("btn-resume-cached").evaluate(typography)).toEqual(
-    await page.getByTestId("connect-create-ai").evaluate(typography),
+    await page.getByTestId("hero-primary").evaluate(typography),
   );
 
   for (const width of [1440, 1024, 768, 390]) {
@@ -310,6 +312,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(create).toHaveAttribute("open");
+  await page.getByTestId("local-create-kind-ai").click();
   await expect(page.getByTestId("template-custom")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(create).not.toHaveAttribute("open");

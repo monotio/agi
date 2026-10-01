@@ -35,6 +35,7 @@ import { createAiSettings, provideAiSettings } from "./settings/useAiSettings.ts
 import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./play/usePresentation.ts";
 import SetupPanel from "./home/SetupPanel.vue";
+import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
 import StaleTabNote from "./play/StaleTabNote.vue";
 import StartOverNote from "./play/StartOverNote.vue";
 import { nextViewportLayout } from "./play/viewportLayout.ts";
@@ -339,7 +340,8 @@ watch(
 );
 
 /** Back and Forward between Play and Create; at the menu a stale game route is cleared. */
-function onPopState(): void {
+async function onPopState(): Promise<void> {
+  if (state.phase === "idle" && (await followEmptyProjectRoute())) return;
   if (state.phase === "running") shell.followRoute(location.hash);
   else if (state.phase === "idle" && isGameRoute(location.hash)) clearPlayHash();
 }
@@ -573,7 +575,9 @@ onMounted(async () => {
       state.phase = "error";
       state.error = e instanceof Error ? e.message : String(e);
     });
-  else if (playKey) {
+  else if (await followEmptyProjectRoute()) {
+    return;
+  } else if (playKey) {
     // Only a routed key that proves no resume offer takes the ordinary routed
     // open. An offer that was attempted and refused stays the runtime's own
     // visible result — never retried and never booted over by this caller.
