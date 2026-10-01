@@ -9,6 +9,8 @@
  */
 import {
   computed,
+  defineAsyncComponent,
+  inject,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -31,8 +33,16 @@ import UiDialog from "../../ui/UiDialog.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import LogicByteView from "./LogicByteView.vue";
 import LogicExplorer from "./LogicExplorer.vue";
+import LogicAgentPanel from "./LogicAgentPanel.vue";
+import GuidedActions from "./guided/GuidedActions.vue";
 import LogicRecoveryDialog from "./LogicRecoveryDialog.vue";
 import LogicReviewDialog, { type LogicReviewEntry } from "./LogicReviewDialog.vue";
+import LogicDebugWorkspace from "./debug/LogicDebugWorkspace.vue";
+import { createStudioDraftSource } from "./debug/debugDraft.ts";
+import type { DebugWorkspace } from "./debug/logicDebugWorkspace.ts";
+import { engineKey } from "../../engine/engineContext.ts";
+import { useLogicProjectAssist, MAX_ASSIST_SELECTION_CHARS } from "./useLogicProjectAssist.ts";
+import { aiSettingsKey } from "../../settings/useAiSettings.ts";
 import { LogicAnalysisClient } from "./analysisClient.ts";
 import { LogicDraftPersister, recoveryEntries, type LogicRecoveryEntry } from "./logicRecovery.ts";
 import {
@@ -53,6 +63,12 @@ import {
 
 const { projectId } = defineProps<{ readonly projectId: ProjectId }>();
 const emit = defineEmits<{ close: []; "update:projectId": [id: ProjectId] }>();
+
+// The visual editors' mount and their Room/Sprite code load only on first
+// use, keeping them out of this workspace's already-async chunk.
+const ProjectResourceEditors = defineAsyncComponent(
+  () => import("../project/ProjectResourceEditors.vue"),
+);
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -227,6 +243,14 @@ function goToProblem(problem: Problem): void {
 
 /* --- Documents and models ---------------------------------------------- */
 
+/**
+ * True while the host writes an external draft transaction into the models
+ * (an accepted assistant proposal, or its undo/redo). Programmatic resync
+ * must never produce a "manual" draft.edit, invalidate the transaction it
+ * mirrors, or bump the version twice.
+ */
+let syncingModels = false;
+
 function ensureModel(key: string): monaco.editor.ITextModel | undefined {
   const held = models.get(key);
   if (held) return held.model;
@@ -240,7 +264,7 @@ function ensureModel(key: string): monaco.editor.ITextModel | undefined {
   );
   model.onDidChangeContent(() => {
     const service = workspace.value;
-    if (!service) return;
+    if (!service || syncingModels) return;
     // The author's own typing is a single-document edit; the draft keeps
     // authority and versions it. A stale version means the model drifted —
     // resync it to the draft rather than pretend the write landed.
@@ -275,14 +299,91 @@ function activateDocument(key: string): void {
     viewStates.set(activeKey.value, editor.saveViewState());
   activeKey.value = key;
   const doc = documents.value.find((entry) => entry.key === key);
-  if (doc?.kind === "text") {
-    const model = ensureModel(key);
-    if (model) {
-      editor?.setModel(model);
-      const view = viewStates.get(key);
-      if (view) editor?.restoreViewState(view);
+  const model = doc?.kind === "text" ? ensureModel(key) : undefined;
+  // A byte-only document has no text model: detach the previous document's
+  // model so editor commands cannot reach a document the author cannot see.
+  editor?.setModel(model ?? null);
+  if (model) {
+    const view = viewStates.get(key);
+    if (view) editor?.restoreViewState(view);
+  }
+  scheduleProblems();
+}
+
+/** Editor commands may run only while the visible document's own text model is attached. */
+const editorCommandsEnabled = computed(() => {
+  const doc = activeDocument.value;
+  if (doc?.kind !== "text" || workspace.value === undefined) return false;
+  const held = models.get(doc.key);
+  return editor !== undefined && held !== undefined && editor.getModel() === held.model;
+});
+
+/**
+ * Undo/Redo act on the visible document only. Even past a disabled button the
+ * handler re-verifies the active document is text and its own model — not a
+ * hidden previous one — is the model attached to the editor.
+ */
+function runEditorCommand(command: "undo" | "redo"): void {
+  if (!editorCommandsEnabled.value) return;
+  editor?.trigger("toolbar", command, null);
+}
+
+/**
+ * Reconcile the open models to the draft after an external change — an
+ * accepted assistant proposal or its undo/redo. Everything runs under the
+ * suppression guard so the refresh cannot generate manual edits; a
+ * full-range edit (not setValue) keeps each model's own typing undo and the
+ * tab's view state. New text documents become explorable on the next
+ * revision read; deleted or byte documents detach the editor and dispose
+ * their model. One revision bump follows, then the usual persist/analysis/
+ * problems refresh.
+ */
+function resyncDraftModels(): void {
+  const ws = workspace.value;
+  if (!ws) return;
+  const snap = ws.draft.capture();
+  const liveText = new Set(snap.keys.filter((key) => typeof snap.read(key)?.content === "string"));
+  syncingModels = true;
+  try {
+    for (const [key, entry] of models) {
+      if (!liveText.has(key)) continue;
+      const doc = snap.read(key);
+      if (!doc || typeof doc.content !== "string" || entry.model.isDisposed()) continue;
+      if (entry.model.getValue() !== doc.content)
+        entry.model.pushEditOperations(
+          null,
+          [{ range: entry.model.getFullModelRange(), text: doc.content }],
+          () => null,
+        );
+    }
+    for (const [key, entry] of models) {
+      if (liveText.has(key)) continue;
+      if (editor?.getModel() === entry.model) {
+        viewStates.set(key, editor.saveViewState());
+        editor.setModel(null);
+      }
+      entry.handle?.dispose();
+      if (!entry.model.isDisposed()) entry.model.dispose();
+      models.delete(key);
+    }
+  } finally {
+    syncingModels = false;
+  }
+  // A deleted document leaves its tab and cannot stay active.
+  if (openTabs.value.some((key) => !liveText.has(key) && snap.read(key) === undefined)) {
+    openTabs.value = openTabs.value.filter((key) => snap.keys.includes(key));
+    if (activeKey.value !== null && !snap.keys.includes(activeKey.value)) {
+      const next = openTabs.value[0] ?? null;
+      activeKey.value = null;
+      if (next !== null) activateDocument(next);
     }
   }
+  revision.value++;
+  // An external draft write is an edit too: the saved note no longer
+  // describes the state on screen.
+  savedNote.value = undefined;
+  persister?.schedule();
+  syncAnalysis();
   scheduleProblems();
 }
 
@@ -301,6 +402,84 @@ function closeDocumentTab(key: string): void {
     activeKey.value = null;
     activateDocument(next);
   }
+}
+
+/* --- Visual resource editors -------------------------------------------- */
+
+/**
+ * The picture/view document open in the existing visual editor, if any. The
+ * session keeps the workspace it opened on; `isResourceWorkspace` refuses a
+ * late Keep after the draft's owner swapped.
+ */
+const resourceEdit = shallowRef<{ ws: EditableProject; key: string }>();
+const resourceEditError = ref<string | undefined>();
+const resourceEditButton = useTemplateRef("resourceEditButton");
+
+/** The active document's visual-editor target — every picture and view id. */
+const editableResource = computed(() => {
+  const key = activeKey.value;
+  return key !== null && /^(?:picture|view):\d+$/.test(key) ? key : undefined;
+});
+
+function openResourceEditor(): void {
+  const ws = workspace.value;
+  const key = editableResource.value;
+  if (!ws || key === undefined || resourceEdit.value !== undefined) return;
+  resourceEditError.value = undefined;
+  resourceEdit.value = { ws, key };
+}
+
+/**
+ * The guided panel's Edit-visually target: any picture/view document the
+ * proposal names, not only the editor's active document.
+ */
+function openResourceEditorFor(key: string): void {
+  const ws = workspace.value;
+  if (!ws || !/^(?:picture|view):\d+$/.test(key) || resourceEdit.value !== undefined) return;
+  resourceEditError.value = undefined;
+  resourceEdit.value = { ws, key };
+}
+
+/** Focus returns to the launch button, as the assistant toggle does. */
+function closeResourceEditor(): void {
+  resourceEdit.value = undefined;
+  void nextTick(() => {
+    const el = resourceEditButton.value?.$el;
+    if (el instanceof HTMLElement) el.focus();
+  });
+  // A project switch queued behind the visual editor resumes through the
+  // same dirty guard as a plain switch.
+  const target = switchTarget;
+  const open = workspace.value?.projectId;
+  if (target !== null && open !== undefined && target !== open) {
+    if (changes.value > 0 || keeping.value) {
+      leaveAsk.value = true;
+    } else {
+      switchTarget = null;
+      void openProject(target);
+    }
+  }
+}
+
+function isResourceWorkspace(ws: EditableProject): () => boolean {
+  return () => workspace.value === ws;
+}
+
+function onResourceEditError(message: string): void {
+  resourceEditError.value = message;
+}
+
+/** A visual Keep's durable receipt: new kept baseline, status, recovery state. */
+function onResourceKept(key: string, content: string | Uint8Array): void {
+  keptDocuments[key] = content;
+  revision.value++;
+  const ws = workspace.value;
+  const remaining = ws === undefined ? 0 : ws.draft.dirtyKeys().length;
+  savedNote.value = remaining > 0 ? "Kept changes" : "Saved to the library";
+  if (savedNoteTimer) clearTimeout(savedNoteTimer);
+  savedNoteTimer = setTimeout(() => (savedNote.value = undefined), 4000);
+  if (remaining > 0) persister?.schedule();
+  else void persister?.discard();
 }
 
 /* --- Build review and Keep ---------------------------------------------- */
@@ -373,15 +552,22 @@ async function confirmKeep(): Promise<void> {
   const held = review.value;
   if (!ws || !held || held.candidate === undefined) return;
   const candidate = held.candidate;
+  // The Keep belongs to this workspace and this persister; a switch or
+  // unmount resolving while it is in flight owns the state that follows.
+  const writer = persister;
   keeping.value = true;
   reviewError.value = undefined;
   try {
     await ws.keepCandidate(candidate);
+    if (workspace.value !== ws) return;
     keptDocuments = { ...candidate.documents() };
     review.value = undefined;
     revision.value++;
     persistError.value = undefined;
-    savedNote.value = "Saved to the library";
+    // A Keep that leaves draft changes behind names what it did — the
+    // reviewed changes were kept — rather than implying the library now
+    // holds everything on screen.
+    savedNote.value = ws.draft.dirtyKeys().length > 0 ? "Kept changes" : "Saved to the library";
     if (savedNoteTimer) clearTimeout(savedNoteTimer);
     savedNoteTimer = setTimeout(() => (savedNote.value = undefined), 4000);
     // Newer typing stays dirty: durably persist it against the new kept base
@@ -390,13 +576,14 @@ async function confirmKeep(): Promise<void> {
     if (closeAfterKeep) {
       const done =
         ws.draft.dirtyKeys().length > 0
-          ? ((await persister?.flush()) ?? true)
-          : ((await persister?.discard()) ?? true);
+          ? ((await writer?.flush()) ?? true)
+          : ((await writer?.discard()) ?? true);
       if (!done) {
         // persistError is already visible; the guard re-runs on the next close.
-        closeAfterKeep = false;
+        if (workspace.value === ws) closeAfterKeep = false;
         return;
       }
+      if (workspace.value !== ws) return;
       closeAfterKeep = false;
       await afterKept();
     } else if (ws.draft.dirtyKeys().length > 0) {
@@ -424,13 +611,37 @@ function keepAndClose(): void {
   requestKeep(true);
 }
 
-function requestClose(): void {
-  if (keeping.value) return;
-  if (changes.value === 0) {
+/** Set while a clean close's storage settle is in flight, so a repeat Close is a no-op. */
+let closeSettling = false;
+
+async function requestClose(): Promise<void> {
+  if (keeping.value || closeSettling) return;
+  if (changes.value > 0) {
+    leaveAsk.value = true;
+    return;
+  }
+  const ws = workspace.value;
+  if (ws === undefined) {
     emit("close");
     return;
   }
-  leaveAsk.value = true;
+  // A clean close can still owe the record a dirty-then-undone draft left.
+  // Settle it only while the draft stays clean, then re-review this same
+  // mounted draft before leaving: typing during the delete revokes the
+  // close, so the new work falls back to the ordinary dirty guard.
+  closeSettling = true;
+  try {
+    const done = (await persister?.discard({ onlyIfClean: true })) ?? true;
+    if (!done) return;
+    if (workspace.value !== ws) return;
+    if (ws.draft.dirtyKeys().length > 0) {
+      leaveAsk.value = true;
+      return;
+    }
+    emit("close");
+  } finally {
+    closeSettling = false;
+  }
 }
 
 /**
@@ -475,6 +686,206 @@ watch(
   { immediate: true },
 );
 
+/* --- Debug test run -------------------------------------------------------
+
+   The dock owns one isolated Test session over the complete current draft.
+   This file supplies only the seams it cannot own: the live game's pause
+   lease (injected engine), source navigation, gutter breakpoints, the held
+   stop's decorations and the assistant's read-only run context. */
+
+const engine = inject(engineKey, null);
+const debugOpen = ref(false);
+const debugWorkspace = shallowRef<DebugWorkspace | null>(null);
+/** Freezes the complete current draft — the test's build authority. */
+const debugDraft = createStudioDraftSource(() => workspace.value);
+const acquireDebugPauseLease = engine
+  ? () => engine.acquireRuntimePauseLease("logic-test")
+  : undefined;
+
+function launchDebugTest(): void {
+  if (!debugOpen.value) {
+    // Mounting the dock starts the test on the complete current draft.
+    debugOpen.value = true;
+    return;
+  }
+  // Already open: explicit Test always means the latest draft.
+  void debugWorkspace.value?.test().catch(() => undefined);
+}
+
+/** The editor's caret line — the dock's run-to-cursor target. */
+function debugCursorLine(): number | null {
+  const key = activeKey.value;
+  if (key === null || !key.startsWith("logic:")) return null;
+  return editor?.getPosition()?.lineNumber ?? null;
+}
+
+function onDebugRegistered(ws: DebugWorkspace | null): void {
+  debugWorkspace.value = ws;
+  refreshDebugDecorations();
+}
+
+function closeDebugDock(): void {
+  debugOpen.value = false;
+}
+
+function navigateDebugSource(target: { key: string; line: number; column?: number }): void {
+  openDocument(target.key);
+  void nextTick(() => {
+    editor?.setPosition({ lineNumber: target.line, column: target.column ?? 1 });
+    editor?.revealPositionInCenter({ lineNumber: target.line, column: target.column ?? 1 });
+    editor?.focus();
+  });
+}
+
+/** Gutter/stop annotations on the active logic document. */
+let debugDecorationCollection: monaco.editor.IEditorDecorationsCollection | undefined;
+
+const DEBUG_GLYPH: Record<string, string> = {
+  breakpoint: "debug-glyph-bp",
+  "breakpoint-disabled": "debug-glyph-bp-off",
+  "breakpoint-unbound": "debug-glyph-bp-unbound",
+  "breakpoint-pending": "debug-glyph-bp-pending",
+  stop: "debug-glyph-stop",
+};
+
+function refreshDebugDecorations(): void {
+  const collection = debugDecorationCollection;
+  if (!collection) return;
+  const ws = debugWorkspace.value;
+  const key = activeKey.value;
+  if (!ws || key === null) {
+    collection.set([]);
+    return;
+  }
+  collection.set(
+    ws.decorationsFor(key).map((decoration) => ({
+      range: new monaco.Range(decoration.line, 1, decoration.line, 1),
+      options: {
+        isWholeLine: decoration.kind === "stop",
+        ...(decoration.kind === "stop" ? { className: "debug-line-stop" } : {}),
+        glyphMarginClassName: DEBUG_GLYPH[decoration.kind] ?? "debug-glyph-bp",
+      },
+    })),
+  );
+}
+
+watch(
+  [
+    () => debugWorkspace.value?.state.breakpoints,
+    () => debugWorkspace.value?.state.stopLocation,
+    () => debugWorkspace.value?.state.draftTick,
+    activeKey,
+  ],
+  refreshDebugDecorations,
+);
+
+/** A held stop reveals its authored line — unless that document moved on. */
+watch(
+  () => debugWorkspace.value?.state.stopLocation,
+  (at) => {
+    const ws = debugWorkspace.value;
+    if (!ws || !at || ws.isDocStale(at.key)) return;
+    navigateDebugSource(at);
+  },
+);
+
+// Every draft mutation bumps revision; the workspace's stale flag tracks it.
+watch(revision, () => debugWorkspace.value?.noteDraftChanged());
+
+/** The draft's live text for a document — the running-source diff's right side. */
+function readCurrentDocument(key: string): string | null {
+  const content = workspace.value?.draft.capture().read(key)?.content;
+  return typeof content === "string" ? content : null;
+}
+
+/* --- Assistant ------------------------------------------------------------ */
+
+/**
+ * The project assistant serves the currently mounted workspace through a
+ * live accessor: the draft is the authority, files come from the stored
+ * image the workspace opened on, and auto-apply stays off where the source
+ * review is unresolved. The accessor throws with no workspace mounted so the
+ * session refuses cleanly rather than serving a stale project.
+ */
+const ai = inject(aiSettingsKey, null);
+const assist = useLogicProjectAssist({
+  ai,
+  host: {
+    workspace() {
+      const ws = workspace.value;
+      if (!ws) throw new Error("No project is open.");
+      return {
+        draft: ws.draft,
+        files: () => ws.storedData().files,
+        profileId: ws.profileId,
+        autoApproveEligible: !ws.inspection.requiresSourceReview,
+      };
+    },
+    editorContext,
+    revisionTick: () => revision.value,
+    onDraftChanged: resyncDraftModels,
+  },
+});
+
+/**
+ * The panel's drawer state. Wide screens start with the companion column
+ * open; smaller laptops start closed and reach it through the Assistant
+ * toggle, which opens it as a right-hand drawer.
+ */
+const assistantOpen = ref(window.innerWidth > 1100);
+const companion = useTemplateRef("companion");
+const assistantToggle = useTemplateRef("assistantToggle");
+
+function toggleAssistant(): void {
+  assistantOpen.value = !assistantOpen.value;
+  if (assistantOpen.value)
+    void nextTick(() => companion.value?.querySelector<HTMLElement>("textarea, button")?.focus());
+}
+
+function onCompanionEscape(event: KeyboardEvent): void {
+  if (!assistantOpen.value) return;
+  // An Escape that closed the review dialog must not hide the panel with it.
+  if ((event.target as HTMLElement | null)?.closest("dialog[open]")) return;
+  event.stopPropagation();
+  assistantOpen.value = false;
+  const el = assistantToggle.value?.$el;
+  if (el instanceof HTMLElement) el.focus();
+}
+
+/**
+ * Attached request context: the exact open document key, language/profile,
+ * and the caret plus a bounded verbatim UTF-16 selection — never a
+ * fabricated scope.
+ */
+function editorContext(): string | undefined {
+  const ws = workspace.value;
+  const key = activeKey.value;
+  const held = key === null ? undefined : models.get(key);
+  const model = editor?.getModel();
+  if (!ws || !key || !held || !model || model !== held.model) return undefined;
+  const lines = [
+    `Document: ${key} (${documentLabel(key)})`,
+    `Language: ${model.getLanguageId()} · profile ${ws.profileId}`,
+  ];
+  const position = editor!.getPosition();
+  if (position)
+    lines.push(
+      `Caret: line ${position.lineNumber}, column ${position.column} (UTF-16 offset ${model.getOffsetAt(position)})`,
+    );
+  const selection = editor!.getSelection();
+  if (selection && !selection.isEmpty()) {
+    lines.push(
+      `Selection: UTF-16 offsets ${model.getOffsetAt(selection.getStartPosition())}–${model.getOffsetAt(selection.getEndPosition())}`,
+    );
+    lines.push(
+      `Selected text:\n${model.getValueInRange(selection).slice(0, MAX_ASSIST_SELECTION_CHARS)}`,
+    );
+  }
+  const context = lines.join("\n");
+  const debugLines = debugWorkspace.value?.contextLines() ?? [];
+  return debugLines.length ? `${context}\n${debugLines.join("\n")}` : context;
+}
+
 /* --- Recovery ----------------------------------------------------------- */
 
 const recovery = shallowRef<readonly LogicRecoveryEntry[]>([]);
@@ -485,6 +896,7 @@ const recoveryError = ref<string | undefined>();
 async function restoreEntry(entry: LogicRecoveryEntry): Promise<void> {
   const open = workspace.value?.projectId;
   if (open === undefined) return;
+  const epoch = openEpoch;
   recoveryBusy.value = true;
   recoveryError.value = undefined;
   try {
@@ -493,30 +905,36 @@ async function restoreEntry(entry: LogicRecoveryEntry): Promise<void> {
         ? { restore: { workspaceId: entry.workspaceId, receipt: entry.receipt } }
         : { restore: { portable: entry.recovery } };
     // The service verifies the reviewed receipt and the current saved base
-    // itself, then installs a fresh draft — UI never assigns one.
+    // itself, then installs a fresh draft — UI never assigns one. A close or
+    // a project open resolved while the restore was in flight supersedes it.
     const ws = await openEditableProject(open, restore);
+    if (epoch !== openEpoch) return;
     mountWorkspace(ws);
     recoveryOpen.value = false;
   } catch (error) {
-    recoveryError.value = reason(error);
-    await refreshRecovery();
+    // A close or project open resolved meanwhile owns the current state.
+    if (epoch === openEpoch) {
+      recoveryError.value = reason(error);
+      await refreshRecovery();
+    }
   } finally {
-    recoveryBusy.value = false;
+    if (epoch === openEpoch) recoveryBusy.value = false;
   }
 }
 
 async function discardEntry(entry: LogicRecoveryEntry): Promise<void> {
   const open = workspace.value?.projectId;
   if (entry.kind !== "stored" || open === undefined) return;
+  const epoch = openEpoch;
   recoveryBusy.value = true;
   recoveryError.value = undefined;
   try {
     await discardProjectDraft(open, entry.workspaceId, entry.receipt);
     await refreshRecovery();
   } catch (error) {
-    recoveryError.value = reason(error);
+    if (epoch === openEpoch) recoveryError.value = reason(error);
   } finally {
-    recoveryBusy.value = false;
+    if (epoch === openEpoch) recoveryBusy.value = false;
   }
 }
 
@@ -537,6 +955,8 @@ async function refreshRecovery(): Promise<void> {
   const ws = workspace.value;
   if (!ws) return;
   const entries = await recoveryEntries(ws.storedData());
+  // A newer mount owns the recovery list while this read was in flight.
+  if (workspace.value !== ws) return;
   recovery.value = entries;
   if (entries.length === 0) recoveryOpen.value = false;
 }
@@ -555,6 +975,17 @@ function teardownModels(): void {
 }
 
 function mountWorkspace(ws: EditableProject): void {
+  // The assistant belongs to the outgoing workspace: its session is closed
+  // (aborting anything in flight and revoking open proposals) before the new
+  // workspace is installed, then a fresh session binds lazily.
+  assist.onWorkspaceSwapped();
+  // A project switch ends the isolated test context: the dock unmounts and
+  // its worker, lease, audio and decorations go with it.
+  debugOpen.value = false;
+  // An open visual editor's session ends with its workspace; its own close
+  // guard has already run or the mount itself is going away.
+  resourceEdit.value = undefined;
+  resourceEditError.value = undefined;
   teardownModels();
   persister?.dispose();
   client?.dispose();
@@ -566,7 +997,10 @@ function mountWorkspace(ws: EditableProject): void {
     projectId: ws.projectId,
     workspaceId: recoveryId,
     capture: () => {
-      if (workspace.value !== ws || ws.draft.dirtyKeys().length === 0) return null;
+      if (workspace.value !== ws) return null;
+      // A mounted draft that undid its way back to the saved base retires its
+      // own record; a superseded workspace (null) never touches storage.
+      if (ws.draft.dirtyKeys().length === 0) return { clean: true };
       const saved = ws.savedIdentity();
       return {
         expected: { generation: saved.generation, lifetime: saved.lifetime },
@@ -583,16 +1017,37 @@ function mountWorkspace(ws: EditableProject): void {
   });
   revision.value++;
   syncAnalysis();
+  // A fully authored logic set opens on its first room — LOGIC 1..254, the
+  // real game code — rather than LOGIC 0's boot/menu boilerplate. Any
+  // byte-only logic means imported or unclaimed code, and the plain document
+  // order stays: retained bytes are shown as they are, never dressed up.
+  const logics = documents.value.filter((doc) => /^logic:\d+$/.test(doc.key));
+  const firstRoom = logics.every((doc) => doc.kind === "text")
+    ? logics
+        .map((doc) => Number(doc.key.slice("logic:".length)))
+        .filter((num) => num >= 1 && num <= 254)
+        .sort((a, b) => a - b)[0]
+    : undefined;
   const first =
-    documents.value.find((doc) => doc.key.startsWith("logic:"))?.key ?? documents.value[0]?.key;
+    (firstRoom === undefined ? undefined : `logic:${firstRoom}`) ??
+    documents.value.find((doc) => doc.key.startsWith("logic:"))?.key ??
+    documents.value[0]?.key;
   if (first) openDocument(first);
 }
+
+/**
+ * The mount/open epoch: each open supersedes the one before it, and unmount
+ * voids every in-flight open. A deferred result must never install models,
+ * a persister or recovery state onto a studio that has already moved on.
+ */
+let openEpoch = 0;
 
 /**
  * Open (or switch to) a stored project inside this mounted workspace. A
  * dirty draft never silently discards: the caller gates on the guard first.
  */
 async function openProject(next: ProjectId): Promise<void> {
+  const epoch = ++openEpoch;
   opening.value = true;
   openError.value = "";
   persistError.value = undefined;
@@ -601,14 +1056,70 @@ async function openProject(next: ProjectId): Promise<void> {
   leaveAsk.value = false;
   problems.value = [];
   try {
+    // A clean switch can still owe the record the outgoing draft left behind.
+    // Settle it only while that draft stays clean — typing during the wait
+    // means the record protects live work again — then re-review the same
+    // mounted workspace before mounting over it.
+    const outgoing = workspace.value;
+    const writer = persister;
+    // The outgoing draft's revision fingerprints the state this switch was
+    // decided against: a deliberately approved dirty switch (the Keep and
+    // Discard paths re-enter here) keeps the same revision and proceeds,
+    // while any write — typing or undo — during an await bumps it and, if
+    // the draft is still dirty, revokes the switch back to the dirty guard.
+    const outgoingRevision = outgoing?.draft.capture().revision;
+    const dirtyAgain = (): boolean =>
+      outgoing !== undefined &&
+      outgoing.draft.capture().revision !== outgoingRevision &&
+      outgoing.draft.dirtyKeys().length > 0;
+    const settled = (await writer?.discard({ onlyIfClean: true })) ?? true;
+    if (epoch !== openEpoch) return;
+    if (!settled) {
+      // The settle failed with persistError shown; keep the mounted project
+      // and point the parent back at it so prop and visible work agree.
+      const open = workspace.value?.projectId;
+      if (open !== undefined && open !== next) emit("update:projectId", open);
+      return;
+    }
+    if (workspace.value !== outgoing) {
+      // The mounted workspace moved while settling; the prop's current
+      // target still applies to whatever is open now.
+      if (projectId !== undefined && projectId !== workspace.value?.projectId)
+        void openProject(projectId);
+      return;
+    }
+    if (dirtyAgain()) {
+      switchTarget = next;
+      leaveAsk.value = true;
+      return;
+    }
     const ws = await openEditableProject(next);
+    if (epoch !== openEpoch) return;
+    // The target can take arbitrarily long to open; the outgoing editor
+    // stayed live meanwhile, so re-review it before mounting over it. The
+    // refused workspace is never mounted: no models, analysis or persister.
+    if (workspace.value !== outgoing) {
+      if (projectId !== undefined && projectId !== workspace.value?.projectId)
+        void openProject(projectId);
+      return;
+    }
+    if (dirtyAgain()) {
+      switchTarget = next;
+      leaveAsk.value = true;
+      return;
+    }
     mountWorkspace(ws);
     await refreshRecovery();
+    if (epoch !== openEpoch) return;
     if (recovery.value.length > 0) recoveryOpen.value = true;
+    // The projectId watch is inert while an open is in flight, so a switch
+    // requested during a deferred open would otherwise be dropped — honor
+    // the prop's current target after this open lands.
+    if (projectId !== undefined && projectId !== next) void openProject(projectId);
   } catch (error) {
-    openError.value = reason(error);
+    if (epoch === openEpoch) openError.value = reason(error);
   } finally {
-    opening.value = false;
+    if (epoch === openEpoch) opening.value = false;
   }
 }
 
@@ -619,6 +1130,12 @@ watch(
   () => projectId,
   (next) => {
     if (next === workspace.value?.projectId || opening.value) return;
+    // A switch must never close an open visual editor over the creator's
+    // unkept drawing; it queues until the editor's own close path runs.
+    if (resourceEdit.value !== undefined) {
+      switchTarget = next;
+      return;
+    }
     if (changes.value > 0 || keeping.value) {
       switchTarget = next;
       leaveAsk.value = true;
@@ -639,12 +1156,55 @@ onMounted(async () => {
     fontSize: 13,
     tabSize: 2,
     insertSpaces: true,
+    glyphMargin: true,
     ariaLabel: "Project document",
+  });
+  // Debug decorations and the gutter toggle live on the editor itself.
+  debugDecorationCollection = editor.createDecorationsCollection();
+  editor.onMouseDown((event) => {
+    const ws = debugWorkspace.value;
+    const key = activeKey.value;
+    if (!ws || key === null || !key.startsWith("logic:")) return;
+    const target = event.target;
+    if (
+      target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+      target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_NUMBERS
+    ) {
+      return;
+    }
+    const line = target.position?.lineNumber;
+    if (line !== undefined) ws.toggleBreakpoint({ logic: Number(key.slice(6)), line });
+  });
+  editor.addAction({
+    id: "agi-debug-toggle-breakpoint",
+    label: "Toggle test breakpoint",
+    keybindings: [monaco.KeyCode.F9],
+    run: () => {
+      const ws = debugWorkspace.value;
+      const key = activeKey.value;
+      const position = editor?.getPosition();
+      if (!ws || key === null || !key.startsWith("logic:") || !position) return;
+      ws.toggleBreakpoint({ logic: Number(key.slice(6)), line: position.lineNumber });
+    },
+  });
+  editor.addAction({
+    id: "agi-debug-run-to-cursor",
+    label: "Run test to cursor",
+    keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.F10],
+    contextMenuGroupId: "debug",
+    run: () => {
+      const ws = debugWorkspace.value;
+      const key = activeKey.value;
+      const position = editor?.getPosition();
+      if (!ws || key === null || !position || ws.state.phase !== "stopped") return;
+      void ws.runToCursor(key, position.lineNumber).catch(() => undefined);
+    },
   });
   await openProject(projectId);
 });
 
 onBeforeUnmount(() => {
+  openEpoch++;
   window.removeEventListener("beforeunload", onBeforeUnload);
   if (problemsTimer !== undefined) clearTimeout(problemsTimer);
   if (savedNoteTimer) clearTimeout(savedNoteTimer);
@@ -667,12 +1227,20 @@ defineExpose({ cursor });
     <header class="logic-studio__bar">
       <div class="logic-studio__title">
         <h1>{{ title }}</h1>
-        <p>Source: stored project</p>
+        <p>Saved project</p>
       </div>
       <UiChip :tone="changes === 0 ? 'neutral' : 'action'" dot data-testid="logic-studio-status">
         {{ statusText }}
       </UiChip>
-      <p v-if="savedNote" class="logic-studio__saved" data-testid="logic-saved-note" role="status">
+      <p
+        v-if="savedNote"
+        class="logic-studio__saved"
+        data-testid="logic-saved-note"
+        role="status"
+        :title="
+          changes > 0 ? 'The reviewed changes are in the library; the rest stay draft.' : undefined
+        "
+      >
         {{ savedNote }}
       </p>
       <p
@@ -683,6 +1251,14 @@ defineExpose({ cursor });
       >
         {{ persistError }}
       </p>
+      <p
+        v-if="resourceEditError"
+        class="logic-studio__alert"
+        role="alert"
+        data-testid="logic-resource-error"
+      >
+        {{ resourceEditError }}
+      </p>
       <p v-if="openError" class="logic-studio__alert" role="alert" data-testid="logic-open-error">
         {{ openError }}
       </p>
@@ -690,22 +1266,62 @@ defineExpose({ cursor });
         <UiButton
           variant="ghost"
           size="sm"
-          :disabled="activeDocument === undefined"
+          :disabled="!editorCommandsEnabled"
           title="Undo"
           data-testid="logic-undo"
-          @click="editor?.trigger('toolbar', 'undo', null)"
+          @click="runEditorCommand('undo')"
         >
           Undo
         </UiButton>
         <UiButton
           variant="ghost"
           size="sm"
-          :disabled="activeDocument === undefined"
+          :disabled="!editorCommandsEnabled"
           title="Redo"
           data-testid="logic-redo"
-          @click="editor?.trigger('toolbar', 'redo', null)"
+          @click="runEditorCommand('redo')"
         >
           Redo
+        </UiButton>
+        <UiButton
+          v-if="editableResource !== undefined"
+          ref="resourceEditButton"
+          variant="ghost"
+          size="sm"
+          icon="pencil"
+          :title="
+            editableResource.startsWith('picture:')
+              ? 'Draw this picture in Room Studio'
+              : 'Edit this view in Sprite Studio'
+          "
+          data-testid="logic-resource-edit"
+          @click="openResourceEditor"
+        >
+          {{ editableResource.startsWith("picture:") ? "Edit picture" : "Edit sprite" }}
+        </UiButton>
+        <UiButton
+          ref="assistantToggle"
+          variant="ghost"
+          size="sm"
+          icon="sparkles"
+          :aria-expanded="assistantOpen"
+          aria-controls="logic-companion"
+          title="Show or hide the assistant"
+          data-testid="logic-assistant-toggle"
+          @click="toggleAssistant"
+        >
+          Assistant
+        </UiButton>
+        <UiButton
+          variant="ghost"
+          size="sm"
+          icon="bug"
+          :disabled="opening || openError !== ''"
+          title="Build the current draft and run a separate playtest"
+          data-testid="logic-test"
+          @click="launchDebugTest"
+        >
+          Test
         </UiButton>
         <UiButton
           variant="primary"
@@ -713,7 +1329,7 @@ defineExpose({ cursor });
           :disabled="changes === 0 || keeping"
           :title="
             rejectedKeys.length
-              ? 'The project has source claims set aside for review; resolve them first'
+              ? 'Resolve the documents under Needs review first'
               : 'Build the changes, review the diff, then keep'
           "
           data-testid="logic-review-build"
@@ -731,7 +1347,7 @@ defineExpose({ cursor });
       </div>
     </header>
 
-    <div class="logic-studio__body">
+    <div class="logic-studio__body" :class="{ 'logic-studio__body--assist': assistantOpen }">
       <LogicExplorer
         class="logic-studio__rail"
         :documents
@@ -811,8 +1427,45 @@ defineExpose({ cursor });
             {{ problem.message }}
           </button>
         </section>
+        <aside
+          v-if="workspace"
+          class="logic-studio__guided"
+          aria-label="Guided actions"
+          data-testid="logic-guided"
+        >
+          <GuidedActions
+            :project="workspace"
+            :active-key="activeKey"
+            :revision="revision"
+            :navigate="navigateDebugSource"
+            :open-resource="openResourceEditorFor"
+            @draft-changed="resyncDraftModels"
+          />
+        </aside>
+        <LogicDebugWorkspace
+          v-if="debugOpen"
+          :draft="debugDraft"
+          :acquire-pause-lease="acquireDebugPauseLease"
+          :navigate="navigateDebugSource"
+          :active-key="activeKey"
+          :cursor-line="debugCursorLine"
+          :read-current="readCurrentDocument"
+          @register="onDebugRegistered"
+          @close="closeDebugDock"
+        />
       </div>
-      <div class="logic-studio__companion"></div>
+      <aside
+        v-show="assistantOpen"
+        id="logic-companion"
+        ref="companion"
+        class="logic-studio__companion"
+        aria-label="Assistant"
+        data-testid="logic-companion"
+        tabindex="-1"
+        @keydown.esc="onCompanionEscape"
+      >
+        <LogicAgentPanel :assist="assist" :active-key="activeKey" />
+      </aside>
     </div>
 
     <UiDialog
@@ -834,9 +1487,7 @@ defineExpose({ cursor });
           variant="primary"
           :disabled="rejectedKeys.length > 0"
           :title="
-            rejectedKeys.length > 0
-              ? 'Resolve the source claims set aside for review first'
-              : undefined
+            rejectedKeys.length > 0 ? 'Resolve the documents under Needs review first' : undefined
           "
           data-testid="logic-leave-keep"
           @click="keepAndClose"
@@ -879,6 +1530,18 @@ defineExpose({ cursor });
       @open-stored="recoveryOpen = false"
     />
     <p v-if="recoveryError" class="logic-studio__alert" role="alert">{{ recoveryError }}</p>
+
+    <ProjectResourceEditors
+      v-if="resourceEdit"
+      :key="`${resourceEdit.ws.workspaceId}/${resourceEdit.key}`"
+      :project="resourceEdit.ws"
+      :resource-key="resourceEdit.key"
+      :is-current="isResourceWorkspace(resourceEdit.ws)"
+      @close="closeResourceEditor"
+      @draft-changed="resyncDraftModels"
+      @kept="onResourceKept"
+      @error="onResourceEditError"
+    />
   </section>
 </template>
 
@@ -930,9 +1593,12 @@ defineExpose({ cursor });
 }
 .logic-studio__body {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 220px;
+  grid-template-columns: 220px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
+}
+.logic-studio__body--assist {
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
 }
 .logic-studio__rail {
   border-right: 1px solid var(--hairline-strong);
@@ -997,7 +1663,9 @@ defineExpose({ cursor });
 .logic-studio__editor {
   position: relative;
   flex: 1;
-  min-height: 0;
+  /* The source never collapses to a sliver: side panels and the test dock
+     are bounded/scrollable, so the code keeps a workable floor on laptops. */
+  min-height: 168px;
 }
 .logic-studio__monaco {
   position: absolute;
@@ -1009,8 +1677,21 @@ defineExpose({ cursor });
   font: var(--text-sm) / var(--leading) var(--font-sans);
 }
 .logic-studio__problems {
+  /* Bounded and self-scrolling; never squeezed — the test dock absorbs the
+     column's shortfall so this panel stays readable at laptop heights. */
+  flex: none;
   max-height: 168px;
   overflow: auto;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--hairline-strong);
+  background: var(--surface-1);
+}
+.logic-studio__guided {
+  /* The positioned editor's byte-view overflow must not eat this panel's clicks. */
+  position: relative;
+  flex: none;
+  max-height: 240px;
+  overflow-y: auto;
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--hairline-strong);
   background: var(--surface-1);
@@ -1048,13 +1729,60 @@ defineExpose({ cursor });
   padding: var(--space-4);
   border-left: 1px solid var(--hairline-strong);
   background: var(--surface-1);
+  overflow-y: auto;
+}
+.logic-studio__companion:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+/* Debug annotations render inside Monaco's own DOM — reach through it. */
+.logic-studio__monaco :deep(.debug-glyph-bp)::before {
+  content: "●";
+  color: var(--danger);
+  font-size: var(--text-2xs);
+}
+.logic-studio__monaco :deep(.debug-glyph-bp-off)::before {
+  content: "○";
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+}
+.logic-studio__monaco :deep(.debug-glyph-bp-unbound)::before {
+  content: "◌";
+  color: var(--warn);
+  font-size: var(--text-2xs);
+}
+.logic-studio__monaco :deep(.debug-glyph-bp-pending)::before {
+  content: "◐";
+  color: var(--danger);
+  font-size: var(--text-2xs);
+}
+.logic-studio__monaco :deep(.debug-glyph-stop)::before {
+  content: "▶";
+  color: var(--warn);
+  font-size: var(--text-2xs);
+}
+.logic-studio__monaco :deep(.debug-line-stop) {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
 }
 @media (max-width: 1100px) {
-  .logic-studio__body {
+  .logic-studio__body,
+  .logic-studio__body--assist {
+    position: relative;
     grid-template-columns: 200px minmax(0, 1fr);
   }
+  /* Smaller laptops keep the assistant reachable: the Assistant bar toggle
+     opens it as a right-hand drawer instead of losing it entirely. The
+     drawer covers the editor body but not the bar, so the toggle stays
+     clickable. */
   .logic-studio__companion {
-    display: none;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 6;
+    width: min(340px, 88vw);
+    box-sizing: border-box;
+    box-shadow: var(--shadow-pop);
   }
 }
 </style>

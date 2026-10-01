@@ -183,10 +183,7 @@ function byteCount(content: string | Uint8Array | undefined): string {
     data-testid="logic-review-dialog"
   >
     <div class="logic-review">
-      <p class="logic-review__lead">
-        The candidate compiles the selected documents over the saved project. Keep writes it to the
-        library; nothing installs into a running game.
-      </p>
+      <p class="logic-review__lead">Keep saves the selected documents to your game.</p>
       <div
         v-if="dirty.length"
         class="logic-review__select"

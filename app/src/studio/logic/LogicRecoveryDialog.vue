@@ -36,7 +36,7 @@ function describe(entry: LogicRecoveryEntry): string {
     v-model:open="open"
     title="Unfinished work"
     size="lg"
-    description="This project has unfinished edits. Restore picks a draft up where it left off; Discard deletes it. A stale draft belongs to an older saved project and can only be reviewed, downloaded or discarded."
+    description="Restore continues unfinished edits. Download saves a draft as a file; Discard deletes it. For an outdated draft, choose Download or Discard."
     data-testid="logic-recovery-dialog"
   >
     <ul class="logic-recovery__list">
@@ -48,10 +48,10 @@ function describe(entry: LogicRecoveryEntry): string {
       >
         <div class="logic-recovery__meta">
           <span class="logic-recovery__name">
-            {{ entry.kind === "stored" ? "Unsaved draft" : "Carried draft" }}
+            {{ entry.kind === "stored" ? "Unsaved draft" : "Imported draft" }}
           </span>
           <UiChip :tone="entry.status === 'current' ? 'ok' : 'warn'" dot>
-            {{ entry.status === "current" ? "Current" : "Stale" }}
+            {{ entry.status === "current" ? "Current" : "Outdated" }}
           </UiChip>
         </div>
         <p class="logic-recovery__desc">{{ describe(entry) }}</p>

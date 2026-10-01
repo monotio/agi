@@ -17,17 +17,15 @@ const lines = computed(() => byteLines(bytes));
 <template>
   <div class="logic-bytes" data-testid="logic-bytes">
     <p class="logic-bytes__note">
-      Native bytes, {{ bytes.length.toLocaleString() }} byte{{ bytes.length === 1 ? "" : "s" }},
-      read-only. Editing this document isn't offered.
+      Binary document, {{ bytes.length.toLocaleString() }} byte{{ bytes.length === 1 ? "" : "s" }},
+      read-only.
     </p>
     <pre class="logic-bytes__hex" aria-label="Byte dump"><code
       >{{ lines.join("\n") }}</code
     ></pre>
     <details v-if="derivedSource !== undefined" class="logic-bytes__derived">
       <summary>Derived preview</summary>
-      <p class="logic-bytes__note">
-        Disassembled from the bytes: a preview only. Nothing here is accepted as authored text.
-      </p>
+      <p class="logic-bytes__note">Disassembled from the bytes, for reading.</p>
       <pre class="logic-bytes__hex" data-testid="logic-derived-preview"><code
         >{{ derivedSource }}</code
       ></pre>

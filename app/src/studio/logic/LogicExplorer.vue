@@ -45,7 +45,7 @@ const groups = computed(() => {
           :data-testid="`logic-doc-${doc.key}`"
           :title="
             doc.kind === 'bytes'
-              ? `${documentLabel(doc.key)}: native bytes, read-only`
+              ? `${documentLabel(doc.key)}: binary document, read-only`
               : documentLabel(doc.key)
           "
           @click="emit('open', doc.key)"
@@ -61,7 +61,7 @@ const groups = computed(() => {
       </template>
     </template>
     <template v-if="rejectedKeys.length">
-      <h3 class="logic-explorer__group logic-explorer__group--review">Set aside for review</h3>
+      <h3 class="logic-explorer__group logic-explorer__group--review">Needs review</h3>
       <div
         v-for="key in rejectedKeys"
         :key="key"
