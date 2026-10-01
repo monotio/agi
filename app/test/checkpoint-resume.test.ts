@@ -276,7 +276,13 @@ async function composed(
     genesisStarter: null,
   } as unknown as EngineState;
   const hook = {} as TextHook;
-  const audio = { stop: noop, setPaused: noop, setPauseOwner: noop, useGameFiles: noop };
+  const audio = {
+    stop: noop,
+    setMuted: noop,
+    setPaused: noop,
+    setPauseOwner: noop,
+    useGameFiles: noop,
+  };
   let session = 0;
   const link = useWorkerLink({
     state,

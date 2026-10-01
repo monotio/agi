@@ -17,7 +17,7 @@ import {
   loadCreativeCatalog,
   readCreativeBlob,
 } from "../src/project/creativeStore.ts";
-import { listCreativeDrafts } from "../src/project/creativeDrafts.ts";
+import { CreativeDraftError, listCreativeDrafts } from "../src/project/creativeDrafts.ts";
 import * as storage from "../src/project/gameStorage.ts";
 import type { CreativeImageIntake } from "../src/references/creativeImageDecode.ts";
 import {
@@ -401,7 +401,11 @@ test("a rival commit between stage and keep is a clean refusal, not a lost sourc
   const snap = rival.draft.capture();
   rival.draft.edit("logic:1", "// rival\nreturn;", snap.version("logic:1"));
   await rival.keepCandidate(rival.buildSelected(["logic:1"]));
-  await assert.rejects(cw.keep(), /stale|conflict|generation|expected/i);
+  await assert.rejects(cw.keep(), (error: unknown) => {
+    assert.ok(error instanceof CreativeDraftError);
+    assert.equal(error.reason, "stale");
+    return true;
+  });
   // The staged work is untouched by the refused commit.
   const { catalog } = await loadCreativeCatalog(ws.projectId);
   assert.equal(catalog!.kept, 0);

@@ -798,10 +798,7 @@ describe("several items as one", () => {
     // Draw order moves one item at a time.
     selection.ids = ["box", "paint"];
     assert.equal(editing.reorder(1), false);
-    assert.equal(
-      editing.notice.value?.text,
-      "Draw order changes one item at a time: select just one.",
-    );
+    assert.equal(editing.notice.value?.text, "Select one item to change its draw order.");
     scope.stop();
   });
 

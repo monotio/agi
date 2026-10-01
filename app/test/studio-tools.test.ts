@@ -353,7 +353,7 @@ describe("useStudioTools", () => {
     assert.ok(refusal && !refusal.ok);
     assert.equal(
       refusal.refusal.message,
-      "A polygon's edges can't cross. Remove the last point or start again.",
+      "These edges cross. Remove the last point or start again.",
     );
     assert.match(refusal.refusal.detail ?? "", /self-intersects/);
     assert.equal(draft.source.value, SOURCE);

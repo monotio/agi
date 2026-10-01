@@ -148,10 +148,12 @@ function harness(options?: {
       clearShake: noop,
     },
     autosave: {
+      beginResumeBoot: () => true,
+      drainFlushWaiters: noop,
       resetScreen: noop,
       reset: noop,
       flushAutosaveDetailed: async () => ({ status: "saved" }),
-      takeResumeState: async () => ({}),
+      takeResumeState: async () => ({ status: "none" }),
     },
     authoring: {
       setSession: (session: unknown) => sessions.push(session),

@@ -1,7 +1,7 @@
 /**
  * Sound Studio's keyboard. Presses inside the studio stop at its root so none
  * reaches a paused game behind the overlay. Fields keep their own keys; the
- * timeline answers arrows/Home/End/Delete, `N` adds a note, `R` a rest, Space
+ * timeline answers arrow, Home, End and Delete keys; `N` adds a note, `R` a rest, Space
  * toggles the preview, and Cmd/Ctrl+Z / Shift+Cmd+Z (or Ctrl+Y) undo and redo.
  * Esc lets go of the current selection; it never closes the workspace.
  */

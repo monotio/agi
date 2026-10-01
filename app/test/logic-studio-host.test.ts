@@ -128,7 +128,7 @@ test("restore refuses an unreviewed receipt and a draft whose saved base moved",
   assert.equal((await listProjectDrafts(projectId))[0]!.status, "stale");
   await assert.rejects(
     openEditableProject(projectId, { restore: { workspaceId: "tab-b", receipt } }),
-    /stale/i,
+    /This draft belongs to an older saved project\. Choose Download or Discard\./,
   );
   await discardProjectDraft(projectId, "tab-b", receipt);
 });
