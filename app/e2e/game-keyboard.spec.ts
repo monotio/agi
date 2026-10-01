@@ -5,9 +5,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
 });
 
-test("the play strip says where the keys go and gives them back to the game", async ({
-  page,
-}) => {
+test("the play strip says where the keys go and gives them back to the game", async ({ page }) => {
   await page.getByRole("button", { name: "Play the tutorial" }).click();
   await page.waitForURL(/#play\//);
   const command = page.locator("#game-command");
