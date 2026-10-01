@@ -201,9 +201,9 @@ export const OPENAI_IMAGE_MODELS: Readonly<Record<string, OpenAiImageModel>> = O
   }),
 });
 
-/** Conservative starting options a caller can present; every request still names its own. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const OPENAI_IMAGE_DEFAULTS = Object.freeze({
+/** Conservative starting options a caller can present; every request still names its own.
+ * @public */
+export const OPENAI_IMAGE_DEFAULTS = Object.freeze({
   model: "gpt-image-2.5-sunburst",
   quality: "low" as OpenAiImageQuality,
   size: "1024x1024",

@@ -285,9 +285,9 @@ function samePixels(a: Uint8Array, b: Uint8Array | readonly number[]): boolean {
 }
 
 /** A horizontally flipped copy — the explicit remedy offered when a native
- * mirror loop is not representable. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function flipSheetFrame(frame: SheetFrame): SheetFrame {
+ * mirror loop is not representable.
+ * @public */
+export function flipSheetFrame(frame: SheetFrame): SheetFrame {
   return {
     width: frame.width,
     height: frame.height,

@@ -63,9 +63,9 @@ import type { WorkerInbound } from "../worker/workerProtocol.ts";
  * The released last-game key, kept exported for the session bootstrap that
  * still recognizes it. New boots and checkpoints write only the dedicated
  * resumeTarget key (resumePointer.ts); this one stays legacy read context.
+ * @public
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const LAST_GAME_KEY = LEGACY_LAST_GAME_KEY;
+export const LAST_GAME_KEY = LEGACY_LAST_GAME_KEY;
 const RESUME_CAPTION_MS = 10_000;
 /** A posted resume waits this long for the worker's restore acknowledgement. */
 const RESUME_ACK_TIMEOUT_MS = 15_000;

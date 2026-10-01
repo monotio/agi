@@ -35,10 +35,6 @@ import {
 type DraftTransaction = ReturnType<ProjectDraft["apply"]>;
 type TransactionId = DraftTransaction["id"];
 
-/** What the mounted workspace hands the session per request/read. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type LogicAssistWorkspaceAccessor = () => ProjectAssistWorkspace;
-
 export interface LogicAssistHost {
   /**
    * The current workspace wrapper; throws when no project is mounted so the
