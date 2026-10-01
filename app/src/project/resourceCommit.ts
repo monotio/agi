@@ -17,7 +17,7 @@ import { roomDrawsPicture } from "../../../src/agent/roomPictures.ts";
 import { roomBakesView, scanViewUsage } from "../../../src/agent/viewUsage.ts";
 import { viewSpec } from "../../../src/view/celEdit.ts";
 import type { BuildViewInput } from "../../../src/view/view.ts";
-import type { AgiProfile } from "../../../src/runtime/profile.ts";
+import { detectProfile, type AgiProfile } from "../../../src/runtime/profile.ts";
 import {
   loadGameConversation,
   saveAuthoredGameWithLifetime,
@@ -416,12 +416,31 @@ export function createResourceCommit(
       let data: CachedGameData | null = null;
       if (stored) {
         const references = resolved.references ?? stored.references;
+        // The workspace rides the same conditional write as the changed
+        // resources: every admitted patch — byte-changing or source-only —
+        // is projected from the saved files and claims, and every unrelated
+        // document is preserved exactly, so the envelope an editable open
+        // re-verifies can never trail the files it describes. The module is
+        // loaded by the Keep itself — the source compilers it verifies with
+        // stay off the Play startup graph.
+        const workspace =
+          stored.workspace === undefined
+            ? undefined
+            : (await import("./resourceWorkspace.ts")).reconcileResourceWorkspace({
+                workspace: stored.workspace,
+                files,
+                profileId: detectProfile(new Map(Object.entries(files)), stored.library?.profile)
+                  .id,
+                authoringState: candidate.authoringState,
+                changedDocuments: resolved.patches.map(({ kind, num }) => `${kind}:${num}`),
+              });
         data = {
           ...stored,
           files,
           words,
           references,
           authoringState: candidate.authoringState,
+          ...(workspace === undefined ? {} : { workspace }),
           ...(forkCatalog
             ? {
                 projectId: targetId!,

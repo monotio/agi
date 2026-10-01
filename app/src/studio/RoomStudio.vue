@@ -1092,6 +1092,16 @@ function toggleFocus(): void {
   calm.toggleFocus();
   input.spoken.value = calm.focus.value ? "Side panels hidden" : "Side panels shown";
 }
+/**
+ * The status bar's Keys button. Safari leaves a clicked button unfocused, so
+ * activation takes its focus first: the sheet (and a tour its Tour button
+ * relaunches) returns focus to what had it when the sheet opened.
+ */
+function openKeySheet(event: MouseEvent): void {
+  if (event.currentTarget instanceof HTMLElement)
+    event.currentTarget.focus({ preventScroll: true });
+  calm.sheetOpen.value = true;
+}
 const keySheet = computed(() => roomKeySheet(tools.tool.value));
 /** The status bar's line for the active tool (the editing keys while an item is selected). */
 const toolHint = computed(() => {
@@ -1539,7 +1549,7 @@ function onKeyup(event: KeyboardEvent): void {
         aria-keyshortcuts="?"
         aria-haspopup="dialog"
         data-testid="studio-keys-button"
-        @click="calm.sheetOpen.value = true"
+        @click="openKeySheet"
       />
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>

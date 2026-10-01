@@ -24,11 +24,19 @@ import {
 } from "../../project/projectDrafts.ts";
 import type { ProjectId } from "../../project/gameTypes.ts";
 
-/** What the host captures synchronously when a write runs, or null for a clean draft. */
-export type LogicDraftCapture = () => {
-  readonly expected: { readonly generation: number; readonly lifetime: string };
-  readonly recovery: unknown;
-} | null;
+/**
+ * What the host captures synchronously when a write runs: the dirty payload,
+ * { clean: true } while this workspace is still mounted and back at its saved
+ * base, or null once it is gone or superseded — a null capture touches
+ * nothing, while a clean one retires only this persister's own record.
+ */
+export type LogicDraftCapture = () =>
+  | {
+      readonly expected: { readonly generation: number; readonly lifetime: string };
+      readonly recovery: unknown;
+    }
+  | { readonly clean: true }
+  | null;
 
 /** One restorable draft the reopen dialog offers. */
 export type LogicRecoveryEntry =
@@ -91,7 +99,8 @@ export async function recoveryEntries(stored: CachedGameData): Promise<LogicReco
 /**
  * This workspace's debounced draft writer. schedule() batches typing;
  * flush() writes now; discard() deletes exactly the receipt this persister
- * last wrote. flush() and discard() resolve true when the record was
+ * last wrote, and a clean capture retires that same record on the write
+ * chain. flush() and discard() resolve true when the record was
  * durably written or removed, false when the attempt was reported through
  * onError instead — callers use that to keep a close guard honest.
  * Persistence failures never poison the write chain.
@@ -158,32 +167,31 @@ export class LogicDraftPersister {
 
   /**
    * Delete exactly this workspace's reviewed record, after any write in
-   * flight lands. Resolves false when the deletion failed — the record and
-   * the receipt it was written against both survive for an explicit retry.
+   * flight lands. With onlyIfClean the capture is re-run inside the settled
+   * run and the record is deleted only while the draft still reads clean —
+   * newer typing means the record protects live work again and is kept.
+   * Resolves false when a needed deletion failed — the record and the
+   * receipt it was written against both survive for an explicit retry.
    */
-  async discard(): Promise<boolean> {
+  async discard(options?: { readonly onlyIfClean?: boolean }): Promise<boolean> {
     if (this.timer !== undefined) {
       clearTimeout(this.timer);
       this.timer = undefined;
     }
     const run = this.tail.then(async (): Promise<boolean> => {
-      const receipt = this.receipt;
-      if (receipt === null) return true;
-      // Only a confirmed delete clears the chain: a refused discard keeps the
-      // receipt so the next write still names the record it would succeed.
-      try {
-        await discardProjectDraft(this.projectId, this.workspaceId, receipt);
-      } catch (error) {
-        this.report(error);
-        return false;
+      if (options?.onlyIfClean) {
+        let captured: ReturnType<LogicDraftCapture>;
+        try {
+          captured = this.capture();
+        } catch (error) {
+          this.report(error);
+          return false;
+        }
+        // A superseded workspace owns nothing here; a dirty payload means
+        // the record protects live work again. Neither touches storage.
+        if (captured === null || !("clean" in captured)) return true;
       }
-      if (
-        this.receipt !== null &&
-        this.receipt.incarnation === receipt.incarnation &&
-        this.receipt.sequence === receipt.sequence
-      )
-        this.receipt = null;
-      return true;
+      return this.retireReceipt();
     });
     this.tail = run.then(
       () => undefined,
@@ -228,6 +236,7 @@ export class LogicDraftPersister {
       return false;
     }
     if (captured === null) return true;
+    if ("clean" in captured) return this.retireReceipt();
     try {
       const receipt = await saveProjectDraft({
         projectId: this.projectId,
@@ -242,5 +251,32 @@ export class LogicDraftPersister {
       this.report(error);
       return false;
     }
+  }
+
+  /**
+   * Delete this persister's own record under its held receipt. Runs inside a
+   * serialized run — it is awaited by the run that calls it, never enqueued
+   * behind itself. Only a confirmed delete clears the local receipt: a
+   * refused delete (a newer record, a storage failure) keeps both the record
+   * and the authority so a later write or retry still names it correctly.
+   */
+  private async retireReceipt(): Promise<boolean> {
+    const receipt = this.receipt;
+    if (receipt === null) return true;
+    try {
+      await discardProjectDraft(this.projectId, this.workspaceId, receipt);
+    } catch (error) {
+      this.report(error);
+      return false;
+    }
+    // The receipt could only move if a write sneaked ahead of this run; the
+    // chain makes that impossible, but clear identity, not position.
+    if (
+      this.receipt !== null &&
+      this.receipt.incarnation === receipt.incarnation &&
+      this.receipt.sequence === receipt.sequence
+    )
+      this.receipt = null;
+    return true;
   }
 }

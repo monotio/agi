@@ -275,15 +275,33 @@ function activateDocument(key: string): void {
     viewStates.set(activeKey.value, editor.saveViewState());
   activeKey.value = key;
   const doc = documents.value.find((entry) => entry.key === key);
-  if (doc?.kind === "text") {
-    const model = ensureModel(key);
-    if (model) {
-      editor?.setModel(model);
-      const view = viewStates.get(key);
-      if (view) editor?.restoreViewState(view);
-    }
+  const model = doc?.kind === "text" ? ensureModel(key) : undefined;
+  // A byte-only document has no text model: detach the previous document's
+  // model so editor commands cannot reach a document the author cannot see.
+  editor?.setModel(model ?? null);
+  if (model) {
+    const view = viewStates.get(key);
+    if (view) editor?.restoreViewState(view);
   }
   scheduleProblems();
+}
+
+/** Editor commands may run only while the visible document's own text model is attached. */
+const editorCommandsEnabled = computed(() => {
+  const doc = activeDocument.value;
+  if (doc?.kind !== "text" || workspace.value === undefined) return false;
+  const held = models.get(doc.key);
+  return editor !== undefined && held !== undefined && editor.getModel() === held.model;
+});
+
+/**
+ * Undo/Redo act on the visible document only. Even past a disabled button the
+ * handler re-verifies the active document is text and its own model — not a
+ * hidden previous one — is the model attached to the editor.
+ */
+function runEditorCommand(command: "undo" | "redo"): void {
+  if (!editorCommandsEnabled.value) return;
+  editor?.trigger("toolbar", command, null);
 }
 
 /** Closing a tab only hides it — the model, its undo and its cursor stay. */
@@ -373,10 +391,14 @@ async function confirmKeep(): Promise<void> {
   const held = review.value;
   if (!ws || !held || held.candidate === undefined) return;
   const candidate = held.candidate;
+  // The Keep belongs to this workspace and this persister; a switch or
+  // unmount resolving while it is in flight owns the state that follows.
+  const writer = persister;
   keeping.value = true;
   reviewError.value = undefined;
   try {
     await ws.keepCandidate(candidate);
+    if (workspace.value !== ws) return;
     keptDocuments = { ...candidate.documents() };
     review.value = undefined;
     revision.value++;
@@ -390,13 +412,14 @@ async function confirmKeep(): Promise<void> {
     if (closeAfterKeep) {
       const done =
         ws.draft.dirtyKeys().length > 0
-          ? ((await persister?.flush()) ?? true)
-          : ((await persister?.discard()) ?? true);
+          ? ((await writer?.flush()) ?? true)
+          : ((await writer?.discard()) ?? true);
       if (!done) {
         // persistError is already visible; the guard re-runs on the next close.
-        closeAfterKeep = false;
+        if (workspace.value === ws) closeAfterKeep = false;
         return;
       }
+      if (workspace.value !== ws) return;
       closeAfterKeep = false;
       await afterKept();
     } else if (ws.draft.dirtyKeys().length > 0) {
@@ -424,13 +447,37 @@ function keepAndClose(): void {
   requestKeep(true);
 }
 
-function requestClose(): void {
-  if (keeping.value) return;
-  if (changes.value === 0) {
+/** Set while a clean close's storage settle is in flight, so a repeat Close is a no-op. */
+let closeSettling = false;
+
+async function requestClose(): Promise<void> {
+  if (keeping.value || closeSettling) return;
+  if (changes.value > 0) {
+    leaveAsk.value = true;
+    return;
+  }
+  const ws = workspace.value;
+  if (ws === undefined) {
     emit("close");
     return;
   }
-  leaveAsk.value = true;
+  // A clean close can still owe the record a dirty-then-undone draft left.
+  // Settle it only while the draft stays clean, then re-review this same
+  // mounted draft before leaving: typing during the delete revokes the
+  // close, so the new work falls back to the ordinary dirty guard.
+  closeSettling = true;
+  try {
+    const done = (await persister?.discard({ onlyIfClean: true })) ?? true;
+    if (!done) return;
+    if (workspace.value !== ws) return;
+    if (ws.draft.dirtyKeys().length > 0) {
+      leaveAsk.value = true;
+      return;
+    }
+    emit("close");
+  } finally {
+    closeSettling = false;
+  }
 }
 
 /**
@@ -485,6 +532,7 @@ const recoveryError = ref<string | undefined>();
 async function restoreEntry(entry: LogicRecoveryEntry): Promise<void> {
   const open = workspace.value?.projectId;
   if (open === undefined) return;
+  const epoch = openEpoch;
   recoveryBusy.value = true;
   recoveryError.value = undefined;
   try {
@@ -493,30 +541,36 @@ async function restoreEntry(entry: LogicRecoveryEntry): Promise<void> {
         ? { restore: { workspaceId: entry.workspaceId, receipt: entry.receipt } }
         : { restore: { portable: entry.recovery } };
     // The service verifies the reviewed receipt and the current saved base
-    // itself, then installs a fresh draft — UI never assigns one.
+    // itself, then installs a fresh draft — UI never assigns one. A close or
+    // a project open resolved while the restore was in flight supersedes it.
     const ws = await openEditableProject(open, restore);
+    if (epoch !== openEpoch) return;
     mountWorkspace(ws);
     recoveryOpen.value = false;
   } catch (error) {
-    recoveryError.value = reason(error);
-    await refreshRecovery();
+    // A close or project open resolved meanwhile owns the current state.
+    if (epoch === openEpoch) {
+      recoveryError.value = reason(error);
+      await refreshRecovery();
+    }
   } finally {
-    recoveryBusy.value = false;
+    if (epoch === openEpoch) recoveryBusy.value = false;
   }
 }
 
 async function discardEntry(entry: LogicRecoveryEntry): Promise<void> {
   const open = workspace.value?.projectId;
   if (entry.kind !== "stored" || open === undefined) return;
+  const epoch = openEpoch;
   recoveryBusy.value = true;
   recoveryError.value = undefined;
   try {
     await discardProjectDraft(open, entry.workspaceId, entry.receipt);
     await refreshRecovery();
   } catch (error) {
-    recoveryError.value = reason(error);
+    if (epoch === openEpoch) recoveryError.value = reason(error);
   } finally {
-    recoveryBusy.value = false;
+    if (epoch === openEpoch) recoveryBusy.value = false;
   }
 }
 
@@ -537,6 +591,8 @@ async function refreshRecovery(): Promise<void> {
   const ws = workspace.value;
   if (!ws) return;
   const entries = await recoveryEntries(ws.storedData());
+  // A newer mount owns the recovery list while this read was in flight.
+  if (workspace.value !== ws) return;
   recovery.value = entries;
   if (entries.length === 0) recoveryOpen.value = false;
 }
@@ -566,7 +622,10 @@ function mountWorkspace(ws: EditableProject): void {
     projectId: ws.projectId,
     workspaceId: recoveryId,
     capture: () => {
-      if (workspace.value !== ws || ws.draft.dirtyKeys().length === 0) return null;
+      if (workspace.value !== ws) return null;
+      // A mounted draft that undid its way back to the saved base retires its
+      // own record; a superseded workspace (null) never touches storage.
+      if (ws.draft.dirtyKeys().length === 0) return { clean: true };
       const saved = ws.savedIdentity();
       return {
         expected: { generation: saved.generation, lifetime: saved.lifetime },
@@ -589,10 +648,18 @@ function mountWorkspace(ws: EditableProject): void {
 }
 
 /**
+ * The mount/open epoch: each open supersedes the one before it, and unmount
+ * voids every in-flight open. A deferred result must never install models,
+ * a persister or recovery state onto a studio that has already moved on.
+ */
+let openEpoch = 0;
+
+/**
  * Open (or switch to) a stored project inside this mounted workspace. A
  * dirty draft never silently discards: the caller gates on the guard first.
  */
 async function openProject(next: ProjectId): Promise<void> {
+  const epoch = ++openEpoch;
   opening.value = true;
   openError.value = "";
   persistError.value = undefined;
@@ -601,14 +668,70 @@ async function openProject(next: ProjectId): Promise<void> {
   leaveAsk.value = false;
   problems.value = [];
   try {
+    // A clean switch can still owe the record the outgoing draft left behind.
+    // Settle it only while that draft stays clean — typing during the wait
+    // means the record protects live work again — then re-review the same
+    // mounted workspace before mounting over it.
+    const outgoing = workspace.value;
+    const writer = persister;
+    // The outgoing draft's revision fingerprints the state this switch was
+    // decided against: a deliberately approved dirty switch (the Keep and
+    // Discard paths re-enter here) keeps the same revision and proceeds,
+    // while any write — typing or undo — during an await bumps it and, if
+    // the draft is still dirty, revokes the switch back to the dirty guard.
+    const outgoingRevision = outgoing?.draft.capture().revision;
+    const dirtyAgain = (): boolean =>
+      outgoing !== undefined &&
+      outgoing.draft.capture().revision !== outgoingRevision &&
+      outgoing.draft.dirtyKeys().length > 0;
+    const settled = (await writer?.discard({ onlyIfClean: true })) ?? true;
+    if (epoch !== openEpoch) return;
+    if (!settled) {
+      // The settle failed with persistError shown; keep the mounted project
+      // and point the parent back at it so prop and visible work agree.
+      const open = workspace.value?.projectId;
+      if (open !== undefined && open !== next) emit("update:projectId", open);
+      return;
+    }
+    if (workspace.value !== outgoing) {
+      // The mounted workspace moved while settling; the prop's current
+      // target still applies to whatever is open now.
+      if (projectId !== undefined && projectId !== workspace.value?.projectId)
+        void openProject(projectId);
+      return;
+    }
+    if (dirtyAgain()) {
+      switchTarget = next;
+      leaveAsk.value = true;
+      return;
+    }
     const ws = await openEditableProject(next);
+    if (epoch !== openEpoch) return;
+    // The target can take arbitrarily long to open; the outgoing editor
+    // stayed live meanwhile, so re-review it before mounting over it. The
+    // refused workspace is never mounted: no models, analysis or persister.
+    if (workspace.value !== outgoing) {
+      if (projectId !== undefined && projectId !== workspace.value?.projectId)
+        void openProject(projectId);
+      return;
+    }
+    if (dirtyAgain()) {
+      switchTarget = next;
+      leaveAsk.value = true;
+      return;
+    }
     mountWorkspace(ws);
     await refreshRecovery();
+    if (epoch !== openEpoch) return;
     if (recovery.value.length > 0) recoveryOpen.value = true;
+    // The projectId watch is inert while an open is in flight, so a switch
+    // requested during a deferred open would otherwise be dropped — honor
+    // the prop's current target after this open lands.
+    if (projectId !== undefined && projectId !== next) void openProject(projectId);
   } catch (error) {
-    openError.value = reason(error);
+    if (epoch === openEpoch) openError.value = reason(error);
   } finally {
-    opening.value = false;
+    if (epoch === openEpoch) opening.value = false;
   }
 }
 
@@ -645,6 +768,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  openEpoch++;
   window.removeEventListener("beforeunload", onBeforeUnload);
   if (problemsTimer !== undefined) clearTimeout(problemsTimer);
   if (savedNoteTimer) clearTimeout(savedNoteTimer);
@@ -690,20 +814,20 @@ defineExpose({ cursor });
         <UiButton
           variant="ghost"
           size="sm"
-          :disabled="activeDocument === undefined"
+          :disabled="!editorCommandsEnabled"
           title="Undo"
           data-testid="logic-undo"
-          @click="editor?.trigger('toolbar', 'undo', null)"
+          @click="runEditorCommand('undo')"
         >
           Undo
         </UiButton>
         <UiButton
           variant="ghost"
           size="sm"
-          :disabled="activeDocument === undefined"
+          :disabled="!editorCommandsEnabled"
           title="Redo"
           data-testid="logic-redo"
-          @click="editor?.trigger('toolbar', 'redo', null)"
+          @click="runEditorCommand('redo')"
         >
           Redo
         </UiButton>
