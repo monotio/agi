@@ -49,11 +49,12 @@ export class BrowserReplay {
     await this.page.goto(`/?replaySeed=${seed}`);
     // A catalog alias names one edition; a hash can also match a project
     // export of the same game, so the alias is tried first.
-    const alias = getKnownGameByHash(target)?.alias ?? target;
+    const known = getKnownGameByHash(target);
+    const alias = known?.alias ?? target;
     await revealFoldedBoot(this.page, alias);
     const byAlias = this.page.locator(`[data-alias="${alias}"]`);
     const boot = (
-      (await byAlias.count()) > 0
+      known || (await byAlias.count()) > 0
         ? byAlias
         : this.page.locator(
             `[data-hash="${target}"], [data-project-id="${target}"], [data-alias="${target}"], [data-testid="boot-${target}"]`,
