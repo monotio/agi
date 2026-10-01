@@ -66,6 +66,29 @@ for (const size of [
     );
     await expect(editor.locator(".workspace-stopped-line")).toBeVisible();
     await expect(page.getByRole("tab", { name: "Variables", exact: true })).toBeVisible();
+    const panel = page.getByTestId("workspace-debug-panel");
+    await expect(panel.getByRole("heading", { name: "Used here", exact: true })).toBeVisible();
+    await expect(panel.getByRole("heading", { name: "Game", exact: true })).toBeVisible();
+    await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toHaveCount(0);
+    await panel.getByText("All variables", { exact: true }).click();
+    await expect(panel.getByRole("spinbutton", { name: "v255", exact: true })).toBeVisible();
+    await panel.getByText("All variables", { exact: true }).click();
+    const toolbar = page.getByRole("group", { name: "Debug controls", exact: true });
+    expect(
+      await toolbar
+        .getByRole("button")
+        .evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label"))),
+    ).toEqual([
+      "Continue (F5)",
+      "Step over (F10)",
+      "Step into (F11)",
+      "Step out (⇧F11)",
+      "Stop (⇧F5)",
+    ]);
+    await panel.locator(".workspace-debug-content").evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await page.keyboard.press("Control+`");
     await reviewShot(page, `debugger-${size.width}-breakpoint`);
     await page.keyboard.press("F10");
     await expect

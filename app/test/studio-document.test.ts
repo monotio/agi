@@ -34,6 +34,23 @@ const SMALL = text(
   "end",
 );
 
+test("item lens marks follow drawing commands including all three lenses", () => {
+  const source = text(
+    '# @item all "All lenses" mixed',
+    "vis 4",
+    "pri 10",
+    "line 1,1 3,1",
+    "pri 0",
+    "line 1,2 3,2",
+    "# @end",
+    "end",
+  );
+  const model = buildStudioModel({ bytes: bytesOf(source), authoredSource: source, profile });
+  assert.deepEqual(model.rows[0]?.lenses, ["art", "depth", "walk"]);
+  const single = buildStudioModel({ bytes: bytesOf(SMALL), authoredSource: SMALL, profile });
+  assert.deepEqual(single.rows[0]?.lenses, ["art"]);
+});
+
 test("authored text is used only while it compiles to the exact bytes", () => {
   const bytes = bytesOf(SMALL);
   const trusted = buildStudioModel({ bytes, authoredSource: SMALL, profile });

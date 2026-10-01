@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { WorkspaceDebug } from "./workspaceDebug.ts";
 import UiButton from "../../ui/UiButton.vue";
+import { reservedValues } from "./debugValues.ts";
 const props = defineProps<{ debug: WorkspaceDebug; problems: readonly { message: string }[] }>();
 const emit = defineEmits<{ close: []; reveal: [logic: number, line: number] }>();
 const tabs = ["Problems", "Variables", "Watch", "Call stack", "Breakpoints"] as const;
@@ -15,20 +16,57 @@ const slots = computed(() => {
     const key = `${binding.kind}:${binding.num}`;
     (names[key] ??= []).push(name);
   }
-  return (["variable", "flag"] as const)
-    .flatMap((kind) =>
-      Array.from({ length: 256 }, (_, slot) => ({
+  return (["variable", "flag"] as const).flatMap((kind) =>
+    Array.from({ length: 256 }, (_, slot) => {
+      const used = props.debug.usedValues.value.find(
+        (row) => row.kind === kind && row.slot === slot,
+      );
+      const reserved = reservedValues[kind][slot];
+      const bindingNames = used?.names || (names[`${kind}:${slot}`] ?? []).join(", ");
+      const label = `${kind === "variable" ? "v" : "f"}${slot}`;
+      return {
         kind,
         slot,
-        label: `${kind === "variable" ? "v" : "f"}${slot}`,
-        names: (names[`${kind}:${slot}`] ?? []).join(", "),
+        label,
+        names: bindingNames,
+        title: bindingNames || reserved || label,
+        reserved,
+        used: used !== undefined,
         value: props.debug.stopped.value?.state[kind === "variable" ? "vars" : "flags"][slot] ?? 0,
-      })),
-    )
-    .filter((row) =>
-      `${row.label} ${row.names}`.toLowerCase().includes(filter.value.toLowerCase()),
-    );
+      };
+    }),
+  );
 });
+const groups = computed(() => {
+  if (filter.value.trim()) {
+    const query = filter.value.trim().toLowerCase();
+    return [
+      {
+        title: "Search results",
+        rows: slots.value.filter((row) =>
+          `${row.label} ${row.slot} ${row.names} ${row.reserved ?? ""}`
+            .toLowerCase()
+            .includes(query),
+        ),
+      },
+    ];
+  }
+  return [
+    { title: "Used here", rows: slots.value.filter((row) => row.used) },
+    {
+      title: "Game",
+      rows: slots.value
+        .filter((row) => row.reserved !== undefined && !row.used)
+        .map((row) => ({ ...row, title: row.reserved! })),
+    },
+  ];
+});
+const allGroups = computed(() =>
+  (["variable", "flag"] as const).map((kind) => ({
+    title: kind === "variable" ? "All variables" : "All flags",
+    rows: slots.value.filter((row) => row.kind === kind),
+  })),
+);
 function editValue(kind: "variable" | "flag", slot: number, event: Event): void {
   const element = event.target as HTMLInputElement;
   const value = kind === "flag" ? Number(element.checked) : Number(element.value);
@@ -75,31 +113,47 @@ function tabKey(event: KeyboardEvent): void {
           >Find a value <input v-model="filter" aria-label="Find a value"
         /></label>
         <p v-if="!debug.stopped.value">Pause the game to inspect and edit values.</p>
-        <div class="workspace-debug-values">
-          <label v-for="row in slots" :key="`${row.kind}:${row.slot}`">
-            <span
-              >{{ row.label }} <small>{{ row.names }}</small></span
-            >
-            <input
-              v-if="row.kind === 'flag'"
-              type="checkbox"
-              :aria-label="`${row.label} ${row.names}`.trim()"
-              :checked="!!row.value"
-              :disabled="!debug.stopped.value || debug.state.busy"
-              @change="editValue(row.kind, row.slot, $event)"
-            />
-            <input
-              v-else
-              type="number"
-              min="0"
-              max="255"
-              :aria-label="`${row.label} ${row.names}`.trim()"
-              :value="row.value"
-              :disabled="!debug.stopped.value || row.slot === 0 || debug.state.busy"
-              @change="editValue(row.kind, row.slot, $event)"
-            />
-          </label>
-        </div>
+        <component
+          :is="group.expand ? 'details' : 'section'"
+          v-for="group in [
+            ...groups.map((group) => ({ ...group, expand: false })),
+            ...(filter.trim() ? [] : allGroups.map((group) => ({ ...group, expand: true }))),
+          ]"
+          :key="group.title"
+          class="workspace-debug-group"
+          :aria-label="group.title"
+        >
+          <summary v-if="group.expand">{{ group.title }}</summary>
+          <h3 v-else>{{ group.title }}</h3>
+          <p v-if="!group.rows.length">
+            {{ debug.stopped.value ? "No values referenced." : "Pause to inspect this LOGIC." }}
+          </p>
+          <div class="workspace-debug-values">
+            <label v-for="row in group.rows" :key="`${row.kind}:${row.slot}`">
+              <span
+                >{{ row.title }} <small v-if="row.title !== row.label">{{ row.label }}</small></span
+              >
+              <input
+                v-if="row.kind === 'flag'"
+                type="checkbox"
+                :aria-label="`${row.label} ${row.names || row.reserved || ''}`.trim()"
+                :checked="!!row.value"
+                :disabled="!debug.stopped.value || debug.state.busy"
+                @change="editValue(row.kind, row.slot, $event)"
+              />
+              <input
+                v-else
+                type="number"
+                min="0"
+                max="255"
+                :aria-label="`${row.label} ${row.names || row.reserved || ''}`.trim()"
+                :value="row.value"
+                :disabled="!debug.stopped.value || row.slot === 0 || debug.state.busy"
+                @change="editValue(row.kind, row.slot, $event)"
+              />
+            </label>
+          </div>
+        </component>
       </template>
       <template v-else-if="tab === 'Watch'">
         <form
@@ -229,6 +283,20 @@ input {
   width: 64px;
 }
 small {
+  font-family: var(--font-mono);
+  margin-left: var(--space-2);
+  color: var(--ink-3);
+}
+.workspace-debug-group {
+  margin-bottom: var(--space-3);
+}
+h3,
+summary {
+  font-size: var(--text-sm);
+  margin: var(--space-2) 0;
+}
+summary {
+  cursor: pointer;
   color: var(--ink-3);
 }
 .workspace-debug-row {

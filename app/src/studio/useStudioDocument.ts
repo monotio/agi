@@ -78,6 +78,8 @@ export interface SceneRow {
   value: number | null;
   /** Short tag: the kind, or the one priority/control value a depth/walk item draws. */
   tag: string;
+  /** Lenses painted by this row’s drawing commands. */
+  lenses?: readonly StudioLens[];
 }
 
 /** An automatic group of consecutive items (sceneGroups.ts), as a row of its own. */
@@ -178,6 +180,7 @@ function branchesOf(items: readonly SceneRow[]): SceneBranch[] {
         swatch: first.swatch,
         value,
         tag: tags.size === 1 ? first.tag : kind,
+        lenses: [...new Set(rows.flatMap((row) => row.lenses ?? []))],
         members: rows.map((row) => row.id),
       },
       rows,
@@ -304,6 +307,16 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
         : primary === 1 && own < 4
           ? CONTROL_VALUES[own]!.colour
           : own;
+    const drawing = row.entries
+      .map((k) => timeline[k]!)
+      .filter((entry) => tickFor(entry).kind !== "state");
+    row.lenses = (["art", "depth", "walk"] as const).filter((lens) =>
+      drawing.some((entry) =>
+        lens === "art"
+          ? entry.visual !== null
+          : entry.priority !== null && (lens === "walk" ? entry.priority < 4 : entry.priority >= 4),
+      ),
+    );
     row.tag = tagFor(
       row.kind,
       row.entries.map((k) => timeline[k]!),

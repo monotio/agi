@@ -625,14 +625,14 @@ onBeforeUnmount(() => {
         @close="editor.close"
       />
       <UiButton
-        v-if="editor.kind.value === 'logic'"
+        v-if="editor.kind.value === 'logic' && !debug?.state.epoch"
         size="sm"
         variant="ghost"
         :disabled="debug?.state.busy"
         data-testid="debug-start"
         title="Start or continue debugging (F5)"
         @click="editor.debugCommand.value?.('start')"
-        >{{ engine.executionDebug.stopped.value ? "Continue" : "Debug" }}</UiButton
+        >Debug</UiButton
       >
       <DebugControls v-if="debug?.state.epoch" :debug="debug" />
       <GuidedAdd
