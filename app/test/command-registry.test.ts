@@ -120,14 +120,14 @@ test("defaults preserve text undo and dialogs, and dispose all bindings", () => 
   assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), true);
   ctx.editorFocus = true;
   ctx.textInputFocus = true;
-  assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), false);
+  assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), true);
   ctx.editorFocus = false;
   assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), false);
   assert.equal(registry.dispatch(key("`", { ctrlKey: true }).event), true);
   ctx.dialogOpen = true;
   assert.equal(registry.dispatch(key("p", { ctrlKey: true }).event), false);
   assert.equal(registry.enabled("debug.stepOver"), false);
-  assert.deepEqual(calls, ["open", "palette", "undo", "game"]);
+  assert.deepEqual(calls, ["open", "palette", "undo", "undo", "game"]);
   off();
   assert.equal(registry.commands.value.length, 0);
 });
@@ -207,7 +207,7 @@ test("the global dispatcher mounts once, stops handled keys and releases its lis
   assert.equal(removals, 2);
 });
 
-test("workspace undo and redo serve canvas zones while text inputs retain native undo", () => {
+test("workspace Undo and Redo serve editor text and canvas zones while other inputs retain native undo", () => {
   const ctx = context();
   const registry = createCommandRegistry(() => ctx, false);
   const calls: string[] = [];
@@ -222,12 +222,16 @@ test("workspace undo and redo serve canvas zones while text inputs retain native
   ctx.editorFocus = true;
   assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), true);
   assert.equal(registry.dispatch(key("Z", { ctrlKey: true, shiftKey: true }).event), true);
+  ctx.textInputFocus = true;
+  assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), true);
+  assert.equal(registry.dispatch(key("Z", { ctrlKey: true, shiftKey: true }).event), true);
   ctx.editorFocus = false;
+  ctx.textInputFocus = false;
   ctx.gameFocus = true;
   assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), true);
   ctx.textInputFocus = true;
   assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), false);
-  assert.deepEqual(calls, ["undo", "redo", "undo"]);
+  assert.deepEqual(calls, ["undo", "redo", "undo", "redo", "undo"]);
 });
 
 test("Focus chords consume the prefix, require an eligible second key and cancel on context changes", () => {
