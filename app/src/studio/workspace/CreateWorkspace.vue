@@ -37,6 +37,7 @@ import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.t
 const props = defineProps<{ creating: boolean }>();
 const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
+const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"));
 const GuidedAdd = defineAsyncComponent(() => import("./GuidedAdd.vue"));
 const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
 const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
@@ -70,6 +71,42 @@ const optimistic = shallowRef<Readonly<Record<string, ProjectContent>>>({});
 let session: ProjectSession | null = null;
 let unsubscribe: (() => void) | undefined;
 let retired = false;
+const musicDrop = shallowRef<File>();
+const musicDropTarget = ref<string>();
+function musicDrag(event: DragEvent): void {
+  if (
+    props.creating &&
+    (event.target as HTMLElement).closest?.(".play-area") &&
+    event.dataTransfer?.types.includes("Files")
+  )
+    event.preventDefault();
+}
+function dropMusic(event: DragEvent): void {
+  if (!props.creating || !(event.target as HTMLElement).closest?.(".play-area")) return;
+  const file = event.dataTransfer?.files[0];
+  if (!file || !/\.(mid|midi|vgm)$/i.test(file.name)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  musicDropTarget.value = editor.selected.value?.startsWith("sound:")
+    ? editor.selected.value
+    : undefined;
+  musicDrop.value = file;
+}
+function addImportedSound(bytes: Uint8Array, tempo: number): void {
+  const used = new Set([...(snapshot.value?.keys ?? []), ...Object.keys(optimistic.value)]);
+  let number = 1;
+  while (used.has(`sound:${number}`) && number < 256) number++;
+  if (number > 255) {
+    editor.error.value = "SOUND resources are full. Replace an existing SOUND.";
+    return;
+  }
+  const key = `sound:${number}`;
+  editSound(key, bytes, tempo);
+  editor.open(key);
+  musicDrop.value = undefined;
+}
+window.addEventListener("dragover", musicDrag, true);
+window.addEventListener("drop", dropMusic, true);
 function refresh(): void {
   if (!session) return;
   const capture = session.capture();
@@ -588,6 +625,8 @@ onBeforeUnmount(() => {
   editor.retry.value = undefined;
   unsubscribe?.();
   window.removeEventListener("keydown", escape, true);
+  window.removeEventListener("dragover", musicDrag, true);
+  window.removeEventListener("drop", dropMusic, true);
   editor.gameHost.value = null;
   editor.pictureLive.value = false;
 });
@@ -776,6 +815,9 @@ onBeforeUnmount(() => {
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="(bytes, tempo) => editSound(key, bytes, tempo)"
+        :import-file="musicDropTarget === key ? musicDrop : undefined"
+        @imported="musicDrop = undefined"
+        @add="addImportedSound"
       />
       <NotesEditor
         v-else-if="key === 'notes'"
@@ -848,9 +890,28 @@ onBeforeUnmount(() => {
       >
     </div>
   </aside>
+  <aside
+    v-if="creating && musicDrop && !musicDropTarget"
+    class="workspace-music-preview"
+    aria-label="Music import"
+  >
+    <SoundImport
+      :file="musicDrop"
+      :profile-id="profile.id"
+      @apply="(bytes, tempo) => addImportedSound(bytes, tempo)"
+      @cancel="musicDrop = undefined"
+    />
+  </aside>
 </template>
 
 <style scoped>
+.workspace-music-preview {
+  position: absolute;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  width: min(440px, 90%);
+  z-index: var(--z-popover);
+}
 .workspace-editor__header:has(.workspace-debug-controls) {
   flex-wrap: wrap;
 }

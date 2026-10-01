@@ -44,10 +44,12 @@
 .shell-body--workspace.shell-body--picture > .workspace-splitter {
   display: none;
 }
-.shell-body--workspace.shell-body--logic > .play-area {
+.shell-body--workspace.shell-body--logic > .play-area,
+.shell-body--workspace.shell-body--sound > .play-area {
   grid-column: 4;
 }
-.shell-body--workspace.shell-body--logic > .workspace-editor {
+.shell-body--workspace.shell-body--logic > .workspace-editor,
+.shell-body--workspace.shell-body--sound > .workspace-editor {
   grid-column: 2;
 }
 .shell-body--workspace.shell-body--focus {

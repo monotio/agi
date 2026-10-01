@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
 import {
@@ -14,21 +14,44 @@ import {
   divisorNoteLabel,
   editSoundNote,
   LANE_NAMES,
-  moveSoundNote,
   NOISE_CONTROL_NAMES,
   retimeSound,
 } from "../sound/soundEdits.ts";
 import UiButton from "../../ui/UiButton.vue";
+import SoundGrid from "../sound/SoundGrid.vue";
+import SoundTracker from "../sound/SoundTracker.vue";
+import SoundImport from "../sound/SoundImport.vue";
+import { exportMidi } from "../../../../src/sound/midi.ts";
+import { gridTick, beatLengthLabel, silenceSoundEvent } from "../../../../src/sound/sequencer.ts";
+import { DRUM_SOUNDS } from "../../../../src/sound/sequencer.ts";
 const props = defineProps<{
   documentKey: string;
   bytes: Uint8Array;
   profileId: ProfileId;
   tempo: number;
   active: boolean;
+  importFile?: File | undefined;
 }>();
-const emit = defineEmits<{ edit: [bytes: Uint8Array, tempo: number] }>();
+const emit = defineEmits<{
+  edit: [bytes: Uint8Array, tempo: number];
+  add: [bytes: Uint8Array, tempo: number];
+  imported: [];
+}>();
+const mode = ref("grid");
+const voice = ref(0);
+const division = ref(16);
+const drawVolume = ref(12);
+const cursorLabel = ref("");
+const musicFile = shallowRef<File>();
+const fileInput = useTemplateRef("fileInput");
+watch(
+  () => props.importFile,
+  (file) => {
+    if (file) musicFile.value = file;
+  },
+  { immediate: true },
+);
 const notice = ref("");
-const root = useTemplateRef("root");
 type SoundField = "tempo" | "note" | "beats" | "volume" | "ticks" | "divisor" | "attenuation";
 const drafts = ref<Partial<Record<SoundField, string>>>({});
 const document = shallowRef(importSoundDocument(props.bytes, { profileId: props.profileId }));
@@ -39,8 +62,10 @@ const event = computed(() => tracks.value?.flat().find((entry) => entry.id === s
 // Private audition leaves the workspace's MAIN running.
 const preview = createSoundPreview({ acquirePauseLease: async () => ({ release() {} }) });
 const status = ref(preview.snapshot.status);
+const position = ref(0);
 const unsubscribe = preview.subscribe(() => {
   status.value = preview.snapshot.status;
+  position.value = preview.snapshot.positionTicks;
   if (preview.snapshot.refusal) notice.value = preview.snapshot.refusal;
 });
 function target(bytes: Uint8Array): void {
@@ -92,6 +117,11 @@ function change(edit: (value: SoundDocument) => SoundDocument): void {
 function friendly(id: string, edit: { note?: string; beats?: number; volume?: number }): void {
   change((doc) => editSoundNote(doc, id, edit, tempo.value));
 }
+function selectNote(id: string | undefined): void {
+  selected.value = id;
+  const note = tracks.value?.flat().find((entry) => entry.id === id);
+  if (note) voice.value = note.lane;
+}
 function commit(field: SoundField, edit: () => void): void {
   edit();
   delete drafts.value[field];
@@ -103,11 +133,12 @@ function value(event: Event): string {
   return (event.target as HTMLInputElement).value;
 }
 function pitch(event: SoundEvent): string {
-  return event.data.kind === "tone"
-    ? divisorNoteLabel(event.data.divisor)
-    : event.data.kind === "noise"
-      ? NOISE_CONTROL_NAMES[event.data.control]!
-      : event.data.kind === "rest"
+  const data = event.data;
+  return data.kind === "tone"
+    ? divisorNoteLabel(data.divisor)
+    : data.kind === "noise"
+      ? DRUM_SOUNDS.find((drum) => drum.control === data.control)!.name
+      : data.kind === "rest"
         ? "Rest"
         : "Raw";
 }
@@ -129,39 +160,48 @@ function setTempo(after: number): void {
     return next;
   });
 }
-async function focusNote(lane: number, index: number): Promise<void> {
-  const note = tracks.value?.[lane]?.[index];
-  selected.value = note?.id;
-  await nextTick();
-  const selector = note ? `[data-note-id="${note.id}"]` : `[data-add-lane="${lane}"]`;
-  root.value?.querySelector<HTMLElement>(selector)?.focus();
-}
-function add(lane: number, rest = false): void {
-  const index = tracks.value?.[lane]?.length ?? 0;
-  change((doc) =>
-    doc.insertEvent(lane, index, {
-      ticks: Math.round(3600 / tempo.value),
-      data: rest
-        ? { kind: "rest" }
-        : lane === 3
-          ? { kind: "noise", control: 5, attenuation: 4 }
-          : { kind: "tone", note: "A4", attenuation: 4 },
-    }),
-  );
-  void focusNote(lane, index);
-}
 function remove(note: SoundEvent): void {
-  const index = tracks.value![note.lane]!.findIndex((entry) => entry.id === note.id);
-  change((doc) => doc.removeEvent(note.id));
-  void focusNote(note.lane, Math.max(0, index - 1));
+  change((doc) => silenceSoundEvent(doc, note.id));
 }
-function move(note: SoundEvent, direction: -1 | 1): void {
-  const index = tracks.value![note.lane]!.findIndex((entry) => entry.id === note.id);
-  change((doc) => moveSoundNote(doc, note.id, direction));
-  void focusNote(
-    note.lane,
-    Math.max(0, Math.min(tracks.value![note.lane]!.length - 1, index + direction)),
-  );
+function gridEdit(next: SoundDocument): void {
+  change(() => next);
+}
+function chooseFile(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  musicFile.value = input.files?.[0];
+  input.value = "";
+}
+function drop(event: DragEvent): void {
+  const file = event.dataTransfer?.files[0];
+  if (!file || !/\.(mid|midi|vgm)$/i.test(file.name)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  musicFile.value = file;
+}
+function applyImport(bytes: Uint8Array, after: number, add: boolean): void {
+  if (add) emit("add", bytes, after);
+  else
+    change(() => {
+      const next = importSoundDocument(bytes, { profileId: props.profileId });
+      tempo.value = after;
+      selected.value = undefined;
+      return next;
+    });
+  musicFile.value = undefined;
+  emit("imported");
+}
+function midiDownload(): void {
+  try {
+    const bytes = exportMidi(document.value);
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "audio/midi" }));
+    const link = window.document.createElement("a");
+    link.href = url;
+    link.download = `${props.documentKey.replace(":", "-")}.mid`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (cause) {
+    notice.value = cause instanceof Error ? cause.message : String(cause);
+  }
 }
 function keys(key: KeyboardEvent): void {
   if (!props.active || key.ctrlKey || key.metaKey) return;
@@ -171,25 +211,7 @@ function keys(key: KeyboardEvent): void {
     key.preventDefault();
     key.stopPropagation();
     if (!key.repeat) transport();
-    return;
   }
-  const id = element.dataset["noteId"];
-  const note = tracks.value?.flat().find((entry) => entry.id === id);
-  if (!note) return;
-  const index = tracks.value![note.lane]!.findIndex((entry) => entry.id === id);
-  if (key.key === "Delete" || key.key === "Backspace") remove(note);
-  else if (key.key === "Insert") add(note.lane);
-  else if (key.key === "ArrowLeft" || key.key === "ArrowRight") {
-    const direction = key.key === "ArrowLeft" ? -1 : 1;
-    if (key.altKey) move(note, direction);
-    else
-      void focusNote(
-        note.lane,
-        Math.max(0, Math.min(tracks.value![note.lane]!.length - 1, index + direction)),
-      );
-  } else return;
-  key.preventDefault();
-  key.stopPropagation();
 }
 onBeforeUnmount(() => {
   unsubscribe();
@@ -197,7 +219,13 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <div ref="root" class="workspace-sound" data-testid="workspace-sound" @keydown="keys">
+  <div
+    class="workspace-sound"
+    data-testid="workspace-sound"
+    @keydown="keys"
+    @dragover.prevent
+    @drop="drop"
+  >
     <header class="sound-heading">
       <div>
         <h2>SOUND {{ documentKey.split(":")[1] }}</h2>
@@ -212,171 +240,228 @@ onBeforeUnmount(() => {
           @click="transport"
           >{{ status === "playing" ? "Stop" : "Play" }}</UiButton
         >
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :title="VOCABULARY.exportMidi.help"
+          @click="midiDownload"
+          >{{ VOCABULARY.exportMidi.label }}</UiButton
+        >
         <span role="status" data-testid="sound-status">{{
           status === "playing" ? "Playing" : status === "complete" ? "Finished" : "Ready"
         }}</span>
       </div>
     </header>
+    <div class="sound-toolbar">
+      <div v-if="tracks" class="sound-lenses" role="group" aria-label="Sound view">
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :aria-pressed="mode === 'grid'"
+          @click="mode = 'grid'"
+          >{{ VOCABULARY.grid.label }}</UiButton
+        >
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :aria-pressed="mode === 'tracker'"
+          @click="mode = 'tracker'"
+          >{{ VOCABULARY.tracker.label }}</UiButton
+        >
+      </div>
+      <label v-if="tracks" class="sound-preset"
+        >{{ VOCABULARY.startFrom.label }}
+        <select
+          aria-label="Start from"
+          value=""
+          @change="
+            preset(value($event));
+            ($event.target as HTMLSelectElement).value = '';
+          "
+        >
+          <option value="" disabled>Choose preset</option>
+          <option v-for="entry in SOUND_PRESETS" :key="entry.id" :value="entry.id">
+            {{ entry.name }}
+          </option>
+        </select>
+      </label>
+      <UiButton size="sm" variant="ghost" @click="fileInput?.click()">{{
+        VOCABULARY.importMusic.label
+      }}</UiButton>
+      <input
+        ref="fileInput"
+        hidden
+        type="file"
+        accept=".mid,.midi,.vgm"
+        aria-label="Music file"
+        @change="chooseFile"
+      />
+    </div>
+    <SoundImport
+      v-if="musicFile"
+      :file="musicFile"
+      :profile-id="profileId"
+      :replace-name="`SOUND ${documentKey.split(':')[1]}`"
+      @apply="applyImport"
+      @cancel="
+        musicFile = undefined;
+        emit('imported');
+      "
+    />
     <template v-if="tracks">
-      <section class="sound-presets" aria-label="Presets">
-        <h3>Start from</h3>
-        <div>
-          <UiButton
-            v-for="entry in SOUND_PRESETS"
-            :key="entry.id"
-            size="sm"
-            variant="ghost"
-            :title="entry.description"
-            @click="preset(entry.id)"
-            >{{ entry.name }}</UiButton
-          >
-        </div>
-      </section>
-      <label class="sound-tempo"
-        >Tempo
-        <input
-          type="number"
-          aria-label="Tempo"
-          :value="drafts.tempo ?? tempo"
-          @input="drafts.tempo = value($event)"
-          min="40"
-          max="240"
-          @change="commit('tempo', () => setTempo(Number(value($event))))"
-        />
-        <span>beats / minute</span></label
-      >
-      <p class="sound-help">
-        Choose a note to change it. Lengths use beats; tempo changes the whole sound.
-      </p>
-      <section
-        v-for="(lane, laneIndex) in tracks"
-        :key="laneIndex"
-        class="sound-voice"
-        :aria-label="LANE_NAMES[laneIndex]"
-      >
-        <h3>{{ LANE_NAMES[laneIndex] }}</h3>
-        <div class="sound-notes">
-          <button
-            v-for="note in lane"
-            :key="note.id"
-            type="button"
-            class="sound-note"
-            :class="{ 'sound-note--selected': selected === note.id }"
-            :data-note-id="note.id"
-            :aria-pressed="selected === note.id"
-            @focus="selected = note.id"
-            @click="selected = note.id"
-          >
-            <strong>{{ pitch(note) }}</strong
-            ><span>{{ beats(note) }} beats</span
-            ><span v-if="'attenuation' in note.data"
-              >{{ VOCABULARY.volume.label }} {{ attenuationToVolume(note.data.attenuation) }}</span
-            >
-          </button>
-          <UiButton
-            size="sm"
-            variant="ghost"
-            :data-add-lane="laneIndex"
-            :aria-label="`Add note to ${LANE_NAMES[laneIndex]}`"
-            @click="add(laneIndex)"
-            >+ Note</UiButton
-          >
-          <UiButton
-            size="sm"
-            variant="ghost"
-            :aria-label="`Add rest to ${LANE_NAMES[laneIndex]}`"
-            @click="add(laneIndex, true)"
-            >+ Rest</UiButton
-          >
-        </div>
-      </section>
+      <div class="sound-toolbar">
+        <label class="sound-tempo"
+          >Tempo
+          <input
+            type="number"
+            aria-label="Tempo"
+            :value="drafts.tempo ?? tempo"
+            @input="drafts.tempo = value($event)"
+            min="40"
+            max="240"
+            @change="commit('tempo', () => setTempo(Number(value($event))))"
+          />
+          <span>beats/min</span>
+        </label>
+        <label class="sound-snap"
+          >Snap
+          <select aria-label="Snap" v-model.number="division">
+            <option :value="16">1/16 · ¼ beat</option>
+            <option :value="8">⅛ · ½ beat</option>
+            <option :value="4">¼ · 1 beat</option>
+            <option :value="2">½ · 2 beats</option>
+          </select>
+        </label>
+      </div>
+      <div class="sound-voices" role="group" aria-label="Voice to draw with">
+        <UiButton
+          v-for="lane in [0, 1, 2, 3]"
+          :key="lane"
+          size="sm"
+          variant="ghost"
+          :class="`voice-${lane}`"
+          :aria-pressed="voice === lane"
+          @click="voice = lane"
+          >{{
+            lane === 3 ? VOCABULARY.drums.label : `${VOCABULARY.voice.label} ${lane + 1}`
+          }}</UiButton
+        >
+      </div>
+      <SoundGrid
+        v-if="mode === 'grid'"
+        :document="document"
+        :tempo="tempo"
+        :division="division"
+        :voice="voice"
+        :volume="drawVolume"
+        :position="status === 'playing' ? position : 0"
+        :selected="selected"
+        @edit="gridEdit"
+        @select="selectNote"
+        @cursor="cursorLabel = $event"
+        @voice="voice = $event"
+        @error="notice = $event"
+      />
+      <SoundTracker
+        v-else
+        :document="document"
+        :step-ticks="gridTick(1, tempo, division)"
+        :position="status === 'playing' ? position : 0"
+        @edit="gridEdit"
+        @select="selectNote"
+        @error="notice = $event"
+      />
+      <div v-if="!event" class="sound-footer">
+        <span>{{ cursorLabel }}</span
+        ><label
+          >{{ VOCABULARY.volume.label
+          }}<input
+            type="range"
+            aria-label="Drawing volume"
+            v-model.number="drawVolume"
+            min="0"
+            max="15"
+        /></label>
+      </div>
       <section v-if="event" class="sound-note-editor" aria-label="Selected note">
-        <h3>{{ LANE_NAMES[event.lane] }} · {{ pitch(event) }}</h3>
-        <div class="sound-fields">
-          <label v-if="event.lane < 3 && event.data.kind !== 'raw'" :title="VOCABULARY.pitch.help"
-            >Note<input
-              aria-label="Note"
-              :value="drafts.note ?? pitch(event)"
-              @input="drafts.note = value($event)"
-              @change="commit('note', () => friendly(event!.id, { note: value($event) }))"
-          /></label>
-          <label v-if="event.lane === 3 && event.data.kind !== 'raw'"
-            >Noise<select
-              aria-label="Noise pattern"
-              :value="event.data.kind === 'noise' ? event.data.control : 'rest'"
-              @change="
-                change((doc) =>
-                  doc.replaceEventData(
-                    event!.id,
-                    value($event) === 'rest'
-                      ? { kind: 'rest' }
-                      : {
-                          kind: 'noise',
-                          control: Number(value($event)),
-                          attenuation: event!.data.kind === 'noise' ? event!.data.attenuation : 4,
-                        },
-                  ),
-                )
-              "
+        <div class="sound-footer-row">
+          <h3>
+            {{ LANE_NAMES[event.lane] }} · {{ pitch(event) }} ·
+            {{ beatLengthLabel(event.durationTicks, tempo) }} · {{ event.durationTicks }} ticks
+          </h3>
+          <div class="sound-footer-volume">
+            <label v-if="'attenuation' in event.data" :title="VOCABULARY.volume.help"
+              >Volume<input
+                type="number"
+                aria-label="Volume"
+                :value="drafts.volume ?? attenuationToVolume(event.data.attenuation)"
+                @input="drafts.volume = value($event)"
+                min="0"
+                max="15"
+                @change="
+                  commit('volume', () => friendly(event!.id, { volume: Number(value($event)) }))
+                "
+            /></label>
+          </div>
+          <div class="sound-note-actions">
+            <UiButton size="sm" variant="ghost" title="Remove (Delete)" @click="remove(event)"
+              >Remove</UiButton
             >
-              <option value="rest">Rest</option>
-              <option
-                v-for="(name, control) in NOISE_CONTROL_NAMES"
-                :key="control"
-                :value="control"
-              >
-                {{ name }}
-              </option>
-            </select></label
-          >
-          <label
-            >Length<input
-              type="number"
-              aria-label="Length in beats"
-              :value="drafts.beats ?? beats(event)"
-              @input="drafts.beats = value($event)"
-              min="0.001"
-              step="0.25"
-              @change="
-                commit('beats', () => friendly(event!.id, { beats: Number(value($event)) }))
-              "
-          /></label>
-          <label v-if="'attenuation' in event.data" :title="VOCABULARY.volume.help"
-            >Volume<input
-              type="number"
-              aria-label="Volume"
-              :value="drafts.volume ?? attenuationToVolume(event.data.attenuation)"
-              @input="drafts.volume = value($event)"
-              min="0"
-              max="15"
-              @change="
-                commit('volume', () => friendly(event!.id, { volume: Number(value($event)) }))
-              "
-          /></label>
-        </div>
-        <div class="sound-note-actions">
-          <UiButton
-            size="sm"
-            variant="ghost"
-            :disabled="tracks[event.lane]?.[0]?.id === event.id"
-            title="Move earlier (Alt+Left)"
-            @click="move(event, -1)"
-            >← Earlier</UiButton
-          >
-          <UiButton
-            size="sm"
-            variant="ghost"
-            :disabled="tracks[event.lane]?.at(-1)?.id === event.id"
-            title="Move later (Alt+Right)"
-            @click="move(event, 1)"
-            >Later →</UiButton
-          >
-          <UiButton size="sm" variant="ghost" title="Remove (Delete)" @click="remove(event)"
-            >Remove</UiButton
-          >
+          </div>
         </div>
         <details class="sound-details">
           <summary>Details</summary>
+          <div class="sound-fields">
+            <label v-if="event.lane < 3 && event.data.kind !== 'raw'" :title="VOCABULARY.pitch.help"
+              >Note<input
+                aria-label="Note"
+                :value="drafts.note ?? pitch(event)"
+                @input="drafts.note = value($event)"
+                @change="commit('note', () => friendly(event!.id, { note: value($event) }))"
+            /></label>
+            <label v-if="event.lane === 3 && event.data.kind !== 'raw'"
+              >Noise<select
+                aria-label="Noise pattern"
+                :value="event.data.kind === 'noise' ? event.data.control : 'rest'"
+                @change="
+                  change((doc) =>
+                    doc.replaceEventData(
+                      event!.id,
+                      value($event) === 'rest'
+                        ? { kind: 'rest' }
+                        : {
+                            kind: 'noise',
+                            control: Number(value($event)),
+                            attenuation: event!.data.kind === 'noise' ? event!.data.attenuation : 4,
+                          },
+                    ),
+                  )
+                "
+              >
+                <option value="rest">Rest</option>
+                <option
+                  v-for="(name, control) in NOISE_CONTROL_NAMES"
+                  :key="control"
+                  :value="control"
+                >
+                  {{ name }}
+                </option>
+              </select></label
+            >
+            <label
+              >Length<input
+                type="number"
+                aria-label="Length in beats"
+                :value="drafts.beats ?? beats(event)"
+                @input="drafts.beats = value($event)"
+                min="0.001"
+                step="0.25"
+                @change="
+                  commit('beats', () => friendly(event!.id, { beats: Number(value($event)) }))
+                "
+            /></label>
+          </div>
+
           <p>
             {{ VOCABULARY.pitch.technical }} {{ VOCABULARY.volume.technical }} Timing uses 60 ticks
             per second.
@@ -433,10 +518,7 @@ onBeforeUnmount(() => {
           </p>
         </details>
       </section>
-      <p class="sound-help">
-        Arrow keys choose notes. Alt + arrows move them. Insert adds; Delete removes. Space plays or
-        stops.
-      </p>
+      <p class="sound-help">Drop a .mid or .vgm file here or onto the game.</p>
     </template>
     <p v-else>This SOUND uses an inspection format. {{ document.diagnostics.join(" ") }}</p>
     <p v-if="notice" class="workspace-error" role="alert">{{ notice }}</p>
@@ -465,8 +547,7 @@ p {
   justify-content: space-between;
 }
 .sound-transport,
-.sound-note-actions,
-.sound-presets > div {
+.sound-note-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -474,13 +555,6 @@ p {
 }
 .sound-transport span {
   font-size: var(--text-xs);
-  color: var(--ink-2);
-}
-.sound-presets {
-  margin: var(--space-5) 0;
-}
-.sound-presets h3 {
-  margin-bottom: var(--space-2);
   color: var(--ink-2);
 }
 .sound-tempo {
@@ -499,49 +573,81 @@ p {
 .sound-help {
   margin: var(--space-3) 0;
 }
-.sound-voice {
-  border-top: 1px solid var(--hairline);
-  padding: var(--space-4) 0;
-}
-.sound-voice h3 {
-  margin-bottom: var(--space-3);
-}
-.sound-notes {
+.sound-toolbar,
+.sound-voices,
+.sound-footer {
   display: flex;
-  gap: var(--space-2);
+  flex-wrap: wrap;
   align-items: center;
-  overflow-x: auto;
-  padding-bottom: var(--space-2);
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
 }
-.sound-note {
-  flex: 0 0 auto;
-  display: grid;
-  gap: var(--space-1);
-  text-align: left;
-  padding: var(--space-3);
+.sound-lenses {
+  display: flex;
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--ink);
-  cursor: pointer;
 }
-.sound-note span {
+.sound-preset,
+.sound-snap,
+.sound-footer label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+.sound-preset select,
+.sound-snap select {
+  width: auto;
+}
+.sound-footer {
   font-size: var(--text-xs);
   color: var(--ink-2);
 }
-.sound-note--selected {
-  border-color: var(--accent);
-  background: var(--surface-3);
+.sound-footer input {
+  width: 6em;
 }
-.sound-note:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.sound-voices .voice-0 {
+  color: var(--action);
+}
+.sound-voices .voice-1 {
+  color: var(--warn);
+}
+.sound-voices .voice-2 {
+  color: var(--danger);
+}
+.sound-voices .voice-3 {
+  color: var(--ink-2);
+}
+.sound-voices [aria-pressed="true"],
+.sound-lenses [aria-pressed="true"] {
+  background: var(--surface-3);
+  outline: 1px solid var(--hairline-strong);
 }
 .sound-note-editor {
-  padding: var(--space-4);
+  padding: var(--space-3);
   background: var(--surface-1);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-sm);
+}
+.sound-footer-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.sound-footer-row h3 {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  flex: 1;
+}
+.sound-footer-volume label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+.sound-footer-volume input {
+  width: 4em;
 }
 .sound-fields {
   display: flex;

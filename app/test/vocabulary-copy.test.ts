@@ -147,6 +147,14 @@ test("workspace copy shares vocabulary labels and explainers", () => {
       "VOCABULARY.objectColumn.label",
       "VOCABULARY.roomColumn.label",
     ],
+    "app/src/studio/workspace/SoundPanel.vue": [
+      "VOCABULARY.voice.label",
+      "VOCABULARY.drums.label",
+      "VOCABULARY.grid.label",
+      "VOCABULARY.tracker.label",
+      "VOCABULARY.importMusic.label",
+      "VOCABULARY.exportMidi.label",
+    ],
   };
   for (const [file, expressions] of Object.entries(bindings)) {
     const source = readFileSync(file, "utf8");
