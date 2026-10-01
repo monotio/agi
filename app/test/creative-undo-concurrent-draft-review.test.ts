@@ -28,11 +28,16 @@ test("a field edit immediately after Undo branches and has its own pre-state", a
   const pixels = new Uint8Array([255, 0, 0, 255]);
   const encodedBytes = encodePngRgb(1, 1, new Uint8Array([255, 0, 0]));
   const source = await workspace.importIntake({
-    format: "png", sourceWidth: 1, sourceHeight: 1, orientation: 1,
+    format: "png",
+    sourceWidth: 1,
+    sourceHeight: 1,
+    orientation: 1,
     encoded: { hash: sha256Hex(encodedBytes), byteLength: encodedBytes.length, mime: "image/png" },
     encodedBytes,
     normalized: {
-      format: "rgba8-srgb-unpremultiplied-v1", width: 1, height: 1,
+      format: "rgba8-srgb-unpremultiplied-v1",
+      width: 1,
+      height: 1,
       blob: { hash: sha256Hex(pixels), byteLength: pixels.length, mime: "application/x-rgba8" },
     },
     pixels,
@@ -48,7 +53,11 @@ test("a field edit immediately after Undo branches and has its own pre-state", a
   workspace.updateUnderlay({ opacity: 0.75 });
   await workspace.saveRecovery();
   try {
-    assert.equal(workspace.canRedo, false, "typing after Undo replaces the redo branch immediately");
+    assert.equal(
+      workspace.canRedo,
+      false,
+      "typing after Undo replaces the redo branch immediately",
+    );
     await workspace.undo();
     assert.equal(workspace.underlay!.opacity, original);
   } finally {
@@ -111,7 +120,6 @@ test("typing during displaced-state persistence refuses creative Undo and preser
   }
 });
 
-
 test("typing while earlier capture drains cannot rebase a queued creative Undo", async () => {
   const prepared = prepareLocalProject({ title: "Queued Undo authority", kind: "blank" });
   await prepared.save();
@@ -121,13 +129,19 @@ test("typing while earlier capture drains cannot rebase a queued creative Undo",
   const pixels = new Uint8Array([255, 0, 0, 255]);
   const encodedBytes = encodePngRgb(1, 1, new Uint8Array([255, 0, 0]));
   const source = await workspace.importIntake({
-    format: "png", sourceWidth: 1, sourceHeight: 1, orientation: 1,
+    format: "png",
+    sourceWidth: 1,
+    sourceHeight: 1,
+    orientation: 1,
     encoded: { hash: sha256Hex(encodedBytes), byteLength: encodedBytes.length, mime: "image/png" },
     encodedBytes,
     normalized: {
-      format: "rgba8-srgb-unpremultiplied-v1", width: 1, height: 1,
+      format: "rgba8-srgb-unpremultiplied-v1",
+      width: 1,
+      height: 1,
       blob: { hash: sha256Hex(pixels), byteLength: pixels.length, mime: "application/x-rgba8" },
-    }, pixels,
+    },
+    pixels,
   });
   workspace.beginUnderlay(versionRefKey(source.identity), 1);
   await workspace.saveRecovery();
@@ -145,7 +159,10 @@ test("typing while earlier capture drains cannot rebase a queued creative Undo",
   };
   try {
     workspace.updateUnderlay({ opacity: 0.25 });
-    const refusal = await workspace.undo().then(() => undefined, (error: unknown) => error);
+    const refusal = await workspace.undo().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     assert.equal(injected, true, "the earlier queued capture drained after Undo was called");
     assert.equal(project.draft.capture().read("logic:1")?.content, typed);
     assert.equal(workspace.underlay?.opacity, 0.25);

@@ -28,11 +28,16 @@ test("creative Undo refuses when its final snapshot read classifies the stored b
   const pixels = new Uint8Array([255, 0, 0, 255]);
   const encodedBytes = encodePngRgb(1, 1, new Uint8Array([255, 0, 0]));
   await workspace.importIntake({
-    format: "png", sourceWidth: 1, sourceHeight: 1, orientation: 1,
+    format: "png",
+    sourceWidth: 1,
+    sourceHeight: 1,
+    orientation: 1,
     encoded: { hash: sha256Hex(encodedBytes), byteLength: encodedBytes.length, mime: "image/png" },
     encodedBytes,
     normalized: {
-      format: "rgba8-srgb-unpremultiplied-v1", width: 1, height: 1,
+      format: "rgba8-srgb-unpremultiplied-v1",
+      width: 1,
+      height: 1,
       blob: { hash: sha256Hex(pixels), byteLength: pixels.length, mime: "application/x-rgba8" },
     },
     pixels,

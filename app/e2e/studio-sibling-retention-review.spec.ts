@@ -7,7 +7,9 @@ import {
   seedLocalProject,
 } from "./logicDebugShared.ts";
 
-test("Code to Sound and back preserves unkept source and caret @webkit-desktop", async ({ page }) => {
+test("Code to Sound and back preserves unkept source and caret @webkit-desktop", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await prepareIsolatedPage(page);
   const providers = blockProviders(page);
@@ -35,11 +37,17 @@ test("Code to Sound and back preserves unkept source and caret @webkit-desktop",
   await expect(page.getByTestId("sound-studio")).toBeVisible();
   await page.getByTestId("sound-open-code").click();
   await expect(page.getByTestId("logic-studio")).toBeVisible();
-  await expect.poll(() => page.evaluate(async () => {
-    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-    return monaco.editor.getModels().find((model) =>
-      model.uri.toString().endsWith("/logic%3A1"))?.getValue();
-  })).toContain("unkept source across sibling navigation");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+        return monaco.editor
+          .getModels()
+          .find((model) => model.uri.toString().endsWith("/logic%3A1"))
+          ?.getValue();
+      }),
+    )
+    .toContain("unkept source across sibling navigation");
   await expect(page.getByTestId("logic-studio-status")).toContainText("1 change");
   expect(
     await page.evaluate(() =>

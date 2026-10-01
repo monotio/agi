@@ -87,7 +87,7 @@ export type ExecutionCause =
     };
 
 /** How the observed operation ended. */
-export type ExecutionObservationOutcome =
+type ExecutionObservationOutcome =
   /** The operation ran to completion. */
   | "completed"
   /** The operation threw HostWait: the engine is now waiting on the host. */

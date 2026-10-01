@@ -19,7 +19,6 @@ import {
   clearAutosave,
   lastGameKey,
   readAutosave,
-  resumableAutosave,
   useAutosaveController,
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
@@ -53,7 +52,7 @@ import type { HistoryBatch } from "../../../src/agent/history.ts";
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
 import type { EngineState, TextHook } from "./useEngineTypes.ts";
 
-export { autosaveKey, lastGameKey, readAutosave, resumableAutosave, writeAutosave };
+export { autosaveKey, lastGameKey, readAutosave, writeAutosave };
 export type { AutosaveRecord } from "../saves/useAutosaveController.ts";
 
 /**

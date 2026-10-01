@@ -31,24 +31,24 @@ export const DEBUG_BREAKPOINT_LIMITS = {
   logOutput: 2048,
 } as const;
 
-export interface DebugHitPolicy {
+interface DebugHitPolicy {
   readonly kind: "equal" | "atLeast" | "every";
   readonly count: number;
 }
 
-export interface DebugLogLiteralSegment {
+interface DebugLogLiteralSegment {
   readonly type: "literal";
   readonly text: string;
 }
 
-export interface DebugLogExpressionSegment {
+interface DebugLogExpressionSegment {
   readonly type: "expression";
   readonly source: string;
 }
 
 export type DebugLogSegment = DebugLogLiteralSegment | DebugLogExpressionSegment;
 
-export interface DebugLogpoint {
+interface DebugLogpoint {
   readonly segments: readonly DebugLogSegment[];
 }
 
@@ -67,12 +67,12 @@ export interface DebugBreakpointSpec {
   readonly log?: DebugLogpoint;
 }
 
-export interface DebugBreakpointConfig {
+interface DebugBreakpointConfig {
   readonly revision: number;
   readonly breakpoints: readonly DebugBreakpointSpec[];
 }
 
-export type DebugUnboundReason =
+type DebugUnboundReason =
   | "unknown-logic"
   | "no-source"
   | "no-source-map"
@@ -80,9 +80,9 @@ export type DebugUnboundReason =
   | "non-executable-line"
   | "no-statement-at-position";
 
-export type DebugBoundKind = "action" | "return" | "goto" | "if" | "predicate";
+type DebugBoundKind = "action" | "return" | "goto" | "if" | "predicate";
 
-export interface DebugEmittedLocation {
+interface DebugEmittedLocation {
   readonly kind: DebugBoundKind;
   readonly pc: number;
   readonly endPc: number;
@@ -112,19 +112,19 @@ export interface DebugBreakpointStatus {
   readonly fault: string | null;
 }
 
-export interface DebugConfigureResult {
+interface DebugConfigureResult {
   readonly revision: number;
   readonly entries: readonly DebugBreakpointStatus[];
 }
 
-export interface DebugStop {
+interface DebugStop {
   readonly id: string;
   readonly reason: "hit" | "error";
   readonly hitCount: number;
   readonly error?: string;
 }
 
-export interface DebugLogEvent {
+interface DebugLogEvent {
   readonly id: string;
   readonly hitCount: number;
   readonly text: string;

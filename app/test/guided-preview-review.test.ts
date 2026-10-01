@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resourceOptions, roomOptions, roomPictureNumber } from "../src/studio/logic/guided/guidedPreview.ts";
+import {
+  resourceOptions,
+  roomOptions,
+  roomPictureNumber,
+} from "../src/studio/logic/guided/guidedPreview.ts";
 
 test("guided room pickers stay usable while world rooms is being edited", () => {
   assert.deepEqual(roomOptions({ "logic:1": "return();" }, '{"rooms":null}'), [
@@ -15,5 +19,8 @@ test("guided resource pickers tolerate incomplete binding entries", () => {
 });
 
 test("guided room preview tolerates an incomplete picture binding", () => {
-  assert.equal(roomPictureNumber("assignn(v20, room_picture);\ndraw.pic(v20);", '{"room_picture":null}'), null);
+  assert.equal(
+    roomPictureNumber("assignn(v20, room_picture);\ndraw.pic(v20);", '{"room_picture":null}'),
+    null,
+  );
 });

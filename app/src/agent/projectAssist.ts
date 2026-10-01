@@ -35,14 +35,14 @@ import type { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 
 /** Provider turns with tool calls one request may take: a ceiling, not a target. */
-export const MAX_PROJECT_ASSIST_ROUNDS = 8;
+const MAX_PROJECT_ASSIST_ROUNDS = 8;
 
 type DocumentContent = string | Uint8Array;
 type WorkspaceProposal = ReturnType<ProjectDraft["propose"]>;
 type WorkspaceTransaction = ReturnType<ProjectDraft["apply"]>;
 
 /** One document edit inside a proposal: new whole text/bytes, or null to delete. */
-export interface ProjectAssistDocumentChange {
+interface ProjectAssistDocumentChange {
   readonly key: string;
   readonly content: DocumentContent | null;
 }
@@ -66,7 +66,7 @@ export interface ProjectAssistWorkspace {
   readonly autoApproveEligible?: boolean;
 }
 
-export interface ProjectAssistRequest {
+interface ProjectAssistRequest {
   /** The creator's words. */
   readonly instruction: string;
   /** Extra context the caller attached (selection, focus, notes), shown verbatim. */
@@ -74,8 +74,7 @@ export interface ProjectAssistRequest {
 }
 
 /** How a completed proposal is handled for one request. */
-export type ProjectAssistOutcome =
-  "applied" | "review" | "stale" | "refused" | "none" | "cancelled";
+type ProjectAssistOutcome = "applied" | "review" | "stale" | "refused" | "none" | "cancelled";
 
 /**
  * The request-identified review handle. Opaque: authority lives in the
@@ -104,7 +103,7 @@ export interface ProjectAssistProposal {
   reject(): boolean;
 }
 
-export type ProjectAssistAccept =
+type ProjectAssistAccept =
   | {
       readonly ok: true;
       readonly label: string;
@@ -166,7 +165,7 @@ export interface ProjectAssistState {
   readonly lastResult: ProjectAssistResult | null;
 }
 
-export type ProjectAssistEventSink = (
+type ProjectAssistEventSink = (
   kind: "request" | "response" | "error" | "log" | "telemetry" | "state",
   detail: string,
   data?: unknown,
@@ -177,10 +176,7 @@ export type ProjectAssistEventSink = (
  * createOpenAiConversation/createAnthropicConversation with the project assist
  * tool catalog; provider "stub" returns the deterministic offline stub.
  */
-export type ProjectAssistConversationFactory = (
-  config: LlmConfig,
-  run: AgentRun,
-) => UnifiedConversation;
+type ProjectAssistConversationFactory = (config: LlmConfig, run: AgentRun) => UnifiedConversation;
 
 export interface ProjectAssistOptions {
   /** Label only — included in events. Never an authority input. */
@@ -219,14 +215,14 @@ export interface ProjectAssist {
 }
 
 /** The small task prompt every project-assist conversation is created with. */
-export const PROJECT_ASSIST_SYSTEM_PROMPT = `You are the Logic Studio project assistant for one captured AGI project draft.
+const PROJECT_ASSIST_SYSTEM_PROMPT = `You are the Logic Studio project assistant for one captured AGI project draft.
 
 Tools: read_project_context lists every captured document, its kind, the profile and diagnostics. read_document pages one document's exact authored text (or a hash/byte window for binary documents). propose_project_documents validates your COMPLETE coordinated change set — whole-document text or explicit deletion — through the real compiler and reference checks, then issues it for human review. withdraw_proposal discards your own candidate.
 
 Rules: gather every coordinated change (logic, words, bindings, inventory, world) into one propose call; a second call replaces the pending proposal entirely. Nothing you do applies, saves, tests or installs — the human reviewer decides. Source you read is the exact authored text, including comments and errors; never assume compiled bytes.`;
 
 /** The user turn of one request; the small task system prompt stays unchanged. */
-export function createProjectAssistPrompt(
+function createProjectAssistPrompt(
   request: ProjectAssistRequest,
   workspace: AgentWorkspace,
 ): string {
@@ -253,7 +249,7 @@ export function createProjectAssistPrompt(
 }
 
 /** Deterministic offline conversation for the stub provider — no network. */
-export function createProjectAssistStub(instruction = ""): UnifiedConversation {
+function createProjectAssistStub(instruction = ""): UnifiedConversation {
   const transcript: unknown[] = [];
   return {
     setAvailableTools() {},

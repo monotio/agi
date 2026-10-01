@@ -64,7 +64,8 @@ import type { WorkerInbound } from "../worker/workerProtocol.ts";
  * still recognizes it. New boots and checkpoints write only the dedicated
  * resumeTarget key (resumePointer.ts); this one stays legacy read context.
  */
-export const LAST_GAME_KEY = LEGACY_LAST_GAME_KEY;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const LAST_GAME_KEY = LEGACY_LAST_GAME_KEY;
 const RESUME_CAPTION_MS = 10_000;
 /** A posted resume waits this long for the worker's restore acknowledgement. */
 const RESUME_ACK_TIMEOUT_MS = 15_000;
@@ -309,7 +310,7 @@ export interface ResumeBootCandidate {
  * session move — its intent already ended, or its evidence mismatched, and
  * a fresh boot must never stand in for a failed restore.
  */
-export type ResumeAdmission =
+type ResumeAdmission =
   | { readonly status: "none" }
   | {
       readonly status: "restore";
@@ -326,7 +327,7 @@ export type ResumeAdmission =
  * operation, a reset or an eject taking over; `timeout` is an armed post
  * whose acknowledgement never arrived.
  */
-export type ResumeOutcome =
+type ResumeOutcome =
   | { readonly status: "restored" }
   | { readonly status: "refused"; readonly message: string }
   | { readonly status: "failed"; readonly message: string }

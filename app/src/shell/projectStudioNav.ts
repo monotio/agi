@@ -15,7 +15,7 @@ import { inject, provide, type InjectionKey } from "vue";
 import type { ProjectId } from "../project/gameTypes.ts";
 
 /** The stored-project studios the overlay slot can hold. */
-export type ProjectStudioKind = "logic" | "sound";
+type ProjectStudioKind = "logic" | "sound";
 
 /** Where an open lands inside the studio — a document key like `logic:3`. */
 export interface StudioOpenTarget {
@@ -27,7 +27,7 @@ export interface StudioOpenTarget {
  * document to focus once the studio is open; `epoch` is minted per request
  * so a later request always supersedes an earlier one, never the reverse.
  */
-export interface ProjectStudioRequest extends StudioOpenTarget {
+interface ProjectStudioRequest extends StudioOpenTarget {
   readonly studio: ProjectStudioKind;
   readonly projectId: ProjectId;
   readonly epoch: number;
@@ -39,16 +39,15 @@ export interface ProjectStudioRequest extends StudioOpenTarget {
  * the activated view lands; a same-project sibling move changes only
  * `studio` (and `document`) — the host and its project session stay.
  */
-export interface ProjectStudioMount {
+interface ProjectStudioMount {
   readonly projectId: ProjectId;
   readonly studio: ProjectStudioKind;
   readonly document?: string;
 }
 
 /** Resolve a request to the host's mount, or null when nothing is open. */
-export function projectStudioMount(
-  request: ProjectStudioRequest | null,
-): ProjectStudioMount | null {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function projectStudioMount(request: ProjectStudioRequest | null): ProjectStudioMount | null {
   if (request === null) return null;
   return {
     projectId: request.projectId,
@@ -58,7 +57,7 @@ export function projectStudioMount(
 }
 
 /** One sibling editor destination the nav shows for the open project. */
-export interface StudioRoute {
+interface StudioRoute {
   readonly kind: "logic" | "picture" | "view" | "sound";
   readonly label: string;
   /** The document the route lands on, when the route names one. */
@@ -78,7 +77,8 @@ const ROUTE_ORDER = ["logic", "picture", "view", "sound"] as const;
  * (deeper navigation stays inside the host editor). A project with no
  * picture or view keeps the route visible but unavailable.
  */
-export function projectStudioRoutes(input: {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function projectStudioRoutes(input: {
   readonly pictures?: readonly number[];
   readonly views?: readonly number[];
   readonly sounds?: readonly number[];
@@ -150,7 +150,7 @@ export function sameProjectStudioDestination(
  * the mounted host; a different project keeps the host while the session
  * runs its guarded switch.
  */
-export type ProjectStudioOpen = (
+type ProjectStudioOpen = (
   kind: ProjectStudioKind,
   projectId: ProjectId,
   target?: StudioOpenTarget,
@@ -158,11 +158,13 @@ export type ProjectStudioOpen = (
 
 const projectStudioOpenKey: InjectionKey<ProjectStudioOpen> = Symbol("agi-project-studio-open");
 
-export function provideProjectStudioOpen(open: ProjectStudioOpen): void {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function provideProjectStudioOpen(open: ProjectStudioOpen): void {
   provide(projectStudioOpenKey, open);
 }
 
 /** The shell's studio opener, or null outside the app shell. */
-export function useProjectStudioOpen(): ProjectStudioOpen | null {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function useProjectStudioOpen(): ProjectStudioOpen | null {
   return inject(projectStudioOpenKey, null);
 }

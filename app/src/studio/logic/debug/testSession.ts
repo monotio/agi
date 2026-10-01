@@ -114,10 +114,10 @@ export interface TestStartOptions {
  * claim against. All of it is the worker's own report — the session adopts
  * the `current` identity every result and status answer recomputes.
  */
-export type PreviewGrant = PreviewLaneIdentity & { readonly runToken: string };
+type PreviewGrant = PreviewLaneIdentity & { readonly runToken: string };
 
 /** One previewUpdate attempt's settlement as the session observed it. */
-export type PreviewUpdateVerdict =
+type PreviewUpdateVerdict =
   | {
       /** The worker answered the request itself — its outcome is fact. */
       readonly kind: "settled";

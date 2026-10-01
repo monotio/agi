@@ -103,7 +103,7 @@ import {
 } from "./creativeWorkArchive.ts";
 
 export { CreativeDraftError };
-export type { CreativeDraftReason, CreativeDraftStaleField } from "./creativeWorkArchive.ts";
+export type { CreativeDraftStaleField } from "./creativeWorkArchive.ts";
 import type { CreativeDraftStaleField } from "./creativeWorkArchive.ts";
 
 function fail(reason: CreativeDraftReason, message: string): never {

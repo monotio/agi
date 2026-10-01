@@ -77,8 +77,8 @@ import {
   upsertHold,
 } from "./creativeDrafts.ts";
 import {
+  MAX_CREATIVE_DRAFT_WORKSPACES,
   MAX_CREATIVE_UNDO_SNAPSHOTS,
-  MAX_CREATIVE_UNDO_WORKSPACES,
   CreativeDraftError,
   creativeDraftKey,
   creativeDraftRecord,
@@ -102,7 +102,6 @@ import {
 } from "./creativeWorkArchive.ts";
 
 export { CreativeDraftError };
-export type { CreativeDraftReason, CreativeDraftStaleField } from "./creativeWorkArchive.ts";
 
 function fail(reason: CreativeDraftReason, message: string): never {
   throw new CreativeDraftError(reason, message);
@@ -386,7 +385,7 @@ export async function saveCreativeUndo(input: {
           };
         }
         const workspaces = new Set(entries.map((entry) => entry.workspace));
-        if (!workspaces.has(workspaceId) && workspaces.size >= MAX_CREATIVE_UNDO_WORKSPACES)
+        if (!workspaces.has(workspaceId) && workspaces.size >= MAX_CREATIVE_DRAFT_WORKSPACES)
           fail(
             "budget",
             `Too many workspaces hold retained creative snapshots. Discard an older snapshot first.`,

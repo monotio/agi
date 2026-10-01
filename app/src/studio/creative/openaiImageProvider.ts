@@ -202,7 +202,8 @@ export const OPENAI_IMAGE_MODELS: Readonly<Record<string, OpenAiImageModel>> = O
 });
 
 /** Conservative starting options a caller can present; every request still names its own. */
-export const OPENAI_IMAGE_DEFAULTS = Object.freeze({
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const OPENAI_IMAGE_DEFAULTS = Object.freeze({
   model: "gpt-image-2.5-sunburst",
   quality: "low" as OpenAiImageQuality,
   size: "1024x1024",
@@ -255,7 +256,7 @@ export interface OpenAiImageRequest {
 }
 
 /** What one image input contributes to the detached review summary. */
-export interface OpenAiImageMaterialSummary {
+interface OpenAiImageMaterialSummary {
   readonly identity: VersionRef;
   readonly roles: readonly string[];
   readonly hash: string;
@@ -307,7 +308,7 @@ export interface PreparedOpenAiImage {
 }
 
 /** Token accounting the provider returned; absent stays absent, never a fabricated zero. */
-export interface OpenAiImageUsage {
+interface OpenAiImageUsage {
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly totalTokens?: number;
@@ -342,8 +343,7 @@ export interface OpenAiImageOffer {
 }
 
 /** Supplies the user's own key. Called only inside submit, exactly once per submit. */
-export type OpenAiImageCredentials = () =>
-  string | null | undefined | Promise<string | null | undefined>;
+type OpenAiImageCredentials = () => string | null | undefined | Promise<string | null | undefined>;
 
 export interface OpenAiImageProviderOptions {
   readonly credentials: OpenAiImageCredentials;

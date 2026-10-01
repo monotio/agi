@@ -222,7 +222,7 @@ export interface DebugWorkspaceOptions {
  * lost ACK the retained ledger could not name — the run is live but the
  * installed authority is unknown, so only an explicit restart is honest.
  */
-export interface DebugUpdateState {
+interface DebugUpdateState {
   readonly status: "idle" | "pending" | "waiting" | "blocked" | "indeterminate";
   /** The worker's own reason, or the reconciliation's — never a guess. */
   readonly reason: string | null;
@@ -253,7 +253,7 @@ interface UnresolvedUpdate {
  * active run's game input. Debugger-only verbs (stops, steps, inspections,
  * spec edits) stay on the full workspace.
  */
-export interface DebugPreviewHandle {
+interface DebugPreviewHandle {
   /** The workspace's published run state — the same reactive object. */
   readonly state: DebugWorkspace["state"];
   hasRun(): boolean;

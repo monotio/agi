@@ -32,13 +32,13 @@ type WorkspaceProposal = ReturnType<ProjectDraft["propose"]>;
 type DocumentContent = string | Uint8Array;
 
 /** Largest single document read page, in UTF-16 code units. */
-export const MAX_READ_TEXT_CHARS = 32000;
+const MAX_READ_TEXT_CHARS = 32000;
 /** Default document read page, in UTF-16 code units. */
-export const DEFAULT_READ_TEXT_CHARS = 8000;
+const DEFAULT_READ_TEXT_CHARS = 8000;
 /** Largest byte window a binary document read may return, in bytes. */
-export const MAX_READ_BYTES = 1024;
+const MAX_READ_BYTES = 1024;
 /** Longest single proposed document text, in UTF-16 code units. */
-export const MAX_PROPOSE_TEXT_CHARS = 131072;
+const MAX_PROPOSE_TEXT_CHARS = 131072;
 /** Most documents one propose call may coordinate. */
 export const MAX_PROPOSE_CHANGES = 40;
 

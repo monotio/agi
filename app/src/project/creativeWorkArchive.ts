@@ -251,7 +251,7 @@ export const CREATIVE_UNDOS_FORMAT = "monotio.agi.creative-undos";
 /** Total retained snapshots a project may hold; matches the portable bound. */
 export const MAX_CREATIVE_UNDO_SNAPSHOTS = CREATIVE_WORK_LIMITS.maxUndos;
 /** Snapshot-bearing workspaces are bounded like recovery workspaces. */
-export const MAX_CREATIVE_UNDO_WORKSPACES = MAX_CREATIVE_DRAFT_WORKSPACES;
+const MAX_CREATIVE_UNDO_WORKSPACES = MAX_CREATIVE_DRAFT_WORKSPACES;
 
 export function creativeUndoIndexKey(projectId: ProjectId): string {
   return `creative/${projectId}/undos`;

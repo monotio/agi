@@ -46,7 +46,7 @@ export interface ProjectDocumentItem {
 }
 
 /** A labeled subdivision inside a section (Rooms / Shared under Logic). */
-export interface ProjectExplorerGroup {
+interface ProjectExplorerGroup {
   readonly label?: string;
   readonly entries: readonly ProjectDocumentItem[];
 }
@@ -101,6 +101,7 @@ export interface ProjectStudioStart {
  * belong to the host's persistent frame bar beside the tab strip, reachable
  * from every editor, not to this landing place. The component renders and
  * reports the click; the host owns what the action does.
+ * @public
  */
 export interface ProjectStudioAction {
   readonly id: string;

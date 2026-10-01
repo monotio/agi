@@ -42,7 +42,7 @@ export interface DebugWatchSpec {
   readonly condition?: string;
 }
 
-export interface DebugWatchpointConfig {
+interface DebugWatchpointConfig {
   readonly revision: number;
   readonly watchpoints: readonly DebugWatchSpec[];
 }
@@ -53,9 +53,9 @@ export interface DebugWatchpointConfig {
  * implied instruction location — a phase names itself rather than blaming
  * the next instruction.
  */
-export type DebugWatchCauseKind = "action" | "predicate" | ExecutionPhaseKind;
+type DebugWatchCauseKind = "action" | "predicate" | ExecutionPhaseKind;
 
-export interface DebugWatchLocation {
+interface DebugWatchLocation {
   readonly logic: number;
   readonly pc: number;
 }
@@ -86,7 +86,7 @@ export interface DebugWatchChange {
   readonly error?: string;
 }
 
-export interface DebugWatchOutcome {
+interface DebugWatchOutcome {
   /** True when this exact sequence was already admitted once. */
   readonly repeat: boolean;
   readonly sequence: number;
@@ -106,7 +106,7 @@ export interface DebugWatchStatus {
   readonly fault: string | null;
 }
 
-export interface DebugWatchConfigureResult {
+interface DebugWatchConfigureResult {
   readonly revision: number;
   readonly entries: readonly DebugWatchStatus[];
 }

@@ -29,9 +29,16 @@ async function appendNativeGroup(page: Page, chunks: readonly string[]): Promise
     for (const part of parts) {
       const line = model.getLineCount();
       const column = model.getLineMaxColumn(line);
-      model.pushEditOperations(null, [{
-        range: new monaco.Range(line, column, line, column), text: part,
-      }], () => null);
+      model.pushEditOperations(
+        null,
+        [
+          {
+            range: new monaco.Range(line, column, line, column),
+            text: part,
+          },
+        ],
+        () => null,
+      );
     }
     model.pushStackElement();
   }, chunks);

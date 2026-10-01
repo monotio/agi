@@ -102,7 +102,7 @@ export interface ProjectResourceEditor {
  * candidate it stages what that candidate can admit and returns the sealed
  * publication intent, or undefined when nothing pending belongs to it.
  */
-export type CreativeKeepProvider = (
+type CreativeKeepProvider = (
   candidate: EditableCandidate,
 ) => Promise<CreativeKeepPreparation | undefined>;
 

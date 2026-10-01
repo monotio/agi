@@ -16,7 +16,7 @@ export const AUDITION_TICK_HZ = 60;
 export type AuditionStatus = "idle" | "playing" | "paused" | "seeking" | "complete" | "refused";
 
 /** "unsupported" names the opaque authoring families (booter rows, IIgs). */
-export type AuditionLaneControls = "single" | "four" | "unsupported";
+type AuditionLaneControls = "single" | "four" | "unsupported";
 
 export interface AuditionTarget {
   projectId: string;

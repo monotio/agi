@@ -96,7 +96,7 @@ export interface CreativeGenerationContext {
   readonly workspaceVersion: number;
 }
 
-/** A source the asset picker may offer. */
+/** @public A source the asset picker may offer. */
 export interface CreativeGenerationSourceOption {
   readonly identity: VersionRef;
   readonly key: string;
@@ -107,7 +107,7 @@ export interface CreativeGenerationSourceOption {
   readonly onBoard: boolean;
 }
 
-/** An approved board entry the reference picker may offer. */
+/** @public An approved board entry the reference picker may offer. */
 export interface CreativeGenerationReferenceOption {
   /** The board entry's own identity; this is what a request names. */
   readonly identity: VersionRef;
@@ -213,7 +213,7 @@ interface CreativeGenerationImageReview {
   readonly height: number;
 }
 
-/** The frozen review: what leaves, whom it names and the context it pinned. */
+/** @public The frozen review: what leaves, whom it names and the context it pinned. */
 export interface CreativeGenerationReview {
   readonly summary: OpenAiImageSummary;
   readonly images: readonly CreativeGenerationImageReview[];
@@ -231,6 +231,7 @@ export interface CreativeGenerationReview {
     | undefined;
 }
 
+/** @public Workflow phases. */
 export type CreativeGenerationPhase =
   "compose" | "preparing" | "review" | "submitting" | "offer" | "using";
 
@@ -248,6 +249,7 @@ export type CreativeGenerationFailure =
   /** Durable admission refused the write; the work may be retried. */
   | "conflict";
 
+/** @public Failure info. */
 export interface CreativeGenerationFailureInfo {
   readonly reason: CreativeGenerationFailure;
   readonly message: string;

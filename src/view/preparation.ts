@@ -91,7 +91,7 @@ export interface SourceRaster {
 }
 
 /** Positive-integer rectangle with half-open source-pixel edges. */
-export interface FrameRegion {
+interface FrameRegion {
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -165,12 +165,12 @@ export interface ViewPreparationRecipe {
   readonly description?: string | undefined;
 }
 
-export interface CropLossCount {
+interface CropLossCount {
   readonly opaque: number;
   readonly transparent: number;
 }
 
-export interface FrameDiagnostics {
+interface FrameDiagnostics {
   /** Source-space window the canvas sampled (edges; left/right may be fractional). */
   readonly window: {
     readonly left: number;
@@ -199,7 +199,7 @@ export interface FrameDiagnostics {
   };
 }
 
-export interface PreparedFrame {
+interface PreparedFrame {
   readonly id: string;
   readonly source: SourceIdentity;
   readonly region: FrameRegion;
@@ -216,7 +216,7 @@ export interface PreparedFrame {
   readonly diagnostics: FrameDiagnostics;
 }
 
-export interface PreparedViewLoop {
+interface PreparedViewLoop {
   readonly id: string;
   readonly facing: ViewFacing | null;
   readonly kind: "cels" | "mirror";
@@ -286,7 +286,8 @@ function samePixels(a: Uint8Array, b: Uint8Array | readonly number[]): boolean {
 
 /** A horizontally flipped copy — the explicit remedy offered when a native
  * mirror loop is not representable. */
-export function flipSheetFrame(frame: SheetFrame): SheetFrame {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function flipSheetFrame(frame: SheetFrame): SheetFrame {
   return {
     width: frame.width,
     height: frame.height,

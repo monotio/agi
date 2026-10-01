@@ -127,7 +127,7 @@ export class SoundDocumentError extends Error {
  * Decoded event content. `raw` preserves the three data bytes of a
  * noncanonical but structurally valid record exactly.
  */
-export type SoundEventData =
+type SoundEventData =
   | { readonly kind: "tone"; readonly divisor: number; readonly attenuation: number }
   | { readonly kind: "noise"; readonly control: number; readonly attenuation: number }
   | { readonly kind: "rest" }

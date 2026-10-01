@@ -14,7 +14,6 @@ import { decodeBooter, isBooterImage } from "../../../src/container/booter.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import { parseLogicResource } from "../../../src/logic/resource.ts";
 
-export { MAX_GAME_ZIP_BYTES };
 const MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 

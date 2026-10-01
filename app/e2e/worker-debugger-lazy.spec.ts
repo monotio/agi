@@ -155,7 +155,9 @@ async function runIsolatedTest(
           const found = out.find(predicate);
           if (found !== undefined) return found;
           if (performance.now() > deadline)
-            throw new Error(`timed out waiting for ${what}; worker replies: ${JSON.stringify(out)}`);
+            throw new Error(
+              `timed out waiting for ${what}; worker replies: ${JSON.stringify(out)}`,
+            );
           await sleep(10);
         }
       };
