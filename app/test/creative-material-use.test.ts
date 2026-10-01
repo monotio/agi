@@ -90,7 +90,7 @@ const OTHER_2X2 = intake(2, 2, () => [255, 0, 0, 255]);
 const SELECTION: Rect = { x: 1, y: 1, width: 2, height: 2 };
 
 async function seed(name: string): Promise<EditableProject> {
-  const prepared = prepareLocalProject({ title: name, kind: "blank" });
+  const prepared = prepareLocalProject({ title: name, kind: "boilerplate" });
   await prepared.save();
   return openEditableProject(prepared.projectId);
 }

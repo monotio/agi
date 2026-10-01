@@ -4,6 +4,7 @@ import { openContainer } from "../src/container/container.ts";
 import { compileProjectLogic } from "../src/authoring/projectLogic.ts";
 import {
   createStarterProject,
+  isPlayableProject,
   STARTER_EGO_VIEW_SOURCE,
   type StarterKind,
 } from "../src/authoring/starterProject.ts";
@@ -20,7 +21,7 @@ import { compileViewSource } from "../src/view/viewSource.ts";
 import type { GameContainer, ResourceKind } from "../src/types.ts";
 
 const PROFILE = PROFILES["2.936"]!;
-const KINDS: readonly StarterKind[] = ["blank", "starter"];
+const KINDS: readonly StarterKind[] = ["starter", "boilerplate", "blank"];
 
 class StarterHost implements EngineHost {
   keys: number[] = [];
@@ -116,8 +117,8 @@ describe("starter project determinism and ownership", () => {
     const starter = createStarterProject("starter");
     assert.notEqual(blank.seed.digest, starter.seed.digest);
     assert.match(blank.seed.digest, /^[0-9a-f]{64}$/);
-    assert.equal(blank.seed.templateRevision, 1);
-    assert.equal(starter.seed.templateRevision, 2);
+    assert.equal(blank.seed.templateRevision, 2);
+    assert.equal(starter.seed.templateRevision, 3);
     assert.notEqual(blank.seed.templateId, starter.seed.templateId);
   });
 });
@@ -179,31 +180,55 @@ describe("starter project source fidelity", () => {
 // ---------- blank ----------
 
 describe("blank starter project", () => {
-  test("carries only the minimal editable resources — no hero, menu, death or story", () => {
+  test("has empty resource directories, WORDS and OBJECT", () => {
     const project = createStarterProject("blank");
     const container = openContainer(project.files());
-    assert.deepEqual(resourceNumbers(container, "logic"), [0, 1]);
+    for (const kind of ["logic", "picture", "view", "sound"] as const)
+      assert.deepEqual(resourceNumbers(container, kind), []);
+    for (const sources of [
+      project.sources.logics,
+      project.sources.pictures,
+      project.sources.views,
+      project.sources.sounds,
+      project.sources.words,
+    ])
+      assert.equal(sources.size, 0);
+    assert.deepEqual(project.sources.objects, []);
+    assert.deepEqual(project.bindings, {});
+  });
+});
+
+describe("boilerplate project", () => {
+  test("contains the shared boot and death resources and an empty black room", () => {
+    const project = createStarterProject("boilerplate");
+    const container = openContainer(project.files());
+    assert.deepEqual(resourceNumbers(container, "logic"), [0, 1, 255]);
     assert.deepEqual(resourceNumbers(container, "picture"), [1]);
     assert.deepEqual(resourceNumbers(container, "view"), []);
-    assert.deepEqual(resourceNumbers(container, "sound"), []);
-    assert.equal(project.sources.views.size, 0);
-    assert.equal(project.sources.sounds.size, 0);
+    assert.deepEqual(resourceNumbers(container, "sound"), [255]);
     assert.equal(project.sources.words.size, 0);
-    assert.equal(project.sources.objects.length, 0);
-    assert.equal(project.sources.logics.get(0)!.includes("set.menu"), false);
-    assert.equal(project.sources.logics.get(0)!.includes("call"), true);
-  });
-
-  test("boots into room 1 with no actor and keeps running", () => {
-    const { engine } = boot("blank");
+    assert.deepEqual(project.sources.objects, []);
+    const { engine, host } = boot("boilerplate");
     tick(engine, 6);
-    const state = engine.readState();
-    assert.equal(state.room, 1);
-    assert.equal(state.terminated, false);
-    assert.deepEqual(engine.readObjects(), [], "blank seed has no screen objects");
-    assert.deepEqual(engine.readMenuState().headings, [], "blank seed builds no menu");
-    tick(engine, 10);
-    assert.equal(engine.readState().terminated, false);
+    assert.equal(engine.readState().room, 1);
+    assert.match(surfaceRows(engine).join("\n"), /Your game starts here/);
+    assert.ok(engine.getFrame().visual.every((pixel) => pixel === 0));
+    host.keys.push(0x0d);
+    tick(engine, 2);
+    assert.equal(engine.readState().inputEnabled, true);
+    assert.deepEqual(engine.readObjects(), []);
+    host.keys.push(0x1b);
+    tick(engine, 2);
+    assert.equal(engine.modalKind, "menu");
+    assert.deepEqual(
+      engine.readMenuState().headings.map((h) => h.title),
+      ["File", "Speed", "Sound", "Help"],
+    );
+    host.keys.push(0x1b);
+    tick(engine, 2);
+    host.lines.push("hello");
+    tick(engine, 3);
+    assert.match(surfaceRows(engine).join("\n"), /I don't know the word/);
   });
 });
 
@@ -217,20 +242,47 @@ describe("starter starter project", () => {
     const objects = engine.readObjects();
     const ego = objects.find((o) => o.num === 0);
     assert.ok(ego, "ego is an active screen object");
-    assert.equal(ego.view, 1);
+    assert.equal(ego.view, 0);
     assert.ok(ego.width >= 6 && ego.height >= 28, "the hero is clearly visible");
-    assert.equal(ego.cycling, true, "the hero cycles while walking");
+    assert.equal(ego.cycling, false, "the hero stands still while idle");
+  });
+
+  test("ego holds standing cel 0 for 60 idle cycles and animates while walking", () => {
+    const { engine, host } = boot("starter");
+    tick(engine, 6);
+    for (let i = 0; i < 60; i++) {
+      tick(engine);
+      const ego = engine.readObjects().find((o) => o.num === 0)!;
+      assert.equal(ego.cel, 0);
+      assert.equal(ego.cycling, false);
+    }
+    host.keys.push(0x4d00);
+    const cels = new Set<number>();
+    for (let i = 0; i < 12; i++) {
+      tick(engine);
+      const ego = engine.readObjects().find((o) => o.num === 0)!;
+      assert.equal(ego.cycling, true);
+      cels.add(ego.cel);
+    }
+    assert.ok(cels.size > 1, "walking changes the cel");
+    host.keys.push(0x4d00); // Press the same arrow to stop.
+    for (let i = 0; i < 60; i++) {
+      tick(engine);
+      const ego = engine.readObjects().find((o) => o.num === 0)!;
+      assert.equal(ego.cel, 0);
+      assert.equal(ego.cycling, false);
+    }
   });
 
   test("the ego view is an original four-direction animated figure", () => {
     const project = createStarterProject("starter");
     assert.deepEqual(
-      project.sources.views.get(1),
+      project.sources.views.get(0),
       compileViewSource(STARTER_EGO_VIEW_SOURCE),
       "the stored view definition is the compiled authored source",
     );
     const container = openContainer(project.files());
-    const payload = container.getResource("view", 1)!;
+    const payload = container.getResource("view", 0)!;
     const view = parseView(payload, PROFILE);
     assert.equal(view.loops.length, 4, "right/left/front/back loops");
     for (const [index, loop] of view.loops.entries()) {
@@ -278,6 +330,22 @@ describe("starter starter project", () => {
     assert.doesNotMatch(text, /I don't understand/);
     assert.doesNotMatch(text, /I don't know/);
   });
+
+  for (const [command, answer] of [
+    ["look at cottage", /cottage/i],
+    ["look at tree", /tree/i],
+    ["open door", /locked/i],
+  ] as const) {
+    test(`${command} answers once through the room parser`, () => {
+      const { engine, host } = boot("starter");
+      tick(engine, 6);
+      host.lines.push(command);
+      tick(engine, 3);
+      const text = surfaceRows(engine).join("\n");
+      assert.match(text, answer);
+      assert.doesNotMatch(text, /I don't understand|I don't know/);
+    });
+  }
 
   test("help answers exactly once, with no parser fallback", () => {
     const { engine, host } = boot("starter");
@@ -411,4 +479,16 @@ test("the clearing has a sky, sun, solid tree and the path described by look", (
   assert.equal(at(76, 80), 6, "path leads north");
   assert.equal(at(5, 150), 2, "grass left of path");
   assert.equal(at(140, 150), 2, "grass right of path");
+});
+
+test("playability is LOGIC 0 presence; Blank opens in the workspace empty state", () => {
+  for (const kind of KINDS) {
+    const project = createStarterProject(kind);
+    const files = project.files();
+    assert.equal(isPlayableProject(files), kind !== "blank");
+    assert.deepEqual(files, project.files(), "checking playability preserves files");
+  }
+  const blank = openContainer(createStarterProject("blank").files());
+  blank.putResource("logic", 1, new Uint8Array([1, 0, 0, 0, 0, 0]));
+  assert.equal(isPlayableProject(blank.files), false, "a room alone has no boot");
 });

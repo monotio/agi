@@ -44,7 +44,7 @@ function sessionFiles(session: AgentSession): [string, number[]][] {
 }
 
 function assertSeedIntact(session: AgentSession): void {
-  const seed = createStarterProject("starter");
+  const seed = createStarterProject("boilerplate");
   const want = seed.files();
   const files = session.state.getFiles();
   assert.deepEqual([...files.keys()].sort(), [...want.keys()].sort(), "file set");
@@ -55,7 +55,7 @@ function assertSeedIntact(session: AgentSession): void {
   assert.deepEqual([...session.state.sources.words], [...seed.sources.words]);
 }
 
-test("a failed first provider request leaves the installed Starter intact and retryable", async (t) => {
+test("a failed first provider request leaves the installed Boilerplate intact and retryable", async (t) => {
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => {
     requests++;
@@ -73,7 +73,7 @@ test("a failed first provider request leaves the installed Starter intact and re
   assertSeedIntact(session);
 });
 
-test("cancelling Genesis mid-request keeps the installed Starter intact", async (t) => {
+test("cancelling Genesis mid-request keeps the installed Boilerplate intact", async (t) => {
   let requests = 0;
   t.mock.method(globalThis, "fetch", async (_url: unknown, init?: RequestInit) => {
     requests++;
@@ -133,7 +133,7 @@ test("a session rehydrated from authored files is never reseeded or relaunched",
     requests++;
     return new Response("no provider traffic expected", { status: 400 });
   });
-  const manual = createStarterProject("blank");
+  const manual = createStarterProject("boilerplate");
   const files = Object.fromEntries(manual.files());
   const session = AgentSession.fromAuthoredData(OPENAI, () => {}, files, [...manual.sources.words]);
   assert.equal(session.state.genesisComplete, true);
@@ -170,7 +170,7 @@ test("stub Genesis lands on the seeded session without stale source claims", asy
   assert.deepEqual([...state.sources.words], [...GAME_DICTIONARY]);
 });
 
-test("the Starter retained after a failed Genesis boots and plays in the real Engine", async (t) => {
+test("the Boilerplate retained after a failed Genesis boots and plays in the real Engine", async (t) => {
   t.mock.method(globalThis, "fetch", async () => new Response("fail", { status: 400 }));
   const session = new AgentSession(OPENAI, () => {});
   await assert.rejects(session.startGenesis("A quiet garden."));
@@ -180,11 +180,13 @@ test("the Starter retained after a failed Genesis boots and plays in the real En
   });
   for (let i = 0; i < 6; i++) engine.tick();
   assert.equal(engine.readState().room, 1);
-  const ego = engine.readObjects().find((o) => o.num === 0);
-  assert.ok(ego && ego.cycling, "the seeded hero walks");
-  host.lines.push("look");
+  assert.deepEqual(engine.readObjects(), []);
+  host.keys.push(0x0d);
+  for (let i = 0; i < 2; i++) engine.tick();
+  host.keys.push(0x1b);
   for (let i = 0; i < 3; i++) engine.tick();
   const rows = Array.from({ length: 25 }, (_, r) => engine.textRow(r)).join("\n");
-  assert.match(rows, /sunny clearing/);
+  assert.equal(engine.modalKind, "menu");
+  assert.match(rows, /File/);
   assert.doesNotMatch(rows, /I don't understand/);
 });

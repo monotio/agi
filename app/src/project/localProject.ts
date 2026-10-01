@@ -6,7 +6,9 @@ import { requireProjectId, requireResourceRevision } from "../../../src/gameIden
 import { commitProject, type ProjectCommitRequest } from "./gameStorage.ts";
 
 /**
- * Prepare a local playable project without a worker or assistant. Preparation
+ * Prepare a local editable project without a worker or assistant.
+ * Blank has no LOGIC 0: the app must show the workspace empty state instead
+ * of starting the engine. isPlayableProject checks the boot resource. Preparation
  * owns the seed and validates its complete document image before any storage
  * write. Keep this handle if storage fails: data() remains an exportable copy,
  * and save() retries the same durable commit instead of creating another game.
@@ -40,7 +42,7 @@ export function prepareLocalProject(input: { readonly title: string; readonly ki
     documents,
   });
   if (compiled.build.identity.revision !== seed.seed.digest)
-    throw new Error("The starter documents do not reproduce their playable resources.");
+    throw new Error("The starter documents do not reproduce their compiled resources.");
   const projectId = requireProjectId(`local-${crypto.randomUUID()}`);
   const request: ProjectCommitRequest = {
     projectId,

@@ -73,7 +73,7 @@ function snapshot(value: Record<string, unknown>): Record<string, unknown> {
 // ---------- read ----------
 
 describe("readProjectDocuments", () => {
-  for (const kind of ["blank", "starter"] as const) {
+  for (const kind of ["starter", "boilerplate", "blank"] as const) {
     test(`${kind}: verified sources hydrate every document; the image recompiles identically`, () => {
       const project = createStarterProject(kind);
       const read = readAll(project);
@@ -106,7 +106,7 @@ describe("readProjectDocuments", () => {
   }
 
   test("every indexed resource and auxiliary file is populated as detached bytes", () => {
-    const project = createStarterProject("blank");
+    const project = createStarterProject("boilerplate");
     const read = readProjectDocuments({
       files: filesRecord(project),
       profileId: project.profileId,
@@ -117,11 +117,21 @@ describe("readProjectDocuments", () => {
       "inventory",
       "logic:0",
       "logic:1",
+      "logic:255",
       "picture:1",
+      "sound:255",
       "words",
     ]);
     const container = openContainer(project.files());
-    for (const key of ["logic:0", "logic:1", "picture:1", "words", "inventory"]) {
+    for (const key of [
+      "logic:0",
+      "logic:1",
+      "logic:255",
+      "picture:1",
+      "sound:255",
+      "words",
+      "inventory",
+    ]) {
       const doc = read.documents[key]!;
       assert.ok(doc instanceof Uint8Array, `${key} should be native bytes`);
       const [kind, num] = key.split(":") as [ResourceKind | string, string?];
@@ -148,7 +158,7 @@ describe("readProjectDocuments", () => {
   });
 
   test("claimed sources that do not compile or do not reproduce stay byte-only", () => {
-    const project = createStarterProject("blank");
+    const project = createStarterProject("boilerplate");
     const read = readProjectDocuments({
       files: filesRecord(project),
       profileId: project.profileId,
@@ -199,7 +209,7 @@ describe("readProjectDocuments", () => {
 
 describe("compileProjectDocuments", () => {
   test("a selected picture edit builds while an unrelated broken logic draft stays out", () => {
-    const project = createStarterProject("blank");
+    const project = createStarterProject("boilerplate");
     const files = filesRecord(project);
     const read = readAll(project);
     const draft = new ProjectDraft(read.documents);
@@ -251,7 +261,7 @@ describe("compileProjectDocuments", () => {
   });
 
   test("a comment-only source change moves the build identity, not the resource revision", () => {
-    const project = createStarterProject("blank");
+    const project = createStarterProject("boilerplate");
     const files = filesRecord(project);
     const read = readAll(project);
     const base = compileProjectDocuments({
@@ -274,7 +284,7 @@ describe("compileProjectDocuments", () => {
   });
 
   test("absence of an indexed document deletes the directory entry", () => {
-    const project = createStarterProject("blank");
+    const project = createStarterProject("boilerplate");
     const read = readAll(project);
     const documents: Documents = { ...read.documents };
     delete documents["logic:1"];
@@ -285,7 +295,7 @@ describe("compileProjectDocuments", () => {
     });
     const container = openContainer(result.files());
     assert.equal(container.getResource("logic", 1), null);
-    assert.deepEqual(resourceNumbers(result.files(), "logic"), [0]);
+    assert.deepEqual(resourceNumbers(result.files(), "logic"), [0, 255]);
     assert.deepEqual([...result.files().get("LOGDIR")!.subarray(3, 6)], [0xff, 0xff, 0xff]);
   });
 
@@ -304,9 +314,9 @@ describe("compileProjectDocuments", () => {
     const project = createStarterProject("starter");
     const documents: Documents = { ...readAll(project).documents };
     // Swap the authored view text for the caller's own byte buffer.
-    const viewBytes = openContainer(project.files()).getResource("view", 1)!;
+    const viewBytes = openContainer(project.files()).getResource("view", 0)!;
     const callerOwned = new Uint8Array(viewBytes);
-    documents["view:1"] = callerOwned;
+    documents["view:0"] = callerOwned;
     const result = compileProjectDocuments({
       files: filesRecord(project),
       profileId: PROFILE_ID,
@@ -320,7 +330,7 @@ describe("compileProjectDocuments", () => {
     callerOwned.fill(0);
     const docs = result.documents();
     assert.equal(docs["logic:1"], project.sources.logics.get(1));
-    assert.deepEqual([...(docs["view:1"] as Uint8Array)], [...viewBytes]);
+    assert.deepEqual([...(docs["view:0"] as Uint8Array)], [...viewBytes]);
   });
 
   test("an imported byte-only logic round-trips; changed opaque bytes must decode cleanly", () => {
@@ -411,7 +421,7 @@ describe("compileProjectDocuments", () => {
   });
 
   test("unknown document keys and malformed document bodies are rejected", () => {
-    const project = createStarterProject("blank");
+    const project = createStarterProject("boilerplate");
     const files = filesRecord(project);
     const documents = readAll(project).documents;
     for (const bad of [

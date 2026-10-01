@@ -82,7 +82,12 @@ test("probe: run-to-cursor after a set-values stop on a real starter", async (t)
   });
   t.after(() => workspace.dispose());
 
-  workspace.toggleBreakpoint({ logic: 1, line: 24 });
+  const lookLine =
+    String(ws.draft.capture().read("logic:1")!.content)
+      .split("\n")
+      .findIndex((line) => line.startsWith('if (said("look"))')) + 1;
+  assert.ok(lookLine > 0);
+  workspace.toggleBreakpoint({ logic: 1, line: lookLine });
   await workspace.test();
   await workspace.continueRun();
   workers[0]!.tick(30);
@@ -91,7 +96,11 @@ test("probe: run-to-cursor after a set-values stop on a real starter", async (t)
   await workspace.setValues({ vars: [[60, 5]] });
   assert.equal(workspace.state.phase, "stopped");
 
-  const verdict = await workspace.runToCursor("logic:1", 29);
+  const listenLine =
+    String(ws.draft.capture().read("logic:1")!.content)
+      .split("\n")
+      .findIndex((line) => line.startsWith('if (said("listen"))')) + 1;
+  const verdict = await workspace.runToCursor("logic:1", listenLine);
   console.log("verdict", JSON.stringify(verdict));
   const posted = workers[0]!.posts.find((m) => m.type === "debugRunTo");
   console.log("posted", JSON.stringify(posted));

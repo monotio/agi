@@ -420,7 +420,10 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
 
     // Coordinating the reference rewrite lets the same candidate finish.
     const room = project.sources.logics.get(1)!;
-    const fixed = room.replace(`if (said("look")) { print(m1); }\n`, "");
+    const fixed = room
+      .replace(`if (said("look")) { print(m1); }\n`, "")
+      .replace(`if (said("look", "cottage")) { print(m5); }\n`, "")
+      .replace(`if (said("look", "tree")) { print(m6); }\n`, "");
     assert.notEqual(fixed, room);
     assert.equal(
       executeAgentTool(candidate.state, "write_logic_source", { room: 1, source: fixed }).success,

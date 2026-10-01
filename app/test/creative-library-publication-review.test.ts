@@ -38,7 +38,7 @@ Object.defineProperty(globalThis, "localStorage", {
 
 async function keptProject(name: string) {
   const projectId = testProjectId(name);
-  const starter = createStarterProject("blank");
+  const starter = createStarterProject("boilerplate");
   const data = {
     title: "Synthetic art project",
     provider: "stub",

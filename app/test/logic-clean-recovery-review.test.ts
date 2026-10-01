@@ -23,7 +23,7 @@ Object.defineProperty(globalThis, "localStorage", {
 const ROOM1_ALT = "// Room 1 variant\nif (isset(f5)) {\n  show.pic();\n}\nreturn;";
 
 async function seedWorkspace(name: string) {
-  const prepared = prepareLocalProject({ title: name, kind: "blank" });
+  const prepared = prepareLocalProject({ title: name, kind: "boilerplate" });
   await prepared.save();
   const ws = await openEditableProject(prepared.projectId);
   return { projectId: prepared.projectId, ws };

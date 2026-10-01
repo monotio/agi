@@ -47,7 +47,7 @@ async function storedBody(projectId: ProjectId) {
 }
 
 async function seedProject(name: string, adjust?: (data: CachedGameData) => void) {
-  const prepared = prepareLocalProject({ title: name, kind: "blank" });
+  const prepared = prepareLocalProject({ title: name, kind: "boilerplate" });
   await prepared.save();
   if (adjust) {
     const data = await storage.loadAuthoredGame(prepared.projectId);

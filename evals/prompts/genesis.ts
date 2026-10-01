@@ -20,7 +20,7 @@ export default function ({ vars }: PromptVars): PromptMessage[] {
     },
     {
       role: "user",
-      content: createGenesisPrompt(templateText, createStarterProject("starter")),
+      content: createGenesisPrompt(templateText, createStarterProject("boilerplate")),
     },
   ];
 }

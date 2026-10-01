@@ -4,15 +4,15 @@ import { createStarterProject } from "../../src/authoring/starterProject.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 
-test("Genesis offers the same complete playable Starter before its first provider request", async (t) => {
-  const seed = createStarterProject("starter");
+test("Genesis offers the same complete playable Boilerplate before its first provider request", async (t) => {
+  const seed = createStarterProject("boilerplate");
   const expected = openContainer(seed.files());
   let requests = 0;
   let offered: ReturnType<typeof openContainer> | undefined;
   t.mock.method(globalThis, "fetch", async () => {
     requests++;
     offered = openContainer(new Map(session.state.getFiles()));
-    return new Response("End this bounded Starter parity test.", { status: 400 });
+    return new Response("End this bounded Boilerplate parity test.", { status: 400 });
   });
   const session = new AgentSession(
     { provider: "openai", apiKey: "test-placeholder", model: "gpt-6.1-sol" },
@@ -27,7 +27,8 @@ test("Genesis offers the same complete playable Starter before its first provide
     ["logic", 1],
     ["logic", 255],
     ["picture", 1],
-    ["view", 1],
+    ["view", 0],
+    ["sound", 1],
     ["sound", 255],
   ] as const) {
     assert.deepEqual(offered.getResource(kind, num), expected.getResource(kind, num));

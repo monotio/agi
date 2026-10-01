@@ -46,7 +46,7 @@ Object.defineProperty(globalThis, "localStorage", {
  * the world document actually maps them, never by guessing.
  */
 
-async function starterDocuments(kind: "starter" | "blank" = "starter"): Promise<{
+async function starterDocuments(kind: "starter" | "boilerplate" | "blank" = "starter"): Promise<{
   project: EditableProject;
   documents: readonly LogicWorkspaceDocument[];
 }> {
@@ -92,22 +92,22 @@ test("a bare request resolves to the overview; a document target keeps its key",
     key: "picture:2",
   });
   assert.equal(projectStudioDestinationKey({ kind: "overview" }), null);
-  assert.equal(projectStudioDestinationKey({ kind: "document", key: "view:1" }), "view:1");
+  assert.equal(projectStudioDestinationKey({ kind: "document", key: "view:0" }), "view:0");
   assert.ok(
     sameProjectStudioDestination(
-      { kind: "document", key: "view:1" },
+      { kind: "document", key: "view:0" },
       {
         kind: "document",
-        key: "view:1",
+        key: "view:0",
       },
     ),
   );
   assert.ok(
-    !sameProjectStudioDestination({ kind: "document", key: "view:1" }, { kind: "overview" }),
+    !sameProjectStudioDestination({ kind: "document", key: "view:0" }, { kind: "overview" }),
   );
   assert.ok(
     !sameProjectStudioDestination(
-      { kind: "document", key: "view:1" },
+      { kind: "document", key: "view:0" },
       {
         kind: "document",
         key: "view:2",
@@ -139,9 +139,9 @@ test("opening documents preserves tab identity and order across reselects", () =
 
 test("closing the selected tab moves selection to the tab that took its slot", () => {
   let nav = createProjectStudioNavigation();
-  for (const key of ["logic:0", "view:1", "sound:1"]) nav = openProjectStudioDocument(nav, key);
-  nav = selectProjectStudioDestination(nav, { kind: "document", key: "view:1" });
-  nav = closeProjectStudioTab(nav, "view:1");
+  for (const key of ["logic:0", "view:0", "sound:1"]) nav = openProjectStudioDocument(nav, key);
+  nav = selectProjectStudioDestination(nav, { kind: "document", key: "view:0" });
+  nav = closeProjectStudioTab(nav, "view:0");
   assert.deepEqual(nav.tabs, ["logic:0", "sound:1"]);
   assert.deepEqual(nav.destination, { kind: "document", key: "sound:1" });
   nav = closeProjectStudioTab(nav, "sound:1");
@@ -181,7 +181,7 @@ test("a real starter project lists the six canonical sections in order", async (
   );
   assert.deepEqual(
     groupEntries(section(sections, "views")).map((item) => item.key),
-    ["view:1"],
+    ["view:0"],
   );
   assert.equal(groupEntries(section(sections, "sounds")).length, 2);
   assert.deepEqual(
@@ -288,16 +288,16 @@ test("dirty marks come only from the supplied draft state", async () => {
 
 test("a tab for a deleted or absent key stays listed and marked missing", async () => {
   const { documents } = await starterDocuments();
-  const tabs = projectStudioTabs(["view:1", "picture:9"], documents);
+  const tabs = projectStudioTabs(["view:0", "picture:9"], documents);
   assert.equal(tabs.length, 2);
-  assert.equal(tabs[0]!.key, "view:1");
+  assert.equal(tabs[0]!.key, "view:0");
   assert.equal(tabs[0]!.missing, false);
   assert.equal(tabs[1]!.key, "picture:9");
   assert.equal(tabs[1]!.missing, true);
   assert.equal(tabs[1]!.dirty, false);
   assert.equal(projectDocumentEntry(documents, "picture:9"), undefined);
-  const found = projectDocumentEntry(documents, "view:1");
-  assert.equal(found?.label, "VIEW 1");
+  const found = projectDocumentEntry(documents, "view:0");
+  assert.equal(found?.label, "VIEW 0");
 });
 
 test("a request for a missing document stays the destination, marked and not redirected", () => {
@@ -323,15 +323,15 @@ test("a request for a missing document stays the destination, marked and not red
 test("closing a tab removes only that key; draft state is a prop the model never touches", async () => {
   const { project } = await starterDocuments();
   const snapshot = project.draft.capture();
-  project.draft.edit("view:1", "{}", snapshot.version("view:1"));
+  project.draft.edit("view:0", "{}", snapshot.version("view:0"));
   let nav = createProjectStudioNavigation();
-  nav = openProjectStudioDocument(nav, "view:1");
+  nav = openProjectStudioDocument(nav, "view:0");
   nav = openProjectStudioDocument(nav, "logic:0");
-  nav = closeProjectStudioTab(nav, "view:1");
+  nav = closeProjectStudioTab(nav, "view:0");
   assert.deepEqual(nav.tabs, ["logic:0"]);
   assert.deepEqual(nav.destination, { kind: "document", key: "logic:0" });
   assert.ok(
-    project.draft.dirtyKeys().includes("view:1"),
+    project.draft.dirtyKeys().includes("view:0"),
     "closing a dirty tab leaves the draft untouched",
   );
   const remaining = projectStudioTabs(
@@ -376,8 +376,8 @@ test("the first step prefers a named room and falls back to the first document",
   assert.equal(projectStudioFirstStep([]), undefined);
 });
 
-test("a real starter or blank project lands on the first room's logic", async () => {
-  for (const kind of ["starter", "blank"] as const) {
+test("a real Starter or Boilerplate project lands on the first room's logic", async () => {
+  for (const kind of ["starter", "boilerplate"] as const) {
     const { documents } = await starterDocuments(kind);
     assert.deepEqual(
       projectStudioFirstStep(documents),

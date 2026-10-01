@@ -90,7 +90,7 @@ function workspaceWith(
 }
 
 describe("inspectEditableProject", () => {
-  for (const kind of ["blank", "starter"] as const) {
+  for (const kind of ["boilerplate", "starter"] as const) {
     test(`manual ${kind} workspace source survives an exact inspection`, () => {
       const data = manualProject(kind);
       const inspection = inspectEditableProject(data);
@@ -132,7 +132,7 @@ describe("inspectEditableProject", () => {
     assert.equal(inspection.requiresSourceReview, false);
     const bindings = JSON.parse(inspection.documents["bindings"] as string);
     assert.deepEqual(bindings["death_logic"], { kind: "logic", num: 255 });
-    assert.deepEqual(bindings["ego_view"], { kind: "view", num: 1 });
+    assert.deepEqual(bindings["ego_view"], { kind: "view", num: 0 });
   });
 
   test("an imported native game reads as a byte-only inventory", () => {
@@ -149,7 +149,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("a stale or malformed legacy claim is set aside with the byte inventory and input intact", () => {
-    const data = legacyProject("blank");
+    const data = legacyProject("boilerplate");
     const sources = data.authoringState!["sources"] as Record<string, unknown>;
     sources["logics"] = [
       [0, "if (unterminated"],
@@ -177,7 +177,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("malformed legacy structures are set aside visibly, not repaired", () => {
-    const data = legacyProject("blank");
+    const data = legacyProject("boilerplate");
     const sources = data.authoringState!["sources"] as Record<string, unknown>;
     sources["pictures"] = "not an array";
     sources["views"] = [[7, { loops: [] }]];
@@ -195,7 +195,7 @@ describe("inspectEditableProject", () => {
 
   test("an unknown workspace version refuses rather than downgrades", () => {
     const data = {
-      ...manualProject("blank"),
+      ...manualProject("boilerplate"),
       workspace: {
         format: "monotio.agi.project-workspace",
         version: 999,
@@ -206,7 +206,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("malformed binding contexts refuse instead of fabricating an empty context", () => {
-    const data = manualProject("blank");
+    const data = manualProject("boilerplate");
     const badJson = workspaceWith(data, { bindings: "{not json" });
     assert.throws(() => inspectEditableProject(badJson), /bindings/i);
     const badSchema = workspaceWith(data, {
@@ -216,13 +216,13 @@ describe("inspectEditableProject", () => {
     const byteContext = workspaceWith(data, { bindings: new Uint8Array([123, 125]) });
     assert.throws(() => inspectEditableProject(byteContext), /bindings/i);
 
-    const legacy = legacyProject("blank");
+    const legacy = legacyProject("boilerplate");
     legacy.authoringState!["authoring"] = { version: 1, bindings: "garbage" };
     assert.throws(() => inspectEditableProject(legacy), /bindings|authoring/i);
   });
 
   test("a source claim for a missing resource is preserved, never invented", () => {
-    const data = workspaceWith(manualProject("blank"), { "logic:9": "return;" });
+    const data = workspaceWith(manualProject("boilerplate"), { "logic:9": "return;" });
     const inspection = inspectEditableProject(data);
     assert.equal(inspection.documents["logic:9"], undefined);
     assert.equal(inspection.rejectedSources["logic:9"], "return;");
@@ -231,7 +231,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("a mismatching byte claim cannot replace the native payload", () => {
-    const data = manualProject("blank");
+    const data = manualProject("boilerplate");
     const claimed = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
     const tampered = workspaceWith(data, {
       "logic:1": claimed,
@@ -256,7 +256,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("workspace entries absent from the envelope do not delete resources", () => {
-    const data = workspaceWith(manualProject("blank"), { "logic:0": "return;" });
+    const data = workspaceWith(manualProject("boilerplate"), { "logic:0": "return;" });
     const inspection = inspectEditableProject(data);
     // logic:0's claim is stale (the claimed text does not rebuild the bytes)…
     assert.equal(inspection.rejectedSources["logic:0"], "return;");
@@ -272,7 +272,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("a refused workspace claim is never replaced by duplicate legacy text", () => {
-    const base = manualProject("blank");
+    const base = manualProject("boilerplate");
     const legacySources = base.authoringState!["sources"] as Record<string, unknown>;
     // The stored legacy text still compiles to the bytes…
     const good = (legacySources["logics"] as [number, string][]).find(
@@ -300,7 +300,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("valid workspace binding text is preserved exactly, metadata detached", () => {
-    const data = manualProject("blank");
+    const data = manualProject("boilerplate");
     const bindingText =
       '{ "zzz_flag": { "kind": "flag", "num": 1 }, "boot_logic": { "kind": "logic", "num": 0 } }';
     const worldText = '{ "rooms": { "1": { "title": "Start" } }, "facts": {}, "quests": {} }';
@@ -324,7 +324,7 @@ describe("inspectEditableProject", () => {
   });
 
   test("legacy world intent is preserved when no workspace carries it", () => {
-    const data = legacyProject("blank");
+    const data = legacyProject("boilerplate");
     const authoring = data.authoringState!["authoring"] as {
       world: { rooms: Record<string, unknown> };
     };
@@ -343,20 +343,20 @@ describe("inspectEditableProject", () => {
   test("a workspace music document is carried strictly and legacy music hydrates when absent", () => {
     const tempo = '{"9":{"revision":"21-abcdef12","tempo":120}}';
     const inspection = inspectEditableProject(
-      workspaceWith(manualProject("blank"), { music: tempo }),
+      workspaceWith(manualProject("boilerplate"), { music: tempo }),
     );
     assert.equal(inspection.documents["music"], tempo, "exact workspace text preserved");
     assert.equal(inspection.rejectedSources["music"], undefined);
 
     const malformed = inspectEditableProject(
-      workspaceWith(manualProject("blank"), { music: "{not json" }),
+      workspaceWith(manualProject("boilerplate"), { music: "{not json" }),
     );
     assert.equal(malformed.documents["music"], undefined);
     assert.equal(malformed.rejectedSources["music"], "{not json");
     assert.equal(malformed.requiresSourceReview, false);
     assert.ok(malformed.diagnostics.some(({ key }) => key === "music"));
 
-    const legacy = legacyProject("blank");
+    const legacy = legacyProject("boilerplate");
     (legacy.authoringState!["authoring"] as { music?: Record<string, unknown> }).music = {
       "9": { revision: "21-abcdef12", tempo: 90 },
     };

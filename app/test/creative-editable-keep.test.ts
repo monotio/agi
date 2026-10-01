@@ -43,7 +43,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 async function seed(name: string): Promise<EditableProject> {
-  const prepared = prepareLocalProject({ title: name, kind: "blank" });
+  const prepared = prepareLocalProject({ title: name, kind: "boilerplate" });
   await prepared.save();
   return openEditableProject(prepared.projectId);
 }

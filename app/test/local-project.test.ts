@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { readProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { isPlayableProject } from "../../src/authoring/starterProject.ts";
 import { prepareLocalProject } from "../src/project/localProject.ts";
 import { loadAuthoredGame, clearCachedGame } from "../src/project/gameStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
@@ -17,7 +18,7 @@ Object.defineProperty(globalThis, "localStorage", {
   },
 });
 
-for (const kind of ["blank", "starter"] as const) {
+for (const kind of ["starter", "boilerplate", "blank"] as const) {
   test(`${kind} creation saves editable source with no assistant or running game`, async () => {
     const candidate = prepareLocalProject({ title: "  My adventure  ", kind });
     const before = candidate.data();
@@ -32,9 +33,9 @@ for (const kind of ["blank", "starter"] as const) {
       assert.equal(Object.hasOwn(loaded, key), false, key);
     assert.deepEqual(loaded.files, before.files);
     const documents = readProjectWorkspace(loaded.workspace);
-    assert.equal(typeof documents["logic:0"], "string");
-    assert.equal(typeof documents["logic:1"], "string");
-    assert.equal(typeof documents["picture:1"], "string");
+    assert.equal(isPlayableProject(new Map(Object.entries(before.files))), kind !== "blank");
+    for (const key of ["logic:0", "logic:1", "picture:1"])
+      assert.equal(typeof documents[key], kind === "blank" ? "undefined" : "string");
     const compiled = compileProjectDocuments({
       files: loaded.files,
       profileId: "2.936",
