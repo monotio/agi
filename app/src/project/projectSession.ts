@@ -141,6 +141,8 @@ function createSession(input: {
       time: Date.now(),
     });
   let pendingRestart: PendingProjectRestart | null = null;
+  let pendingImage: ProjectDocumentsCompile | undefined;
+  let retrying = false;
   let disposed = false;
   let epoch = 0;
   let serial = 0;
@@ -244,13 +246,13 @@ function createSession(input: {
           new ProjectHistory(sha256Hex, history.capture()).record(proposal.documents(), metadata);
       },
       admit: (compiled, documents) => input.admission.admit(compiled, documents),
-      boundary: input.boundary ?? (() => new Promise<void>((resolve) => setTimeout(resolve, 50))),
     });
     if (
       outcome !== undefined &&
       outcome.status !== "committed" &&
       outcome.status !== "unchanged" &&
-      outcome.status !== "restartRequired"
+      outcome.status !== "restartRequired" &&
+      outcome.status !== "deferred"
     )
       return { ...outcome, diagnostics: prepared.diagnostics };
     if (outcome?.status === "restartRequired")
@@ -259,11 +261,14 @@ function createSession(input: {
         reason: restartReason(outcome.reason ?? "This image needs a game restart."),
       };
     else if (prepared.compiled !== undefined) pendingRestart = null;
+    if (prepared.compiled !== undefined)
+      pendingImage = outcome?.status === "deferred" ? prepared.compiled : undefined;
     diagnostics = prepared.diagnostics;
     const snapshot = model.apply(prepared.application);
     if (action !== undefined) history.accept(action);
     else history.record(snapshot.documents(), metadata);
     captureSave(snapshot, outcome);
+    if (pendingImage !== undefined) void retryAdmission();
     return {
       status:
         outcome?.status === "restartRequired"
@@ -281,6 +286,43 @@ function createSession(input: {
       () => {},
     );
     return result;
+  }
+  async function retryAdmission(): Promise<void> {
+    if (retrying) return;
+    retrying = true;
+    try {
+      while (current() && pendingImage !== undefined) {
+        await (input.boundary?.() ?? new Promise<void>((resolve) => setTimeout(resolve, 50)));
+        await schedule(async () => {
+          const image = pendingImage;
+          if (!current() || image === undefined) return;
+          const before = model.capture();
+          const outcome = await input.admission.admit(image, versions(before));
+          if (!current() || pendingImage !== image) return;
+          if (outcome.status === "deferred") return;
+          pendingImage = undefined;
+          if (outcome.status === "restartRequired")
+            pendingRestart = {
+              action: outcome.roomReentry === true ? "reenter" : "restart",
+              reason: restartReason(outcome.reason ?? "This image needs a game restart."),
+            };
+          if (outcome.status === "committed" || outcome.status === "unchanged")
+            captureSave(before, outcome);
+          notify();
+        });
+      }
+    } catch (cause) {
+      if (current()) {
+        pendingImage = undefined;
+        pendingRestart = {
+          action: "restart",
+          reason: cause instanceof Error ? cause.message : String(cause),
+        };
+        notify();
+      }
+    } finally {
+      retrying = false;
+    }
   }
   async function activate(mode: "restart" | "reenter") {
     if (!current() || autosave.status().state === "conflict")
@@ -398,6 +440,7 @@ function createSession(input: {
         history: history.capture(),
         diagnostics,
         pendingRestart,
+        pendingAdmission: pendingImage !== undefined,
         save: autosave.status(),
       };
     },

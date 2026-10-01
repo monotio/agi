@@ -1,4 +1,4 @@
-/** Detached preparation and physical-run admission precede model publication and storage. */
+/** Detached preparation and one physical-run admission attempt precede document publication. */
 import { prepareProjectEdit } from "../../../src/authoring/projectEdit.ts";
 import type { ProjectModel, ProjectProposal } from "../../../src/authoring/projectModel.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
@@ -16,7 +16,6 @@ export async function prepareAndAdmitProjectEdit(input: {
     compiled: ProjectDocumentsCompile,
     versions: { key: string; version: number }[],
   ) => Promise<PreviewUpdateOutcome>;
-  readonly boundary: () => Promise<void>;
 }) {
   const prepared = prepareProjectEdit({
     model: input.model,
@@ -40,12 +39,8 @@ export async function prepareAndAdmitProjectEdit(input: {
   }
   let outcome: PreviewUpdateOutcome | undefined;
   if (prepared.compiled !== undefined) {
-    do {
-      if (!valid()) throw new Error("Project edit was superseded.");
-      outcome = await input.admit(prepared.compiled, documentVersions);
-      if (!valid()) throw new Error("Project edit was superseded.");
-      if (outcome.status === "deferred") await input.boundary();
-    } while (outcome.status === "deferred");
+    if (!valid()) throw new Error("Project edit was superseded.");
+    outcome = await input.admit(prepared.compiled, documentVersions);
   }
   if (!valid()) throw new Error("Project edit was superseded.");
   return { prepared, outcome };
