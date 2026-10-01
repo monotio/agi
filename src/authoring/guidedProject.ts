@@ -25,6 +25,7 @@ import { AssemblerError } from "../logic/assembler.ts";
 import { quoteLogicString } from "../logic/disassembler.ts";
 import { matchDictionaryPhrase, parseWordsTok, type WordEntry } from "../logic/words.ts";
 import { renderPicture } from "../picture/renderer.ts";
+import { compilePictureSource } from "../picture/source.ts";
 import { PROFILES, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
 import { createPictureSurface, type GameContainer } from "../types.ts";
 import { buildView, parseView, type AgiView, type BuildViewInput } from "../view/view.ts";
@@ -894,6 +895,35 @@ function recognizeEgoSetup(room: ParsedRoom): EgoRecognition {
   };
 }
 
+/** An untouched entry has no object setup, even in nested hand-written branches. */
+function actorFreeEntry(stmts: readonly Stmt[], profile: AgiProfile): boolean {
+  for (const stmt of stmts) {
+    if (stmt.type === "if") {
+      if (!actorFreeEntry(stmt.then, profile) || !actorFreeEntry(stmt.else_ ?? [], profile))
+        return false;
+    } else if (stmt.type === "action") {
+      const spec = actionSpec(stmt.name, profile);
+      if (
+        spec?.operands.includes("object") ||
+        [
+          "animate.obj",
+          "unanimate.all",
+          "load.view",
+          "load.view.v",
+          "discard.view",
+          "discard.view.v",
+          "program.control",
+          "player.control",
+          "call",
+          "call.v",
+        ].includes(stmt.name)
+      )
+        return false;
+    }
+  }
+  return true;
+}
+
 /** Widest/tallest cel of a parsed view: the footprint ego can occupy. */
 function footprint(view: AgiView): { width: number; height: number } | null {
   let width = 0;
@@ -947,6 +977,8 @@ function pictureSurface(img: GuidedImage, num: number): Uint8Array | null {
     let payload: Uint8Array | null = null;
     const doc = img.documents[`picture:${num}`];
     if (doc instanceof Uint8Array) payload = doc;
+    else if (typeof doc === "string")
+      payload = compilePictureSource(doc, { profile: img.profile }).bytes;
     else payload = img.keptContainer.getResource("picture", num);
     if (!payload) return null;
     const surface = createPictureSurface();
@@ -1428,6 +1460,15 @@ export function prepareGuidedPlaceHero(
       key,
     );
   const setup = recognized.setup;
+  const install = actorFreeEntry(room.program, env.profile);
+  if (install && (input.view === undefined || input.x === undefined || input.y === undefined))
+    return refuse(
+      kind,
+      label,
+      "custom-code",
+      "Choose a VIEW and a position to install the hero.",
+      key,
+    );
 
   const edits: TextEdit[] = [];
   let viewNum: number | null = numRef(setup.setView?.args[1]);
@@ -1438,7 +1479,7 @@ export function prepareGuidedPlaceHero(
     if (!("num" in ref)) return ref;
     if (env.documents[`view:${ref.num}`] === undefined)
       return refuse(kind, label, "missing", `VIEW ${ref.num} does not exist.`, `view:${ref.num}`);
-    if (!setup.setView || oldView === null)
+    if (!install && (!setup.setView || oldView === null))
       return refuse(
         kind,
         label,
@@ -1449,7 +1490,7 @@ export function prepareGuidedPlaceHero(
     const loads = setup.loadViews.filter(
       (stmt) => stmt.args.length === 1 && numRef(stmt.args[0]) === oldView,
     );
-    if (loads.length === 0)
+    if (!install && loads.length === 0)
       return refuse(
         kind,
         label,
@@ -1458,7 +1499,14 @@ export function prepareGuidedPlaceHero(
         key,
       );
     const view = viewOf(env, ref.num);
-    if (!view || !footprint(view))
+    if (
+      !view ||
+      !footprint(view) ||
+      (install &&
+        !view.loops.some((loop) =>
+          loop.cels.some((cel) => cel.pixels.some((pixel) => pixel !== cel.transparentColor)),
+        ))
+    )
       return refuse(
         kind,
         label,
@@ -1477,15 +1525,17 @@ export function prepareGuidedPlaceHero(
           `view:${ref.num}`,
         );
     }
-    const setViewSpan = callArgSpan(room, setup.setView, 1);
-    if (!setViewSpan)
-      return refuse(kind, label, "custom-code", "The set.view argument is not writable.", key);
-    edits.push({ ...setViewSpan, text: ref.text });
-    for (const load of loads) {
-      const span = callArgSpan(room, load, 0);
-      if (!span)
-        return refuse(kind, label, "custom-code", "The load.view argument is not writable.", key);
-      edits.push({ ...span, text: ref.text });
+    if (!install) {
+      const setViewSpan = callArgSpan(room, setup.setView!, 1);
+      if (!setViewSpan)
+        return refuse(kind, label, "custom-code", "The set.view argument is not writable.", key);
+      edits.push({ ...setViewSpan, text: ref.text });
+      for (const load of loads) {
+        const span = callArgSpan(room, load, 0);
+        if (!span)
+          return refuse(kind, label, "custom-code", "The load.view argument is not writable.", key);
+        edits.push({ ...span, text: ref.text });
+      }
     }
     viewNum = ref.num;
   }
@@ -1493,7 +1543,7 @@ export function prepareGuidedPlaceHero(
   let px: number | null = null;
   let py: number | null = null;
   if (input.x !== undefined || input.y !== undefined) {
-    if (!setup.position)
+    if (!install && !setup.position)
       return refuse(
         kind,
         label,
@@ -1501,9 +1551,9 @@ export function prepareGuidedPlaceHero(
         "The entry block has no literal position(o0, x, y) to move.",
         key,
       );
-    const oldX = numRef(setup.position.args[1]);
-    const oldY = numRef(setup.position.args[2]);
-    if (oldX === null || oldY === null)
+    const oldX = numRef(setup.position?.args[1]);
+    const oldY = numRef(setup.position?.args[2]);
+    if (!install && (oldX === null || oldY === null))
       return refuse(
         kind,
         label,
@@ -1515,11 +1565,13 @@ export function prepareGuidedPlaceHero(
     py = input.y ?? oldY;
     if (!intIn(px, 0, 159) || !intIn(py, 0, 167))
       return refuse(kind, label, "invalid-input", "x must be 0..159 and y 0..167.");
-    const xSpan = callArgSpan(room, setup.position, 1);
-    const ySpan = callArgSpan(room, setup.position, 2);
-    if (!xSpan || !ySpan)
-      return refuse(kind, label, "custom-code", "The position arguments are not writable.", key);
-    edits.push({ ...xSpan, text: String(px) }, { ...ySpan, text: String(py) });
+    if (!install) {
+      const xSpan = callArgSpan(room, setup.position!, 1);
+      const ySpan = callArgSpan(room, setup.position!, 2);
+      if (!xSpan || !ySpan)
+        return refuse(kind, label, "custom-code", "The position arguments are not writable.", key);
+      edits.push({ ...xSpan, text: String(px) }, { ...ySpan, text: String(py) });
+    }
   } else if (setup.position) {
     px = numRef(setup.position.args[1]);
     py = numRef(setup.position.args[2]);
@@ -1562,9 +1614,45 @@ export function prepareGuidedPlaceHero(
     }
   }
 
+  if (install) {
+    const lines = [
+      "animate.obj(o0);",
+      `load.view(${viewNum});`,
+      `set.view(o0, ${viewNum});`,
+      `position(o0, ${px}, ${py});`,
+      "draw(o0);",
+      "player.control();",
+    ];
+    // Install before an entry message can suspend the running game.
+    const wait = setup.init.then.find(
+      (stmt) =>
+        stmt.type === "action" &&
+        ["print", "print.v", "print.at", "print.at.v", "get.num", "get.string", "pause"].includes(
+          stmt.name,
+        ),
+    );
+    let insertion: TextEdit | "shared-line";
+    if (wait) {
+      const start = wait.tok.start - room.base;
+      const lineStart = source.lastIndexOf("\n", start - 1) + 1;
+      const indent = source.slice(lineStart, start);
+      insertion =
+        indent.trim() === "" ? insertLinesEdit(source, lineStart, indent, lines) : "shared-line";
+    } else insertion = insertAtThenEnd(room, setup.init, lines);
+    if (insertion === "shared-line")
+      return refuse(
+        kind,
+        label,
+        "custom-code",
+        "Put the entry block's closing brace on its own line.",
+        key,
+      );
+    edits.push(insertion);
+  }
+
   const result = spliceText(source, edits);
   const texts = new Map([[key, result.text]]);
-  const previews = new Map([[key, edits.map((e) => ({ start: e.start, end: e.end }))]]);
+  const previews = new Map([[key, result.spans]]);
   return finish(ctx, env, [{ key, content: result.text }], previews, texts);
 }
 
