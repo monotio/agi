@@ -91,15 +91,12 @@ import type { ToolDefinition } from "./tools.ts";
 const CELLS = SCREEN_WIDTH * SCREEN_HEIGHT;
 /** AGI's power-on horizon (engine.ts), for the walkable estimate. */
 const DEFAULT_HORIZON = 36;
-/** Excerpt lines read_edit_context shows at most, and per item. */
-const MAX_EXCERPT_LINES = 160;
-const MAX_ITEM_LINES = 60;
+/** Page large selected source by characters, retaining complete audit resources. */
+const SOURCE_CHAR_BUDGET = 65536;
 /** Hex rows read_edit_context shows at most, in pixels, as read_view. */
-const MAX_ROW_PIXELS = 32768;
+const MAX_ROW_PIXELS = 65536;
 /** Rows a sprite candidate sheet shows at most. */
 const MAX_SHEET_ROWS = 8;
-/** propose_edit calls one request allows: a ceiling, not a target. */
-const DEFAULT_MAX_PROPOSALS = 4;
 
 /** A ghost actor placed in Room Studio: one cel standing at one place. */
 interface StudioGhost {
@@ -175,15 +172,15 @@ export interface StudioAssist {
   /** propose_edit calls so far, and how many of them were refused. */
   proposals: number;
   refusals: number;
-  readonly maxProposals: number;
+  readonly maxProposals: number | undefined;
 }
 
 export function createStudioAssist(
   focus: StudioFocus,
   options: { readonly maxProposals?: number } = {},
 ): StudioAssist {
-  const maxProposals = options.maxProposals ?? DEFAULT_MAX_PROPOSALS;
-  if (!Number.isInteger(maxProposals) || maxProposals < 1)
+  const maxProposals = options.maxProposals;
+  if (maxProposals !== undefined && (!Number.isInteger(maxProposals) || maxProposals < 1))
     throw new RangeError("maxProposals must be a positive integer");
   return { focus, candidate: null, proposals: 0, refusals: 0, maxProposals };
 }
@@ -256,7 +253,7 @@ const PICTURE_OP = {
         y1: nullable(int(0, SCREEN_HEIGHT - 1)),
         x2: nullable(int(0, SCREEN_WIDTH - 1)),
         y2: nullable(int(0, SCREEN_HEIGHT - 1)),
-        points: { type: ["array", "null"], minItems: 2, maxItems: 64, items: POINT },
+        points: { type: ["array", "null"], minItems: 2, maxItems: 65535, items: POINT },
       },
       required: ["kind", "color", "priority", "filled", "x1", "y1", "x2", "y2", "points"],
     },
@@ -266,7 +263,7 @@ const PICTURE_OP = {
       properties: { radius: int(0, 7), stipple: { type: "boolean" } },
       required: ["radius", "stipple"],
     },
-    points: { type: ["array", "null"], minItems: 1, maxItems: 64, items: POINT },
+    points: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: POINT },
     seed: nullable(int(0, 239)),
   },
   required: [
@@ -320,7 +317,7 @@ const SPRITE_OP = {
     changes: {
       type: ["array", "null"],
       minItems: 1,
-      maxItems: 4096,
+      maxItems: 65025,
       items: {
         type: "object",
         additionalProperties: false,
@@ -332,7 +329,7 @@ const SPRITE_OP = {
     y: nullable(int(0, 167)),
     color: nullable(int(0, 15)),
     recolorScope: { type: ["string", "null"], enum: ["cels", "loop", "view", null] },
-    cels: { type: ["array", "null"], minItems: 1, maxItems: 64, items: CEL_REF },
+    cels: { type: ["array", "null"], minItems: 1, maxItems: 65025, items: CEL_REF },
     from: nullable(int(0, 15)),
     to: nullable(int(0, 254)),
     axis: { type: ["string", "null"], enum: ["h", "v", null] },
@@ -375,12 +372,15 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_edit_context",
     description:
-      "Studio assist only. What the creator selected and may let you change: the picture or view, the lens and locked planes, the selected items (ids, labels, kinds, footprints) with an annotated-source excerpt of just those items and their neighbours (1-based line numbers for setPoint, insertPoint and atLine), or the selected cels as hex rows; the cells or cels you may not change; the room context; and the `baseRevision` propose_edit needs. `images` (default true) attaches a crop of the selection and a room overview. Never the whole project.",
+      "Studio assist only. What the creator selected and may let you change: the picture or view, the lens and locked planes, the selected items (ids, labels, kinds, footprints) with an annotated-source excerpt of just those items and their neighbours (1-based line numbers for setPoint, insertPoint and atLine), or the selected cels as hex rows; the cells or cels you may not change; the room context; and the `baseRevision` propose_edit needs. `images` (default true) attaches a crop of the selection and a room overview. Source is returned whole up to 65,536 characters; use `sourceOffset` with `nextSourceOffset` to read larger selections.",
     parameters: {
       type: "object",
       additionalProperties: false,
-      properties: { images: { type: ["boolean", "null"] } },
-      required: ["images"],
+      properties: {
+        images: { type: ["boolean", "null"] },
+        sourceOffset: { type: ["integer", "null"], minimum: 0 },
+      },
+      required: ["images", "sourceOffset"],
     },
   },
   {
@@ -393,8 +393,8 @@ export const STUDIO_ASSIST_TOOLS: readonly ToolDefinition[] = [
       properties: {
         baseRevision: { type: "string", minLength: 1, maxLength: 64 },
         summary: { type: "string", minLength: 1, maxLength: 240 },
-        pictureOps: { type: ["array", "null"], minItems: 1, maxItems: 32, items: PICTURE_OP },
-        spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 32, items: SPRITE_OP },
+        pictureOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: PICTURE_OP },
+        spriteOps: { type: ["array", "null"], minItems: 1, maxItems: 65535, items: SPRITE_OP },
       },
       required: ["baseRevision", "summary", "pictureOps", "spriteOps"],
     },
@@ -836,17 +836,7 @@ function excerpt(document: PictureDocument, targets: readonly string[]): string 
     const role = targets.includes(item.id) ? "selected" : "neighbour";
     out.push(`-- ${role} '${item.id}', lines ${item.openLine}-${last}`);
     for (let line = item.openLine; line <= last; line++) {
-      if (line - item.openLine >= MAX_ITEM_LINES && line < last) {
-        out.push(`   … ${last - line} more lines`);
-        out.push(`${String(last).padStart(4)}| ${document.lines[last - 1]!.replace(/\r$/, "")}`);
-        break;
-      }
       out.push(`${String(line).padStart(4)}| ${document.lines[line - 1]!.replace(/\r$/, "")}`);
-    }
-    if (out.length >= MAX_EXCERPT_LINES) {
-      out.length = MAX_EXCERPT_LINES;
-      out.push("   … excerpt truncated");
-      break;
     }
   }
   return out.join("\n");
@@ -858,8 +848,12 @@ function readPictureContext(
   scope: PictureAssistScope,
   draft: AssistDraft,
   images: boolean,
+  sourceOffset: number,
 ): AgentToolResult {
   const { document, compiled } = openPicture(session, draft);
+  const selectedSource = excerpt(document, scope.targetIds);
+  const sourceEnd = Math.min(selectedSource.length, sourceOffset + SOURCE_CHAR_BUDGET);
+  const nextSourceOffset = sourceEnd < selectedSource.length ? sourceEnd : null;
   const revision = draftRevision(draft);
   const area = selectionArea(compiled, scope.targetIds);
   const areaCount = countMask(area);
@@ -950,7 +944,12 @@ function readPictureContext(
     `Dominant colour of the crop, x${crop.x0}-${crop.x1} y${crop.y0}-${crop.y1}:`,
     grid,
     "Annotated source of the selection and its neighbours:",
-    excerpt(document, scope.targetIds),
+    selectedSource.slice(sourceOffset, sourceEnd),
+    ...(nextSourceOffset === null
+      ? []
+      : [
+          `Source continues at sourceOffset ${nextSourceOffset}; ${selectedSource.length - sourceEnd} characters remain.`,
+        ]),
   ];
   return {
     success: true,
@@ -970,6 +969,9 @@ function readPictureContext(
       maxBytes: scope.maxBytes,
       bytes: compiled.bytes.length,
       lineCount: document.lines.length,
+      sourceOffset,
+      nextSourceOffset,
+      totalSourceChars: selectedSource.length,
       ...(room ? { roomContext: room } : {}),
       ...(walk ? { walkable: walk } : {}),
       crop,
@@ -1115,18 +1117,16 @@ function refusal(
 ): AgentToolResult {
   assist.refusals++;
   const hints = [...new Set(violations.map((v) => HINTS[v.constraint]).filter(Boolean))];
-  const left = assist.maxProposals - assist.proposals;
   const kept = assist.candidate
     ? `Candidate ${assist.candidate.candidateId} is still the one the creator sees.`
     : "There is no candidate yet.";
   return {
     success: false,
-    error: `Refused; nothing was proposed: ${reason}.${hints.length ? ` ${hints.join(" ")}` : ""} ${kept} ${left > 0 ? `${left} proposal${left === 1 ? "" : "s"} left in this request.` : "No proposals are left in this request; reply with one sentence saying what blocks the change."}`,
+    error: `Refused; nothing was proposed: ${reason}.${hints.length ? ` ${hints.join(" ")}` : ""} ${kept}`,
     details: {
       ok: false,
       violations,
       candidateId: assist.candidate?.candidateId ?? null,
-      proposalsLeft: left,
     },
   };
 }
@@ -1364,10 +1364,9 @@ function withdraw(assist: StudioAssist, reason: string): AgentToolResult {
       details: { ok: false, candidateId: null },
     };
   assist.candidate = null;
-  const left = assist.maxProposals - assist.proposals;
   return {
     success: true,
-    message: `Withdrew candidate ${withdrawn.candidateId}: the creator sees no proposal, only your reply. ${left > 0 ? `Call propose_edit to propose something else (${left} left), or reply with one sentence saying what blocks the change.` : "Reply with one sentence saying what blocks the change."}`,
+    message: `Withdrew candidate ${withdrawn.candidateId}: the creator sees no proposal, only your reply. Call propose_edit to propose something else, or explain what blocks the change.`,
     details: { ok: true, withdrawn: withdrawn.candidateId, reason, candidateId: null },
   };
 }
@@ -1396,17 +1395,23 @@ export function executeStudioAssistTool(
     if (name === "read_edit_context") {
       const images = args["images"] !== false;
       return scope.kind === "picture"
-        ? readPictureContext(session, assist.focus, scope, draft, images)
+        ? readPictureContext(
+            session,
+            assist.focus,
+            scope,
+            draft,
+            images,
+            Number(args["sourceOffset"] ?? 0),
+          )
         : readViewContext(session, assist.focus, scope, draft, images);
     }
-    if (assist.proposals >= assist.maxProposals)
+    if (assist.maxProposals !== undefined && assist.proposals >= assist.maxProposals)
       return {
         success: false,
         error: `Refused: this request allows ${assist.maxProposals} proposals and all were used. Reply with one sentence saying what blocks the change.`,
         details: {
           ok: false,
           candidateId: assist.candidate?.candidateId ?? null,
-          proposalsLeft: 0,
         },
       };
     assist.proposals++;

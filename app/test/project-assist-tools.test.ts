@@ -11,7 +11,6 @@ import { createStarterProject, type StarterProject } from "../../src/authoring/s
 import type { ProfileId } from "../../src/runtime/profile.ts";
 import {
   createProjectAssistDriver,
-  MAX_PROPOSE_CHANGES,
   PROJECT_ASSIST_TOOLS,
   PROJECT_ASSIST_TOOL_NAMES,
 } from "../src/agent/projectAssistTools.ts";
@@ -141,8 +140,8 @@ describe("read_project_context / read_document", () => {
     assert.equal(result.details!["length"], bytes.byteLength);
     assert.equal(result.details!["sha256"], sha256Hex(bytes));
     const window = String(result.details!["base64"]);
-    // The window is capped at 1024 bytes even when the caller asks for more.
-    assert.ok(window.length <= Math.ceil(1024 / 3) * 4);
+    // Explicit windows retain their requested length within the read allowance.
+    assert.ok(window.length <= Math.ceil(2048 / 3) * 4);
   });
 
   test("read_document rejects invalid and absent keys without throwing", () => {
@@ -246,15 +245,14 @@ describe("propose_project_documents", () => {
     assert.equal(dup.success, false);
     assert.match(dup.error!, /Duplicate/);
 
-    const tooMany = driver.execute("propose_project_documents", {
+    const coordinated = driver.execute("propose_project_documents", {
       label: "flood",
-      changes: Array.from({ length: MAX_PROPOSE_CHANGES + 1 }, (_, i) => ({
+      changes: Array.from({ length: 41 }, (_, i) => ({
         key: `logic:${i + 10}`,
         content: "return;\n",
       })),
     });
-    assert.equal(tooMany.success, false);
-    assert.match(tooMany.error!, /Invalid arguments/);
+    assert.equal(coordinated.success, true, coordinated.error ?? "");
   });
 
   test("a second successful call replaces the pending proposal entirely", () => {
@@ -340,4 +338,39 @@ describe("withdraw and dispatch policy", () => {
     ])
       assert.ok(PROJECT_ASSIST_TOOL_NAMES.includes(name), name);
   });
+});
+
+test("document reads return complete ordinary text and binary resources", () => {
+  const project = createStarterProject("starter");
+  const draft = authoredDraft(project);
+  const text = "// details\n".repeat(9000) + "return;\n";
+  editDraft(draft, "logic:200", text);
+  const driver = createProjectAssistDriver(capture(project, draft));
+  const result = driver.execute("read_document", { key: "logic:200" });
+  assert.equal(result.success, true);
+  assert.ok(result.message?.endsWith(text));
+  assert.equal(result.details?.["nextOffset"], null);
+  const largeProposal = driver.execute("propose_project_documents", {
+    label: "Coordinated shared logic",
+    changes: Array.from({ length: 41 }, (_, i) => ({
+      key: `logic:${i + 100}`,
+      content: "return;\n",
+    })),
+  });
+  assert.equal(largeProposal.success, true, largeProposal.error ?? "");
+});
+
+test("binary reads default to the whole AGI resource", () => {
+  const project = createStarterProject("starter");
+  const draft = authoredDraft(project);
+  const bytes = new Uint8Array(60000).fill(255);
+  editDraft(draft, "picture:200", bytes);
+  const driver = createProjectAssistDriver(capture(project, draft));
+  const result = driver.execute("read_document", { key: "picture:200" });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.equal(result.details?.["nextOffset"], null);
+  assert.deepEqual(
+    new Uint8Array(Buffer.from(String(result.details?.["base64"]), "base64")),
+    bytes,
+  );
 });

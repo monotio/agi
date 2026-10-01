@@ -42,6 +42,7 @@
     "details.navigation.x": 80
   },
   "projected": {
+    "inline": true,
     "details": {
       "navigation": {
         "status": "needs_input",

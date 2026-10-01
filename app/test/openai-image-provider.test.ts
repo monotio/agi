@@ -491,14 +491,14 @@ test("capability refusals are typed unsupported and never reach the wire", async
 
 test("byte, count and prompt bounds refuse locally", async () => {
   const { provider, calls } = harness();
-  // Five selected images exceed the four-image bound.
+  // Seventeen selected images exceed the documented sixteen-image bound.
   const many = prepareError(
     provider,
     request({
       kind: "edit",
       size: "16x16",
       asset: material(PNG_16x16),
-      references: [material(PNG_1x1), material(PNG_1x1), material(PNG_1x1), material(PNG_1x1)],
+      references: Array.from({ length: 16 }, () => material(PNG_1x1)),
     }),
   );
   assert.equal(many.code, "count");
@@ -898,4 +898,49 @@ test("the intake helper routes exact offer bytes into canonical intake", async (
     }),
   );
   assert.equal(refused.reason, "signature");
+});
+
+test("documented image prompts, inputs and custom sizes reach paid review", () => {
+  assert.equal(OPENAI_IMAGE_LIMITS.maxInputImages, 16);
+  assert.equal(OPENAI_IMAGE_LIMITS.maxPromptLength, 32000);
+  const provider = createOpenAiImageProvider({ credentials: () => "placeholder" });
+  const prepared = provider.prepare(
+    request({
+      model: "gpt-image-2.5-sunburst",
+      size: "2048x2048",
+      prompt: "x".repeat(32000),
+      references: Array.from({ length: 16 }, (_, i) =>
+        material(PNG_1x1, ["style"], { ...IDENTITY, id: `reference-${i}` }),
+      ),
+    }),
+  );
+  assert.equal(prepared.summary.size, "2048x2048");
+  assert.equal(prepared.summary.images.length, 16);
+});
+
+test("image quality and pixel count extend the whole-job timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  for (const [quality, size, timeout] of [
+    ["high", "1024x1024", 360000],
+    ["xhigh", "2048x2048", 2880000],
+    ["max", "1024x1024", 1080000],
+  ] as const) {
+    const provider = createOpenAiImageProvider({
+      credentials: () => "placeholder",
+      fetch: () => new Promise<Response>(() => {}),
+    });
+    const pending = errorOf(
+      provider.submit(
+        provider.prepare(request({ model: "gpt-image-2.5-sunburst", quality, size })),
+      ),
+    );
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    t.mock.timers.tick(180000);
+    await Promise.resolve();
+    assert.equal(provider.busy, true, "the baseline deadline allows long generation to continue");
+    t.mock.timers.tick(timeout - 180000);
+    const error = await pending;
+    assert.equal(error.reason, "timeout");
+    assert.match(error.message, new RegExp(`${timeout / 1000} seconds`));
+  }
 });

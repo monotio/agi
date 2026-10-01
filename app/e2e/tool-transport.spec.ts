@@ -8,7 +8,7 @@ for (const provider of ["openai", "anthropic"] as const) {
   }) => {
     const requests: Record<string, unknown>[] = [];
     await page.route(
-      provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages",
+      provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages*",
       async (route) => {
         requests.push(route.request().postDataJSON());
         await route.fulfill(

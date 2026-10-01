@@ -4,6 +4,11 @@ import type { AgentRun } from "./agentRun.ts";
  * (GPT-6 Astra / Sol / Luna) directly from the browser with prompt caching.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import type {
+  BetaMessageParam,
+  BetaUsage,
+  BetaToolResultBlockParam,
+} from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import OpenAI from "openai";
 import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
 import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
@@ -102,12 +107,12 @@ export class LlmResponseError extends Error {
   }
 }
 
-function anthropicUsage(usage: Anthropic.Usage | undefined): LlmUsage {
+function anthropicUsage(usage: Partial<BetaUsage> | undefined): LlmUsage {
   const input =
     (usage?.input_tokens ?? 0) +
     (usage?.cache_read_input_tokens ?? 0) +
     (usage?.cache_creation_input_tokens ?? 0);
-  return {
+  const total: LlmUsage = {
     input,
     output: usage?.output_tokens ?? 0,
     cachedInput: usage?.cache_read_input_tokens ?? 0,
@@ -124,6 +129,25 @@ function anthropicUsage(usage: Anthropic.Usage | undefined): LlmUsage {
       : {}),
     ...(usage?.service_tier ? { serviceTier: usage.service_tier } : {}),
   };
+  // The API excludes compaction iterations from top-level message usage.
+  for (const iteration of usage?.iterations ?? []) {
+    if (iteration.type !== "compaction") continue;
+    total.input +=
+      iteration.input_tokens +
+      iteration.cache_read_input_tokens +
+      iteration.cache_creation_input_tokens;
+    total.output += iteration.output_tokens;
+    total.cachedInput += iteration.cache_read_input_tokens;
+    total.cacheWriteInput += iteration.cache_creation_input_tokens;
+    total.ordinaryInput = (total.ordinaryInput ?? 0) + iteration.input_tokens;
+    if (iteration.cache_creation) {
+      total.cacheWrite5m =
+        (total.cacheWrite5m ?? 0) + iteration.cache_creation.ephemeral_5m_input_tokens;
+      total.cacheWrite1h =
+        (total.cacheWrite1h ?? 0) + iteration.cache_creation.ephemeral_1h_input_tokens;
+    }
+  }
+  return total;
 }
 
 function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
@@ -134,6 +158,24 @@ function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
     const bucket = total as unknown as Record<string, number | undefined>;
     bucket[key] = (bucket[key] ?? 0) + value;
   }
+}
+
+function recordAnthropicUsage(
+  usage: BetaUsage | undefined,
+  total: LlmUsage,
+  run: AgentRun | undefined,
+  model: string,
+): void {
+  const fallback = usage?.iterations?.some((iteration) => iteration.type === "fallback_message");
+  recordUsage(anthropicUsage(usage), total, fallback ? undefined : run);
+  // Fallback iterations identify the serving model, whose price can differ.
+  // Each iteration's tokens are billed once; compaction is also a separate iteration.
+  if (fallback)
+    for (const iteration of usage?.iterations ?? [])
+      run?.recordUsage(
+        anthropicUsage(iteration),
+        "model" in iteration ? (iteration.model ?? model) : model,
+      );
 }
 
 function openAiUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): LlmUsage {
@@ -279,9 +321,18 @@ export function createAnthropicConversation(
   let requestCount = 0;
   let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
 
-  const messages: Anthropic.MessageParam[] = Array.isArray(initialTranscript)
+  const messages: BetaMessageParam[] = Array.isArray(initialTranscript)
     ? JSON.parse(JSON.stringify(initialTranscript))
     : [];
+
+  let contextStart = Math.max(
+    0,
+    messages.findLastIndex(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some((block) => block.type === "compaction" && block.content != null),
+    ),
+  );
 
   function closePending(reason: string): void {
     const pending = new Set<string>();
@@ -310,11 +361,14 @@ export function createAnthropicConversation(
     let firstEventMs: number | undefined;
     let responseMs = 0;
     let usageIncomplete = false;
-    const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+    const send = async (
+      signal?: AbortSignal,
+      maxTokens = modelCapability(config.model, config.provider).maxOutputTokens,
+    ) => {
       const startedAt = performance.now();
       // Official SDK accumulation preserves thinking signatures and complete tool inputs.
       // https://platform.claude.com/docs/en/build-with-claude/streaming
-      const stream = client.messages.stream(
+      const stream = client.beta.messages.stream(
         {
           model: config.model || DEFAULT_MODELS.anthropic,
           // Cache the growing tool/result history as well as the static prefix.
@@ -327,11 +381,31 @@ export function createAnthropicConversation(
             ) as Exclude<ModelEffort, "none">,
           },
           max_tokens: maxTokens,
+          betas: [
+            "server-side-fallback-2026-07-01",
+            "compact-2026-01-12",
+            "thinking-display-updates-2026-08-18",
+          ],
+          fallbacks: "default",
+          context_management: {
+            edits: [
+              {
+                type: "compact_20260112",
+                trigger: {
+                  type: "input_tokens",
+                  value: Math.floor(
+                    modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
+                      .maxInputTokens * 0.75,
+                  ),
+                },
+              },
+            ],
+          },
           // The notes Opus 5.5 and Sonnet 5.5 write between tool calls arrive as thinking
           // blocks, empty without a display; the agent panel shows them.
           ...(modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
             .summarizedThinking
-            ? { thinking: { type: "adaptive" as const, display: "summarized" as const } }
+            ? { thinking: { type: "adaptive" as const, display: "updates" as const } }
             : {}),
           system: [
             {
@@ -341,18 +415,17 @@ export function createAnthropicConversation(
             },
           ],
           tools,
-          messages,
+          messages: messages.slice(contextStart),
         },
         { ...(signal ? { signal } : {}) },
       );
-      let usage: Anthropic.Usage | undefined;
+      let usage: BetaUsage | undefined;
       try {
         for await (const event of stream) {
           if (firstEventMs === undefined) firstEventMs = performance.now() - startedAt;
           run?.updateProgress();
           if (event.type === "message_start") usage = { ...event.message.usage };
-          if (event.type === "message_delta")
-            usage = { ...usage, ...event.usage } as Anthropic.Usage;
+          if (event.type === "message_delta") usage = { ...usage, ...event.usage } as BetaUsage;
           if (event.type === "content_block_start") {
             if (event.content_block.type === "tool_use")
               run?.updateProgress("tool", "", event.content_block.name);
@@ -365,20 +438,35 @@ export function createAnthropicConversation(
         }
         const response = await stream.finalMessage();
         responseMs = performance.now() - startedAt;
-        recordUsage(anthropicUsage(response.usage), totalUsage, run);
+        recordAnthropicUsage(
+          response.usage,
+          totalUsage,
+          run,
+          config.model || DEFAULT_MODELS.anthropic,
+        );
         return response;
       } catch (error) {
         usageIncomplete = true;
         responseMs = performance.now() - startedAt;
         if (usage) {
-          const partial = anthropicUsage(usage);
-          recordUsage(partial, totalUsage, run);
+          recordAnthropicUsage(usage, totalUsage, run, config.model || DEFAULT_MODELS.anthropic);
         }
         run?.markUsageIncomplete();
         throw error;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await (run
+      ? run.request(
+          send,
+          Math.ceil(
+            JSON.stringify([
+              config.systemPrompt ?? AGI_SYSTEM_PROMPT,
+              tools,
+              messages.slice(contextStart),
+            ]).length / 3,
+          ),
+        )
+      : send());
 
     const usage = anthropicUsage(response.usage);
     const hitShare = cacheHitShare(usage);
@@ -400,10 +488,9 @@ export function createAnthropicConversation(
     };
 
     // Save assistant response to conversation history
-    messages.push({
-      role: "assistant",
-      content: response.content,
-    });
+    if (response.content.some((block) => block.type === "compaction" && block.content !== null))
+      contextStart = messages.length;
+    messages.push({ role: "assistant", content: response.content });
 
     if (!["end_turn", "tool_use", "stop_sequence"].includes(response.stop_reason ?? "")) {
       const reason =
@@ -413,6 +500,15 @@ export function createAnthropicConversation(
             ? `The model declined this request${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}. Rephrase the request or choose another model; nothing was executed.`
             : `The model stopped before completing the turn (${response.stop_reason}).`;
       closePending(reason);
+      if (response.stop_reason === "refusal" && run) {
+        run.pause(reason);
+        await run.checkpoint(false);
+        messages.push({
+          role: "user",
+          content: "Continue the current task with an approach the provider can complete.",
+        });
+        return step();
+      }
       throw new LlmResponseError(reason, usage, telemetry);
     }
     let text = "";
@@ -458,7 +554,7 @@ export function createAnthropicConversation(
       return step();
     },
     appendToolResults(results): void {
-      const content: Anthropic.ToolResultBlockParam[] = [];
+      const content: BetaToolResultBlockParam[] = [];
       let textBytes = 0;
       let imageCount = 0;
       let imagePixels = 0;
@@ -544,6 +640,11 @@ export function createOpenAiConversation(
     : [];
   const sessionId = initialSessionId || crypto.randomUUID();
 
+  let contextStart = Math.max(
+    0,
+    input.findLastIndex((item) => item.type === "compaction"),
+  );
+
   function closePending(reason: string): void {
     const pending = new Set<string>();
     for (const item of input) {
@@ -565,7 +666,10 @@ export function createOpenAiConversation(
     let firstEventMs: number | undefined;
     let responseMs = 0;
     let usageIncomplete = false;
-    const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+    const send = async (
+      signal?: AbortSignal,
+      maxTokens = modelCapability(config.model, config.provider).maxOutputTokens,
+    ) => {
       const startedAt = performance.now();
       // Use typed SSE events for presentation; only a terminal response may enter history.
       // https://developers.openai.com/api/docs/guides/streaming-responses
@@ -599,7 +703,16 @@ export function createOpenAiConversation(
                   : ("none" as const),
               }
             : {}),
-          input,
+          input: input.slice(contextStart),
+          context_management: [
+            {
+              type: "compaction",
+              compact_threshold: Math.floor(
+                modelCapability(config.model || DEFAULT_MODELS.openai, "openai").maxInputTokens *
+                  0.75,
+              ),
+            },
+          ],
           include: ["reasoning.encrypted_content"],
           store: false,
         },
@@ -636,7 +749,18 @@ export function createOpenAiConversation(
         throw error;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await (run
+      ? run.request(
+          send,
+          Math.ceil(
+            JSON.stringify([
+              config.systemPrompt ?? AGI_SYSTEM_PROMPT,
+              tools,
+              input.slice(contextStart),
+            ]).length / 3,
+          ),
+        )
+      : send());
 
     const usage = openAiUsage(response.usage);
     const hitShare = cacheHitShare(usage);
@@ -656,7 +780,10 @@ export function createOpenAiConversation(
       imageCount: toolContent.imageCount,
       imagePixels: toolContent.imagePixels,
     };
-    for (const item of response.output) input.push(item as OpenAI.Responses.ResponseInputItem);
+    for (const item of response.output) {
+      if (item.type === "compaction") contextStart = input.length;
+      input.push(item as OpenAI.Responses.ResponseInputItem);
+    }
     if (response.status !== "completed") {
       const reason =
         response.incomplete_details?.reason === "max_output_tokens"
@@ -670,7 +797,7 @@ export function createOpenAiConversation(
 
     for (const item of response.output) {
       // Retain all output items verbatim into input (reasoning, function_call, message)
-      // GPT-5.6 reasoning models require the reasoning item immediately before the function_call
+      // Reasoning and tool linkage travel verbatim into the next request.
       if (item.type === "message" && item.role === "assistant") {
         for (const content of item.content) {
           if (content.type === "output_text") {

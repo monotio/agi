@@ -34,8 +34,8 @@ import {
 const MAX_GAME_TESTS = 64;
 /** Tests rerun after one patch; keeps a write tool's latency bounded. */
 const RERUN_LIMIT = 8;
-/** JSON text is escaped again in transport; 3000 characters keeps each page comfortably below 12k. */
-const DEFINITION_PAGE_CHARS = 3000;
+/** Whole ordinary definitions fit inline; larger suites retain character paging. */
+const DEFINITION_PAGE_CHARS = 65536;
 
 /** One resource a successful write touched; rerun selection considers every one of them. */
 export interface TouchedResource {

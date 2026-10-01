@@ -34,6 +34,7 @@ const NOISE_SELECTORS: Record<string, number> = {
 
 const REST_NAMES = new Set(["rest", "r", "silence"]);
 const MAX_EXPANDED_NOTES = 4096;
+const READ_SOUND_CHAR_BUDGET = 65536;
 
 /** Strict-compatible schemas for compact music writing and bounded sound reading. */
 export const SOUND_TOOLS: readonly ToolDefinition[] = [
@@ -109,7 +110,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_sound",
     description:
-      "Inspect SOUND `num` as timed events and a four-channel timeline; null `channel` reads all. `representation` auto uses saved music intent when available; choose music for estimated pitches or sound for raw frequency/noise. Seconds and divisors are authoritative. `offset` and `limit` page the events; follow `nextOffset`.",
+      "Inspect SOUND `num` as timed events and a four-channel timeline; null `channel` reads all. `representation` auto uses saved music intent when available; choose music for estimated pitches or sound for raw frequency/noise. Seconds and divisors are authoritative. `offset` and `limit` page the events; null limit reads all within a 65536-character budget. Follow `nextOffset` for larger sounds.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -132,7 +133,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
         limit: {
           type: ["integer", "null"],
           minimum: 1,
-          maximum: 64,
+          maximum: 65535,
         },
         representation: {
           type: ["string", "null"],
@@ -404,7 +405,7 @@ export function executeSoundTool(
       const requestedChannel = args["channel"];
       const channel = requestedChannel === null ? null : integer(requestedChannel, "Channel", 0, 3);
       const offset = nullableInteger(args["offset"], "Offset", 0, 0, 65535);
-      const limit = nullableInteger(args["limit"], "Limit", 16, 1, 64);
+      const limit = nullableInteger(args["limit"], "Limit", 65535, 1, 65535);
       const payload = state.container.getResource("sound", num);
       if (!payload)
         return { success: false, error: `Sound ${num} is not present in the container.` };
@@ -428,11 +429,16 @@ export function executeSoundTool(
       let feedback = soundFeedback(payload, feedbackOptions);
       // Rich events have variable text cost. Keep the original precision and
       // return a shorter page when necessary; regenerate its matching image.
-      if (JSON.stringify(feedback.events).length > 9000) {
-        let count = feedback.events.length;
-        while (count > 1 && JSON.stringify(feedback.events.slice(0, count)).length > 9000) count--;
-        feedback = soundFeedback(payload, { ...feedbackOptions, limit: count });
+      let pageChars = 2;
+      let count = 0;
+      for (const event of feedback.events) {
+        const chars = JSON.stringify(event).length + (count ? 1 : 0);
+        if (count && pageChars + chars > READ_SOUND_CHAR_BUDGET) break;
+        pageChars += chars;
+        count++;
       }
+      if (count < feedback.events.length)
+        feedback = soundFeedback(payload, { ...feedbackOptions, limit: count });
       const { events, channels, totalNotes, preview, image } = feedback;
       return {
         success: true,

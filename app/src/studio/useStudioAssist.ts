@@ -32,7 +32,7 @@ export interface StudioAssistHost {
   /** Stop and discard the running request. */
   cancel(): void;
   /** Continue a request paused at its budget. */
-  resume(): void;
+  resume(requestLimit?: number): void;
   task(): AgentRunState | null;
   /** The agent log the request's activity streams into. */
   log(): readonly AgentLogEntry[];
@@ -222,7 +222,7 @@ export function useStudioAssist(options: StudioAssistOptions) {
   const budget = computed(() => {
     const state = task.value;
     if (!state) return "";
-    if (!state.priceKnown) return `Budget $${state.budget.toFixed(2)} · usage estimate unavailable`;
+    if (!state.priceKnown) return `Spend unknown · ${state.requests} requests`;
     return `$${Math.max(0, state.budget - state.spent).toFixed(2)} of $${state.budget.toFixed(2)} left`;
   });
 
@@ -281,8 +281,8 @@ export function useStudioAssist(options: StudioAssistOptions) {
     options.host()?.cancel();
   }
 
-  function resume(): void {
-    options.host()?.resume();
+  function resume(requestLimit?: number): void {
+    options.host()?.resume(requestLimit);
   }
 
   /** Adopt the candidate as one undo step; false (with the reason) when it cannot be. */

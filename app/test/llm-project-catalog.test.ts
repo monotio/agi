@@ -80,7 +80,7 @@ test("OpenAI sends only the custom catalog and filters allowed_tools against it"
     properties: {
       key: { type: "string", maxLength: 64 },
       offset: { type: ["integer", "null"], minimum: 0 },
-      limit: { type: ["integer", "null"], minimum: 1, maximum: 32000 },
+      limit: { type: ["integer", "null"], minimum: 1, maximum: 131072 },
     },
     required: ["key", "offset", "limit"],
   });

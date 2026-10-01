@@ -59,7 +59,7 @@ function toolResult(bodies: readonly string[]): string {
 
 function modelSession(): AgentSession {
   return new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     createAgentSessionState(),
   );

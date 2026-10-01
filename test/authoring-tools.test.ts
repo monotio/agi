@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { buildView } from "../src/view/view.ts";
 import { authoredPictureSource, createAgentSessionState } from "../src/agent/agentState.ts";
 import { executeAgentTool } from "../src/agent/tools.ts";
 import { executeAuthoringTool } from "../src/agent/authoringTools.ts";
@@ -482,4 +483,102 @@ test("write_words declares ignored words the parser drops before matching", () =
     }).success,
     true,
   );
+});
+
+test("default source reads return every line of an ordinary resource", () => {
+  const state = createAgentSessionState();
+  const source = "// detail\n".repeat(500) + "return;";
+  const written = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  assert.equal(written.success, true, written.error ?? "");
+  const read = executeAgentTool(state, "read_logic", { num: 1 });
+  assert.equal(read.details?.["source"], source);
+  assert.equal(read.details?.["nextOffset"], null);
+});
+
+test("source edits coordinate more than sixty-four disjoint changes", () => {
+  const state = createAgentSessionState();
+  const comments = Array.from({ length: 65 }, (_, i) => `// note-${i}!`);
+  const source = comments.join("\n") + "\nreturn;";
+  assert.equal(executeAgentTool(state, "write_logic_source", { room: 1, source }).success, true);
+  const read = executeAgentTool(state, "read_logic", { num: 1 });
+  const result = executeAgentTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: read.details?.["revision"],
+    edits: comments.map((find) => ({ find, replace: find + " updated" })),
+  });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.match(state.sources.logics.get(1) ?? "", /note-64! updated/);
+});
+
+test("word and intent reads return multiple complete entries by default", () => {
+  const state = createAgentSessionState();
+  for (let i = 0; i < 150; i++) state.sources.words.set(`word${i}`, i + 1);
+  for (let i = 0; i < 20; i++) state.authoring.world.facts[`fact${i}`] = `value${i}`;
+  const words = executeAgentTool(state, "read_words", {});
+  assert.equal(words.details?.["nextOffset"], null);
+  assert.equal((words.details?.["groups"] as unknown[]).length, 150);
+  const intent = executeAgentTool(state, "inspect_world_bible", {
+    filter: "intent",
+    section: "facts",
+  });
+  assert.equal(Object.keys(intent.details?.["entries"] as object).length, 20);
+  assert.equal(intent.details?.["nextOffset"], null);
+});
+
+test("argument validation reports every distinct error", () => {
+  const state = createAgentSessionState();
+  const result = executeAgentTool(state, "edit_resource_source", {
+    kind: "logic",
+    num: 1,
+    expectedRevision: "revision",
+    edits: Array.from({ length: 10 }, () => ({ find: 1, replace: 2 })),
+  });
+  assert.equal(result.success, false);
+  assert.match(result.error ?? "", /edits\[9\]/);
+});
+
+test("whole ordinary VIEW reads fit a generous character page", () => {
+  const state = createAgentSessionState();
+  state.container.putResource(
+    "view",
+    1,
+    buildView({
+      loops: [
+        {
+          cels: Array.from({ length: 2 }, () => ({
+            width: 160,
+            height: 168,
+            transparentColor: 0,
+            pixels: new Uint8Array(160 * 168).fill(1),
+          })),
+        },
+      ],
+    }),
+  );
+  const view = executeAgentTool(state, "read_view", { num: 1, rows: true });
+  assert.equal(view.success, true, view.error ?? "");
+  const rows = view.details?.["rows"] as { rows: string[] }[];
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1]?.rows.length, 168);
+});
+
+test("whole ordinary SOUND reads fit a generous character page", () => {
+  const state = createAgentSessionState();
+  const written = executeAgentTool(state, "write_music", {
+    num: 1,
+    tempo: 120,
+    tracks: [
+      {
+        channel: "melody",
+        volume: 10,
+        events: Array.from({ length: 200 }, () => ({ note: "C4", beats: 1, repeat: 1 })),
+      },
+    ],
+  });
+  assert.equal(written.success, true, written.error ?? "");
+  const sound = executeAgentTool(state, "read_sound", { num: 1 });
+  assert.equal(sound.success, true, sound.error ?? "");
+  assert.equal((sound.details?.["events"] as unknown[]).length, 200);
+  assert.equal(sound.details?.["nextOffset"], null);
 });

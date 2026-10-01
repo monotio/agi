@@ -579,7 +579,8 @@ export function useEngine(
   return {
     runStudioAssist: authoringController.runStudioAssist,
     stopAgent: () => authoringController.getSession()?.task.stop(),
-    continueAgent: () => authoringController.getSession()?.task.resume(),
+    continueAgent: (requestLimit?: number) =>
+      authoringController.getSession()?.task.resume(requestLimit),
     discardAgent: () => authoringController.getSession()?.task.cancel(),
     state,
     audio,

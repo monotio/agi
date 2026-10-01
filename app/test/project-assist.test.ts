@@ -189,7 +189,7 @@ function createAssist(options: {
 
 /** A real provider name so the injected fake conversation drives the loop. */
 function testConfig(): LlmConfig {
-  return { provider: "openai", apiKey: "placeholder", model: "test" };
+  return { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" };
 }
 
 describe("projectAssist: review lifecycle", () => {
@@ -901,7 +901,7 @@ describe("projectAssist: guard rails", () => {
       provider: "openai",
       apiKey: "placeholder",
       model: "gpt-6-sol",
-      budgetUsd: 0.0000001,
+      budgetUsd: 0.32,
     });
     const request = assist.request({ instruction: "inspect" });
     for (let i = 0; i < 8 && requests.length < 1; i++) await settle();
@@ -927,4 +927,19 @@ describe("projectAssist: guard rails", () => {
     assert.deepEqual(draft.dirtyKeys(), []);
     void captured;
   });
+});
+
+test("project assist completes after more than eight distinct tool rounds", async () => {
+  const fake = fakeConversation([
+    ...Array.from({ length: 12 }, (_, i) => ({
+      tools: [{ name: "read_document", input: { key: `logic:${i}` } }],
+    })),
+    { text: "Inspection complete." },
+  ]);
+  const { assist } = createAssist({ conversationFactory: () => fake.conversation });
+  assist.connect(testConfig());
+  const result = await assist.request({ instruction: "Inspect the project." });
+  assert.equal(result.text, "Inspection complete.");
+  assert.equal(fake.resultsSeen.length, 12);
+  assert.deepEqual(fake.interruptions, []);
 });

@@ -602,8 +602,8 @@ test("model-facing projection evicts large fields into a retrievable diagnostic"
     details: {
       num: 1,
       revision: "34-48575beb",
-      source: 'print("' + "x".repeat(600) + '");',
-      history: Array.from({ length: 40 }, (_, i) => `step ${i} with detail`),
+      source: 'print("' + "x".repeat(9000) + '");',
+      history: Array.from({ length: 500 }, (_, i) => `step ${i} with detail`),
     },
   };
   const projected = projectToolResult(full, session.diagnostics, "d1");
@@ -654,7 +654,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     egoY: 140,
     modalKind: "show.obj",
     checkpoint: 412,
-    inventory: Array.from({ length: 40 }, (_, i) => ({
+    inventory: Array.from({ length: 150 }, (_, i) => ({
       num: i,
       name: `inventory object number ${i} with a long descriptive name`,
     })),
@@ -668,7 +668,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     message: "Room 7.",
     details: {
       live,
-      liveObjects: Array.from({ length: 60 }, (_, i) => ({ num: i, name: `obj ${i}` })),
+      liveObjects: Array.from({ length: 600 }, (_, i) => ({ num: i, name: `obj ${i}` })),
     },
   };
   const projected = projectToolResult(full, session.diagnostics, "live-1");
@@ -678,10 +678,10 @@ test("an oversized live field keeps its essential scalars and reports counts", (
   assert.equal(compact["egoY"], 140);
   assert.equal(compact["modalKind"], "show.obj");
   assert.equal(compact["checkpoint"], 412);
-  assert.deepEqual(compact["inventory"], { truncated: true, items: 40 });
+  assert.deepEqual(compact["inventory"], { truncated: true, items: 150 });
   assert.deepEqual(compact["controls"], { truncated: true, items: 9 });
   const objects = projected.details?.["liveObjects"] as Record<string, unknown>;
-  assert.deepEqual(objects, { truncated: true, items: 60 });
+  assert.deepEqual(objects, { truncated: true, items: 600 });
   assert.equal(projected.details?.["diagnosticId"], "live-1");
   assert.deepEqual(projected.details?.["truncatedFields"], ["live", "liveObjects"]);
   assert.ok(
@@ -689,7 +689,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     `summary is ${JSON.stringify(compact).length} characters`,
   );
   const stored = session.diagnostics.get("live-1");
-  assert.equal((stored?.details?.["live"] as typeof live).inventory.length, 40);
+  assert.equal((stored?.details?.["live"] as typeof live).inventory.length, 150);
 
   // Both provider serializations carry the essentials, not the raw tables.
   for (const content of [splitToolResult(projected)]) {
@@ -699,7 +699,7 @@ test("an oversized live field keeps its essential scalars and reports counts", (
     ]) {
       assert.ok(text.includes('"room":7'));
       assert.ok(text.includes('"egoX":121'));
-      assert.ok(text.includes('"items":40'));
+      assert.ok(text.includes('"items":150'));
       assert.ok(!text.includes("inventory object number 39"));
     }
   }
@@ -856,4 +856,24 @@ test("Anthropic error results with images are not flagged is_error", () => {
     content: [{ type: "text", text: JSON.stringify({ success: false, error: "bad" }) }],
   });
   assert.equal(anthropicToolResult("call-3", { success: true, message: "ok" }).is_error, false);
+});
+
+test("ordinary task details stay inline in the model projection", () => {
+  const session = createAgentSessionState();
+  const details = {
+    errors: Array.from({ length: 20 }, (_, i) => `Distinct error ${i}: ${"x".repeat(120)}`),
+  };
+  const result = projectToolResult({ success: false, details }, session.diagnostics, "ordinary");
+  assert.deepEqual(result.details, details);
+  assert.equal(session.diagnostics.has("ordinary"), false);
+});
+
+test("diagnostic reads return a complete ordinary diagnostic", () => {
+  const session = createAgentSessionState();
+  const detail = "diagnostic detail ".repeat(3500);
+  session.diagnostics.set("large", { success: false, details: { detail } });
+  const read = executeAgentTool(session, "read_diagnostic", { id: "large", fields: ["detail"] });
+  assert.equal(read.success, true, read.error ?? "");
+  assert.equal(read.details?.["nextOffset"], null);
+  assert.ok(read.message?.includes(detail));
 });

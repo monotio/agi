@@ -27,7 +27,10 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
   await page.route("**/api/openai/v1/responses", async (route) => {
     const request = ++requests;
     expect(route.request().postDataJSON().model).toBe("gpt-6.1-sol");
-    expect(route.request().postDataJSON().max_output_tokens).toBeGreaterThan(4096);
+    expect(route.request().postDataJSON().max_output_tokens).toBe(128000);
+    expect(route.request().postDataJSON().context_management).toEqual([
+      { type: "compaction", compact_threshold: 691500 },
+    ]);
     if (request === 2) await blocked;
     try {
       await route.fulfill(
@@ -109,4 +112,60 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
   } finally {
     release();
   }
+});
+
+test("unknown spend waits for a request allowance in the real assistant", async ({ page }) => {
+  const game = createContainer();
+  game.putResource(
+    "logic",
+    0,
+    assembleLogic("assignn(v0, 1); accept.input(); return;", { dictionary: new Map() }).payload,
+  );
+  const archive = buildZip(
+    [...game.files]
+      .map(([name, data]) => ({ name, data }))
+      .concat([{ name: "WORDS.TOK", data: new Uint8Array(52) }]),
+  );
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: "allowed",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Inspection complete." }],
+          },
+        ],
+      }),
+    );
+  });
+  await page.goto("/");
+  await page.getByTestId("game-zip-input").setInputFiles({
+    name: "allowance.zip",
+    mimeType: "application/zip",
+    buffer: Buffer.from(archive),
+  });
+  await page.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
+  await page.getByTestId("power-up").click();
+  // Simulate a selectable model whose price has not yet been verified.
+  const modelModule = `/@fs${new URL("../../src/agent/modelEffort.ts", import.meta.url).pathname}`;
+  await page.evaluate(async (path) => {
+    const { MODEL_CAPABILITIES } = await import(path);
+    delete MODEL_CAPABILITIES["gpt-6-sol"].price;
+  }, modelModule);
+  await configureAi(page, { provider: "openai", model: "gpt-6-sol", key: "placeholder" });
+  await page.getByTestId("agent-bubble-input").fill("Inspect this room.");
+  await page.getByTestId("agent-bubble-send").click();
+  await expect(page.getByTestId("agent-pause-reason")).toContainText("Spend unknown");
+  expect(requests).toBe(0);
+  await page.getByTestId("agent-request-limit").fill("2");
+  await page.screenshot({ path: test.info().outputPath("request-allowance.png") });
+  await page.getByTestId("agent-continue").click();
+  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  expect(requests).toBe(1);
 });

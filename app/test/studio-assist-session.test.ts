@@ -195,7 +195,7 @@ test("a model that judges its own candidate wrong withdraws it; the request ends
   });
   const events: string[] = [];
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     (_kind, detail) => events.push(detail),
     state(),
   );
@@ -242,7 +242,7 @@ test("a provider turn offers only the Studio task tools and is denied anything e
   });
   const live = state();
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     live,
   );
@@ -288,4 +288,42 @@ test("the request's tools read the draft under the Studio's profile, not the ses
   };
   assert.doesNotMatch((await read())!, /pen is not available/);
   assert.match((await read(PROFILES["2.089"]))!, /pen is not available in profile 2\.089/);
+});
+
+test("Studio completes after more than eight distinct tool rounds", async (t) => {
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    const n = ++requests;
+    const output =
+      n <= 12
+        ? [
+            {
+              type: "function_call",
+              call_id: `c${n}`,
+              name: "read_logic",
+              arguments: JSON.stringify({ num: n }),
+            },
+          ]
+        : [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "Inspection complete." }],
+            },
+          ];
+    return new Response(providerSse("openai", { id: `r${n}`, output }), {
+      headers: { "content-type": "text/event-stream" },
+    });
+  });
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
+    () => {},
+    state(),
+  );
+  const result = await session.runStudioAssist({
+    instruction: "Inspect every dependency.",
+    focus: bridgeFocus(),
+  });
+  assert.equal(result.text, "Inspection complete.");
+  assert.equal(requests, 13);
 });

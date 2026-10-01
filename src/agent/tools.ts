@@ -311,7 +311,7 @@ function prepareAgentToolCall(
   if (errors.length)
     return {
       success: false,
-      error: `Invalid arguments for ${name}; nothing was changed. ${errors.slice(0, 8).join(" ")}`,
+      error: `Invalid arguments for ${name}; nothing was changed. ${[...new Set(errors)].join(" ")}`,
     };
   return { success: true, args };
 }
@@ -374,7 +374,7 @@ function readDiagnostic(
     };
   const fields = args["fields"];
   const offset = typeof args["offset"] === "number" ? args["offset"] : 0;
-  const limit = Math.min(typeof args["limit"] === "number" ? args["limit"] : 16000, 32000);
+  const limit = Math.min(typeof args["limit"] === "number" ? args["limit"] : 131072, 131072);
   let selected: unknown = {
     success: stored.success,
     message: stored.message,
@@ -523,8 +523,16 @@ function executeValidatedAgentTool(
     const full = String(result.details?.["source"] ?? "");
     const lines = full.split("\n");
     const offset = Number(args["offset"] ?? 0);
-    const limit = Math.min(400, Number(args["limit"] ?? 200));
-    const source = lines.slice(offset, offset + limit).join("\n");
+    const requestedLines = Math.min(65536, Number(args["limit"] ?? lines.length));
+    const pageLines: string[] = [];
+    let chars = 0;
+    for (const line of lines.slice(offset, offset + requestedLines)) {
+      if (pageLines.length && chars + line.length + 1 > 65536) break;
+      pageLines.push(line);
+      chars += line.length + 1;
+    }
+    const limit = pageLines.length;
+    const source = pageLines.join("\n");
     const include = name === "read_picture" ? (args["include"] ?? "both") : "source";
     if (!["source", "image", "both"].includes(String(include)))
       return { success: false, error: "include must be source, image, both, or null." };
@@ -968,10 +976,10 @@ function executeLegacyTool(
             for (const [celNum, cel] of loop.cels.entries()) {
               if (selected.size && !selected.has(`${loopNum}:${celNum}`)) continue;
               rowPixels += cel.width * cel.height;
-              if (rowPixels > 32768)
+              if (rowPixels > 65536)
                 return {
                   success: false,
-                  error: `Rows exceed the 32768-pixel budget; select fewer cels via 'cels'.`,
+                  error: `Rows exceed the 65536-pixel budget; select fewer cels via 'cels'.`,
                 };
               rowCels.push({
                 loop: loopNum,
@@ -1075,7 +1083,7 @@ function executeLegacyTool(
         .sort((a, b) => a[0] - b[0])
         .map(([id, words]) => ({ id, words: [...words].sort() }));
       const offset = Number(args["offset"] ?? 0);
-      const limit = Math.min(100, Number(args["limit"] ?? 60));
+      const limit = Math.min(65536, Number(args["limit"] ?? 65536));
       const shown = groups.slice(offset, offset + limit);
       const summary = shown.map((g) => `${g.id}: ${g.words.join("/")}`).join("\n");
       return {
@@ -1378,11 +1386,11 @@ function executeLegacyTool(
                 authoredIntent: Object.fromEntries(
                   Object.entries(session.authoring.world).map(([section, entries]) => [
                     section,
-                    { count: Object.keys(entries).length, keys: Object.keys(entries).slice(0, 16) },
+                    { count: Object.keys(entries).length, keys: Object.keys(entries) },
                   ]),
                 ),
               }),
-          bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
+          bindings: { ...session.authoring.bindings },
           bindingCount: Object.keys(session.authoring.bindings).length,
         };
         if (filter === "intent") {
@@ -1395,10 +1403,11 @@ function executeLegacyTool(
               : session.authoring.world[section as "rooms" | "facts" | "quests"],
           );
           const offset = Number(args["offset"] ?? 0);
+          const limit = Math.min(65536, Number(args["limit"] ?? 65536));
           const selected =
             typeof args["name"] === "string"
               ? entries.filter(([name]) => name === args["name"])
-              : entries.slice(offset, offset + 1);
+              : entries.slice(offset, offset + limit);
           return {
             success: true,
             message: `Authored intent: ${section}. This records the author's intent; inspect compiled logic or playtest to verify implementation.`,
@@ -1407,7 +1416,10 @@ function executeLegacyTool(
               entries: Object.fromEntries(selected),
               count: entries.length,
               offset,
-              nextOffset: args["name"] == null && offset + 1 < entries.length ? offset + 1 : null,
+              nextOffset:
+                args["name"] == null && offset + selected.length < entries.length
+                  ? offset + selected.length
+                  : null,
             },
           };
         }
@@ -1721,7 +1733,7 @@ export async function executeAgentToolAsync(
     const room = args["room"] ?? live?.["room"];
     if (typeof room !== "number" || !Number.isInteger(room) || room < 0 || room > 255)
       return { success: false, error: "Supply room 0..255 when no live room is attached." };
-    const logic = executeAgentTool(session, "read_logic", { num: room, offset: 0, limit: 80 });
+    const logic = executeAgentTool(session, "read_logic", { num: room, offset: null, limit: null });
     const index = listResources(session, null);
     const images: { png: Uint8Array; caption: string }[] = [];
     let framesMessage: string | null = null;
@@ -1734,7 +1746,7 @@ export async function executeAgentToolAsync(
       // Ask mode is the player's surface: the room's plan entry — its brief
       // and exits to rooms not yet built — is creator intent, withheld here.
       ...(deps?.readOnly ? {} : { intent: session.authoring.world.rooms[String(room)] ?? null }),
-      bindings: Object.fromEntries(Object.entries(session.authoring.bindings).slice(0, 32)),
+      bindings: { ...session.authoring.bindings },
       bindingCount: Object.keys(session.authoring.bindings).length,
       inventoryDefinitions: readInventoryObjects(session.getFiles().get("OBJECT"), session.profile),
     };

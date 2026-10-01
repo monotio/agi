@@ -998,7 +998,7 @@ test("recorded test reads omit opaque setup and paginate complete editable defin
   do {
     const page = executeAgentTool(state, "read_game_tests", { names: [takeKey.name], offset });
     assert.equal(page.success, true, page.error ?? "");
-    assert.ok(splitToolResult(page).text.length < 12000);
+    assert.ok(splitToolResult(page).text.length < 131072);
     assert.equal(typeof page.details?.["definition"], "string");
     definition += page.details!["definition"] as string;
     const next = page.details!["nextOffset"];
@@ -1010,7 +1010,7 @@ test("recorded test reads omit opaque setup and paginate complete editable defin
   assert.equal(decoded.length, 1);
   assert.equal(decoded[0]!.steps.length, 256);
   assert.equal(decoded[0]!.setup, undefined);
-  assert.ok(pages > 1);
+  assert.equal(pages, 1, "ordinary definitions fit in a whole-resource read");
   assert.equal(state.testsPayload, original, "reading never mutates the archive");
   assert.equal(
     executeAgentTool(state, "read_game_tests", { names: [takeKey.name], offset: -1 }).success,
@@ -1058,7 +1058,7 @@ test("test-read summaries remain bounded at capacity and JSON pages preserve esc
   do {
     const page = executeAgentTool(state, "read_game_tests", { names, offset });
     assert.equal(page.success, true, page.error ?? "");
-    assert.ok(splitToolResult(page).text.length < 12000);
+    assert.ok(splitToolResult(page).text.length < 400000);
     definition += page.details!["definition"] as string;
     const next = page.details!["nextOffset"] as number | null;
     assert.ok(next === null || next > offset);

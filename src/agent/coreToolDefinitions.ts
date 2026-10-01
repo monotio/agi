@@ -210,7 +210,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
           items: { type: "string", minLength: 1, maxLength: 64 },
         },
         offset: { type: ["integer", "null"], minimum: 0 },
-        limit: { type: ["integer", "null"], minimum: 1, maximum: 32000 },
+        limit: { type: ["integer", "null"], minimum: 1, maximum: 131072 },
       },
       required: ["id", "fields", "offset", "limit"],
     },
@@ -331,7 +331,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_picture",
     description:
-      "Read editable source and rendered priority/control analysis for picture `num`. `include` selects source, image or both; null paging uses offset 0, limit 200 and both. Fails for absent or invalid resources.",
+      "Read editable source and rendered priority/control analysis for picture `num`. `include` selects source, image or both; `offset`/`limit` page source lines; null paging uses offset 0, a 65536-character source budget and both. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -344,7 +344,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         limit: {
           type: ["integer", "null"],
           minimum: 1,
-          maximum: 400,
+          maximum: 65536,
         },
         include: {
           type: ["string", "null"],
@@ -357,7 +357,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_logic",
     description:
-      "Disassemble logic `num` to editable, byte-identical source with said() words resolved. Null paging uses offset 0 and limit 200. Fails for absent or invalid resources.",
+      "Disassemble logic `num` to editable, byte-identical source with said() words resolved. `offset`/`limit` page source lines; null paging uses offset 0 and a 65536-character source budget. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -370,7 +370,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         limit: {
           type: ["integer", "null"],
           minimum: 1,
-          maximum: 400,
+          maximum: 65536,
         },
       },
       required: ["num", "offset", "limit"],
@@ -379,7 +379,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_words",
     description:
-      "Inspect parser words and synonym groups by word ID. `prefix` or `exact` narrows the words; `offset` and `limit` page the groups (null: 0 and 60). The compiled dictionary determines what said() can match.",
+      "Inspect parser words and synonym groups by word ID. `prefix` or `exact` narrows the words; `offset` and `limit` page the groups (null: 0 and up to 65536). The compiled dictionary determines what said() can match.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -394,7 +394,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         limit: {
           type: ["integer", "null"],
           minimum: 1,
-          maximum: 100,
+          maximum: 65536,
         },
         prefix: {
           type: ["string", "null"],
@@ -406,7 +406,7 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_view",
     description:
-      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 32768-pixel budget — large `rows` results evict to a paged diagnostic. Fails for absent or invalid resources.",
+      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 65536-pixel budget — large `rows` results evict to a paged diagnostic. Fails for absent or invalid resources.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -548,7 +548,7 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
   {
     name: "inspect_world_bible",
     description:
-      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words, intent or slots (null: all); slots lists occupied ranges and next free IDs, narrowed by `kind` (logic, picture, view, sound, null for all). With intent, `section` (rooms, facts, quests or bindings) plus `name` or `offset` selects one entry. Inventory locations are definitions; use read_room_context for live inventory. This indexes resources and does not prove puzzle behavior.",
+      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words, intent or slots (null: all); slots lists occupied ranges and next free IDs, narrowed by `kind` (logic, picture, view, sound, null for all). With intent, `section` (rooms, facts, quests or bindings) plus `name` selects one entry or `offset`/`limit` pages entries (null: all up to 65536). Inventory locations are definitions; use read_room_context for live inventory. This indexes resources and does not prove puzzle behavior.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -571,8 +571,9 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
           type: ["string", "null"],
           enum: ["logic", "picture", "view", "sound", null],
         },
+        limit: { type: ["integer", "null"], minimum: 1, maximum: 65536 },
       },
-      required: ["filter", "section", "name", "offset", "kind"],
+      required: ["filter", "section", "name", "offset", "kind", "limit"],
     },
   },
   {

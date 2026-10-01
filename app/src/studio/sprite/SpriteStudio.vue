@@ -185,7 +185,7 @@ const assistHost: StudioAssistHost | null =
     ? {
         run: (request) => engineApi.runStudioAssist(request, aiSettings.llmConfig()),
         cancel: () => engineApi.discardAgent(),
-        resume: () => engineApi.continueAgent(),
+        resume: (requestLimit) => engineApi.continueAgent(requestLimit),
         task: () => engineApi.state.agentTask,
         log: () => engineApi.state.agentLog,
       }

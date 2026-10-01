@@ -160,8 +160,12 @@ it, and ask for revisions when something is off.
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
 are billed to your account; each task starts with an estimated $5 budget that
-you can change. Each request extends the one before it, so the provider's
-prompt cache serves the conversation so far at its lower cache-read price. What
+you can change. The agent pauses between requests when the remaining allowance
+is too small for another productive turn; one response may cross that allowance.
+Models with unverified prices ask for an allowance in requests and show spend
+as unknown. Long conversations compact their request context while keeping the
+full audit transcript. The provider's prompt cache reuses prior context at its
+lower cache-read price. What
 the agent writes comes from your provider's model. Review the story, puzzles and artwork before
 sharing the game, especially with children. [Security](SECURITY.md) covers storage and data flow, and
 [adventure briefs](games/README.md) covers writing your own templates.

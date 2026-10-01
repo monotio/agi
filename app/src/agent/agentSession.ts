@@ -1,3 +1,4 @@
+import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { AgentRun } from "./agentRun.ts";
 /**
  * Agent Session: Manages the ever-growing, append-only frontier LLM session
@@ -82,7 +83,6 @@ import { createReferenceStub } from "./referenceStub.ts";
 import {
   createStudioAssistPrompt,
   createStudioAssistStub,
-  MAX_STUDIO_ROUNDS,
   type StudioAssistRequest,
   type StudioAssistResult,
 } from "./studioAssist.ts";
@@ -436,7 +436,12 @@ Answer the player's question using evidence from inspection when needed. For hin
             `[Ask] ${call.name} → ${result.success ? (result.message ?? "Done") : result.error}`,
             { tool: call.name, result: { ...result, images: undefined } },
           );
-          this.task.recordTool(call.name, call.input, result);
+          this.task.recordTool(
+            call.name,
+            call.input,
+            result,
+            computeResourceRevision(Object.fromEntries(this.state.getFiles())),
+          );
           results.push({ toolCallId: call.id, result: this.projectForModel(result) });
         }
         this.conversation.appendToolResults(results);
@@ -588,23 +593,21 @@ Answer the player's question using evidence from inspection when needed. For hin
       // passes. The genesis leg of handover is skipped here: the running
       // game already proves it boots, and imported games have no genesis
       // to re-litigate. A failing verdict goes back to the model for repair
-      // up to three times — a text reply can be a progress note, not a
-      // final answer — and a further plain-text reply discards the
-      // candidate rather than adopting it.
+      // until completion or a visible task pause. A text reply may be a
+      // progress note while the staged candidate still needs repair.
       let stagedChanges = false;
-      let verdictsSent = 0;
       for (;;) {
         if (turn.toolCalls.length === 0) {
           if (!stagedChanges) break;
           const verdict = remixVerdict(staged);
           if (verdict === null) break;
-          if (verdictsSent === 3) {
-            const text = `${turn.text ?? "Done."} The staged changes were not applied: ${verdict}`;
-            this.messages.push({ role: "assistant", text });
-            this.onEvent("response", `[Remix] ${text.slice(0, 300)}`, { text, patched: [] });
-            return { text, patched: [], files: {} };
-          }
-          verdictsSent++;
+          this.task.recordTool(
+            "remix_verdict",
+            {},
+            { success: false, error: verdict },
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
+          );
+          await this.task.checkpoint(false);
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
               `The staged changes cannot be committed: ${verdict} ` +
@@ -663,7 +666,12 @@ Answer the player's question using evidence from inspection when needed. For hin
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
           this.pendingToolMs += performance.now() - toolStart;
-          this.task.recordTool(tc.name, tc.input, res);
+          this.task.recordTool(
+            tc.name,
+            tc.input,
+            res,
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
+          );
           results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
         this.conversation.appendToolResults(results);
@@ -757,34 +765,32 @@ Answer the player's question using evidence from inspection when needed. For hin
         ),
         "studio",
       );
-      for (let round = 1; turn.toolCalls.length; round++) {
+      while (turn.toolCalls.length) {
         const results: { toolCallId: string; result: AgentToolResult }[] = [];
         for (const call of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Studio] ${call.name}`, { tool: call.name, args: call.input });
           const toolStart = performance.now();
-          const result =
-            round > MAX_STUDIO_ROUNDS
-              ? {
-                  success: false,
-                  error: `Not executed: this request reached its ${MAX_STUDIO_ROUNDS}-round limit.`,
-                }
-              : watch.record(
-                  call.name,
-                  call.input,
-                  await executeAgentToolAsync(inspected, call.name, call.input, deps),
-                );
+          const result = watch.record(
+            call.name,
+            call.input,
+            await executeAgentToolAsync(inspected, call.name, call.input, deps),
+          );
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
             result.success ? "response" : "error",
             `[Studio] ${call.name} -> ${result.success ? (result.message ?? "ok").split("\n")[0] : result.error}`,
             { tool: call.name, result: { ...result, images: undefined } },
           );
-          this.task.recordTool(call.name, call.input, result);
+          this.task.recordTool(
+            call.name,
+            call.input,
+            result,
+            computeResourceRevision(Object.fromEntries(this.state.getFiles())),
+          );
           results.push({ toolCallId: call.id, result: this.projectForModel(result) });
         }
         conversation.appendToolResults(results);
-        if (round > MAX_STUDIO_ROUNDS) break;
         turn = await this.observeTurn(conversation.complete(), "studio");
       }
       const text =
@@ -1256,14 +1262,24 @@ Answer the player's question using evidence from inspection when needed. For hin
               : `[Genesis] ${tc.name} failed: ${res.error}`,
             { tool: tc.name, args: tc.input, result: { ...res, images: undefined } },
           );
-          this.task.recordTool(tc.name, tc.input, res);
+          this.task.recordTool(
+            tc.name,
+            tc.input,
+            res,
+            computeResourceRevision(Object.fromEntries(this.state.getFiles())),
+          );
           results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
         this.conversation.appendToolResults(results);
         if (this.state.genesisComplete) break;
         turn = await this.observeTurn(this.conversation.complete(), "genesis");
       } else {
-        this.task.recordTool("unfinished_reply", {}, { success: false, message: turn.text ?? "" });
+        this.task.recordTool(
+          "unfinished_reply",
+          {},
+          { success: false, message: turn.text ?? "" },
+          computeResourceRevision(Object.fromEntries(this.state.getFiles())),
+        );
         // Model answered with text instead of tools, remind it to complete genesis
         this.onEvent("response", `[Genesis text] ${(turn.text ?? "").slice(0, 150)}`, {
           text: turn.text,
@@ -1360,13 +1376,10 @@ Answer the player's question using evidence from inspection when needed. For hin
     });
     const previous = executeAgentTool(staged, "read_logic", { num: from });
     // Player intent pinned on the map for this room — provenance the host
-    // attached to the request, validated to a bounded list of strings.
+    // attached to the request; every supplied string travels in the prompt.
     const rawNotes = req.context["playerNotes"];
     const playerNotes = Array.isArray(rawNotes)
-      ? rawNotes
-          .filter((note): note is string => typeof note === "string")
-          .slice(0, 16)
-          .map((note) => note.slice(0, 400))
+      ? rawNotes.filter((note): note is string => typeof note === "string")
       : undefined;
     // A map-built extension names the planned exit it is realizing: the turn
     // must leave that route implemented in the source room's logic.
@@ -1398,6 +1411,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             "unfinished_reply",
             {},
             { success: false, message: turn.text ?? "" },
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
           );
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
@@ -1471,7 +1485,12 @@ Answer the player's question using evidence from inspection when needed. For hin
             { tool: tc.name, result: { ...result, images: undefined } },
           );
           this.pendingToolMs += performance.now() - toolStart;
-          this.task.recordTool(tc.name, tc.input, result);
+          this.task.recordTool(
+            tc.name,
+            tc.input,
+            result,
+            computeResourceRevision(Object.fromEntries(staged.getFiles())),
+          );
           results.push({ toolCallId: tc.id, result: this.projectForModel(result) });
         }
         this.conversation.appendToolResults(results);

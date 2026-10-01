@@ -140,7 +140,7 @@ test("changing the shared provider affects the next Ask without losing the conve
       }),
     );
   });
-  await page.route("**/api/anthropic/v1/messages", async (route) => {
+  await page.route("**/api/anthropic/v1/messages*", async (route) => {
     requests.push({ provider: "anthropic", body: route.request().postData()! });
     await route.fulfill(
       providerReply("anthropic", {

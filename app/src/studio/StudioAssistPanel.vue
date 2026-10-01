@@ -191,6 +191,7 @@ watch(phase, async (next) => {
   verdict.value?.scrollIntoView({ block: "nearest" });
 });
 
+const requestLimit = ref(5);
 defineExpose({ focus });
 </script>
 
@@ -287,8 +288,17 @@ defineExpose({ focus });
         </p>
         <template v-if="assist.task.value?.status === 'paused'">
           <p class="assist__warn">{{ assist.task.value.reason }}</p>
+          <label v-if="!assist.task.value?.priceKnown">
+            Requests
+            <input v-model.number="requestLimit" type="number" min="1" step="1" />
+          </label>
           <div class="assist__actions">
-            <UiButton size="sm" variant="primary" @click="assist.resume()">Continue</UiButton>
+            <UiButton
+              size="sm"
+              variant="primary"
+              @click="assist.resume(assist.task.value?.priceKnown ? undefined : requestLimit)"
+              >Continue</UiButton
+            >
             <UiButton size="sm" variant="danger" @click="assist.stop()">Discard</UiButton>
           </div>
         </template>
