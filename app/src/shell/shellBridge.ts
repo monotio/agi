@@ -39,6 +39,11 @@ export interface ShellBridge {
    * needs no provider or key.
    */
   openLogicProject(projectId: ProjectId): void;
+  /**
+   * Open Sound Studio on a stored project (registered by App.vue) — the same
+   * stored-project mount as Logic Studio: no engine, no provider, no key.
+   */
+  openSoundProject(projectId: ProjectId): void;
 }
 
 /** Inject it with a null default where the shell may be absent (the Studio harness). */
@@ -56,6 +61,7 @@ export function createShellBridge(): ShellBridge {
     focusGameInput: () => {},
     openHelp: () => {},
     openLogicProject: () => {},
+    openSoundProject: () => {},
   };
 }
 

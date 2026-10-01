@@ -24,8 +24,6 @@ import {
 import { useEngine, type AutosaveRecord } from "./engine/useEngine.ts";
 import { MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { reconcileGameIndex } from "./project/gameStorage.ts";
-import { resolveGameHash } from "../../src/games/knownGames.ts";
-import { findInstalledFolder, gameStorageKey } from "./project/gameTypes.ts";
 import type { ProjectId } from "./project/gameTypes.ts";
 import { useGameKeys } from "./play/useGameKeys.ts";
 
@@ -111,6 +109,11 @@ const SpriteStudio = defineAsyncComponent(() => import("./studio/sprite/SpriteSt
 // Logic Studio — Monaco plus its analysis worker — loads only when the
 // library's Edit asks for it; the Play boot path never sees it.
 const LogicStudio = defineAsyncComponent(() => import("./studio/logic/LogicStudio.vue"));
+// Sound Studio — the native cue workspace — loads on the same demand path.
+const SoundStudio = defineAsyncComponent(() => import("./studio/sound/SoundStudio.vue"));
+// The direct studio's creative dock host — image import, preparation and
+// the board — loads with a Studio, which is the only place it mounts.
+const StudioDockHost = defineAsyncComponent(() => import("./studio/creative/StudioDockHost.vue"));
 const mapOpen = engine.roomMap.open;
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
@@ -123,7 +126,6 @@ const {
   startWalkthrough,
   stopWalkthrough,
   releaseAgentAudioPreviews,
-  resumeLastGame,
   resumeFromRecord,
   flushAutosave,
   lastAutosaveRecord,
@@ -187,6 +189,17 @@ const creating = computed(() => state.phase === "running" && shell.mode.value ==
 const studio = workspace.studio;
 /** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
 const studioOpen = computed(() => creating.value && studio.value !== null);
+
+/**
+ * The running game's authored project — the creative dock host (a lazy
+ * Studio chunk) gates its "Import image…" launch on it, so imported games
+ * without a project offer none. `currentGame` reads non-reactive boot
+ * state; the reactive phase flips to "running" when it lands, which is
+ * what makes this computed re-evaluate.
+ */
+const studioProjectId = computed(() =>
+  state.phase === "running" ? (engine.currentGame()?.projectId ?? null) : null,
+);
 /**
  * Logic Studio is a stored-project workspace, not a running-game mode: it
  * opens over whatever is mounted, holds its own pause while a run is hidden,
@@ -201,6 +214,21 @@ watch(logicProjectId, (id, previous) => {
     if (state.phase === "running") engine.pauseEngine("logicStudio");
   } else if (previous !== undefined) {
     engine.resumeEngine("logicStudio");
+  }
+});
+/**
+ * Sound Studio is the same stored-project mount: it opens over whatever is
+ * running, holds its own pause while a run is hidden, and closing hands the
+ * untouched game back. Audible preview adds its own per-lease freeze.
+ */
+const soundProjectId = ref<ProjectId>();
+const soundStudioEl = useTemplateRef("soundStudio");
+watch(soundProjectId, (id, previous) => {
+  if (id !== undefined) {
+    releaseMovement();
+    if (state.phase === "running") engine.pauseEngine("soundStudio");
+  } else if (previous !== undefined) {
+    engine.resumeEngine("soundStudio");
   }
 });
 const sheetOpen = workspace.sheetOpen;
@@ -222,13 +250,17 @@ const { onDockKey } = useCreateMode({
 const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
   engine,
   playArea: () => playArea.value,
-  // Create's dock keys, Studio holding the paused game, and Logic Studio over
-  // a run: nothing typed there may reach the game.
-  intercept: (ev) => onDockKey(ev) || studio.value !== null || logicProjectId.value !== undefined,
+  // Create's dock keys, Studio holding the paused game, and the stored-project
+  // studios over a run: nothing typed there may reach the game.
+  intercept: (ev) =>
+    onDockKey(ev) ||
+    studio.value !== null ||
+    logicProjectId.value !== undefined ||
+    soundProjectId.value !== undefined,
 });
-/** Logic Studio's keyup gets the same isolation as its keydown. */
+/** The stored-project studios' keyup gets the same isolation as its keydown. */
 function onShellKeyup(ev: KeyboardEvent): void {
-  if (logicProjectId.value !== undefined) return;
+  if (logicProjectId.value !== undefined || soundProjectId.value !== undefined) return;
   onGlobalKeyup(ev);
 }
 /** Create keeps Developer activity in its Activity tab while that shows. */
@@ -313,6 +345,9 @@ shellBridge.startWalkthrough = (target) => void onStartWalkthrough(target);
 shellBridge.openLogicProject = (projectId) => {
   logicProjectId.value = projectId;
 };
+shellBridge.openSoundProject = (projectId) => {
+  soundProjectId.value = projectId;
+};
 
 // Dev/e2e handle: open the stored-project workspace and read the caret, so a
 // scripted run can exercise Edit over a running game and check definition
@@ -328,6 +363,19 @@ if (import.meta.env?.DEV) {
   ).__AGI_LOGIC__ = {
     open: (projectId) => shellBridge.openLogicProject(projectId as ProjectId),
     cursor: () => logicStudioEl.value?.cursor() as { line: number; column: number } | undefined,
+  };
+  (
+    window as unknown as {
+      __AGI_SOUND__?: {
+        open(projectId: string): void;
+        cursor(): { eventId: string | null; lane: number; index: number } | undefined;
+      };
+    }
+  ).__AGI_SOUND__ = {
+    open: (projectId) => shellBridge.openSoundProject(projectId as ProjectId),
+    cursor: () =>
+      soundStudioEl.value?.cursor() as
+        { eventId: string | null; lane: number; index: number } | undefined,
   };
 }
 
@@ -516,26 +564,12 @@ onMounted(async () => {
       state.phase = "error";
       state.error = e instanceof Error ? e.message : String(e);
     });
-  else if (
-    playKey &&
-    (() => {
-      const pending = lib.pendingAutosave.value?.game;
-      if (!pending) return false;
-      if (playKey === pending.identity.project) return true;
-      // The URL names an installed edition by any of its query spellings
-      // (alias, folder, hash); the record keys on its storage key.
-      return (
-        pending.installed &&
-        gameStorageKey({
-          installed: true,
-          folder: findInstalledFolder(state.installedGames, playKey),
-          hash: resolveGameHash(playKey) ?? undefined,
-        }) === pending.identity.project
-      );
-    })()
-  )
-    await resumeLastGame(llmConfig());
-  else if (playKey) await openRoutedGame(playKey);
+  else if (playKey) {
+    // Only a routed key that proves no resume offer takes the ordinary routed
+    // open. An offer that was attempted and refused stays the runtime's own
+    // visible result — never retried and never booted over by this caller.
+    if ((await lib.routedResume(playKey)) === "absent") await openRoutedGame(playKey);
+  }
   if (state.phase === "idle") {
     shell.reset();
     clearPlayHash();
@@ -633,7 +667,7 @@ watch(
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
-    <div class="shell" :inert="logicProjectId !== undefined">
+    <div class="shell" :inert="logicProjectId !== undefined || soundProjectId !== undefined">
       <GameHeader
         :touch-controls="touchControls"
         :crt-enabled="crtEnabled"
@@ -735,43 +769,53 @@ watch(
             </UiButton>
           </template>
         </PlayArea>
-        <RoomStudio
-          v-if="studioOpen && studio?.kind === 'picture'"
+        <StudioDockHost
+          v-if="studioOpen && studio"
           class="shell-center"
-          :picture-number="studio.pictureNumber"
-          :bytes="studio.bytes"
-          :authored-source="studio.authoredSource"
-          :profile="studio.profile"
-          :title="studio.title"
-          :subtitle="studio.subtitle"
-          :base-revision="studio.baseRevision"
-          :base-authoring="studio.baseAuthoring"
-          :files="studio.files"
-          :walk="studio.walk"
-          @close="workspace.closeStudio()"
-          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
-          @play-here="(target) => void playHereFromStudio.play(target)"
-        />
-        <SpriteStudio
-          v-else-if="studioOpen && studio?.kind === 'sprite'"
-          :key="`${studio.viewNumber}:${studio.baseRevision}:${studio.stagedReference ?? ''}`"
-          class="shell-center"
-          :view-number="studio.viewNumber"
-          :bytes="studio.bytes"
-          :profile="studio.profile"
-          :title="studio.title"
-          :base-revision="studio.baseRevision"
-          :base-authoring="studio.baseAuthoring"
-          :files="studio.files"
-          :usage="studio.usage"
-          :rooms="studio.rooms"
-          :speed="studio.speed"
-          :cyclers="studio.cyclers"
-          :priority-base="studio.priorityBase"
-          :staged-reference="studio.stagedReference"
-          @close="workspace.closeStudio()"
-          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
-        />
+          :studio="studio"
+          :project-id="studioProjectId"
+        >
+          <template #default="{ launch, underlay }">
+            <RoomStudio
+              v-if="studio.kind === 'picture'"
+              :picture-number="studio.pictureNumber"
+              :bytes="studio.bytes"
+              :authored-source="studio.authoredSource"
+              :profile="studio.profile"
+              :title="studio.title"
+              :subtitle="studio.subtitle"
+              :base-revision="studio.baseRevision"
+              :base-authoring="studio.baseAuthoring"
+              :files="studio.files"
+              :walk="studio.walk"
+              :underlay="underlay"
+              :creative-launch="launch"
+              @close="workspace.closeStudio()"
+              @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
+              @play-here="(target) => void playHereFromStudio.play(target)"
+            />
+            <SpriteStudio
+              v-else-if="studio.kind === 'sprite'"
+              :key="`${studio.viewNumber}:${studio.baseRevision}:${studio.stagedReference ?? ''}`"
+              :view-number="studio.viewNumber"
+              :bytes="studio.bytes"
+              :profile="studio.profile"
+              :title="studio.title"
+              :base-revision="studio.baseRevision"
+              :base-authoring="studio.baseAuthoring"
+              :files="studio.files"
+              :usage="studio.usage"
+              :rooms="studio.rooms"
+              :speed="studio.speed"
+              :cyclers="studio.cyclers"
+              :priority-base="studio.priorityBase"
+              :staged-reference="studio.stagedReference"
+              :creative-launch="launch"
+              @close="workspace.closeStudio()"
+              @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
+            />
+          </template>
+        </StudioDockHost>
         <aside
           v-show="!studioOpen"
           class="shell-side"
@@ -812,6 +856,14 @@ watch(
       :project-id="logicProjectId"
       @update:project-id="logicProjectId = $event"
       @close="logicProjectId = undefined"
+    />
+    <SoundStudio
+      v-if="soundProjectId"
+      ref="soundStudio"
+      :project-id="soundProjectId"
+      :acquire-pause-lease="engine.acquireRuntimePauseLease"
+      @update:project-id="soundProjectId = $event"
+      @close="soundProjectId = undefined"
     />
 
     <AiSettingsDialog

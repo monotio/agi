@@ -60,7 +60,7 @@ const forkShown = computed(() => {
       {{
         phone
           ? "Ask about this game. Editing needs a larger screen."
-          : "Describe a change and the assistant edits this game’s real AGI resources. The game pauses while it works."
+          : "Describe a change to your rooms, art, characters or logic. The assistant makes it while the game pauses."
       }}
     </p>
     <p v-if="forkShown" class="assistant-fork" role="status" data-testid="assistant-fork-note">
@@ -71,7 +71,7 @@ const forkShown = computed(() => {
       >
     </p>
     <p v-else-if="shell.readOnly.value && !phone" class="dock-note" data-testid="create-read-only">
-      This edition is read-only: your first edit makes your own remix copy.
+      Your first edit makes your own copy of this edition.
     </p>
     <section
       v-if="lastTurn"

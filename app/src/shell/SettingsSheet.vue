@@ -252,9 +252,7 @@ defineExpose({ toggle, close, open });
           :disabled="exportBusy || state.powerUp.busy"
           @click="act(() => emit('export-zip', true))"
         >
-          <span
-            >Download game…<small>ZIP for development: editing work, saves and history</small></span
-          >
+          <span>Download game…<small>The whole project: edits, saves and history</small></span>
         </button>
         <button
           type="button"
@@ -268,11 +266,7 @@ defineExpose({ toggle, close, open });
               >ZIP, work in progress: exits to unbuilt rooms stop the game</small
             ></span
           >
-          <span v-else
-            >Export game…<small
-              >ZIP for publishing: the playable game and its public details</small
-            ></span
-          >
+          <span v-else>Export game…<small>The playable game, ready to share</small></span>
         </button>
         <button
           type="button"
@@ -280,7 +274,11 @@ defineExpose({ toggle, close, open });
           data-testid="btn-start-over"
           @click="act(() => emit('start-over'))"
         >
-          <span>Start over<small>Throw away this game’s progress and restart it</small></span>
+          <span
+            >Start over<small
+              >Restart from the beginning; earlier sessions stay on the timeline</small
+            ></span
+          >
         </button>
       </section>
 

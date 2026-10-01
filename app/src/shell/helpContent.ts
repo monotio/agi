@@ -106,8 +106,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "start",
         title: "Start an adventure",
         body: [
-          "Pick a template, or describe your own hero, setting and trouble. An AI agent plans the world and builds the first room while you watch: artwork, characters and game logic.",
-          "It needs your own OpenAI or Anthropic key. The app talks to your provider straight from the browser; there is no server in between.",
+          "Create game starts a playable adventure. Starter includes a hero, menus and saving; Blank gives you an empty room. Shape your pictures, sprites, sounds and code in the Studios.",
+          "Build with AI starts from a template or your own hero, setting and trouble. Connect an OpenAI or Anthropic key and the agent plans the world and builds its first room. The browser sends requests directly to your chosen provider.",
         ],
         action: { kind: "create", label: "Go to Create" },
       },
@@ -116,7 +116,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Rooms appear as you walk",
         body: [
           "Walk into a room that is still unbuilt and play pauses while the agent writes it. Everything it makes is real AGI: pictures, views, logic and sound that you can inspect, download and play again.",
-          "An exported copy cannot grow any further: rooms not built yet stop the game, so it is marked as a work in progress. Download game keeps the project, and the world can go on growing wherever it is imported.",
+          "Export game makes a playable ZIP of the rooms you have built. An unfinished room stops play there. Download game carries the editable project so you can keep building after importing it.",
         ],
       },
       {
@@ -126,7 +126,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           "In Play, the Ask button answers questions and leaves the game as it is. In Create, the Assistant panel changes it: give the guard a new personality, add a puzzle, or turn the courtyard into a swamp.",
           "It works on any game, including the ones you imported. Catalog games open read-only, and your first change makes a remix copy of your own.",
         ],
-        action: { kind: "remix", label: "Open Remix" },
+        action: { kind: "remix", label: "Switch to Create" },
       },
       {
         id: "plan",
@@ -158,7 +158,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-locks",
         title: "Locks",
         body: [
-          "Each lens locks the planes outside its job, and the chip beside the lens tabs names them: the Art lens keeps depth and walk lines as they are (AGI keeps both on one plane, priority), the Depth lens keeps the art, and the Walk lens keeps both and draws walk lines 0–3 only. The locks guard painting: new shapes, fills, colours, depth values and points. Moving, copying or deleting a whole item takes every plane it draws along, in any lens, and the status line says when a move took lines the lens hides. The chip's ⓘ holds Unlock for now (Unlock art and Allow depth in the Walk lens), which lasts until you close Studio. The AI's Ask works under the same locks.",
+          "Each lens locks the planes outside its job, and the chip beside the lens tabs names them: the Art lens keeps depth and walk lines as they are (AGI keeps both on one plane, priority), the Depth lens keeps the art, and the Walk lens keeps both and draws walk lines 0–3 only. The locks guard painting: new shapes, fills, colours, depth values and points. Moving, copying or deleting a whole item takes every plane it draws along, in any lens, and the status line says when a move took lines the lens hides. The chip's ⓘ holds Unlock (Unlock art and Allow depth in the Walk lens), which lasts until you close Studio. The AI's Ask works under the same locks.",
           "An item's own Lock, in the inspector, keeps that item's place and colours until you unlock it.",
         ],
       },
@@ -213,14 +213,14 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Walk lens",
         body: [
           "The Walk lens tests walks and wires doors. Test walk (T): click a start, or a door to start where the player comes in through it, then a goal; a door box counts as a goal, and the walk goes through it. The real game walks it in a throwaway copy and says Reached, Blocked at what was in the way, Went to room N, or A message stopped the walk. The green tint is an estimate of where the player can stand.",
-          "Door box (D) and Edge exit (E) add exits: choose where each leads, the flag that opens it and the art it follows, so moving a doorway moves its door in the same Keep. Exits written in the room's own logic stay read-only; Edit as text shows them. Right-click a spot, or press the Menu key, and choose Play here to jump into the game there. The same menu starts a test walk at that spot, or with a start chosen, Test walk to here walks to it.",
+          "Door box (D) and Edge exit (E) add exits: choose where each leads, the flag that opens it and the art it follows, so moving a doorway moves its door in the same Keep. View as text shows exits written in the room's own logic; change them in Logic Studio or ask the assistant. Right-click a spot, or press the Menu key, and choose Play here to jump into the game there. The same menu starts a test walk at that spot, or with a start chosen, Test walk to here walks to it.",
         ],
       },
       {
         id: "studio-ask",
         title: "Ask",
         body: [
-          'Ask, under the selection in the inspector (or / on the keyboard, or Ask in the bar above the canvas), has your connected AI change just the selected items: "make this bridge walkable without changing the art". Attach a reference image and the AI can look at it while it works. Its proposal shows on the canvas, Before or After, with the changed cells outlined; Accept makes it one undo step that Keep saves like any edit, and Reject or Stop leaves the picture as it was.',
+          'Ask, under the selection in the inspector (or / on the keyboard, or Ask in the bar above the canvas), has your connected AI change the selected items: "make this bridge walkable and preserve the art". Attach a reference image and the AI can look at it while it works. Its proposal shows on the canvas, Before or After, with the changed cells outlined; Accept makes it one undo step that Keep saves like any edit, and Reject or Stop leaves the picture as it was.',
           "The lens's locks hold for the AI as they do for you: it may move each selected item or copy it once, as Duplicate does, but no more. While it works, the box shows what is left of the budget; if the budget runs out, the request pauses until you Continue with another allowance or Discard it. Ask again… under a proposal sends a follow-up about the same selection, and the AI remembers what you asked before.",
         ],
       },
@@ -287,7 +287,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Keys and cost",
         body: [
           "Your key is saved in this browser and sent to your provider, and only to your provider, with each request. Requests are billed to your provider account. Every task starts with a $5 estimated budget that you can change.",
-          "What the agent writes comes from your provider's model and is not reviewed by this app. Play a game through before you share it, especially with children.",
+          "What the agent writes comes from your provider's model. Play through the game to review it before sharing, especially with children.",
         ],
         action: { kind: "ai-settings", label: "AI settings" },
       },
@@ -302,7 +302,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Add a game",
         body: [
           "Add game takes a ZIP or a folder of AGI files. The files stay in your browser. The app recognizes Sierra's PC, Amiga and Apple IIgs releases and picks the matching interpreter; for anything else, it asks.",
-          "No Sierra copies? Fans have made over a hundred free AGI games: the library links two long-running archives.",
+          "Explore over a hundred free AGI games made by fans through the two archives linked in your library.",
         ],
         action: { kind: "add-game", label: "Add a game" },
       },
@@ -312,7 +312,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         body: [
           "PC: King's Quest I–IV, Space Quest I–II, Police Quest I, Leisure Suit Larry I, The Black Cauldron, Mixed-Up Mother Goose, Donald Duck's Playground, Gold Rush!, Manhunter 1–2 and demopac4.",
           "Amiga: King's Quest II, Space Quest I–II, Police Quest I, Gold Rush! and Manhunter 2. Apple IIgs: Space Quest II.",
-          "Other editions and fan games often run too; the library says when it does not know a game.",
+          "Other editions and fan games often run too; the library asks you to choose an interpreter for an unrecognized game.",
         ],
       },
       {
@@ -346,7 +346,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "privacy",
         title: "Your data",
         body: [
-          "Games, saves and history live in this browser. Nothing is uploaded, except what you send to your own AI provider when you create or remix.",
+          "Games, saves and history live in this browser. AI requests send the game content they need to your chosen provider.",
         ],
       },
       {

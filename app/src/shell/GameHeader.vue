@@ -315,7 +315,7 @@ async function onRecordStop(): Promise<void> {
   if (!snapshot) return;
   if (snapshot.tainted) {
     recordResult.value = "";
-    state.recording.error = `Recording discarded: ${snapshot.tainted}.`;
+    state.recording.error = `Recording discarded. ${snapshot.tainted}`;
     return;
   }
   recordSnapshot.value = snapshot;
@@ -443,7 +443,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy"
           @click="onExportAgiZip(true)"
         >
-          Download project
+          Download game
         </UiButton>
         <UiButton
           size="sm"
@@ -479,7 +479,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy"
           @click="onExportAgiZip(true)"
         >
-          Keep a backup first
+          Download a backup
         </UiButton>
       </div>
     </div>
