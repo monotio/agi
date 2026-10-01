@@ -8,6 +8,8 @@ import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
 import PlayArea from "./play/PlayArea.vue";
 import AssistantStart from "./shell/AssistantStart.vue";
 import CreateDock from "./shell/CreateDock.vue";
+import { createCommandRegistry } from "./shell/commands/commandRegistry.ts";
+import { emptyCommandContext, provideCommands } from "./shell/commands/commandContext.ts";
 import UiButton from "./ui/UiButton.vue";
 import UiDialog from "./ui/UiDialog.vue";
 import UiToast from "./ui/UiToast.vue";
@@ -44,6 +46,7 @@ import { useCreateMode } from "./shell/useCreateMode.ts";
 import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 
+const CreateKeyboard = defineAsyncComponent(() => import("./shell/commands/CreateKeyboard.vue"));
 const testMode = import.meta.env.MODE === "test";
 const touchControls = ref(
   localStorage.getItem("monotio_agi.touchControls") === "on" ||
@@ -186,6 +189,11 @@ const shell = createShell({
 });
 provideShell(shell);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
+const createKeyboard = useTemplateRef("createKeyboard");
+const commands = createCommandRegistry(
+  () => createKeyboard.value?.context() ?? emptyCommandContext(),
+);
+provideCommands(commands);
 const studio = workspace.studio;
 /** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
 const studioOpen = computed(() => creating.value && studio.value !== null);
@@ -254,6 +262,7 @@ const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
   // studios over a run: nothing typed there may reach the game.
   intercept: (ev) =>
     onDockKey(ev) ||
+    (creating.value && (createKeyboard.value?.blocksGame(ev) ?? true)) ||
     studio.value !== null ||
     logicProjectId.value !== undefined ||
     soundProjectId.value !== undefined,
@@ -668,6 +677,13 @@ watch(
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
     <div class="shell" :inert="logicProjectId !== undefined || soundProjectId !== undefined">
+      <CreateKeyboard
+        v-if="creating"
+        ref="createKeyboard"
+        :registry="commands"
+        @focus-game="playArea?.focusInput()"
+        @zone-change="releaseMovement"
+      />
       <GameHeader
         :touch-controls="touchControls"
         :crt-enabled="crtEnabled"

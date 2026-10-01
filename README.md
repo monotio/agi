@@ -175,6 +175,15 @@ its picture opens in **Room Studio** and its views in **Sprite Studio**. Room
 Studio, Sprite Studio and Logic Studio are designed for a larger screen than a
 phone; games play on phones too.
 
+In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
+(Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
+commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**
+shows Play full size (use Ctrl in place of ⌘ elsewhere). **F6** and **Shift+F6**
+move between visible focus zones; **Ctrl+backtick** focuses the game. The game takes
+keys while its zone has focus. **Escape** closes the chooser and returns focus.
+**Help → Keyboard shortcuts** lists the registered commands and keys; actions
+awaiting an editor or debugger implementation appear as **Unavailable**.
+
 <p align="center">
   <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>
   <a href="docs/media/room-studio-walk.png"><img src="docs/media/room-studio-walk.png" width="49%" alt="The Walk lens on the tutorial's Sprite Lab: the walkable tint, doors labelled Picture Gallery and Priority Archive, and a test walk from the west door that reports Reached"></a>

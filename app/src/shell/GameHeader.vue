@@ -417,6 +417,7 @@ async function onRecordSave(): Promise<void> {
     @exit="onEjectGame()"
     @settings="toggleSettings"
     @help-guide="openHelp()"
+    @keyboard-shortcuts="openHelp('shortcuts')"
     @controls="controlsOpen = true"
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
