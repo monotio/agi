@@ -1445,7 +1445,11 @@ for (const project of [false, true]) {
   }
 }
 
-for (const scenario of ["removed stored owner", "unbound Creative marker"] as const) {
+for (const scenario of [
+  "removed stored owner",
+  "unbound Creative marker",
+  "blocked stored owner",
+] as const) {
   test(`a live ${scenario} still exports playable resources and its direct checkpoint`, async (t) => {
     const cleanup = cleanupAfter(t);
     installLocalStorage(t);
@@ -1453,7 +1457,7 @@ for (const scenario of ["removed stored owner", "unbound Creative marker"] as co
     const { files } = gameContainer();
     const id = testProjectId(scenario.replaceAll(" ", "-"));
     let target: ProjectProgressTarget | undefined;
-    if (scenario === "removed stored owner") {
+    if (scenario !== "unbound Creative marker") {
       assert.equal(await saveAuthoredGame(id, { title: scenario, files, words: [] }), true);
       target = (await bindSavedProgressTarget(id))!;
       assert.ok(target);
@@ -1475,7 +1479,16 @@ for (const scenario of ["removed stored owner", "unbound Creative marker"] as co
       await removeProjectWithProgress(target!, []);
     }
     const lib = library(engine);
-    await lib.onExportAgiZip(true, true);
+    const get = records.get;
+    if (scenario === "blocked stored owner")
+      records.get = () => {
+        throw new Error("Injected database denial");
+      };
+    try {
+      await lib.onExportAgiZip(true, true);
+    } finally {
+      records.get = get;
+    }
     assert.equal(downloads.length, 1, `playable download; refusal=${lib.exportRefusal.value}`);
     const opened = await readGameZip(await downloads[0]!.bytes());
     assert.equal(computeResourceRevision(opened.files), computeResourceRevision(files));

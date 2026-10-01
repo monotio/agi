@@ -27,16 +27,16 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
     throw new Error("Local storage is not available.");
   };
 
-  function activeSaveKey(): string | null {
+  function activeSaveTarget() {
     const booted = options.getBootedGame();
     if (!booted) return null;
     // Save slots use the bound instance: the exact installed folder or
     // the saved project and its captured body epoch.
-    return resolveProgressTarget(booted)?.locator ?? null;
+    return resolveProgressTarget(booted);
   }
 
   function readActiveSlots(): Record<string, string> {
-    const key = activeSaveKey();
+    const key = activeSaveTarget();
     if (!key) return {};
     return readGameSaves(getStorage(), key);
   }
@@ -85,7 +85,7 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
       // A removed project stores nothing: its saves would outlive it and
       // resurface when the game is added again.
       if (options.getBootedGame()?.removed) return "false";
-      const key = activeSaveKey();
+      const key = activeSaveTarget();
       try {
         return String(
           Boolean(

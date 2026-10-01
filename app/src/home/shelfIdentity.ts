@@ -76,7 +76,8 @@ export function isInstalledCatalogCopy(
   game: InstalledGameDescriptor,
   entry: GameCatalogEntry,
 ): boolean {
-  if (game.parent !== undefined || game.revision === undefined) return false;
+  if (game.parent !== undefined || game.revision === undefined || game.title !== entry.title)
+    return false;
   return getKnownGameByRevision(game.revision)?.alias === entry.id;
 }
 

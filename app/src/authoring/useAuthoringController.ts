@@ -675,8 +675,8 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       // remix callback must never install into the newer game.
       if (getBootedGame() !== game || session !== author)
         throw new Error("The game changed while saving the remix.");
-      // The original's progress is independent of the remix: its physical
-      // checkpoint and any released-spelling records stay as they are.
+      // Installed progress remains independent; a catalog checkpoint moves
+      // only after the remix has stored its own continuation.
       // The remix runs on in the same worker, on the bytes it confirmed.
       owner = {
         installed: false,
@@ -897,7 +897,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         logAgent("log", `Re-entering room ${room} so the patch takes effect.`);
         running.worker!.postMessage({ type: "reenter", room } satisfies WorkerInbound);
       }
-      await flushAutosave(2000);
+      const checkpointStored = await flushAutosave(2000);
+      if (checkpointStored && owner !== booted && !booted.installed && booted.progressTarget)
+        options.clearAutosave(booted.progressTarget.locator);
       state.powerUp.open = false;
       resumeEngine("powerUp");
     } catch (e) {

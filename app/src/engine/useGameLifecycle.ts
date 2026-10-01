@@ -329,6 +329,12 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // the slot and the loading surface.
       if (bootEpoch !== lifecycleEpoch) return;
       state.loading = { title: game.title, generating: false };
+      state.installedGames =
+        state.installedGames?.map((entry) =>
+          entry.folder === game.folder || (entry.folder === undefined && entry.hash === query)
+            ? { ...entry, folder: game.folder, revision: game.revision }
+            : entry,
+        ) ?? null;
 
       // The resume admission runs on the prepared candidate — before the
       // worker is replaced, the session installed, or anything is

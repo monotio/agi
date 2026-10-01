@@ -181,6 +181,11 @@ test("an installed fixture folds into the catalog card only as the verified rele
   // The tutorial's intentional single card: the served bundle is the
   // catalog's exact revision.
   assert.equal(isInstalledCatalogCopy(installedTutorial(), entry), true);
+  assert.equal(
+    isInstalledCatalogCopy({ ...installedTutorial(), alias: "sample", title: "SAMPLE" }, entry),
+    false,
+    "a separately named installed instance retains its own progress card",
+  );
   // A supplied revision is evidence: an unknown bundle and a changed
   // bundle both keep their own cards rather than folding on the alias.
   const changed = installedTutorial({ revision: testRevision("tutorial-remix") });

@@ -133,6 +133,28 @@ function journalRooms(raw: string): number[] {
   return (JSON.parse(raw) as { journal: { to: number }[] }).journal.map((e) => e.to);
 }
 
+test("a released saved body's room journal survives its first bound boot", async () => {
+  const { storage, values } = mapStorage();
+  const original = makeHarness(storage);
+  await original.boot(savedGame("released-map", "initial"));
+  original.notice({ to: 7 });
+  await original.eject();
+  const key = mapKey("project:released-map:initial");
+  const raw = values.get(key)!;
+  values.delete(key);
+  values.set(mapKey("released-map"), raw);
+  const resumed = makeHarness(storage);
+  await resumed.boot(savedGame("released-map", "initial"));
+  assert.deepEqual(
+    resumed.map.journal.map((entry) => entry.to),
+    [7],
+  );
+  assert.equal(values.get(mapKey("released-map")), raw);
+  const replacement = makeHarness(storage);
+  await replacement.boot(savedGame("released-map", EPOCH_B));
+  assert.equal(replacement.map.journal.length, 0);
+});
+
 test("two installed folders sharing one resource hash keep distinct maps", async () => {
   const { storage, values } = mapStorage();
   // Neither folder spelling is a ProjectId: released keys fell back to the

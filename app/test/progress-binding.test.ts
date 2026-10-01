@@ -142,6 +142,36 @@ function autosaveRecord(over: {
   };
 }
 
+test("released bare-id progress remains readable under its matching bound target", (t) => {
+  const values = installLocalStorageMock(t);
+  const revision = testRevision("released-body");
+  const target = projectProgressTarget("released-game", revision, "initial")!;
+  const record = autosaveRecord({
+    installed: false,
+    project: "released-game",
+    revision: "released-body",
+  });
+  values.set(autosaveKey("released-game"), JSON.stringify(record));
+  values.set(
+    "monotio_agi.saves.released-game",
+    JSON.stringify({ format: "monotio.agi.saves", version: 1, slots: { "1": "AQI=" } }),
+  );
+  assert.deepEqual(readGameProgress(localStorage, target).autosave, record);
+  assert.deepEqual(readGameProgress(localStorage, target).saves, { "1": Uint8Array.of(1, 2) });
+  values.delete(autosaveKey("released-game"));
+  assert.deepEqual(readGameProgress(localStorage, target).saves, { "1": Uint8Array.of(1, 2) });
+  values.set(autosaveKey("released-game"), JSON.stringify(record));
+  assert.equal(values.has(autosaveKey(target.locator)), false, "reading preserves released bytes");
+  const changed = projectProgressTarget("released-game", testRevision("changed-body"), "initial")!;
+  assert.equal(readGameProgress(localStorage, changed).autosave, null);
+  values.set(autosaveKey(target.locator), JSON.stringify({ ...record, version: 2 }));
+  assert.equal(
+    readGameProgress(localStorage, target).autosave,
+    null,
+    "a future current record blocks fallback",
+  );
+});
+
 test("installed games bind the exact folder digest and the full revision", () => {
   const revision = testRevision("installed-rev");
   const target = resolveProgressTarget({
