@@ -137,6 +137,18 @@ export const VOCABULARY = {
     technical: "",
   },
 
+  traceImage: {
+    id: "traceImage",
+    label: "Trace an image",
+    help: "Bring in an image and draw over it with the picture tools.",
+    technical: "Private project attachment and PICTURE tracing layer.",
+  },
+  makeCels: {
+    id: "makeCels",
+    label: "Make cels from an image",
+    help: "Mark frames on a sheet, choose loops and add the cels to a VIEW.",
+    technical: "Image regions become native VIEW cels.",
+  },
   closeEditor: {
     id: "closeEditor",
     label: "Close editor",
@@ -729,6 +741,12 @@ export const VOCABULARY_ACTIONS = {
     tool: "write_notes",
     help: "Keep the game’s style, tone and rules in its notes.",
     technical: "Private project document.",
+  },
+  trace_an_image: { ...VOCABULARY.traceImage, id: "trace_an_image", tool: "trace_an_image" },
+  make_cels_from_an_image: {
+    ...VOCABULARY.makeCels,
+    id: "make_cels_from_an_image",
+    tool: "make_cels_from_an_image",
   },
   read_room: { ...VOCABULARY.room, id: "read_room", label: "Read room", tool: "read_room" },
   read_logic: { ...VOCABULARY.logic, id: "read_logic", label: "Read logic", tool: "read_logic" },

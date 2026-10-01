@@ -2,7 +2,7 @@
  * Project download ownership: a card's private archive must come from one
  * physical owner — the saved body's exact incarnation (project id + body
  * lifetime epoch + full native revision) — with progress, map, history and
- * Creative evidence read under that owner's typed target, never a bare
+ * project evidence read under that owner's typed target, never a bare
  * legacy spelling. A body recreated under the same id while the download
  * prepares must refuse rather than ship a mixed archive.
  *
@@ -21,9 +21,6 @@ import { Engine } from "../../src/runtime/engine.ts";
 import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { readInventoryObjects } from "../../src/authoring/inventory.ts";
 import { PROFILES } from "../../src/runtime/profile.ts";
-import { sha256Hex } from "../../src/crypto.ts";
-import { encodePngRgb } from "../../src/picture/png.ts";
-import { CREATIVE_SOURCE_FORMAT, type CreativeSource } from "../../src/creative/catalog.ts";
 import { stampBoot, type HistoryBoot } from "../../src/agent/history.ts";
 import type { RoomMapSidecar } from "../../src/agent/roomMap.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
@@ -39,15 +36,12 @@ import {
   type ProjectProgressTarget,
 } from "../src/project/progressTarget.ts";
 import {
-  commitProject,
   getCachedGameMeta,
   loadAuthoredGameWithHistoryLifetime,
   removeProjectWithProgress,
   saveAuthoredGame,
   updateAuthoredGameFiles,
 } from "../src/project/gameStorage.ts";
-import { stageCreativeBlobs } from "../src/project/creativeStore.ts";
-import { captureCreativeProject } from "../src/project/creativeProjectSnapshot.ts";
 import { importGameHistory, type ProjectHistory } from "../src/history/historyStorage.ts";
 import { autosaveKey, writeAutosave, type AutosaveRecord } from "../src/saves/gameProgress.ts";
 import { writeGameSave } from "../src/saves/gameSaves.ts";
@@ -404,7 +398,6 @@ function liveEngine(opts: {
   words?: [string, number][];
   authoredGame?: Record<string, unknown>;
   generation?: number;
-  creative?: { kept: number };
   library?: { profile?: string; revision?: string; source?: string };
   bootFiles?: Record<string, Uint8Array>;
   bootDictionary?: [string, number][];
@@ -427,7 +420,6 @@ function liveEngine(opts: {
     files: opts.files,
     words: opts.words ?? [],
     ...(opts.generation !== undefined ? { generation: opts.generation } : {}),
-    ...(opts.creative ? { creative: opts.creative } : {}),
     ...(opts.library ? { library: opts.library } : {}),
   };
   const game = {
@@ -1207,131 +1199,6 @@ test("a live checkpoint is omitted with a named cause when the runtime booted ot
   assert.match(lib.exportRefusal.value, /checkpoint could not be verified/);
 });
 
-test("a bound live download carries the kept Creative snapshot its own body owns", async (t) => {
-  const cleanup = cleanupAfter(t);
-  installLocalStorage(t);
-  const { downloads } = installDownloads(t);
-  const { files } = gameContainer();
-  const id = testProjectId("live-creative");
-  const request = {
-    projectId: id,
-    commitId: "initial",
-    workspaceId: "workspace",
-    buildId: "a".repeat(64),
-    expected: null,
-    documents: [{ key: "logic:0", version: 1 }],
-    data: {
-      title: "Creative live",
-      provider: "stub",
-      model: "offline-stub",
-      files,
-      words: [],
-    },
-  };
-  const first = await commitProject(request);
-  const encoded = encodePngRgb(1, 1, Uint8Array.of(255, 0, 0));
-  const raster = Uint8Array.of(255, 0, 0, 255);
-  const source: CreativeSource = {
-    format: CREATIVE_SOURCE_FORMAT,
-    version: 1,
-    identity: { id: "red-source", incarnation: "original", revision: 0 },
-    encoded: { hash: sha256Hex(encoded), byteLength: encoded.length, mime: "image/png" },
-    availability: "original",
-    normalized: {
-      blob: { hash: sha256Hex(raster), byteLength: raster.length, mime: "application/x-rgba8" },
-      format: "rgba8-srgb-unpremultiplied-v1",
-      width: 1,
-      height: 1,
-    },
-    origin: { kind: "import", title: "Synthetic red pixel" },
-  };
-  const staged = await stageCreativeBlobs({
-    projectId: id,
-    expectedHead: 0,
-    lease: { id: "art", owner: "editor", workspace: "workspace" },
-    staged: { sources: [source] },
-    blobs: [
-      { hash: source.encoded.hash, mime: source.encoded.mime, bytes: encoded },
-      { hash: source.normalized.blob.hash, mime: source.normalized.blob.mime, bytes: raster },
-    ],
-  });
-  await commitProject({
-    ...request,
-    commitId: "keep-art",
-    expected: first.receipt.saved,
-    creative: {
-      expectedHead: staged.head,
-      asOf: Date.now(),
-      lease: { id: "art", owner: "editor", workspace: "workspace" },
-      keep: { sources: [source.identity], derivatives: [], recipes: [], board: [] },
-    },
-  });
-  const stored = await loadAuthoredGameWithHistoryLifetime(id);
-  assert.ok(stored !== null && stored.lifetime !== null);
-  const target = projectProgressTarget(id, computeResourceRevision(files), stored.lifetime);
-  assert.ok(target !== null);
-  cleanup.later(() => removeProjectWithProgress(target, []));
-  const snapshot = await captureCreativeProject(id);
-  assert.ok(snapshot !== null && stored.data.creative !== undefined);
-
-  const { engine } = liveEngine({
-    files,
-    image: checkpointImage(files),
-    target,
-    projectId: id,
-    generation: stored.data.generation ?? 0,
-    creative: stored.data.creative,
-    room: 4,
-  });
-  const lib = library(engine);
-  await lib.onExportAgiZip(true, true);
-  assert.equal(lib.exportRefusal.value, "");
-  assert.equal(downloads.length, 1);
-  const opened = await readGameZip(await downloads[0]!.bytes());
-  assert.deepEqual(
-    opened.project?.creative?.manifest,
-    snapshot.manifest,
-    "the archive carries the captured body's own kept manifest",
-  );
-  assert.equal(opened.progress?.autosave?.room, 4, "the checkpoint ships beside it");
-});
-
-test("a kept Creative marker without its catalog refuses the stored download", async (t) => {
-  const cleanup = cleanupAfter(t);
-  installLocalStorage(t);
-  const { downloads } = installDownloads(t);
-  const { files } = gameContainer();
-  const id = testProjectId("creative-orphan");
-  // The body's marker claims kept assets whose catalog rows never existed —
-  // stamping it that way is the only spelling a hostile or half-migrated
-  // body leaves behind.
-  assert.equal(
-    await saveAuthoredGame(id, {
-      title: "Orphaned marker",
-      provider: "stub",
-      model: "offline-stub",
-      files,
-      words: [],
-      creative: { kept: 1 },
-    }),
-    true,
-  );
-  const target = await bindSavedProgressTarget(id);
-  assert.ok(target !== null);
-  cleanup.later(() => removeProjectWithProgress(target, []));
-  const meta = getCachedGameMeta(id);
-  assert.ok(meta !== null);
-
-  const lib = library(fakeEngine());
-  await lib.onExportLibraryGame(meta, true);
-  assert.equal(
-    downloads.length,
-    0,
-    "a kept marker without its snapshot is never shipped as a complete backup",
-  );
-  assert.notEqual(lib.exportRefusal.value, "");
-});
-
 for (const change of ["native revision", "interpreter profile"] as const) {
   test(`an in-place live ${change} during ZIP preparation refuses the captured download`, async (t) => {
     const cleanup = cleanupAfter(t);
@@ -1445,11 +1312,7 @@ for (const project of [false, true]) {
   }
 }
 
-for (const scenario of [
-  "removed stored owner",
-  "unbound Creative marker",
-  "blocked stored owner",
-] as const) {
+for (const scenario of ["removed stored owner", "blocked stored owner"] as const) {
   test(`a live ${scenario} still exports playable resources and its direct checkpoint`, async (t) => {
     const cleanup = cleanupAfter(t);
     installLocalStorage(t);
@@ -1457,7 +1320,7 @@ for (const scenario of [
     const { files } = gameContainer();
     const id = testProjectId(scenario.replaceAll(" ", "-"));
     let target: ProjectProgressTarget | undefined;
-    if (scenario !== "unbound Creative marker") {
+    {
       assert.equal(await saveAuthoredGame(id, { title: scenario, files, words: [] }), true);
       target = (await bindSavedProgressTarget(id))!;
       assert.ok(target);
@@ -1471,7 +1334,6 @@ for (const scenario of [
       image: checkpointImage(files),
       target,
       projectId: id,
-      ...(scenario === "unbound Creative marker" ? { creative: { kept: 3 } } : {}),
     });
     if (scenario === "removed stored owner") {
       assert.equal(markRemoved(game.booted as BootedGame), true);
@@ -1494,18 +1356,8 @@ for (const scenario of [
     assert.equal(computeResourceRevision(opened.files), computeResourceRevision(files));
     assert.ok(opened.progress?.autosave);
     assert.deepEqual(opened.progress.saves, {});
-    assert.equal(opened.project?.creative, undefined);
     assert.equal(opened.map, undefined);
     assert.equal(opened.history, undefined);
     assert.ok(opened.backupWarning);
-    if (scenario === "unbound Creative marker") {
-      assert.match(lib.exportRefusal.value, /Creative assets/);
-      // readGameZip exposes a concise warning; the stored ZIP retains the
-      // complete BACKUP.JSON note for recovery and archive inspection.
-      assert.match(
-        new TextDecoder().decode(await downloads[0]!.bytes()),
-        /Creative assets require the original stored project/,
-      );
-    }
   });
 }

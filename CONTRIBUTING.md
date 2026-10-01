@@ -253,6 +253,20 @@ flowchart LR
 5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
 6. A completed gesture emits its edited document to `studio/workspace/CreateWorkspace.vue`. `project/projectSession.ts` validates the complete candidate, admits it to MAIN at a safe boundary, records History and saves it conditionally. The embedded editor previews a gesture locally until it completes.
 
+**An image becomes project art**
+
+`src/creative/imageOperations.ts` supplies the same pure proposals for editors
+and tools: `traceImageChanges` attaches immutable originals and normalized
+pixels, and `makeCelsChanges` appends prepared native VIEW cels. Submit the whole
+proposal through `ProjectSession` to share autosave, Undo, Redo and History.
+Attachments use SHA-256 document keys and History's blob store. Private archive
+version 4 writes each image blob once in `ATTACHMENTS/`, shared by the workspace
+and History; public exports contain playable resources. Workspace and History
+version 2 admit image documents while their version 1 readers remain supported.
+The image panel and generation controller load at their first use. Generation
+reviews a paid request before submission. Hero preview changes presentation
+pixels; interpreter state and recorded play retain the admitted game.
+
 **A LOGIC edit becomes a saved project**
 
 Library **Game actions → Create** opens the running workspace on a LOGIC.

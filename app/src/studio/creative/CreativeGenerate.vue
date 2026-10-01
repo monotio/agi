@@ -3,9 +3,7 @@
  * The optional reference-art generator: compose -> review -> one explicit
  * send -> detached offer -> explicit Use. All state lives in the injected
  * controller; this file is only the form, the review sheet and the offer
- * tray, so the manual workspace keeps working without it. The panel disposes
- * the controller on unmount so a nonsettling request cannot land after the
- * dock closes.
+ * tray. Its workspace mount owns disposal and late-result admission.
  */
 import { computed, onBeforeUnmount, ref, shallowRef, useTemplateRef, watch } from "vue";
 import { versionRefKey, type Rect, type VersionRef } from "../../../../src/creative/catalog.ts";
@@ -25,6 +23,7 @@ import type {
   OpenAiImageQuality,
   OpenAiImageRole,
 } from "./openaiImageProvider.ts";
+import { estimateImageOutputCost } from "./openaiImageProvider.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiChip from "../../ui/UiChip.vue";
 import UiDisclosure from "../../ui/UiDisclosure.vue";
@@ -32,8 +31,9 @@ import UiPanel from "../../ui/UiPanel.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import UiSelect from "../../ui/UiSelect.vue";
 
-const { controller } = defineProps<{
+const { controller, role: initialRole = "room" } = defineProps<{
   readonly controller: CreativeGenerationController;
+  readonly role?: OpenAiImageRole;
 }>();
 
 /* --- Controller state mirror: the controller notifies, we re-read it. --- */
@@ -77,14 +77,13 @@ const credentialReady = computed(() => state.value.credentialReady);
 
 onBeforeUnmount(() => {
   unsubscribe();
-  controller.dispose();
 });
 
 /* --- Local form state, copied into the request at Review. --- */
 const models = controller.provider.models;
 const modelIds = Object.keys(models);
 const kind = ref<OpenAiImageKind>("generate");
-const role = ref<OpenAiImageRole>("room");
+const role = ref<OpenAiImageRole>(initialRole);
 const model = ref<string>(modelIds[0] ?? "");
 const prompt = ref("");
 const size = ref("");
@@ -283,6 +282,14 @@ function bytes(value: number): string {
   return `${(value / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const estimatedCost = computed(() => {
+  const request = review.value?.summary;
+  if (!request) return "";
+  const estimate = estimateImageOutputCost(request.model, request.quality, request.size);
+  return estimate === null
+    ? "Estimate unavailable. Check OpenAI pricing before sending."
+    : `About $${estimate.toFixed(5)} for image output, plus prompt and image inputs.`;
+});
 const compositeNote = computed(() => state.value.phase === "offer" && state.value.composite);
 
 const noKey = computed(() => !credentialReady.value || failure.value?.reason === "no-key");
@@ -549,10 +556,6 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         <dd>
           {{ review.summary.kind }} · {{ review.summary.provider }} · {{ review.summary.model }}
         </dd>
-        <dt>Endpoint</dt>
-        <dd>
-          <code>{{ review.summary.endpoint }}</code>
-        </dd>
         <dt>Options</dt>
         <dd>
           {{ review.summary.size }} · {{ review.summary.quality }} · {{ review.summary.background
@@ -570,6 +573,8 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
             {{ bytes(review.selection.mask.byteLength) }}
           </dd>
         </template>
+        <dt>Estimated cost</dt>
+        <dd>{{ estimatedCost }}</dd>
         <dt>Prompt</dt>
         <dd class="generate__prompt">{{ review.summary.prompt }}</dd>
       </dl>
@@ -601,6 +606,12 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
           OpenAI bills this image request to your account. Costs follow the provider's pricing.
         </p>
       </UiDisclosure>
+      <a
+        href="https://developers.openai.com/api/docs/guides/image-generation#calculating-costs"
+        target="_blank"
+        rel="noopener"
+        >Image cost calculator</a
+      >
       <div class="generate__actions">
         <UiButton variant="primary" data-testid="generate-submit" @click="void controller.submit()"
           >Send one request</UiButton
@@ -668,7 +679,7 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
     </section>
 
     <p v-if="phase === 'using'" class="generate__note" role="status" data-testid="generate-using">
-      Staging the image through the workspace…
+      Adding the image…
     </p>
   </UiPanel>
 </template>

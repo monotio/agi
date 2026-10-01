@@ -1458,12 +1458,16 @@ export function createGameLibrary(
       if (live && project) await engine.drainHistoryCommits();
       let recovery: Awaited<ReturnType<EngineApi["recoverHistory"]>> | null = null;
       const backupReader = project ? await import("../archive/historyBackup.ts") : null;
+      let storedMetadataUnavailable = false;
       const backup = project
         ? await backupReader!.collectHistoryBackup(
             () =>
               ownerTarget === undefined
                 ? Promise.resolve(null)
-                : loadProjectHistory(ownerTarget.locator),
+                : loadProjectHistory(ownerTarget.locator).catch((cause: unknown) => {
+                    storedMetadataUnavailable = true;
+                    throw cause;
+                  }),
             live
               ? async () => {
                   recovery = await engine.recoverHistory();
@@ -1554,60 +1558,6 @@ export function createGameLibrary(
           ? undefined
           : structuredClone(roomMap.storedSidecar(ownerTarget.locator))
         : undefined;
-      // Kept creative assets and durable unfinished work are captured in one
-      // coherent storage snapshot — body marker, catalog, recovery rows,
-      // holds and blob bytes together, bound to this exact body's captured
-      // epoch. A marker or hold whose record moved or vanished refuses the
-      // download by name; a public game export never captures or carries any
-      // of it. An installed game never reads a same-id saved Creative
-      // catalog, and an unbound saved body has no epoch to prove one under.
-      const capture = project ? await import("../project/creativeProjectSnapshot.ts") : null;
-      let creative = null;
-      let storedMetadataUnavailable = false;
-      if (capture) {
-        if (live) {
-          if (game && !game.installed && ownerTarget?.kind === "project") {
-            try {
-              creative = await capture.captureCreativeProject(
-                data.projectId,
-                ownerTarget.bodyEpoch,
-              );
-            } catch (error) {
-              if (error instanceof capture.CreativeSnapshotError) throw error;
-              storedMetadataUnavailable = true;
-              notes.push(
-                "Stored project metadata could not be read; this backup carries the running game.",
-              );
-              data = { ...data };
-              delete data.creative;
-              delete data.projectHistory;
-            }
-          } else if (data.creative) {
-            notes.push("Creative assets require the original stored project.");
-            // This limited in-memory backup carries actual playable resources;
-            // retaining the unavailable catalog pin would falsely promise art.
-            data = { ...data };
-            delete data.creative;
-          }
-        } else {
-          creative = await capture.captureCreativeProject(data.projectId, stored?.lifetime);
-        }
-      }
-      if (creative) {
-        // The snapshot's binding must be the body the rest of the archive
-        // claims: same storage generation, same kept-catalog pin, same
-        // playable-bytes revision.
-        const bodyRevision = live
-          ? (data.library?.revision ?? computeResourceRevision(data.files))
-          : storedTarget!.identity.revision;
-        if (
-          creative.projectId !== data.projectId ||
-          creative.generation !== (data.generation ?? 0) ||
-          creative.kept !== (data.creative?.kept ?? 0) ||
-          creative.revision !== bodyRevision
-        )
-          throw new Error("The saved project changed during download. Try again.");
-      }
       if (backup) {
         backup.report.notes.push(...notes);
         backup.report.complete = backup.report.notes.length === 0;
@@ -1622,7 +1572,6 @@ export function createGameLibrary(
             mapSidecar,
             backup?.history ?? undefined,
             backup?.report,
-            creative ?? undefined,
           )
         : buildPublicGameZip(data);
       // Final admission, after every awaited ZIP step and before the anchor
@@ -1670,7 +1619,6 @@ export function createGameLibrary(
           proof.data.generation !== data.generation ||
           proof.data.library?.profile !== data.library?.profile ||
           proof.data.library?.source !== data.library?.source ||
-          (proof.data.creative?.kept ?? 0) !== (data.creative?.kept ?? 0) ||
           computeResourceRevision(proof.data.files) !== storedTarget!.identity.revision
         )
           throw new Error("The saved project changed during download. Try again.");

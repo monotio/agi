@@ -19,10 +19,6 @@
  * admission; a pending portable recoveryDraft is carried through every body
  * unchanged. Resource removal needs an explicit per-candidate review
  * (reviewedRemovals) and an empty surviving-use inventory before Keep.
- * A workspace's staged creative work publishes through the same candidate:
- * prepareCreativeKeep seals exactly one prepared publication against the
- * candidate, and the Keep carrying it commits body, catalog marker and
- * receipt in the same transaction.
  */
 import {
   createAuthoringState,
@@ -42,7 +38,6 @@ import {
 import { inspectProjectRemoval } from "../../../src/authoring/projectRemoval.ts";
 import { compileProjectSelection } from "../../../src/authoring/projectSelection.ts";
 import { writeProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
-import type { CreativeKeepRequest } from "../../../src/creative/catalog.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectId, ResourceRevision } from "../../../src/gameIdentity.ts";
 import { detectProfile, PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
@@ -55,12 +50,6 @@ import {
   type ProjectCommitRequest,
   type ProjectCommitReceipt,
 } from "./gameStorage.ts";
-import {
-  prepareWorkspaceCreativeKeep,
-  resolveWorkspaceCreativeKeep,
-  type CreativeKeepPreparation,
-  type EditableCreativeKeep,
-} from "./creativeWorkspaceKeep.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import { listProjectDrafts, type DraftReceipt } from "./projectDrafts.ts";
 import {
@@ -112,13 +101,6 @@ export interface EditableCandidate {
  */
 export interface EditableKeepReview {
   readonly reviewedRemovals?: readonly string[];
-  /**
-   * The creative publication prepared against this exact candidate through
-   * prepareCreativeKeep. A candidate that sealed one must be kept with that
-   * handle — omitting it, or passing another candidate's publication or a
-   * lookalike, refuses rather than silently changing the admitted intent.
-   */
-  readonly creative?: EditableCreativeKeep;
 }
 
 export interface EditableKeepResult {
@@ -127,8 +109,6 @@ export interface EditableKeepResult {
   readonly commitId: string;
   readonly saved: EditableSavedIdentity;
   readonly warnings: readonly "indexRepairPending"[];
-  /** The kept/head catalog revisions this Keep published, when it carried creative work. */
-  readonly creative?: { readonly kept: number; readonly head: number } | undefined;
 }
 
 /**
@@ -161,28 +141,12 @@ export interface EditableProject {
     dependencies?: Readonly<Record<string, readonly string[]>>,
   ): EditableCandidate;
   /**
-   * Prepare this workspace's staged creative work for publication through
-   * one issued candidate. Reads the creative catalog once and seals the
-   * captured intent into the candidate: the Keep that publishes it must
-   * carry the returned publication in `review.creative`, and no other. The
-   * prepared request freezes the catalog head, the consumed lease and its
-   * workspace/owner claim, so a moved catalog or expired lease refuses at
-   * the commit transaction. A candidate with no native change still
-   * publishes creative records through the same atomic Keep.
-   */
-  prepareCreativeKeep(
-    candidate: EditableCandidate,
-    preparation: CreativeKeepPreparation,
-  ): Promise<EditableCreativeKeep>;
-  /**
    * Admit one issued candidate through the durable commit. Synchronously
    * refuses foreign candidates and selections the draft has moved past; the
    * receipt acknowledges only the admitted selection. A candidate that
    * removes native resources additionally requires review.reviewedRemovals
    * naming exactly those removals, and refuses while any surviving or
-   * unprovable use remains. A candidate with a sealed creative publication
-   * must be kept with that exact handle: its request commits body, catalog
-   * and receipt atomically.
+   * unprovable use remains.
    */
   keepCandidate(
     candidate: EditableCandidate,
@@ -209,10 +173,6 @@ interface CandidateState {
   readonly documents: Readonly<Record<string, EditableDocumentContent>>;
   readonly files: Readonly<Record<string, Uint8Array>>;
   readonly versions: readonly { readonly key: string; readonly version: number }[];
-  /** The one creative publication this candidate may keep, sealed by prepareCreativeKeep. */
-  creative: EditableCreativeKeep | undefined;
-  /** A prepare is in flight: a Keep started meanwhile cannot claim an unsealed intent. */
-  creativePreparing: boolean;
   request: ProjectCommitRequest | undefined;
   pending: Promise<EditableKeepResult> | undefined;
   receipt: ProjectCommitReceipt | undefined;
@@ -384,8 +344,6 @@ class EditableProjectService implements EditableProject {
         key,
         version: result.selection.snapshot.version(key),
       })),
-      creative: undefined,
-      creativePreparing: false,
       request: undefined,
       pending: undefined,
       receipt: undefined,
@@ -405,41 +363,6 @@ class EditableProjectService implements EditableProject {
     return candidate;
   }
 
-  async prepareCreativeKeep(
-    candidate: EditableCandidate,
-    preparation: CreativeKeepPreparation,
-  ): Promise<EditableCreativeKeep> {
-    const state = this.candidates.get(candidate);
-    if (state === undefined)
-      throw new Error("This candidate was created by another workspace or service.");
-    if (state.creative !== undefined || state.creativePreparing || state.request !== undefined)
-      throw new Error("This candidate's creative publication is already sealed.");
-    this.draft.assertCurrent(state.selection);
-    state.creativePreparing = true;
-    try {
-      const keep = await prepareWorkspaceCreativeKeep(
-        {
-          projectId: this.projectId,
-          workspaceId: this.workspaceId,
-          profileId: this.profileId,
-          selectionKeys: state.selection.keys,
-          removedResources: state.removedResources,
-          files: state.files,
-        },
-        candidate,
-        preparation,
-      );
-      // The seal is still singular: a Keep or a racing prepare admitted on
-      // this candidate during the catalog read cannot gain creative intent.
-      if (state.creative !== undefined || state.request !== undefined)
-        throw new Error("This candidate's creative publication is already sealed.");
-      state.creative = keep;
-      return keep;
-    } finally {
-      state.creativePreparing = false;
-    }
-  }
-
   async keepCandidate(
     candidate: EditableCandidate,
     review?: EditableKeepReview,
@@ -450,37 +373,19 @@ class EditableProjectService implements EditableProject {
     // Admission checks run while the caller is synchronous with the draft:
     // typing during the storage wait stays a valid newer draft instead of
     // invalidating this already-admitted write. The review arguments are
-    // captured and checked here, before the first await and before a receipt
-    // replay: a candidate keeps exactly the creative intent it sealed — a
-    // different or absent publication refuses rather than replaying one
-    // receipt under a different promise.
+    // captured and checked here, before the first await and receipt replay.
     const reviewedRemovals =
       review?.reviewedRemovals === undefined
         ? undefined
         : Object.freeze([...review.reviewedRemovals]);
-    const creativeReview = review?.creative;
-    if (state.creativePreparing)
-      throw new Error("This candidate's creative publication is still being prepared.");
-    if (creativeReview !== state.creative) {
-      if (creativeReview !== undefined) resolveWorkspaceCreativeKeep(candidate, creativeReview);
-      throw new Error(
-        creativeReview === undefined
-          ? "This candidate's Keep must carry the creative publication prepared for it."
-          : "This candidate's creative publication is already sealed to a different intent.",
-      );
-    }
     if (state.receipt !== undefined) return this.replayKeep(state);
     if (state.pending !== undefined) return state.pending;
     this.draft.assertCurrent(state.selection);
-    const creative =
-      state.creative === undefined
-        ? undefined
-        : resolveWorkspaceCreativeKeep(candidate, state.creative);
     // The prospective request is built locally before admission: a review or
     // build refusal reserves nothing, and the reservation — taken before the
     // request is registered or the async tail opens — is what lets the draft
     // hold a native history step out of this save's settlement window.
-    const request = this.admissionRequest(state, reviewedRemovals, creative);
+    const request = this.admissionRequest(state, reviewedRemovals);
     const admission = this.draft.admitKeep(state.selection);
     try {
       state.request = request;
@@ -510,7 +415,6 @@ class EditableProjectService implements EditableProject {
   private admissionRequest(
     state: CandidateState,
     reviewedRemovals: readonly string[] | undefined,
-    creative: CreativeKeepRequest | undefined,
   ): ProjectCommitRequest {
     const removals = state.removedResources;
     if (removals.length > 0 || reviewedRemovals !== undefined) {
@@ -575,13 +479,7 @@ class EditableProjectService implements EditableProject {
       buildId: state.buildId,
       expected: state.expected,
       documents: state.versions,
-      // The commit transaction rechecks the kept creative catalog against
-      // this exact set: a kept recipe destination is a surviving use the
-      // synchronous review cannot see from documents alone.
       removals: [...removals],
-      // The sealed publication rides this exact request: body, catalog
-      // marker and receipt commit as one transaction under one commitId.
-      ...(creative === undefined ? {} : { creative }),
       data: {
         ...rest,
         files,
@@ -762,10 +660,6 @@ class EditableProjectService implements EditableProject {
         commitId: state.commitId,
         saved,
         warnings: Object.freeze([...result.warnings]),
-        creative:
-          result.receipt.creative === undefined
-            ? undefined
-            : Object.freeze({ ...result.receipt.creative }),
       });
     } finally {
       this.draft.finishKeepAdmission(admission);
@@ -785,10 +679,6 @@ class EditableProjectService implements EditableProject {
         commitId: state.commitId,
         saved: Object.freeze({ ...result.receipt.saved }),
         warnings: Object.freeze([...result.warnings]),
-        creative:
-          result.receipt.creative === undefined
-            ? undefined
-            : Object.freeze({ ...result.receipt.creative }),
       });
     });
     this.tail = pending.then(

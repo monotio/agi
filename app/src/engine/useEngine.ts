@@ -784,6 +784,15 @@ export function useEngine(
         });
     },
     getProjectSession: () => projectSession,
+    previewImageCels(bytes: Uint8Array | null, loops?: readonly number[]): void {
+      if (projectSession)
+        link.getWorker()?.postMessage({
+          type: "imageHeroPreview",
+          runToken: projectSession.runToken,
+          bytes,
+          ...(loops ? { loops } : {}),
+        } satisfies WorkerInbound);
+    },
     pendingProjectRestart,
     restartWithChanges() {
       return projectSession?.restartWithChanges();

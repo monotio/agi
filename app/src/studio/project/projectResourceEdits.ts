@@ -21,9 +21,8 @@ import { createPictureSurface } from "../../../../src/types.ts";
 import { PROFILES, type AgiProfile } from "../../../../src/runtime/profile.ts";
 import { parseView } from "../../../../src/view/view.ts";
 import { scanViewUsage, viewUsage, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
-import type { EditableCandidate, EditableProject } from "../../project/editableProject.ts";
+import type { EditableProject } from "../../project/editableProject.ts";
 import type { AuthoringFingerprint } from "../../project/gameStorage.ts";
-import type { CreativeKeepPreparation } from "../../project/creativeWorkspaceKeep.ts";
 import { ResourceCommitError } from "../../project/projectTransaction.ts";
 import type { ResourceCommitResult } from "../../project/resourceCommit.ts";
 import type { KeepFn } from "../useStudioKeep.ts";
@@ -86,25 +85,9 @@ export interface ProjectResourceEditor {
   readonly usage: ViewUsage;
   readonly keepPicture: KeepFn;
   readonly keepView: SpriteKeepFn;
-  /**
-   * Attach the creative workspace's pending-publication composer: the next
-   * Keep through this session seals its prepared recipes, staged sources and
-   * board changes into the same candidate and the same durable transaction.
-   * Rebind or pass undefined to detach; nothing leaks across candidates.
-   */
-  bindCreativeKeep(provider: CreativeKeepProvider | undefined): void;
   /** End the session's authority; a later Keep refuses without writing. Idempotent. */
   close(): void;
 }
-
-/**
- * A composer bound to one creative workspace: given this session's frozen
- * candidate it stages what that candidate can admit and returns the sealed
- * publication intent, or undefined when nothing pending belongs to it.
- */
-type CreativeKeepProvider = (
-  candidate: EditableCandidate,
-) => Promise<CreativeKeepPreparation | undefined>;
 
 interface SessionState {
   readonly project: EditableProject;
@@ -118,8 +101,6 @@ interface SessionState {
   expectedVersion: number;
   inFlight: boolean;
   closed: boolean;
-  /** A bound creative workspace's keep composer, used by the next admit. */
-  creativeKeep?: CreativeKeepProvider | undefined;
 }
 
 /**
@@ -287,19 +268,7 @@ async function admit(
     let result;
     try {
       const candidate = state.project.buildSelected([state.key]);
-      // A bound creative workspace seals its pending work into this same
-      // candidate: one transaction keeps the drawing and its recipe.
-      let creative;
-      if (state.creativeKeep !== undefined) {
-        const preparation = await state.creativeKeep(candidate);
-        checkAuthority(state);
-        if (preparation !== undefined)
-          creative = await state.project.prepareCreativeKeep(candidate, preparation);
-      }
-      result = await state.project.keepCandidate(
-        candidate,
-        creative === undefined ? {} : { creative },
-      );
+      result = await state.project.keepCandidate(candidate);
     } catch (error) {
       throw asCommitError(error);
     }
@@ -424,9 +393,6 @@ export function openProjectResourceEditor(
     usage: kind === "view" ? storedViewUsage(project, profile, number) : EMPTY_USAGE,
     keepPicture,
     keepView,
-    bindCreativeKeep: (provider: CreativeKeepProvider | undefined) => {
-      state.creativeKeep = provider;
-    },
     close: () => {
       state.closed = true;
     },

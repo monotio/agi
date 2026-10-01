@@ -25,6 +25,8 @@
  * references.
  */
 
+import { readImageReferences } from "../creative/imageAttachments.ts";
+import { sha256Hex } from "../crypto.ts";
 import { openContainer } from "../container/container.ts";
 import { canonicalResourceName } from "../container/playableFiles.ts";
 import { disassembleLogicWarnings } from "../logic/disassembler.ts";
@@ -115,6 +117,7 @@ type DocumentKey =
 const RESOURCE_DOCUMENT = /^(logic|picture|view|sound):(0|[1-9]\d{0,2})$/;
 
 function classifyDocumentKey(key: string): DocumentKey {
+  if (/^attachment:[a-f0-9]{64}$/.test(key) || key === "images") return { type: "metadata" };
   const resource = RESOURCE_DOCUMENT.exec(key);
   if (resource) {
     const num = Number(resource[2]);
@@ -630,6 +633,22 @@ export function compileProjectDocuments(
     if (typeof content !== "string" && !(content instanceof Uint8Array))
       throw new Error(`Invalid project document ${key}: content must be text or bytes.`);
     documents.set(key, content instanceof Uint8Array ? new Uint8Array(content) : content);
+  }
+
+  for (const [key, content] of documents) {
+    if (
+      key.startsWith("attachment:") &&
+      (!(content instanceof Uint8Array) || sha256Hex(content) !== key.slice(11))
+    )
+      throw new ProjectDocumentCompileError(key, "Attachment bytes differ from their hash.");
+  }
+  const imageReferences = readImageReferences(Object.fromEntries(documents));
+  for (const target of Object.keys(imageReferences.traces)) {
+    if (!documents.has(target))
+      throw new ProjectDocumentCompileError(
+        "images",
+        `Trace target ${target} is missing. Remove its reference or add the PICTURE.`,
+      );
   }
 
   // The compile context first: every source-backed LOGIC sees the final

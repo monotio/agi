@@ -17,6 +17,8 @@ export const PROJECT_HISTORY_LIMITS = Object.freeze({
   maxDocuments: 1031,
   maxManifestEntries: 128 * 1024,
   maxBlobBytes: 8 * 1024 * 1024,
+  maxImageBlobBytes: 64 * 1024 * 1024,
+  maxImageTotalBytes: 128 * 1024 * 1024,
   maxTotalBytes: 64 * 1024 * 1024,
   maxTags: 1024,
   maxLabelLength: 1024,
@@ -112,12 +114,23 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
     } else if (blob["type"] === "bytes") {
       fields(blob, ["type", "bytes"]);
       const bytes = blob["bytes"];
-      if (!Array.isArray(bytes) || bytes.length > PROJECT_HISTORY_LIMITS.maxBlobBytes)
+      if (
+        !Array.isArray(bytes) ||
+        bytes.length >
+          (envelope["version"] === 2
+            ? PROJECT_HISTORY_LIMITS.maxImageBlobBytes
+            : PROJECT_HISTORY_LIMITS.maxBlobBytes)
+      )
         invalid("byte payload exceeds the limit.");
       content = bytes;
     } else invalid("unknown blob type.");
     total += typeof content === "string" ? content.length * 2 : content.length;
-    if (total > PROJECT_HISTORY_LIMITS.maxTotalBytes)
+    if (
+      total >
+      (envelope["version"] === 2
+        ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes
+        : PROJECT_HISTORY_LIMITS.maxTotalBytes)
+    )
       invalid("blob payloads exceed the total limit.");
     checked.push({ key, content });
   }
@@ -179,6 +192,8 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
           checkProjectDocumentKey(key);
           if (key === "notes" && envelope["version"] === 1)
             invalid("notes require History version 2.");
+          if (envelope["version"] === 1 && (key === "images" || key.startsWith("attachment:")))
+            invalid("image attachments require History version 2.");
           const value = manifest[key];
           const blob = value === null ? null : hash(value);
           if (blob !== null && !Object.hasOwn(blobs, blob))
@@ -286,19 +301,33 @@ export function writeProjectHistory(
 ): PortableProjectHistory {
   const entries = Object.entries(record(state.blobs));
   if (entries.length > PROJECT_HISTORY_LIMITS.maxBlobs) invalid("blob count exceeds the limit.");
+  const images = state.commits.some((commit) =>
+    Object.keys(commit.documents).some((key) => key === "images" || key.startsWith("attachment:")),
+  );
   let total = 0;
   for (const [, content] of entries) {
     if (typeof content !== "string" && !(content instanceof Uint8Array))
       invalid("blob content must be text or bytes.");
     const size = typeof content === "string" ? content.length * 2 : content.length;
     total += size;
-    if (size > PROJECT_HISTORY_LIMITS.maxBlobBytes || total > PROJECT_HISTORY_LIMITS.maxTotalBytes)
+    if (
+      size >
+        (images && content instanceof Uint8Array
+          ? PROJECT_HISTORY_LIMITS.maxImageBlobBytes
+          : PROJECT_HISTORY_LIMITS.maxBlobBytes) ||
+      total >
+        (images ? PROJECT_HISTORY_LIMITS.maxImageTotalBytes : PROJECT_HISTORY_LIMITS.maxTotalBytes)
+    )
       invalid("blob payload exceeds its limit.");
   }
   const portable: PortableProjectHistory = {
     format: PROJECT_HISTORY_FORMAT,
     version: state.commits.some(
-      (commit) => commit.chatId !== undefined || Object.hasOwn(commit.documents, "notes"),
+      (c) =>
+        c.chatId !== undefined ||
+        Object.keys(c.documents).some(
+          (key) => key === "notes" || key === "images" || key.startsWith("attachment:"),
+        ),
     )
       ? 2
       : 1,

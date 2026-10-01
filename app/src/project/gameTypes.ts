@@ -34,16 +34,6 @@ export interface CachedGameMeta {
   roomGeneration?: boolean | undefined;
 }
 
-/**
- * The kept creative-catalog revision this body was published with. The
- * sibling `creative/<projectId>` record is authoritative; the marker only
- * pins which kept revision the body claims, so a missing or moved catalog
- * refuses creative reads instead of pretending empty.
- */
-export interface CreativeMarker {
-  readonly kept: number;
-}
-
 export interface CachedGameData extends CachedGameMeta {
   /** Immutable edit History, separate from player rewind recordings. */
   projectHistory?: PortableProjectHistory | undefined;
@@ -59,8 +49,6 @@ export interface CachedGameData extends CachedGameMeta {
   recoveryDraft?: PortableProjectRecovery | undefined;
   /** Exact kept authoring documents; source agreement is checked on editable open. */
   workspace?: PortableProjectWorkspace | undefined;
-  /** Kept creative catalog pin; present only on bodies published with creative assets. */
-  creative?: CreativeMarker | undefined;
 }
 
 export interface BootedGame {

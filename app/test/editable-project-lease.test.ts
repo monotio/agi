@@ -132,19 +132,3 @@ test("a settled candidate replays its receipt during a lease without baseline dr
   ws.draft.releaseHistoryMutation(lease);
   assert.deepEqual(ws.draft.dirtyKeys(), []);
 });
-
-test("a wrong creative review still refuses before replay during a lease", async () => {
-  const projectId = await seedProject("ws-lease-review");
-  const ws = await openEditableProject(projectId);
-  editSource(ws, "logic:1", "return; // a");
-  const candidate = ws.buildSelected(["logic:1"]);
-  await ws.keepCandidate(candidate);
-  const saved = ws.savedIdentity();
-  const lease = ws.draft.acquireHistoryMutation(ws.draft.capture().revision);
-  // A foreign publication handle refuses at the seal check, before the
-  // read-only receipt replay is even considered.
-  const forged = Object.freeze({ workspaceId: ws.workspaceId }) as never;
-  await assert.rejects(ws.keepCandidate(candidate, { creative: forged }));
-  assert.equal(ws.savedIdentity(), saved);
-  ws.draft.releaseHistoryMutation(lease);
-});

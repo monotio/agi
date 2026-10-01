@@ -10,15 +10,6 @@ import {
   writeProjectRecovery,
 } from "../../../src/authoring/projectRecoveryCodec.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
-import type {
-  BlobHash,
-  BlobRef,
-  CreativeCatalog,
-  CreativeKeepRequest,
-} from "../../../src/creative/catalog.ts";
-import type { CreativeSnapshotOffer } from "../archive/projectArchive.ts";
-import type { CreativeWorkBasis, PortableCreativeWork } from "../../../src/creative/workArchive.ts";
-import type { CreativeWorkPlan } from "./creativeWorkArchive.ts";
 import {
   gameRevision,
   isLocalGamePreview,
@@ -48,7 +39,7 @@ import { announceProjectWrite } from "./projectBroadcast.ts";
 import { normalizeReferences, type StoredReference } from "../references/referenceArt.ts";
 import { projectId, resourceRevision } from "../../../src/gameIdentity.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
-import { PROFILES, detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
+import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 export type { CachedGameMeta, CachedGameData, ProjectId } from "./gameTypes.ts";
 
 interface StoredGameIndex extends CachedGameMeta {
@@ -889,6 +880,8 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
     (record.version < 3 || ![1, 2].includes(record.editHistory.version))
   )
     throw new Error("This project history version is not supported by this app.");
+  if (Object.hasOwn(record, "creative"))
+    throw new Error("This saved project uses an unsupported creative storage format.");
   const { format: _format, version: _version, editHistory: _editHistory, ...data } = record;
   const normalized = { ...data, projectId };
   if (data.chats !== undefined) {
@@ -900,8 +893,6 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
     (normalized.recoveryDraft !== undefined || normalized.workspace !== undefined)
   )
     throw new Error("This saved project has recovery data outside its declared version.");
-  if (record.version === 1 && normalized.creative !== undefined)
-    throw new Error("This saved project has creative data outside its declared version.");
   if (
     record.version === 1 &&
     (typeof normalized.provider !== "string" || typeof normalized.model !== "string")
@@ -926,18 +917,6 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   }
   if (normalized.references !== undefined)
     normalized.references = normalizeReferences(normalized.references);
-  if (normalized.creative !== undefined) {
-    const marker: unknown = normalized.creative;
-    if (
-      marker === null ||
-      typeof marker !== "object" ||
-      Array.isArray(marker) ||
-      !Number.isSafeInteger((marker as { kept?: unknown }).kept) ||
-      (marker as { kept: number }).kept < 1 ||
-      Object.keys(marker).length !== 1
-    )
-      throw new Error("Invalid saved project creative marker.");
-  }
   return normalized;
 }
 async function readBody(
@@ -1125,21 +1104,11 @@ export interface ProjectCommitRequest {
   readonly documents: readonly { readonly key: string; readonly version: number }[];
   /**
    * The candidate's own native removals (`logic:N`, `picture:N`, `view:N`,
-   * `sound:N`), when it deletes resources. Inside the write transaction the
-   * kept creative catalog is checked against this exact set: a kept recipe
-   * still preparing a removed destination refuses the whole commit. The
-   * candidate hash covers the field, so a same-id retry repeats it exactly.
+   * `sound:N`), when it deletes resources. The candidate hash covers the
+   * field, so a same-id retry repeats it exactly.
    */
   readonly removals?: readonly string[] | undefined;
   readonly data: Omit<CachedGameData, "projectId" | "authoredAt" | "generation">;
-  /**
-   * An optional staged creative publication: the same transaction validates
-   * its live lease and expected catalog head, verifies every kept blob's
-   * bytes, moves the catalog's kept set and stamps the body's creative
-   * marker. The candidate hash covers this field, so a same-id retry must
-   * repeat the identical request — it is never published twice.
-   */
-  readonly creative?: CreativeKeepRequest | undefined;
 }
 
 export interface ProjectCommitReceipt {
@@ -1150,8 +1119,6 @@ export interface ProjectCommitReceipt {
   readonly saved: CommittedProjectIdentity;
   /** Exact durable History acknowledged by this receipt. */
   readonly history?: { readonly cursor: string | null; readonly hash: string };
-  /** The kept and head catalog revisions this commit published, when it carried creative work. */
-  readonly creative?: { readonly kept: number; readonly head: number } | undefined;
 }
 
 interface StoredProjectCommit {
@@ -1186,244 +1153,6 @@ function commitContent(value: unknown): unknown {
 }
 
 /**
- * Prospective archive admission for a commit whose result would carry kept
- * creative data. The exact entry list a project download writes — native
- * resources, versioned authored metadata, staged reference images and every
- * unique kept creative binary — is measured with the writer's own packed
- * arithmetic before the write transaction opens. An unexportable candidate
- * refuses here, leaving the stored body, catalog and draft untouched;
- * staging may still hold more unkept bytes. Progress, map and history stay
- * independent download-time attachments and are not promised capacity.
- *
- * The caller's per-project queue serializes writes in this window. Other
- * windows may write between the probe and commit; the write transaction
- * checks the body/lifetime identity and the kept catalog or staging lease
- * again before publication. A recorded commit receipt means this call is
- * a retry or an id reuse, which the transaction itself adjudicates.
- */
-async function admitCreativeArchive(
-  request: { readonly projectId: ProjectId; readonly commitId: string },
-  data: CachedGameData,
-  creative: CreativeKeepRequest | undefined,
-): Promise<void> {
-  // The creative codec, project manifest and archive measurer load with
-  // the admission, ahead of every record read: nothing outside a commit
-  // fetches them.
-  const [
-    { creativeProjectBlobHashes, deriveCreativeProjectManifest },
-    catalogCodec,
-    archiveModule,
-  ] = await Promise.all([
-    import("../../../src/creative/project.ts"),
-    import("../../../src/creative/catalog.ts"),
-    import("../archive/projectArchive.ts"),
-  ]);
-  const { collectProjectArchiveEntries, measureStoredArchive } = archiveModule;
-  const {
-    applyCreativeKeep,
-    creativeBlobKey,
-    creativeCatalogKey,
-    planCreativeKeep,
-    readCreativeCatalogRecord,
-    verifyCreativeBlob,
-  } = catalogCodec;
-  const workModule = await import("./creativeWorkArchive.ts");
-  const catalogKey = creativeCatalogKey(request.projectId);
-  const indexKey = workModule.creativeDraftIndexKey(request.projectId);
-  const undoIndexKey = workModule.creativeUndoIndexKey(request.projectId);
-  const probe = await readBodyRecordSet([
-    request.projectId,
-    catalogKey,
-    indexKey,
-    undoIndexKey,
-    `commit/${request.projectId}/${request.commitId}`,
-  ]);
-  if (probe.get(`commit/${request.projectId}/${request.commitId}`) !== undefined) return;
-  const current = probe.get(request.projectId) as StoredGameBody | undefined;
-  const catalogRaw = probe.get(catalogKey);
-  const storedMarker = current === undefined ? undefined : current.creative;
-  // The catalog the write transaction would publish from: an ordinary
-  // commit keeps the stored marker's set, a creative Keep derives the next
-  // kept set with the same planning functions the transaction re-runs.
-  let prospective: CreativeCatalog | undefined;
-  if (creative === undefined) {
-    if (storedMarker === undefined && catalogRaw === undefined) return;
-    if (catalogRaw === undefined) return;
-    const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
-    if (catalog === undefined) return;
-    if (storedMarker !== undefined && catalog.kept !== storedMarker.kept) return;
-    prospective = catalog;
-  } else {
-    if (catalogRaw === undefined) return;
-    const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
-    if (catalog === undefined) return;
-    if (storedMarker === undefined ? catalog.kept !== 0 : storedMarker.kept !== catalog.kept)
-      return;
-    prospective = applyCreativeKeep(
-      catalog,
-      creative,
-      planCreativeKeep(creative, catalog, Date.now()),
-    );
-  }
-  const nextGeneration = generationOf(current) + 1;
-  const archive: CachedGameData = {
-    ...data,
-    generation: nextGeneration,
-    ...(prospective.kept > 0 ? { creative: { kept: prospective.kept } } : {}),
-  };
-  const revision = await gameRevision(archive.files);
-  // The durable-work half of the same archive: index → rows → hold
-  // inventories → blob bytes, read in one coherent probe beside the
-  // prospective catalog and classified against this commit's identity.
-  // A corrupt or racing work layer skips the measure — the download path's
-  // own capture refuses that store anyway — but a coherent one is priced
-  // exactly, held bytes included.
-  let workBundle:
-    { work: PortableCreativeWork; blobs: Record<BlobHash, Uint8Array> } | null | undefined;
-  if (
-    prospective.holds.length > 0 ||
-    probe.get(indexKey) !== undefined ||
-    probe.get(undoIndexKey) !== undefined
-  ) {
-    const authoring = authoringFingerprint(data.authoringState, data.workspace);
-    const profileId = detectProfile(new Map(Object.entries(data.files)), data.library?.profile).id;
-    let lifetimeRaw: unknown;
-    let undoIndexRaw: unknown;
-    try {
-      workBundle = await updateBodyRecords(
-        indexKey,
-        (raw) => {
-          const workspaces = workModule.readCreativeDraftIndex(raw, indexKey);
-          const undoEntries = workModule.readCreativeUndoIndex(undoIndexRaw, undoIndexKey);
-          const rowKeys = workspaces.map((id) =>
-            workModule.creativeDraftKey(request.projectId, id),
-          );
-          const undoKeys = undoEntries.map((entry) =>
-            workModule.creativeUndoKey(request.projectId, entry.snapshot),
-          );
-          const hashKeys = [...new Set(prospective!.holds.flatMap((hold) => [...hold.hashes]))].map(
-            (hash) => creativeBlobKey(request.projectId, hash),
-          );
-          return {
-            reads: [...rowKeys, ...undoKeys, ...hashKeys],
-            complete: (records) => {
-              const rows = workspaces.map((id, i) =>
-                workModule.readCreativeDraftRow(records.get(rowKeys[i]!), rowKeys[i]!, id),
-              );
-              const undoRows = undoEntries.map((entry, i) =>
-                workModule.readCreativeUndoRow(
-                  records.get(undoKeys[i]!),
-                  undoKeys[i]!,
-                  entry.workspace,
-                  entry.snapshot,
-                ),
-              );
-              const bundle = workModule.assembleCreativeWorkCapture({
-                catalog: prospective!,
-                rows,
-                undos: undoRows,
-                axes: (row) => ({
-                  lifetimeMatches: lifetimeHolds(
-                    row.expected.lifetime,
-                    liveLifetime(lifetimeRaw as HistoryLifetime | undefined),
-                  ),
-                  body: {
-                    generation: nextGeneration,
-                    revision,
-                    authoring,
-                    profileId,
-                  },
-                  kept: prospective!.kept,
-                }),
-                basis: { revision, authoring, profileId, kept: prospective!.kept },
-              });
-              if (bundle === null) return { result: null };
-              const blobs: Record<BlobHash, Uint8Array> = {};
-              for (const hash of bundle.hashes)
-                blobs[hash] = verifyCreativeBlob(
-                  records.get(creativeBlobKey(request.projectId, hash)),
-                  request.projectId,
-                  bundle.work.blobs[hash]!,
-                );
-              return { result: { work: bundle.work, blobs } };
-            },
-          };
-        },
-        [
-          {
-            key: `lifetime/${request.projectId}`,
-            check: (raw) => {
-              lifetimeRaw = raw;
-            },
-          },
-          {
-            key: undoIndexKey,
-            check: (raw) => {
-              undoIndexRaw = raw;
-            },
-          },
-        ],
-      );
-    } catch {
-      workBundle = undefined;
-    }
-  }
-  if (prospective.kept < 1 && workBundle == null) return;
-  const manifest = prospective.kept >= 1 ? deriveCreativeProjectManifest(prospective) : null;
-  // Admission prices the exact binaries the archive would write: the kept
-  // blob records' real bytes, verified — never a resized or omitted stand-in.
-  const manifestHashes = manifest === null ? [] : creativeProjectBlobHashes(manifest);
-  const blobKeys = manifestHashes.map((hash) => creativeBlobKey(request.projectId, hash));
-  const blobRecords =
-    blobKeys.length === 0 ? new Map<string, unknown>() : await readBodyRecordSet(blobKeys);
-  const blobs: Record<BlobHash, Uint8Array> = {};
-  for (const hash of manifestHashes)
-    blobs[hash] = verifyCreativeBlob(
-      blobRecords.get(creativeBlobKey(request.projectId, hash)),
-      request.projectId,
-      manifest!.blobs[hash]!,
-    );
-  const offer: CreativeSnapshotOffer = {
-    projectId: request.projectId,
-    generation: nextGeneration,
-    kept: prospective.kept,
-    head: prospective.head,
-    revision,
-    manifest,
-    blobs,
-    work: workBundle?.work ?? null,
-    workBlobs: workBundle?.blobs ?? {},
-  };
-  measureStoredArchive(
-    await collectProjectArchiveEntries(archive, undefined, undefined, undefined, undefined, offer),
-  );
-}
-
-/**
- * The kept recipe destinations a removal commit must not strand. A kept
- * recipe's destination is a durable picture/view association of the same
- * kind reference-art metadata carries, so deleting its resource leaves the
- * recipe pointing at a missing slot. Only the catalog's kept set counts:
- * staged leases and orphan blobs are not associations. This runs inside the
- * write transaction against the catalog that transaction itself read, never
- * a caller snapshot.
- */
-function checkKeptRecipeDestinations(
-  catalog: CreativeCatalog,
-  removals: ReadonlySet<string>,
-  CatalogError: new (code: "invalid", message: string) => Error,
-): void {
-  for (const recipe of catalog.recipes) {
-    const key = `${recipe.destination.kind}:${recipe.destination.resourceId}`;
-    if (removals.has(key))
-      throw new CatalogError(
-        "invalid",
-        `Kept creative recipe '${recipe.identity.id}' still prepares destination ${key}; removing it would strand the recipe.`,
-      );
-  }
-}
-
-/**
  * Publish a complete, already validated candidate and its retry receipt in one
  * transaction. A receipt acknowledges durable storage only; installing the build
  * in a worker is a separate operation. The caller owns compilation and references.
@@ -1455,25 +1184,7 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
       throw new Error("Invalid captured document version.");
     keys.add(document.key);
   }
-  // The authoring codec and removal rules load with the commit — never on
-  // the menu's read paths — and ahead of every transaction this commit opens.
-  const [
-    {
-      CreativeCatalogError,
-      applyCreativeKeep,
-      creativeBlobKey,
-      creativeCatalogKey,
-      planCreativeKeep,
-      readCreativeCatalogRecord,
-      readCreativeKeepRequest,
-      verifyCreativeBlob,
-      writeCreativeCatalogRecord,
-    },
-    { PROJECT_RESOURCE_KEY },
-  ] = await Promise.all([
-    import("../../../src/creative/catalog.ts"),
-    import("../../../src/authoring/projectRemoval.ts"),
-  ]);
+  const { PROJECT_RESOURCE_KEY } = await import("../../../src/authoring/projectRemoval.ts");
   const removals = new Set<string>();
   for (const key of request.removals ?? []) {
     if (typeof key !== "string" || !PROJECT_RESOURCE_KEY.test(key) || removals.has(key))
@@ -1482,11 +1193,6 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
   }
   if (request.expected !== null && request.expected.projectId !== request.projectId)
     throw new Error("The commit base belongs to another project.");
-  // The staged publication is validated once here, ahead of the transaction;
-  // the candidate hash still covers the request as offered, so a same-id
-  // retry must carry the identical request.
-  const creative =
-    request.creative === undefined ? undefined : readCreativeKeepRequest(request.creative);
   const candidateHash = sha256Hex(new TextEncoder().encode(JSON.stringify(commitContent(request))));
   return serializeWrite(request.projectId, async () => {
     readableIndex(request.projectId);
@@ -1497,18 +1203,11 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
     };
     readStoredBody(storedBody(data), data.projectId);
     await stampLibraryMetadata(data, true);
-    // Prospective admission: a commit whose result carries kept creative
-    // data must still fit the project's own archive — measured with the
-    // writer's exact entries and arithmetic before the write transaction
-    // opens, so an unexportable candidate leaves the stored body, catalog
-    // and draft untouched.
-    await admitCreativeArchive(request, data, creative);
     let current: StoredGameBody | undefined;
     let previousLifetime: HistoryLifetime | undefined;
     const historyModule = await import("./projectHistoryStorage.ts");
     const history = historyModule.checkedProjectHistory(data);
     if (history !== undefined) data.projectHistory = history;
-    let catalogRaw: unknown;
     const receiptKey = `commit/${request.projectId}/${request.commitId}`;
     const committed = await updateBodyRecords(
       receiptKey,
@@ -1564,11 +1263,8 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
           const epoch = current === undefined ? crypto.randomUUID() : lifetime;
           if (epoch === null) throw new ProjectDeletedError("This project lifetime was removed.");
           // One finish for both paths: the body, the commit receipt and, for a
-          // first commit, the lifetime receipt go in together. A creative
-          // publication adds its marker to the body and the new kept/head
-          // revisions to the receipt before they are written.
-          const finish = (published?: { kept: number; head: number }) => {
-            if (published !== undefined) data.creative = { kept: published.kept };
+          // first commit, the lifetime receipt go in together.
+          const finish = () => {
             const receipt: ProjectCommitReceipt = {
               commitId: request.commitId,
               workspaceId: request.workspaceId,
@@ -1590,7 +1286,6 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
                 authoring: authoringFingerprint(data.authoringState, data.workspace),
                 buildId: request.buildId,
               },
-              ...(published !== undefined ? { creative: published } : {}),
             };
             const body = storedBody(data);
             if (history === undefined && current?.editHistory !== undefined) {
@@ -1614,92 +1309,8 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
               } satisfies HistoryLifetime);
             return { receipt, body, puts };
           };
-          if (creative === undefined) {
-            // The creative marker is storage-owned admission output: an
-            // ordinary commit keeps the durable body's marker (verified against
-            // the catalog), and a candidate offering any other marker — or one
-            // with nothing behind it — is refused before any write.
-            const storedMarker = current === undefined ? undefined : current.creative;
-            const offered = data.creative;
-            if (
-              offered !== undefined &&
-              (storedMarker === undefined || offered.kept !== storedMarker.kept)
-            )
-              throw new CreativeCatalogError(
-                "invalid",
-                "The candidate's creative marker has no matching catalog publication.",
-              );
-            const pinned = readCreativeCatalogRecord(catalogRaw, request.projectId);
-            if (storedMarker === undefined) {
-              // A catalog that already published must stay pinned by the body;
-              // a marker lost from durable storage is damage, not a clean slate.
-              if (pinned !== undefined && pinned.kept !== 0)
-                throw new CreativeCatalogError(
-                  "invalid",
-                  "The kept creative catalog lost its body marker.",
-                );
-            } else {
-              if (pinned === undefined || pinned.kept !== storedMarker.kept)
-                throw new CreativeCatalogError(
-                  "invalid",
-                  "The stored creative marker has no matching catalog.",
-                );
-              data.creative = { kept: storedMarker.kept };
-            }
-            // The transaction's own catalog read is the authority: a kept
-            // recipe still preparing a removed destination refuses here. A
-            // corrupt record already threw from readCreativeCatalogRecord
-            // instead of parsing, so a damaged catalog cannot admit removal.
-            if (removals.size > 0 && pinned !== undefined)
-              checkKeptRecipeDestinations(pinned, removals, CreativeCatalogError);
-            const finished = finish();
-            return { result: { ...finished, changed: true }, puts: finished.puts };
-          }
-          const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
-          if (catalog === undefined)
-            throw new CreativeCatalogError(
-              "invalid",
-              "The commit's staged creative catalog is missing.",
-            );
-          // The same marker/catalog invariant as the ordinary path: a kept
-          // catalog must be pinned by the durable body, and a stored marker
-          // must pin this catalog — a publication never repairs damage by
-          // writing over it.
-          const storedMarker = current === undefined ? undefined : current.creative;
-          if (storedMarker === undefined ? catalog.kept !== 0 : storedMarker.kept !== catalog.kept)
-            throw new CreativeCatalogError(
-              "invalid",
-              "The body's creative marker does not pin this catalog.",
-            );
-          // Every admission check that can run against the captured catalog:
-          // expected head, lease liveness at the transaction's own clock,
-          // ownership and workspace, kept-set identities, budgets and blob
-          // descriptors.
-          const plan = planCreativeKeep(creative, catalog, Date.now());
-          const blobKeys = [
-            ...new Set(plan.referenced.map((ref) => creativeBlobKey(request.projectId, ref.hash))),
-          ];
-          return {
-            reads: blobKeys,
-            complete: (records) => {
-              // Exact-byte verification for every kept reference; a missing,
-              // foreign or tampered blob aborts body, catalog and receipt alike.
-              for (const ref of plan.referenced)
-                verifyCreativeBlob(
-                  records.get(creativeBlobKey(request.projectId, ref.hash)),
-                  request.projectId,
-                  ref,
-                );
-              const next = applyCreativeKeep(catalog, creative, plan);
-              if (removals.size > 0)
-                checkKeptRecipeDestinations(next, removals, CreativeCatalogError);
-              const finished = finish({ kept: next.kept, head: next.head });
-              return {
-                result: { ...finished, changed: true },
-                puts: [...finished.puts, writeCreativeCatalogRecord(next)],
-              };
-            },
-          };
+          const finished = finish();
+          return { result: { ...finished, changed: true }, puts: finished.puts };
         };
         const outcome = admit();
         const reads = [
@@ -1742,489 +1353,11 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
             previousLifetime = raw as HistoryLifetime | undefined;
           },
         },
-        {
-          // The catalog rides along on every commit: a creative Keep admits
-          // against it, and an ordinary one verifies the body's marker still
-          // pins the catalog it names.
-          key: creativeCatalogKey(request.projectId),
-          check: (raw: unknown) => {
-            catalogRaw = raw;
-          },
-        },
       ],
     );
     const warnings: "indexRepairPending"[] = [];
     try {
       // An old retry must refresh from the current body, never its old candidate.
-      localStorage.setItem(
-        getStorageKey(request.projectId),
-        JSON.stringify(storedIndex(committed.body)),
-      );
-    } catch {
-      warnings.push("indexRepairPending");
-    }
-    if (committed.changed)
-      announceProjectWrite({
-        projectId: request.projectId,
-        generation: committed.receipt.saved.generation,
-        revision: committed.receipt.saved.revision,
-        fingerprint: committed.receipt.saved.authoring,
-      });
-    return { receipt: structuredClone(committed.receipt), warnings };
-  });
-}
-
-/** The receipt an initial project publication acknowledges; a retry of the same candidate returns it. */
-export interface ProjectPublishReceipt {
-  readonly candidateHash: string;
-  readonly saved: {
-    readonly projectId: ProjectId;
-    readonly generation: number;
-    readonly lifetime: string;
-    readonly revision: ResourceRevision;
-    readonly authoring: AuthoringFingerprint;
-  };
-  /** The fresh kept and head catalog pins this publication wrote, when it carried creative data. */
-  readonly creative?: { readonly kept: number; readonly head: number } | undefined;
-}
-
-interface StoredProjectPublish {
-  projectId: string;
-  format: "monotio.agi.project-publish";
-  version: 1;
-  receipt: ProjectPublishReceipt;
-}
-
-/** The kept creative half of an initial publication, bound to the target project. */
-export interface NewProjectCreative {
-  /** A fresh kept-set catalog: portable data never supplies leases, holds or revisions. */
-  readonly catalog: CreativeCatalog;
-  /** The exact blob bodies the kept set claims, deduplicated by content hash. */
-  readonly blobs: readonly { readonly ref: BlobRef; readonly bytes: Uint8Array }[];
-}
-
-/** The durable creative-work half of an initial publication: portable data only. */
-export interface NewProjectWork {
-  /** The portable work envelope; the codec re-validates it before any write. */
-  readonly work: unknown;
-  /** The exact blob bodies the envelope's registry declares, deduplicated by hash. */
-  readonly blobs: Readonly<Record<string, Uint8Array>>;
-}
-
-/**
- * Initial durable publication of a project that arrives whole — a private
- * archive import or a copy — with its kept creative catalog. The body, its
- * fresh lifetime receipt, the catalog record and every blob record land in
- * ONE read-write transaction or not at all: the target body, catalog and
- * blob keys must all be absent, so a colliding identity cannot overwrite
- * another writer's records. Marker, generation and lifetime pins are
- * derived here, never copied from portable data.
- *
- * The stored publication receipt is idempotent: a retry of the exact same
- * candidate — a lost acknowledgment, or an index write that still needs
- * repair — returns the receipt without writing anything again. The local
- * index remains a repairable view: its write failure is reported as a
- * warning, not a second publication.
- */
-export async function publishNewProject(input: {
-  readonly projectId: ProjectId;
-  readonly data: Omit<CachedGameData, "projectId" | "authoredAt" | "generation">;
-  readonly creative?: NewProjectCreative | undefined;
-  readonly work?: NewProjectWork | undefined;
-}): Promise<{ receipt: ProjectPublishReceipt; warnings: readonly "indexRepairPending"[] }> {
-  // Ownership precedes every await, including waiting behind another writer.
-  const request = structuredClone(input);
-  if (projectId(request.projectId) === null) throw new Error("Invalid project identity.");
-  // The creative codecs load with the publication — never on the menu's read
-  // paths — and ahead of every transaction this publication opens.
-  const [
-    {
-      CreativeCatalogError,
-      checkRetainedBudgets,
-      compareCodePoints,
-      creativeCatalogKey,
-      mergeBlobRegistration,
-      readCreativeCatalogRecord,
-      readCreativeHold,
-      writeCreativeBlobRecord,
-      writeCreativeCatalogRecord,
-    },
-    workArchiveModule,
-    recoveryModule,
-    workHelpers,
-  ] = await Promise.all([
-    import("../../../src/creative/catalog.ts"),
-    request.work === undefined
-      ? Promise.resolve(undefined)
-      : import("../../../src/creative/workArchive.ts"),
-    request.work === undefined
-      ? Promise.resolve(undefined)
-      : import("../../../src/creative/recovery.ts"),
-    request.work === undefined ? Promise.resolve(undefined) : import("./creativeWorkArchive.ts"),
-  ]);
-  const { creativeRecoveryBlobHashes, readCreativeRecovery, writeCreativeRecovery } =
-    recoveryModule ?? {};
-  if (request.data.creative !== undefined)
-    throw new CreativeCatalogError(
-      "invalid",
-      "The candidate's creative marker is assigned by storage.",
-    );
-  // The creative half is validated before the first await: the catalog
-  // record must be canonical, bound to this project and a fresh kept set
-  // with no lease or hold authority, and the offered blob bodies must cover
-  // its registry exactly — each byte-verified by the record codec.
-  let catalog: CreativeCatalog | undefined;
-  let catalogRecord: Record<string, unknown> | undefined;
-  let blobRecords: Record<string, unknown>[] | undefined;
-  if (request.creative !== undefined) {
-    catalog = readCreativeCatalogRecord(
-      writeCreativeCatalogRecord(request.creative.catalog),
-      request.projectId,
-    );
-    if (
-      catalog === undefined ||
-      catalog.kept < 1 ||
-      catalog.leases.length !== 0 ||
-      catalog.holds.length !== 0
-    )
-      throw new CreativeCatalogError(
-        "invalid",
-        "A new project's catalog must hold a kept set without leases or holds.",
-      );
-    catalogRecord = writeCreativeCatalogRecord(catalog);
-    const declared = new Set(Object.keys(catalog.blobs));
-    const offered = new Set<string>();
-    blobRecords = request.creative.blobs.map((blob) => {
-      if (!declared.has(blob.ref.hash) || offered.has(blob.ref.hash))
-        throw new CreativeCatalogError(
-          "invalid",
-          `creative blob '${blob.ref.hash}' is not a declared kept blob.`,
-        );
-      offered.add(blob.ref.hash);
-      return writeCreativeBlobRecord(request.projectId, blob.ref, blob.bytes);
-    });
-    if (offered.size !== declared.size)
-      throw new CreativeCatalogError(
-        "invalid",
-        "The creative blobs do not cover the catalog's registry.",
-      );
-  }
-  // The durable-work half is validated ahead of the transaction too: the
-  // envelope re-canonicalizes through its strict codec (unknown fields,
-  // versions or formats refuse), the blob map must cover its registry
-  // exactly — byte-verified and owned — and retained undo snapshots
-  // republish as fresh target-local rows and incarnations below.
-  let workPlan: CreativeWorkPlan | undefined;
-  let workRecord: Record<string, unknown> | undefined;
-  let workBlobs: Record<string, Uint8Array> | undefined;
-  let workBasis: CreativeWorkBasis | undefined;
-  if (request.work !== undefined) {
-    const { readCreativeWork, writeCreativeWork } = workArchiveModule!;
-    const helpers = workHelpers!;
-    const work = helpers.ownCreativeWorkEnvelope(request.work.work);
-    workRecord = writeCreativeWork(work);
-    workBasis = work.basis;
-    workPlan = helpers.planCreativeWorkPublication(readCreativeWork(workRecord));
-    workBlobs = helpers.ownCreativeWorkBlobs(readCreativeWork(workRecord), request.work.blobs);
-  }
-  return serializeWrite(request.projectId, async () => {
-    readableIndex(request.projectId);
-    const data: CachedGameData = {
-      ...request.data,
-      projectId: request.projectId,
-      authoredAt: new Date().toISOString(),
-      generation: 1,
-      ...(catalog !== undefined ? { creative: { kept: catalog.kept } } : {}),
-    };
-    const historyModule = await import("./projectHistoryStorage.ts");
-    const history = historyModule.checkedProjectHistory(data);
-    if (history !== undefined) data.projectHistory = history;
-    readStoredBody(storedBody(data), request.projectId);
-    await stampLibraryMetadata(data, true);
-    if (workPlan !== undefined) {
-      // The portable basis is trusted only once it equals the target's own
-      // freshly stamped identity — source counters never carry authority.
-      // A stale draft keeps its foreign base; only a claim verified current
-      // may translate its kept pin onto this catalog.
-      workHelpers!.checkCreativeWorkBasis(workBasis!, {
-        revision: data.library!.revision,
-        authoring: authoringFingerprint(data.authoringState, data.workspace),
-        profileId: detectProfile(new Map(Object.entries(data.files)), data.library?.profile).id,
-        keptSet: catalog !== undefined,
-      });
-      workHelpers!.checkCurrentWorkDrafts(workPlan, catalog);
-    }
-    // The receipt binds this exact candidate. The wall-clock stamp is the
-    // one field a retry legitimately regenerates, so it stays out of the
-    // hash — everything else, including the blob descriptors that pin the
-    // exact bytes, is covered.
-    const candidateHash = sha256Hex(
-      new TextEncoder().encode(
-        JSON.stringify(
-          commitContent({
-            body: { ...storedBody(data), authoredAt: "" },
-            ...(catalogRecord !== undefined
-              ? { catalog: catalogRecord, blobs: request.creative!.blobs.map(({ ref }) => ref) }
-              : {}),
-            ...(workRecord !== undefined
-              ? {
-                  work: workRecord,
-                  workBlobs: workPlan!.hashes.map((hash) => workPlan!.registry[hash]!),
-                }
-              : {}),
-          }),
-        ),
-      ),
-    );
-    const publishKey = `publish/${request.projectId}`;
-    let current: StoredGameBody | undefined;
-    let previousLifetime: HistoryLifetime | undefined;
-    let catalogRaw: unknown;
-    const committed = await updateBodyRecords(
-      publishKey,
-      (raw) => {
-        const lifetime = liveLifetime(previousLifetime);
-        if (raw !== undefined) {
-          const stored = raw as StoredProjectPublish;
-          if (stored.format !== "monotio.agi.project-publish" || stored.version !== 1)
-            throw new Error("This project publication version is not supported by this app.");
-          if (stored.projectId !== publishKey || stored.receipt.candidateHash !== candidateHash)
-            throw new Error("This publication identity was reused for a different candidate.");
-          if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
-            throw new ProjectDeletedError(
-              "This publication belongs to a removed or replaced project lifetime.",
-            );
-          return {
-            result: {
-              receipt: stored.receipt,
-              body: readStoredBody(current, request.projectId),
-              changed: false,
-            },
-          };
-        }
-        // The complete conflict check lives inside this transaction: the
-        // body, its catalog and every blob key must all be absent, so an
-        // identity collision cannot overwrite another writer's records.
-        if (current !== undefined)
-          throw new ProjectExistsError(`Project "${request.projectId}" already exists.`);
-        if (catalogRaw !== undefined)
-          throw new CreativeCatalogError(
-            "invalid",
-            "A creative catalog already exists for this project identity.",
-          );
-        const epoch = crypto.randomUUID();
-        // Durable work publishes as target-local records: fresh incarnations,
-        // fresh hold identities and the catalog built here — the portable
-        // envelope contributes data, never authority. A draft the source
-        // classified "current" keeps only its verified content: its kept pin
-        // and expected counters rebind to this publication, and every stale
-        // draft's recovery stays byte-identical to the carried claim.
-        let outCatalogRecord = catalogRecord;
-        let publishedPins: { kept: number; head: number } | undefined =
-          catalog === undefined ? undefined : { kept: catalog.kept, head: catalog.head };
-        const workPuts: unknown[] = [];
-        const absentWorkKeys: string[] = [];
-        const allBlobRecords: Record<string, unknown>[] = [...(blobRecords ?? [])];
-        if (workPlan !== undefined) {
-          const helpers = workHelpers!;
-          const holds = [...(catalog?.holds ?? [])];
-          const indexKey = helpers.creativeDraftIndexKey(request.projectId);
-          if (workPlan.drafts.length > 0) {
-            absentWorkKeys.push(indexKey);
-            workPuts.push(
-              helpers.writeCreativeDraftIndexRecord(
-                indexKey,
-                workPlan.drafts.map((draft) => draft.workspaceId),
-              ),
-            );
-          }
-          for (const draft of workPlan.drafts) {
-            const incarnation = crypto.randomUUID();
-            const stored = readCreativeRecovery!(
-              writeCreativeRecovery!(
-                draft.current
-                  ? {
-                      ...draft.recovery,
-                      base: { ...draft.recovery.base, kept: catalog?.kept ?? 0 },
-                    }
-                  : draft.recovery,
-              ),
-            );
-            const rowKey = helpers.creativeDraftKey(request.projectId, draft.workspaceId);
-            absentWorkKeys.push(rowKey);
-            workPuts.push(
-              helpers.writeCreativeDraftRowRecord(
-                rowKey,
-                draft.workspaceId,
-                { incarnation, sequence: 1 },
-                { generation: draft.current ? (data.generation ?? 1) : 0, lifetime: epoch },
-                stored,
-              ),
-            );
-            holds.push(
-              readCreativeHold({
-                id: helpers.creativeRecoveryHoldId(incarnation),
-                kind: "recovery",
-                hashes: creativeRecoveryBlobHashes!(stored),
-              }),
-            );
-          }
-          // Retained snapshots republish the same way: fresh target-local
-          // snapshot ids and incarnations, the index keeping the envelope's
-          // order, each row pinned by its own derived `retained-undo` hold.
-          const undoIndexKey = helpers.creativeUndoIndexKey(request.projectId);
-          if (workPlan.undos.length > 0) {
-            absentWorkKeys.push(undoIndexKey);
-            const undoEntries: { workspace: string; snapshot: string }[] = [];
-            for (const undo of workPlan.undos) {
-              const snapshotId = crypto.randomUUID();
-              const incarnation = crypto.randomUUID();
-              undoEntries.push({ workspace: undo.workspaceId, snapshot: snapshotId });
-              const stored = readCreativeRecovery!(
-                writeCreativeRecovery!(
-                  undo.current
-                    ? {
-                        ...undo.recovery,
-                        base: { ...undo.recovery.base, kept: catalog?.kept ?? 0 },
-                      }
-                    : undo.recovery,
-                ),
-              );
-              const rowKey = helpers.creativeUndoKey(request.projectId, snapshotId);
-              absentWorkKeys.push(rowKey);
-              workPuts.push(
-                helpers.writeCreativeUndoRowRecord(
-                  rowKey,
-                  undo.workspaceId,
-                  snapshotId,
-                  { incarnation, sequence: 1 },
-                  { generation: undo.current ? (data.generation ?? 1) : 0, lifetime: epoch },
-                  stored,
-                ),
-              );
-              holds.push(
-                readCreativeHold({
-                  id: helpers.creativeUndoHoldId(incarnation),
-                  kind: "retained-undo",
-                  hashes: creativeRecoveryBlobHashes!(stored),
-                }),
-              );
-            }
-            workPuts.push(helpers.writeCreativeUndoIndexRecord(undoIndexKey, undoEntries));
-          }
-          for (const inventory of workPlan.retained)
-            holds.push(
-              readCreativeHold({
-                id: `undo-${crypto.randomUUID()}`,
-                kind: "retained-undo",
-                hashes: [...inventory],
-              }),
-            );
-          const registry = { ...(catalog?.blobs ?? {}) };
-          for (const hash of workPlan.hashes)
-            for (const bucket of workPlan.registry[hash]!.buckets)
-              mergeBlobRegistration(registry, workPlan.registry[hash]!, bucket);
-          const merged: CreativeCatalog = {
-            projectId: creativeCatalogKey(request.projectId),
-            head: catalog?.head ?? 1,
-            kept: catalog?.kept ?? 0,
-            sources: catalog?.sources ?? [],
-            derivatives: catalog?.derivatives ?? [],
-            board: catalog?.board ?? [],
-            recipes: catalog?.recipes ?? [],
-            leases: catalog?.leases ?? [],
-            holds: holds.sort((a, b) => compareCodePoints(a.id, b.id)),
-            blobs: registry,
-          };
-          checkRetainedBudgets(merged, Date.now(), "creative work");
-          outCatalogRecord = writeCreativeCatalogRecord(merged);
-          publishedPins = { kept: merged.kept, head: merged.head };
-          const packed = new Set(allBlobRecords.map((record) => record["hash"] as string));
-          for (const hash of workPlan.hashes)
-            if (!packed.has(hash)) {
-              const descriptor = workPlan.registry[hash]!;
-              allBlobRecords.push(
-                writeCreativeBlobRecord(
-                  request.projectId,
-                  { hash, byteLength: descriptor.byteLength, mime: descriptor.mime },
-                  workBlobs![hash]!,
-                ),
-              );
-            }
-        }
-        const receipt: ProjectPublishReceipt = {
-          candidateHash,
-          saved: {
-            projectId: request.projectId,
-            generation: data.generation!,
-            lifetime: epoch,
-            revision: data.library!.revision,
-            authoring: authoringFingerprint(data.authoringState, data.workspace),
-          },
-          ...(publishedPins !== undefined ? { creative: publishedPins } : {}),
-        };
-        const puts: unknown[] = [
-          storedBody(data),
-          ...historyModule.projectHistoryWrites(request.projectId, undefined, history, new Map())
-            .puts,
-          {
-            projectId: publishKey,
-            format: "monotio.agi.project-publish",
-            version: 1,
-            receipt,
-          } satisfies StoredProjectPublish,
-          {
-            projectId: `lifetime/${request.projectId}`,
-            epoch,
-            deleted: false,
-          } satisfies HistoryLifetime,
-          ...(outCatalogRecord !== undefined ? [outCatalogRecord] : []),
-        ];
-        const blobKeys = allBlobRecords.map((record) => record["projectId"] as string);
-        const absentKeys = [...blobKeys, ...absentWorkKeys];
-        if (absentKeys.length === 0)
-          return { result: { receipt, body: data, changed: true }, puts };
-        return {
-          reads: absentKeys,
-          complete: (records) => {
-            for (const key of absentKeys)
-              if (records.get(key) !== undefined)
-                throw new CreativeCatalogError(
-                  "invalid",
-                  `A project record already exists at '${key}'.`,
-                );
-            return {
-              result: { receipt, body: data, changed: true },
-              puts: [...puts, ...workPuts, ...allBlobRecords],
-            };
-          },
-        };
-      },
-      [
-        {
-          key: request.projectId,
-          check: (raw) => {
-            current = raw as StoredGameBody | undefined;
-          },
-        },
-        {
-          key: `lifetime/${request.projectId}`,
-          check: (raw) => {
-            previousLifetime = raw as HistoryLifetime | undefined;
-          },
-        },
-        {
-          key: creativeCatalogKey(request.projectId),
-          check: (raw) => {
-            catalogRaw = raw;
-          },
-        },
-      ],
-    );
-    const warnings: "indexRepairPending"[] = [];
-    try {
-      // The index is a repairable view over the durable commit; its write
-      // failing warns rather than publishing anything a second time.
       localStorage.setItem(
         getStorageKey(request.projectId),
         JSON.stringify(storedIndex(committed.body)),
@@ -2728,7 +1861,7 @@ async function removeProjectRecords(
         for (const entry of captured) store.delete(entry.key);
         store.delete(`conversation/${project}`);
         store.delete(`draft/${project}`);
-        // The creative catalog and its staged/kept blobs belong to this
+        // Obsolete creative storage rows belong to this
         // lifetime: a reimport under the same id must not inherit them.
         store.delete(`creative/${project}`);
         queuePrefixScan(store, `project-history/${project}/`, (_key, cursor) => cursor.delete());
