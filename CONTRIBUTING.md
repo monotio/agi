@@ -155,7 +155,7 @@ each folder holds one responsibility:
 | `archive/`       | ZIP formats: project archives, published games and `HISTORY.JSON`                       |
 | `library/`       | The game library: imports, the hosted catalog, discovery, previews and profile choice   |
 | `home/`          | The Home screen: the shelf, its cards and the create panel                              |
-| `shell/`         | Page chrome and modes: the header, Play bar, Create docks, Settings, Help and routing   |
+| `shell/`         | Page chrome, modes, commands, keyboard focus, Create docks, Settings, Help and routing  |
 | `settings/`      | AI provider, model and key settings                                                     |
 | `authoring/`     | The assistant's panels, the controller that runs AI turns, and recorded game tests      |
 | `agent/`         | Provider sessions, conversation transport and worker bridge; the stack loads on AI use  |

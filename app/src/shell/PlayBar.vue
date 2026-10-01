@@ -8,6 +8,7 @@
 import { computed } from "vue";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { useOptionalCommands } from "./commands/commandContext.ts";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { gameShortcuts } from "../play/gameControls.ts";
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   exit: [];
   settings: [trigger: HTMLElement];
   "help-guide": [];
+  "keyboard-shortcuts": [];
   controls: [];
   "trigger-key": [code: number];
   "start-walkthrough": [alias: string];
@@ -27,6 +29,7 @@ const emit = defineEmits<{
 
 const { state, currentGame, roomMap } = useEngineApi();
 const shell = useShell();
+const commands = useOptionalCommands();
 const workspace = useCreateWorkspace();
 
 /** Play opens the world-map window; Create shows its docked World panel. */
@@ -116,6 +119,15 @@ const shortcutsBlocked = computed(
             @click="emit('help-guide')"
           >
             <span>Help guide<small>Playing, creating and your games</small></span>
+          </button>
+          <button
+            v-if="commands?.commands.value.length"
+            type="button"
+            role="menuitem"
+            data-testid="btn-keyboard-shortcuts"
+            @click="emit('keyboard-shortcuts')"
+          >
+            <span>Keyboard shortcuts</span>
           </button>
           <button
             type="button"
