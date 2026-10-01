@@ -27,7 +27,7 @@
  * Usage:
  *   npm run eval:picture -- [--provider anthropic|openai|fake] [--model ID]
  *       [--live --budget-usd 5] [--judge-model ID] [--rounds 4] [--only kq1-room1] [--manifest PATH]
- *       [--out DIR] [--effort low|medium|high]
+ *       [--out DIR] [--effort LEVEL] (default: production model effort)
  *       [--brief-mode prose|bounds] [--grid] [--nudge]
  *   --brief-mode bounds: the brief author must also emit a layout table (per
  *       mass: x/y bounds, share, dominant colour index; horizon row).
@@ -60,8 +60,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
+import {
+  createAnthropicConversation,
+  createOpenAiConversation,
+  LlmResponseError,
+  type LlmUsage,
+  type UnifiedConversation,
+} from "../app/src/agent/llmClient.ts";
 import {
   createPictureSurface,
   SCREEN_HEIGHT,
@@ -86,18 +91,19 @@ import {
   type PictureMetrics,
 } from "../src/picture/metrics.ts";
 import { parseLogicResource } from "../src/logic/resource.ts";
-import { createAgentSessionState } from "../src/agent/agentState.ts";
-import { AGENT_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
 import {
-  splitToolResult,
-  openAiToolContent,
-  anthropicToolContent,
-  anthropicToolDefinitions,
-  type ToolContent,
-} from "../src/agent/toolTransport.ts";
-export { splitToolResult } from "../src/agent/toolTransport.ts";
+  createAgentSessionState,
+  type AgentToolResult,
+  type AgentToolImage,
+} from "../src/agent/agentState.ts";
+import { executeAgentTool } from "../src/agent/tools.ts";
 import { AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
-import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
+import {
+  DEFAULT_MODELS,
+  MODEL_CAPABILITIES,
+  resolveModelEffort,
+  type ModelEffort,
+} from "../src/agent/modelEffort.ts";
 import { assertLiveRun } from "./lib/live-guard.ts";
 import { requestCost } from "./lib/usage.ts";
 import { loadGame } from "../test/game-fixture.ts";
@@ -184,8 +190,7 @@ export interface Usage {
 
 export type ContentPart = { type: "text"; text: string } | { type: "image"; png: Uint8Array };
 
-export type ToolOutcome = ToolContent;
-export type ToolExecutor = (name: string, args: Record<string, unknown>) => ToolOutcome;
+export type ToolExecutor = (name: string, args: Record<string, unknown>) => AgentToolResult;
 
 export interface ToolRound {
   round: number;
@@ -235,186 +240,97 @@ function revisionNote(left: number, done: number, max: number): string {
   return NUDGE && left > 0 ? `${base}\nRevision ${done} of ${max}. Continue revising.` : base;
 }
 
-function b64(png: Uint8Array): string {
-  return Buffer.from(png).toString("base64");
-}
-
-// ---- Anthropic ----
-
-class AnthropicProvider implements Provider {
-  name = "anthropic";
+// Both paid providers share the production conversation and tool-result transport.
+class ConversationProvider implements Provider {
+  name: "anthropic" | "openai";
   model: string;
   judgeModel: string;
   usage: Usage = { input: 0, output: 0, cachedInput: 0, calls: 0 };
   spentUsd = 0;
   budgetUsd: number | undefined;
-  effort: "low" | "medium" | "high";
-  #client: Anthropic;
+  effort: ModelEffort | undefined;
 
-  constructor(model: string, judgeModel: string, effort: "low" | "medium" | "high") {
+  constructor(
+    name: "anthropic" | "openai",
+    model: string,
+    judgeModel: string,
+    effort?: ModelEffort,
+  ) {
+    this.name = name;
     this.model = model;
     this.judgeModel = judgeModel;
     this.effort = effort;
-    this.#client = new Anthropic();
-  }
-
-  #track(u: Anthropic.Usage, model: string): void {
-    this.usage.input += u.input_tokens;
-    this.usage.output += u.output_tokens;
-    this.usage.cachedInput += u.cache_read_input_tokens ?? 0;
-    this.usage.calls++;
-    // input_tokens leaves out cache reads and writes; requestCost takes the total.
-    const reads = u.cache_read_input_tokens ?? 0;
-    const writes = u.cache_creation_input_tokens ?? 0;
-    this.spentUsd +=
-      requestCost(model, {
-        input: u.input_tokens + reads + writes,
-        output: u.output_tokens,
-        cachedInput: reads,
-        cacheWriteInput: writes,
-      }) ?? 0;
-  }
-
-  static toBlocks(parts: ContentPart[]): (Anthropic.TextBlockParam | Anthropic.ImageBlockParam)[] {
-    return parts.map((p) =>
-      p.type === "text"
-        ? { type: "text", text: p.text }
-        : { type: "image", source: { type: "base64", media_type: "image/png", data: b64(p.png) } },
-    );
-  }
-
-  async complete(system: string, user: ContentPart[], model: string): Promise<string> {
-    assertBudget(this);
-    const msg = await this.#client.messages
-      .stream({
-        model,
-        max_tokens: 16000,
-        system,
-        output_config: { effort: this.effort },
-        messages: [{ role: "user", content: AnthropicProvider.toBlocks(user) }],
-      })
-      .finalMessage();
-    this.#track(msg.usage, model);
-    if (msg.stop_reason === "refusal")
-      throw new Error(`refusal: ${msg.stop_details?.explanation ?? ""}`);
-    return msg.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n");
-  }
-
-  async recreate(
-    system: string,
-    user: string,
-    execute: ToolExecutor,
-    maxRounds: number,
-  ): Promise<void> {
-    const tools: Anthropic.Tool[] = anthropicToolDefinitions(AGENT_TOOLS).map((tool, idx) => ({
-      ...(tool as unknown as Anthropic.Tool),
-      ...(idx === AGENT_TOOLS.length - 1 ? { cache_control: { type: "ephemeral" as const } } : {}),
-    }));
-    const messages: Anthropic.MessageParam[] = [{ role: "user", content: user }];
-    let rounds = 0;
-    while (rounds < maxRounds) {
-      assertBudget(this);
-      const msg = await this.#client.messages
-        .stream({
-          model: this.model,
-          max_tokens: 32000,
-          // Cache the growing conversation too, as the app's client does.
-          cache_control: { type: "ephemeral" },
-          system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-          output_config: { effort: this.effort },
-          tools,
-          messages,
-        })
-        .finalMessage();
-      this.#track(msg.usage, this.model);
-      if (msg.stop_reason === "refusal")
-        throw new Error(`refusal: ${msg.stop_details?.explanation ?? ""}`);
-      messages.push({ role: "assistant", content: msg.content });
-      const calls = msg.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-      if (calls.length === 0) {
-        if (rounds === 0) {
-          messages.push({ role: "user", content: "Call write_picture with the full source now." });
-          continue;
-        }
-        break;
-      }
-      const results: Anthropic.ToolResultBlockParam[] = [];
-      for (const call of calls) {
-        const outcome = execute(call.name, (call.input as Record<string, unknown>) ?? {});
-        let text = outcome.text;
-        if (call.name === PICTURE_TOOL) {
-          rounds++;
-          text += revisionNote(maxRounds - rounds, rounds, maxRounds);
-        }
-        results.push({
-          type: "tool_result",
-          tool_use_id: call.id,
-          content: anthropicToolContent({ ...outcome, text }),
-        });
-      }
-      messages.push({ role: "user", content: results });
+    // The judge can use another model; validate and price both before sending anything.
+    for (const id of [model, judgeModel]) {
+      if (!MODEL_CAPABILITIES[id]?.price)
+        throw new Error(`No price is known for ${id}, so --budget-usd could not be enforced.`);
+      resolveModelEffort(id, effort, name);
     }
   }
-}
 
-// ---- OpenAI (Responses API) ----
-
-class OpenAiProvider implements Provider {
-  name = "openai";
-  model: string;
-  judgeModel: string;
-  usage: Usage = { input: 0, output: 0, cachedInput: 0, calls: 0 };
-  spentUsd = 0;
-  budgetUsd: number | undefined;
-  effort: "low" | "medium" | "high";
-  #client: OpenAI;
-
-  constructor(model: string, judgeModel: string, effort: "low" | "medium" | "high") {
-    this.model = model;
-    this.judgeModel = judgeModel;
-    this.effort = effort;
-    this.#client = new OpenAI();
+  #conversation(system: string, model: string, withTools = true): UnifiedConversation {
+    const config = {
+      provider: this.name,
+      model,
+      apiKey: process.env[this.name === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"] ?? "",
+      systemPrompt: system,
+      ...(this.effort === undefined ? {} : { effort: this.effort }),
+    };
+    return this.name === "anthropic"
+      ? createAnthropicConversation(config, undefined, undefined, withTools ? undefined : [])
+      : createOpenAiConversation(
+          config,
+          undefined,
+          undefined,
+          undefined,
+          withTools ? undefined : [],
+        );
   }
 
-  #track(u: OpenAI.Responses.ResponseUsage | undefined, model: string): void {
-    if (!u) return;
-    this.usage.input += u.input_tokens;
-    this.usage.output += u.output_tokens;
-    this.usage.cachedInput += u.input_tokens_details?.cached_tokens ?? 0;
+  #track(usage: LlmUsage | undefined, model: string): void {
     this.usage.calls++;
-    this.spentUsd +=
-      requestCost(model, {
-        input: u.input_tokens,
-        output: u.output_tokens,
-        cachedInput: u.input_tokens_details?.cached_tokens ?? 0,
-        cacheWriteInput: u.input_tokens_details?.cache_write_tokens ?? 0,
-      }) ?? 0;
+    if (!usage) return;
+    this.usage.input += usage.input;
+    this.usage.output += usage.output;
+    this.usage.cachedInput += usage.cachedInput;
+    this.spentUsd += requestCost(model, usage) ?? 0;
   }
 
-  static toItems(
-    parts: ContentPart[],
-  ): Array<OpenAI.Responses.ResponseInputText | OpenAI.Responses.ResponseInputImage> {
-    return parts.map((p) =>
-      p.type === "text"
-        ? { type: "input_text", text: p.text }
-        : { type: "input_image", detail: "high", image_url: `data:image/png;base64,${b64(p.png)}` },
-    );
+  async #request(
+    conversation: UnifiedConversation,
+    model: string,
+    text?: string,
+    images?: readonly AgentToolImage[],
+  ) {
+    assertBudget(this);
+    try {
+      const turn =
+        text === undefined
+          ? await conversation.complete()
+          : await conversation.sendUserMessage(text, images);
+      this.#track(turn.usage, model);
+      return turn;
+    } catch (error) {
+      if (error instanceof LlmResponseError) this.#track(error.usage, model);
+      throw error;
+    }
   }
 
   async complete(system: string, user: ContentPart[], model: string): Promise<string> {
-    assertBudget(this);
-    const res = await this.#client.responses.create({
-      model,
-      instructions: system,
-      reasoning: { effort: this.effort },
-      input: [{ role: "user", content: OpenAiProvider.toItems(user) }],
-      store: false,
-    });
-    this.#track(res.usage, model);
-    return res.output_text;
+    const conversation = this.#conversation(system, model, false);
+    const images: AgentToolImage[] = [];
+    let text = "";
+    for (const part of user) {
+      if (part.type === "text") text += `${text ? "\n" : ""}${part.text}`;
+      else {
+        images.push({ png: part.png, caption: text });
+        text = "";
+      }
+    }
+    const turn = await this.#request(conversation, model, text, images);
+    if (turn.toolCalls.length)
+      throw new Error("The brief or judge returned tool calls instead of text.");
+    return turn.text ?? "";
   }
 
   async recreate(
@@ -423,61 +339,35 @@ class OpenAiProvider implements Provider {
     execute: ToolExecutor,
     maxRounds: number,
   ): Promise<void> {
-    const tools: OpenAI.Responses.Tool[] = AGENT_TOOLS.map((t) => ({
-      type: "function",
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters as unknown as Record<string, unknown>,
-      strict: true,
-    }));
-    const input: OpenAI.Responses.ResponseInputItem[] = [{ role: "user", content: user }];
-    const cacheKey = `monotio_agi.eval-picture.${Math.random().toString(36).slice(2, 10)}`;
+    const conversation = this.#conversation(system, this.model);
+    let message: string | undefined = user;
     let rounds = 0;
     while (rounds < maxRounds) {
-      assertBudget(this);
-      const res = await this.#client.responses.create({
-        model: this.model,
-        instructions: system,
-        reasoning: { effort: this.effort },
-        prompt_cache_key: cacheKey,
-        tools,
-        input,
-        include: ["reasoning.encrypted_content"],
-        store: false,
-      });
-      this.#track(res.usage, this.model);
-      const calls: OpenAI.Responses.ResponseFunctionToolCall[] = [];
-      for (const item of res.output) {
-        input.push(item as OpenAI.Responses.ResponseInputItem);
-        if (item.type === "function_call") calls.push(item);
-      }
-      if (calls.length === 0) {
+      const turn = await this.#request(conversation, this.model, message);
+      message = undefined;
+      if (turn.toolCalls.length === 0) {
         if (rounds === 0) {
-          input.push({ role: "user", content: "Call write_picture with the full source now." });
+          message = "Call write_picture with the full source now.";
           continue;
         }
         break;
       }
-      for (const call of calls) {
-        const args = ((): Record<string, unknown> => {
-          try {
-            return JSON.parse(call.arguments) as Record<string, unknown>;
-          } catch {
-            return {};
-          }
-        })();
-        const outcome = execute(call.name, args);
-        let text = outcome.text;
+      const results = [];
+      for (const call of turn.toolCalls) {
+        let result = execute(call.name, call.input);
         if (call.name === PICTURE_TOOL) {
           rounds++;
-          text += revisionNote(maxRounds - rounds, rounds, maxRounds);
+          result = {
+            ...result,
+            details: {
+              ...result.details,
+              roundInstruction: revisionNote(maxRounds - rounds, rounds, maxRounds),
+            },
+          };
         }
-        input.push({
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: openAiToolContent({ ...outcome, text }),
-        });
+        results.push({ toolCallId: call.id, result });
       }
+      conversation.appendToolResults(results);
     }
   }
 }
@@ -890,7 +780,7 @@ export async function runPictureEntry(
         log(
           `  tool ${name}: ${toolResult.success ? "ok" : `error ${toolResult.error ?? ""}`.slice(0, 120)}`,
         );
-        return splitToolResult(toolResult);
+        return toolResult;
       }
       const round = result.rounds.length + 1;
       const source = typeof args["source"] === "string" ? args["source"] : "";
@@ -899,7 +789,7 @@ export async function runPictureEntry(
         const msg = toolResult.error ?? "unknown error";
         result.rounds.push({ round, source, ok: false, errors: msg });
         log(`  round ${round}: ERROR ${msg.split("\n").slice(0, 2).join(" | ")}`);
-        return splitToolResult(toolResult);
+        return toolResult;
       }
       // Re-render the stored resource (metrics are computed here, not trusted from the tool text).
       const room = Number(args["room"]);
@@ -923,13 +813,12 @@ export async function runPictureEntry(
       log(
         `  round ${round}: ok, ${stored.length} bytes, fill ${(metrics.fillCoverage * 100).toFixed(1)}%, colours ${metrics.distinctColors}, commands ${metrics.commandCount}`,
       );
-      const split = splitToolResult(toolResult);
       if (opts.feedback) {
         const fb = `\n\nRendered layout, ${colourGrid(surface.visual)}\n${layoutFeedback(surface.visual, parseLayout(source))}`;
         writeFileSync(join(dir, `round-${round}-feedback.txt`), fb.trim() + "\n");
-        return { ...split, text: split.text + fb };
+        return { ...toolResult, details: { ...toolResult.details, feedback: fb } };
       }
-      return split;
+      return toolResult;
     };
     await provider.recreate(
       AGI_SYSTEM_PROMPT,
@@ -1183,7 +1072,7 @@ export async function runEditEntry(entry: ManifestEntry, opts: RunOptions): Prom
         log(
           `  tool ${name}: ${toolResult.success ? "ok" : `error ${toolResult.error ?? ""}`.slice(0, 120)}`,
         );
-        return splitToolResult(toolResult);
+        return toolResult;
       }
       const round = result.rounds.length + 1;
       const source = typeof args["source"] === "string" ? args["source"] : "";
@@ -1198,7 +1087,7 @@ export async function runEditEntry(entry: ManifestEntry, opts: RunOptions): Prom
         log(
           `  round ${round}: ERROR ${(toolResult.error ?? "").split("\n").slice(0, 2).join(" | ")}`,
         );
-        return splitToolResult(toolResult);
+        return toolResult;
       }
       const stored = session.container.getResource("picture", Number(args["room"]))!;
       const surface = createPictureSurface();
@@ -1218,7 +1107,7 @@ export async function runEditEntry(entry: ManifestEntry, opts: RunOptions): Prom
       log(
         `  round ${round}: ok, ${stored.length} bytes, ${metrics.commandCount} commands, ${diff} changed cells (${((diff / total) * 100).toFixed(1)}%)`,
       );
-      return splitToolResult(toolResult);
+      return toolResult;
     };
 
     await provider.recreate(
@@ -1333,18 +1222,13 @@ export function createProvider(
   name: string,
   model: string | undefined,
   judgeModel: string | undefined,
-  effort: "low" | "medium" | "high",
+  effort?: ModelEffort,
 ): Provider {
-  if (name === "anthropic")
-    return new AnthropicProvider(
-      model ?? DEFAULT_MODELS.anthropic,
-      judgeModel ?? model ?? DEFAULT_MODELS.anthropic,
-      effort,
-    );
-  if (name === "openai")
-    return new OpenAiProvider(
-      model ?? DEFAULT_MODELS.openai,
-      judgeModel ?? model ?? DEFAULT_MODELS.openai,
+  if (name === "anthropic" || name === "openai")
+    return new ConversationProvider(
+      name,
+      model ?? DEFAULT_MODELS[name],
+      judgeModel ?? model ?? DEFAULT_MODELS[name],
       effort,
     );
   return new FakeProvider();
@@ -1377,7 +1261,7 @@ async function main(): Promise<void> {
       : process.env["OPENAI_API_KEY"]
         ? "openai"
         : "fake");
-  const effort = (args["effort"] as "low" | "medium" | "high" | undefined) ?? "medium";
+  const effort = args["effort"] as ModelEffort | undefined;
   const provider = createProvider(providerName, args["model"], args["judge-model"], effort);
   let budgetUsd: number | undefined;
   if (provider.name !== "fake") {

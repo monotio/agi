@@ -90,6 +90,12 @@ requests carry an explicit breakpoint at every turn's end under one routing
 key per session.
 
 Genesis records model calls, compiler feedback, token usage and playtest results.
+Genesis and picture fidelity send provider turns through the app's conversation
+clients, including caching, thinking, compaction and model token limits. Their
+`--effort` option overrides the production model default. Genesis traces carry
+normalized usage, request telemetry and the added provider transcript items.
+`tests/runner-clients.test.ts` checks their request settings, conversation prefixes
+and per-request budget charging with mocked providers.
 Picture evaluation reads a local reference, asks for an art-direction brief,
 recreates the scene through the picture tool, and compares the results. The edit
 lane measures a requested change against the original scene. `--provider fake`

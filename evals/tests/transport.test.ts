@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertNoImageData } from "../../test/modelText.ts";
+import { providerSse } from "../../test/provider-stream.ts";
 
 function record(value: unknown): Record<string, unknown> {
   assert.ok(value !== null && typeof value === "object" && !Array.isArray(value));
@@ -36,7 +37,7 @@ const finish = [
   { name: "finish", args: { notes: "ready" } },
 ];
 
-for (const provider of ["openai", "anthropic"]) {
+for (const provider of ["openai", "anthropic"] as const) {
   test(
     `Genesis CLI sends PNG image blocks to ${provider} on the correction turn`,
     { timeout: 20000 },
@@ -95,8 +96,8 @@ for (const provider of ["openai", "anthropic"]) {
                   cache_creation_input_tokens: requests.length === 1 ? 5 : 0,
                 },
               };
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify(reply));
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end(providerSse(provider, reply));
       });
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
       const address = server.address();
@@ -200,7 +201,7 @@ for (const provider of ["openai", "anthropic"]) {
   );
 }
 
-for (const provider of ["openai", "anthropic"]) {
+for (const provider of ["openai", "anthropic"] as const) {
   for (const defect of ["incomplete", "invalid arguments"]) {
     test(
       `Genesis CLI preserves usage and rejects ${provider} ${defect} before executing any tools`,
@@ -253,8 +254,8 @@ for (const provider of ["openai", "anthropic"]) {
                     input: call.args,
                   })),
                 };
-          res.writeHead(200, { "content-type": "application/json" });
-          res.end(JSON.stringify(reply));
+          res.writeHead(200, { "content-type": "text/event-stream" });
+          res.end(providerSse(provider, reply));
         });
         await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
         const directory = mkdtempSync(join(tmpdir(), "agi-rejected-"));
