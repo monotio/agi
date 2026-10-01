@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useSaveSlotController } from "../src/saves/useSaveSlotController.ts";
+import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
 
 function createMockStorage(): Pick<Storage, "getItem" | "setItem"> {
@@ -37,11 +38,13 @@ test("useSaveSlotController handles saveList, saveWrite, and restore lifecycle",
     true,
   );
 
-  // Boot an installed game with a content hash
+  // Boot an installed game: its folder and full revision bind the target.
   booted = {
     installed: true,
+    folder: "test-folder",
     hash: "test-hash-1234",
     title: "Test Game",
+    revision: requireResourceRevision("ab".repeat(32)),
   } as BootedGame;
 
   // Initially empty save list
@@ -63,11 +66,13 @@ test("useSaveSlotController handles saveList, saveWrite, and restore lifecycle",
   const restored = await controller.handleSaveSlotRequest("restore", { slot: 1 });
   assert.equal(restored, testPayload);
 
-  // Authoring game uses projectId
+  // An authored project binds its id to the live body epoch captured at boot.
   booted = {
     installed: false,
     projectId: "project-alpha",
     title: "Authored Game",
+    revision: requireResourceRevision("cd".repeat(32)),
+    historyLifetime: "initial",
   } as BootedGame;
 
   // Different game namespace: initially empty

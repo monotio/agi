@@ -26,6 +26,7 @@
  */
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import {
+  HISTORY_FORMAT_READ_VERSIONS,
   HISTORY_FORMAT_VERSION,
   validateHistoryRecording,
   type HistoryAnchor,
@@ -48,11 +49,12 @@ import {
   readBodyRecords,
   serializeWrite,
   updateBodyRecords as updateStoredBodyRecords,
-  readHistoryLifetime,
   historyLifetimeGuard,
+  projectBodyGuard,
   bodyTransaction,
 } from "../project/gameStorage.ts";
-import { projectId, type GameIdentity } from "../../../src/gameIdentity.ts";
+import type { GameIdentity } from "../../../src/gameIdentity.ts";
+import type { ProgressTarget } from "../project/progressTarget.ts";
 
 export type {
   HistoryBookmark,
@@ -220,9 +222,10 @@ function readManifest(raw: unknown): HistoryManifest | null {
         : "older",
     );
   const recording = raw["recording"];
+  const storedVersion = isObject(recording) ? recording["version"] : undefined;
   if (
     isObject(recording) &&
-    ((typeof recording["version"] === "number" && recording["version"] > HISTORY_FORMAT_VERSION) ||
+    ((typeof storedVersion === "number" && storedVersion > HISTORY_FORMAT_VERSION) ||
       (typeof recording["profile"] === "string" && !Object.hasOwn(PROFILES, recording["profile"])))
   )
     throw new UnextendableHistoryError(
@@ -232,7 +235,8 @@ function readManifest(raw: unknown): HistoryManifest | null {
   if (
     typeof raw["projectId"] !== "string" ||
     !isObject(recording) ||
-    recording["version"] !== HISTORY_FORMAT_VERSION ||
+    typeof storedVersion !== "number" ||
+    !HISTORY_FORMAT_READ_VERSIONS.includes(storedVersion) ||
     typeof recording["profile"] !== "string" ||
     !Array.isArray(raw["segments"]) ||
     !isObject(raw["committed"]) ||
@@ -251,19 +255,61 @@ function readManifest(raw: unknown): HistoryManifest | null {
 const manifestKey = (storageKey: string): string => `history/${storageKey}`;
 /** Where the player's new timeline continues beside a tape this version cannot extend. */
 const nextTimeline = (key: string): string => `${key}/next`;
-/** The game a manifest key belongs to — its lifetime receipt's key. */
-const storageKeyOf = (key: string): string => key.slice("history/".length).split("/", 1)[0]!;
 
 /**
- * Every history mutation checks deletion in its own write transaction —
- * against the game's lifetime, whichever timeline `key` addresses.
+ * The manifest keys one progress target may write: `history/<locator>`
+ * itself or a `…/next` timeline chain under it. Nothing else is this tape —
+ * a caller-selected key outside the subtree refuses rather than redirecting
+ * an owner's mutation onto another record.
+ */
+function ownedManifestKey(target: ProgressTarget, key: string): void {
+  const base = manifestKey(target.locator);
+  const rest = key.startsWith(base) ? key.slice(base.length) : null;
+  if (rest === null || (rest !== "" && !/^\/next(?:\/next)*$/.test(rest)))
+    throw new Error("This history write names a record outside its target's tape.");
+}
+
+/**
+ * The ownership checks every history mutation runs inside its own write
+ * transaction — never a preflight read, since an epoch captured earlier can
+ * be retaken by then. A project target writes only while its saved body is
+ * still present and still carries the captured body epoch; an installed
+ * target needs the lifetime its caller captured at boot — a live string —
+ * still holding at `lifetime/<locator>`. A supplied lifetime that conflicts
+ * with a project target's bound epoch refuses rather than overriding it.
+ */
+function historyWriteGuards(
+  target: ProgressTarget,
+  installedLifetime: string | null | undefined,
+): readonly { key: string; check: (stored: unknown) => void }[] {
+  if (target.kind === "project") {
+    if (installedLifetime !== undefined && installedLifetime !== target.bodyEpoch)
+      throw new Error(
+        "This history writer's lifetime does not match the project's captured epoch.",
+      );
+    return [
+      historyLifetimeGuard(target.project, target.bodyEpoch),
+      projectBodyGuard(target.project, () => {}),
+    ];
+  }
+  if (typeof installedLifetime !== "string" || installedLifetime === "")
+    throw new Error("An installed history write needs the lifetime captured with the game.");
+  return [historyLifetimeGuard(target.locator, installedLifetime)];
+}
+
+/**
+ * Every history mutation checks ownership in its own write transaction —
+ * the target's binding and the caller's captured lifetime, whichever
+ * timeline `key` addresses. The key must name the target's own tape.
  */
 function updateBodyRecords<T>(
   key: string,
-  lifetime: string | null | undefined,
+  target: ProgressTarget,
+  installedLifetime: string | null | undefined,
   update: (stored: unknown) => { result: T; puts?: unknown[]; deletes?: string[] },
 ): Promise<T> {
-  return updateStoredBodyRecords(key, update, historyLifetimeGuard(storageKeyOf(key), lifetime));
+  ownedManifestKey(target, key);
+  return updateStoredBodyRecords(key, update, historyWriteGuards(target, installedLifetime));
 }
 
 async function recordExists(key: string): Promise<boolean> {
@@ -298,12 +344,14 @@ async function onTape<T>(storageKey: string, operation: (key: string) => Promise
  * the manifest key it runs on — batch and blob keys hang off it.
  */
 function mutateTape<T>(
-  storageKey: string,
-  lifetime: string | null | undefined,
+  target: ProgressTarget,
+  installedLifetime: string | null | undefined,
   update: (raw: unknown, key: string) => { result: T; puts?: unknown[]; deletes?: string[] },
 ): Promise<T> {
-  return serializeWrite(manifestKey(storageKey), () =>
-    onTape(storageKey, (key) => updateBodyRecords<T>(key, lifetime, (raw) => update(raw, key))),
+  return serializeWrite(manifestKey(target.locator), () =>
+    onTape(target.locator, (key) =>
+      updateBodyRecords<T>(key, target, installedLifetime, (raw) => update(raw, key)),
+    ),
   );
 }
 
@@ -479,25 +527,25 @@ function freshManifest(
  * extend — no resend of this batch can ever land there.
  */
 export async function appendHistoryBatch(
-  storageKey: string,
+  target: ProgressTarget,
   batch: HistoryBatch,
   profile: ProfileId | undefined,
-  identity: GameIdentity,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<boolean> {
-  const expected = lifetime === undefined ? await readHistoryLifetime(storageKey) : lifetime;
-  return serializeWrite(manifestKey(storageKey), () =>
-    onTape(storageKey, (key) => mergeHistoryBatch(key, batch, profile, identity, expected)),
+  return serializeWrite(manifestKey(target.locator), () =>
+    onTape(target.locator, (key) =>
+      mergeHistoryBatch(target, key, batch, profile, installedLifetime),
+    ),
   );
 }
 
 /** Renew the owning segment while its worker is alive, including while paused. */
 export function renewHistoryWriter(
-  storageKey: string,
+  target: ProgressTarget,
   segment: string,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<boolean> {
-  return mutateTape<boolean>(storageKey, lifetime, (raw) => {
+  return mutateTape<boolean>(target, installedLifetime, (raw) => {
     const manifest = readManifest(raw);
     if (manifest === null) return { result: false };
     const writer = manifest.segments.find((entry) => entry.id === segment);
@@ -514,30 +562,30 @@ export function renewHistoryWriter(
  * history — and a failed write publishes nothing. Exported for the
  * two-client storage test, which interleaves two merge calls the way two
  * tabs would — each tab's own appendHistoryBatch mutex does not reach the
- * other tab, so the transaction is the only guard. `key` is the manifest
- * key itself; a storage failure answers false (the worker resends), while a
- * tape this version cannot extend throws its permanent refusal.
+ * other tab, so the transaction is the only guard. `key` is the selected
+ * manifest key and must name `target`'s own tape — the root or a `…/next`
+ * timeline under it; a key pointing at another subtree refuses. A storage
+ * failure answers false (the worker resends), while a tape this version
+ * cannot extend throws its permanent refusal.
  */
 export async function mergeHistoryBatch(
+  target: ProgressTarget,
   key: string,
   batch: HistoryBatch,
   profile: ProfileId | undefined,
-  identity: GameIdentity,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<boolean> {
   try {
-    const expected =
-      lifetime === undefined ? await readHistoryLifetime(storageKeyOf(key)) : lifetime;
     // Content-key the boot's file set before the transaction opens — the
     // blob write is blind (same hash is the same bytes), so no read of it.
     const filesRef = batch.boot !== undefined ? await filesBlobHash(batch.boot.files) : undefined;
-    return await updateBodyRecords<boolean>(key, expected, (raw) => {
+    return await updateBodyRecords<boolean>(key, target, installedLifetime, (raw) => {
       const stored = readManifest(raw);
       const w = emptyWrites();
       // Only a batch that names the running interpreter can open a tape.
       if (stored === null && profile === undefined) return { result: false };
       const manifest =
-        stored ?? freshManifest(key, profile!, identity, batch.boot?.resourceSet ?? "");
+        stored ?? freshManifest(key, profile!, target.identity, batch.boot?.resourceSet ?? "");
       const ledger = (manifest.committed[batch.segment] ??= []);
       if (ledger.includes(batch.batch)) return { result: true }; // a resend of a committed batch
       let directory = manifest.segments.find((s) => s.id === batch.segment);
@@ -587,6 +635,14 @@ export async function mergeHistoryBatch(
       ledger.push(batch.batch);
       manifest.bytes[batch.segment] =
         (manifest.bytes[batch.segment] ?? 0) + JSON.stringify(batch).length;
+      // A current writer's first commit on a stored v1 tape upgrades the
+      // recording header in the same transaction — the tape is a v2 record
+      // from this batch on, before any v2-only reason can land in it. Reads,
+      // bookmark/branch writes and dedup resent batches never reach here, so
+      // they never rewrite the version; a refused batch aborts the upgrade
+      // with its record.
+      if (manifest.recording.version < HISTORY_FORMAT_VERSION)
+        manifest.recording.version = HISTORY_FORMAT_VERSION;
       if (batch.end !== undefined) {
         directory.end = batch.end;
         delete directory.writerExpiresAt;
@@ -721,32 +777,26 @@ export async function loadGameHistory(storageKey: string): Promise<HistoryRecord
  * commit would refuse.
  */
 export async function moveHistoryRecord(
-  fromStorageKey: string,
-  toStorageKey: string,
-  lifetime?: string | null,
+  fromTarget: ProgressTarget,
+  toTarget: ProgressTarget,
+  installedDestinationLifetime?: string | null,
 ): Promise<void> {
-  const expected = lifetime === undefined ? await readHistoryLifetime(toStorageKey) : lifetime;
-  return serializeWrite(manifestKey(fromStorageKey), async () => {
-    const { key: from, head, records } = await readTape(fromStorageKey, manifestFollow);
+  return serializeWrite(manifestKey(fromTarget.locator), async () => {
+    const { key: from, head, records } = await readTape(fromTarget.locator, manifestFollow);
     const source = assembleRecording(head, records);
     if (source === null) return;
     const fromManifest = source.manifest;
-    const toProject = projectId(toStorageKey);
-    await mutateTape<void>(toStorageKey, expected, (raw, to) => {
+    await mutateTape<void>(toTarget, installedDestinationLifetime, (raw, to) => {
       const stored = readManifest(raw);
       const w = emptyWrites();
       // The moved tape is re-addressed to the project it now belongs to —
       // its own segment evidence stays untouched.
       const movedHeader = {
         ...fromManifest.recording,
-        ...(toProject !== null
-          ? {
-              identity: {
-                project: toProject,
-                revision: fromManifest.recording.identity.revision,
-              },
-            }
-          : {}),
+        identity: {
+          project: toTarget.identity.project,
+          revision: fromManifest.recording.identity.revision,
+        },
       };
       if (stored === null) {
         const manifest = freshManifest(
@@ -755,6 +805,9 @@ export async function moveHistoryRecord(
           movedHeader.identity,
           movedHeader.resourceSet,
         );
+        // The move re-keys the tape but writes none of its stream — the
+        // record keeps the version it was written under, like an import.
+        manifest.recording.version = movedHeader.version;
         manifest.recording.startedAt = movedHeader.startedAt;
         if (movedHeader.dropped !== undefined) manifest.recording.dropped = movedHeader.dropped;
         manifest.segments = fromManifest.segments.map((segment) => ({ ...segment }));
@@ -787,6 +840,12 @@ export async function moveHistoryRecord(
       // overwrite: segments and commit ledgers merge by id so neither
       // record's acknowledged batches are lost.
       const manifest = stored;
+      // A merged tape must not claim an older version than any record it
+      // now holds — a v1 destination receiving v2 segments upgrades.
+      manifest.recording.version = Math.max(
+        manifest.recording.version,
+        fromManifest.recording.version,
+      );
       const ids = new Set(manifest.segments.map((segment) => segment.id));
       for (const segment of fromManifest.segments) {
         if (ids.has(segment.id)) continue;
@@ -855,13 +914,12 @@ function promoteStaged(
  * the branches, where it remains a valid restore point.
  */
 export async function stageRetainedOriginal(
-  storageKey: string,
+  target: ProgressTarget,
   staged: RetainedOriginal,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<void> {
-  const expected = lifetime === undefined ? await readHistoryLifetime(storageKey) : lifetime;
   const filesRef = await filesBlobHash(staged.boot.files);
-  return mutateTape<void>(storageKey, expected, (raw, key) => {
+  return mutateTape<void>(target, installedLifetime, (raw, key) => {
     const stored = readManifest(raw);
     if (stored === null) return { result: undefined }; // no record yet
     const w = emptyWrites();
@@ -887,12 +945,12 @@ export async function stageRetainedOriginal(
  * adopted original leaves the undo list because it is live again.
  */
 export function commitStagedOriginal(
-  storageKey: string,
+  target: ProgressTarget,
   stagedId: string,
   dropBranch?: string,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<void> {
-  return mutateTape<void>(storageKey, lifetime, (raw, key) => {
+  return mutateTape<void>(target, installedLifetime, (raw, key) => {
     const stored = readManifest(raw);
     if (stored === null) return { result: undefined };
     const idx = (stored.staged ?? []).findIndex((s) => s.id === stagedId);
@@ -917,11 +975,11 @@ export function commitStagedOriginal(
 
 /** The swap is settled and the staged copy is not needed — drop it. */
 export function clearStagedOriginal(
-  storageKey: string,
+  target: ProgressTarget,
   stagedId: string,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<void> {
-  return mutateTape<void>(storageKey, lifetime, (raw, key) => {
+  return mutateTape<void>(target, installedLifetime, (raw, key) => {
     const stored = readManifest(raw);
     if (stored === null) return { result: undefined };
     const idx = (stored.staged ?? []).findIndex((s) => s.id === stagedId);
@@ -956,12 +1014,12 @@ export type StagedSwapResolution = "none" | "settled" | "ambiguous";
  * ambiguous rather than risk the only durable copy of a departed session.
  */
 export function resolveStagedSwap(
-  storageKey: string,
+  target: ProgressTarget,
   recording: HistoryRecording | null,
   liveSegment?: string | null,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<StagedSwapResolution> {
-  return mutateTape<StagedSwapResolution>(storageKey, lifetime, (raw, key) => {
+  return mutateTape<StagedSwapResolution>(target, installedLifetime, (raw, key) => {
     const stored = readManifest(raw);
     if (stored === null) return { result: "none" };
     const pending = stored.staged ?? [];
@@ -1107,11 +1165,11 @@ export async function loadTapeOutline(storageKey: string): Promise<{
 
 /** Append a player bookmark; the record keeps them ordered by time placed. */
 export function saveHistoryBookmark(
-  storageKey: string,
+  target: ProgressTarget,
   bookmark: HistoryBookmark,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<void> {
-  return mutateTape<void>(storageKey, lifetime, (raw) => {
+  return mutateTape<void>(target, installedLifetime, (raw) => {
     const stored = readManifest(raw);
     if (stored === null) return { result: undefined };
     const bookmarks = [...(stored.bookmarks ?? []), bookmark];
@@ -1171,14 +1229,13 @@ export async function loadProjectHistory(storageKey: string): Promise<ProjectHis
  * failed save slot.
  */
 export async function importGameHistory(
-  storageKey: string,
+  target: ProgressTarget,
   history: ProjectHistory,
-  identity: GameIdentity,
+  installedLifetime?: string | null,
 ): Promise<boolean> {
-  const lifetime = await readHistoryLifetime(storageKey);
-  return serializeWrite(manifestKey(storageKey), async () => {
+  return serializeWrite(manifestKey(target.locator), async () => {
     try {
-      if (history.recording.version !== HISTORY_FORMAT_VERSION) return false;
+      if (!HISTORY_FORMAT_READ_VERSIONS.includes(history.recording.version)) return false;
       // Hash every file set the tape carries before the transaction opens.
       const blobHashes = new Map<string, string>();
       const boots = history.recording.segments.map((segment) => segment.boot);
@@ -1189,8 +1246,8 @@ export async function importGameHistory(
         if (!blobHashes.has(text)) blobHashes.set(text, await filesBlobHash(boot.files));
       }
       const hashOf = (boot: HistoryBoot): string => blobHashes.get(JSON.stringify(boot.files))!;
-      await onTape(storageKey, (key) =>
-        updateBodyRecords<void>(key, lifetime, (raw) => {
+      await onTape(target.locator, (key) =>
+        updateBodyRecords<void>(key, target, installedLifetime, (raw) => {
           const stored = readManifest(raw);
           const w = emptyWrites();
           if (stored !== null) {
@@ -1204,9 +1261,14 @@ export async function importGameHistory(
           const manifest = freshManifest(
             key,
             history.recording.profile,
-            identity,
+            target.identity,
             history.recording.resourceSet,
           );
+          // The imported tape keeps the version it was written under — an
+          // import is a copy, not a writer's append. A released v1 tape
+          // stays v1 (byte-exact re-export, still readable by its own
+          // release) until a live writer's first commit upgrades it.
+          manifest.recording.version = history.recording.version;
           manifest.recording.startedAt = history.recording.startedAt;
           if (history.recording.dropped !== undefined)
             manifest.recording.dropped = history.recording.dropped;
@@ -1314,23 +1376,24 @@ export async function importGameHistory(
  * refused like any history write once the game was removed.
  */
 export async function startNewTimeline(
-  storageKey: string,
-  identity: GameIdentity,
+  target: ProgressTarget,
   profile: ProfileId,
-  lifetime?: string | null,
+  installedLifetime?: string | null,
 ): Promise<void> {
-  const expected = lifetime === undefined ? await readHistoryLifetime(storageKey) : lifetime;
-  return serializeWrite(manifestKey(storageKey), () =>
-    onTape(storageKey, async (key) => {
+  return serializeWrite(manifestKey(target.locator), () =>
+    onTape(target.locator, async (key) => {
       try {
         readManifest((await readBodyRecords(key, () => [])).head);
       } catch (error) {
         const next = nextTimeline(key);
         // An earlier new timeline exists: onTape follows it instead.
         if (!(error instanceof UnextendableHistoryError) || (await recordExists(next))) throw error;
-        await updateBodyRecords<void>(next, expected, (raw) =>
+        await updateBodyRecords<void>(next, target, installedLifetime, (raw) =>
           raw === undefined
-            ? { puts: [manifestPut(freshManifest(next, profile, identity, ""))], result: undefined }
+            ? {
+                puts: [manifestPut(freshManifest(next, profile, target.identity, ""))],
+                result: undefined,
+              }
             : { result: undefined },
         );
       }

@@ -45,12 +45,26 @@ import {
   UnextendableHistoryError,
 } from "../src/history/historyStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import {
+  installedProgressTarget,
+  type InstalledProgressTarget,
+} from "../src/project/progressTarget.ts";
 import { testProjectId, testRevision } from "./identity.ts";
 
 const RECORDS = installIndexedDbFixture();
 
 const KEY = "tape-store-fixture";
 const IDENTITY = { project: testProjectId(KEY), revision: testRevision("tape") };
+
+/** The lifetime an installed target's boot captured — no receipt was ever written. */
+const INSTALLED_EPOCH = "initial";
+
+/** An installed tape's progress target from its folder name. */
+function installedTarget(folder: string): InstalledProgressTarget {
+  const target = installedProgressTarget({ folder }, testRevision("tape"));
+  assert.ok(target !== null);
+  return target;
+}
 
 const BOOT: HistoryBoot = stampBoot({
   files: { "VOL.0": "eA==" },
@@ -86,101 +100,123 @@ function batch(n: number, extra: Partial<HistoryBatch> = {}): HistoryBatch {
 }
 
 test("commits keep the recovery branches and bookmarks other writers stored", async () => {
+  const target = installedTarget(KEY);
+  const key = target.locator;
   // The boot batch opens the segment; the departing session stages and
   // promotes on top — the exact order Resume from here writes.
-  assert.equal(await appendHistoryBatch(KEY, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const retained = retainedOn("s-a.1");
-  await stageRetainedOriginal(KEY, retained);
-  await commitStagedOriginal(KEY, retained.id);
-  assert.deepEqual(await loadRetainedBranches(KEY), [retained]);
+  await stageRetainedOriginal(target, retained, INSTALLED_EPOCH);
+  await commitStagedOriginal(target, retained.id, undefined, INSTALLED_EPOCH);
+  assert.deepEqual(await loadRetainedBranches(key), [retained]);
 
   // The adopted session's first batch commits over the record — the kept
   // branch must still be there when the tape reopens.
   assert.equal(
     await appendHistoryBatch(
-      KEY,
+      target,
       {
         ...batch(1),
         segment: "s-a.2",
         boot: stampBoot({ ...BOOT, resumedFrom: { segment: "s-a.1", seq: 4, tick: 9 } }),
       },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
-  assert.deepEqual(await loadRetainedBranches(KEY), [retained]);
+  assert.deepEqual(await loadRetainedBranches(key), [retained]);
 
   // Same for bookmarks: a commit after the pin must not erase it.
-  await saveHistoryBookmark(KEY, { segment: "s-a.1", seq: 4, tick: 9, label: "Note", at: 2 });
+  await saveHistoryBookmark(
+    target,
+    { segment: "s-a.1", seq: 4, tick: 9, label: "Note", at: 2 },
+    INSTALLED_EPOCH,
+  );
   assert.equal(
     await appendHistoryBatch(
-      KEY,
+      target,
       batch(2, {
         events: [{ seq: 1, tick: 3, cycle: 3, cause: { kind: "key", code: 65 } }],
       }),
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
-  assert.equal((await loadHistoryBookmarks(KEY)).length, 1);
-  assert.deepEqual(await loadRetainedBranches(KEY), [retained]);
+  assert.equal((await loadHistoryBookmarks(key)).length, 1);
+  assert.deepEqual(await loadRetainedBranches(key), [retained]);
 
   // The recording itself folded both segments.
-  const recording = await loadGameHistory(KEY);
+  const recording = await loadGameHistory(key);
   assert.equal(recording?.segments.length, 2);
   assert.equal(recording?.segments[1]?.boot.resumedFrom?.segment, "s-a.1");
 });
 
 test("a resent batch lands once, and a batchless segment waits for its boot", async () => {
-  const key = "tape-store-dedup";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-dedup");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
 
   // A resend of the same (segment, batch) commits nothing twice.
   const dup = batch(2, {
     events: [{ seq: 0, tick: 2, cycle: 2, cause: { kind: "key", code: 66 } }],
   });
-  assert.equal(await appendHistoryBatch(key, dup, "2.936", IDENTITY), true);
-  assert.equal(await appendHistoryBatch(key, dup, "2.936", IDENTITY), true);
+  assert.equal(await appendHistoryBatch(target, dup, "2.936", INSTALLED_EPOCH), true);
+  assert.equal(await appendHistoryBatch(target, dup, "2.936", INSTALLED_EPOCH), true);
   const recording = await loadGameHistory(key);
   assert.equal(recording?.segments[0]?.events.length, 1);
 
   // Out of order: a batch for an unknown segment is refused until its boot
   // batch lands — then the run continues consecutively from it.
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(9), segment: "s-a.9" }, "2.936", IDENTITY),
+    await appendHistoryBatch(target, { ...batch(9), segment: "s-a.9" }, "2.936", INSTALLED_EPOCH),
     false,
   );
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(8), segment: "s-a.9", boot: BOOT }, "2.936", IDENTITY),
+    await appendHistoryBatch(
+      target,
+      { ...batch(8), segment: "s-a.9", boot: BOOT },
+      "2.936",
+      INSTALLED_EPOCH,
+    ),
     true,
   );
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(9), segment: "s-a.9" }, "2.936", IDENTITY),
+    await appendHistoryBatch(target, { ...batch(9), segment: "s-a.9" }, "2.936", INSTALLED_EPOCH),
     true,
   );
   assert.equal((await loadGameHistory(key))?.segments.length, 2);
 });
 
 test("a later batch is refused until the failed one between commits", async () => {
-  const key = "tape-store-order";
+  const target = installedTarget("tape-store-order");
+  const key = target.locator;
   const ev = (seq: number) => ({
     seq,
     tick: seq,
     cycle: seq,
     cause: { kind: "key" as const, code: 60 + seq },
   });
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
   assert.equal(
-    await appendHistoryBatch(key, batch(2, { events: [ev(1)] }), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
+  assert.equal(
+    await appendHistoryBatch(target, batch(2, { events: [ev(1)] }), "2.936", INSTALLED_EPOCH),
     true,
   );
 
   // Batch 3's commit fails; batch 4 arrives first on the resend turn and
   // must NOT append — its events belong after 3's.
   assert.equal(
-    await appendHistoryBatch(key, batch(4, { events: [ev(3)] }), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(4, { events: [ev(3)] }), "2.936", INSTALLED_EPOCH),
     false,
   );
   assert.equal((await loadGameHistory(key))?.segments[0]?.events.map((e) => e.seq).join(","), "1");
@@ -188,11 +224,11 @@ test("a later batch is refused until the failed one between commits", async () =
   // The missing batch lands on resend; then the held batch retries and
   // appends in the stream's original order.
   assert.equal(
-    await appendHistoryBatch(key, batch(3, { events: [ev(2)] }), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(3, { events: [ev(2)] }), "2.936", INSTALLED_EPOCH),
     true,
   );
   assert.equal(
-    await appendHistoryBatch(key, batch(4, { events: [ev(3)] }), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(4, { events: [ev(3)] }), "2.936", INSTALLED_EPOCH),
     true,
   );
   assert.equal(
@@ -271,16 +307,20 @@ test("a stamped record whose fields drifted fails validation", () => {
 });
 
 test("an end batch alone cannot skip a failed lower batch", async () => {
-  const key = "tape-store-endgap";
+  const target = installedTarget("tape-store-endgap");
+  const key = target.locator;
   const ev = (seq: number) => ({
     seq,
     tick: seq,
     cycle: seq,
     cause: { kind: "key" as const, code: 60 + seq },
   });
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
   assert.equal(
-    await appendHistoryBatch(key, batch(2, { events: [ev(1)] }), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
+  assert.equal(
+    await appendHistoryBatch(target, batch(2, { events: [ev(1)] }), "2.936", INSTALLED_EPOCH),
     true,
   );
 
@@ -291,77 +331,95 @@ test("an end batch alone cannot skip a failed lower batch", async () => {
     events: [ev(3)],
     end: { seq: 4, tick: 4, cycle: 4, reason: "eject" },
   });
-  assert.equal(await appendHistoryBatch(key, closer, "2.936", IDENTITY), false);
+  assert.equal(await appendHistoryBatch(target, closer, "2.936", INSTALLED_EPOCH), false);
   assert.equal((await loadGameHistory(key))?.segments[0]?.end, undefined);
 
   // The missing batch lands on resend; then the closer retries and seals.
   assert.equal(
-    await appendHistoryBatch(key, batch(3, { events: [ev(2)] }), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(3, { events: [ev(2)] }), "2.936", INSTALLED_EPOCH),
     true,
   );
-  assert.equal(await appendHistoryBatch(key, closer, "2.936", IDENTITY), true);
+  assert.equal(await appendHistoryBatch(target, closer, "2.936", INSTALLED_EPOCH), true);
   const segment = (await loadGameHistory(key))?.segments[0];
   assert.equal(segment?.end?.reason, "eject");
   assert.equal(segment?.events.map((e) => e.seq).join(","), "1,2,3");
 });
 
 test("an end batch may jump only the batch numbers its sender abandoned", async () => {
-  const key = "tape-store-endjump";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
-  assert.equal(await appendHistoryBatch(key, batch(2, {}), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-endjump");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
+  assert.equal(await appendHistoryBatch(target, batch(2, {}), "2.936", INSTALLED_EPOCH), true);
 
   // Batches 3-4 were dropped by the worker's queue overflow; its budget
   // closing batch seals the segment only by declaring the abandoned run.
   const end = { seq: 40, tick: 40, cycle: 40, reason: "budget" as const };
-  assert.equal(await appendHistoryBatch(key, batch(5, { end }), "2.936", IDENTITY), false);
   assert.equal(
-    await appendHistoryBatch(key, batch(5, { end, gap: [3, 4] }), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(5, { end }), "2.936", INSTALLED_EPOCH),
+    false,
+  );
+  assert.equal(
+    await appendHistoryBatch(target, batch(5, { end, gap: [3, 4] }), "2.936", INSTALLED_EPOCH),
     true,
   );
   const segment = (await loadGameHistory(key))?.segments[0];
   assert.equal(segment?.end?.reason, "budget");
 
   // An abandoned payload never became durable and must not receive an ACK.
-  assert.equal(await appendHistoryBatch(key, batch(3, {}), "2.936", IDENTITY), false);
+  assert.equal(await appendHistoryBatch(target, batch(3, {}), "2.936", INSTALLED_EPOCH), false);
   assert.equal((await loadGameHistory(key))?.segments[0]?.events.length, 0);
 
   // A gap declaration is not a blank check: batch 8 was never abandoned.
-  assert.equal(await appendHistoryBatch(key, batch(9, { gap: [6, 7] }), "2.936", IDENTITY), false);
+  assert.equal(
+    await appendHistoryBatch(target, batch(9, { gap: [6, 7] }), "2.936", INSTALLED_EPOCH),
+    false,
+  );
 });
 
 test("a staged swap leaves the kept branches intact until the adoption commits", async () => {
-  const key = "tape-store-staged";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-staged");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const first = retainedOn("s-a.1", 1);
   const second = { ...retainedOn("s-a.2", 2), boot: stampBoot({ ...BOOT, rng: 99 }) };
-  await stageRetainedOriginal(key, first);
-  await commitStagedOriginal(key, first.id);
+  await stageRetainedOriginal(target, first, INSTALLED_EPOCH);
+  await commitStagedOriginal(target, first.id, undefined, INSTALLED_EPOCH);
   assert.deepEqual(await loadRetainedBranches(key), [first]);
 
   // Resume from here again: the departing session stages beside the kept
   // branches — until the worker acknowledges, the branch list is unchanged.
-  await stageRetainedOriginal(key, second);
+  await stageRetainedOriginal(target, second, INSTALLED_EPOCH);
   assert.deepEqual(await loadRetainedBranches(key), [first]);
 
   // Abandoned (adoption refused): the staged copy clears, nothing changed.
-  await clearStagedOriginal(key, second.id);
+  await clearStagedOriginal(target, second.id, INSTALLED_EPOCH);
   assert.deepEqual(await loadRetainedBranches(key), [first]);
 
   // Committed (adoption acknowledged): the staged session joins the kept
   // branches — the earlier one is preserved, not replaced.
-  await stageRetainedOriginal(key, second);
-  await commitStagedOriginal(key, second.id);
+  await stageRetainedOriginal(target, second, INSTALLED_EPOCH);
+  await commitStagedOriginal(target, second.id, undefined, INSTALLED_EPOCH);
   assert.deepEqual(await loadRetainedBranches(key), [first, second]);
 });
 
 test("a staged copy is the recovery route when no branch exists yet", async () => {
-  const key = "tape-store-staged-only";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-staged-only");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   // The swap's ack was lost after the worker adopted — the staged departing
   // session is the only copy. It waits in the pending lane, not the branch
   // list, until the tape proves the adoption ran.
   const staged = retainedOn("s-a.1", 3);
-  await stageRetainedOriginal(key, staged);
+  await stageRetainedOriginal(target, staged, INSTALLED_EPOCH);
   assert.deepEqual(await loadRetainedBranches(key), []);
   assert.equal((await loadTapeOutline(key))?.pending, 1);
 
@@ -369,25 +427,32 @@ test("a staged copy is the recovery route when no branch exists yet", async () =
   // and the candidate settles into the branch list on its own.
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       batch(2, { end: { seq: 4, tick: 9, cycle: 9, reason: "resume" } }),
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
-  assert.equal(await resolveStagedSwap(key, await loadGameHistory(key)), "settled");
+  assert.equal(
+    await resolveStagedSwap(target, await loadGameHistory(key), undefined, INSTALLED_EPOCH),
+    "settled",
+  );
   assert.deepEqual(await loadRetainedBranches(key), [staged]);
   assert.equal((await loadTapeOutline(key))?.pending, 0);
 });
 
 test("the staged lane's overflow joins the branches — a new swap never overwrites a pending one", async () => {
-  const key = "tape-store-staged-overflow";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-staged-overflow");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const staged = Array.from({ length: HISTORY_STAGED_MAX + 2 }, (_, i) =>
     retainedOn("s-a.1", i + 1),
   );
-  for (const s of staged) await stageRetainedOriginal(key, s);
+  for (const s of staged) await stageRetainedOriginal(target, s, INSTALLED_EPOCH);
   // Past the bound the oldest candidates promote — every departing session
   // stays a valid restore point and the pending lane stays free.
   const branches = await loadRetainedBranches(key);
@@ -400,78 +465,94 @@ test("the staged lane's overflow joins the branches — a new swap never overwri
 });
 
 test("the departing segment's resume end settles its staged swap as adopted", async () => {
-  const key = "tape-store-resolve-resume";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-resolve-resume");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const staged = retainedOn("s-a.1", 4);
-  await stageRetainedOriginal(key, staged);
+  await stageRetainedOriginal(target, staged, INSTALLED_EPOCH);
   // The adoption ran; its "resume" end committed but the promotion write
   // did not. The tape alone settles the candidate into the branch list.
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       batch(2, { end: { seq: 4, tick: 9, cycle: 9, reason: "resume" } }),
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
   const recording = await loadGameHistory(key);
-  assert.equal(await resolveStagedSwap(key, recording), "settled");
+  assert.equal(await resolveStagedSwap(target, recording, undefined, INSTALLED_EPOCH), "settled");
   assert.deepEqual(await loadRetainedBranches(key), [staged]);
 });
 
 test("a natural end settles the staged swap as never adopted", async () => {
-  const key = "tape-store-resolve-quit";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
-  await stageRetainedOriginal(key, retainedOn("s-a.1", 4));
+  const target = installedTarget("tape-store-resolve-quit");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
+  await stageRetainedOriginal(target, retainedOn("s-a.1", 4), INSTALLED_EPOCH);
   // The departing session was quit while a staged swap was still pending —
   // the snapshot is redundant and clears.
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       batch(2, { end: { seq: 4, tick: 9, cycle: 9, reason: "quit" } }),
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
   const recording = await loadGameHistory(key);
-  assert.equal(await resolveStagedSwap(key, recording), "settled");
+  assert.equal(await resolveStagedSwap(target, recording, undefined, INSTALLED_EPOCH), "settled");
   assert.deepEqual(await loadRetainedBranches(key), []);
   assert.equal((await loadTapeOutline(key))?.pending, 0);
 });
 
 test("an open departing segment stays ambiguous until the worker's word settles it", async () => {
-  const key = "tape-store-resolve-open";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-resolve-open");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const staged = retainedOn("s-a.1", 4);
-  await stageRetainedOriginal(key, staged);
+  await stageRetainedOriginal(target, staged, INSTALLED_EPOCH);
   const recording = await loadGameHistory(key);
   // The segment is still open: the "resume" end may simply be the write
   // that failed — the tape alone cannot call it either way.
-  assert.equal(await resolveStagedSwap(key, recording), "ambiguous");
+  assert.equal(await resolveStagedSwap(target, recording, undefined, INSTALLED_EPOCH), "ambiguous");
   assert.equal((await loadTapeOutline(key))?.pending, 1, "the copy stays preserved");
 
   // The worker still live on that segment proves the swap never ran.
-  assert.equal(await resolveStagedSwap(key, recording, "s-a.1"), "settled");
+  assert.equal(await resolveStagedSwap(target, recording, "s-a.1", INSTALLED_EPOCH), "settled");
   assert.deepEqual(await loadRetainedBranches(key), []);
 
   // Staged again, and this time the worker reports a different live
   // segment — the adoption happened, the promotion is owed.
-  await stageRetainedOriginal(key, staged);
-  assert.equal(await resolveStagedSwap(key, recording, "s-a.2"), "settled");
+  await stageRetainedOriginal(target, staged, INSTALLED_EPOCH);
+  assert.equal(await resolveStagedSwap(target, recording, "s-a.2", INSTALLED_EPOCH), "settled");
   assert.deepEqual(await loadRetainedBranches(key), [staged]);
 });
 
 test("the branch list is bounded — the oldest kept session sheds past the cap", async () => {
-  const key = "tape-store-branches-bound";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-branches-bound");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const kept = Array.from({ length: HISTORY_BRANCHES_MAX + 3 }, (_, i) =>
     retainedOn("s-a.1", i + 1),
   );
   for (const b of kept) {
-    await stageRetainedOriginal(key, b);
-    await commitStagedOriginal(key, b.id);
+    await stageRetainedOriginal(target, b, INSTALLED_EPOCH);
+    await commitStagedOriginal(target, b.id, undefined, INSTALLED_EPOCH);
   }
   const branches = await loadRetainedBranches(key);
   assert.equal(branches.length, HISTORY_BRANCHES_MAX);
@@ -480,16 +561,20 @@ test("the branch list is bounded — the oldest kept session sheds past the cap"
 });
 
 test("a branch restored by Undo rewind leaves the list", async () => {
-  const key = "tape-store-branch-drop";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-branch-drop");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const kept = retainedOn("s-a.1", 1);
-  await stageRetainedOriginal(key, kept);
-  await commitStagedOriginal(key, kept.id);
+  await stageRetainedOriginal(target, kept, INSTALLED_EPOCH);
+  await commitStagedOriginal(target, kept.id, undefined, INSTALLED_EPOCH);
   const departing = retainedOn("s-a.2", 2);
-  await stageRetainedOriginal(key, departing);
+  await stageRetainedOriginal(target, departing, INSTALLED_EPOCH);
   // The restore's commit names the adopted branch — it leaves the list and
   // the newly departing session takes a slot of its own.
-  await commitStagedOriginal(key, departing.id, kept.id);
+  await commitStagedOriginal(target, departing.id, kept.id, INSTALLED_EPOCH);
   assert.deepEqual(
     (await loadRetainedBranches(key)).map((b) => b.id),
     [departing.id],
@@ -497,13 +582,17 @@ test("a branch restored by Undo rewind leaves the list", async () => {
 });
 
 test("an unsettled staged candidate travels the backup and reimports unsettled", async () => {
-  const key = "tape-store-staged-export";
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  const target = installedTarget("tape-store-staged-export");
+  const key = target.locator;
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   // A departing session staged for a swap the worker never settled — the
   // only copy of that session. A backup that drops it loses the recovery
   // route outright.
   const staged = retainedOn("s-a.1", 6);
-  await stageRetainedOriginal(key, staged);
+  await stageRetainedOriginal(target, staged, INSTALLED_EPOCH);
   assert.deepEqual(await loadRetainedBranches(key), [], "unsettled: no branch yet");
 
   const exported = await loadProjectHistory(key);
@@ -511,18 +600,20 @@ test("an unsettled staged candidate travels the backup and reimports unsettled",
 
   // Re-imported under a fresh key it stays unsettled — the new browser
   // cannot pretend the swap committed, so it waits for the settle pass.
-  const importedKey = "tape-store-staged-imported";
-  assert.equal(await importGameHistory(importedKey, exported!, IDENTITY), true);
+  const importedTarget = installedTarget("tape-store-staged-imported");
+  const importedKey = importedTarget.locator;
+  assert.equal(await importGameHistory(importedTarget, exported!, INSTALLED_EPOCH), true);
   assert.deepEqual(await loadRetainedBranches(importedKey), [], "not promoted by import");
   assert.equal((await loadTapeOutline(importedKey))?.pending, 1, "still queued for settling");
   assert.deepEqual((await loadProjectHistory(importedKey))?.staged, [staged]);
 });
 
 test("an imported project's tape persists whole — recording, kept session, bookmarks", async () => {
-  const key = "tape-store-imported";
+  const target = installedTarget("tape-store-imported");
+  const key = target.locator;
   const recording = {
     version: HISTORY_FORMAT_VERSION,
-    identity: IDENTITY,
+    identity: target.identity,
     profile: "2.936" as const,
     resourceSet: "rev-a",
     startedAt: 1_757_000_000_000,
@@ -540,7 +631,11 @@ test("an imported project's tape persists whole — recording, kept session, boo
   const retained = retainedOn("sess1.s1", 5);
   const bookmarks = [{ segment: "sess1.s1", seq: 0, tick: 3, label: "Here", at: 9 }];
   assert.equal(
-    await importGameHistory(key, { recording, branches: [retained], bookmarks }, IDENTITY),
+    await importGameHistory(
+      target,
+      { recording, branches: [retained], bookmarks },
+      INSTALLED_EPOCH,
+    ),
     true,
   );
 
@@ -556,7 +651,7 @@ test("an imported project's tape persists whole — recording, kept session, boo
   // imported tape's batches simply were never committed here).
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       {
         segment: "sess2.s1",
         batch: 1,
@@ -568,7 +663,7 @@ test("an imported project's tape persists whole — recording, kept session, boo
         boot: stampBoot({ ...BOOT, resumedFrom: { segment: "sess1.s1", seq: 0, tick: 3 } }),
       },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
@@ -578,17 +673,18 @@ test("an imported project's tape persists whole — recording, kept session, boo
 });
 
 test("the segment bound drops the oldest ended segments but never the live tail", async () => {
-  const key = "tape-store-bound";
+  const target = installedTarget("tape-store-bound");
+  const key = target.locator;
   const end = { seq: 0, tick: 0, cycle: 0, reason: "quit" as const };
   for (let seg = 1; seg <= 66; seg++) {
     // Every segment but the tail is ended — an open segment is live or
     // unresolved and is never evicted.
     assert.equal(
       await appendHistoryBatch(
-        key,
+        target,
         { ...batch(1), segment: `s-b.${seg}`, boot: BOOT, ...(seg < 66 ? { end } : {}) },
         "2.936",
-        IDENTITY,
+        INSTALLED_EPOCH,
       ),
       true,
     );
@@ -603,22 +699,28 @@ test("the segment bound drops the oldest ended segments but never the live tail"
 });
 
 test("an open head does not pin the ended segments behind it", async () => {
-  const key = "tape-store-open-head";
+  const target = installedTarget("tape-store-open-head");
+  const key = target.locator;
   // One crashed session left its segment open; 70 later sessions ended
   // cleanly. The bound must still evict the ended ones oldest-first —
   // an unfinished head cannot disable retention for the whole tape.
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(1), segment: "s-o.0", boot: BOOT }, "2.936", IDENTITY),
+    await appendHistoryBatch(
+      target,
+      { ...batch(1), segment: "s-o.0", boot: BOOT },
+      "2.936",
+      INSTALLED_EPOCH,
+    ),
     true,
   );
   const end = { seq: 0, tick: 0, cycle: 0, reason: "quit" as const };
   for (let seg = 1; seg <= 70; seg++) {
     assert.equal(
       await appendHistoryBatch(
-        key,
+        target,
         { ...batch(1), segment: `s-o.${seg}`, boot: BOOT, end },
         "2.936",
-        IDENTITY,
+        INSTALLED_EPOCH,
       ),
       true,
     );
@@ -634,7 +736,7 @@ test("an open head does not pin the ended segments behind it", async () => {
   // A late batch for an evicted segment remains unacknowledged: the host
   // must retain it for recovery rather than claim it became durable.
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(2), segment: "s-o.1" }, "2.936", IDENTITY),
+    await appendHistoryBatch(target, { ...batch(2), segment: "s-o.1" }, "2.936", INSTALLED_EPOCH),
     false,
   );
   assert.equal(
@@ -645,14 +747,15 @@ test("an open head does not pin the ended segments behind it", async () => {
 });
 
 test("retention never evicts another live writer or acknowledges its discarded events", async () => {
-  const key = "tape-store-all-open";
+  const target = installedTarget("tape-store-all-open");
+  const key = target.locator;
   for (let seg = 1; seg <= 66; seg++) {
     assert.equal(
       await appendHistoryBatch(
-        key,
+        target,
         { ...batch(1), segment: `s-p.${seg}`, boot: BOOT },
         "2.936",
-        IDENTITY,
+        INSTALLED_EPOCH,
       ),
       true,
     );
@@ -660,14 +763,14 @@ test("retention never evicts another live writer or acknowledges its discarded e
   const event = { seq: 0, tick: 1, cycle: 1, cause: { kind: "key" as const, code: 65 } };
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       {
         ...batch(2),
         segment: "s-p.1",
         events: [event],
       },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
@@ -678,40 +781,47 @@ test("retention never evicts another live writer or acknowledges its discarded e
 });
 
 test("a mid-session key change carries the live tape to the new record", async () => {
-  const from = "tape-migrate-from";
-  const to = "tape-migrate-to";
+  const fromTarget = installedTarget("tape-migrate-from");
+  const toTarget = installedTarget("tape-migrate-to");
+  const from = fromTarget.locator;
+  const to = toTarget.locator;
   assert.equal(
-    await appendHistoryBatch(from, { ...batch(1), segment: "sM.1", boot: BOOT }, "2.936", IDENTITY),
+    await appendHistoryBatch(
+      fromTarget,
+      { ...batch(1), segment: "sM.1", boot: BOOT },
+      "2.936",
+      INSTALLED_EPOCH,
+    ),
     true,
   );
   assert.equal(
     await appendHistoryBatch(
-      from,
+      fromTarget,
       {
         ...batch(2),
         segment: "sM.1",
         events: [{ seq: 0, tick: 1, cycle: 1, cause: { kind: "key", code: 65 } }],
       },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
 
-  await moveHistoryRecord(from, to);
+  await moveHistoryRecord(fromTarget, toTarget, INSTALLED_EPOCH);
 
   // The continuing session's next batch lands on the moved record — its
   // ledger carried, so batch 3 is simply next.
   assert.equal(
     await appendHistoryBatch(
-      to,
+      toTarget,
       {
         ...batch(3),
         segment: "sM.1",
         events: [{ seq: 1, tick: 2, cycle: 2, cause: { kind: "key", code: 66 } }],
       },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
@@ -723,12 +833,17 @@ test("a mid-session key change carries the live tape to the new record", async (
 });
 
 test("migrating an absent record is a no-op", async () => {
-  await moveHistoryRecord("tape-migrate-none", "tape-migrate-none-2");
-  assert.equal(await loadGameHistory("tape-migrate-none-2"), null);
+  await moveHistoryRecord(
+    installedTarget("tape-migrate-none"),
+    installedTarget("tape-migrate-none-2"),
+    INSTALLED_EPOCH,
+  );
+  assert.equal(await loadGameHistory(installedTarget("tape-migrate-none-2").locator), null);
 });
 
 test("the total byte bound evicts oldest segments and reports the loss", async () => {
-  const key = "tape-store-bytes";
+  const target = installedTarget("tape-store-bytes");
+  const key = target.locator;
   // A patch event's payload is honest tape data — size the segments so a
   // few of them exceed the total bound without needing the segment cap.
   const payload = "A".repeat(4 * 1024 * 1024);
@@ -737,7 +852,7 @@ test("the total byte bound evicts oldest segments and reports the loss", async (
   for (let seg = 1; seg <= needed; seg++) {
     assert.equal(
       await appendHistoryBatch(
-        key,
+        target,
         {
           ...batch(1),
           segment: `s-c.${seg}`,
@@ -753,7 +868,7 @@ test("the total byte bound evicts oldest segments and reports the loss", async (
           ],
         },
         "2.936",
-        IDENTITY,
+        INSTALLED_EPOCH,
       ),
       true,
     );
@@ -766,7 +881,8 @@ test("the total byte bound evicts oldest segments and reports the loss", async (
 });
 
 test("two clients committing concurrently never lose an acknowledged batch", async () => {
-  const key = "history/tape-store-twotab";
+  const target = installedTarget("tape-store-twotab");
+  const key = `history/${target.locator}`;
   // Two tabs each run a live session on the same project and post their
   // segments' boot batches at once. Each tab's own appendHistoryBatch mutex
   // does not reach the other tab — the read-modify-write must hold one
@@ -774,24 +890,35 @@ test("two clients committing concurrently never lose an acknowledged batch", asy
   // the acked batch is never resent. mergeHistoryBatch is the per-tab half:
   // calling it twice concurrently is exactly what two tabs produce.
   const [a, b] = await Promise.all([
-    mergeHistoryBatch(key, { ...batch(1), segment: "s-t.a", boot: BOOT }, "2.936", IDENTITY),
     mergeHistoryBatch(
+      target,
+      key,
+      { ...batch(1), segment: "s-t.a", boot: BOOT },
+      "2.936",
+      INSTALLED_EPOCH,
+    ),
+    mergeHistoryBatch(
+      target,
       key,
       { ...batch(1), segment: "s-t.b", boot: stampBoot({ ...BOOT, rng: 42 }) },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
   ]);
   assert.equal(a, true);
   assert.equal(b, true);
-  const recording = await loadGameHistory("tape-store-twotab");
+  const recording = await loadGameHistory(target.locator);
   assert.deepEqual(recording?.segments.map((s) => s.id).sort(), ["s-t.a", "s-t.b"]);
 });
 
 test("commits write one immutable batch record; the manifest alone carries progress", async () => {
-  const key = "tape-store-append";
+  const target = installedTarget("tape-store-append");
+  const key = target.locator;
   const before = new Set(RECORDS.keys());
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   const afterBoot = [...RECORDS.keys()].filter((k) => !before.has(k));
   // The boot commit wrote the manifest, the batch record and the files blob —
   // three records, no whole-tape document.
@@ -804,12 +931,12 @@ test("commits write one immutable batch record; the manifest alone carries progr
   ]);
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       batch(2, {
         events: [{ seq: 0, tick: 1, cycle: 1, cause: { kind: "key", code: 65 } }],
       }),
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
@@ -821,7 +948,8 @@ test("commits write one immutable batch record; the manifest alone carries progr
 });
 
 test("the manifest outline carries extents and marks — the live timeline needs no tape load", async () => {
-  const key = "tape-store-outline";
+  const target = installedTarget("tape-store-outline");
+  const key = target.locator;
   const mark = (seq: number, tick: number, room: number) => ({
     seq,
     tick,
@@ -835,19 +963,22 @@ test("the manifest outline carries extents and marks — the live timeline needs
     cycle: tick,
     cause: { kind: "key" as const, code: 65 },
   });
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       batch(2, { events: [ev(0, 3)], marks: [mark(0, 3, 2)] }),
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       {
         ...batch(1),
         segment: "s-a.2",
@@ -855,7 +986,7 @@ test("the manifest outline carries extents and marks — the live timeline needs
         end: { seq: 0, tick: 7, cycle: 7, reason: "quit" },
       },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
@@ -878,7 +1009,8 @@ test("the manifest outline carries extents and marks — the live timeline needs
 });
 
 test("the outline reads from each stored boot whether its segment starts fresh", async () => {
-  const key = "tape-store-fresh";
+  const target = installedTarget("tape-store-fresh");
+  const key = target.locator;
   const end = { seq: 0, tick: 5, cycle: 5, reason: "boot" as const };
   const boots: [string, HistoryBoot][] = [
     ["s-f.1", BOOT],
@@ -892,17 +1024,17 @@ test("the outline reads from each stored boot whether its segment starts fresh",
   for (const [segment, boot] of boots) {
     assert.equal(
       await appendHistoryBatch(
-        key,
+        target,
         { ...batch(1), segment, boot, ...(segment !== "s-f.4" ? { end } : {}) },
         "2.936",
-        IDENTITY,
+        INSTALLED_EPOCH,
       ),
       true,
     );
   }
   // Only the opening batch carries the boot; a later one must not hide it.
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(2), segment: "s-f.4" }, "2.936", IDENTITY),
+    await appendHistoryBatch(target, { ...batch(2), segment: "s-f.4" }, "2.936", INSTALLED_EPOCH),
     true,
   );
   const outline = await loadTapeOutline(key);
@@ -918,7 +1050,8 @@ test("the outline reads from each stored boot whether its segment starts fresh",
 });
 
 test("segments replaying the same bytes share one file blob", async () => {
-  const key = "tape-store-blobs";
+  const target = installedTarget("tape-store-blobs");
+  const key = target.locator;
   const blobKeys = () =>
     [...RECORDS.keys()].filter((k) => String(k).startsWith(`history/${key}/blob/`));
   // 66 segments booting the same file set: retention drops the oldest two,
@@ -927,10 +1060,10 @@ test("segments replaying the same bytes share one file blob", async () => {
   for (let seg = 1; seg <= 66; seg++) {
     assert.equal(
       await appendHistoryBatch(
-        key,
+        target,
         { ...batch(1), segment: `s-d.${seg}`, boot: BOOT, ...(seg < 66 ? { end } : {}) },
         "2.936",
-        IDENTITY,
+        INSTALLED_EPOCH,
       ),
       true,
     );
@@ -943,10 +1076,10 @@ test("segments replaying the same bytes share one file blob", async () => {
   const other = stampBoot({ ...BOOT, files: { "VOL.0": "eB==", LOGDIR: "eGM=" } });
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       { ...batch(1), segment: "s-d.67", boot: other },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
@@ -954,17 +1087,18 @@ test("segments replaying the same bytes share one file blob", async () => {
 });
 
 test("eviction deletes an evicted segment's batch records and its private blob", async () => {
-  const key = "tape-store-gc";
+  const target = installedTarget("tape-store-gc");
+  const key = target.locator;
   const end = { seq: 0, tick: 0, cycle: 0, reason: "quit" as const };
   // 65 segments: the 65th commit evicts the oldest.
   for (let seg = 1; seg <= 65; seg++) {
     const boot = stampBoot({ ...BOOT, files: { "VOL.0": `e${seg}==` } });
     assert.equal(
       await appendHistoryBatch(
-        key,
+        target,
         { ...batch(1), segment: `s-g.${seg}`, boot, ...(seg < 65 ? { end } : {}) },
         "2.936",
-        IDENTITY,
+        INSTALLED_EPOCH,
       ),
       true,
     );
@@ -984,22 +1118,24 @@ test("eviction deletes an evicted segment's batch records and its private blob",
   assert.equal(recording?.segments[0]?.boot.files["VOL.0"], "e2==");
 });
 
-test("history uses v1 and refuses unsupported or obsolete storage without rewriting", async () => {
-  assert.equal(HISTORY_FORMAT_VERSION, 1);
+test("history uses v2 and refuses unsupported or obsolete storage without rewriting", async () => {
+  assert.equal(HISTORY_FORMAT_VERSION, 2);
   for (const kind of ["envelope", "recording", "profile", "missing-directory"]) {
-    const key = `tape-store-refuse-${kind}`;
-    await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY);
+    const target = installedTarget(`tape-store-refuse-${kind}`);
+    const key = target.locator;
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH);
     const manifest = RECORDS.get(`history/${key}`) as Record<string, unknown>;
     assert.equal(manifest["version"], 1);
     if (kind === "envelope") manifest["version"] = 2;
-    if (kind === "recording") (manifest["recording"] as { version: number }).version = 2;
+    if (kind === "recording")
+      (manifest["recording"] as { version: number }).version = HISTORY_FORMAT_VERSION + 1;
     if (kind === "profile") (manifest["recording"] as { profile: string }).profile = "9.999";
     if (kind === "missing-directory") delete manifest["segments"];
     const before = JSON.stringify([...RECORDS]);
     await assert.rejects(loadGameHistory(key), /history record/i);
     // A permanent refusal naming which side of this release wrote the tape.
     await assert.rejects(
-      appendHistoryBatch(key, batch(2), "2.936", IDENTITY),
+      appendHistoryBatch(target, batch(2), "2.936", INSTALLED_EPOCH),
       (error: unknown) =>
         error instanceof UnextendableHistoryError &&
         error.stored === (kind === "missing-directory" ? "older" : "newer"),
@@ -1009,39 +1145,41 @@ test("history uses v1 and refuses unsupported or obsolete storage without rewrit
 });
 
 test("import refuses an unsupported recording version without replacing stored history", async () => {
-  const key = "tape-store-import-version";
-  await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY);
+  const target = installedTarget("tape-store-import-version");
+  const key = target.locator;
+  await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH);
   const history = (await loadProjectHistory(key))!;
-  history.recording.version = 2;
+  history.recording.version = HISTORY_FORMAT_VERSION + 1;
   const before = JSON.stringify([...RECORDS]);
-  assert.equal(await importGameHistory(key, history, IDENTITY), false);
+  assert.equal(await importGameHistory(target, history, INSTALLED_EPOCH), false);
   assert.equal(JSON.stringify([...RECORDS]), before);
 });
 
 test("renewed paused writers survive pressure while crashed writers expire", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: 1000 });
-  const key = "tape-store-writer-leases";
+  const target = installedTarget("tape-store-writer-leases");
+  const key = target.locator;
   for (let seg = 1; seg <= 66; seg++) {
     await appendHistoryBatch(
-      key,
+      target,
       { ...batch(1), segment: `writer-${seg}`, boot: BOOT },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     );
   }
   t.mock.timers.tick(HISTORY_WRITER_LEASE_MS - 1);
-  assert.equal(await renewHistoryWriter(key, "writer-1"), true);
+  assert.equal(await renewHistoryWriter(target, "writer-1", INSTALLED_EPOCH), true);
   t.mock.timers.tick(2);
   assert.equal(
     await appendHistoryBatch(
-      key,
+      target,
       {
         ...batch(1),
         segment: "new-writer",
         boot: BOOT,
       },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     ),
     true,
   );
@@ -1050,41 +1188,54 @@ test("renewed paused writers survive pressure while crashed writers expire", asy
   assert.equal(recording?.dropped, 3);
   assert.equal(recording?.segments[0]?.id, "writer-1");
   assert.equal(recording?.segments.at(-1)?.id, "new-writer");
-  assert.equal(await renewHistoryWriter(key, "writer-2"), false);
+  assert.equal(await renewHistoryWriter(target, "writer-2", INSTALLED_EPOCH), false);
   assert.equal(
-    await appendHistoryBatch(key, { ...batch(2), segment: "writer-2" }, "2.936", IDENTITY),
+    await appendHistoryBatch(
+      target,
+      { ...batch(2), segment: "writer-2" },
+      "2.936",
+      INSTALLED_EPOCH,
+    ),
     false,
   );
   assert.equal(RECORDS.has(`history/${key}/s/writer-2/00000002`), false);
 });
 
 test("evicted final-batch resends deduplicate without acknowledging uncommitted batches", async () => {
-  const key = "tape-store-evicted-ack";
+  const target = installedTarget("tape-store-evicted-ack");
+  const key = target.locator;
   const end = { seq: 0, tick: 0, cycle: 0, reason: "budget" as const };
-  await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY);
+  await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH);
   const final = batch(3, { end, gap: [2] });
-  assert.equal(await appendHistoryBatch(key, final, "2.936", IDENTITY), true);
+  assert.equal(await appendHistoryBatch(target, final, "2.936", INSTALLED_EPOCH), true);
   for (let seg = 1; seg <= 64; seg++) {
     await appendHistoryBatch(
-      key,
+      target,
       { ...batch(1), segment: `later-${seg}`, boot: BOOT, end },
       "2.936",
-      IDENTITY,
+      INSTALLED_EPOCH,
     );
   }
   assert.equal(RECORDS.has(`history/${key}/s/s-a.1/00000003`), false);
   assert.equal(
-    await appendHistoryBatch(key, final, "2.936", IDENTITY),
+    await appendHistoryBatch(target, final, "2.936", INSTALLED_EPOCH),
     true,
     "retry after lost ACK",
   );
-  assert.equal(await appendHistoryBatch(key, batch(4), "2.936", IDENTITY), false, "never stored");
   assert.equal(
-    await appendHistoryBatch(key, batch(2), "2.936", IDENTITY),
+    await appendHistoryBatch(target, batch(4), "2.936", INSTALLED_EPOCH),
+    false,
+    "never stored",
+  );
+  assert.equal(
+    await appendHistoryBatch(target, batch(2), "2.936", INSTALLED_EPOCH),
     false,
     "abandoned gap was never stored",
   );
-  assert.equal(await appendHistoryBatch(key, batch(1, { boot: BOOT }), "2.936", IDENTITY), true);
+  assert.equal(
+    await appendHistoryBatch(target, batch(1, { boot: BOOT }), "2.936", INSTALLED_EPOCH),
+    true,
+  );
   assert.equal(
     (await loadGameHistory(key))?.segments.some((s) => s.id === "s-a.1"),
     false,

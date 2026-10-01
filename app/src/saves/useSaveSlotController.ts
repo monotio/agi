@@ -1,6 +1,6 @@
 import type { LogAgentFn } from "../play/useInputController.ts";
 import { readGameSaves, writeGameSave } from "./gameSaves.ts";
-import { gameStorageKey } from "../project/gameTypes.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
 import type { BootedGame } from "../project/gameTypes.ts";
 
 export interface SaveSlotControllerOptions {
@@ -30,7 +30,9 @@ export function useSaveSlotController(options: SaveSlotControllerOptions): SaveS
   function activeSaveKey(): string | null {
     const booted = options.getBootedGame();
     if (!booted) return null;
-    return gameStorageKey(booted) || null;
+    // Save slots use the bound instance: the exact installed folder or
+    // the saved project and its captured body epoch.
+    return resolveProgressTarget(booted)?.locator ?? null;
   }
 
   function readActiveSlots(): Record<string, string> {
