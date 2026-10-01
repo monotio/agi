@@ -26,9 +26,6 @@ export function externalizeImageAttachments(
       if (key.startsWith("attachment:") && blob !== null) attached[blob] = key.slice(11);
     }
   return {
-    hasAttachments:
-      Object.keys(attached).length > 0 ||
-      workspace?.documents.some((document) => document.key.startsWith("attachment:")) === true,
     workspace:
       workspace === undefined
         ? undefined

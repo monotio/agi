@@ -173,7 +173,7 @@ const MAX_PROJECT_NODES = 25_000;
 const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
 
 /**
- * A version-2 archive may carry `agi.sound-document` sources whose `payload`
+ * A project archive may carry `agi.sound-document` sources whose `payload`
  * is one bounded byte array — the envelope codec's own 65,535-byte resource
  * bound per claim. Declared total for all claimed payloads: the sources list
  * already caps at 256 entries, so sound bytes together can never exceed
@@ -193,7 +193,7 @@ export function readProjectContext(
     typeof envelope !== "object" ||
     Array.isArray(envelope) ||
     envelope.format !== "monotio.agi.project" ||
-    ![1, 2, 3, 4].includes(envelope.version)
+    envelope.version !== 1
   )
     throw new Error("This project version is not supported.");
   // The released version-1 envelope never carried creative data; a claim in
@@ -209,36 +209,32 @@ export function readProjectContext(
     )
       throw new Error("Invalid or unknown project field.");
   }
-  const hasAssistant = envelope.version === 1 || envelope.assistant !== undefined;
-  if (envelope.version >= 2) {
-    knownFields(envelope, [
-      "format",
-      "version",
-      "assistant",
-      "authoringState",
-      "references",
-      "recoveryDraft",
-      "workspace",
-      ...(envelope.version >= 3 ? ["projectHistory"] : []),
-      ...(envelope.version >= 4 ? ["chats"] : []),
-    ]);
-    if (hasAssistant)
-      knownFields(envelope.assistant, [
-        "provider",
-        "model",
-        "sessionId",
-        "conversation",
-        "conversationHistory",
-      ]);
-  }
-  const raw =
-    envelope.version === 1
-      ? envelope
-      : {
-          authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
-          references: envelope.references,
-          ...(hasAssistant ? envelope.assistant : {}),
-        };
+  knownFields(envelope, [
+    "format",
+    "version",
+    "provider",
+    "model",
+    "sessionId",
+    "conversation",
+    "conversationHistory",
+    "authoringState",
+    "references",
+    "recoveryDraft",
+    "workspace",
+    "projectHistory",
+    "chats",
+  ]);
+  const hasAssistant = [
+    "provider",
+    "model",
+    "sessionId",
+    "conversation",
+    "conversationHistory",
+  ].some((key) => envelope[key] !== undefined);
+  const raw = {
+    ...envelope,
+    authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
+  };
   if (hasAssistant && raw.conversation?.formatVersion !== 1)
     throw new Error("This project conversation version is not supported.");
   if (
@@ -246,22 +242,16 @@ export function readProjectContext(
     (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
   )
     throw new Error("Invalid project model metadata.");
-  if (envelope.version >= 2) {
-    if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
-    if (raw.references !== undefined && !Array.isArray(raw.references))
-      throw new Error("Invalid project reference field.");
-    if (
-      raw.sessionId !== undefined &&
-      (typeof raw.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(raw.sessionId))
-    )
-      throw new Error("Invalid project session field.");
-  }
-  if (envelope.version < 3 && envelope.projectHistory !== undefined)
-    throw new Error("This project version cannot carry edit History.");
-  if (envelope.version === 4) {
-    envelope.workspace = hydrateImageAttachments(envelope.workspace, entries, root);
-    envelope.projectHistory = hydrateImageAttachments(envelope.projectHistory, entries, root);
-  }
+  if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
+  if (raw.references !== undefined && !Array.isArray(raw.references))
+    throw new Error("Invalid project reference field.");
+  if (
+    raw.sessionId !== undefined &&
+    (typeof raw.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(raw.sessionId))
+  )
+    throw new Error("Invalid project session field.");
+  envelope.workspace = hydrateImageAttachments(envelope.workspace, entries, root);
+  envelope.projectHistory = hydrateImageAttachments(envelope.projectHistory, entries, root);
   const projectHistory =
     envelope.projectHistory === undefined
       ? undefined
@@ -270,13 +260,11 @@ export function readProjectContext(
           sha256HexSync,
         );
   const workspace =
-    envelope.version >= 2 && envelope.workspace !== undefined
+    envelope.workspace !== undefined
       ? writeProjectWorkspace(readProjectWorkspace(envelope.workspace))
       : undefined;
   const recovered =
-    envelope.version >= 2 && envelope.recoveryDraft !== undefined
-      ? readProjectRecovery(envelope.recoveryDraft)
-      : undefined;
+    envelope.recoveryDraft !== undefined ? readProjectRecovery(envelope.recoveryDraft) : undefined;
   const recoveryDraft =
     recovered === undefined ? undefined : writeProjectRecovery(recovered.base, recovered.recovery);
   // The `payload` of a claimed sound document source is one bounded byte
@@ -287,7 +275,7 @@ export function readProjectContext(
   // the sources pass below, and only arrays actually sitting in a claimed
   // `payload` position get this accounting.
   const soundPayloads = new Set<unknown>();
-  if (envelope.version >= 2) {
+  {
     const offeredState: unknown = raw.authoringState;
     const offeredSources =
       offeredState !== null && typeof offeredState === "object" && !Array.isArray(offeredState)
@@ -448,14 +436,8 @@ export function readProjectContext(
         else if (kind === "sounds") {
           const body: unknown = entry[1];
           if (isSoundDocumentEnvelopeClaim(body)) {
-            // A tagged `agi.sound-document` claim is admitted only by the
-            // unreleased version-2 archive — the released version 1 format
-            // never carried one — and only beside the game that can verify
-            // it: the resolved profile, and the stored native SOUND bytes
-            // the claim must reproduce exactly. The stored body becomes the
-            // adapter's owned serialized envelope.
-            if (envelope.version < 2)
-              throw new Error("A sound document source needs a version 2 project archive.");
+            // Tagged SOUND sources carry an optional editing envelope beside
+            // native bytes; the archived game's profile verifies the claim.
             if ((soundEntryNums?.get(entry[0]) ?? 0) > 1)
               throw new Error(`Duplicate sound document source for SOUND ${String(entry[0])}.`);
             if (soundContext === undefined)

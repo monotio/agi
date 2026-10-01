@@ -421,7 +421,7 @@ test("private archive carries edit History; public export omits its commits and 
         new TextEncoder().encode(
           JSON.stringify({
             format: "monotio.agi.project",
-            version: 3,
+            version: 1,
             projectHistory: { ...data.projectHistory, version: 999 },
           }),
         ),

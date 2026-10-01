@@ -260,9 +260,9 @@ and tools: `traceImageChanges` attaches immutable originals and normalized
 pixels, and `makeCelsChanges` appends prepared native VIEW cels. Submit the whole
 proposal through `ProjectSession` to share autosave, Undo, Redo and History.
 Attachments use SHA-256 document keys and History's blob store. Private archive
-version 4 writes each image blob once in `ATTACHMENTS/`, shared by the workspace
+version 1 writes each image blob once in `ATTACHMENTS/`, shared by the workspace
 and History; public exports contain playable resources. Workspace and History
-version 2 admit image documents while their version 1 readers remain supported.
+version 1 include image documents, game notes and chat checkpoints.
 The image panel and generation controller load at their first use. Generation
 reviews a paid request before submission. Hero preview changes presentation
 pixels; interpreter state and recorded play retain the admitted game.
@@ -292,26 +292,31 @@ is the check on that answer. The known-games catalog (`src/games/knownGames.ts`)
 fingerprints releases, while the Home shelf (`app/src/library/gameCatalog.ts` and a
 host's `catalog.json`) lists games to play.
 
-**Project storage and archives.** Stored bodies and private `PROJECT.JSON`
-archives use version 4 when they carry task chats; readers still accept versions
-1–3. The localStorage index remains version 2. Workspace and History envelopes
-use version 2 for game Notes and chat checkpoints, retaining their original
-version-1 readers and frozen fixtures. Chats contain transcripts and messages,
-with model handoffs summarized into a continuing conversation. Public game
-exports omit chats and authoring documents. Version 2 makes the
-assistant metadata optional for locally authored games, and adds two separate envelopes:
-`workspace`, the kept authoring documents (exact source text where it
-exists, retained native bytes where it does not), and `recoveryDraft`,
-unfinished draft state that is never installed as playable resources. A
-private project backup keeps the playable files exactly as stored, byte
-for byte; the public Game export ships playable bytes only and still
-synthesizes an empty `OBJECT` when a game lacks one. The IndexedDB
-database itself is version 2, so a tab running an older release is refused
-before it could overwrite records it cannot read. The workspace codec
-stores text and bytes exactly but never compiles them, so accepting a
-version-2 project does not prove its sources reproduce the playable bytes;
-only recompiling the documents against the recorded resource revision
-establishes that, as `app/src/project/localProject.ts` does at creation.
+**Project storage and archives.** Stored bodies, the localStorage index and
+private `PROJECT.JSON` archives retain released version 1. Assistant fields keep
+their original top-level layout and are optional for manually authored games.
+Optional `workspace`, `projectHistory`, `chats` and `recoveryDraft` fields carry
+source documents, edit History, task conversations and unfinished detached draft
+state. Workspace and project History are version 1. Missing optional fields read
+as their original absence; unknown versions refuse without rewriting data.
+Chats contain transcripts and messages, with model handoffs summarized into a
+continuing conversation. Public game exports contain playable resources.
+Private backups preserve the stored playable files byte for byte; public Game
+exports still synthesize an empty `OBJECT` when a game lacks one.
+
+Playback recordings use version 2 for debugger boundaries and complete project
+admission events. Released version-1 tapes remain unchanged on read; the first
+committed append upgrades their recording header atomically. The archive and
+storage wrappers remain version 1. Engine replay state, authentic save files and
+recorded game tests retain their existing contracts.
+
+The IndexedDB database uses schema version 2 to fence older application writers
+from the coordinated project/History transactions. Opening a released schema-1
+database preserves its records. This database gate is separate from the body
+and index codecs. The workspace codec stores text and bytes exactly without
+compiling them; recompile documents against their resource revision to establish
+that sources reproduce playable bytes, as `app/src/project/localProject.ts` does
+at creation.
 
 ### Extending
 

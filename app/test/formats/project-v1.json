@@ -1,6 +1,6 @@
 {
   "format": "monotio.agi.project",
-  "version": 2,
+  "version": 1,
   "authoringState": {
     "sources": { "logics": [[0, "return;"]] }
   },

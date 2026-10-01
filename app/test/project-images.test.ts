@@ -137,7 +137,7 @@ test("attachments autosave in History, undo/redo and private archives; public ex
   const projectEntry = JSON.parse(
     entries.find((entry) => entry.name === "PROJECT.JSON")!.data as string,
   );
-  assert.equal(projectEntry.version, 4);
+  assert.equal(projectEntry.version, 1);
   await assert.rejects(
     readGameZip(buildZip(entries.filter((entry) => entry.name !== `ATTACHMENTS/${encoded}.bin`))),
     /attachment/,

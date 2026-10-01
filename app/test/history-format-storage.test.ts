@@ -1,6 +1,6 @@
 /**
  * The stored tape's nested recording version under the format bump: this
- * build writes version 3 (which adds admitted project images) while still
+ * build writes version 2 (which adds admitted project images) while still
  * reading and extending a released version-1 tape in place — never forking
  * it into an "older timeline" it is not. The upgrade is the first committed
  * append's business and lands in that commit's transaction; reads,
@@ -530,7 +530,7 @@ test("moving a v1 tape to an empty key preserves its stamp; merging onto one lif
   assert.ok((tape?.segments.length ?? 0) >= 2, "both tapes' segments merged");
 });
 
-test("the archive wrapper admits nested versions 1, 2 and 3 and rejects the rest", () => {
+test("the archive wrapper admits nested versions 1 and 2 and rejects the rest", () => {
   const archive = (version: unknown) =>
     new TextEncoder().encode(
       JSON.stringify({
@@ -548,7 +548,7 @@ test("the archive wrapper admits nested versions 1, 2 and 3 and rejects the rest
     );
   assert.equal(readHistoryArchive(archive(1)).recording.version, 1);
   assert.equal(readHistoryArchive(archive(2)).recording.version, 2);
-  assert.equal(readHistoryArchive(archive(3)).recording.version, 3);
+  assert.throws(() => readHistoryArchive(archive(3)), /unsupported version/);
   assert.throws(() => readHistoryArchive(archive(4)), /unsupported version/);
   assert.throws(() => readHistoryArchive(archive(0)), /unsupported version/);
   // The wrapper itself is unchanged — a v2 wrapper is still refused.

@@ -336,7 +336,7 @@ test("the codec checks byte, total, manifest, tag, graph and field bounds", () =
   );
 });
 
-test("game Notes require version 2 History and remain readable with chat checkpoints", () => {
+test("game Notes share version 1 History and remain readable with chat checkpoints", () => {
   const { model, history } = start();
   history.record(
     { ...model.capture().documents(), notes: "Friendly tone." },
@@ -350,7 +350,7 @@ test("game Notes require version 2 History and remain readable with chat checkpo
     },
   );
   const stored = writeProjectHistory(history.capture(), sha256Hex);
-  assert.equal(stored.version, 2);
+  assert.equal(stored.version, 1);
   assert.equal(readProjectHistory(stored, sha256Hex).commits.at(-1)!.messageId, "reply");
   const plain = writeProjectHistory(new ProjectHistory(sha256Hex).capture(), sha256Hex);
   assert.equal(plain.version, 1);
@@ -359,12 +359,11 @@ test("game Notes require version 2 History and remain readable with chat checkpo
     { ...model.capture().documents(), notes: "Friendly tone." },
     { label: "Notes", origin: "logic", author: "creator", time: 1 },
   );
-  assert.throws(
-    () =>
-      readProjectHistory(
-        { ...writeProjectHistory(withoutCheckpoint.capture(), sha256Hex), version: 1 },
-        sha256Hex,
-      ),
-    /notes.*version/i,
+  assert.equal(
+    readProjectHistory(
+      writeProjectHistory(withoutCheckpoint.capture(), sha256Hex),
+      sha256Hex,
+    ).commits.at(-1)!.documents["notes"] !== undefined,
+    true,
   );
 });

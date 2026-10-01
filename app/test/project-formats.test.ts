@@ -17,7 +17,7 @@ function manualProject() {
   const game = createContainer();
   game.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
   return {
-    projectId: testProjectId("manual-v2"),
+    projectId: testProjectId("manual-v1"),
     title: "My own adventure",
     authoredAt: "2026-01-01",
     files: { ...Object.fromEntries(game.files), "WORDS.TOK": new Uint8Array(52) },
@@ -39,7 +39,7 @@ test("manual project backups contain source without invented assistant context",
   assert.equal((await readGameZip(buildPublicGameZip(data))).project, undefined);
 });
 
-test("v1 assistant history is preserved in a subsequent v2 backup", async () => {
+test("v1 assistant history is preserved in a subsequent backup", async () => {
   const fixture = new Uint8Array(
     readFileSync(new URL("./formats/project-v1.zip", import.meta.url)),
   );
@@ -76,8 +76,8 @@ test("recovery travels separately from kept source and never enters a public Gam
   assert.equal(new TextDecoder().decode(buildPublicGameZip(data)).includes("unfinished"), false);
 });
 
-test("v2 rejects unknown project, recovery and assistant schemas before dropping their fields", () => {
-  const plain = { format: "monotio.agi.project", version: 2, authoringState: {} };
+test("v1 rejects unknown project, recovery and assistant schemas before dropping their fields", () => {
+  const plain = { format: "monotio.agi.project", version: 1, authoringState: {} };
   assert.deepEqual(decode(plain), { authoringState: {} });
   assert.throws(() => decode({ ...plain, version: 999 }), /version/);
   assert.throws(() => decode({ ...plain, futureContent: {} }), /field/);
@@ -90,7 +90,7 @@ test("v2 rejects unknown project, recovery and assistant schemas before dropping
     () =>
       decode({
         ...plain,
-        assistant: {
+        ...{
           provider: "openai",
           model: "example",
           conversation: { formatVersion: 999, messages: [] },
@@ -102,7 +102,7 @@ test("v2 rejects unknown project, recovery and assistant schemas before dropping
     () =>
       decode({
         ...plain,
-        assistant: {
+        ...{
           provider: "openai",
           model: "example",
           conversation: { formatVersion: 1, messages: [] },
@@ -115,14 +115,14 @@ test("v2 rejects unknown project, recovery and assistant schemas before dropping
     () =>
       decode({
         ...plain,
-        assistant: { model: "example", conversation: { formatVersion: 1, messages: [] } },
+        ...{ model: "example", conversation: { formatVersion: 1, messages: [] } },
       }),
     /model|provider/,
   );
 });
 
-test("the hand-authored v2 fixture separates kept source from unfinished recovery", () => {
-  const bytes = new Uint8Array(readFileSync(new URL("./formats/project-v2.json", import.meta.url)));
+test("the hand-authored v1 fixture separates kept source from unfinished recovery", () => {
+  const bytes = new Uint8Array(readFileSync(new URL("./formats/project-v1.json", import.meta.url)));
   const context = readProjectContext(bytes, new Map(), "");
   assert.equal(context.provider, undefined);
   assert.deepEqual(context.authoringState, { sources: { logics: [[0, "return;"]] } });
@@ -148,14 +148,14 @@ test("kept workspace documents travel in Project backups separately from recover
     () =>
       decode({
         format: "monotio.agi.project",
-        version: 2,
+        version: 1,
         workspace: { format: "monotio.agi.project-workspace", version: 999 },
       }),
     /workspace.*version/,
   );
 });
 
-test("v2 export refuses invalid assistant session IDs before producing an unreadable backup", async () => {
+test("v1 export refuses invalid assistant session IDs before producing an unreadable backup", async () => {
   for (const sessionId of ["", "legacy/session", "x".repeat(65)]) {
     await assert.rejects(
       buildProjectZip({

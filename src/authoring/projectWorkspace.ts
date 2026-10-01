@@ -30,7 +30,7 @@ type WorkspaceDocumentContent =
 /** Plain JSON structure: sorted, frozen and detached from the inputs. */
 export interface PortableProjectWorkspace {
   readonly format: typeof PROJECT_WORKSPACE_FORMAT;
-  readonly version: 1 | 2;
+  readonly version: 1;
   readonly documents: readonly {
     readonly key: string;
     readonly content: WorkspaceDocumentContent;
@@ -120,11 +120,7 @@ export function writeProjectWorkspace(
   parsed.sort((a, b) => byKey(a.key, b.key));
   return Object.freeze({
     format: PROJECT_WORKSPACE_FORMAT,
-    version: entries.some(
-      ([key]) => key === "notes" || key === "images" || key.startsWith("attachment:"),
-    )
-      ? 2
-      : 1,
+    version: 1,
     documents: Object.freeze(
       parsed.map(({ key, content }) =>
         Object.freeze({
@@ -155,7 +151,7 @@ export function readProjectWorkspace(
   const envelope = plainObject(value, "envelope");
   if (envelope["format"] !== PROJECT_WORKSPACE_FORMAT)
     throw new Error(`Unsupported project workspace format: ${String(envelope["format"])}.`);
-  if (![1, 2].includes(envelope["version"] as number))
+  if (envelope["version"] !== 1)
     throw new Error(`Unsupported project workspace version: ${String(envelope["version"])}.`);
   const record = fields(envelope, "envelope", ENVELOPE_FIELDS);
   const documents = record["documents"];
@@ -163,13 +159,16 @@ export function readProjectWorkspace(
     invalid(`envelope must list at most ${PROJECT_WORKSPACE_LIMITS.maxDocuments} documents.`);
   const parsed: { key: string; content: string | readonly number[] }[] = [];
   const seen = new Set<string>();
-  const total = { bytes: 0, images: envelope["version"] === 2 };
+  const total = {
+    bytes: 0,
+    images: documents.some((entry) => {
+      const key = plainObject(entry, "document")["key"];
+      return typeof key === "string" && key.startsWith("attachment:");
+    }),
+  };
   for (const entry of documents) {
     const document = fields(entry, "document", DOCUMENT_FIELDS);
     const key = documentKey(document["key"]);
-    if (key === "notes" && envelope["version"] !== 2) invalid("Notes need workspace version 2.");
-    if (envelope["version"] === 1 && (key === "images" || key.startsWith("attachment:")))
-      invalid("image attachments require workspace version 2.");
     if (seen.has(key)) invalid(`duplicate document '${key}'.`);
     seen.add(key);
     const holder = plainObject(document["content"], `document '${key}' content`);

@@ -44,14 +44,14 @@ export type { CachedGameMeta, CachedGameData, ProjectId } from "./gameTypes.ts";
 
 interface StoredGameIndex extends CachedGameMeta {
   format: "monotio.agi.project-index";
-  version: 1 | 2;
+  version: 1;
   storage: "indexeddb";
 }
 
 /** The browser's project record; PROJECT.JSON is the archive format. */
 interface StoredGameBody extends CachedGameData {
   format: "monotio.agi.stored-project";
-  version: 1 | 2 | 3 | 4;
+  version: 1;
   editHistory?: StoredProjectHistory | undefined;
 }
 
@@ -172,7 +172,7 @@ export function getCachedGameMeta(projectId: ProjectId): CachedGameMeta | null {
     const parsed = JSON.parse(raw) as StoredGameIndex;
     if (
       parsed.format !== "monotio.agi.project-index" ||
-      ![1, 2].includes(parsed.version) ||
+      parsed.version !== 1 ||
       parsed.storage !== "indexeddb"
     )
       return null;
@@ -696,10 +696,7 @@ async function writeCurrentBody(
     existing.onsuccess = () => {
       const value = existing.result as StoredGameBody | undefined;
       // A record this release does not recognise is never overwritten.
-      if (
-        value &&
-        (value.format !== "monotio.agi.stored-project" || ![1, 2, 3, 4].includes(value.version))
-      ) {
+      if (value && (value.format !== "monotio.agi.stored-project" || value.version !== 1)) {
         contractError = new Error(UNREADABLE_PROJECT_MESSAGE);
         transaction.abort();
         return;
@@ -771,7 +768,6 @@ async function writeCurrentBody(
         const body = storedBody(data);
         if (history === undefined && value?.editHistory !== undefined) {
           body.editHistory = value.editHistory;
-          body.version = data.chats === undefined ? 3 : 4;
         }
         try {
           const keys = [
@@ -845,7 +841,7 @@ function storedIndex(data: CachedGameData): StoredGameIndex {
   return {
     ...metadata(data),
     format: "monotio.agi.project-index",
-    version: 2,
+    version: 1,
     storage: "indexeddb",
   };
 }
@@ -854,7 +850,7 @@ function storedBody(data: CachedGameData): StoredGameBody {
   return {
     ...body,
     format: "monotio.agi.stored-project",
-    version: data.chats !== undefined ? 4 : projectHistory === undefined ? 2 : 3,
+    version: 1,
     ...(projectHistory !== undefined
       ? { editHistory: { ...projectHistory, blobs: Object.keys(projectHistory.blobs).sort() } }
       : {}),
@@ -870,34 +866,20 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   if (raw === null || typeof raw !== "object" || Array.isArray(raw))
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const record = raw as StoredGameBody;
-  if (record.format !== "monotio.agi.stored-project" || ![1, 2, 3, 4].includes(record.version))
+  if (record.format !== "monotio.agi.stored-project" || record.version !== 1)
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const storedId = record.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
-  if (
-    record.editHistory !== undefined &&
-    (record.version < 3 || ![1, 2].includes(record.editHistory.version))
-  )
+  if (record.editHistory !== undefined && record.editHistory.version !== 1)
     throw new Error("This project history version is not supported by this app.");
   if (Object.hasOwn(record, "creative"))
     throw new Error("This saved project uses an unsupported creative storage format.");
   const { format: _format, version: _version, editHistory: _editHistory, ...data } = record;
   const normalized = { ...data, projectId };
   if (data.chats !== undefined) {
-    if (record.version < 4) throw new Error("Game chats need a version 4 project.");
     normalized.chats = readAgentChats(data.chats);
   }
-  if (
-    record.version === 1 &&
-    (normalized.recoveryDraft !== undefined || normalized.workspace !== undefined)
-  )
-    throw new Error("This saved project has recovery data outside its declared version.");
-  if (
-    record.version === 1 &&
-    (typeof normalized.provider !== "string" || typeof normalized.model !== "string")
-  )
-    throw new Error("Invalid saved project model metadata.");
   const hasAssistant =
     normalized.provider !== undefined ||
     normalized.model !== undefined ||
@@ -1020,7 +1002,7 @@ async function writeBody(data: CachedGameData, options?: ProjectWriteOptions): P
     }
     if (
       index["format"] !== "monotio.agi.project-index" ||
-      ![1, 2].includes(index["version"] as number) ||
+      index["version"] !== 1 ||
       index["storage"] !== "indexeddb"
     )
       throw new Error(UNREADABLE_PROJECT_MESSAGE);
@@ -1079,7 +1061,7 @@ function readableIndex(id: ProjectId): string | null {
   const index = parsed as Record<string, unknown>;
   if (
     index["format"] !== "monotio.agi.project-index" ||
-    ![1, 2].includes(index["version"] as number) ||
+    index["version"] !== 1 ||
     index["storage"] !== "indexeddb"
   )
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
@@ -1124,7 +1106,7 @@ export interface ProjectCommitReceipt {
 interface StoredProjectCommit {
   projectId: string;
   format: "monotio.agi.project-commit";
-  version: 1 | 2;
+  version: 1;
   receipt: ProjectCommitReceipt;
 }
 
@@ -1224,11 +1206,7 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
           const lifetime = liveLifetime(previousLifetime);
           if (raw !== undefined) {
             const stored = raw as StoredProjectCommit;
-            if (
-              stored.format !== "monotio.agi.project-commit" ||
-              ![1, 2].includes(stored.version) ||
-              (stored.version === 1 && stored.receipt.history !== undefined)
-            )
+            if (stored.format !== "monotio.agi.project-commit" || stored.version !== 1)
               throw new Error("This project commit version is not supported by this app.");
             if (stored.projectId !== receiptKey || stored.receipt.candidateHash !== candidateHash)
               throw new Error("This commit ID was reused for a different candidate.");
@@ -1290,14 +1268,13 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
             const body = storedBody(data);
             if (history === undefined && current?.editHistory !== undefined) {
               body.editHistory = current.editHistory;
-              body.version = data.chats === undefined ? 3 : 4;
             }
             const puts: unknown[] = [
               body,
               {
                 projectId: receiptKey,
                 format: "monotio.agi.project-commit",
-                version: history === undefined ? 1 : 2,
+                version: 1,
                 receipt,
               } satisfies StoredProjectCommit,
             ];
@@ -2230,7 +2207,7 @@ async function storedProjects(): Promise<StoredGameBody[]> {
             if (
               data !== undefined &&
               data.format === "monotio.agi.stored-project" &&
-              [1, 2, 3, 4].includes(data.version) &&
+              data.version === 1 &&
               data.projectId === key &&
               data.files &&
               typeof data.files === "object"
@@ -2280,11 +2257,7 @@ export async function reconcileGameIndex(): Promise<void> {
       if (current) {
         try {
           const parsed = JSON.parse(current) as Record<string, unknown>;
-          if (
-            parsed["format"] === "monotio.agi.project-index" &&
-            ![1, 2].includes(parsed["version"] as number)
-          )
-            return;
+          if (parsed["format"] === "monotio.agi.project-index" && parsed["version"] !== 1) return;
         } catch {
           return;
         }
@@ -2307,7 +2280,7 @@ export async function reconcileGameIndex(): Promise<void> {
       }
       if (
         index["format"] !== "monotio.agi.project-index" ||
-        ![1, 2].includes(index["version"] as number) ||
+        index["version"] !== 1 ||
         index["storage"] !== "indexeddb"
       )
         return;

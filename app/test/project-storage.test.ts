@@ -21,22 +21,22 @@ const manual = () => ({
   words: [] as [string, number][],
 });
 
-test("manual saves use v2 body and index envelopes without provider metadata", async () => {
-  const id = testProjectId("manual-body-v2");
+test("manual saves use v1 body and index envelopes without provider metadata", async () => {
+  const id = testProjectId("manual-body-v1");
   assert.equal(await storage.saveAuthoredGame(id, manual()), true);
   const body = records.get(id) as Record<string, unknown>;
-  assert.equal(body["version"], 2);
+  assert.equal(body["version"], 1);
   assert.equal(body["provider"], undefined);
   assert.equal(body["model"], undefined);
   const index = JSON.parse(cache.get(storage.getStorageKey(id))!);
-  assert.equal(index.version, 2);
+  assert.equal(index.version, 1);
   assert.equal(Object.hasOwn(index, "provider"), false);
   assert.equal(Object.hasOwn(index, "model"), false);
   assert.equal((await storage.loadAuthoredGame(id))!.title, "Manual adventure");
   assert.ok((await storage.listStoredProjects()).some((entry) => entry.projectId === id));
 });
 
-test("v1 bodies migrate in memory and only a successful conditional save publishes v2", async () => {
+test("v1 bodies read without mutation and keep version 1 on the next conditional save", async () => {
   const id = testProjectId("legacy-body-v1");
   await storage.saveAuthoredGame(id, {
     ...manual(),
@@ -61,15 +61,15 @@ test("v1 bodies migrate in memory and only a successful conditional save publish
     ),
     true,
   );
-  assert.equal((records.get(id) as Record<string, unknown>)["version"], 2);
+  assert.equal((records.get(id) as Record<string, unknown>)["version"], 1);
   assert.equal((await storage.loadAuthoredGame(id))!.model, "legacy");
 });
 
-test("unknown nested recovery refuses a v2 load without rewriting the record", async () => {
+test("unknown nested recovery refuses a v1 load without rewriting the record", async () => {
   const id = testProjectId("future-nested-recovery");
   await storage.saveAuthoredGame(id, manual());
   const body = records.get(id) as Record<string, unknown>;
-  body["version"] = 2;
+  body["version"] = 1;
   body["recoveryDraft"] = { format: "monotio.agi.recovery-draft", version: 999 };
   const before = structuredClone(body);
   await assert.rejects(storage.loadAuthoredGame(id), /recovery.*version|version.*recovery/i);
@@ -112,4 +112,38 @@ test("source-only commits change authoring identity while preserving playable re
   await assert.rejects(storage.loadAuthoredGame(projectId), /workspace.*version/);
   assert.equal(await storage.saveAuthoredGame(projectId, manual()), false);
   assert.deepEqual(records.get(projectId), before);
+});
+
+test("removed index and commit versions refuse reads and writes without rewriting records", async () => {
+  const id = testProjectId("unknown-index");
+  await storage.saveAuthoredGame(id, manual());
+  const key = storage.getStorageKey(id);
+  const index = JSON.parse(cache.get(key)!);
+  index.version = 2;
+  const raw = JSON.stringify(index);
+  cache.set(key, raw);
+  const before = structuredClone(records.get(id));
+  await assert.rejects(storage.loadAuthoredGame(id), /version is not supported/);
+  assert.equal(await storage.saveAuthoredGame(id, manual()), false);
+  assert.equal(cache.get(key), raw);
+  assert.deepEqual(records.get(id), before);
+
+  const projectId = testProjectId("unknown-commit");
+  const input = {
+    projectId,
+    commitId: "initial",
+    workspaceId: "test",
+    expected: null,
+    buildId: "a".repeat(64),
+    documents: [],
+    data: manual(),
+  };
+  await storage.commitProject(input);
+  const receiptKey = `commit/${projectId}/initial`;
+  const receipt = records.get(receiptKey) as Record<string, unknown>;
+  assert.equal(receipt["version"], 1);
+  receipt["version"] = 2;
+  const storedBefore = structuredClone([...records]);
+  await assert.rejects(storage.commitProject(input), /commit version is not supported/);
+  assert.deepEqual([...records], storedBefore);
 });

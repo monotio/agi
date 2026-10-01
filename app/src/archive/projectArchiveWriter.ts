@@ -259,15 +259,10 @@ export async function collectProjectArchiveEntries(
     name: "PROJECT.JSON",
     data: JSON.stringify({
       format: "monotio.agi.project",
-      version:
-        data.chats !== undefined || images.hasAttachments
-          ? 4
-          : data.projectHistory === undefined
-            ? 2
-            : 3,
+      version: 1,
       ...(data.chats !== undefined ? { chats: await visit(readAgentChats(data.chats)) } : {}),
       ...(images.history !== undefined ? { projectHistory: images.history } : {}),
-      ...(assistant !== undefined ? { assistant } : {}),
+      ...(assistant ?? {}),
       authoringState: data.authoringState ?? {},
       ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
       ...(images.workspace !== undefined ? { workspace: images.workspace } : {}),
