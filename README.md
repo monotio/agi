@@ -229,6 +229,10 @@ waving robot._
 - **LOGIC** uses code intelligence, completion and diagnostics. Typing saves
   the source; errors leave the last working build running. **+ Add** guides
   room creation, hero placement, responses, doors and sounds.
+- **SOUND** opens beside the game. Start from a preset, change notes, beat lengths,
+  volume and tempo, and play a private audition with **Space**. **Details** exposes
+  native timing and pitch fields. Edits save to History and play next time the game
+  uses the sound.
 - **Agent** opens from the top bar or **⌘I**. Tell it what to change across
   the game, then use the workspace's shared History and Undo.
 - **VIEW editor** edits a view's loops and cels beside the running game.

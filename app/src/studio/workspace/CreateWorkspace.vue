@@ -3,8 +3,11 @@ import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { openContainer } from "../../../../src/container/container.ts";
-import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
-import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
+import {
+  readMusicDocument,
+  readBindingsDocument,
+} from "../../../../src/authoring/projectDocuments.ts";
+import type { ProjectChange, ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
 import type {
   ProjectEditOrigin,
@@ -222,13 +225,29 @@ function native(key: string): Uint8Array | undefined {
   if (bytes) nativeCache.set(key, bytes);
   return bytes;
 }
+const soundTempos = new WeakMap<Uint8Array, number>();
 const writes = createWorkspaceWrites({
   async write(key, value) {
     if (retired || session === null || session !== engine.getProjectSession())
       throw new Error("Open this project again to retry the change.");
+    const writingSession = session;
     const origin = (key.split(":")[0] ?? "logic") as ProjectEditOrigin;
+    const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
+    let changes: readonly ProjectChange[] = [{ key, content: value }];
+    if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
+      const { soundProjectChanges } = await import("../sound/soundEdits.ts");
+      if (retired || session !== writingSession || writingSession !== engine.getProjectSession())
+        throw new Error("Open this project again to retry the change.");
+      const music = writingSession.model.capture().read("music")?.content;
+      changes = soundProjectChanges(
+        key,
+        value,
+        tempo,
+        typeof music === "string" ? music : undefined,
+      );
+    }
     const result = await engine.submitProjectEdit({
-      changes: [{ key, content: value }],
+      changes,
       origin,
       label: `Changed ${key === "inventory" ? "OBJECTS" : key === "words" ? "WORDS" : key.replace(":", " ").toUpperCase()}`,
       author: "creator",
@@ -270,6 +289,30 @@ function edit(key: string, value: ProjectContent): void {
   editor.error.value = "";
   editor.pin(key);
   writes.edit(key, value);
+}
+function editSound(key: string, bytes: Uint8Array, tempo: number): void {
+  soundTempos.set(bytes, tempo);
+  if (soundTempo(key) === tempo) edit(key, bytes);
+  else {
+    editor.error.value = "";
+    writes.edit(key, bytes);
+  }
+}
+function soundTempo(key: string): number {
+  const draft = optimistic.value[key];
+  const pending = draft instanceof Uint8Array ? soundTempos.get(draft) : undefined;
+  if (pending !== undefined) return pending;
+  const music = content("music");
+  if (typeof music !== "string") return 120;
+  try {
+    return readMusicDocument(music)[key.split(":")[1]!]?.tempo ?? 120;
+  } catch {
+    return 120;
+  }
+}
+function soundBytes(key: string): Uint8Array {
+  const value = content(key);
+  return value instanceof Uint8Array ? value : native(key)!;
 }
 function text(key: string): string | undefined {
   const value = content(key);
@@ -388,7 +431,14 @@ async function add(group: string): Promise<void> {
         ],
       }),
     );
-  } else edit(`sound:${num}`, "[]");
+  } else {
+    const { createSoundDocument } = await import("../../../../src/sound/document.ts");
+    const { applySoundPreset } = await import("../../../../src/sound/presets.ts");
+    edit(
+      `sound:${num}`,
+      applySoundPreset(createSoundDocument({ profileId: profile.value.id }), "discovery").encode(),
+    );
+  }
   editor.open(`${kind}:${num}`);
 }
 function resize(event: PointerEvent): void {
@@ -571,10 +621,11 @@ onBeforeUnmount(() => {
       <SoundPanel
         v-else-if="key.startsWith('sound:') && native(key)"
         :document-key="key"
-        :bytes="native(key)!"
+        :bytes="soundBytes(key)"
+        :tempo="soundTempo(key)"
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
-        @edit="edit(key, $event)"
+        @edit="(bytes, tempo) => editSound(key, bytes, tempo)"
       />
       <p v-else class="workspace-error">Open an authored part to edit it.</p>
     </div>

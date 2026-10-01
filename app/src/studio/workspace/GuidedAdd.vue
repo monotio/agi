@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
 import { VOCABULARY_ACTIONS } from "../../../../src/vocabulary.ts";
+import { SOUND_PRESETS } from "../../../../src/sound/presets.ts";
+import { ref } from "vue";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
@@ -12,6 +13,7 @@ const command = ref("");
 const response = ref("");
 const view = ref(0);
 const sound = ref(1);
+const soundPreset = ref("");
 const destination = ref(2);
 const x = ref(80);
 const y = ref(140);
@@ -51,7 +53,13 @@ function add(): void {
       });
       break;
     case "play-sound":
-      emit("add", { kind: kind.value, room, sound: sound.value, command: command.value });
+      emit("add", {
+        kind: kind.value,
+        room,
+        sound: sound.value,
+        command: command.value,
+        ...(soundPreset.value ? { preset: soundPreset.value } : {}),
+      });
       break;
   }
   kind.value = undefined;
@@ -87,6 +95,14 @@ function add(): void {
         >VIEW<input v-model.number="view" type="number" min="0" max="255"
       /></label>
       <label v-if="kind === 'play-sound'"
+        >Start from<select v-model="soundPreset" aria-label="Sound preset">
+          <option value="">Existing SOUND</option>
+          <option v-for="preset in SOUND_PRESETS" :key="preset.id" :value="preset.id">
+            {{ preset.name }}
+          </option>
+        </select></label
+      >
+      <label v-if="kind === 'play-sound' && !soundPreset"
         >SOUND<input v-model.number="sound" type="number" min="0" max="255"
       /></label>
       <label v-if="kind === 'door'"
@@ -105,3 +121,14 @@ function add(): void {
     </form>
   </div>
 </template>
+
+<style scoped>
+select {
+  width: 100%;
+  padding: var(--space-2);
+  color: var(--ink);
+  background: var(--surface-0);
+  border: 1px solid var(--hairline);
+  font: inherit;
+}
+</style>
