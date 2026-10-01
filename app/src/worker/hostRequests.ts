@@ -18,6 +18,8 @@ export interface HostAnswerOutcome {
   room?: number;
   prepared?: boolean;
   patch?: HistoryCommittedPatch;
+  /** A restore answer applied a new image — the run's identity changed. */
+  restored?: boolean;
 }
 
 export function createHostRequests(ctx: WorkerContext) {
@@ -182,7 +184,7 @@ export function createHostRequests(ctx: WorkerContext) {
         if (bytes) ctx.fns.markRestore();
         ctx.engine.deliverHostAnswer(bytes);
         if (bytes) ctx.fns.noteTransition();
-        return;
+        return bytes !== null ? { restored: true } : undefined;
       }
       case "room": {
         // Apply the authored patch the agent produced, then deliver the outcome.
@@ -261,6 +263,25 @@ export function createHostRequests(ctx: WorkerContext) {
     const id = Number(msg.id);
     const outstanding = ctx.hostRequests.hostRequestOutstanding;
     if (!ctx.engine || outstanding === null || outstanding.id !== id) return;
+    // While the debugger holds the stop latch the answer is raw queued data:
+    // no room patch, auxiliary file, history record or host continuation may
+    // apply until the latch and every relevant hold release — the answer then
+    // delivers exactly once, in order. Identity was already validated above;
+    // late or duplicate answers never requeue.
+    if (ctx.fns.debugStoppedHeld()) {
+      const d = ctx.debugger;
+      if (!d.queuedAnswers.some((answer) => answer.id === id)) {
+        d.queuedAnswers.push({ id, op: outstanding.op, response: String(msg.response ?? "") });
+        ctx.ports.control({
+          type: "debugAnswerReady",
+          epoch: d.epoch,
+          stopId: d.stopId ?? 0,
+          id,
+          op: outstanding.op,
+        });
+      }
+      return;
+    }
     ctx.hostRequests.hostRequestOutstanding = null;
     settleHostRequest(outstanding);
     let outcome: HostAnswerOutcome | undefined;
@@ -295,6 +316,9 @@ export function createHostRequests(ctx: WorkerContext) {
     // own echo — observes the resumed state. A re-suspension (the
     // selector's next need) posts its request inside this tick.
     if (ctx.engine.hostInteractionReady) ctx.fns.tickEngine();
+    // A restore's new image or a room patch's new bytes replace the run the
+    // debug session pinned — rebind identity before another answer drains.
+    if (outcome?.restored === true || outcome?.patch !== undefined) ctx.fns.debugSessionReplaced();
     // A transition resumed by this answer lands here, not in finishCycle.
     ctx.fns.noteTransition();
     // The runner holds the blocked observation postReplay(op) sent when

@@ -25,8 +25,16 @@ export function createCycle(ctx: WorkerContext) {
   function runTickEntry(run: () => void): boolean {
     const engine = ctx.engine;
     if (!engine) return false;
+    // The debugger's stop latch freezes every entry: a parked or yielded
+    // pass counts zero, never reaches the tape or the unarmed completion
+    // branch below.
+    if (ctx.fns.debugStoppedHeld()) return false;
     const armedSerial = engine.executionControlActive ? engine.completedCycleSerial : null;
     run();
+    // Whatever the entry latched — a breakpoint, a watch, a pause — is
+    // reported before the next atomic operation in the outer loop, and a
+    // deferred control arm lands on the boundary a completed pass left.
+    ctx.fns.debugAfterEntry();
     // The serial is per engine instance; a replaced engine can never be
     // mistaken for a completion the captured serial preceded.
     if (
@@ -67,6 +75,10 @@ export function createCycle(ctx: WorkerContext) {
     // every discharge into the next poll's observation would let a pause or
     // input recorded in between replay ahead of a mutation it followed.
     const h = ctx.history;
+    // A debugger stop inside advanceClock/soundTick latches mid-batch: the
+    // remaining discharge loop must not tape clocks the engine never ran —
+    // the latch's own early-out is checked before each record.
+    if (ctx.fns.debugStoppedHeld()) return;
     if (ctx.replay.replay === null && h.segment !== null) {
       if (h.inPoll) {
         h.pendingSound++;
@@ -105,8 +117,13 @@ export function createCycle(ctx: WorkerContext) {
     const frozen = authoring || ctx.cycle.paused;
     const ticks = ctx.clocks.sound.advance(ctx.ports.now(), frozen);
     for (let tick = 0; tick < ticks; tick++) {
+      // The first discharge that stops execution ends the batch: the next
+      // recordedClock would record a mutation the engine refused.
+      if (ctx.fns.debugStoppedHeld()) break;
       recordedClock();
     }
+    // Publish a sound-phase stop the batch latched.
+    ctx.fns.debugAfterEntry();
   }
 
   /**
@@ -126,7 +143,10 @@ export function createCycle(ctx: WorkerContext) {
     // ones outside spill into the event stream in arrival order instead.
     ctx.history.inPoll = true;
     try {
-      if (ctx.cycle.paused) {
+      if (ctx.cycle.paused || ctx.fns.debugStoppedHeld()) {
+        // An explicit debugger stop freezes like a pause: the clocks keep
+        // their fractional carry and rebase wall time so a resume inherits
+        // no backlog, and no parked pass runs.
         // The frozen clock still re-bases so a resume inherits no backlog;
         // stray discharges recorded under a paused poll still feed — the
         // pause landed after them on the live tick axis.
@@ -142,7 +162,12 @@ export function createCycle(ctx: WorkerContext) {
       // but a recorded lane feeds its own count, never the re-derived one.
       const discharged = ctx.clocks.sound.advance(now, false);
       const soundTicks = obs?.sound ?? discharged;
-      for (let i = 0; i < soundTicks; i++) recordedClock();
+      for (let i = 0; i < soundTicks; i++) {
+        // A clock or sound phase can stop mid-batch — the remaining due
+        // ticks and everything after them must not run in this poll.
+        if (ctx.fns.debugStoppedHeld()) return false;
+        recordedClock();
+      }
       ctx.fns.deliverQueuedKey();
       if (
         engine.modalKind !== null ||
@@ -189,6 +214,10 @@ export function createCycle(ctx: WorkerContext) {
       return true;
     } finally {
       ctx.history.inPoll = false;
+      // Whatever the step latched — a sound/clock-phase stop mid-batch, a
+      // pause racing the boundary — publishes before the caller's next
+      // atomic operation; replay drives call stepHostTick directly.
+      ctx.fns.debugAfterEntry();
     }
   }
 

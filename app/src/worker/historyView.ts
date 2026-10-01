@@ -369,6 +369,10 @@ export function createHistoryView(
     ctx.history.rng = boot.rng;
     ctx.fns.rebaselineJournal();
     ctx.fns.historyResume();
+    // The adopted engine replaced the live run: a debug session mints a new
+    // epoch against the adopted image's build, or detaches if its captured
+    // sources no longer verify.
+    ctx.fns.debugSessionReplaced();
     ctx.presentation.lastVisual = null;
     ctx.fns.postFrame();
   }

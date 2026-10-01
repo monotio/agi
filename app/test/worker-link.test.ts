@@ -9,6 +9,9 @@ import type {
 import type { EngineState, TextHook } from "../src/engine/useEngineTypes.ts";
 import type { AgiAudio } from "../src/audio/AgiAudio.ts";
 import type { ReplayObservation } from "../src/walkthrough/replay.ts";
+import type { BootedGame } from "../src/project/gameTypes.ts";
+import { installedProgressLocator } from "../src/project/progressTarget.ts";
+import { testRevision } from "./identity.ts";
 
 /**
  * The outbound dispatch table is a required mapped type — a WorkerOutbound
@@ -30,9 +33,24 @@ const OUTBOUND_TYPES = [
   "playedHere",
   "debugEvents",
   "debugTrace",
+  "debugAttached",
+  "debugAck",
+  "debugError",
+  "debugConfigured",
+  "debugInspection",
+  "debugEvaluation",
+  "debugSetValuesAck",
+  "debugStopped",
+  "debugDetached",
+  "debugSessionReset",
+  "debugAnswerReady",
+  "debugLog",
+  "debugAudio",
   "checkpoint",
   "recordingStarted",
   "recordingStopped",
+  "previewUpdateResult",
+  "previewUpdateStatus",
   "exportFiles",
   "restored",
   "booted",
@@ -123,13 +141,15 @@ function fakeHook(): TextHook {
   };
 }
 
-function makeLink() {
+function makeLink(over: { getBootedGame?: () => BootedGame | null } = {}) {
   const state = fakeState();
   const hook = fakeHook();
   const audioCalls: string[] = [];
   const audio = {
     setMuted: () => audioCalls.push("setMuted"),
     setPaused: () => audioCalls.push("setPaused"),
+    setPauseOwner: (owner: string, paused: boolean) =>
+      audioCalls.push(`pauseOwner:${owner}:${paused}`),
     setMode: (mode: string) => audioCalls.push(`setMode:${mode}`),
     stop: () => audioCalls.push("stop"),
     output: () => audioCalls.push("output"),
@@ -144,7 +164,7 @@ function makeLink() {
     audio,
     onFrame: (f) => frames.push(f),
     logAgent: (kind, text) => logged.push(`${kind}:${text}`),
-    getBootedGame: () => null,
+    getBootedGame: over.getBootedGame ?? (() => null),
     getActiveWalkthroughSession: () => 7,
     observationListeners: new Set(),
   });
@@ -165,6 +185,7 @@ function makeLink() {
     getAgentSession: () => null,
     getReplayDriver: () => driver,
     gameQuit: () => depCalls.push("gameQuit"),
+    handleDebugEvent: (msg: { type: string }) => depCalls.push(`debugEvent:${msg.type}`),
   });
   return { link, state, hook, audioCalls, depCalls, logged, frames, driver };
 }
@@ -302,6 +323,138 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal((r as { cycle: number }).cycle, 1);
         break;
       }
+      case "debugAttached": {
+        const r = await roundTrip(link, w, "debugAttach", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+        });
+        assert.equal((r as { epoch: number }).epoch, 3);
+        break;
+      }
+      case "debugAck": {
+        const r = await roundTrip(link, w, "debugPause", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+        });
+        assert.equal((r as { epoch: number }).epoch, 3);
+        break;
+      }
+      case "debugError": {
+        // A structured refusal settles the query rejected, never resolved.
+        const pending = link.query("debugPause", { epoch: 3 });
+        const sent = w.posted.at(-1) as { id: number };
+        deliver(w, {
+          type,
+          id: sent.id,
+          epoch: 3,
+          buildId: "b1",
+          code: "staleEpoch",
+          error: "stale epoch",
+        });
+        await assert.rejects(pending, /stale epoch/);
+        break;
+      }
+      case "debugConfigured": {
+        const r = await roundTrip(link, w, "debugConfigure", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          revision: 2,
+          breakpoints: [],
+          watchpoints: [],
+        });
+        assert.equal((r as { revision: number }).revision, 2);
+        break;
+      }
+      case "debugInspection": {
+        const r = await roundTrip(link, w, "debugInspect", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 1,
+          section: "state",
+          data: { room: 4 },
+        });
+        assert.equal((r as { stopId: number }).stopId, 1);
+        break;
+      }
+      case "debugEvaluation": {
+        const r = await roundTrip(link, w, "debugEvaluate", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 1,
+          ok: true,
+          value: 7,
+        });
+        assert.equal((r as { value: number }).value, 7);
+        break;
+      }
+      case "debugSetValuesAck": {
+        const r = await roundTrip(link, w, "debugSetValues", {
+          type,
+          id: 0,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 2,
+        });
+        assert.equal((r as { stopId: number }).stopId, 2);
+        break;
+      }
+      case "debugStopped":
+        deliver(w, {
+          type,
+          epoch: 3,
+          buildId: "b1",
+          stopId: 5,
+          boundarySeq: 12,
+          cause: { type: "wait", wait: "idle" },
+          location: null,
+          wait: "idle",
+          reasons: [{ kind: "pause" }],
+          state: {} as never,
+          answerReady: [],
+        });
+        assert.ok(depCalls.includes("debugEvent:debugStopped"));
+        break;
+      case "debugDetached":
+        // A detach from the owning epoch lifts the debugger audio hold.
+        deliver(w, { type: "debugAudio", paused: true, epoch: 3 });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:true"));
+        deliver(w, { type, epoch: 3, buildId: "b1", reason: "detach" });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:false"));
+        assert.ok(depCalls.includes("debugEvent:debugDetached"));
+        break;
+      case "debugSessionReset":
+        deliver(w, { type, epoch: 4, buildId: "b2", breakpoints: [], watchpoints: [] });
+        assert.ok(depCalls.includes("debugEvent:debugSessionReset"));
+        break;
+      case "debugAnswerReady":
+        deliver(w, { type, epoch: 3, stopId: 5, id: 11, op: "getnum" });
+        assert.ok(depCalls.includes("debugEvent:debugAnswerReady"));
+        break;
+      case "debugLog":
+        deliver(w, { type, epoch: 3, sequence: 2, breakpoint: "bp1", text: "hit" });
+        assert.ok(depCalls.includes("debugEvent:debugLog"));
+        break;
+      case "debugAudio":
+        deliver(w, { type, paused: true, epoch: 3 });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:true"));
+        deliver(w, { type, paused: false, epoch: 3 });
+        assert.ok(audioCalls.includes("pauseOwner:debugger:false"));
+        // A stale epoch's release must not lift the current hold.
+        audioCalls.length = 0;
+        deliver(w, { type, paused: true, epoch: 4 });
+        deliver(w, { type, paused: false, epoch: 3 });
+        assert.ok(!audioCalls.includes("pauseOwner:debugger:false"));
+        break;
       case "checkpoint": {
         // A checkpoint reply must settle the query — before the exhaustive
         // map this member had no handler and the promise hung to timeout.
@@ -538,6 +691,30 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         assert.equal(r.ok, true);
         break;
       }
+      case "previewUpdateResult": {
+        const r = await roundTrip(link, w, "previewUpdate", {
+          type,
+          id: 0,
+          runToken: "t",
+          status: "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 2,
+        });
+        assert.equal((r as { status: string }).status, "committed");
+        break;
+      }
+      case "previewUpdateStatus": {
+        const r = await roundTrip(link, w, "previewUpdateStatus", {
+          type,
+          id: 0,
+          runToken: "t",
+          current: null,
+          transaction: "unknown",
+        });
+        assert.equal((r as { transaction: string }).transaction, "unknown");
+        break;
+      }
       case "historyViewRestored": {
         const r = await roundTrip(link, w, "historyViewRestore", { type, id: 0, ok: true });
         assert.equal(r.ok, true);
@@ -591,7 +768,7 @@ test("every WorkerOutbound member reaches its handler once", async () => {
         break;
       case "soundPaused":
         deliver(w, { type, paused: true });
-        assert.ok(audioCalls.includes("setPaused"));
+        assert.ok(audioCalls.includes("pauseOwner:worker:true"));
         break;
       case "stopSound":
         deliver(w, { type });
@@ -685,4 +862,57 @@ test("drainPendingQueries cancels outstanding requests", async () => {
   const pending = link.query("objects");
   link.drainPendingQueries();
   await assert.rejects(pending, /aborted/);
+});
+
+test("a worker's boot acknowledgement stores only the bound physical resume pointer", (t) => {
+  const store = new Map<string, string>();
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  t.after(() => {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    },
+  });
+  const booted: BootedGame = {
+    installed: true,
+    title: "KQ1",
+    revision: testRevision("booted-rev"),
+    files: {},
+    words: [],
+    folder: "games/kq1",
+    hash: "e".repeat(64),
+    alias: "kq1",
+  };
+  const { link, state } = makeLink({ getBootedGame: () => booted });
+  const w = fakeWorker();
+  link.wireWorker(w as unknown as Worker);
+  deliver(w, { type: "booted", profile: "2.917", kind: "binary" });
+  assert.equal(state.phase, "running");
+  assert.equal(
+    store.get("monotio_agi.resumeTarget"),
+    installedProgressLocator("games/kq1", booted.revision),
+    "the pointer names the served folder's physical address",
+  );
+  assert.equal(
+    store.get("monotio_agi.lastGame"),
+    undefined,
+    "the released key stays another release's value",
+  );
+
+  // A boot that bound no target — legacy read context, no folder — moves
+  // nothing.
+  store.clear();
+  const unbound = makeLink({
+    getBootedGame: () => ({ ...booted, folder: undefined }),
+  });
+  const w2 = fakeWorker();
+  unbound.link.wireWorker(w2 as unknown as Worker);
+  deliver(w2, { type: "booted", profile: "2.917", kind: "binary" });
+  assert.equal(store.get("monotio_agi.resumeTarget"), undefined);
 });

@@ -20,10 +20,18 @@ import { createAgentSessionState } from "../../src/agent/agentState.ts";
 import { installBaseTemplate } from "../../src/agent/baseTemplate.ts";
 import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
-import { testProjectId, testRevision } from "./identity.ts";
+import { testRevision } from "./identity.ts";
 import { appendHistoryBatch, loadGameHistory } from "../src/history/historyStorage.ts";
+import { installedProgressTarget } from "../src/project/progressTarget.ts";
 
-const IDENTITY = { project: testProjectId("worker-history"), revision: testRevision("tape") };
+/** The installed instance these ephemeral sessions persist under, bound at boot. */
+const TAPE_TARGET = installedProgressTarget(
+  { folder: "tape-session-identity" },
+  testRevision("tape"),
+);
+assert.ok(TAPE_TARGET !== null);
+/** The installed lifetime its boot captured before any receipt existed. */
+const TAPE_LIFETIME = "initial";
 
 installIndexedDbFixture();
 import {
@@ -851,16 +859,21 @@ test("a fresh worker never reuses another session's persisted identity", async (
   assert.ok(idsA.size > 0 && idsB.size > 0);
   for (const id of idsB) assert.ok(!idsA.has(id), `${id} must be unique per session`);
 
-  // Both sessions persist under one storage key and replay separately.
-  const key = "tape-session-identity";
+  // Both sessions persist under one storage target and replay separately.
   for (const message of first.control)
     if (message.type === "historyBatch")
-      assert.equal(await appendHistoryBatch(key, message.batch, "2.936", IDENTITY), true);
+      assert.equal(
+        await appendHistoryBatch(TAPE_TARGET, message.batch, "2.936", TAPE_LIFETIME),
+        true,
+      );
   for (const message of second.control)
     if (message.type === "historyBatch")
-      assert.equal(await appendHistoryBatch(key, message.batch, "2.936", IDENTITY), true);
+      assert.equal(
+        await appendHistoryBatch(TAPE_TARGET, message.batch, "2.936", TAPE_LIFETIME),
+        true,
+      );
 
-  const stored = await loadGameHistory(key);
+  const stored = await loadGameHistory(TAPE_TARGET.locator);
   assert.ok(stored !== null);
   assert.equal(stored.segments.length, segmentsA.length + segmentsB.length);
 

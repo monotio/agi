@@ -200,6 +200,8 @@ async function rig(
     bootGame: async () => {},
     bootAuthoredGame: async () => {},
     configForGame: (_project, config) => config,
+    // No resume intent is armed in these tests; retirement is unreachable.
+    retireFailedRecovery: () => {},
   });
   Object.assign(link.deps, {
     resetScreenState() {},

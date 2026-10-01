@@ -582,7 +582,17 @@ export function createHistory(ctx: WorkerContext) {
   function snapshotBoot(): HistoryBoot | null {
     const engine = ctx.engine;
     if (!engine) return null;
-    const image = engine.recordingImage();
+    // A debugger-parked or armed mid-pass engine has no resumable boundary —
+    // recordingImage refuses; the next boundary retries instead. The
+    // pre-check cannot see a private cycle cursor, so a refusal reads as
+    // "no boundary yet" here too.
+    if (ctx.fns.debugCaptureBlocked()) return null;
+    let image: Uint8Array | null;
+    try {
+      image = engine.recordingImage();
+    } catch {
+      return null;
+    }
     if (!image) return null;
     const h = ctx.history;
     const boot = stampBoot({
@@ -615,7 +625,16 @@ export function createHistory(ctx: WorkerContext) {
 
   function maybeResume(): void {
     const h = ctx.history;
-    if (!h.resumePending || h.segment !== null || ctx.replay.replay || !ctx.engine) return;
+    // A debugger attach holds normal recording in hiatus: the pending resume
+    // stays pending until detach's explicit historyResume, even across a gap.
+    if (
+      !h.resumePending ||
+      h.segment !== null ||
+      ctx.replay.replay ||
+      !ctx.engine ||
+      ctx.fns.debugAttached()
+    )
+      return;
     const boot = snapshotBoot();
     if (boot === null) return; // not a resumable boundary — the next one retries
     h.resumePending = false;
@@ -651,7 +670,14 @@ export function createHistory(ctx: WorkerContext) {
       });
       return;
     }
-    const hostImage = ctx.engine.recordingImage();
+    let hostImage: Uint8Array | null = null;
+    if (!ctx.fns.debugCaptureBlocked()) {
+      try {
+        hostImage = ctx.engine.recordingImage();
+      } catch {
+        hostImage = null;
+      }
+    }
     if (!hostImage) {
       ctx.ports.control({
         type: "recordingStarted",

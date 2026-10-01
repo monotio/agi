@@ -32,6 +32,16 @@ import { createJournal } from "./journal.ts";
 import { createHistory } from "./history.ts";
 import { createHistoryView } from "./historyView.ts";
 import { createPlayHere } from "./playHere.ts";
+import {
+  createDebuggerHooks,
+  newDebuggerLoaderState,
+  type DebuggerLoaderState,
+} from "./debugLoader.ts";
+import {
+  newDebuggerState,
+  type DebuggerState,
+  type PreviewPreparedSession,
+} from "./debuggerState.ts";
 import type { HistoryDrive } from "./historyDrive.ts";
 import type {
   HistoryAnchor,
@@ -391,7 +401,7 @@ export type Inbound<T extends WorkerInbound["type"]> = Extract<WorkerInbound, { 
  * functions. createWorkerContext fills it from the modules that have landed;
  * engine.worker.ts seeds the rest while they still live there.
  */
-interface WorkerFns {
+export interface WorkerFns {
   // input.ts
   setKeyWaiting(waiting: boolean): void;
   flushDeferredMovement(): void;
@@ -511,6 +521,57 @@ interface WorkerFns {
   onHistoryViewTake(msg: Inbound<"historyViewTake">): void;
   onHistoryRetain(msg: Inbound<"historyRetain">): void;
   onHistoryViewRestore(msg: Inbound<"historyViewRestore">): void;
+  // debugController.ts — the execution-controller session
+  onDebugAttach(msg: Inbound<"debugAttach">): void;
+  onDebugDetach(msg: Inbound<"debugDetach">): void;
+  onDebugConfigure(msg: Inbound<"debugConfigure">): void;
+  onDebugPause(msg: Inbound<"debugPause">): void;
+  onDebugResume(msg: Inbound<"debugResume">): void;
+  onDebugRunTo(msg: Inbound<"debugRunTo">): void;
+  onDebugInspect(msg: Inbound<"debugInspect">): void;
+  onDebugEvaluate(msg: Inbound<"debugEvaluate">): void;
+  onDebugSetValues(msg: Inbound<"debugSetValues">): void;
+  /**
+   * Post-entry hook every engine-driving path ends on: lands a deferred
+   * control arm/disarm at the first completed-cycle boundary and publishes
+   * any stop the entry latched — so a stop inside advanceClock/soundTick
+   * reports before the next atomic operation in the same outer loop.
+   */
+  debugAfterEntry(): void;
+  /**
+   * A run-replacing command (patch/restore/reenter/playHere/adopt) releases
+   * the debugger latch before the replacement's engine asserts run.
+   */
+  debugBeforeReplace(): void;
+  /** The run's identity changed: mint a new epoch, rebind against the build. */
+  debugSessionReplaced(): void;
+  /** True while an attach owns this engine session. */
+  debugAttached(): boolean;
+  /** The engine's stop latch is held — the freeze every entry consults. */
+  debugStoppedHeld(): boolean;
+  /**
+   * A resumable-boundary image cannot describe a debugger-parked or armed
+   * mid-pass engine: autosave/checkpoint callers keep their last good image.
+   */
+  debugCaptureBlocked(): boolean;
+  // previewAdmission.ts — the play-preview lane, landing with the lazy
+  // controller; the inert seam answers an explicit refusal on every other
+  // context.
+  /**
+   * One previewUpdate request: validate the complete candidate detached,
+   * commit it through the real Engine at the strict idle boundary, then
+   * publish exactly one correlated previewUpdateResult.
+   */
+  onPreviewUpdate(msg: Inbound<"previewUpdate">): void;
+  /** The read-only reconciliation query answering a previewUpdateStatus. */
+  onPreviewStatus(msg: Inbound<"previewUpdateStatus">): void;
+  /**
+   * debugController.ts seam: install a prevalidated preview session — fresh
+   * epoch, verified build, sources and rebound plans — by bounded
+   * assignments only, after the native commit landed. Silent by contract:
+   * the single previewUpdateResult carries the new identity.
+   */
+  previewSessionInstall(prepared: PreviewPreparedSession): void;
 }
 
 export interface WorkerContext {
@@ -531,6 +592,10 @@ export interface WorkerContext {
   debug: DebugState;
   journal: JournalState;
   recording: RecordingState;
+  /** The execution-controller session (debugController.ts). */
+  debugger: DebuggerState;
+  /** The controller's lazy loader (debugLoader.ts) — the inert seam's record. */
+  debuggerLoader: DebuggerLoaderState;
   fns: WorkerFns;
 }
 
@@ -678,6 +743,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       pending: [],
     },
     recording: { recording: null },
+    debugger: newDebuggerState(),
+    debuggerLoader: newDebuggerLoaderState(),
     fns: {} as WorkerFns,
   };
   Object.assign(ctx.fns, createInput(ctx));
@@ -692,5 +759,10 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   // The viewer opens scratch sessions of its own through this same factory.
   Object.assign(ctx.fns, createHistoryView(ctx, createWorkerContext));
   Object.assign(ctx.fns, createPlayHere(ctx));
+  // The execution controller stays off the startup path: every context
+  // carries the inert hooks and the session record, and the real table
+  // lands through the lazy loader's one-shot import on first actual use
+  // (debugLoader.ts). Fake-port tests may install it synchronously.
+  Object.assign(ctx.fns, createDebuggerHooks(ctx));
   return ctx;
 }

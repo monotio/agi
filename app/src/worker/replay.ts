@@ -156,8 +156,15 @@ export function createReplay(ctx: WorkerContext) {
       return;
     // A prompt-parked boundary is not replayable: the continuation would
     // restore the parked interaction, but the host-request pairing that a
-    // tape `answer` resolves against lives outside the snapshot.
-    if (engine.awaitingHostAnswer || ctx.hostRequests.hostRequestOutstanding !== null) return;
+    // tape `answer` resolves against lives outside the snapshot. A
+    // debugger-parked or armed mid-pass engine has no resumable boundary
+    // either — recordingImage would throw.
+    if (
+      engine.awaitingHostAnswer ||
+      ctx.hostRequests.hostRequestOutstanding !== null ||
+      ctx.fns.debugCaptureBlocked()
+    )
+      return;
     const image = engine.recordingImage();
     if (!image) return;
     const snapshots = ctx.replay.snapshots;
@@ -246,6 +253,9 @@ export function createReplay(ctx: WorkerContext) {
       ctx.cycle.cycleCount = snap.cycle;
       if (ctx.engine.awaitingKey) ctx.fns.setKeyWaiting(true);
     }
+    // The scratch engine replaced the live one — a debug session rebinds
+    // against its build under a fresh epoch.
+    ctx.fns.debugSessionReplaced();
     postReplay(null);
   }
 
@@ -284,6 +294,7 @@ export function createReplay(ctx: WorkerContext) {
     ctx.fns.armJournal();
     ctx.engine.flags[9] = 1;
     resetSession(ctx);
+    ctx.fns.debugSessionReplaced();
     if (!msg.seeking) {
       ctx.fns.postFrame();
     }
