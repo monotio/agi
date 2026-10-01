@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { test, expect, reviewShot } from "./test.ts";
+import { test, expect } from "./test.ts";
 import { isolateStorage, textHook, configureAi } from "./engineProbe.ts";
 
 for (const kind of ["starter", "boilerplate", "blank"] as const) {
@@ -66,15 +66,29 @@ test("AI choice reveals full editable sources and creates with the stub provider
   const outline = page.getByRole("textbox", { name: "Adventure outline" });
   for (const id of ["knights-trial", "badge-of-millhaven", "mop-jockey", "polyester-nights"]) {
     await page.getByTestId(`template-${id}`).click();
+    await expect(page.getByTestId("adventure-outline-preview")).toBeVisible();
+    await page.getByRole("button", { name: "Edit as text", exact: true }).click();
     await expect(outline).toHaveValue(
       await readFile(new URL(`../../games/${id}/SKILL.md`, import.meta.url), "utf8"),
     );
+    await page.getByRole("button", { name: "View outline", exact: true }).click();
   }
+  await page.getByRole("button", { name: "Edit as text", exact: true }).click();
   await outline.fill((await outline.inputValue()) + "\n\n## Direction\nFind a blue lantern.\n");
   const edited = await outline.inputValue();
+  await page.getByRole("button", { name: "View outline", exact: true }).click();
+  await expect(
+    page
+      .getByTestId("adventure-outline-preview")
+      .getByRole("heading", { name: "Direction", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("adventure-outline-preview")).toContainText("Find a blue lantern.");
+  await page.getByRole("button", { name: "Edit as text", exact: true }).click();
+  await expect(outline).toHaveValue(edited);
   await page.getByTestId("template-custom").click();
   await expect(outline).toHaveValue("");
   await page.getByTestId("template-polyester-nights").click();
+  await page.getByRole("button", { name: "Edit as text", exact: true }).click();
   await expect(outline).toHaveValue(edited);
   await page
     .getByTestId("create-adventure-disclosure")
@@ -100,10 +114,18 @@ for (const size of [
       "data-rendered",
       "true",
     );
-    await reviewShot(page, `starter-${size.width}x${size.height}`);
+    await page.screenshot({
+      path: test.info().outputPath(`starter-${size.width}x${size.height}.png`),
+      animations: "disabled",
+      fullPage: true,
+    });
     await page.getByTestId("local-create-kind-ai").click();
-    await expect(page.getByRole("textbox", { name: "Adventure outline" })).toBeVisible();
-    await reviewShot(page, `ai-${size.width}x${size.height}`);
+    await expect(page.getByTestId("adventure-outline-preview")).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`ai-${size.width}x${size.height}.png`),
+      animations: "disabled",
+      fullPage: true,
+    });
   });
 }
 
@@ -114,4 +136,48 @@ test("closing the new game page returns focus to its Home trigger", async ({ pag
   await expect(page.getByTestId("local-create-title")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("create-adventure-toggle")).toBeFocused();
+});
+
+test("new game thumbnails show the Boilerplate welcome and Blank room grid", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  const boilerplate = page.getByTestId("template-picture-boilerplate");
+  await expect(boilerplate).toHaveAttribute("data-rendered", "true");
+  const opening = await boilerplate.evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    const context = canvas.getContext("2d")!;
+    const bright = (x: number, y: number, width: number, height: number) => {
+      const { data } = context.getImageData(x, y, width, height);
+      let count = 0;
+      for (let pixel = 0; pixel < data.length; pixel += 4) if (data[pixel]! > 100) count++;
+      return count;
+    };
+    return {
+      status: bright(0, 0, 320, 8),
+      welcome: bright(40, 72, 240, 64),
+      background: bright(0, 32, 32, 32),
+    };
+  });
+  expect(opening.status).toBeGreaterThan(100);
+  expect(opening.welcome).toBeGreaterThan(100);
+  expect(opening.background).toBe(0);
+  const blank = page.getByTestId("template-picture-blank");
+  await expect(blank).toHaveAttribute("data-rendered", "true");
+  const grid = await blank.evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    const context = canvas.getContext("2d")!;
+    const pixel = (x: number, y: number) =>
+      Array.from(context.getImageData(x, y, 1, 1).data).slice(0, 3);
+    return {
+      inside: pixel(40, 40),
+      vertical: pixel(32, 40),
+      horizontal: pixel(40, 32),
+      frame: pixel(0, 40),
+      plus: pixel(160, 84),
+    };
+  });
+  expect(grid.vertical).not.toEqual(grid.inside);
+  expect(grid.horizontal).toEqual(grid.vertical);
+  expect(grid.frame).not.toEqual(grid.inside);
+  expect(grid.plus).not.toEqual(grid.vertical);
 });

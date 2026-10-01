@@ -6,10 +6,13 @@ import {
   nextTick,
   onBeforeUnmount,
   onMounted,
+  ref,
   useTemplateRef,
   watch,
 } from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiButton from "../ui/UiButton.vue";
+import AdventureOutline from "./AdventureOutline.vue";
 import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
@@ -127,6 +130,18 @@ watch(
 const outlineFile = computed(
   () => `${selectedTemplateId.value === "custom" ? "your-premise" : selectedTemplateId.value}.md`,
 );
+const editingOutline = ref(false);
+watch(selectedTemplateId, () => {
+  editingOutline.value = false;
+});
+const outlineInput = useTemplateRef("outlineInput");
+const outlinePreview = useTemplateRef("outlinePreview");
+async function toggleOutline(): Promise<void> {
+  editingOutline.value = !editingOutline.value;
+  await nextTick();
+  if (editingOutline.value) outlineInput.value?.focus();
+  else outlinePreview.value?.querySelector<HTMLElement>("article")?.focus();
+}
 
 async function onAiCreated(title: string): Promise<void> {
   adventureDraft.value.title = title;
@@ -201,15 +216,24 @@ async function onAiCreated(title: string): Promise<void> {
           </div>
           <div class="ai-brief">
             <div class="ai-brief-h">
-              <label for="adventure-brief">Outline</label><span class="id">{{ outlineFile }}</span>
+              <span id="outline-label" class="outline-label">Outline</span>
+              <UiButton v-if="selectedTemplateId !== 'custom'" size="sm" @click="toggleOutline">
+                {{ editingOutline ? "View outline" : "Edit as text" }}
+              </UiButton>
+            </div>
+            <div v-if="selectedTemplateId !== 'custom' && !editingOutline" ref="outlinePreview">
+              <AdventureOutline :source="adventureDraft.brief" />
             </div>
             <textarea
+              v-else
               id="adventure-brief"
+              ref="outlineInput"
               v-model="adventureDraft.brief"
               aria-label="Adventure outline"
               spellcheck="false"
               data-testid="custom-adventure-input"
             />
+            <span v-if="editingOutline" class="id">{{ outlineFile }}</span>
             <p class="note">
               AI starts from Boilerplate and builds the game while you watch. You can edit every
               part afterwards.
@@ -291,7 +315,7 @@ async function onAiCreated(title: string): Promise<void> {
   justify-content: space-between;
   align-items: baseline;
 }
-.ai-brief-h label {
+.outline-label {
   color: var(--ink-2);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);

@@ -607,6 +607,7 @@ test("game frame is hidden until game is running, clicking screen advances title
   // 2. Creating without a configured key opens shared AI settings and preserves the draft.
   await openCreateAdventure(page);
   await page.getByTestId("template-knights-trial").click();
+  await page.getByRole("button", { name: "Edit as text", exact: true }).click();
   const draft = await page.getByTestId("custom-adventure-input").inputValue();
   await page.getByTestId("connect-create-ai").click();
   await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
