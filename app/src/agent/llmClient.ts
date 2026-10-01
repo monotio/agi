@@ -241,7 +241,7 @@ export interface UnifiedConversation {
   sendUserMessage(text: string, images?: readonly AgentToolImage[]): Promise<LlmTurnResult>;
   /**
    * Record tool results into the transcript without a provider request —
-   * every call produced beside a terminal handover must land here too, even
+   * every call produced beside a terminal finish must land here too, even
    * when no next response will be requested.
    */
   appendToolResults(results: { toolCallId: string; result: AgentToolResult }[]): void;

@@ -1,7 +1,7 @@
 /**
  * The Studio assist task: the creator selects something in Room Studio or
  * Sprite Studio and asks for a change to just that. The session runs it with
- * read_edit_context, propose_edit, withdraw_edit and read-only inspection
+ * read_edit_context, propose_changes, withdraw_changes and read-only inspection
  * (STUDIO_ASSIST_TASK_TOOLS); every other tool is denied. The result's
  * candidate is data: the UI shows its before | after preview and applies
  * `candidate.draft` as one undo step when the creator accepts.
@@ -13,11 +13,11 @@
  * "bad" first recolours the selected art under the lens lock, reads the
  * refusal, then retries with the walkable change, "move" moves the first
  * selected item 8 pixels right (whatever that does to fills drawn after
- * it), "withdraw" proposes the walkable change and then withdraws it with withdraw_edit, as a model does
+ * it), "withdraw" proposes the walkable change and then withdraws it with withdraw_changes, as a model does
  * that concludes its own candidate should be rejected, "impossible" reads
  * the selection and declines with an explanation, proposing nothing, and
  * "reference" views the reference art attached to the request with
- * view_reference, reads the selection and declines, saying which art it
+ * read_reference_image, reads the selection and declines, saying which art it
  * viewed and what images the request itself carried (a manifest's contact
  * strip, never the art), so a test can see the handles arrive.
  */
@@ -61,7 +61,7 @@ The creator is editing ${kind} ${num} in ${studio}${focus.lens ? ` (${focus.lens
 
 "${instruction.trim()}"
 
-You may change only the selection. Call read_edit_context, then propose_edit with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses edits to unselected items, drawing outside the selection, changes on a locked plane or protected loop, a candidate over the byte budget, and one that draws the same pixels as the draft: read the refusal, fix that, and propose again. It reports side effects, cells of other items that change (a fill that pours differently), for you and the creator to judge. If you conclude that no change can meet the request, or you would tell the creator to reject your own candidate, call withdraw_edit so they are not offered it. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
+You may change only the selection. Call read_edit_context, then propose_changes with the operations that make exactly this change. The host checks each candidate on decoded pixels and refuses edits to unselected items, drawing outside the selection, changes on a locked plane or protected loop, a candidate over the byte budget, and one that draws the same pixels as the draft: read the refusal, fix that, and propose again. It reports side effects, cells of other items that change (a fill that pours differently), for you and the creator to judge. If you conclude that no change can meet the request, or you would tell the creator to reject your own candidate, call withdraw_changes so they are not offered it. Nothing is applied until the creator accepts. Finish with one sentence describing the change, or saying what blocks it.`;
 }
 
 type Scenario =
@@ -87,7 +87,7 @@ function scenarioOf(instruction: string): Scenario {
   return "none";
 }
 
-const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
 const opFields = (list: "pictureOps" | "spriteOps") =>
   (propose.parameters.properties[list] as { items: { required: readonly string[] } }).items
     .required;
@@ -279,10 +279,10 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
   const names = new Map<string, string>();
   let context: PictureContext | ViewContext | null = null;
   const outcomes: boolean[] = [];
-  /** "withdraw": what withdraw_edit answered, once called. */
+  /** "withdraw": what withdraw_changes answered, once called. */
   let withdrawn: AgentToolResult | null = null;
   let calls = 0;
-  /** "reference": the attached art's id, what view_reference answered, and the request's images. */
+  /** "reference": the attached art's id, what read_reference_image answered, and the request's images. */
   let attachedArt: string | null = null;
   let viewed: AgentToolResult | null = null;
   let carried: ReturnType<typeof describeImages> = [];
@@ -308,7 +308,12 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
   };
   const next = (): LlmTurnResult => {
     if (scenario === "reference" && attachedArt && !viewed)
-      return call("view_reference", { id: attachedArt, size: "small", region: null, grid: null });
+      return call("read_reference_image", {
+        id: attachedArt,
+        size: "small",
+        region: null,
+        grid: null,
+      });
     if (!context) return say("I could not read the selection.");
     if (scenario === "reference") return referenceReply();
     const last = outcomes.at(-1);
@@ -317,25 +322,25 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
         withdrawn.success ? STUB_WITHDRAW_REASON : `I could not withdraw: ${withdrawn.error}`,
       );
     if (scenario === "withdraw" && last === true)
-      return call("withdraw_edit", { reason: STUB_WITHDRAW_REASON });
+      return call("withdraw_changes", { reason: STUB_WITHDRAW_REASON });
     if (last === true) return say(`Proposed: ${instruction.trim()}.`);
     if (scenario === "impossible") return say(STUB_DECLINE_TEXT);
     if (context.kind === "view") {
       if (scenario !== "eyes" || outcomes.length > 0)
         return say("I could not make that change within the selection.");
-      return call("propose_edit", eyesProposal(context));
+      return call("propose_changes", eyesProposal(context));
     }
     if (scenario === "none" || scenario === "eyes")
       return say("The stub has no Studio change for that request.");
     if (scenario === "move")
       return outcomes.length === 0
-        ? call("propose_edit", moveProposal(context))
+        ? call("propose_changes", moveProposal(context))
         : say("I could not make that change within the selection.");
     const walkable = walkableProposal(context);
     if (outcomes.length === 0 && scenario === "bad")
-      return call("propose_edit", artProposal(context));
+      return call("propose_changes", artProposal(context));
     if (walkable && outcomes.length === (scenario === "bad" ? 1 : 0))
-      return call("propose_edit", walkable);
+      return call("propose_changes", walkable);
     return say("I could not make that change within the selection.");
   };
   return {
@@ -359,10 +364,10 @@ export function createStudioAssistStub(instruction: string): UnifiedConversation
           images: describeImages(result.images),
         });
         const name = names.get(toolCallId);
-        if (name === "view_reference") viewed = result;
+        if (name === "read_reference_image") viewed = result;
         if (name === "read_edit_context" && result.success) context = asEditContext(result.details);
-        if (name === "propose_edit") outcomes.push(result.success);
-        if (name === "withdraw_edit") withdrawn = result;
+        if (name === "propose_changes") outcomes.push(result.success);
+        if (name === "withdraw_changes") withdrawn = result;
       }
     },
     async complete() {

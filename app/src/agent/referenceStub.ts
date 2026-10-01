@@ -5,7 +5,7 @@
  *
  * - "reference-region" reads the request's manifest, views a grid-labelled
  *   region of the attached reference (the first listed one otherwise) with
- *   view_reference, and replies with the colours it found there.
+ *   read_reference_image, and replies with the colours it found there.
  * - "reference-never" replies that the work matches the reference without
  *   viewing anything: the under-fetch the watch and the eval flag.
  *
@@ -66,7 +66,7 @@ export function createReferenceStub(script: ReferenceStubScript): UnifiedConvers
         lines.find((match) => match[0].includes("attached to this request")) ?? lines[0]!;
       const call = {
         id: `stub-${++calls}`,
-        name: "view_reference",
+        name: "read_reference_image",
         input: {
           id: line[1]!,
           size: "full",

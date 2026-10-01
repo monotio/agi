@@ -160,7 +160,7 @@ export class LogicAnalysisClient {
         data.version !== request.version ||
         (data.ok && data.method !== request.query.method)
       ) {
-        this.failWorker(new Error("Logic analysis reply did not match its requested snapshot."));
+        this.failWorker(new Error("Logic analysis response did not match its requested snapshot."));
         return;
       }
       this.pending.delete(data.id);

@@ -9,7 +9,7 @@ test("Genesis retry preserves a valid authored logic comment with unchanged nati
   installBoilerplateSeed(state);
   const files = state.getFiles();
   const source = `${state.sources.logics.get(1)!}\n// A learner's story note to retain.\n`;
-  const edited = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  const edited = executeAgentTool(state, "write_logic", { room: 1, source });
   assert.equal(edited.success, true);
   assert.deepEqual(state.getFiles(), files, "the comment keeps every native byte identical");
   assert.equal(state.sources.logics.get(1), source);

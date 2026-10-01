@@ -16,12 +16,12 @@ onUnmounted(() => clearInterval(clock));
 const TOOL_SUBJECTS: Record<string, string> = {
   write_picture: "scenery",
   write_view: "sprites",
-  write_logic_source: "room behavior",
+  write_logic: "room behavior",
   write_words: "vocabulary",
-  write_inventory_objects: "inventory",
+  write_objects: "inventory",
   write_sound: "sound",
   write_music: "music",
-  read_room_context: "a room inspection",
+  read_room: "a room inspection",
   playtest_room: "a playtest",
 };
 const activity = computed(() => {

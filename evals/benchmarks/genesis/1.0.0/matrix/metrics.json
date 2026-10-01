@@ -579,21 +579,21 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 1,
       "read_authoring_guide": 1,
-      "update_world": 1,
-      "reserve_binding": 1,
-      "write_inventory_objects": 1,
+      "update_plan": 1,
+      "reserve_name": 1,
+      "write_objects": 1,
       "write_words": 1,
       "write_view": 3,
       "write_picture": 1,
-      "write_logic_source": 1,
-      "edit_resource_source": 2,
+      "write_logic": 1,
+      "edit_source": 2,
       "playtest_room": 3,
       "read_diagnostic": 1,
       "write_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 20,
      "failures": [],
@@ -606,7 +606,7 @@
        "controlCommands": 2
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 0,
        "controlCommands": 0
       }
@@ -614,12 +614,12 @@
      "pictureWritesUsingPriority": 1,
      "assistantMessages": 13,
      "proseBlocks": 2,
-     "proseChars": 153,
+     "proseChars": 151,
      "reasoningVisibleChars": 40609,
      "proseMentionsPriority": 0,
      "proseSample": [
       "Now playtest: the intro, talking to Prakash, blocked exit, and a composed frame.",
-      "Quick check that the east exit opens after the assignment, then handover."
+      "Quick check that the east exit opens after the assignment, then finish."
      ]
     },
     "brief": {
@@ -1337,19 +1337,19 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 2,
-      "reserve_binding": 1,
-      "update_world": 1,
-      "write_inventory_objects": 1,
+      "reserve_name": 1,
+      "update_plan": 1,
+      "write_objects": 1,
       "write_view": 4,
       "write_picture": 1,
-      "edit_resource_source": 4,
+      "edit_source": 4,
       "write_words": 1,
-      "write_logic_source": 1,
+      "write_logic": 1,
       "playtest_room": 1,
       "write_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 20,
      "failures": [
@@ -1376,7 +1376,7 @@
        "controlCommands": 1
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 0,
        "controlCommands": 0
       }
@@ -2135,28 +2135,28 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 1,
       "read_authoring_guide": 3,
-      "update_world": 2,
-      "reserve_binding": 1,
-      "write_inventory_objects": 1,
+      "update_plan": 2,
+      "reserve_name": 1,
+      "write_objects": 1,
       "write_words": 1,
       "write_view": 4,
       "write_picture": 1,
       "read_picture": 1,
-      "write_logic_source": 2,
+      "write_logic": 2,
       "read_command_reference": 1,
-      "edit_resource_source": 2,
+      "edit_source": 2,
       "playtest_room": 2,
       "write_game_tests": 1,
       "run_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 26,
      "failures": [
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 52:3: unknown action 'ignore.objects' or action not available in profile 2.936 (check spelling and the selected profile). Use read_command_reference for the active profile's ex"
       }
@@ -2166,7 +2166,7 @@
      },
      "representativeErrors": [
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 52:3: unknown action 'ignore.objects' or action not available in profile 2.936 (check spelling and the selected profile). Use read_command_reference for the active profile's ex"
       }
@@ -2178,7 +2178,7 @@
        "controlCommands": 2
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 0,
        "controlCommands": 0
       }
@@ -2752,29 +2752,29 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_authoring_guide": 1,
       "read_logic": 3,
       "read_command_reference": 1,
-      "update_world": 1,
-      "reserve_binding": 1,
+      "update_plan": 1,
+      "reserve_name": 1,
       "write_words": 4,
-      "write_scene": 3,
+      "draw_picture_items": 3,
       "write_view": 4,
-      "write_inventory_objects": 1,
-      "patch_view_cels": 1,
+      "write_objects": 1,
+      "edit_cels": 1,
       "write_picture": 1,
       "read_words": 1,
       "write_room": 1,
       "read_view": 1,
-      "read_room_context": 2,
+      "read_room": 2,
       "read_picture": 4,
-      "edit_resource_source": 4,
+      "edit_source": 4,
       "playtest_room": 5,
       "read_diagnostic": 1,
       "write_game_tests": 1,
       "run_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 44,
      "failures": [
@@ -2789,12 +2789,12 @@
        "error": "Dictionary compilation error: Error: 'at' is an ignored word (group 0) and cannot join a synonym group."
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "category": "picture/scene",
        "error": "Scene was not written: Error: Shape 4 x1 must be null for line."
       },
       {
-       "tool": "patch_view_cels",
+       "tool": "edit_cels",
        "category": "view",
        "error": "View cels were not patched: Error: patches[0] (loop 0, cel 0).recolor[0]: from 0 is the cel's transparent color; use rows to change transparency."
       },
@@ -2804,12 +2804,12 @@
        "error": "Dictionary compilation error: Error: 'at' is an ignored word (group 0) and cannot join a synonym group."
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "category": "picture/scene",
        "error": "Scene was not written: Error: Shape 22 rect points must be null."
       },
       {
-       "tool": "read_room_context",
+       "tool": "read_room",
        "category": "other",
        "error": "Supply room 0..255 when no live room is attached."
       }
@@ -2827,14 +2827,14 @@
        "error": "Dictionary compilation error: Error: 'about' is an ignored word (group 0) and cannot join a synonym group."
       },
       {
-       "tool": "patch_view_cels",
+       "tool": "edit_cels",
        "category": "view",
        "error": "View cels were not patched: Error: patches[0] (loop 0, cel 0).recolor[0]: from 0 is the cel's transparent color; use rows to change transparency."
       }
      ],
      "pictureWrites": [
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 0,
        "controlCommands": 0
       },
@@ -2844,22 +2844,22 @@
        "controlCommands": 0
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 1,
        "controlCommands": 0
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 1,
        "controlCommands": 0
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 2,
        "controlCommands": 1
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 1,
        "controlCommands": 1
       }
@@ -3429,23 +3429,23 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 2,
       "read_authoring_guide": 3,
       "read_view": 1,
-      "update_world": 1,
-      "reserve_binding": 1,
-      "write_inventory_objects": 1,
+      "update_plan": 1,
+      "reserve_name": 1,
+      "write_objects": 1,
       "write_words": 2,
       "write_picture": 1,
       "write_view": 2,
-      "write_scene": 1,
-      "write_logic_source": 2,
+      "draw_picture_items": 1,
+      "write_logic": 2,
       "playtest_room": 5,
       "read_picture": 1,
-      "edit_resource_source": 1,
+      "edit_source": 1,
       "write_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 27,
      "failures": [
@@ -3455,7 +3455,7 @@
        "error": "View 0 is not present in the container."
       },
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 79:7: word 'file' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying "
       }
@@ -3466,7 +3466,7 @@
      },
      "representativeErrors": [
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 79:7: word 'file' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying "
       },
@@ -3483,12 +3483,12 @@
        "controlCommands": 1
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 4,
        "controlCommands": 3
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 1,
        "controlCommands": 1
       }
@@ -4282,20 +4282,20 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 2,
       "read_authoring_guide": 1,
-      "update_world": 1,
-      "reserve_binding": 1,
-      "write_inventory_objects": 1,
+      "update_plan": 1,
+      "reserve_name": 1,
+      "write_objects": 1,
       "write_words": 1,
       "write_view": 3,
       "write_picture": 1,
-      "edit_resource_source": 2,
-      "write_logic_source": 1,
+      "edit_source": 2,
+      "write_logic": 1,
       "playtest_room": 5,
       "write_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 22,
      "failures": [],
@@ -5025,26 +5025,26 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 2,
       "read_authoring_guide": 1,
-      "reserve_binding": 2,
-      "update_world": 1,
+      "reserve_name": 2,
+      "update_plan": 1,
       "write_view": 3,
-      "write_scene": 1,
+      "draw_picture_items": 1,
       "read_picture": 1,
-      "edit_resource_source": 2,
-      "write_inventory_objects": 1,
+      "edit_source": 2,
+      "write_objects": 1,
       "write_words": 1,
-      "write_logic_source": 2,
+      "write_logic": 2,
       "playtest_room": 3,
       "write_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 23,
      "failures": [
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 4:27: expected number, got 'f32'. Use read_command_reference for the active profile's exact signatures and semantics. Candidates below are suggestions; choose by intended behav"
       }
@@ -5054,19 +5054,19 @@
      },
      "representativeErrors": [
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 4:27: expected number, got 'f32'. Use read_command_reference for the active profile's exact signatures and semantics. Candidates below are suggestions; choose by intended behav"
       }
      ],
      "pictureWrites": [
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 0,
        "controlCommands": 0
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 2,
        "controlCommands": 2
       }
@@ -5075,7 +5075,7 @@
      "assistantMessages": 18,
      "proseBlocks": 2,
      "proseChars": 110,
-     "reasoningVisibleChars": 16869,
+     "reasoningVisibleChars": 16879,
      "proseMentionsPriority": 1,
      "proseSample": [
       "Now playtest the core puzzle route and exits.",
@@ -5837,23 +5837,23 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 2,
       "read_authoring_guide": 3,
-      "update_world": 2,
-      "reserve_binding": 2,
-      "write_inventory_objects": 1,
+      "update_plan": 2,
+      "reserve_name": 2,
+      "write_objects": 1,
       "write_words": 1,
       "write_view": 6,
-      "write_scene": 1,
-      "write_logic_source": 1,
+      "draw_picture_items": 1,
+      "write_logic": 1,
       "playtest_room": 4,
-      "read_room_context": 1,
-      "edit_resource_source": 2,
+      "read_room": 1,
+      "edit_source": 2,
       "write_game_tests": 1,
       "read_picture": 1,
       "run_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 31,
      "failures": [
@@ -5880,12 +5880,12 @@
      ],
      "pictureWrites": [
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 12,
        "controlCommands": 7
       },
       {
-       "tool": "edit_resource_source",
+       "tool": "edit_source",
        "priorityCommands": 1,
        "controlCommands": 1
       }
@@ -6543,25 +6543,25 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 6,
+      "read_plan": 6,
       "read_authoring_guide": 1,
       "read_logic": 3,
       "read_command_reference": 1,
-      "reserve_binding": 1,
-      "update_world": 2,
+      "reserve_name": 1,
+      "update_plan": 2,
       "write_picture": 1,
       "write_view": 13,
       "write_words": 2,
-      "write_inventory_objects": 2,
-      "write_scene": 3,
+      "write_objects": 2,
+      "draw_picture_items": 3,
       "write_room": 1,
       "read_picture": 1,
-      "write_logic_source": 3,
+      "write_logic": 3,
       "playtest_room": 4,
       "write_game_tests": 1,
       "run_game_tests": 1,
       "read_game_tests": 1,
-      "handover": 1
+      "finish": 1
      },
      "toolCallCount": 48,
      "failures": [
@@ -6581,7 +6581,7 @@
        "error": "View 5 was not written: line 27: cel king row 23 has 9 symbols; its width is 8. Send exactly 8."
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "category": "picture/scene",
        "error": "Scene was not written: Error: Shape 7 x1 must be null for line."
       },
@@ -6606,12 +6606,12 @@
        "error": "View 5 was not written: line 32: cel king has 28 rows; its height is 29. Send exactly 29."
       },
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 47:54: word 'pick' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying"
       },
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 57:81: word 'swim' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying"
       },
@@ -6629,7 +6629,7 @@
      },
      "representativeErrors": [
       {
-       "tool": "write_logic_source",
+       "tool": "write_logic",
        "category": "assembler",
        "error": "Assembler error in logic 1: AssemblerError: 47:54: word 'pick' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vocabulary or its synonyms before retrying"
       },
@@ -6646,17 +6646,17 @@
        "controlCommands": 2
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 12,
        "controlCommands": 4
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 11,
        "controlCommands": 4
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 11,
        "controlCommands": 4
       }
@@ -7272,20 +7272,20 @@
     ],
     "session": {
      "toolCalls": {
-      "inspect_world_bible": 1,
+      "read_plan": 1,
       "read_logic": 3,
       "read_authoring_guide": 2,
-      "update_world": 1,
-      "write_inventory_objects": 1,
+      "update_plan": 1,
+      "write_objects": 1,
       "write_words": 1,
       "write_view": 5,
       "write_picture": 1,
-      "write_scene": 1,
-      "write_logic_source": 1,
+      "draw_picture_items": 1,
+      "write_logic": 1,
       "playtest_room": 4,
       "write_game_tests": 1,
-      "edit_resource_source": 1,
-      "handover": 1
+      "edit_source": 1,
+      "finish": 1
      },
      "toolCallCount": 24,
      "failures": [
@@ -7312,7 +7312,7 @@
        "controlCommands": 1
       },
       {
-       "tool": "write_scene",
+       "tool": "draw_picture_items",
        "priorityCommands": 3,
        "controlCommands": 3
       }

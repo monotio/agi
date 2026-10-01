@@ -14,7 +14,7 @@
       "fill": [0, 0, 170]
     }
   ],
-  "tool": "view_reference",
+  "tool": "read_reference_image",
   "args": {
     "id": "art-3f9a01c2d4",
     "size": "full",

@@ -55,7 +55,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         await conversation.complete();
         conversation.appendToolResults([{ toolCallId: "sprite", result: sprite }]);
         await conversation.complete();
-        const recovery = tools.executeAgentTool(state, "write_logic_source", {
+        const recovery = tools.executeAgentTool(state, "write_logic", {
           room: 2,
           source: "relese.priorty(o1); return;",
         });

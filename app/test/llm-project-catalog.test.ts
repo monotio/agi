@@ -2,6 +2,7 @@ import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
+import { parameterDescriptions } from "../../src/studio/vocabulary.ts";
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
 import {
   PROJECT_ASSIST_TOOLS,
@@ -74,16 +75,19 @@ test("OpenAI sends only the custom catalog and filters allowed_tools against it"
     assert.ok(PROJECT_ASSIST_TOOL_NAMES.includes(name), name);
   // The schema reaches the wire: read_document carries its documented fields.
   const readDoc = tools.find((tool) => tool.name === "read_document")!;
-  assert.deepEqual(readDoc.parameters, {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      key: { type: "string", maxLength: 64 },
-      offset: { type: ["integer", "null"], minimum: 0 },
-      limit: { type: ["integer", "null"], minimum: 1, maximum: 131072 },
-    },
-    required: ["key", "offset", "limit"],
-  });
+  assert.deepEqual(
+    readDoc.parameters,
+    parameterDescriptions("read_document", {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        key: { type: "string", maxLength: 64 },
+        offset: { type: ["integer", "null"], minimum: 0 },
+        limit: { type: ["integer", "null"], minimum: 1, maximum: 131072 },
+      },
+      required: ["key", "offset", "limit"],
+    }),
+  );
   assert.deepEqual(requests[0]!["tool_choice"], {
     type: "allowed_tools",
     mode: "auto",

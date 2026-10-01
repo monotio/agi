@@ -91,7 +91,7 @@ const resizeWarning = computed(() => {
   }
 });
 /** Why the cel's edits are off, on their tooltips. */
-const PAUSED = "Editing pauses while the sprite is read-only or an AI proposal is open";
+const PAUSED = "Editing pauses while the actor is read-only or an AI change is open";
 const resizeBlocked = computed(() => {
   if (frozen) return PAUSED;
   if (!validSize.value)
@@ -149,7 +149,7 @@ function chooseTransparent(): void {
   if (!root) return;
   disclosure.value?.show();
   void nextTick(() => {
-    const select = root.querySelector<HTMLElement>("[data-testid='sprite-transparent-colour']");
+    const select = root.querySelector<HTMLElement>("[data-testid='actor-transparent-colour']");
     select?.scrollIntoView({ block: "nearest" });
     select?.focus();
   });

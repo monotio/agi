@@ -83,7 +83,7 @@ test("a ghost dragged behind the bench occluder is hidden exactly where probeAct
 }) => {
   await open(page);
   const readout = page.getByTestId("ghost-probe-readout");
-  await expect(readout.getByRole("heading")).toHaveText("Ghost");
+  await expect(readout.getByRole("heading")).toHaveText("Stand-in");
   // The readout sits beside the picture: on the art, only the ghost and its handle.
   const art = (await page.locator(".studio-pane").boundingBox())!;
   expect((await readout.boundingBox())!.x).toBeGreaterThanOrEqual(art.x + art.width);
@@ -102,10 +102,12 @@ test("a ghost dragged behind the bench occluder is hidden exactly where probeAct
   expect(want.bandPriority).toBe(9);
   expect(want.hidden.length).toBeGreaterThan(0);
   expect(await pathCells(page, '[data-role="ghost-hidden"]')).toEqual(want.hidden);
-  await expect(readout.locator('[data-role="ghost-band"]')).toContainText("x 60 y 100 → band 9");
+  await expect(readout.locator('[data-role="ghost-band"]')).toContainText(
+    "x 60 y 100 → depth band 9",
+  );
   const verdict = readout.locator('[data-role="ghost-verdict"]');
   await expect(verdict).toHaveAttribute("data-kind", "behind");
-  await expect(verdict).toContainText("Behind Bench occluder");
+  await expect(verdict).toContainText("Behind Bench depth");
   await expect(verdict).toContainText(`${want.hidden.length} of`);
   await expect(verdict).toContainText("hidden");
 });
@@ -125,8 +127,8 @@ test("moving onto the floor-edge barrier reports its cells; keys nudge, cycle an
   const barrier = want.controlHits.find((hit) => hit.value === 0)!;
   expect(barrier.cells.map((cell) => cell.x)).toEqual([60, 61, 62, 63, 64, 65, 66, 67, 68, 69]);
   const hit = readout.locator('[data-role="ghost-control-hit"][data-value="0"]');
-  await expect(hit).toHaveText("0 · barrier: x 60–69 at y 114");
-  await expect(readout).toContainText("Blocked: barrier");
+  await expect(hit).toHaveText("0 · Wall: x 60–69 at y 114");
+  await expect(readout).toContainText("Stopped at a Wall");
   const marked = await page
     .locator('rect[data-role="ghost-control"][data-value="0"]')
     .evaluateAll((rects) => rects.map((r) => `${r.getAttribute("x")},${r.getAttribute("y")}`));

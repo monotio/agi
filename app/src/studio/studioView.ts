@@ -1,3 +1,4 @@
+import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
 /**
  * Pure view helpers for the Room Studio: lens painting, mask geometry for
  * the SVG overlay, priority band guides, control-line labels, the
@@ -20,6 +21,8 @@ export type PaneLayer = "art" | "depth" | "depth-only" | "walk" | "walk-only";
 export interface ControlValue {
   readonly value: 0 | 1 | 2 | 3;
   readonly name: string;
+  readonly help: string;
+  readonly technical: string;
   /** EGA colour the Walk lens paints it with. */
   readonly colour: number;
   /** Which cells of a run are painted at full strength, so the value reads without colour. */
@@ -28,16 +31,44 @@ export interface ControlValue {
 
 /** Priority values 0-3 are control lines, not depth (spec "Priority and control"). */
 export const CONTROL_VALUES: readonly ControlValue[] = [
-  { value: 0, name: "barrier", colour: 12, pattern: "solid" },
-  { value: 1, name: "conditional", colour: 14, pattern: "dashed" },
-  { value: 2, name: "signal", colour: 10, pattern: "dotted" },
-  { value: 3, name: "water", colour: 11, pattern: "long-dash" },
+  {
+    value: 0,
+    name: VOCABULARY.wall.label,
+    help: VOCABULARY.wall.help,
+    technical: VOCABULARY.wall.technical,
+    colour: 12,
+    pattern: "solid",
+  },
+  {
+    value: 1,
+    name: VOCABULARY.gate.label,
+    help: VOCABULARY.gate.help,
+    technical: VOCABULARY.gate.technical,
+    colour: 14,
+    pattern: "dashed",
+  },
+  {
+    value: 2,
+    name: VOCABULARY.trigger.label,
+    help: VOCABULARY.trigger.help,
+    technical: VOCABULARY.trigger.technical,
+    colour: 10,
+    pattern: "dotted",
+  },
+  {
+    value: 3,
+    name: VOCABULARY.water.label,
+    help: VOCABULARY.water.help,
+    technical: VOCABULARY.water.technical,
+    colour: 11,
+    pattern: "long-dash",
+  },
 ];
 
 /** The meaning of a priority value, for labels. */
 export function priorityMeaning(value: number): string {
   const control = CONTROL_VALUES[value];
-  return control ? control.name : value === 4 ? "background" : `band ${value}`;
+  return control ? control.name : value === 4 ? "background" : `depth band ${value}`;
 }
 
 /** Whether cell x,y of a control run is painted at full strength for `pattern`. */
@@ -342,7 +373,7 @@ export function spanIndexAt(spans: readonly PictureSourceSpan[], offset: number)
   return -1;
 }
 
-/** When the byte meter starts warning: this share of write_scene's limit. */
+/** When the byte meter starts warning: this share of draw_picture_items's limit. */
 const BYTES_APPROACH = 0.8;
 
 export interface ByteMeter {
@@ -355,7 +386,7 @@ export interface ByteMeter {
 /**
  * The top bar's size meter for a compiled picture: against the container's
  * record limit (a PIC is at most `recordLimit` bytes) and, before it, the
- * agent's write_scene limit, past which the agent cannot rewrite the picture.
+ * agent's draw_picture_items limit, past which the agent cannot rewrite the picture.
  */
 export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number): ByteMeter {
   const fraction = Math.min(1, bytes / recordLimit);
@@ -370,13 +401,13 @@ export function byteMeter(bytes: number, sceneLimit: number, recordLimit: number
     return {
       tone: "warn",
       fraction,
-      note: `Larger than the ${n(sceneLimit)} bytes the assistant can rewrite in one go; the game allows ${n(recordLimit)} bytes.`,
+      note: `Larger than the ${n(sceneLimit)} bytes the agent can rewrite in one go; the game allows ${n(recordLimit)} bytes.`,
     };
   if (bytes >= sceneLimit * BYTES_APPROACH)
     return {
       tone: "warn",
       fraction,
-      note: `Close to the ${n(sceneLimit)} bytes the assistant can rewrite in one go (the game allows ${n(recordLimit)}).`,
+      note: `Close to the ${n(sceneLimit)} bytes the agent can rewrite in one go (the game allows ${n(recordLimit)}).`,
     };
   return {
     tone: "ok",

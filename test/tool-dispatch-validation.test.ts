@@ -24,9 +24,9 @@ test("every catalog tool rejects undeclared fields through both public dispatche
 });
 
 const malformed: [string, Record<string, unknown>][] = [
-  ["read_room_context", { room: "1" }],
+  ["read_room", { room: "1" }],
   [
-    "read_room_context",
+    "read_room",
     { room: 1, state: null, frames: { count: "9", stride: null, sheet: null, plane: null } },
   ],
 ];

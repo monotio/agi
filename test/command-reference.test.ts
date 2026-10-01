@@ -116,7 +116,7 @@ test("command lookup supplies real signatures and semantic help, and generic fai
     ["positionn", "position"],
     ["relese.priorty", "release.priority"],
   ]) {
-    const result = executeAgentTool(state, "write_logic_source", {
+    const result = executeAgentTool(state, "write_logic", {
       room: 2,
       source: `${fake}(o1); return;`,
     });
@@ -131,14 +131,14 @@ test("command lookup supplies real signatures and semantic help, and generic fai
 
 test("compiler failures guide vocabulary and operand repairs without changing resources", () => {
   const state = createAgentSessionState();
-  const word = executeAgentTool(state, "write_logic_source", {
+  const word = executeAgentTool(state, "write_logic", {
     room: 2,
     source: 'if (said("unregistered")) { return; } return;',
   });
   assert.equal(word.success, false);
   assert.match(JSON.stringify(word.details), /read_words/);
   assert.match(JSON.stringify(word.details), /write_words/);
-  const arity = executeAgentTool(state, "write_logic_source", {
+  const arity = executeAgentTool(state, "write_logic", {
     room: 2,
     source: "cycle.time(o1); return;",
   });

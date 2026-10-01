@@ -4,6 +4,7 @@ import { SCREEN_WIDTH } from "../../../src/types.ts";
 import UiExplain from "../ui/UiExplain.vue";
 import { explain } from "./studioTerms.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
+import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
 import { CONTROL_VALUES } from "./studioView.ts";
 import type { GhostProbe } from "./useGhostProbe.ts";
 
@@ -65,7 +66,7 @@ const occluder = computed(() => {
 
 const verdict = computed(() => {
   const total = pixels.value.length;
-  if (total === 0) return { kind: "empty", text: "No opaque pixels on the surface" };
+  if (total === 0) return { kind: "empty", text: "Place a visible cel on the picture." };
   if (hiddenCount.value === 0) return { kind: "front", text: `In front · all ${total} px drawn` };
   const kind = hiddenCount.value === total ? "hidden" : "behind";
   return {
@@ -93,9 +94,9 @@ const footprintText = computed(() => {
   if (footprint.bypassed) return "Anywhere (depth 15)";
   if (footprint.accepted) {
     const { signal, water } = footprint.controls;
-    return `Allowed${signal ? " · signal (f3 for ego)" : ""}${water ? " · all water (f0 for ego)" : ""}`;
+    return `Allowed${signal ? " · Trigger (sets flag 3 for the hero)" : ""}${water ? " · Water (sets flag 0 for the hero)" : ""}`;
   }
-  return footprint.controls.barrier ? "Blocked: barrier" : "Blocked: conditional barrier";
+  return footprint.controls.barrier ? "Stopped at a Wall" : "Stopped at a Gate";
 });
 
 const PRIORITIES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
@@ -107,15 +108,15 @@ const viewLabel = (number: number, description: string | undefined): string =>
   <section
     class="ghost-readout"
     data-testid="ghost-probe-readout"
-    aria-label="Ghost"
+    aria-label="Stand-in"
     aria-live="polite"
   >
     <div class="ghost-readout__title">
-      <h2 class="ghost-readout__head">Ghost</h2>
+      <h2 class="ghost-readout__head">Stand-in</h2>
       <UiExplain v-bind="explain('ghost')" />
     </div>
     <label class="ghost-readout__row">
-      <span class="ghost-readout__key">View</span>
+      <span class="ghost-readout__key">{{ VOCABULARY.view.label }}</span>
       <select v-model="viewNumber" class="ghost-readout__select" data-role="ghost-view">
         <option v-for="entry in probe.views.value" :key="entry.number" :value="entry.number">
           {{ viewLabel(entry.number, entry.view.description) }}
@@ -132,7 +133,7 @@ const viewLabel = (number: number, description: string | undefined): string =>
         >Depth <UiExplain v-bind="explain('depth')"
       /></span>
       <select v-model="fixedPriority" class="ghost-readout__select" data-role="ghost-priority">
-        <option value="band">Band at the feet</option>
+        <option value="band">Depth band at feet</option>
         <option v-for="p in PRIORITIES" :key="p" :value="p">Fixed {{ p }}</option>
       </select>
     </label>
@@ -141,7 +142,7 @@ const viewLabel = (number: number, description: string | undefined): string =>
         >Feet <UiExplain v-bind="explain('feet')"
       /></span>
       <span
-        >x {{ x }} y {{ baselineY }} → band {{ result?.bandPriority
+        >x {{ x }} y {{ baselineY }} → {{ VOCABULARY.depthBand.label }} {{ result?.bandPriority
         }}<template v-if="result && fixedPriority !== 'band'">
           · draws at {{ result.drawPriority }}</template
         ></span

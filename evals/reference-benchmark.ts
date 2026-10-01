@@ -7,10 +7,10 @@
  *   before  the full images ride the request (legacy embedding, kept only
  *           for this comparison: TurnReferences.legacyImages)
  *   after   handles: a manifest line and a 64-pixel thumbnail per image,
- *           and view_reference for what the model decides to look at
+ *           and read_reference_image for what the model decides to look at
  *
  * Records per run: tokens (input, cached, output), cost, provider requests,
- * view_reference calls, attached art the turn wrote from or claimed to match
+ * read_reference_image calls, attached art the turn wrote from or claimed to match
  * without viewing (the under-fetch rule), the match scores and the reply.
  *
  *   npm run eval:references -- --provider anthropic --model claude-opus-5-5 \
@@ -593,7 +593,7 @@ interface RunReport {
   match: boolean;
   scores: Scores;
   viewCalls: number;
-  /** Each view_reference call's size, region and grid, in call order. */
+  /** Each read_reference_image call's size, region and grid, in call order. */
   views: { size: unknown; region: unknown; grid: unknown }[];
   /** Attached art the turn wrote from or said it matched without viewing it. */
   unviewed: string[];
@@ -625,7 +625,7 @@ async function runCase(
     (kind, _message, data) => {
       const details = data as Record<string, unknown> | undefined;
       if (kind === "telemetry") telemetry.push(details?.["telemetry"] as (typeof telemetry)[0]);
-      if (kind === "request" && details?.["tool"] === "view_reference") {
+      if (kind === "request" && details?.["tool"] === "read_reference_image") {
         viewCalls++;
         const call = (details["args"] ?? {}) as Record<string, unknown>;
         views.push({ size: call["size"], region: call["region"], grid: call["grid"] });
@@ -709,7 +709,7 @@ async function runCase(
   };
 }
 
-/** Per case and arm: runs, matches, mean tokens, cost and view_reference calls. */
+/** Per case and arm: runs, matches, mean tokens, cost and read_reference_image calls. */
 function compare(runs: readonly RunReport[]) {
   const rows: Record<string, unknown>[] = [];
   for (const id of new Set(runs.map((run) => run.case)))

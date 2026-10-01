@@ -304,7 +304,7 @@ export function useStudioEditing(options: {
       if (!art || followedItem(document, door.item)) continue;
       say({
         tone: "warn",
-        text: `${door.label} stays put now: Ungroup split ${art.label} into drawing elements.`,
+        text: `${door.label} stays put now: Ungroup split ${art.label} into items.`,
       });
       break;
     }

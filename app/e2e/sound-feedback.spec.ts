@@ -103,7 +103,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
                     {
                       type: "function_call",
                       call_id: "listen-sound",
-                      name: "preview_sound",
+                      name: "play_sound",
                       arguments: JSON.stringify({
                         num: 5,
                         startSeconds: 0,

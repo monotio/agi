@@ -57,7 +57,7 @@ const approvalNote = computed(() => {
     return `Automatically applies changes within ${approval.scope
       .map((key) => documentLabel(key))
       .join(", ")}. Deletions require review.`;
-  return "Every proposal waits for your review.";
+  return "Every change waits for your review.";
 });
 
 const sendBlocked = computed(() => {
@@ -110,11 +110,11 @@ const spoken = computed(() => {
   if (!held) return "";
   switch (held.outcome) {
     case "review":
-      return `Proposal ready: ${held.label ?? ""} (${held.keys.map(documentLabel).join(", ")}).`;
+      return `Changes ready: ${held.label ?? ""} (${held.keys.map(documentLabel).join(", ")}).`;
     case "applied":
       return `Applied: ${held.label ?? ""}.`;
     case "stale":
-      return "The draft changed while the AI worked; the proposal is stale.";
+      return "The draft changed while the AI worked; the change is stale.";
     case "refused":
       return `Refused: ${held.text}`;
     case "cancelled":
@@ -129,7 +129,7 @@ const requestLimit = ref(5);
 <template>
   <section class="lagent" :aria-labelledby="headingId" data-testid="logic-assistant">
     <h2 class="lagent__title">
-      <span :id="headingId">Assistant</span>
+      <span :id="headingId">Agent</span>
       <UiChip
         v-if="connected"
         :tone="assist.state.value.approval.mode === 'auto' ? 'warn' : 'neutral'"
@@ -143,14 +143,14 @@ const requestLimit = ref(5);
     <div v-if="!connected" class="lagent__connect">
       <template v-if="configured">
         <p class="lagent__note">
-          Connect {{ ai?.aiModelLabel.value ?? "your provider" }} to ask for changes.
+          Connect {{ ai?.aiModelLabel.value ?? "your provider" }} to request changes.
         </p>
         <UiButton size="sm" data-testid="logic-assistant-connect" @click="assist.connectNow()">
           Connect
         </UiButton>
       </template>
       <template v-else>
-        <p class="lagent__note">Connect an AI provider to ask for changes.</p>
+        <p class="lagent__note">Connect an AI provider to request changes.</p>
         <UiButton
           size="sm"
           data-testid="logic-assistant-connect"
@@ -189,7 +189,7 @@ const requestLimit = ref(5);
           {
             value: 'review',
             label: 'Review',
-            title: 'Every proposal waits for your review',
+            title: 'Every change waits for your review',
             testid: 'logic-agent-mode-review',
           },
           {
@@ -276,12 +276,12 @@ const requestLimit = ref(5);
         data-testid="logic-assistant-proposal"
       >
         <p class="lagent__summary" data-testid="logic-assistant-summary">
-          {{ pendingSummary?.label ?? "Proposal" }}
+          {{ pendingSummary?.label ?? "Changes" }}
         </p>
         <p class="lagent__keys" data-testid="logic-assistant-keys">
           {{ assist.pending.value.keys.map(documentLabel).join(", ") }}
           <template v-if="assist.pending.value.deletions.length">
-            — deletes {{ assist.pending.value.deletions.map(documentLabel).join(", ") }}
+            Deletes {{ assist.pending.value.deletions.map(documentLabel).join(", ") }}
           </template>
         </p>
         <p
@@ -291,7 +291,7 @@ const requestLimit = ref(5);
           role="alert"
           data-testid="logic-assistant-stale"
         >
-          The draft changed while the AI worked. Approve is off until you ask again.
+          The draft changed while the AI worked. Approve is off until you send a follow-up.
         </p>
         <p
           v-if="assist.acceptNote.value"
@@ -329,7 +329,7 @@ const requestLimit = ref(5);
         <p class="lagent__summary">
           Applied: {{ assist.applied.value.label }} ({{
             assist.applied.value.keys.map(documentLabel).join(", ")
-          }}). One change; use Keep when ready.
+          }}). One change; use Save when ready.
         </p>
         <p
           v-if="assist.undoNote.value"
@@ -353,7 +353,7 @@ const requestLimit = ref(5);
             icon="undo"
             data-testid="logic-assistant-undo"
             :disabled="assist.undoNote.value !== undefined"
-            title="Undo the assistant's change across every document it touched"
+            title="Undo the agent's change across every document it touched"
             @click="assist.undoChanges()"
           >
             Undo changes
@@ -363,7 +363,7 @@ const requestLimit = ref(5);
             size="sm"
             icon="redo"
             data-testid="logic-assistant-redo"
-            title="Redo the assistant's change"
+            title="Redo the agent's change"
             @click="assist.redoChanges()"
           >
             Redo changes
@@ -414,7 +414,7 @@ const requestLimit = ref(5);
             :title="sendBlocked"
             data-testid="logic-assistant-ask"
           >
-            Ask
+            Agent
           </UiButton>
         </div>
       </form>

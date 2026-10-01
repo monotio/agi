@@ -72,7 +72,7 @@ test("an unanswered historical tool call is reported as unexecuted, never succes
         type: "function_call",
         id: "item",
         call_id: "pending",
-        name: "write_logic_source",
+        name: "write_logic",
         arguments: '{"room":1,"source":"return;"}',
       },
     ],
@@ -86,7 +86,7 @@ test("an unanswered historical tool call is reported as unexecuted, never succes
   assert.match(JSON.parse(result.output!).error, /not executed/);
 });
 
-test("a successful handover ends the turn with no provider request and rejects bundled calls", async (t) => {
+test("a successful finish ends the turn with no provider request and rejects bundled calls", async (t) => {
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => {
     requests++;
@@ -103,7 +103,7 @@ test("a successful handover ends the turn with no provider request and rejects b
           {
             type: "function_call",
             call_id: "h",
-            name: "handover",
+            name: "finish",
             arguments: JSON.stringify({ notes: null }),
           },
           {
@@ -147,19 +147,19 @@ test("a successful handover ends the turn with no provider request and rejects b
     state,
   );
   const result = await session.runPowerUp("add the word lamp then finish", 1);
-  // The handover call was terminal: no second provider request was made.
+  // The finish call was terminal: no second provider request was made.
   assert.equal(requests, 1);
   const words = parseWordsTok(state.wordsPayload!).map(({ word }) => word);
-  assert.ok(words.includes("lamp"), "the write before handover committed");
-  assert.ok(!words.includes("oops"), "the bundled write after handover never ran");
+  assert.ok(words.includes("lamp"), "the write before finish committed");
+  assert.ok(!words.includes("oops"), "the bundled write after finish never ran");
   const transcript = JSON.stringify(session.getTranscript());
-  assert.match(transcript, /Not executed: this turn ended at a successful handover/);
+  assert.match(transcript, /Not executed: this turn ended at a successful finish/);
   assert.equal(result.patched.length >= 0, true);
 });
 
 test("a remix ending in text commits only after the host verdict passes", async (t) => {
   // Offline bad case: the provider staged a write that broke a declared
-  // exit, handover rejected it, and the model answered "Done." anyway.
+  // exit, finish rejected it, and the model answered "Done." anyway.
   // The host must produce its own verdict on the exact staged candidate
   // instead of adopting it on the provider's word.
   const requests: Record<string, unknown>[] = [];
@@ -173,13 +173,13 @@ test("a remix ending in text commits only after the host verdict passes", async 
             {
               type: "function_call",
               call_id: "break",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 1, source: "return;" }),
             },
             {
               type: "function_call",
               call_id: "h",
-              name: "handover",
+              name: "finish",
               arguments: '{"notes":null}',
             },
           ]
@@ -188,7 +188,7 @@ test("a remix ending in text commits only after the host verdict passes", async 
               {
                 type: "function_call",
                 call_id: "fix",
-                name: "write_logic_source",
+                name: "write_logic",
                 arguments: JSON.stringify({
                   room: 1,
                   source:
@@ -198,7 +198,7 @@ test("a remix ending in text commits only after the host verdict passes", async 
               {
                 type: "function_call",
                 call_id: "h2",
-                name: "handover",
+                name: "finish",
                 arguments: '{"notes":null}',
               },
             ]
@@ -252,14 +252,14 @@ test("a remix ending in text commits only after the host verdict passes", async 
 
   const result = await session.runPowerUp("simplify room 1", 1);
 
-  // Failed handover followed by "Done.": the host re-checked the staged
+  // Failed finish followed by "Done.": the host re-checked the staged
   // candidate itself, handed the verdict back for repair, and never
   // adopted it — the live logic was still the original at that moment.
   assert.equal(requests.length, 3);
   assert.match(JSON.stringify(requests[1]!["input"]), /Handover rejected: room 1 declares exit/);
   assert.deepEqual(liveLogicWhenTexted, originalRoom);
   assert.match(JSON.stringify(requests[2]!["input"]), /cannot be committed.*declares exit/);
-  // The repaired candidate is what a passing handover commits.
+  // The repaired candidate is what a passing finish commits.
   const { disassembleLogic } = await import("../../src/logic/disassembler.ts");
   assert.match(
     disassembleLogic(state.container.getResource("logic", 1)!, {
@@ -281,7 +281,7 @@ test("unvalidated Remix progress replies pause visibly on repetition and keep li
             {
               type: "function_call",
               call_id: "break",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 1, source: "return;" }),
             },
           ]
@@ -350,7 +350,7 @@ test("a provider power-up returns compiled vocabulary and inventory files with i
               type: "function_call",
               id: "object-item",
               call_id: "object",
-              name: "write_inventory_objects",
+              name: "write_objects",
               arguments: JSON.stringify({ objects: [{ name: "Crystal", startingRoom: 255 }] }),
             },
           ]
@@ -396,7 +396,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "cross",
-              name: "edit_resource_source",
+              name: "edit_source",
               arguments: JSON.stringify({
                 kind: "logic",
                 num: 1,
@@ -412,7 +412,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "room",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 2, source: "return;" }),
             },
             {
@@ -424,7 +424,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "fact",
-              name: "update_world",
+              name: "update_plan",
               arguments: JSON.stringify({
                 rooms: [],
                 facts: [{ name: "weather", text: "rain" }],
@@ -436,7 +436,7 @@ test("room helper edits are transactional and may rewrite another room", async (
             {
               type: "function_call",
               call_id: "done",
-              name: "handover",
+              name: "finish",
               arguments: '{"notes":null}',
             },
           ];
@@ -477,7 +477,7 @@ test("pinned map notes reach the room turn's request body", async (t) => {
             {
               type: "function_call",
               call_id: "room",
-              name: "write_logic_source",
+              name: "write_logic",
               arguments: JSON.stringify({ room: 2, source: "return;" }),
             },
             {
@@ -491,7 +491,7 @@ test("pinned map notes reach the room turn's request body", async (t) => {
             {
               type: "function_call",
               call_id: "done",
-              name: "handover",
+              name: "finish",
               arguments: '{"notes":null}',
             },
           ];
@@ -542,7 +542,7 @@ test("a stalled remix pauses and can be discarded without claiming completion", 
             {
               type: "function_call",
               call_id: String(calls),
-              name: "inspect_world_bible",
+              name: "read_plan",
               arguments: '{"filter":"slots","section":null,"name":null,"offset":null,"kind":null}',
             },
           ],
@@ -651,12 +651,12 @@ test("Genesis executes advertised room inspection through the shared asynchronou
   t.mock.method(globalThis, "fetch", async () => {
     // A 400 ends the bounded test; the SDK retries connection errors.
     if (++requests > 1) return new Response("End this bounded inspection test.", { status: 400 });
-    // The one-flow genesis turn's read_room_context is the call under test.
+    // The one-flow genesis turn's read_room is the call under test.
     const output = [
       {
         type: "function_call",
         call_id: "context",
-        name: "read_room_context",
+        name: "read_room",
         arguments: '{"room":1}',
       },
     ];
@@ -668,7 +668,7 @@ test("Genesis executes advertised room inspection through the shared asynchronou
     { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     (_type, message, data) => {
       const event = data as { result?: typeof result } | undefined;
-      if (message.startsWith("[Genesis] read_room_context") && event?.result) result = event.result;
+      if (message.startsWith("[Genesis] read_room") && event?.result) result = event.result;
     },
   );
   await assert.rejects(session.startGenesis("A quiet courtyard."));
@@ -682,13 +682,13 @@ test("genesis is one turn: the world plan and resource writes share the tool sur
     requests.push(JSON.parse(String(init.body)));
     // A 400 ends the bounded test; the SDK retries connection errors.
     if (requests.length > 1) return new Response("End this bounded genesis test.", { status: 400 });
-    // One flow: update_world and a resource write land in the same turn —
+    // One flow: update_plan and a resource write land in the same turn —
     // no plan phase gates either of them.
     const output = [
       {
         type: "function_call",
         call_id: "world",
-        name: "update_world",
+        name: "update_plan",
         arguments: JSON.stringify({
           rooms: [
             {
@@ -720,8 +720,8 @@ test("genesis is one turn: the world plan and resource writes share the tool sur
   );
   await assert.rejects(session.startGenesis("A dockside mystery."));
   const tools = requests[0]!.tool_choice!.tools.map((tool) => tool.name);
-  assert.ok(tools.includes("update_world"));
-  assert.ok(tools.includes("write_logic_source"), "resource tools share the genesis surface");
+  assert.ok(tools.includes("update_plan"));
+  assert.ok(tools.includes("write_logic"), "resource tools share the genesis surface");
   // Both calls ran: the plan recorded and the write landed in one turn.
   assert.equal(session.state.authoring.world.rooms["1"]?.title, "Dock");
   assert.equal(session.state.authoring.world.rooms["2"]?.title, "Tide Room");
@@ -899,7 +899,7 @@ test("a session keeps the game's interpreter override through adoption and recon
   assert.equal(automatic.state.profile.id, "2.936");
 });
 
-test("Ask's first-turn brief withholds the room's plan entry, as read_room_context does in Ask", async (t) => {
+test("Ask's first-turn brief withholds the room's plan entry, as read_room does in Ask", async (t) => {
   const bodies: string[] = [];
   t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
     bodies.push(String(init.body));

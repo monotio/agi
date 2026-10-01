@@ -209,7 +209,7 @@ test("an imported image underlays the room, pins the board, keeps and reopens co
   await openResource(page, "picture", 1);
   await expect(creative.locator(".board__notes")).toHaveText("meadow palette");
   await expect(creative.locator(".board__thumb")).toBeVisible();
-  await creative.getByTestId("board-entry").getByRole("button", { name: "Sprite" }).click();
+  await creative.getByTestId("board-entry").getByRole("button", { name: "VIEW" }).click();
   await expect(page.getByTestId("view-job")).toBeVisible();
   await expect(page.getByTestId("frame-editor")).toBeVisible();
   expect(providerCalls).toBe(0);

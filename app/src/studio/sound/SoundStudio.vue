@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY_ACTIONS } from "../../../../src/studio/vocabulary.ts";
 /**
  * Sound Studio: the stored-project workspace for native SOUND cues. It opens
  * through openEditableProject like Logic Studio — no worker, no provider, no
@@ -165,9 +166,6 @@ function eventEdit(
 
 function setEventTicks(ticks: number): void {
   eventEdit("Set duration", (document, id) => document.updateEvent(id, { ticks }));
-}
-function setEventDivisor(divisor: number): void {
-  eventEdit("Set divisor", (document, id) => document.updateEvent(id, { divisor }));
 }
 function setEventNote(note: string): void {
   // The model's own grammar decides what a name or MIDI number is.
@@ -360,7 +358,7 @@ function confirmImport(): void {
   if (held === null) return;
   if (workspace.project !== held.service) return;
   if (draftVersion(held.service, held.num) !== held.version) {
-    notice.value = `SND ${held.num} changed while the file was read; pick Replace again to confirm.`;
+    notice.value = `SOUND ${held.num} changed while the file was read; pick Replace again to confirm.`;
     return;
   }
   try {
@@ -867,7 +865,7 @@ defineExpose({ cursor });
           data-testid="sound-keep"
           @click="requestKeep()"
         >
-          Keep
+          Save
         </UiButton>
         <UiIconButton
           icon="x"
@@ -938,7 +936,7 @@ defineExpose({ cursor });
               @click="selectCue(entry.num)"
             >
               <span class="sound-studio__item-name">
-                SND {{ entry.num }}
+                SOUND {{ entry.num }}
                 <template v-if="'openError' in entry"> · unreadable</template>
                 <template v-else-if="entry.opaque"> · {{ entry.family }}</template>
               </span>
@@ -967,13 +965,14 @@ defineExpose({ cursor });
         <template v-if="activeEntry !== null">
           <div class="sound-studio__cuebar">
             <span class="sound-studio__cuename" data-testid="sound-cue-name">
-              SND {{ activeEntry.num }}
+              SOUND {{ activeEntry.num }}
             </span>
             <div class="sound-studio__transport" role="group" aria-label="Preview">
               <UiIconButton
                 v-if="previewSnapshot?.status !== 'playing'"
                 icon="play"
-                label="Play preview"
+                :label="VOCABULARY_ACTIONS.play_sound.label"
+                :title="VOCABULARY_ACTIONS.play_sound.help"
                 size="sm"
                 :disabled="activeOpaque"
                 :aria-describedby="activeOpaque ? 'sound-preview-blocked' : undefined"
@@ -1125,7 +1124,6 @@ defineExpose({ cursor });
         :readonly="activeOpaque"
         @set-ticks="setEventTicks"
         @set-note="setEventNote"
-        @set-divisor="setEventDivisor"
         @set-attenuation="setEventAttenuation"
         @set-control="setEventControl"
         @replace-data="replaceEventData"
@@ -1147,7 +1145,7 @@ defineExpose({ cursor });
 
     <p class="sound-studio__small" data-testid="sound-small-notice">
       Sound Studio needs a wider window to edit. Your draft stays open. Widen the window, or use
-      Keep and Close above.
+      Save and Close above.
     </p>
 
     <!-- Dirty close / project switch guard -->
@@ -1155,7 +1153,7 @@ defineExpose({ cursor });
       <p>This project has changes that are not kept.</p>
       <div class="sound-studio__dialog-actions">
         <UiButton variant="primary" size="sm" data-testid="sound-leave-keep" @click="keepAndClose">
-          Keep
+          Save
         </UiButton>
         <UiButton
           variant="danger"
@@ -1221,7 +1219,7 @@ defineExpose({ cursor });
         class="sound-studio__dialog-note"
         data-testid="sound-review-removals"
       >
-        Keep removes {{ review.candidate.removedResources.join(", ") }} from the saved project.
+        Save removes {{ review.candidate.removedResources.join(", ") }} from the saved project.
       </p>
       <p
         v-if="reviewError"
@@ -1238,15 +1236,15 @@ defineExpose({ cursor });
           :disabled="review.candidate === undefined || keeping"
           :title="
             keeping
-              ? 'Keep is writing to storage'
+              ? 'Save is writing to storage'
               : review.candidate === undefined
                 ? 'Nothing is selected to keep'
-                : 'Keep the reviewed changes'
+                : 'Save the reviewed changes'
           "
           data-testid="sound-review-keep"
           @click="confirmKeep"
         >
-          {{ keeping ? "Keeping…" : "Keep" }}
+          {{ keeping ? "Saving…" : "Save" }}
         </UiButton>
         <UiButton
           variant="ghost"
@@ -1315,7 +1313,7 @@ defineExpose({ cursor });
       @closed="importConfirm = null"
     >
       <p>
-        Replace SND {{ importConfirm?.num }} with {{ importConfirm?.name }}? The current cue's
+        Replace SOUND {{ importConfirm?.num }} with {{ importConfirm?.name }}? The current cue's
         events are replaced by the imported bytes.
       </p>
       <div class="sound-studio__dialog-actions">

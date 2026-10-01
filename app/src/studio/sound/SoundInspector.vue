@@ -2,7 +2,15 @@
 import { ref, watch } from "vue";
 import type { SoundEvent } from "../../../../src/sound/document.ts";
 import type { SoundEntry } from "./soundWorkspace.ts";
-import { divisorNoteLabel, LANE_NAMES, NOISE_CONTROL_NAMES, ticksSeconds } from "./soundEdits.ts";
+import { VOCABULARY } from "../../../../src/studio/vocabulary.ts";
+import {
+  attenuationToVolume,
+  volumeToAttenuation,
+  divisorNoteLabel,
+  LANE_NAMES,
+  NOISE_CONTROL_NAMES,
+  ticksSeconds,
+} from "./soundEdits.ts";
 import UiButton from "../../ui/UiButton.vue";
 
 /**
@@ -25,7 +33,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   setTicks: [ticks: number];
   setNote: [note: string];
-  setDivisor: [divisor: number];
   setAttenuation: [attenuation: number];
   setControl: [control: number];
   replaceData: [kind: "tone" | "noise" | "rest"];
@@ -37,7 +44,6 @@ const emit = defineEmits<{
 
 const ticksText = ref("");
 const noteText = ref("");
-const divisorText = ref("");
 const attenuationText = ref("");
 const tempoText = ref("");
 const splitText = ref("");
@@ -46,11 +52,11 @@ watch(
   () => props.event,
   (event) => {
     ticksText.value = event === null ? "" : String(event.durationTicks);
-    noteText.value = "";
-    divisorText.value = event?.data.kind === "tone" ? String(event.data.divisor) : "";
+    noteText.value =
+      event?.data.kind === "tone" ? divisorNoteLabel(event.data.divisor).replace("≈", "") : "";
     attenuationText.value =
       event !== null && event.data.kind !== "rest" && "attenuation" in event.data
-        ? String(event.data.attenuation)
+        ? String(attenuationToVolume(event.data.attenuation))
         : "";
     splitText.value = "";
   },
@@ -81,18 +87,12 @@ function commitNote(): void {
   emit("setNote", textOf(noteText.value));
 }
 
-function commitDivisor(): void {
-  const raw = textOf(divisorText.value);
-  const divisor = Number(raw);
-  if (raw === "" || !Number.isInteger(divisor)) return;
-  emit("setDivisor", divisor);
-}
-
 function commitAttenuation(): void {
   const raw = textOf(attenuationText.value);
   const attenuation = Number(raw);
   if (raw === "" || !Number.isInteger(attenuation)) return;
-  emit("setAttenuation", attenuation);
+  if (attenuation < 0 || attenuation > 15) return;
+  emit("setAttenuation", volumeToAttenuation(attenuation));
 }
 
 function commitTempo(): void {
@@ -118,7 +118,9 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
 <template>
   <aside class="sound-inspector" aria-label="Inspector" data-testid="sound-inspector">
     <template v-if="event !== null">
-      <h2 class="sound-inspector__head">{{ LANE_NAMES[event.lane] }} event</h2>
+      <h2 class="sound-inspector__head">
+        {{ LANE_NAMES[event.lane] }} · {{ event.data.kind === "rest" ? "Rest" : "Note" }}
+      </h2>
       <p v-if="readonly" class="sound-inspector__note">This sound format is read-only.</p>
       <fieldset class="sound-inspector__field" :disabled="readonly">
         <label for="sound-event-ticks">Duration (ticks)</label>
@@ -139,7 +141,11 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
 
       <template v-if="event.data.kind === 'tone'">
         <fieldset class="sound-inspector__field" :disabled="readonly">
-          <label for="sound-event-note">Note</label>
+          <label
+            for="sound-event-note"
+            :title="`${VOCABULARY.pitch.help} ${VOCABULARY.pitch.technical} Divisor: ${event.data.divisor}.`"
+            >Pitch</label
+          >
           <input
             id="sound-event-note"
             v-model="noteText"
@@ -147,19 +153,6 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
             :placeholder="divisorNoteLabel(event.data.divisor) || 'A4'"
             data-testid="sound-event-note"
             @change="commitNote"
-          />
-        </fieldset>
-        <fieldset class="sound-inspector__field" :disabled="readonly">
-          <label for="sound-event-divisor">Divisor</label>
-          <input
-            id="sound-event-divisor"
-            v-model="divisorText"
-            type="number"
-            min="1"
-            max="1023"
-            step="1"
-            data-testid="sound-event-divisor"
-            @change="commitDivisor"
           />
         </fieldset>
       </template>
@@ -185,7 +178,11 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
         class="sound-inspector__field"
         :disabled="readonly"
       >
-        <label for="sound-event-attenuation">Attenuation (0–15)</label>
+        <label
+          for="sound-event-attenuation"
+          :title="`${VOCABULARY.volume.help} ${VOCABULARY.volume.technical}`"
+          >Volume (0–15)</label
+        >
         <input
           id="sound-event-attenuation"
           v-model="attenuationText"
@@ -274,7 +271,7 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
               ? 'Read-only sound format'
               : event.durationTicks < 2
                 ? 'Splitting requires at least two ticks'
-                : 'Split into two events; the second re-triggers its envelope'
+                : 'Split into two notes; the second re-triggers its envelope'
           "
           data-testid="sound-event-split-apply"
           @click="commitSplit"
@@ -287,7 +284,7 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
           size="sm"
           variant="ghost"
           :disabled="readonly"
-          :title="readonly ? 'Read-only sound format' : 'Copy this event'"
+          :title="readonly ? 'Read-only sound format' : 'Copy this note'"
           data-testid="sound-event-duplicate"
           @click="emit('duplicateEvent')"
         >
@@ -297,7 +294,7 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
           size="sm"
           variant="danger"
           :disabled="readonly"
-          :title="readonly ? 'Read-only sound format' : 'Delete this event'"
+          :title="readonly ? 'Read-only sound format' : 'Delete this note'"
           data-testid="sound-event-remove"
           @click="emit('removeEvent')"
         >
@@ -307,7 +304,7 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
     </template>
 
     <template v-else-if="cue !== null">
-      <h2 class="sound-inspector__head">SND {{ cue.num }}</h2>
+      <h2 class="sound-inspector__head">SOUND {{ cue.num }}</h2>
       <p class="sound-inspector__meta">
         {{ cue.bytes }} bytes<template v-if="cue.extentTicks !== null">
           · {{ cue.extentTicks }} ticks · {{ ticksSeconds(cue.extentTicks).toFixed(2) }} s</template
@@ -347,7 +344,7 @@ const CONTROL_OPTIONS = Object.entries(NOISE_CONTROL_NAMES).map(([value, name]) 
       </template>
     </template>
 
-    <p v-else class="sound-inspector__empty">Select an event or a cue.</p>
+    <p v-else class="sound-inspector__empty">Select a note, rest or SOUND.</p>
     <p v-if="error" class="sound-inspector__error" role="alert" data-testid="sound-edit-error">
       {{ error }}
     </p>

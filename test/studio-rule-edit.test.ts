@@ -87,7 +87,7 @@ describe("rule edits", () => {
       session,
     );
     assert.ok(mat.ok);
-    // Room 1 sets f32, so reserve_binding hands out 33, then 34.
+    // Room 1 sets f32, so reserve_name hands out 33, then 34.
     assert.deepEqual(mat.newBindings, {
       mat_seen: { kind: "flag", num: 33 },
       lamp_lit: { kind: "flag", num: 34 },

@@ -31,7 +31,7 @@ function filesSnapshot(state: AgentSessionState): string {
 test("allocation starts above the system slots and skips operands logic uses", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAgentTool(state, "write_logic_source", {
+    executeAgentTool(state, "write_logic", {
       room: 0,
       source: "set(f32); assignn(v32,1); return;",
     }).success,
@@ -130,8 +130,7 @@ test("aliased and damaged directory slots stay occupied", () => {
 test("indirect or undecodable state access refuses automatic flag and variable ids", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAgentTool(state, "write_logic_source", { room: 3, source: "set.v(v40); return;" })
-      .success,
+    executeAgentTool(state, "write_logic", { room: 3, source: "set.v(v40); return;" }).success,
     true,
   );
   const context = contextOf(state);
@@ -154,7 +153,7 @@ test("indirect or undecodable state access refuses automatic flag and variable i
 test("message text naming f32 or v32 is not an operand", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAgentTool(state, "write_logic_source", {
+    executeAgentTool(state, "write_logic", {
       room: 1,
       source: 'set(f41); assignn(v42,1); print("f32 v33 f34 v35"); return;',
     }).success,
@@ -166,16 +165,16 @@ test("message text naming f32 or v32 is not an operand", () => {
   assert.deepEqual(allocateProjectIds(context, "variable").ids, [32]);
 });
 
-test("reserve_binding allocates through the same scan, batch order and refusal included", () => {
+test("reserve_name allocates through the same scan, batch order and refusal included", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAgentTool(state, "write_logic_source", {
+    executeAgentTool(state, "write_logic", {
       room: 0,
       source: "set(f32); assignn(v32,1); return;",
     }).success,
     true,
   );
-  const result = executeAuthoringTool(state, "reserve_binding", {
+  const result = executeAuthoringTool(state, "reserve_name", {
     bindings: [
       { name: "gate_open", kind: "flag", id: null },
       { name: "lamp_lit", kind: "flag", id: null },
@@ -189,11 +188,10 @@ test("reserve_binding allocates through the same scan, batch order and refusal i
   assert.equal(state.authoring.bindings["gold_count"]?.num, 33);
 
   assert.equal(
-    executeAgentTool(state, "write_logic_source", { room: 4, source: "set.v(v40); return;" })
-      .success,
+    executeAgentTool(state, "write_logic", { room: 4, source: "set.v(v40); return;" }).success,
     true,
   );
-  const refused = executeAuthoringTool(state, "reserve_binding", {
+  const refused = executeAuthoringTool(state, "reserve_name", {
     kind: "flag",
     name: "attic_open",
     id: null,
@@ -206,7 +204,7 @@ test("reserve_binding allocates through the same scan, batch order and refusal i
 test("formatted message reads reserve variables even when no opcode names them", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAgentTool(state, "write_logic_source", {
+    executeAgentTool(state, "write_logic", {
       room: 1,
       source: 'print("Count %v32, item %o33"); return;',
     }).success,
@@ -218,7 +216,7 @@ test("formatted message reads reserve variables even when no opcode names them",
 test("indirection-looking literal text is not an opcode or a decoding warning", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAgentTool(state, "write_logic_source", {
+    executeAgentTool(state, "write_logic", {
       room: 1,
       source: 'print("set.v(v40) // !! v32 f32 %%v33"); return;',
     }).success,
@@ -245,7 +243,7 @@ test("view descriptions and inventory names participate in formatted variable re
 test("runtime-inserted formatter text reports uncertainty instead of promising a free variable", () => {
   const state = createAgentSessionState();
   assert.equal(
-    executeAgentTool(state, "write_logic_source", {
+    executeAgentTool(state, "write_logic", {
       room: 1,
       source: 'print("%s1"); return;',
     }).success,
@@ -254,7 +252,7 @@ test("runtime-inserted formatter text reports uncertainty instead of promising a
   const allocation = allocateProjectIds(contextOf(state), "variable");
   assert.deepEqual(allocation.ids, [32]);
   assert.match(allocation.warnings.join(" "), /runtime.*text/i);
-  const reserved = executeAuthoringTool(state, "reserve_binding", {
+  const reserved = executeAuthoringTool(state, "reserve_name", {
     kind: "variable",
     name: "room_state",
     id: null,

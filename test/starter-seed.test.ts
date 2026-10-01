@@ -187,7 +187,7 @@ describe("installBoilerplateSeed", () => {
     const state = createAgentSessionState();
     installBoilerplateSeed(state);
     const files = state.getFiles();
-    const reserved = executeAgentTool(state, "reserve_binding", {
+    const reserved = executeAgentTool(state, "reserve_name", {
       bindings: [{ name: "beacon_flag", kind: "flag", id: 200 }],
       name: null,
       kind: null,

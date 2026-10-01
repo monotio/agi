@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../../../src/studio/vocabulary.ts";
 /**
  * The optional Guided actions panel inside Logic Studio: five provider-free
  * operations over the open project's real draft. Each fills a small form,
@@ -85,27 +86,27 @@ const ACTIONS: readonly { kind: GuidedOperationKind; label: string; teaches: str
   {
     kind: "add-room",
     label: "Add room",
-    teaches: "Add a room and its picture to your world.",
+    teaches: VOCABULARY.room.help,
   },
   {
     kind: "place-hero",
     label: "Place hero",
-    teaches: "Set where your hero enters the room.",
+    teaches: VOCABULARY.hero.help,
   },
   {
     kind: "respond-to-command",
     label: "Respond",
-    teaches: "Choose a player command and the reply it prints.",
+    teaches: VOCABULARY.command.help,
   },
   {
     kind: "connect-door",
     label: "Connect door",
-    teaches: "Create a doorway that leads to another room.",
+    teaches: VOCABULARY.exit.help,
   },
   {
     kind: "play-sound",
-    label: "Play sound",
-    teaches: "Play a sound on a command or at a place.",
+    label: VOCABULARY_ACTIONS.play_sound.label,
+    teaches: VOCABULARY_ACTIONS.play_sound.help,
   },
 ];
 
@@ -787,7 +788,7 @@ const spoken = computed(() => {
       </template>
       <UiDisclosure id="guided-add-room-advanced" label="Advanced" hint="Ids · bindings">
         <div class="guided__grid">
-          <UiField v-slot="{ id }" label="LOGIC id" dense>
+          <UiField v-slot="{ id }" label="LOGIC number" dense>
             <input
               :id
               v-model="addRoom.logicId"
@@ -796,7 +797,7 @@ const spoken = computed(() => {
               data-testid="guided-add-room-logic-id"
             />
           </UiField>
-          <UiField v-slot="{ id }" label="PIC id" dense>
+          <UiField v-slot="{ id }" label="PICTURE number" dense>
             <input
               :id
               v-model="addRoom.pictureId"
@@ -854,7 +855,7 @@ const spoken = computed(() => {
       </UiField>
       <UiField v-slot="{ id }" label="View" dense>
         <UiSelect :id v-model="placeHero.view" size="sm" block data-testid="guided-hero-view">
-          <option value="">Keep the current view</option>
+          <option value="">Save the current view</option>
           <option v-for="option in views" :key="option.value" :value="String(option.value)">
             {{ option.label }}
           </option>
@@ -939,14 +940,14 @@ const spoken = computed(() => {
           :id
           v-model="respond.response"
           rows="3"
-          placeholder="The clearing hums back."
+          placeholder="A path leads north through the clearing.."
           data-testid="guided-respond-response"
         ></textarea>
       </UiField>
       <UiSwitch v-model="respond.replace" size="sm" data-testid="guided-respond-replace">
         <span
           >Replace the existing answer<small
-            >Only when that command already prints a plain reply.</small
+            >Only when that command already prints a plain response.</small
           ></span
         >
       </UiSwitch>
@@ -1000,7 +1001,7 @@ const spoken = computed(() => {
         class="guided__canvas"
         tabindex="0"
         role="img"
-        aria-label="The room's picture; drag to mark the doorway, or use the arrow keys."
+        aria-label="The room's picture; drag to mark the door, or use the arrow keys."
         data-testid="guided-door-canvas"
         @pointerdown="doorDown"
         @pointermove="doorMove"
@@ -1022,7 +1023,7 @@ const spoken = computed(() => {
         </UiField>
       </div>
       <UiSwitch v-model="door.twoWay" size="sm" data-testid="guided-door-return">
-        <span>A doorway back<small>A matching exit in the other room.</small></span>
+        <span>A door back<small>A matching exit in the other room.</small></span>
       </UiSwitch>
       <div v-if="door.twoWay" class="guided__grid guided__grid--four">
         <UiField v-slot="{ id }" label="Return x1" dense>
@@ -1133,7 +1134,7 @@ const spoken = computed(() => {
           :id
           v-model="cue.message"
           :aria-describedby="describedBy"
-          placeholder="The last note fades."
+          placeholder="The sound has finished.."
           data-testid="guided-cue-message"
         />
       </UiField>
@@ -1142,7 +1143,7 @@ const spoken = computed(() => {
           <UiField v-slot="{ id }" label="Completion flag" dense>
             <input :id v-model="cue.flag" placeholder="cue_done" data-testid="guided-cue-flag" />
           </UiField>
-          <UiField v-slot="{ id }" label="Started guard" dense>
+          <UiField v-slot="{ id }" label="Started flag" dense>
             <input
               :id
               v-model="cue.startFlag"
@@ -1214,7 +1215,11 @@ const spoken = computed(() => {
     >
       <p class="guided__review-label" data-testid="guided-applied-label">
         {{ guided.applied.value.transaction.label }}
-        {{ guided.applied.value.undone ? "undone." : "applied to the draft. Keep saves it." }}
+        {{
+          guided.applied.value.undone
+            ? "undone."
+            : "applied to the draft. Save adds it to the game."
+        }}
       </p>
       <div class="guided__actions">
         <UiButton

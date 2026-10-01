@@ -1,7 +1,7 @@
 /**
  * Node stand-in for the browser image decoder: reads the stored-deflate RGB
  * PNGs the evals draw by script (encodePngRgb) back into RGBA pixels, so a
- * reference source can hand view_reference its pixels outside a browser.
+ * reference source can hand read_reference_image its pixels outside a browser.
  */
 import { inflateSync } from "node:zlib";
 

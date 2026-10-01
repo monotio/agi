@@ -16,7 +16,7 @@ test("anthropic tool_use calls inspect and rewrite the seeded room", () => {
         { type: "tool_use", name: "read_logic", input: { num: 1, offset: 0, limit: 5 } },
         {
           type: "tool_use",
-          name: "write_logic_source",
+          name: "write_logic",
           input: { room: 1, source: rewritten },
         },
       ],

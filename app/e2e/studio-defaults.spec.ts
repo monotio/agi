@@ -98,7 +98,7 @@ for (const [width, height] of [
       /^Group/,
     ]);
     const ask = studio.getByTestId("studio-assist");
-    await expect(ask.getByRole("heading", { level: 3 })).toHaveText(/^Ask/);
+    await expect(ask.getByRole("heading", { level: 3 })).toHaveText(/^Agent/);
     await expect(ask.getByTestId("assist-chip")).toHaveText(["These 2 items"]);
     await expect(ask.getByTestId("studio-lock-chip")).toHaveText("Depth & walk lines");
     await expect(studio.getByTestId("inspector-details")).toHaveAttribute("aria-expanded", "false");

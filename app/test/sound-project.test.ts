@@ -9,7 +9,7 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 
 test("musical intent survives a saved project and resets after raw effect authoring", async () => {
   const state = createAgentSessionState();
-  executeAgentTool(state, "write_logic_source", { room: 0, source: "return;" });
+  executeAgentTool(state, "write_logic", { room: 0, source: "return;" });
   executeAgentTool(state, "write_music", {
     num: 5,
     tempo: 90,

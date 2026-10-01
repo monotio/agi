@@ -174,7 +174,7 @@ function proposalTurns(
   return [
     { toolCalls: [{ id: "t1", name: "read_project_context", input: {} }] },
     {
-      toolCalls: [{ id: "t2", name: "propose_project_documents", input: { label, changes } }],
+      toolCalls: [{ id: "t2", name: "propose_changes", input: { label, changes } }],
     },
     { text: "Proposed the change.", toolCalls: [] },
   ];
@@ -307,7 +307,7 @@ test("a refused proposal surfaces diagnostics and leaves the draft alone", async
             toolCalls: [
               {
                 id: "bad",
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: {
                   label: "Broken",
                   changes: [{ key: "logic:1", content: "if (broken" }],

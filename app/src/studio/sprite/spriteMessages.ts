@@ -1,3 +1,4 @@
+import { VOCABULARY } from "../../../../src/studio/vocabulary.ts";
 /**
  * Sprite Studio's plain wording for the sprite kernel's refusals and the
  * validation that follows every edit. The kernel's text names operands and
@@ -11,25 +12,53 @@ import type { SpriteValidation } from "../../../../src/studio/sprite/spriteValid
 const PLAIN: readonly (readonly [RegExp, (match: RegExpMatchArray) => string])[] = [
   [
     /is the cel's transparent colour/,
-    () => "That is the transparent colour. The eraser paints it.",
+    () => "That is the transparent colour. Use the eraser to paint it.",
   ],
-  [/cannot delete the last cel/, () => "A loop needs at least one cel. Delete the loop instead."],
-  [/cannot delete the view's last loop/, () => "A view needs at least one loop."],
-  [/already has the maximum (\d+) cels/, (m) => `A loop holds at most ${m[1]} cels here.`],
-  [/already has the maximum (\d+) loops/, (m) => `A view holds at most ${m[1]} loops.`],
+  [
+    /cannot delete the last cel/,
+    () => "Loops hold one or more cels. To remove this cel, delete the loop.",
+  ],
+  [
+    /cannot delete the view's last loop/,
+    () => "A VIEW holds one or more loops. Select the VIEW to remove it.",
+  ],
+  [
+    /already has the maximum (\d+) cels/,
+    (m) => `This loop has ${m[1]} cels, its limit. Delete a cel before adding one.`,
+  ],
+  [
+    /already has the maximum (\d+) loops/,
+    (m) => `This VIEW has ${m[1]} loops, its limit. Delete a loop before adding one.`,
+  ],
   [
     /loop (\d+)'s cels are not exact mirror images of loop (\d+)'s/,
     (m) => `Loop ${m[1]} differs from loop ${m[2]} flipped. Replace it to mirror.`,
   ],
-  [/already shares loop (\d+)'s data block/, (m) => `This loop already mirrors loop ${m[1]}.`],
-  [/does not share its data block/, () => "This loop has its own cels."],
-  [/a loop cannot mirror itself/, () => "Choose another loop to mirror."],
+  [
+    /already shares loop (\d+)'s data block/,
+    (m) => `This loop already mirrors loop ${m[1]}. Choose another loop to mirror.`,
+  ],
+  [
+    /does not share its data block/,
+    () =>
+      "This loop has independent cels. The selected loop is the mirror source. Choose another loop to mirror.",
+  ],
+  [
+    /a loop cannot mirror itself/,
+    () => "The selected loop is the mirror source. Choose another loop to mirror.",
+  ],
   [
     /no stored orientation can display|shares loop \d+'s data block but its cels differ/,
-    () => "Mirrored loops stay exact flips of each other.",
+    () => "The mirrored cels differ. Turn on Edit both or edit only this loop.",
   ],
-  [/opaque pixels already use colour (\d+)/, (m) => `Pixels already use colour ${m[1]}.`],
-  [/must be an integer in/, () => "That value is out of range for this cel."],
+  [
+    /opaque pixels already use colour (\d+)/,
+    (m) => `Pixels already use colour ${m[1]}. Choose an unused transparent colour.`,
+  ],
+  [
+    /must be an integer in/,
+    () => "The value is outside this cel's range. Enter a value within the shown limits.",
+  ],
 ];
 
 /** The creator's sentence for kernel refusal `error`. */
@@ -38,7 +67,7 @@ export function plainSpriteRefusal(error: string): string {
     const match = error.match(pattern);
     if (match) return say(match);
   }
-  return "Sprite edit rejected. Open Details for the reason.";
+  return `${VOCABULARY.view.label} edit: ${error}. Correct the source or undo your last change.`;
 }
 
 const list = (loops: readonly number[]): string =>
@@ -56,6 +85,6 @@ export function validationRefusal(check: SpriteValidation): string {
     ),
   ].sort((a, b) => a - b);
   return reached.length === 0
-    ? "This edit would change more than the loop you are editing."
-    : `This would also change ${list(reached)}. Turn on Edit both to allow it.`;
+    ? "This edit would change another loop too. Turn on Edit both, or edit only this loop."
+    : `This edit would also change ${list(reached)}. Turn on Edit both, or edit only this loop.`;
 }

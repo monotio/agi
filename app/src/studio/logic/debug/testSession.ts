@@ -762,7 +762,7 @@ export function createTestSession(options: TestSessionOptions = {}): TestSession
     if (msg.type !== pending.expect) {
       pending.reject(
         new TestRuntimeError(
-          `unexpected ${msg.type} reply where ${pending.expect} was owed`,
+          `unexpected ${msg.type} response where ${pending.expect} was owed`,
           "worker",
         ),
       );

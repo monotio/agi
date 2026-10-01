@@ -183,12 +183,12 @@ function byteCount(content: string | Uint8Array | undefined): string {
     data-testid="logic-review-dialog"
   >
     <div class="logic-review">
-      <p class="logic-review__lead">Keep saves the selected documents to your game.</p>
+      <p class="logic-review__lead">Save adds the selected documents to your game.</p>
       <div
         v-if="dirty.length"
         class="logic-review__select"
         role="group"
-        aria-label="Include in this Keep"
+        aria-label="Include in this Save"
       >
         <label
           v-for="key in dirty"
@@ -263,7 +263,7 @@ function byteCount(content: string | Uint8Array | undefined): string {
         data-testid="logic-keep-confirm"
         @click="emit('keep')"
       >
-        {{ keeping ? "Keeping…" : "Keep" }}
+        {{ keeping ? "Saving…" : "Save" }}
       </UiButton>
     </template>
   </UiDialog>

@@ -224,7 +224,7 @@ flowchart LR
 2. `worker/hostRequests.ts` posts a `hostRequest` and parks the interpreter; the worker keeps serving other messages.
 3. `authoring/useAuthoringController.ts` loads the authoring stack and hands the request to `AgentSession` (`agent/agentSession.ts`), which forks the game state.
 4. The provider conversation (`agent/llmClient.ts`) calls tools through `executeAgentToolAsync` (`src/agent/tools.ts`), which refuses any tool outside the session's allowlist.
-5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `handover` tool runs the room's game tests.
+5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `finish` tool runs the room's game tests.
 6. The gate: `turnBaseGuard` (`authoring/useAuthoringController.ts`) records the revision the turn builds on, and `requireSaved` (`project/projectTransaction.ts`) refuses the turn before it spends and again before its room lands if the stored project moved on.
 7. `prepareRoomPatch` (`src/agent/roomPatch.ts`) checks the room as a whole, the answer returns in `hostAnswer`, and the worker checks it again before `Engine.patchResources` resumes `new.room`.
 8. The controller saves the room over the stored project (`writeOverSaved`), and `confirmSaved` moves the booted game to that revision only once the running game's files read back as exactly the saved ones.
@@ -236,7 +236,7 @@ flowchart LR
 3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source; several selected items take a batch (`applyEdits`), checked and undone as one edit.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
 5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
-6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `project/resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `project/projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`project/gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
+6. **Save** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `project/resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `project/projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`project/gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
 
 **A Logic Studio edit becomes a saved project**
 
@@ -245,7 +245,7 @@ Library **Game actions → Edit** opens `project/editableProject.ts` directly.
 analysis-worker context and draft recovery. `buildSelected` captures the selected
 documents and their dependency closure for review; `keepCandidate` checks that
 captured authority and writes through `commitProject`. Changes typed during a save
-stay dirty, and storage failures preserve the draft for retry. This Keep writes
+stay dirty, and storage failures preserve the draft for retry. This save writes
 the saved project. Worker installation is a separate operation.
 
 **Where authority lives.** Each of these is a check in code:
@@ -253,9 +253,9 @@ the saved project. Worker installation is a separate operation.
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` and `assistScope.ts` judge Studio edits and AI proposals by their decoded pixels, whatever the operations or the model claim.
-- `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (a Keep, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `project/resourceCommit.ts` coordinates Room and Sprite Studio Keeps against the stored and running game, with conditional persistence and an acknowledged worker install.
-- `project/editableProject.ts` owns Logic Studio's immutable build candidates and saved-only Keep; its storage receipt does not claim that a running worker installed the build.
+- `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (a save, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
+- `project/resourceCommit.ts` coordinates Room and VIEW editor saves against the stored and running game, with conditional persistence and an acknowledged worker install.
+- `project/editableProject.ts` owns Logic Studio's immutable build candidates and saved-only save; its storage receipt does not claim that a running worker installed the build.
 - The logic assembler and the container writer are the validators of last resort.
 
 Two words carry more than one meaning. `prepareRoom` is the engine's host hook,

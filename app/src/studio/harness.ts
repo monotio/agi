@@ -40,7 +40,7 @@ import { DEMO_PICTURE_SOURCE } from "./demoPicture.ts";
 
 const TITLES: Readonly<Record<string, string>> = {
   "1": "Picture Gallery",
-  "2": "Sprite Lab",
+  "2": "VIEW Lab",
   "3": "Priority Archive",
   demo: "Studio demo",
   injected: "Injected picture",

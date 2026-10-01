@@ -2,7 +2,7 @@
  * Genesis starter recovery. A fresh Create run that asks a provider to write
  * a new adventure keeps a complete canonical Starter prepared beside it: the
  * same seed manual Create publishes, committed under its own fresh project id
- * and carrying the title the player typed. When the run ends before handover
+ * and carrying the title the player typed. When the run ends before finish
  * (provider refusal, disconnect, cancel), Home's error surface offers "Open
  * starter". One explicit click commits the prepared project through the
  * ordinary local-project contract and opens it as a manual game: editable
@@ -57,10 +57,10 @@ export interface GenesisStarterRecovery {
   begin(title: string): Promise<number>;
   /** A boot, eject or shutdown outside the armed run retires its offer. */
   retire(): void;
-  /** The run reached handover: its seed booted as the generated game. */
+  /** The run reached finish: its seed booted as the generated game. */
   handedOver(run: number): void;
   /**
-   * The run ended before handover: its starter goes on offer. Null when a
+   * The run ended before finish: its starter goes on offer. Null when a
    * newer run owns the slot or the run already handed over.
    */
   fail(run: number): GenesisStarterOffer | null;
@@ -68,7 +68,7 @@ export interface GenesisStarterRecovery {
    * A newer begin or a retire moved the epoch past this run: its late result
    * or failure belongs to no screen and must not boot, save or overwrite
    * what took the slot. A run that handed over keeps its epoch, so a
-   * post-handover boot error still surfaces.
+   * post-finish boot error still surfaces.
    */
   superseded(run: number): boolean;
   /** The offer currently exposed, or null while no failed run owns it. */

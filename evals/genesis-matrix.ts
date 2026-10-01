@@ -732,8 +732,8 @@ function analyzeSession(ref: RunRef) {
         const a = e.data?.args ?? {};
         const pictureEdit =
           tool === "write_picture" ||
-          tool === "write_scene" ||
-          (tool === "edit_resource_source" && a["kind"] === "picture");
+          tool === "draw_picture_items" ||
+          (tool === "edit_source" && a["kind"] === "picture");
         if (pictureEdit) {
           const s = [
             a["source"] ?? "",

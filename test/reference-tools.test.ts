@@ -1,6 +1,6 @@
 /**
  * Reference art by handle: content-derived ids, the per-turn manifest with its
- * contact strip, view_reference's sizes, regions and grid, its refusals, and
+ * contact strip, read_reference_image's sizes, regions and grid, its refusals, and
  * the under-fetch check. Every dimension below is hand-computed from the
  * documented edges: thumb 64, small 256, region 512 (256 small, 64 thumb),
  * full = the working size, and strip tiles of 64 with a 4-pixel gutter.
@@ -89,9 +89,9 @@ function source(): ReferenceSource {
 async function view(args: Record<string, unknown>, references: ReferenceSource | null = source()) {
   return executeAgentToolAsync(
     createAgentSessionState(),
-    "view_reference",
+    "read_reference_image",
     { region: null, grid: null, ...args },
-    { allowedTools: ["view_reference"], ...(references ? { references } : {}) },
+    { allowedTools: ["read_reference_image"], ...(references ? { references } : {}) },
   );
 }
 
@@ -135,7 +135,7 @@ describe("manifest", () => {
   });
 });
 
-describe("view_reference", () => {
+describe("read_reference_image", () => {
   it("returns the size asked for, longest edge 64, 256 or the working size", async () => {
     for (const [size, width, height] of [
       ["thumb", 64, 32],
@@ -255,23 +255,23 @@ describe("view_reference", () => {
     ]) {
       const result = await view(args);
       assert.equal(result.success, false, JSON.stringify(args));
-      assert.match(result.error ?? "", /^Invalid arguments for view_reference/);
+      assert.match(result.error ?? "", /^Invalid arguments for read_reference_image/);
     }
-    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "view_reference");
+    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "read_reference_image");
     assert.deepEqual(tool?.parameters.required, ["id", "size", "region", "grid"]);
   });
 });
 
 describe("availability", () => {
-  it("offers view_reference only to a task that has references", () => {
+  it("offers read_reference_image only to a task that has references", () => {
     const withArt = withReferences(ASK_TOOLS, source());
-    assert.ok(withArt.includes("view_reference"));
-    assert.ok(!withReferences(ASK_TOOLS, undefined).includes("view_reference"));
-    assert.ok(!withReferences(ASK_TOOLS, { art: [] }).includes("view_reference"));
+    assert.ok(withArt.includes("read_reference_image"));
+    assert.ok(!withReferences(ASK_TOOLS, undefined).includes("read_reference_image"));
+    assert.ok(!withReferences(ASK_TOOLS, { art: [] }).includes("read_reference_image"));
     // Everything else in the list is unchanged either way.
     assert.deepEqual(
       withReferences(ASK_TOOLS, undefined),
-      ASK_TOOLS.filter((name) => name !== "view_reference"),
+      ASK_TOOLS.filter((name) => name !== "read_reference_image"),
     );
   });
 });
@@ -291,7 +291,7 @@ describe("under-fetch", () => {
       referenceUnderFetch({
         attached,
         calls: [
-          { tool: "view_reference", args: { id: ID_A, size: "full" }, success: true },
+          { tool: "read_reference_image", args: { id: ID_A, size: "full" }, success: true },
           { tool: "write_picture", args: { room: 3 }, success: true },
         ],
         text: "Room 3 now matches the harbour reference.",
@@ -302,7 +302,7 @@ describe("under-fetch", () => {
     assert.deepEqual(
       referenceUnderFetch({
         attached: [ID_A],
-        calls: [{ tool: "view_reference", args: { id: ID_A, size: "full" }, success: false }],
+        calls: [{ tool: "read_reference_image", args: { id: ID_A, size: "full" }, success: false }],
         text: "The room follows your sketch.",
       }),
       [ID_A],

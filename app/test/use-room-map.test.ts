@@ -880,7 +880,7 @@ test("plan reads re-derive on worldTick — a plan-only turn invalidates the map
   map.openMap({ experience: "create" });
   const title = computed(() => map.plannedEntry(2)?.title);
   assert.equal(title.value, "Vault");
-  // A plan-only update_world lands no resource patch — only worldTick moves.
+  // A plan-only update_plan lands no resource patch — only worldTick moves.
   session.state.authoring.world.rooms["2"]!.title = "Treasury";
   await nextTick();
   assert.equal(title.value, "Vault", "no signal yet — the read is stale");

@@ -464,14 +464,14 @@ test("stored test runs are deterministic: seeded random and a virtual clock", ()
 test("a write tool leads with the verdict and reports selection, coverage and parse failures", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
-  const kept = executeAgentTool(state, "write_logic_source", { room: 1, source: ROOM_LOGIC });
+  const kept = executeAgentTool(state, "write_logic", { room: 1, source: ROOM_LOGIC });
   assert.equal(kept.success, true, kept.error ?? "");
   assert.match(
     kept.message ?? "",
     /^Game tests: 1 game test pass, 0 fail\. 1 of 1 game tests rerun \(selection: room 1\)(?:; \d+ reused unchanged-tree verdicts?)?\. Logic 1 compiled successfully/,
   );
   assert.deepEqual(kept.details?.["gameTestsRerun"], { ran: 1, stored: 1, notRun: 0 });
-  const broken = executeAgentTool(state, "write_logic_source", {
+  const broken = executeAgentTool(state, "write_logic", {
     room: 1,
     source: ROOM_LOGIC.replace("set(f30);", ""),
   });
@@ -483,7 +483,7 @@ test("a write tool leads with the verdict and reports selection, coverage and pa
   const outcomes = broken.details?.["gameTests"] as { passed: boolean }[];
   assert.equal(outcomes[0]?.passed, false);
   // The global dynamic dispatcher means another room cannot be proven irrelevant.
-  const elsewhere = executeAgentTool(state, "write_logic_source", { room: 2, source: "return;" });
+  const elsewhere = executeAgentTool(state, "write_logic", { room: 2, source: "return;" });
   assert.equal(elsewhere.success, true, elsewhere.error ?? "");
   assert.match(elsewhere.message ?? "", /^Game tests:/);
 });
@@ -492,7 +492,7 @@ test("reruns report skipped coverage instead of looking like full coverage", () 
   const state = world();
   const nine = Array.from({ length: 9 }, (_, index) => ({ ...takeKey, name: `puzzle ${index}` }));
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: nine });
-  const written = executeAgentTool(state, "write_logic_source", { room: 1, source: ROOM_LOGIC });
+  const written = executeAgentTool(state, "write_logic", { room: 1, source: ROOM_LOGIC });
   assert.equal(written.success, true, written.error ?? "");
   assert.match(
     written.message ?? "",
@@ -514,7 +514,7 @@ test("verdicts are reused for the same tree and rerun when the tree moves", () =
 
   // A real change moves the tree; the write's own rerun simulates fresh and
   // caches the new verdict, so a later re-ask reuses it again.
-  const written = executeAgentTool(state, "write_logic_source", {
+  const written = executeAgentTool(state, "write_logic", {
     room: 1,
     source: ROOM_LOGIC.replace("set(f30);", ""),
   });
@@ -530,7 +530,7 @@ test("verdicts are reused for the same tree and rerun when the tree moves", () =
 test("a malformed stored test document is reported loudly on the next write", () => {
   const state = world();
   state.testsPayload = new TextEncoder().encode("{");
-  const written = executeAgentTool(state, "write_logic_source", { room: 1, source: ROOM_LOGIC });
+  const written = executeAgentTool(state, "write_logic", { room: 1, source: ROOM_LOGIC });
   assert.equal(written.success, true, written.error ?? "");
   assert.match(
     written.message ?? "",
@@ -1072,7 +1072,7 @@ test("a recorded setup replays from mid-game state against the CURRENT resources
   const image = recordSetupImage(state);
   // After the recording, the game is patched: the take-key rule no longer
   // carries the item or sets the flag, and its message text changed.
-  const patched = executeAgentTool(state, "write_logic_source", {
+  const patched = executeAgentTool(state, "write_logic", {
     room: 1,
     source: ROOM_LOGIC.replace(
       'if (said("take", "key")) {get(0);set(f30);assignn(v40, 7);assignn(v3, 5);print("You take the key.");}',

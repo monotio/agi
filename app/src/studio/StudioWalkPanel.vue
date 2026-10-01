@@ -49,7 +49,7 @@ const emit = defineEmits<{
 const tint = defineModel<boolean>("tint", { default: true });
 /** Why the door fields are off, on each of them. */
 const DOORS_OFF =
-  "Door editing pauses while the room is read-only, a proposal is open, or its script needs repair.";
+  "Door editing pauses while the room is read-only, a change is open, or its script needs repair.";
 const doorsOff = computed(() => (walk.canEditDoors.value ? undefined : DOORS_OFF));
 
 const result = computed(() => walk.result.value);
@@ -147,6 +147,7 @@ const roomChoices = computed(() => {
         <span
           v-for="control in CONTROL_VALUES"
           :key="control.value"
+          :title="`${control.help} ${control.technical}`"
           class="walk-panel__line"
           role="listitem"
         >

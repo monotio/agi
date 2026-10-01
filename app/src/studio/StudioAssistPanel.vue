@@ -69,10 +69,10 @@ const references = useTemplateRef("references");
 const dropping = ref(false);
 /** Why Ask is off, on its tooltip. */
 const SEND_BLOCKED: Record<"unavailable" | "connect" | "frozen" | "selection", string> = {
-  unavailable: "AI edits need the game's assistant",
+  unavailable: "An AI model is required. Choose a model in Settings.",
   connect: "Connect AI first",
-  frozen: "Editing waits for a Keep or a reload",
-  selection: "Select what to ask about first",
+  frozen: "Editing waits for a Save or a reload",
+  selection: "The selection is empty. Select an item or cel first.",
 };
 const sendBlocked = computed(() =>
   blocked.value !== null
@@ -112,7 +112,7 @@ const walkable = computed(() => {
     : null;
 });
 const OUTCOMES: Partial<Record<string, string>> = {
-  accepted: "Accepted as one undo step. Keep saves it with your other changes.",
+  accepted: "Approved as one undo step. Undo takes it back.",
   rejected: "Rejected. The draft is unchanged.",
   stopped: "Stopped. The draft is unchanged.",
 };
@@ -125,7 +125,7 @@ const spoken = computed(() => {
     case "candidate":
       return assist.stale.value
         ? staleText.value
-        : `Proposal ready: ${candidate?.summary ?? ""} ${changes ?? ""} ${also ?? ""}`.trim();
+        : `Changes ready: ${candidate?.summary ?? ""} ${changes ?? ""} ${also ?? ""}`.trim();
     case "declined":
       return `The AI left the ${thing.value} as it was: ${assist.reply.value}`;
     case "failed":
@@ -216,9 +216,9 @@ defineExpose({ focus });
         data-testid="assist-fold"
         @click="unfolded = !expanded"
       >
-        <UiIcon :name="expanded ? 'chevron-down' : 'chevron-right'" :size="14" />Ask
+        <UiIcon :name="expanded ? 'chevron-down' : 'chevron-right'" :size="14" />Agent
       </button>
-      <span v-else :id="headingId">Ask</span>
+      <span v-else :id="headingId">Agent</span>
       <UiExplain v-bind="explain(noun === 'picture' ? 'ask-scope' : 'ask-cels')" />
       <span class="assist__ai" aria-hidden="true">AI</span>
     </h3>
@@ -245,7 +245,7 @@ defineExpose({ focus });
       <p v-else class="assist__note">{{ empty }}</p>
 
       <div v-if="blocked === 'connect'" class="assist__connect">
-        <p>Connect AI to ask.</p>
+        <p>Choose an AI model in Settings to request changes.</p>
         <UiButton
           size="sm"
           data-testid="assist-connect"
@@ -362,12 +362,12 @@ defineExpose({ focus });
             :aria-describedby="assist.stale.value ? staleId : undefined"
             @click="accept"
           >
-            Accept
+            Approve
           </UiButton>
           <UiButton size="sm" icon="x" data-testid="assist-reject" @click="reject">
             Reject
           </UiButton>
-          <UiButton size="sm" variant="ghost" @click="again">Ask again…</UiButton>
+          <UiButton size="sm" variant="ghost" @click="again">Follow up…</UiButton>
         </div>
       </div>
 
@@ -403,7 +403,7 @@ defineExpose({ focus });
           :aria-labelledby="headingId"
           :placeholder="
             phase === 'candidate' || phase === 'declined'
-              ? 'Ask again: what should change?'
+              ? 'Follow up: what should change?'
               : 'What should change?'
           "
           :disabled="blocked !== null"
@@ -418,7 +418,7 @@ defineExpose({ focus });
           :disabled="blocked !== null"
         />
         <div class="assist__row">
-          <span class="assist__keys">/ focuses · Enter asks</span>
+          <span class="assist__keys">/ focuses · Enter submits</span>
           <UiButton
             type="submit"
             size="sm"
@@ -426,7 +426,7 @@ defineExpose({ focus });
             :disabled="blocked !== null || !text.trim()"
             :title="sendBlocked"
           >
-            {{ phase === "candidate" ? "Ask again" : "Ask" }}
+            {{ phase === "candidate" ? "Follow up" : "Agent" }}
           </UiButton>
         </div>
       </form>

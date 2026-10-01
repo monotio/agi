@@ -89,7 +89,7 @@ test("the first open shows mark 1; Next, Next, Done marks that Studio seen and o
   tour.next();
   assert.equal(tour.mark.value?.title, "Items");
   tour.next();
-  assert.equal(tour.mark.value?.title, "Keep");
+  assert.equal(tour.mark.value?.title, "Save");
   assert.equal(tour.last.value, true);
   assert.equal(storage.data.has(STUDIO_TOUR_KEY), false, "nothing is stored before the end");
   tour.next();

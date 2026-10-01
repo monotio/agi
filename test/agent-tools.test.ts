@@ -8,22 +8,22 @@ describe("agent tools", () => {
     assert.ok(AGENT_TOOLS.length >= 5);
     const names = AGENT_TOOLS.map((t) => t.name);
     assert.ok(names.includes("write_words"));
-    assert.ok(names.includes("write_logic_source"));
+    assert.ok(names.includes("write_logic"));
     assert.ok(names.includes("write_picture"));
     assert.ok(names.includes("write_view"));
-    assert.ok(names.includes("handover"));
-    assert.ok(names.includes("write_inventory_objects"));
+    assert.ok(names.includes("finish"));
+    assert.ok(names.includes("write_objects"));
     assert.ok(names.includes("write_sound"));
-    assert.ok(names.includes("inspect_world_bible"));
+    assert.ok(names.includes("read_plan"));
     assert.ok(names.includes("playtest_room"));
     // Read tools: orientation and live patching.
     assert.ok(names.includes("read_picture"));
     assert.ok(names.includes("read_logic"));
     assert.ok(names.includes("read_words"));
-    // Runtime perception: read_room_context carries live state, objects and frames.
-    assert.ok(names.includes("read_room_context"));
+    // Runtime perception: read_room carries live state, objects and frames.
+    assert.ok(names.includes("read_room"));
     assert.ok(names.includes("read_view"));
-    for (const name of ["write_music", "edit_resource_source", "reserve_binding", "update_world"])
+    for (const name of ["write_music", "edit_source", "reserve_name", "update_plan"])
       assert.ok(names.includes(name));
     assert.equal(new Set(names).size, names.length, "tool names are unique");
   });
@@ -61,17 +61,17 @@ describe("agent tools", () => {
     }
   });
 
-  it("rejects handover when initial resources are missing", () => {
+  it("rejects finish when initial resources are missing", () => {
     const session = createAgentSessionState();
-    const res = executeAgentTool(session, "handover", {});
+    const res = executeAgentTool(session, "finish", {});
     assert.equal(res.success, false);
     assert.ok(res.error?.includes("missing required initial resources"));
     assert.equal(session.genesisComplete, false);
   });
 
-  it("handles syntax error in write_logic_source and returns exact diagnostics", () => {
+  it("handles syntax error in write_logic and returns exact diagnostics", () => {
     const session = createAgentSessionState();
-    const res = executeAgentTool(session, "write_logic_source", {
+    const res = executeAgentTool(session, "write_logic", {
       room: 1,
       source: "this is completely invalid logic code !!!",
     });
@@ -106,7 +106,7 @@ describe("agent tools", () => {
     assert.ok(session.container.getResource("picture", 1));
 
     // 4. write logic 0
-    const logic0Res = executeAgentTool(session, "write_logic_source", {
+    const logic0Res = executeAgentTool(session, "write_logic", {
       room: 0,
       source: `
       if (!isset(f200)) {
@@ -122,7 +122,7 @@ describe("agent tools", () => {
     assert.ok(session.container.getResource("logic", 0));
 
     // 5. write logic 1
-    const logic1Res = executeAgentTool(session, "write_logic_source", {
+    const logic1Res = executeAgentTool(session, "write_logic", {
       room: 1,
       source: `
       #message 1 "Starting room."
@@ -140,7 +140,7 @@ describe("agent tools", () => {
     assert.ok(session.container.getResource("logic", 1));
 
     // 6. finish genesis
-    const finishRes = executeAgentTool(session, "handover", {
+    const finishRes = executeAgentTool(session, "finish", {
       notes: "Starting room and ego initialized.",
     });
     assert.equal(finishRes.success, true);
@@ -157,16 +157,16 @@ describe("agent tools", () => {
       source: "view\ncel ego 1 1 0\n2\nendcel\nloop 0 ego\nendview",
     });
     executeAgentTool(session, "write_picture", { room: 1, source: "end\n" });
-    executeAgentTool(session, "write_logic_source", {
+    executeAgentTool(session, "write_logic", {
       room: 0,
       source: "if (!isset(f200)) {set(f200);new.room(1);} call.v(v0); return;",
     });
-    executeAgentTool(session, "write_logic_source", {
+    executeAgentTool(session, "write_logic", {
       room: 1,
       source:
         "if (isset(f5)) {load.pic(v0); draw.pic(v0); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input();} return;",
     });
-    executeAgentTool(session, "handover", {});
+    executeAgentTool(session, "finish", {});
     assert.equal(session.genesisComplete, true);
 
     // Incrementally author room 2
@@ -176,7 +176,7 @@ describe("agent tools", () => {
     });
     assert.equal(pic2Res.success, true);
 
-    const logic2Res = executeAgentTool(session, "write_logic_source", {
+    const logic2Res = executeAgentTool(session, "write_logic", {
       room: 2,
       source: `
       #message 1 "Room 2 is alive."
@@ -424,7 +424,7 @@ describe("agent tools", () => {
   it("read_logic disassembles compiled bytecode back to re-assemblable source", () => {
     const session = createAgentSessionState();
     executeAgentTool(session, "write_words", { words: ["look", "door"] });
-    executeAgentTool(session, "write_logic_source", {
+    executeAgentTool(session, "write_logic", {
       room: 7,
       source:
         '#message 1 "A plain wooden door."\nif (said("look", "door")) { print(1); }\nreturn;\n',
@@ -437,7 +437,7 @@ describe("agent tools", () => {
     assert.ok(source.includes('said("look", "door")'), source);
 
     // The contract is byte identity: re-writing the disassembly must recompile.
-    const again = executeAgentTool(session, "write_logic_source", { room: 8, source });
+    const again = executeAgentTool(session, "write_logic", { room: 8, source });
     assert.equal(again.success, true, again.error ?? "");
     assert.deepEqual(
       [...session.container.getResource("logic", 8)!],
@@ -449,14 +449,14 @@ describe("agent tools", () => {
     assert.ok(missing.error?.includes("not present"));
   });
 
-  it("inspect_world_bible slots reports present numbers and free numbers per family", () => {
+  it("read_plan slots reports present numbers and free numbers per family", () => {
     const session = createAgentSessionState();
-    executeAgentTool(session, "write_logic_source", { room: 0, source: "return;" });
-    executeAgentTool(session, "write_logic_source", { room: 1, source: "return;" });
+    executeAgentTool(session, "write_logic", { room: 0, source: "return;" });
+    executeAgentTool(session, "write_logic", { room: 1, source: "return;" });
     executeAgentTool(session, "write_picture", { room: 1, source: "end\n" });
     const slots = { filter: "slots", section: null, name: null, offset: null };
 
-    const res = executeAgentTool(session, "inspect_world_bible", { ...slots, kind: null });
+    const res = executeAgentTool(session, "read_plan", { ...slots, kind: null });
     assert.equal(res.success, true);
     const present = res.details?.["present"] as Record<string, number[]>;
     assert.deepEqual(present["logic"], [0, 1]);
@@ -467,10 +467,10 @@ describe("agent tools", () => {
     assert.equal(free["picture"]![0], 2);
     assert.ok(res.message?.includes("logic: 2 present"), res.message ?? "");
 
-    const one = executeAgentTool(session, "inspect_world_bible", { ...slots, kind: "picture" });
+    const one = executeAgentTool(session, "read_plan", { ...slots, kind: "picture" });
     assert.deepEqual(Object.keys(one.details?.["present"] as object), ["picture"]);
 
-    const bad = executeAgentTool(session, "inspect_world_bible", { ...slots, kind: "spaceship" });
+    const bad = executeAgentTool(session, "read_plan", { ...slots, kind: "spaceship" });
     assert.equal(bad.success, false);
     assert.ok(bad.error?.includes("must be one of"));
   });
@@ -505,7 +505,7 @@ describe("agent tools", () => {
 
   it("authors inventory objects and sets OBJECT file in session files", () => {
     const session = createAgentSessionState();
-    const res = executeAgentTool(session, "write_inventory_objects", {
+    const res = executeAgentTool(session, "write_objects", {
       objects: [
         { name: "Magic Sword", startingRoom: 255 },
         { name: "Brass Key", startingRoom: 1 },
@@ -516,10 +516,10 @@ describe("agent tools", () => {
     assert.equal(session.sources.objects?.length, 2);
   });
 
-  it("write_inventory_objects rejects malformed calls instead of replacing the table", () => {
+  it("write_objects rejects malformed calls instead of replacing the table", () => {
     const session = createAgentSessionState();
     assert.equal(
-      executeAgentTool(session, "write_inventory_objects", {
+      executeAgentTool(session, "write_objects", {
         objects: [{ name: "Brass Key", startingRoom: 1 }],
       }).success,
       true,
@@ -536,13 +536,13 @@ describe("agent tools", () => {
       { objects: [{ name: "Lamp", startingRoom: -1 }] },
       { objects: [{ name: "Lamp", startingRoom: 1, extra: true }] },
     ]) {
-      const res = executeAgentTool(session, "write_inventory_objects", args);
+      const res = executeAgentTool(session, "write_objects", args);
       assert.equal(res.success, false, JSON.stringify(args));
       assert.match(res.error ?? "", /not changed|nothing was changed/);
     }
     assert.deepEqual(session.getFiles().get("OBJECT"), before);
     assert.equal(session.sources.objects?.length, 1);
-    const nullRoom = executeAgentTool(session, "write_inventory_objects", {
+    const nullRoom = executeAgentTool(session, "write_objects", {
       objects: [{ name: "Lamp", startingRoom: null }],
     });
     assert.equal(nullRoom.success, true);
@@ -566,13 +566,13 @@ describe("agent tools", () => {
     assert.equal(session.sources.sounds.has(3), false);
   });
 
-  it("inspect_world_bible summarizes rooms, objects, and vocabulary", () => {
+  it("read_plan summarizes rooms, objects, and vocabulary", () => {
     const session = createAgentSessionState();
     executeAgentTool(session, "write_words", { words: ["look", "take"] });
     executeAgentTool(session, "write_picture", { room: 1, source: "end\n" });
-    executeAgentTool(session, "write_logic_source", { room: 1, source: "return;" });
+    executeAgentTool(session, "write_logic", { room: 1, source: "return;" });
 
-    const res = executeAgentTool(session, "inspect_world_bible", {});
+    const res = executeAgentTool(session, "read_plan", {});
     assert.equal(res.success, true);
     assert.ok(res.details);
     assert.ok(Array.isArray(res.details["rooms"]));
@@ -585,7 +585,7 @@ describe("agent tools", () => {
       room: 1,
       source: "vis 1\nline 0,0 159,167\nend\n",
     });
-    executeAgentTool(session, "write_logic_source", { room: 1, source: "return;" });
+    executeAgentTool(session, "write_logic", { room: 1, source: "return;" });
 
     const res = executeAgentTool(session, "playtest_room", { room: 1 });
     assert.equal(res.success, false);

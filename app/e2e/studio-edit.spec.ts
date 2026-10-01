@@ -534,7 +534,7 @@ test("a Keep the running game never acknowledges is saved, and Reload game bring
     } as typeof post;
   });
   await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Keeping…");
+  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Saving…");
   // A bounded wait, then the install failure and its one recovery.
   await expect(studio.getByTestId("studio-keep-error")).toContainText(
     "did not acknowledge picture 5",

@@ -26,7 +26,7 @@ const viewNumber = Number(params.get("view") ?? "0");
 const profile = DEFAULT_V2_PROFILE;
 const tutorial = buildTutorial();
 const source = studioSpriteSource({ files: tutorial.files, profile }, viewNumber, 1);
-if (!source) throw new Error(`sprite harness: the tutorial has no VIEW ${viewNumber}`);
+if (!source) throw new Error(`actor harness: the tutorial has no VIEW ${viewNumber}`);
 const revision = (n: number) => requireResourceRevision(n.toString(16).padStart(64, "0"));
 const kept: { edit: ViewEdit; staged: string | undefined }[] = [];
 const refusal = params.get("keep");

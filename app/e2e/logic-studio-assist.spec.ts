@@ -80,7 +80,7 @@ test("assistant reviews a proposed change, applies it once, undoes it, keeps it 
     if (request === 2)
       return fulfil(
         route,
-        call("r2", "propose_project_documents", {
+        call("r2", "propose_changes", {
           label: "Comment the room",
           changes: [{ key: "logic:1", content: ASSIST_SOURCE }],
         }),
@@ -117,8 +117,8 @@ test("assistant reviews a proposed change, applies it once, undoes it, keeps it 
   expect(tools).toEqual([
     "read_project_context",
     "read_document",
-    "propose_project_documents",
-    "withdraw_proposal",
+    "propose_changes",
+    "withdraw_changes",
     "read_command_reference",
     "read_authoring_guide",
   ]);
@@ -187,7 +187,7 @@ test("typing while the AI works makes its proposal stale; the draft keeps the ty
     if (request === 2)
       return fulfil(
         route,
-        call("r2", "propose_project_documents", {
+        call("r2", "propose_changes", {
           label: "Late proposal",
           changes: [{ key: "logic:1", content: ASSIST_SOURCE }],
         }),

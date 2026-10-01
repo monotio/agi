@@ -562,12 +562,12 @@ onMounted(async () => {
   // keeps offering the Resume card from the pending autosave.
   // A hot module update hands the running game over in memory: no reload
   // happened, so there is nothing to read back and the resume is instant.
-  const handover = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
+  const finish = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   lib.refreshPendingAutosave();
   const playKey = parseGameHash(location.hash)?.key ?? null;
   const watchTarget = watchHashTarget();
-  if (handover) await resumeFromRecord(handover, llmConfig());
+  if (finish) await resumeFromRecord(finish, llmConfig());
   else if (watchTarget)
     // startWalkthrough drives the tape to completion: await would suspend the
     // rest of mount — including the GPU stage the walkthrough paints into.

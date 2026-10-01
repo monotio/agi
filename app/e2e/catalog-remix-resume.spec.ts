@@ -24,7 +24,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
     requests++;
     const calls = [
       ["write_view", { num: 9, source: sprite }],
-      ["write_logic_source", { room: 1, source: patched }],
+      ["write_logic", { room: 1, source: patched }],
     ];
     await route.fulfill(
       providerReply("openai", {

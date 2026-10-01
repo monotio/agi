@@ -265,7 +265,7 @@ test("a large room reference is stored at the working size and sent as a thumbna
   page,
 }) => {
   // An upload is downscaled at intake to 1024 px on its longest edge, the
-  // size view_reference shows in full; the turn itself carries only a
+  // size read_reference_image shows in full; the turn itself carries only a
   // manifest line and a thumbnail.
   test.setTimeout(120_000);
   const requests: string[] = [];

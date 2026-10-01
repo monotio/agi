@@ -1,6 +1,6 @@
 {
   "name": "studio-assist-self-rejected-candidate",
-  "description": "A live run asked to make the tutorial's lever plate walkable without changing the art. The plate sits above the room's horizon (y 112). The model proposed a real priority change (1052 cells to control 3); the host answered 'Walkable baseline cells in the selection: 0 → 0', and the model replied that the candidate should not be accepted. With no way to retract it, the creator was still offered Accept. The model withdraws its own candidate with withdraw_edit, so the creator is left with its reply and no proposal.",
+  "description": "A live run asked to make the tutorial's lever plate walkable without changing the art. The plate sits above the room's horizon (y 112). The model proposed a real priority change (1052 cells to control 3); the host answered 'Walkable baseline cells in the selection: 0 → 0', and the model replied that the candidate should not be accepted. With no way to retract it, the creator was still offered Accept. The model withdraws its own candidate with withdraw_changes, so the creator is left with its reply and no proposal.",
   "async": true,
   "setup": [
     {
@@ -22,7 +22,7 @@
   "reply": "The lever plate cannot be made walkable within this selection: it ends at y108, above the room's y112 walking horizon, and changing its priority leaves no walkable baseline cells. The proposed priority change should not be accepted.",
   "steps": [
     {
-      "tool": "propose_edit",
+      "tool": "propose_changes",
       "args": {
         "baseRevision": "picture-4702-be91202e",
         "summary": "Give the lever plate walkable control priority while preserving its visual pixels.",
@@ -57,7 +57,7 @@
       "expectedMessageSnippet": "priority 1052 cells at 26,65..51,108. Walkable baseline cells in the selection: 0 → 0."
     },
     {
-      "tool": "withdraw_edit",
+      "tool": "withdraw_changes",
       "args": {
         "reason": "The lever plate sits above the room's y112 horizon, so no change within the selection makes it walkable."
       }

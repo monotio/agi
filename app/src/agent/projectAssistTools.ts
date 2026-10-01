@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../../../src/studio/vocabulary.ts";
 /**
  * The project assist tool catalog and its deny-by-default dispatcher.
  *
@@ -43,20 +44,24 @@ const MAX_PROPOSE_TEXT_CHARS = 131072;
 export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_project_context",
-    description:
-      "List the captured draft's complete document set — every key, its kind and size, the interpreter profile, the compile/reference diagnostics and this request's pending proposal. Reads always describe the captured base, never an unissued edit.",
-    parameters: {
+    description: toolDescription(
+      "read_project_context",
+      "List the captured draft's complete document set: every key, its kind and size, the interpreter profile, the compile/reference diagnostics and this request's pending proposal. Reads always describe the captured base, never an unissued edit.",
+    ),
+    parameters: parameterDescriptions("read_project_context", {
       type: "object",
       additionalProperties: false,
       properties: {},
       required: [],
-    },
+    }),
   },
   {
     name: "read_document",
-    description:
-      "Read one captured document exactly as authored — current draft text including comments and invalid syntax, never a decompiled substitute. Text pages by zero-based UTF-16 offset and limit (default and maximum 131072 code units). A byte document reports its length and SHA-256 plus a base64 window (default and maximum 65536 bytes).",
-    parameters: {
+    description: toolDescription(
+      "read_document",
+      "Read one captured document exactly as authored. current draft text including comments and invalid syntax, never a decompiled substitute. Text pages by zero-based UTF-16 offset and limit (default and maximum 131072 code units). A byte document reports its length and SHA-256 plus a base64 window (default and maximum 65536 bytes).",
+    ),
+    parameters: parameterDescriptions("read_document", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -65,13 +70,15 @@ export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
         limit: { type: ["integer", "null"], minimum: 1, maximum: MAX_READ_TEXT_CHARS },
       },
       required: ["key", "offset", "limit"],
-    },
+    }),
   },
   {
-    name: "propose_project_documents",
-    description:
-      "Offer one complete replacement change set over the captured documents: each change writes one document's whole text (ordinary AGI source or JSON) or deletes it (content null). The host overlays the set onto the captured base and validates the ENTIRE resulting project — real compiler plus reference checks — before issuing a reviewable draft proposal. A refused set returns document-scoped diagnostics and keeps the previously issued proposal. A successful call replaces this request's pending proposal, so gather every coordinated change (logic, words, bindings, inventory, world) into one call. Nothing is applied, saved or installed.",
-    parameters: {
+    name: "propose_changes",
+    description: toolDescription(
+      "propose_changes",
+      "Offer one complete replacement change set over the captured documents: each change writes one document's whole text (ordinary AGI source or JSON) or deletes it (content null). The host overlays the set onto the captured base and validates the ENTIRE resulting project. real compiler plus reference checks. before issuing a reviewable draft proposal. A refused set returns document-scoped diagnostics and keeps the previously issued proposal. A successful call replaces this request's pending proposal, so gather every coordinated change (logic, words, bindings, inventory, world) into one call. Nothing is applied, saved or installed.",
+    ),
+    parameters: parameterDescriptions("propose_changes", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -91,20 +98,22 @@ export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["label", "changes"],
-    },
+    }),
   },
   {
-    name: "withdraw_proposal",
-    description:
+    name: "withdraw_changes",
+    description: toolDescription(
+      "withdraw_changes",
       "Discard this request's pending proposal so the reviewer is never offered it. Use when you conclude your own candidate should not be accepted.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("withdraw_changes", {
       type: "object",
       additionalProperties: false,
       properties: {
         reason: { type: ["string", "null"], maxLength: 2000 },
       },
       required: ["reason"],
-    },
+    }),
   },
   COMMAND_REFERENCE_TOOL,
   AUTHORING_GUIDE_TOOL,
@@ -121,7 +130,7 @@ export interface ProjectAssistDriver {
   execute(name: string, args: Record<string, unknown>): AgentToolResult;
   /** The currently pending issued proposal, or null. */
   pending(): WorkspaceProposal | null;
-  /** Successful propose_project_documents calls this request. */
+  /** Successful propose_changes calls this request. */
   readonly proposals: number;
   /** Refused propose attempts this request. */
   readonly refusals: number;
@@ -227,7 +236,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
       return {
         success: true,
         message:
-          `${key} — text, ${content.length} code units, offset ${offset}${next === null ? "" : `, continues at ${next}`}:\n` +
+          `${key}: text, ${content.length} code units, offset ${offset}${next === null ? "" : `, continues at ${next}`}:\n` +
           page,
         details: {
           key,
@@ -248,7 +257,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
     return {
       success: true,
       message:
-        `${key} — ${content.byteLength} bytes, sha256 ${sha256Hex(content)}. ` +
+        `${key}: ${content.byteLength} bytes, sha256 ${sha256Hex(content)}. ` +
         `base64 window at offset ${offset} (${window.length} bytes${next === null ? "" : `, continues at ${next}`}): ${base64(window)}`,
       details: {
         key,
@@ -285,7 +294,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
     if (keyErrors.length)
       return {
         success: false,
-        error: `Invalid arguments for propose_project_documents; nothing was changed. ${[...new Set(keyErrors)].join(" ")}`,
+        error: `Invalid arguments for propose_changes; nothing was changed. ${[...new Set(keyErrors)].join(" ")}`,
       };
     const base = workspace.documents();
     const effective = changes.filter(({ key, content }) => !sameContent(base[key], content));
@@ -366,9 +375,9 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
           return context();
         case "read_document":
           return readDocument(normalized);
-        case "propose_project_documents":
+        case "propose_changes":
           return propose(normalized);
-        case "withdraw_proposal":
+        case "withdraw_changes":
           return withdraw(normalized);
         case "read_command_reference":
           return readCommandReference(profile, normalized);

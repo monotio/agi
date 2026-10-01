@@ -418,7 +418,7 @@ const assist = useStudioAssist({
   current: currentPicture,
   apply: (candidate, focus) => {
     if (candidate.kind !== "picture" || focus.scope.kind !== "picture")
-      return { ok: false, message: "That proposal is not for this picture." };
+      return { ok: false, message: "That change is not for this picture." };
     const outcome = draft.adopt(candidate.draft.source, "AI edit", focus.scope);
     editing.report(outcome);
     return outcome.ok ? outcome : { ok: false, message: outcome.refusal.message };
@@ -1004,8 +1004,10 @@ const selectionMenu = computed<CanvasMenuItem[]>(() =>
           : [{ id: "ungroup", label: "Ungroup" }]),
         {
           id: "ask",
-          label: "Ask about the selection",
-          ...(assistHost ? {} : { disabled: true, title: "AI edits need the game's assistant" }),
+          label: "Tell the agent about the selection",
+          ...(assistHost
+            ? {}
+            : { disabled: true, title: "An AI model is required. Choose a model in Settings." }),
         },
       ],
 );

@@ -391,7 +391,7 @@ test("G stands the ghost actor on the draft; dragged behind the occluder it read
   await expect(studio.locator('[data-role="ghost-verdict"]')).toContainText(
     "Behind Bench occluder",
   );
-  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → band 9");
+  await expect(studio.locator('[data-role="ghost-band"]')).toContainText("y 97 → depth band 9");
   // Dragging the ghost edited nothing.
   await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
   await page.keyboard.press("g");

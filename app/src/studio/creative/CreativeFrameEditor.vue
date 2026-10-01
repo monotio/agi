@@ -468,7 +468,7 @@ const baselineStyle = (frame: ViewRecipeFrame) => {
           :style="baselineStyle(frame)"
           :data-frame="frame.id"
           data-drag="baseline"
-          title="Baseline edge: drag vertically"
+          title="Feet row: drag vertically"
         />
         <span class="frames__handle" :data-frame="frame.id" data-drag="resize" aria-hidden="true" />
       </div>
@@ -653,7 +653,7 @@ const baselineStyle = (frame: ViewRecipeFrame) => {
               "
               min="0"
               :max="sourceHeight"
-              aria-label="Baseline edge"
+              aria-label="Feet row"
               @input="drafts.edit(frameKey(frame, 'baseline'), frameStamp(frame), $event)"
               @change="
                 commitField(frameKey(frame, 'baseline'), frameStamp(frame), $event, (t) =>
@@ -811,7 +811,7 @@ const baselineStyle = (frame: ViewRecipeFrame) => {
         <input
           type="checkbox"
           :checked="job.mask.key !== null"
-          aria-label="Use key colour"
+          aria-label="Use transparent colour"
           @change="
             emit('update-mask', {
               alphaThreshold: job.mask.alphaThreshold,
@@ -821,12 +821,12 @@ const baselineStyle = (frame: ViewRecipeFrame) => {
             })
           "
         />
-        <span>Key colour</span>
+        <span>Transparent colour</span>
         <input
           v-if="job.mask.key !== null"
           type="color"
           :value="`#${job.mask.key.rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`"
-          aria-label="Key colour"
+          aria-label="Transparent colour"
           @input="
             emit('update-mask', {
               alphaThreshold: job.mask.alphaThreshold,
@@ -877,7 +877,7 @@ const baselineStyle = (frame: ViewRecipeFrame) => {
           v-if="frame.diagnostics.keyErased > 0"
           >, {{ frame.diagnostics.keyErased }} by key</template
         ><template v-if="frame.diagnostics.cropLoss.belowBaseline.opaque > 0"
-          >, {{ frame.diagnostics.cropLoss.belowBaseline.opaque }} px below baseline</template
+          >, {{ frame.diagnostics.cropLoss.belowBaseline.opaque }} px below the feet</template
         ><template v-if="frame.diagnostics.cropLoss.outsideCanvas.opaque > 0"
           >, {{ frame.diagnostics.cropLoss.outsideCanvas.opaque }} px outside canvas</template
         >

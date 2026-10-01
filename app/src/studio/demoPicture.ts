@@ -63,7 +63,7 @@ export const DEMO_PICTURE_SOURCE = `${[
       ],
     }),
   ]),
-  ...item("bench-occluder", "Bench occluder", "depth", [
+  ...item("bench-occluder", "Bench depth", "depth", [
     ...shapeSource({ kind: "rect", color: null, priority: 10, filled: true, ...DEMO_OCCLUDER }),
   ]),
   ...item("floor-edge", "Floor edge", "walk", [

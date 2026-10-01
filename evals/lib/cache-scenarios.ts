@@ -5,8 +5,8 @@
  * turn for the dry run. A live run plays the same turns with a real model.
  *
  *   remix-references  two Remix turns with a room plate attached (manifest,
- *                     contact strip, view_reference, a picture write and
- *                     handover), then an Ask: the request after the second
+ *                     contact strip, read_reference_image, a picture write and
+ *                     finish), then an Ask: the request after the second
  *                     player message is where a viewed image could be
  *                     rewritten
  *   room-build        two just-in-time room builds, the second from the first
@@ -82,7 +82,7 @@ function plate(): DecodedImage {
 }
 
 const stored = [roomReference(PLATE_ID, 1, "A sunlit gallery", IDENTITY, plate())];
-/** The plate's content-derived handle, the id view_reference is called with. */
+/** The plate's content-derived handle, the id read_reference_image is called with. */
 const PLATE_ART_ID = referenceArtId(Buffer.from(stored[0]!.images[0]!.png, "base64"));
 
 const picture = (sky: number, floor: number) =>
@@ -120,7 +120,7 @@ function pictureFocus(session: Session, num: number, targetIds: string[]): Studi
 const view = (size: "thumb" | "small" | "full", region: boolean): ScriptedTurn => ({
   calls: [
     {
-      name: "view_reference",
+      name: "read_reference_image",
       input: {
         id: PLATE_ART_ID,
         size,
@@ -134,7 +134,7 @@ const call = (name: string, input: Record<string, unknown>): ScriptedTurn => ({
   calls: [{ name, input }],
 });
 const say = (text: string): ScriptedTurn => ({ text });
-const HANDOVER = call("handover", { notes: null });
+const HANDOVER = call("finish", { notes: null });
 
 export const SCENARIOS: readonly Scenario[] = [
   {
@@ -146,7 +146,7 @@ export const SCENARIOS: readonly Scenario[] = [
           {
             calls: [
               view("full", true).calls![0]!,
-              { name: "read_room_context", input: { room: 1, state: null, frames: null } },
+              { name: "read_room", input: { room: 1, state: null, frames: null } },
             ],
           },
           call("read_logic", { num: 1 }),
@@ -192,7 +192,7 @@ export const SCENARIOS: readonly Scenario[] = [
           {
             calls: [
               { name: "write_picture", input: { room: 4, source: picture(3, 6) } },
-              { name: "write_logic_source", input: { room: 4, source: roomLogic(3) } },
+              { name: "write_logic", input: { room: 4, source: roomLogic(3) } },
             ],
           },
           HANDOVER,
@@ -214,7 +214,7 @@ export const SCENARIOS: readonly Scenario[] = [
           {
             calls: [
               { name: "write_picture", input: { room: 5, source: picture(1, 7) } },
-              { name: "write_logic_source", input: { room: 5, source: roomLogic(4) } },
+              { name: "write_logic", input: { room: 5, source: roomLogic(4) } },
             ],
           },
           HANDOVER,
@@ -256,7 +256,7 @@ export const SCENARIOS: readonly Scenario[] = [
       {
         label: "ask about the keys",
         script: [
-          call("read_room_context", { room: 1, state: null, frames: null }),
+          call("read_room", { room: 1, state: null, frames: null }),
           say("Arrow keys walk; FAST and SLOW change speed."),
         ],
         run: (session) => session.runAsk("What keys do I press to play this game?", 1),

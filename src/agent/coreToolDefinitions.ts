@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
 /** Schemas for core resource editing and runtime inspection tools. */
 import type { ToolDefinition } from "./tools.ts";
 import { MAX_FRAMES } from "./frames.ts";
@@ -197,9 +198,11 @@ export const PLAYTEST_EXPECT_SCHEMA = {
 export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_diagnostic",
-    description:
+    description: toolDescription(
+      "read_diagnostic",
       "Retrieve a stored diagnostic artifact by `id` (a tool result's diagnosticId when fields were truncated). `fields` limits output to named detail fields; `offset`/`limit` page the serialized text.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("read_diagnostic", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -213,13 +216,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         limit: { type: ["integer", "null"], minimum: 1, maximum: 131072 },
       },
       required: ["id", "fields", "offset", "limit"],
-    },
+    }),
   },
   {
-    name: "read_room_context",
-    description:
-      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory, live state and screen objects. Null `room` selects the live room. `state` requests the full interpreter tables — `compact` omits zeroes, `variables`/`flags` select indices; null returns the live summary only. `frames` returns the last `count` (1..9) frames oldest first, sampled every `stride` cycles — `sheet` (default true) tiles them into one contact sheet, `plane` is visual or priority. Live state is paused; resources include staged edits. Missing live deps report per-section errors.",
-    parameters: {
+    name: "read_room",
+    description: toolDescription(
+      "read_room",
+      "Inspect a room's compiled resources, intent, dependencies, bindings, inventory, live state and screen objects. Null `room` selects the live room. `state` requests the full interpreter tables. `compact` omits zeroes, `variables`/`flags` select indices; null returns the live summary only. `frames` returns the last `count` (1..9) frames oldest first, sampled every `stride` cycles. `sheet` (default true) tiles them into one contact sheet, `plane` is visual or priority. Live state is paused; resources include staged edits. Missing live deps report per-section errors.",
+    ),
+    parameters: parameterDescriptions("read_room", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -259,13 +264,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["room", "state", "frames"],
-    },
+    }),
   },
   {
     name: "write_words",
-    description:
+    description: toolDescription(
+      "write_words",
       'Compile parser vocabulary into WORDS.TOK. A word starts with a letter and uses only a-z, 0-9, apostrophes and spaces (a phrase): write break in, not break-in. Slash-separated words share an ID; `groups` preserves explicit synonyms and multiword phrases. `ignored` lists words the parser drops before matching (AGI word group 0), such as a, an and the, so LOOK AT THE NOTICE can match said("look", "notice") when at and the are ignored. Register words before using them in said(). Standard navigation words are added automatically. Failure stores nothing.',
-    parameters: {
+    ),
+    parameters: parameterDescriptions("write_words", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -290,13 +297,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["words", "groups", "ignored"],
-    },
+    }),
   },
   {
-    name: "write_logic_source",
-    description:
+    name: "write_logic",
+    description: toolDescription(
+      "write_logic",
       "Compile and replace AGI logic `room` from complete `source`, including #message directives. Failure returns assembler diagnostics and stores nothing; said() words must already be registered.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("write_logic", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -308,13 +317,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["room", "source"],
-    },
+    }),
   },
   {
     name: "write_picture",
-    description:
+    description: toolDescription(
+      "write_picture",
       "Compile and replace picture `room` from complete vector `source`. Returns a visual/priority/overlay comparison image, spatial metrics and revision. A `# layout: <name> x<a>-<b> y<c>-<d> colour <n>` comment reports the colour and coverage that rendered in that box with an OK/UNDERFILLED/SHIFTED/MISSING verdict. A `# actor: <name> x<X> y<baseline> width<W> height<H> priority<P>` comment reports that footprint's extent, the control values on its baseline and how many cells of higher-priority scenery would occlude it. Failure stores nothing.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("write_picture", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -326,13 +337,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["room", "source"],
-    },
+    }),
   },
   {
     name: "read_picture",
-    description:
+    description: toolDescription(
+      "read_picture",
       "Read editable source and rendered priority/control analysis for picture `num`. `include` selects source, image or both; `offset`/`limit` page source lines; null paging uses offset 0, a 65536-character source budget and both. Fails for absent or invalid resources.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("read_picture", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -352,13 +365,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["num", "offset", "limit", "include"],
-    },
+    }),
   },
   {
     name: "read_logic",
-    description:
+    description: toolDescription(
+      "read_logic",
       "Disassemble logic `num` to editable, byte-identical source with said() words resolved. `offset`/`limit` page source lines; null paging uses offset 0 and a 65536-character source budget. Fails for absent or invalid resources.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("read_logic", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -374,13 +389,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["num", "offset", "limit"],
-    },
+    }),
   },
   {
     name: "read_words",
-    description:
+    description: toolDescription(
+      "read_words",
       "Inspect parser words and synonym groups by word ID. `prefix` or `exact` narrows the words; `offset` and `limit` page the groups (null: 0 and up to 65536). The compiled dictionary determines what said() can match.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("read_words", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -401,13 +418,15 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["prefix", "exact", "offset", "limit"],
-    },
+    }),
   },
   {
     name: "read_view",
-    description:
-      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 65536-pixel budget — large `rows` results evict to a paged diagnostic. Fails for absent or invalid resources.",
-    parameters: {
+    description: toolDescription(
+      "read_view",
+      "Inspect compiled view `num`: labeled contact sheet, per-cel size and EGA color usage, and the resource `revision` accepted by patch tools. `cels` selects a cel subset ({loop,cel}); `rows` returns exact EGA hex rows for the selection, or every cel when `cels` is null, within a 65536-pixel budget. large `rows` results evict to a paged diagnostic. Fails for absent or invalid resources.",
+    ),
+    parameters: parameterDescriptions("read_view", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -427,13 +446,16 @@ export const CORE_AGENT_TOOLS: readonly ToolDefinition[] = [
         rows: { type: ["boolean", "null"] },
       },
       required: ["num", "cels", "rows"],
-    },
+    }),
   },
   {
     name: "write_view",
-    description: `Compile and replace view \`num\` from \`source\`. ${VIEW_SOURCE_DOC}
-Returns the compiled contact sheet (a large view shows 32 sampled cels). To change rows or colours of an existing view, use patch_view_cels. Failure stores nothing.`,
-    parameters: {
+    description: toolDescription(
+      "write_view",
+      `Compile and replace view \`num\` from \`source\`. ${VIEW_SOURCE_DOC}
+Returns the compiled contact sheet (a large view shows 32 sampled cels). To change rows or colours of an existing view, use edit_cels. Failure stores nothing.`,
+    ),
+    parameters: parameterDescriptions("write_view", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -441,13 +463,15 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
         source: { type: "string" },
       },
       required: ["num", "source"],
-    },
+    }),
   },
   {
-    name: "handover",
-    description:
-      "Finish authoring and resume the running game. Validates first: every stored game test runs against the current resources, and a session's first handover also boots the world in simulation (ego spawn, room display, modal handling). Failure returns the verdict for repair; only a passing handover resumes play. `notes` is optional free text.",
-    parameters: {
+    name: "finish",
+    description: toolDescription(
+      "finish",
+      "Finish authoring and resume the running game. Validates first: every stored game test runs against the current resources, and a session's first finish also boots the world in simulation (ego spawn, room display, modal handling). Failure returns the verdict for repair; only a passing finish resumes play. `notes` is optional free text.",
+    ),
+    parameters: parameterDescriptions("finish", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -456,13 +480,15 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
         },
       },
       required: ["notes"],
-    },
+    }),
   },
   {
-    name: "write_inventory_objects",
-    description:
-      "Compile the OBJECT inventory table. `mode` replace (default) writes the complete table from `objects` (`startingRoom`: 255 carried, 1..254 in that room, 0 inactive); `mode` merge updates one item from `item` while preserving other IDs — null `item.id` appends, `item.location` is carried, room or inactive, and `item.room` (1..254) applies only to a room location. Live ownership is unchanged; game logic changes it.",
-    parameters: {
+    name: "write_objects",
+    description: toolDescription(
+      "write_objects",
+      "Compile the OBJECT inventory table. `mode` replace (default) writes the complete table from `objects` (`startingRoom`: 255 carried, 1..254 in that room, 0 inactive); `mode` merge updates one item from `item` while preserving other IDs. null `item.id` appends, `item.location` is carried, room or inactive, and `item.room` (1..254) applies only to a room location. Live ownership is unchanged; game logic changes it.",
+    ),
+    parameters: parameterDescriptions("write_objects", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -496,13 +522,15 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
         },
       },
       required: ["mode", "objects", "item"],
-    },
+    }),
   },
   {
     name: "write_sound",
-    description:
+    description: toolDescription(
+      "write_sound",
       "Compile and replace four-channel SOUND `num` from `tracks`: three tone voices and one noise voice. Durations use 60 Hz ticks; attenuation 0 is loudest and 15 silent. Notes accept MIDI, names, rest, or raw frequency divisors.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("write_sound", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -543,13 +571,15 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
         },
       },
       required: ["num", "tracks"],
-    },
+    }),
   },
   {
-    name: "inspect_world_bible",
-    description:
-      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words, intent or slots (null: all); slots lists occupied ranges and next free IDs, narrowed by `kind` (logic, picture, view, sound, null for all). With intent, `section` (rooms, facts, quests or bindings) plus `name` selects one entry or `offset`/`limit` pages entries (null: all up to 65536). Inventory locations are definitions; use read_room_context for live inventory. This indexes resources and does not prove puzzle behavior.",
-    parameters: {
+    name: "read_plan",
+    description: toolDescription(
+      "read_plan",
+      "Inspect game resources and authored intent, including staged edits. `filter` is all, rooms, objects, words, intent or slots (null: all); slots lists occupied ranges and next free IDs, narrowed by `kind` (logic, picture, view, sound, null for all). With intent, `section` (rooms, facts, quests or bindings) plus `name` selects one entry or `offset`/`limit` pages entries (null: all up to 65536). Inventory locations are definitions; use read_room for live inventory. This indexes resources and does not prove puzzle behavior.",
+    ),
+    parameters: parameterDescriptions("read_plan", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -574,13 +604,15 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
         limit: { type: ["integer", "null"], minimum: 1, maximum: 65536 },
       },
       required: ["filter", "section", "name", "offset", "kind", "limit"],
-    },
+    }),
   },
   {
     name: "playtest_room",
-    description:
+    description: toolDescription(
+      "playtest_room",
       "Run a bounded isolated playtest of `room` against staged resources. `steps` command, move, enter, wait, key, direction, walkTo (position), walkPath (target region), walkWaypoints (explicit route) or answer; answer queues a get.string/get.num reply without advancing a cycle and requires null ticks/captureTicks; `expect` asserts room, inventory, flags, variables, a printed message (`printed`) and visible text (`text`). Null `spawnX`/`spawnY` use initialized ego; null steps checks its footprint. captureTicks samples completed ticks within that step into a composed animation sheet. `fromLiveCheckpoint` restores the paused live game's captured checkpoint instead of booting. A print() window stops the game until it is dismissed: after a room that prints on entry, or a command that prints, add an enter step before the next walk, wait or command. Navigation returns typed outcomes in steps[].navigation and stops for explicit modal input. Navigation steps default to 600 logic cycles, bounded by the remaining scenario budget; host polls, logic cycles and eligible movement updates are reported separately. Null `cycleBudget` (600, including setup) and `instructionBudget` (50000) bound the run. An exit to a room the world plan declares reports `reached_planned_room` (success: the room is built when the player arrives); an unplanned missing destination reports `needs_authoring`.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("playtest_room", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -619,6 +651,6 @@ Returns the compiled contact sheet (a large view shows 32 sampled cels). To chan
         "instructionBudget",
         "fromLiveCheckpoint",
       ],
-    },
+    }),
   },
 ];

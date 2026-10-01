@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
 /** Compact, bounded authoring and inspection helpers for authentic AGI sounds. */
 import { resourceCacheHint } from "./authoringState.ts";
 import {
@@ -40,9 +41,11 @@ const READ_SOUND_CHAR_BUDGET = 65536;
 export const SOUND_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_music",
-    description:
+    description: toolDescription(
+      "write_music",
       "Compile beat-based music to four-channel AGI SOUND `num` at `tempo` BPM from `tracks`. Roles map to melody=0, harmony=1, bass=2, noise=3. Tone notes use names; noise uses periodic/white low/medium/high. Volume 15 is loudest. Repeats expand to at most 4096 events.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("write_music", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -105,13 +108,15 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["num", "tempo", "tracks"],
-    },
+    }),
   },
   {
     name: "read_sound",
-    description:
+    description: toolDescription(
+      "read_sound",
       "Inspect SOUND `num` as timed events and a four-channel timeline; null `channel` reads all. `representation` auto uses saved music intent when available; choose music for estimated pitches or sound for raw frequency/noise. Seconds and divisors are authoritative. `offset` and `limit` page the events; null limit reads all within a 65536-character budget. Follow `nextOffset` for larger sounds.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("read_sound", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -141,13 +146,15 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["num", "channel", "offset", "limit", "representation"],
-    },
+    }),
   },
   {
-    name: "preview_sound",
-    description:
+    name: "play_sound",
+    description: toolDescription(
+      "play_sound",
       "Render a bounded WAV preview of SOUND `num` from `startSeconds` (null: 0) for `durationSeconds` (null: 20) on `device` tandy or pc-speaker (null: tandy) with the game scheduler and an approximate synthesizer. The player can hear it; the model cannot. Read-only and separate from live playback.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("play_sound", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -168,7 +175,7 @@ export const SOUND_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["num", "startSeconds", "durationSeconds", "device"],
-    },
+    }),
   },
 ];
 
@@ -318,7 +325,7 @@ export function executeSoundTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name === "preview_sound") {
+  if (name === "play_sound") {
     try {
       const num = integer(args["num"], "Sound number", 0, 255);
       const payload = state.container.getResource("sound", num);

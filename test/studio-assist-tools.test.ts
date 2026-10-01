@@ -83,7 +83,7 @@ function robotAssist() {
 }
 
 const fields = (list: "pictureOps" | "spriteOps") => {
-  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
   return (propose.parameters.properties[list] as { items: { required: string[] } }).items.required;
 };
 const op = (list: "pictureOps" | "spriteOps", given: Record<string, unknown>) =>
@@ -127,7 +127,7 @@ function propose(
   base = draftRevision(assist.focus.draft()),
 ): Promise<AgentToolResult> {
   const picture = assist.focus.scope.kind === "picture";
-  return run(state, assist, "propose_edit", {
+  return run(state, assist, "propose_changes", {
     baseRevision: base,
     summary: "A test change.",
     pictureOps: picture ? ops : null,
@@ -136,13 +136,13 @@ function propose(
 }
 
 test("the Studio tools are catalogued with strict schemas", () => {
-  for (const name of ["read_edit_context", "propose_edit", "withdraw_edit"]) {
+  for (const name of ["read_edit_context", "propose_changes", "withdraw_changes"]) {
     const tool = AGENT_TOOLS.find((candidate) => candidate.name === name)!;
     assert.ok(tool, name);
     assert.deepEqual(tool.parameters.required, Object.keys(tool.parameters.properties));
   }
   for (const list of ["pictureOps", "spriteOps"] as const) {
-    const propose = AGENT_TOOLS.find((tool) => tool.name === "propose_edit")!;
+    const propose = AGENT_TOOLS.find((tool) => tool.name === "propose_changes")!;
     const items = (
       propose.parameters.properties[list] as {
         items: { properties: object; required: string[]; additionalProperties: boolean };
@@ -167,10 +167,10 @@ test("outside a Studio assist task the Studio tools are denied", async () => {
     refused,
   );
   // Genesis, room authoring and Remix: not in the phase's availability.
-  assert.ok(!AUTHORING_TOOL_NAMES.includes("propose_edit"));
+  assert.ok(!AUTHORING_TOOL_NAMES.includes("propose_changes"));
   const phase = await executeAgentToolAsync(
     state,
-    "propose_edit",
+    "propose_changes",
     {},
     {
       allowedTools: AUTHORING_TOOL_NAMES,
@@ -228,7 +228,7 @@ test("read_edit_context is bounded to the selection and its neighbours", async (
   );
 });
 
-test("propose_edit works on a detached copy and returns a before | after | diff candidate", async () => {
+test("propose_changes works on a detached copy and returns a before | after | diff candidate", async () => {
   const state = session();
   const files = [...state.getFiles()].map(([name, bytes]) => [name, [...bytes]]);
   let reads = 0;
@@ -264,8 +264,8 @@ test("propose_edit works on a detached copy and returns a before | after | diff 
   assert.deepEqual(candidate.kind === "picture" && candidate.walkable, { before: 880, after: 960 });
 });
 
-test("propose_edit takes insertPoint: a new vertex on the selected item's line", async () => {
-  const propose_ = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+test("propose_changes takes insertPoint: a new vertex on the selected item's line", async () => {
+  const propose_ = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
   const types = (
     propose_.parameters.properties["pictureOps"] as {
       items: { properties: { type: { enum: string[] } } };
@@ -593,10 +593,10 @@ test("a sprite edit that changes no pixel is refused; a mirror split or transpar
   assert.deepEqual([assist.proposals, assist.refusals], [4, 2]);
 });
 
-test("withdraw_edit clears the candidate, and a later proposal can still be made", async () => {
+test("withdraw_changes clears the candidate, and a later proposal can still be made", async () => {
   const state = session();
   const assist = bridgeAssist();
-  const withdraw = (reason: string) => run(state, assist, "withdraw_edit", { reason });
+  const withdraw = (reason: string) => run(state, assist, "withdraw_changes", { reason });
   const empty = await withdraw("Nothing proposed yet.");
   assert.equal(empty.success, false);
   assert.match(empty.error ?? "", /^There is no candidate to withdraw\./);
@@ -607,7 +607,7 @@ test("withdraw_edit clears the candidate, and a later proposal can still be made
   assert.equal(withdrawn.success, true, withdrawn.error ?? "");
   assert.equal(
     withdrawn.message,
-    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call propose_edit to propose something else, or explain what blocks the change.",
+    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call propose_changes to propose something else, or explain what blocks the change.",
   );
   assert.deepEqual(withdrawn.details, {
     ok: true,
@@ -629,7 +629,7 @@ test("default Studio proposals continue beyond four and carry no countdown", asy
   for (let i = 0; i < 6; i++) {
     const result = await executeAgentToolAsync(
       state,
-      "propose_edit",
+      "propose_changes",
       {
         baseRevision: draftRevision(assist.focus.draft()),
         summary: "Make a crossing",
@@ -674,7 +674,7 @@ test("selected source includes ordinary long items and offers character paging",
 });
 
 test("sprite pixel edits permit a complete largest cel", () => {
-  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
   const sprite = propose.parameters.properties["spriteOps"] as {
     items: { properties: { changes: { maxItems: number } } };
   };

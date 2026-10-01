@@ -171,7 +171,7 @@ function byteCount(content: string | Uint8Array | null | undefined): string {
 <template>
   <UiDialog
     v-model:open="open"
-    :title="applied ? 'Applied changes' : 'Review the proposal'"
+    :title="applied ? 'Applied changes' : 'Review the change'"
     size="lg"
     data-testid="logic-agent-review"
     @closed="emit('close')"
@@ -232,8 +232,8 @@ function byteCount(content: string | Uint8Array | null | undefined): string {
         role="alert"
         data-testid="logic-agent-stale"
       >
-        You changed the draft while the AI worked. The diff above still shows what it proposed. Ask
-        again to get a proposal for the current draft.
+        You changed the draft while the AI worked. The diff above still shows what it proposed.
+        Follow up to get a change for the current draft.
       </p>
     </div>
     <template #footer>
@@ -249,7 +249,7 @@ function byteCount(content: string | Uint8Array | null | undefined): string {
       </template>
       <template v-else>
         <UiButton variant="ghost" data-testid="logic-agent-again" @click="emit('ask-again')">
-          Ask again…
+          Follow up…
         </UiButton>
         <UiButton variant="danger" data-testid="logic-agent-reject" @click="emit('reject')">
           Reject
@@ -258,7 +258,7 @@ function byteCount(content: string | Uint8Array | null | undefined): string {
           variant="primary"
           icon="check"
           :disabled="stale"
-          :title="stale ? 'The draft changed since this proposal' : 'Apply the proposed changes'"
+          :title="stale ? 'The draft changed since this change' : 'Apply the proposed changes'"
           data-testid="logic-agent-approve"
           @click="emit('approve')"
         >

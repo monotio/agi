@@ -202,7 +202,7 @@ describe("projectAssist: review lifecycle", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: { label: "add grumble room", changes: grumbleChanges(project) },
               },
             ],
@@ -251,7 +251,7 @@ describe("projectAssist: review lifecycle", () => {
       {
         tools: [
           {
-            name: "propose_project_documents",
+            name: "propose_changes",
             input: { label: "fix", changes: [{ key, content: "return;\n" }] },
           },
         ],
@@ -283,7 +283,7 @@ describe("projectAssist: review lifecycle", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: { label: "temp", changes: [{ key: "logic:9", content: "return;\n" }] },
               },
             ],
@@ -308,12 +308,12 @@ describe("projectAssist: review lifecycle", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: { label: "temp", changes: [{ key: "logic:9", content: "return;\n" }] },
               },
             ],
           },
-          { tools: [{ name: "withdraw_proposal", input: { reason: "not worth it" } }] },
+          { tools: [{ name: "withdraw_changes", input: { reason: "not worth it" } }] },
           { text: "Withdrew." },
         ]).conversation,
     });
@@ -382,7 +382,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
       {
         tools: [
           {
-            name: "propose_project_documents",
+            name: "propose_changes",
             input: { label: "one", changes: [{ key: "logic:9", content: "return;\n" }] },
           },
         ],
@@ -412,7 +412,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
         hold: {
           tools: [
             {
-              name: "propose_project_documents",
+              name: "propose_changes",
               input: { label: "typed-over", changes: [{ key: "logic:9", content: "return;\n" }] },
             },
           ],
@@ -454,7 +454,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
         {
           tools: [
             {
-              name: "propose_project_documents",
+              name: "propose_changes",
               input: { label: "second", changes: [{ key: "logic:9", content: "return;\n" }] },
             },
           ],
@@ -514,7 +514,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
             {
               tools: [
                 {
-                  name: "propose_project_documents",
+                  name: "propose_changes",
                   input: { label: "x", changes: [{ key: "logic:9", content: "return;\n" }] },
                 },
               ],
@@ -548,7 +548,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: { label: "good", changes: [{ key: "logic:9", content: "return;\n" }] },
               },
             ],
@@ -556,7 +556,7 @@ describe("projectAssist: cancellation, epochs and stale results", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: {
                   label: "bad",
                   changes: [{ key: room1Key(project), content: "if (isset(" }],
@@ -584,7 +584,7 @@ describe("projectAssist: approval modes", () => {
       {
         tools: [
           {
-            name: "propose_project_documents",
+            name: "propose_changes",
             input: { label: "auto", changes: [{ key: "logic:9", content: "return;\n" }] },
           },
         ],
@@ -630,7 +630,7 @@ describe("projectAssist: approval modes", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: {
                   label: "remove",
                   changes: [
@@ -662,7 +662,7 @@ describe("projectAssist: approval modes", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: {
                   label: "wide",
                   changes: [
@@ -693,7 +693,7 @@ describe("projectAssist: approval modes", () => {
         hold: {
           tools: [
             {
-              name: "propose_project_documents",
+              name: "propose_changes",
               input: { label: "x", changes: [{ key: "logic:9", content: "return;\n" }] },
             },
           ],
@@ -719,7 +719,7 @@ describe("projectAssist: approval modes", () => {
         hold: {
           tools: [
             {
-              name: "propose_project_documents",
+              name: "propose_changes",
               input: { label: "x", changes: [{ key: "logic:9", content: "return;\n" }] },
             },
           ],
@@ -748,7 +748,7 @@ describe("projectAssist: approval modes", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: {
                   label: "wide",
                   changes: [
@@ -793,7 +793,7 @@ describe("projectAssist: approval modes", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: { label: "x", changes: [{ key: "logic:9", content: "return;\n" }] },
               },
             ],
@@ -828,7 +828,7 @@ describe("projectAssist: guard rails", () => {
           {
             tools: [
               {
-                name: "propose_project_documents",
+                name: "propose_changes",
                 input: { label: "x", changes: [{ key: "logic:9", content: "return;\n" }] },
               },
             ],

@@ -168,6 +168,13 @@ const HOME_START = ["games/adventure-department/game.ts"];
 const STUDIO_MODULES = [/^app\/src\/studio\//, /^src\/studio\//];
 const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
 
+/** Identify lazy editor code, allowing the platform-free vocabulary shared by Help. */
+export function isStudioModule(module: string): boolean {
+  return (
+    module !== "src/studio/vocabulary.ts" && STUDIO_MODULES.some((pattern) => pattern.test(module))
+  );
+}
+
 /**
  * The execution debugger loads on the first debug/Test action through the
  * one dynamic import in app/src/worker/debugLoader.ts: the controller and
@@ -340,7 +347,7 @@ function main(): void {
 
   for (const chunk of boot)
     for (const module of chunk.modules)
-      if (STUDIO_MODULES.some((pattern) => pattern.test(module)))
+      if (isStudioModule(module))
         failures.push(
           `${module} is in the startup chunk ${chunk.file}; Studio code must load through a dynamic import.`,
         );

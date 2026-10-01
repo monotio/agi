@@ -23,7 +23,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
     const calls = [
       ["write_words", { words: ["sparkle"] }],
       [
-        "write_inventory_objects",
+        "write_objects",
         {
           objects: [
             { name: "Old key", startingRoom: 2 },
@@ -32,7 +32,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
         },
       ],
       [
-        "write_logic_source",
+        "write_logic",
         {
           room: 0,
           source: `
@@ -80,8 +80,8 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
       const state = agentState.createAgentSessionState();
       const initial = [
         ["write_words", { words: ["look"] }],
-        ["write_inventory_objects", { objects: [{ name: "Old key", startingRoom: 1 }] }],
-        ["write_logic_source", { room: 0, source: "accept.input(); get(0); return;" }],
+        ["write_objects", { objects: [{ name: "Old key", startingRoom: 1 }] }],
+        ["write_logic", { room: 0, source: "accept.input(); get(0); return;" }],
       ] as const;
       for (const [name, args] of initial) {
         const res = tools.executeAgentTool(state, name, args);

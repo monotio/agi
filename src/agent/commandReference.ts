@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
 /** Agent command discovery uses the same profile-filtered tables as the assembler. */
 import { commandReference, relatedCommands } from "../logic/commandReference.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
@@ -27,9 +28,11 @@ export function formatCommandCatalog(profile: AgiProfile): string {
 
 export const COMMAND_REFERENCE_TOOL: ToolDefinition = {
   name: "read_command_reference",
-  description:
+  description: toolDescription(
+    "read_command_reference",
     "Discover commands for the active interpreter profile. Null query lists signatures; text returns matching help. `kind` narrows to action or condition (null: both); `offset` pages the listing by 16. Variable operands are IDs. The compiler remains authoritative.",
-  parameters: {
+  ),
+  parameters: parameterDescriptions("read_command_reference", {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -47,7 +50,7 @@ export const COMMAND_REFERENCE_TOOL: ToolDefinition = {
       },
     },
     required: ["query", "kind", "offset"],
-  },
+  }),
 };
 
 export function readCommandReference(

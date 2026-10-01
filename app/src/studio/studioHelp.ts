@@ -1,3 +1,4 @@
+import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/studio/vocabulary.ts";
 /**
  * The Studios' keyboard help, kept off the canvas: a tool's name and one
  * short line for the status bar, and the full key list the `?` sheet shows
@@ -23,7 +24,7 @@ export const ROOM_TOOL_NAMES: Record<StudioTool, string> = {
   brush: "Brush",
   pipette: "Pipette",
   hand: "Hand",
-  walk: "Test walk",
+  walk: VOCABULARY_ACTIONS.playtest_room.label,
   door: "Door box",
   edge: "Edge exit",
 };
@@ -39,7 +40,7 @@ export const ROOM_TOOL_HINTS: Record<StudioTool, string> = {
   brush: "Drag to place plot points, one per pixel",
   pipette: "Click to pick the colour and depth under the cursor",
   hand: "Drag to pan · Space pans with any tool",
-  walk: "Click a start, then a goal · the game walks it",
+  walk: VOCABULARY_ACTIONS.playtest_room.help,
   door: "Drag a door box on the floor",
   edge: "Click near an edge: walking off it changes room",
 };
@@ -66,7 +67,7 @@ export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
 
 export const SPRITE_TOOL_HINTS: Record<SpriteTool, string> = {
   pencil: "Drag to paint · Space: pen down at the cursor",
-  eraser: "Drag to paint ∅ transparent",
+  eraser: VOCABULARY.transparentColour.help,
   fill: "Click to flood the area under the cursor",
   line: "Drag a line, or Space at each end",
   rect: "Drag a rectangle, or Space at each corner",
@@ -109,7 +110,7 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: ["L", "R", "P"], does: "Line, rectangle, polygon" },
         { keys: ["F", "B", "I"], does: "Fill, brush, pipette" },
         { keys: ["T", "D", "E"], does: "Test walk, door box, edge exit (Walk lens)" },
-        { keys: ["G"], does: "Ghost" },
+        { keys: ["G"], does: "Stand-in" },
         { keys: ["H"], does: "Hand; hold Space to pan with any tool" },
       ],
     },
@@ -152,7 +153,7 @@ export function roomKeySheet(tool: StudioTool): KeySection[] {
         { keys: [keyLabel("Mod+Shift+G")], does: "Ungroup the selected group" },
         { keys: ["[", "]"], does: "Move one item back or forward in draw order" },
         { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
-        { keys: ["/"], does: "Ask about the selection" },
+        { keys: ["/"], does: "Tell the agent about the selection" },
       ],
     },
     {
@@ -202,7 +203,7 @@ export function spriteKeySheet(): KeySection[] {
         { keys: ["<", ">"], does: "Previous or next loop" },
         { keys: ["+", "−", "0"], does: "Zoom in, out, to fit" },
         { keys: [keyLabel("Mod+Z"), keyLabel("Mod+Shift+Z")], does: "Undo, redo" },
-        { keys: ["/"], does: "Ask about the cel or loop" },
+        { keys: ["/"], does: "Tell the agent about the cel or loop" },
         { keys: ["?"], does: "This list" },
       ],
     },

@@ -273,7 +273,7 @@ function closedError(): Error {
 
 function busyError(): Error {
   return new Error(
-    "A creative Keep is in progress; wait for it to finish before changing this work.",
+    "A creative Save is in progress; wait for it to finish before changing this work.",
   );
 }
 
@@ -1342,7 +1342,7 @@ class CreativeMaterialWorkspaceImpl implements CreativeMaterialWorkspace {
   updateUnderlay(patch: Partial<Omit<UnderlayJob, "draftId" | "incarnation" | "sourceKey">>): void {
     this.checkMutable();
     const job = this.underlayJob;
-    if (job === null) throw new Error("No underlay job is open.");
+    if (job === null) throw new Error("No trace job is open.");
     this.captureUndoStep(`underlay:${job.incarnation}`);
     const { crop, bounds, ...rest } = patch;
     Object.assign(job, rest);
@@ -1547,7 +1547,7 @@ class CreativeMaterialWorkspaceImpl implements CreativeMaterialWorkspace {
   /** The finalized recipe for the view job; requires a prepared payload hash. */
   private viewRecipeRecord(job: ViewJob, prepared: PreparedView): CreativeRecipe {
     if (job.destination === null)
-      throw new Error("Choose a VIEW destination before keeping this preparation.");
+      throw new Error("Choose a VIEW destination before saving this preparation.");
     const sources = job.sourceKeys.map((key) => this.sourceOf(key).record.identity);
     return {
       format: CREATIVE_RECIPE_FORMAT,
@@ -1867,7 +1867,7 @@ class CreativeMaterialWorkspaceImpl implements CreativeMaterialWorkspace {
           // The destination must exist in the candidate image.
           const key = `picture:${underlay.resourceId}`;
           if (this.project.draft.capture().read(key) === undefined)
-            throw new Error(`The underlay's destination ${key} does not exist in this project.`);
+            throw new Error(`The trace's destination ${key} does not exist in this project.`);
           recipes.push(this.underlayRecipe(underlay));
         }
         const viewJob = this.viewJobState;
