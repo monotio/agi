@@ -538,7 +538,9 @@ if (import.meta.hot) {
   });
 }
 
-onMounted(async () => {
+// Resolve a game link before Home starts previews of unrelated library cards.
+const initialRoutePending = ref(parseGameHash(location.hash) !== null);
+async function mountApplication(): Promise<void> {
   // An unreadable game route can never resume: drop it before anything waits.
   if (isGameRoute(location.hash) && !parseGameHash(location.hash)) clearPlayHash();
   window.addEventListener("blur", releaseMovement);
@@ -590,7 +592,12 @@ onMounted(async () => {
     shell.reset();
     clearPlayHash();
   }
-});
+}
+onMounted(() =>
+  mountApplication().finally(() => {
+    initialRoutePending.value = false;
+  }),
+);
 
 /** Home's note about the link it was opened with; cleared once any game runs. */
 const routeNote = ref("");
@@ -901,7 +908,7 @@ watch(
       @closed="onAiSettingsClosed"
     />
 
-    <SetupPanel :route-note="routeNote" />
+    <SetupPanel :route-note="routeNote" :route-pending="initialRoutePending" />
 
     <!-- Below the fold: while Studio holds the page still they wait hidden,
          out of Tab's reach. -->

@@ -19,7 +19,10 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShell } from "../shell/useShell.ts";
 
 /** Why Home opened instead of the game a link named (App.vue). */
-const { routeNote = "" } = defineProps<{ routeNote?: string }>();
+const { routeNote = "", routePending = false } = defineProps<{
+  routeNote?: string;
+  routePending?: boolean;
+}>();
 
 const { state, stopAgent, continueAgent, discardAgent, openStarterRecovery, currentGame } =
   useEngineApi();
@@ -56,7 +59,7 @@ function onDrop(event: DragEvent): void {
 </script>
 <template>
   <div
-    v-if="state.phase === 'idle' || state.phase === 'error'"
+    v-if="!routePending && (state.phase === 'idle' || state.phase === 'error')"
     class="setup-panel"
     :class="{ dragging: dragDepth > 0, 'new-game-page': createOpen }"
     data-testid="game-zip-drop"
