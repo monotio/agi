@@ -20,7 +20,7 @@
  * when a scanline gets too few device pixels to resolve.
  */
 import * as THREE from "three";
-import { MeshBasicNodeMaterial, WebGPURenderer } from "three/webgpu";
+import { MeshBasicNodeMaterial, WebGPURenderer, type Node } from "three/webgpu";
 import {
   Discard,
   Fn,
@@ -100,6 +100,24 @@ const CRT = {
   vignette: 0.06,
 };
 
+/**
+ * Keyboard attention: while the game has the keyboard, a light traces the
+ * inside of the glass; in Play the picture dims like a monitor in standby
+ * when the keyboard is elsewhere. Lengths are CSS pixels.
+ */
+const ATTENTION = {
+  /** The accent colour (--action, #79e5e6) in linear light. */
+  rim: [0.191, 0.784, 0.791] as const,
+  /** A crisp line on the edge, and a soft glow falling off inside it. */
+  line: 1.5,
+  lineStrength: 0.55,
+  glow: 7,
+  glowStrength: 0.45,
+  standby: 0.72,
+  /** Fade time in milliseconds. */
+  fade: 160,
+};
+
 /** Control-line colours (priority 0-3) on the rearmost exploded layer. */
 const CONTROL_TINTS: [number, number, number][] = [
   [1.0, 0.25, 0.25],
@@ -121,6 +139,12 @@ export class AgiStage {
   private readonly outSize = uniform(new THREE.Vector2(FRAME_WIDTH * 2, FRAME_HEIGHT * 2));
   /** Device pixels per CSS pixel, capped at 2. */
   private readonly dpr = uniform(1);
+  /** 1 while the game has the keyboard, faded in and out. */
+  private readonly focusLevel = uniform(0);
+  /** Picture brightness: 1 awake, lower in standby. */
+  private readonly wakeLevel = uniform(1);
+  private attention = { focus: 0, wake: 1 };
+  private attentionRaf: number | null = null;
   private readonly isWebGpu: boolean;
   private readonly observer: ResizeObserver | null;
   private readonly quad: THREE.Mesh;
@@ -183,12 +207,38 @@ export class AgiStage {
 
     this.geometry = new THREE.PlaneGeometry(2, 2);
 
+    const focusLevel = this.focusLevel;
+    const wakeLevel = this.wakeLevel;
+    /** Distance in device pixels outside a rounded rectangle (negative inside). */
+    const edgeDistance = (point: Node<"vec2">, cornerRadius: number) => {
+      const px = point.mul(outSize);
+      const half = outSize.mul(0.5);
+      const radius = min(outSize.x, outSize.y).mul(cornerRadius);
+      const corner = abs(px.sub(half)).sub(half).add(radius);
+      return length(max(corner, 0.0))
+        .add(min(max(corner.x, corner.y), 0.0))
+        .sub(radius);
+    };
+    /** The keyboard light along the inside of an edge; `spread` scales its glow. */
+    const rimLight = (distance: Node<"float">, spread: number) => {
+      const inside = max(distance.negate(), 0.0).div(dpr);
+      const line = float(1.0)
+        .sub(smoothstep(0.0, ATTENTION.line, inside))
+        .mul(ATTENTION.lineStrength);
+      const glow = exp(inside.div(-ATTENTION.glow * spread)).mul(ATTENTION.glowStrength * spread);
+      return vec3(...ATTENTION.rim)
+        .mul(line.add(glow))
+        .mul(focusLevel);
+    };
+
     // Editing and CRT-off: one direct texture fetch, the crisp frame.
     this.flatMaterial = new MeshBasicNodeMaterial();
     this.flatMaterial.colorNode = Fn(() => {
       const p = uv();
       const sampleUv = vec2(p.x, float(1.0).sub(p.y));
-      return texture(frame, sampleUv);
+      const picture = texture(frame, sampleUv).rgb.mul(wakeLevel);
+      // The crisp frame has no border, so its glow stays close to the edge.
+      return picture.add(rimLight(edgeDistance(p, 0.0), 0.5));
     })();
 
     this.crtMaterial = new MeshBasicNodeMaterial();
@@ -204,14 +254,8 @@ export class AgiStage {
 
       // Rounded-rectangle edge of the visible tube face, antialiased over
       // one device pixel.
-      const px = q.mul(outSize);
-      const half = outSize.mul(0.5);
-      const radius = min(outSize.x, outSize.y).mul(CRT.cornerRadius);
-      const corner = abs(px.sub(half)).sub(half).add(radius);
-      const edgeDistance = length(max(corner, 0.0))
-        .add(min(max(corner.x, corner.y), 0.0))
-        .sub(radius);
-      const face = clamp(float(0.5).sub(edgeDistance), 0.0, 1.0);
+      const edge = edgeDistance(q, CRT.cornerRadius);
+      const face = clamp(float(0.5).sub(edge), 0.0, 1.0);
 
       // Source position in frame pixels, rows counted from the top.
       const sx = q.x.mul(FRAME_WIDTH);
@@ -286,8 +330,8 @@ export class AgiStage {
         .add(scattered.sub(CRT.glowThreshold).max(0.0).mul(CRT.glow));
 
       const vignette = float(1.0).sub(dot(c, c).mul(CRT.vignette));
-      const tube = beams.mul(mask).div(maskMean).add(halation).mul(vignette);
-      return tube.mul(face);
+      const tube = beams.mul(mask).div(maskMean).add(halation).mul(vignette).mul(wakeLevel);
+      return tube.add(rimLight(edge, 1)).mul(face);
     })();
 
     this.quad = new THREE.Mesh(this.geometry, this.crtMaterial);
@@ -644,6 +688,35 @@ export class AgiStage {
     }
   }
 
+  /**
+   * Show whether the game has the keyboard: `focused` lights the glass edge,
+   * `standby` dims the picture. Both fade unless reduced motion is preferred.
+   */
+  setAttention(focused: boolean, standby: boolean): void {
+    if (this.disposed) return;
+    const target = { focus: focused ? 1 : 0, wake: standby ? ATTENTION.standby : 1 };
+    const instant =
+      typeof requestAnimationFrame === "undefined" ||
+      (typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (this.attentionRaf !== null) cancelAnimationFrame(this.attentionRaf);
+    this.attentionRaf = null;
+    const from = { ...this.attention };
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = instant ? 1 : Math.min(1, (now - start) / ATTENTION.fade);
+      const eased = 1 - (1 - t) ** 3;
+      this.attention = {
+        focus: from.focus + (target.focus - from.focus) * eased,
+        wake: from.wake + (target.wake - from.wake) * eased,
+      };
+      this.focusLevel.value = this.attention.focus;
+      this.wakeLevel.value = this.attention.wake;
+      this.renderPass();
+      this.attentionRaf = t < 1 && !this.disposed ? requestAnimationFrame(step) : null;
+    };
+    step(start);
+  }
+
   /** Enable or disable the CRT pass. */
   set crt(on: boolean) {
     if (this.disposed) return;
@@ -761,6 +834,7 @@ export class AgiStage {
     if (this.disposed) return;
     this.disposed = true;
     this.stopParallax();
+    if (this.attentionRaf !== null) cancelAnimationFrame(this.attentionRaf);
     if (this.pendingRaf !== null && typeof cancelAnimationFrame !== "undefined") {
       cancelAnimationFrame(this.pendingRaf);
       this.pendingRaf = null;

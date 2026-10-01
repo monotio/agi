@@ -160,6 +160,13 @@ export function createPresentation() {
     if (stage) stage.crt = on;
   }
 
+  let attention = { focused: false, standby: false };
+  /** Light the glass while the game has the keyboard; dim it in standby. */
+  function setAttention(focused: boolean, standby: boolean): void {
+    attention = { focused, standby };
+    stage?.setAttention(focused, standby);
+  }
+
   function setExplodedMode(on: boolean): void {
     stage?.setExplodedMode(on);
   }
@@ -191,6 +198,7 @@ export function createPresentation() {
     gpuBackend.value = stage?.backend;
     if (stage) {
       stage.crt = crt;
+      stage.setAttention(attention.focused, attention.standby);
       if (lastFrame.value) present(lastFrame.value);
     }
   }
@@ -218,6 +226,7 @@ export function createPresentation() {
     repaint,
     presentWithText,
     setCrt,
+    setAttention,
     setExplodedMode,
     debugProject,
     debugPick3d,

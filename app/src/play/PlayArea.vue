@@ -43,6 +43,14 @@ const bridge = useShellBridge();
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
+/** Keys go to the game while its input has focus; the stage shows it. */
+const gameFocused = ref(false);
+watch(
+  [gameFocused, () => props.inspectorDocked, () => props.touchControls, () => state.phase],
+  ([focused, creating, touch, phase]) =>
+    presentation.setAttention(focused, !focused && !creating && !touch && phase === "running"),
+  { immediate: true },
+);
 const screenEl = useTemplateRef("screenEl");
 const stageEl = useTemplateRef("stageEl");
 
@@ -561,6 +569,8 @@ defineExpose({
         class="screen"
         :class="{
           active: state.phase === 'running',
+          'gpu-stage': !!gpuBackend,
+          tube: !!gpuBackend && crtEnabled,
           shake: state.shake,
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"
@@ -611,6 +621,8 @@ defineExpose({
             enterkeyhint="send"
             spellcheck="false"
             @input="onInputEdit"
+            @focus="gameFocused = true"
+            @blur="gameFocused = false"
             @compositionstart="composing = true"
             @compositionend="onCompositionEnd"
           />
@@ -708,7 +720,18 @@ defineExpose({
             Press Enter to continue
           </span>
         </template>
-        <p id="game-input-help" class="input-help">
+        <button
+          v-if="!touchControls"
+          type="button"
+          class="keys-led"
+          :class="{ on: gameFocused }"
+          data-testid="game-keys"
+          @click="focusInput"
+        >
+          <span class="led" aria-hidden="true"></span
+          >{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}
+        </button>
+        <p v-show="gameFocused || touchControls" id="game-input-help" class="input-help">
           <template v-if="touchControls">Type for the keyboard · Keys for F1–F10</template>
           <template v-else
             >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
@@ -795,6 +818,9 @@ defineExpose({
   background: var(--agi-0);
   box-shadow: 0 0 0 1px var(--hairline);
   transition: box-shadow var(--duration) var(--ease-out);
+}
+.screen.tube {
+  box-shadow: none;
 }
 .screen.remixing {
   box-shadow: 0 0 0 2px var(--warn-line);
@@ -988,8 +1014,45 @@ defineExpose({
 .input-row input {
   font-size: var(--text-lg);
 }
-.screen:has(.input-row input:focus-visible) {
+/* The GPU stage lights its own glass while the game has the keyboard
+   (AgiStage setAttention); the 2D fallback keeps an outline. */
+.screen:not(.gpu-stage):has(.input-row input:focus) {
   outline: 2px solid var(--action-line);
   outline-offset: 3px;
+}
+.keys-led {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.keys-led:hover {
+  color: var(--ink);
+}
+.keys-led.on {
+  color: var(--ink-2);
+  cursor: default;
+}
+.led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-disabled);
+  transition:
+    background var(--duration) var(--ease-out),
+    box-shadow var(--duration) var(--ease-out);
+}
+.keys-led.on .led {
+  background: var(--action);
+  box-shadow: 0 0 6px var(--action);
 }
 </style>
