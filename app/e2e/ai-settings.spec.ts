@@ -44,6 +44,7 @@ test("one shared AI setup preserves the brief and keeps provider keys separate",
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
   await page.reload();
+  await page.getByTestId("create-adventure-close").click();
   await openAiSettings(page);
   await expect(dialog.getByTestId("provider-select")).toHaveValue("anthropic");
   await expect(dialog.getByTestId("api-key-input")).toHaveValue("test-anthropic-key");

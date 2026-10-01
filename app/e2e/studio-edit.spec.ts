@@ -342,7 +342,9 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await expect(status).toHaveText("No changes");
   // The refusal offers the way out: unlocked for the session, the same drag goes through.
   await studio.getByTestId("studio-notice-action").click();
-  await expect(studio.getByTestId("studio-notice")).toHaveText("Unlocked for now. Try it again.");
+  await expect(studio.getByTestId("studio-notice")).toHaveText(
+    "Unlocked until you close Studio. Try it again.",
+  );
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
   await expect(status).toHaveText("1 change");
   await canvas.focus();

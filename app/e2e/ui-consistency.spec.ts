@@ -158,9 +158,9 @@ test("library details stay concise and Add game is a secondary action", async ({
   const height = (await card.boundingBox())!.height;
   const details = await openSavedGameDetails(card);
   await expect(details).toContainText("Monotio");
-  await expect(details).not.toContainText(
-    /Later rooms|Opening checked|Interpreter|Project keeps|Ready to play/,
-  );
+  await expect(details).toContainText("Interpreter");
+  await expect(details).toContainText("Opening checked");
+  await expect(details).not.toContainText(/Later rooms|Project keeps|Ready to play/);
   await page.keyboard.press("Escape");
   await expect(details).toBeHidden();
   expect((await card.boundingBox())!.height, "details never resize the card").toBe(height);

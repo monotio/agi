@@ -3,6 +3,7 @@ import {
   isolateStorage,
   openDeveloperActivity,
   probe,
+  progressStorageKey,
   screenText,
   textHook,
   waitForCycles,
@@ -49,6 +50,7 @@ async function typeCommand(page: Page, text: string): Promise<void> {
 
 test("the template menu bar drives save and restore on the text surface", async ({ page }) => {
   await bootAgentGame(page);
+  const locator = await progressStorageKey(page, "custom");
 
   // ESC is bound to the menu controller: the bar and the open File column
   // render as engine text, not DOM.
@@ -76,9 +78,14 @@ test("the template menu bar drives save and restore on the text surface", async 
     .poll(
       () =>
         page.evaluate(
-          () =>
-            Object.keys(JSON.parse(localStorage.getItem("monotio_agi.saves.custom") ?? "{}").slots)
-              .length,
+          (key) =>
+            Object.keys(
+              JSON.parse(
+                localStorage.getItem(`monotio_agi.saves.${encodeURIComponent(key)}`) ??
+                  '{"slots":{}}',
+              ).slots,
+            ).length,
+          locator,
         ),
       { timeout: 15_000 },
     )

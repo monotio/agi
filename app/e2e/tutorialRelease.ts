@@ -63,6 +63,7 @@ export async function seedTutorial10(page: Page, remix?: string): Promise<void> 
   expect(autosave?.game.identity.project, "the 1.0 download carries its autosave").toBe(
     TUTORIAL_1_0,
   );
+  await removeModernLifetime(page, TUTORIAL_1_0);
   await page.evaluate(
     async ({ id, revision, progress }) => {
       const path = "/src/saves/gameProgress.ts";
@@ -75,6 +76,27 @@ export async function seedTutorial10(page: Page, remix?: string): Promise<void> 
 
 /** Where Play stored the 1.1.0 tutorial. */
 export const TUTORIAL_1_1 = "catalog-adventure-department-1.1.0";
+
+/** Released bodies predate lifetime receipts; the current writer mints one. */
+async function removeModernLifetime(page: Page, id: string): Promise<void> {
+  await page.evaluate(async (project) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("monotio-agi-projects");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction("projects", "readwrite");
+        transaction.objectStore("projects").delete(`lifetime/${project}`);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, id);
+}
 
 /**
  * A browser that played the released 1.1.0 tutorial: the library copy Play
@@ -118,6 +140,7 @@ export async function seedTutorial11(page: Page): Promise<string> {
     savedAt: 1_759_000_000_000,
     game: { installed: false, identity: { project: TUTORIAL_1_1, revision } },
   });
+  await removeModernLifetime(page, TUTORIAL_1_1);
   await page.evaluate(
     ([key, value]) => localStorage.setItem(key!, value!),
     [`monotio_agi.autosave.${TUTORIAL_1_1}`, autosave],

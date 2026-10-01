@@ -361,7 +361,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
       const req = db
         .transaction("projects", "readonly")
         .objectStore("projects")
-        .get("history/history-transport-fixture");
+        .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
       req.onsuccess = () => resolve(req.result as { segments: { id: string }[] });
       req.onerror = () => reject(req.error);
     });
@@ -374,7 +374,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
     const targets = keys.filter(
       (key) =>
         typeof key === "string" &&
-        key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
+        key.startsWith(
+          `history/${localStorage.getItem("monotio_agi.resumeTarget")}/s/${firstSegment}/`,
+        ),
     );
     let flipped = 0;
     const tx = db.transaction("projects", "readwrite");
@@ -436,7 +438,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
         const req = db
           .transaction("projects", "readonly")
           .objectStore("projects")
-          .get("history/history-transport-fixture");
+          .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
         req.onsuccess = () => resolve(req.result as Manifest);
         req.onerror = () => reject(req.error);
       });
@@ -461,7 +463,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
     const targets = keys.filter(
       (key) =>
         typeof key === "string" &&
-        key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
+        key.startsWith(
+          `history/${localStorage.getItem("monotio_agi.resumeTarget")}/s/${firstSegment}/`,
+        ),
     );
     const batches = await new Promise<StoredBatch[]>((resolve, reject) => {
       const tx = db.transaction("projects", "readonly");
@@ -574,7 +578,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
       const req = db
         .transaction("projects", "readonly")
         .objectStore("projects")
-        .get("history/history-transport-fixture");
+        .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
       req.onsuccess = () => resolve(req.result as Record<string, unknown>);
       req.onerror = () => reject(req.error);
     });

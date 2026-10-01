@@ -52,6 +52,7 @@ import { MAX_GAME_ZIP_BYTES } from "../archive/gameZipLimits.ts";
 import type { OpenedGame } from "../archive/gameZip.ts";
 import {
   readGameProgress,
+  autosaveKey,
   type GameProgress,
   type ImportStorageReport,
 } from "../saves/gameProgress.ts";
@@ -259,6 +260,26 @@ export function createGameLibrary(
    * One saved card's progress readiness — the bound-target cache plus a
    * localStorage read only, synchronous and IndexedDB-free.
    */
+  function projectCheckpoint(target: ProjectProgressTarget): AutosaveRecord | null {
+    const current = readGameProgress(localStorage, target).autosave;
+    if (current !== null) return current;
+    try {
+      const previous =
+        localStorage.getItem(autosaveKey(target.locator)) !== null
+          ? readAutosave(target.locator)
+          : target.bodyEpoch === "initial"
+            ? readAutosave(target.project)
+            : null;
+      return previous &&
+        !previous.game.installed &&
+        previous.game.identity.project === target.project
+        ? previous
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   function savedProgress(id: ProjectId): LibraryProgress {
     void progressReads.value;
     const entry = savedTargets.value[id];
@@ -268,7 +289,7 @@ export function createGameLibrary(
     return {
       status: "ready",
       target: entry.target,
-      autosave: readGameProgress(localStorage, entry.target).autosave,
+      autosave: projectCheckpoint(entry.target),
     };
   }
 
@@ -542,6 +563,14 @@ export function createGameLibrary(
    */
   function pendingTarget(locator: string): ProgressTarget | null {
     const parsed = parseProgressLocator(locator);
+    if (parsed === null) {
+      const entry = savedTargets.value[locator];
+      if (entry?.generation === savedTargetGeneration && entry.target !== null) return entry.target;
+      const descriptor = (state.installedGames ?? []).find((item) => item.folder === locator);
+      return descriptor?.revision === undefined
+        ? null
+        : installedProgressTarget(descriptor, descriptor.revision);
+    }
     if (parsed?.kind === "project") {
       const entry = savedTargets.value[parsed.project];
       if (entry === undefined || entry.generation !== savedTargetGeneration) return null;
@@ -572,7 +601,7 @@ export function createGameLibrary(
     pendingAutosave.value = undefined;
     pendingProgressTarget.value = undefined;
     const pointer = readResumePointer(localStorage);
-    if (pointer === null || pointer.legacy) return;
+    if (pointer === null) return;
     const target = pendingTarget(pointer.value);
     if (target === null) return;
     const record = readGameProgress(localStorage, target).autosave;
@@ -621,8 +650,9 @@ export function createGameLibrary(
       pendingAutosave.value !== record ||
       pendingProgressTarget.value !== target ||
       pointer === null ||
-      pointer.legacy ||
-      pointer.value !== target.locator
+      (pointer.legacy
+        ? !target.legacyKeys.includes(pointer.value)
+        : pointer.value !== target.locator)
     )
       return;
     const resolved = pendingTarget(pointer.value);
@@ -655,7 +685,16 @@ export function createGameLibrary(
     key: string,
   ): Promise<{ record: AutosaveRecord; target: ProgressTarget } | null> {
     const pointer = readResumePointer(localStorage);
-    if (pointer === null || pointer.legacy) return null;
+    if (pointer === null) return null;
+    if (pointer.legacy) {
+      if (key !== pointer.value) return null;
+      const target = await bindSaved(key).catch(() => null);
+      const live = readResumePointer(localStorage);
+      if (live === null || !live.legacy || live.value !== pointer.value || target === null)
+        return null;
+      const record = readGameProgress(localStorage, target).autosave;
+      return record === null ? null : { record, target };
+    }
     const parsed = parseProgressLocator(pointer.value);
     if (parsed?.kind === "project") {
       if (key !== parsed.project) return null;
@@ -882,7 +921,17 @@ export function createGameLibrary(
     // never answers for the note's intent.
     if (expected !== undefined && !bindsTarget(target, expected)) return;
     if (isCurrent !== undefined && !isCurrent()) return;
-    const autosave = target === null ? null : readGameProgress(localStorage, target).autosave;
+    const autosave = target === null ? null : projectCheckpoint(target);
+    if (
+      autosave !== null &&
+      target !== null &&
+      autosave.game.identity.revision !== target.identity.revision
+    ) {
+      state.phase = "error";
+      state.error =
+        "This checkpoint belongs to a different revision. Restore its matching game resources or open Earlier progress.";
+      return;
+    }
     if (target === null || autosave === null) {
       await onBootSavedGame(false, context, expected ?? target ?? undefined, isCurrent);
       return;
@@ -1514,10 +1563,25 @@ export function createGameLibrary(
       // catalog, and an unbound saved body has no epoch to prove one under.
       const capture = project ? await import("../project/creativeProjectSnapshot.ts") : null;
       let creative = null;
+      let storedMetadataUnavailable = false;
       if (capture) {
         if (live) {
           if (game && !game.installed && ownerTarget?.kind === "project") {
-            creative = await capture.captureCreativeProject(data.projectId, ownerTarget.bodyEpoch);
+            try {
+              creative = await capture.captureCreativeProject(
+                data.projectId,
+                ownerTarget.bodyEpoch,
+              );
+            } catch (error) {
+              if (error instanceof capture.CreativeSnapshotError) throw error;
+              storedMetadataUnavailable = true;
+              notes.push(
+                "Stored project metadata could not be read; this backup carries the running game.",
+              );
+              data = { ...data };
+              delete data.creative;
+              delete data.projectHistory;
+            }
           } else if (data.creative) {
             notes.push("Creative assets require the original stored project.");
             // This limited in-memory backup carries actual playable resources;
@@ -1571,11 +1635,17 @@ export function createGameLibrary(
         if (now !== game || game?.progressTarget !== liveTarget)
           throw new Error("The game changed during download. Try again.");
         if (ownerTarget?.kind === "project") {
-          const proof = await loadAuthoredGameWithHistoryLifetime(ownerTarget.project);
+          const proof = await loadAuthoredGameWithHistoryLifetime(ownerTarget.project).catch(
+            (error: unknown) => {
+              if (!storedMetadataUnavailable) throw error;
+              return undefined;
+            },
+          );
           if (
-            !proof ||
-            proof.lifetime !== ownerTarget.bodyEpoch ||
-            proof.data.generation !== data.generation
+            proof !== undefined &&
+            (!proof ||
+              proof.lifetime !== ownerTarget.bodyEpoch ||
+              proof.data.generation !== data.generation)
           )
             throw new Error("The saved project changed during download. Try again.");
         }

@@ -98,11 +98,11 @@ const image = computed<CardImage | undefined>(() => {
  */
 function lastJournalRoom(): number | undefined {
   const current = progress.value;
-  // The journal lives under the bound physical locator — never the bare
-  // project id — so a card with no ready target has no map to read.
+  // The bound reader also carries released journals forward for bodies
+  // predating lifetime receipts. An unresolved card has no map to read.
   if (current.status !== "ready") return undefined;
   try {
-    return readMapSidecar(localStorage, current.target.locator).journal.at(-1)?.to;
+    return readMapSidecar(localStorage, current.target).journal.at(-1)?.to;
   } catch {
     return undefined;
   }

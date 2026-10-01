@@ -212,7 +212,7 @@ test("reduced motion: the shell neither animates nor scrolls smoothly", async ({
     page.evaluate(() => (window as unknown as { __scrollBehaviors: string[] }).__scrollBehaviors);
   await expect.poll(async () => (await behaviors()).length).toBeGreaterThan(0);
   expect(await behaviors()).not.toContain("smooth");
-
+  await page.keyboard.press("Escape");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   // Scoped component animations too: the key hint's settle, the resume caption.

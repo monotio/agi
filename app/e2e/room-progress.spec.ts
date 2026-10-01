@@ -166,10 +166,9 @@ for (const fail of [false, true])
         const live = details.live;
         expect(live.room).toBe(1);
         expect(live.inventory).toEqual([{ num: 0, name: "Old key", room: 255 }]);
-        // The full state section is oversized: it evicts into a diagnostic
-        // the model pages with read_diagnostic.
-        expect(details.truncatedFields).toContain("state");
-        expect(details.diagnosticId).toBeTruthy();
+        // The selected model can carry the complete state inline.
+        expect(details.state).toBeDefined();
+        expect(details.truncatedFields).toBeUndefined();
         const viewOutput = input.find(
           (item) => item.type === "function_call_output" && item.call_id === "call2",
         )!;

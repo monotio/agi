@@ -89,12 +89,13 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
                   {
                     type: "function_call",
                     call_id: "sound-events",
-                    name: "read_diagnostic",
+                    name: "read_sound",
                     arguments: JSON.stringify({
-                      id: "d1",
-                      fields: ["events"],
-                      offset: null,
-                      limit: null,
+                      num: 5,
+                      channel: null,
+                      representation: "music",
+                      offset: 1,
+                      limit: 1,
                     }),
                   },
                 ]
@@ -149,8 +150,10 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
     true,
   );
   const readText = readBlocks.find((block) => block.type === "input_text")!.text!;
-  expect(readText).toContain("diagnosticId");
-  expect(readText).toContain("read_diagnostic");
+  const soundRead = JSON.parse(readText);
+  expect(soundRead.details.resource).toEqual({ kind: "sound", num: 5 });
+  expect(soundRead.details.returned).toBe(3);
+  expect(soundRead.details.events).toHaveLength(3);
 
   const eventBlocks = toolOutput(requests[2]!, "sound-events")!;
   const eventText = eventBlocks.find((block) => block.type === "input_text")!.text!;

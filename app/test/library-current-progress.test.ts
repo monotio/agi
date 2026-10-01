@@ -52,7 +52,7 @@ registerHooks({
 
 const { createGameLibrary } = await import("../src/library/useGameLibrary.ts");
 
-installIndexedDbFixture();
+const records = installIndexedDbFixture();
 
 function installLocalStorage(t: { after(callback: () => void): void }): Map<string, string> {
   const values = new Map<string, string>();
@@ -278,6 +278,7 @@ test("a strict project pointer publishes the proven pair and Resume hands off re
   assert.equal(engine.calls.resumeFromRecord[0]?.locator, target.locator);
   assert.equal(lib.pendingProgressTarget.value?.kind, "project");
   assert.equal(lib.pendingProgressTarget.value?.locator, target.locator);
+  assert.deepEqual(await lib.routedResumeOffer(id), { record, target });
 });
 
 test("a pointer naming a retired saved epoch offers nothing and leaves bytes and pointer", async (t) => {
@@ -356,7 +357,7 @@ test("a served folder at another revision does not answer the pointer's revision
   assert.equal(localStorage.getItem(RESUME_POINTER_KEY), stale.locator);
 });
 
-test("a legacy lastGame key stays readable history but never a current offer", async (t) => {
+test("a released lastGame checkpoint offers Resume against its matching saved body", async (t) => {
   const cleanup = cleanupAfter(t);
   installLocalStorage(t);
   const engine = fakeEngine();
@@ -365,6 +366,7 @@ test("a legacy lastGame key stays readable history but never a current offer", a
     await saveAuthoredGame(id, savedProjectBody({ "dir.vol": new Uint8Array([1, 2]) })),
     true,
   );
+  records.delete(`lifetime/${id}`);
   const target = await bindSavedProgressTarget(id);
   assert.ok(target !== null);
   cleanup.later(() => removeProjectWithProgress(target, []));
@@ -377,10 +379,11 @@ test("a legacy lastGame key stays readable history but never a current offer", a
   const lib = library(engine.api);
   await flush();
   lib.refreshPendingAutosave();
-  assert.ok(lib.pendingAutosave.value === undefined);
-  assert.ok(lib.pendingProgressTarget.value === undefined);
+  assert.deepEqual(lib.pendingAutosave.value, record);
+  assert.equal(lib.pendingProgressTarget.value?.locator, target.locator);
+  assert.deepEqual(await lib.routedResumeOffer(id), { record, target });
   // The released bytes and key survive untouched, readable as Earlier context.
-  assert.equal(readGameProgress(localStorage, target).autosave, null);
+  assert.deepEqual(readGameProgress(localStorage, target).autosave, record);
   assert.equal(
     (JSON.parse(localStorage.getItem(`monotio_agi.autosave.${id}`)!) as AutosaveRecord).game
       .identity.project,
@@ -1264,3 +1267,30 @@ for (const checkpoint of [false, true]) {
     });
   }
 }
+
+test("a same-epoch checkpoint from an earlier revision refuses opening and keeps its bytes", async (t) => {
+  const cleanup = cleanupAfter(t);
+  installLocalStorage(t);
+  const engine = fakeEngine();
+  const id = testProjectId("changed-checkpoint-body");
+  await saveAuthoredGame(id, savedProjectBody({ "dir.vol": new Uint8Array([1, 2]) }));
+  const target = (await bindSavedProgressTarget(id))!;
+  cleanup.later(() => removeProjectWithProgress(target, []));
+  const record = autosaveFor(target, 4);
+  record.game = {
+    ...record.game,
+    identity: { ...record.game.identity, revision: testRevision("earlier-native-build") },
+  };
+  const raw = JSON.stringify(record);
+  localStorage.setItem(autosaveKey(target.locator), raw);
+  const lib = library(engine.api);
+  await flush();
+  const progress = lib.savedProgress(id);
+  assert.ok(progress.status === "ready");
+  assert.equal(progress.autosave?.room, 4);
+  await lib.onPlayLibraryGame(lib.savedGames.value.find((game) => game.projectId === id)!);
+  assert.equal(engine.calls.bootAuthoredGame, 0);
+  assert.equal(engine.calls.resumeFromRecord.length, 0);
+  assert.match(engine.api.state.error, /different revision/);
+  assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
+});

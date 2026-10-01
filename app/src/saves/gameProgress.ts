@@ -201,10 +201,34 @@ export function readGameProgress(
   target: ProgressTarget | string,
 ): GameProgress {
   const targetKey = typeof target === "string" ? target : target.locator;
+  let releasedAutosave: AutosaveRecord | null = null;
+  // A released checkpoint still belongs to the matching saved body. Reads
+  // preserve its bytes; new writes keep using the bound physical address.
+  try {
+    if (
+      typeof target !== "string" &&
+      target.kind === "project" &&
+      target.bodyEpoch === "initial" &&
+      storage.getItem(autosaveKey(targetKey)) === null
+    ) {
+      for (const key of target.legacyKeys) {
+        const released = readGameProgress(storage, key);
+        if (
+          released.autosave !== null &&
+          !released.autosave.game.installed &&
+          released.autosave.game.identity.revision === target.identity.revision &&
+          released.autosave.game.identity.project === target.project
+        )
+          releasedAutosave = released.autosave;
+      }
+    }
+  } catch {
+    /* Storage can refuse reads; the ordinary reader reports an empty result. */
+  }
   const saves: Record<string, Uint8Array> = {};
   let slots: Record<string, string>;
   try {
-    slots = readGameSaves(storage, targetKey);
+    slots = readGameSaves(storage, target);
   } catch {
     slots = {};
   }
@@ -217,7 +241,7 @@ export function readGameProgress(
   }
   let autosave: AutosaveRecord | null;
   try {
-    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(targetKey)));
+    autosave = parseAutosaveRecord(storage.getItem(autosaveKey(targetKey))) ?? releasedAutosave;
   } catch {
     autosave = null;
   }

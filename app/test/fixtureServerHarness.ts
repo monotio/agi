@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,11 +90,14 @@ export async function startFixtureServer(
 ): Promise<RunningFixtureServer> {
   const discover = typeof fixtures === "function" ? fixtures : () => fixtures;
   const plugins = [...(config.plugins ?? []), fixtureServer(discover)];
+  const cacheDir = mkdtempSync(join(tmpdir(), "agi-fixture-vite-"));
   const server = await createServer({
     configFile: false,
     root: fileURLToPath(new URL("..", import.meta.url)),
     logLevel: "silent",
     ...config,
+    // Independent dev servers must not replace the application's optimizer files.
+    cacheDir,
     plugins,
     server: { host: "127.0.0.1", port: 0, strictPort: true, ...config.server },
   });
@@ -105,6 +108,12 @@ export async function startFixtureServer(
     url: `http://127.0.0.1:${port}`,
     port,
     server,
-    close: () => server.close(),
+    async close() {
+      try {
+        await server.close();
+      } finally {
+        rmSync(cacheDir, { recursive: true, force: true });
+      }
+    },
   };
 }

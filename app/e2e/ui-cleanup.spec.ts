@@ -13,9 +13,12 @@ test.beforeEach(async ({ page }) => {
 
 test("the start page uses concise tutorial copy and readable primary actions", async ({ page }) => {
   await expect(
-    page.getByText("Play Sierra-style adventures, build your own locally with or without AI", {
-      exact: false,
-    }),
+    page.getByText(
+      "Play Sierra-style adventures. Create your own with picture, sprite, sound and code editors",
+      {
+        exact: false,
+      },
+    ),
   ).toBeVisible();
   await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Play the tutorial" })).toBeVisible();
@@ -54,9 +57,10 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     expect((await select.boundingBox())?.height).toBeGreaterThanOrEqual(controlHeight);
   }
   await dialog.getByTestId("ai-settings-cancel").click();
+  await page.getByTestId("create-adventure-close").click();
   for (const action of [
     page.getByTestId("catalog-play-adventure-department"),
-    page.getByTestId("connect-create-ai"),
+    page.getByTestId("create-adventure-toggle"),
   ]) {
     const type = await action.evaluate((element) => {
       const style = getComputedStyle(element);

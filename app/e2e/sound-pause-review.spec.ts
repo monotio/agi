@@ -28,6 +28,22 @@ for (const lateOutput of [false, true]) {
       const audio = new AgiAudio({ contextFactory: () => context });
       // Real elapsed intervals are the input under test, not a readiness shortcut.
       const elapse = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+      const waitForState = async (state: "running" | "suspended") => {
+        if (context.state === state) return;
+        await new Promise<void>((resolve, reject) => {
+          const changed = () => {
+            if (context.state !== state) return;
+            clearTimeout(timer);
+            context.removeEventListener("statechange", changed);
+            resolve();
+          };
+          const timer = setTimeout(() => {
+            context.removeEventListener("statechange", changed);
+            reject(new Error(`Audio context did not become ${state}.`));
+          }, 10_000);
+          context.addEventListener("statechange", changed);
+        });
+      };
       try {
         audio.output({ kind: "speaker", divisor: 2712 });
         await context.resume();
@@ -35,8 +51,7 @@ for (const lateOutput of [false, true]) {
         await elapse(100);
         const playingAdvance = context.currentTime - started;
         audio.setPaused(true);
-        // Give asynchronous AudioContext state transitions an observation window.
-        await elapse(100);
+        await waitForState("suspended");
         if (late) {
           audio.output({ kind: "speaker", divisor: 1356 });
           await audio.resume();
@@ -50,10 +65,12 @@ for (const lateOutput of [false, true]) {
           playing: audio.isPlaying,
         };
         audio.setPaused(false);
+        await waitForState("running");
+        const resumedAt = context.currentTime;
         await elapse(100);
         const resumed = {
           state: context.state,
-          advance: context.currentTime - pausedAt,
+          advance: context.currentTime - resumedAt,
           gain: gains[0]!.gain.value,
         };
         return { playingAdvance, paused, resumed };

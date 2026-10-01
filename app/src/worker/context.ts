@@ -34,7 +34,7 @@ import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.t
 import { createJournal } from "./journal.ts";
 import { createHistory } from "./history.ts";
 import { createHistoryView } from "./historyView.ts";
-import { createPlayHere } from "./playHere.ts";
+import { createPlayHereLoader } from "./playHereLoader.ts";
 import {
   createDebuggerHooks,
   newDebuggerLoaderState,
@@ -776,7 +776,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
   Object.assign(ctx.fns, createHistory(ctx));
   // The viewer opens scratch sessions of its own through this same factory.
   Object.assign(ctx.fns, createHistoryView(ctx, createWorkerContext));
-  Object.assign(ctx.fns, createPlayHere(ctx));
+  Object.assign(ctx.fns, createPlayHereLoader(ctx));
   // The execution controller stays off the startup path: every context
   // carries the inert hooks and the session record, and the real table
   // lands through the lazy loader's one-shot import on first actual use

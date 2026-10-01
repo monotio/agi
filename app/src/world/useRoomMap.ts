@@ -694,7 +694,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     loadedGame = game;
     resetMapMemory();
     revision = game?.revision ?? "";
-    if (key && storage) loadStoredSidecar(key);
+    if (target && storage) loadStoredSidecar(target);
     session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
   }
 
@@ -727,7 +727,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   /** Read the stored sidecar into memory; a read failure is reported, not fatal. */
-  function loadStoredSidecar(key: string): void {
+  function loadStoredSidecar(key: ProgressTarget): void {
     if (!storage) return;
     try {
       const stored = readMapSidecar(storage, key);

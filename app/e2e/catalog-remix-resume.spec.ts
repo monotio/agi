@@ -79,7 +79,9 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
   await expect(page.getByTestId("create-read-only")).toHaveCount(0);
   await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("REMIX GALLERY");
   await page.screenshot({ path: test.info().outputPath("remix-after.png") });
-  const remixProjectId = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
+  const remixProjectId = await page.evaluate(
+    () => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1],
+  );
   expect(remixProjectId).not.toBe(TUTORIAL_PROJECT_ID);
   // The remix was made in Create mode, which the URL names with the project.
   expect(new URL(page.url()).hash, "the URL must follow the remix project ID").toBe(
