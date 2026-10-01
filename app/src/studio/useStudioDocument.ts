@@ -416,7 +416,8 @@ export function useStudioDocument(source: MaybeRefOrGetter<StudioSource | Resolv
   let held: number | undefined;
   watch(
     model,
-    (next) => {
+    (next, previous) => {
+      if (previous?.source === next.source && previous.profile === next.profile) return;
       playhead.value = held === undefined ? next.commands : Math.min(held, next.commands);
       held = undefined;
     },
