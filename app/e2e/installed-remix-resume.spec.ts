@@ -5,6 +5,7 @@ import { createContainer, openContainer } from "../../src/container/container.ts
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 import { readFile } from "node:fs/promises";
 import { textHook, isolateStorage } from "./engineProbe.ts";
 
@@ -24,10 +25,11 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   game.putResource("logic", 1, assembleLogic(original, { dictionary: new Map() }).payload);
   game.putResource("picture", 1, new Uint8Array([0xf0, 1, 0xf8, 0, 0, 0xff]));
   game.putFile("WORDS.TOK", new Uint8Array(52));
+  const revision = await gameRevision(Object.fromEntries(game.files));
   let fixtureReads = 0;
   await page.route("**/fixtures/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === "/fixtures/") return route.fulfill({ json: ["sample"] });
+    if (path === "/fixtures/") return route.fulfill({ json: [{ folder: "sample", revision }] });
     if (path === "/fixtures/sample/") return route.fulfill({ json: [...game.files.keys()] });
     fixtureReads++;
     const bytes = game.files.get(path.split("/").at(-1)!);

@@ -133,6 +133,17 @@ async function servedFixture(
   return { names, files };
 }
 
+test("fixture servers keep optimizer caches separate from each other and the app", async (t) => {
+  const first = await startFixtureServer([]);
+  t.after(() => first.close());
+  const second = await startFixtureServer([]);
+  t.after(() => second.close());
+  const shared = fileURLToPath(new URL("../node_modules/.vite", import.meta.url));
+  assert.notEqual(first.server.config.cacheDir, second.server.config.cacheDir);
+  assert.notEqual(first.server.config.cacheDir, shared);
+  assert.notEqual(second.server.config.cacheDir, shared);
+});
+
 test("each installed entry serves its discovered spellings and bytes under encoded unusual folder names", async (t) => {
   const root = fixtureRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
