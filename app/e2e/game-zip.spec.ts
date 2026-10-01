@@ -1,21 +1,22 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test, keepDetectedProfile } from "./test.ts";
 import { readFile } from "node:fs/promises";
-import { readGameZip } from "../src/archive/gameZip.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/archive/zip.ts";
 import { disassembleLogic } from "../../src/logic/disassembler.ts";
+import { providerReply } from "../../test/provider-stream.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { buildZip } from "../src/archive/zip.ts";
 import {
   configureAi,
+  enterCreateMode,
   isolateStorage,
   openDeveloperActivity,
   openGameOptions,
   openLibraryActions,
+  openWorkspaceAgent,
   savedGameCard,
   textHook,
-  enterCreateMode,
 } from "./engineProbe.ts";
+import { expect, keepDetectedProfile, test } from "./test.ts";
 
 test("a friend opens an exported world in a fresh browser without a key @webkit-desktop", async ({
   page,
@@ -161,7 +162,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
       );
     });
     await enterCreateMode(friend);
-    await friend.getByTestId("power-up").click();
+    await openWorkspaceAgent(friend);
     await expect(friend.getByTestId("connect-assistant-ai")).toBeVisible();
     await friend.screenshot({ path: "test-results/power-up-connect.png" });
     await configureAi(friend, { provider: "openai", key: "test-placeholder" });
@@ -236,7 +237,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     );
   });
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("remix the room description");

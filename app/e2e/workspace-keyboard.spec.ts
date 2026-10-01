@@ -1,9 +1,9 @@
-import { test, expect, reviewShot } from "./test.ts";
 import type { Page } from "@playwright/test";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { testProjectId } from "../test/identity.ts";
 import { cacheGame, enterCreateMode, textHook, waitForRoom } from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
 test.use({ viewport: { width: 1440, height: 900 } });
 async function boot(page: Page): Promise<void> {
@@ -57,7 +57,7 @@ async function boot(page: Page): Promise<void> {
   await page.getByTestId("btn-resume-cached").click();
   await waitForRoom(page, 1);
   await enterCreateMode(page);
-  await expect(page.getByTestId("world-panel")).toBeVisible();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
 }
 async function mod(page: Page): Promise<string> {
   return (await page.evaluate(() => /mac|iphone|ipad|ios/i.test(navigator.platform)))
@@ -89,20 +89,16 @@ test("palette and quick open work from the keyboard @webkit-desktop", async ({ p
   await expect(page.getByRole("option")).toHaveCount(1);
   await page.keyboard.press("Enter");
   await expect(palette).toBeHidden();
-  await expect(page.getByTestId("create-dock-left")).toHaveClass(/create-dock--rail/);
+  await expect(page.getByTestId("parts-list")).toBeHidden();
   await expect(input).toBeFocused();
   await page.keyboard.press(`${modifier}+B`);
-  await expect(page.getByTestId("create-dock-left")).not.toHaveClass(/create-dock--rail/);
+  await expect(page.getByTestId("parts-list")).toBeVisible();
 
   await page.keyboard.press(`${modifier}+P`);
   const quick = page.getByRole("combobox", { name: "Quick open" });
   await expect(quick).toBeFocused();
-  await expect(page.getByRole("option", { name: "ROOM 1 Meadow" })).toBeVisible();
-  await expect(page.getByRole("option", { name: /ROOM 2 Missing art/ })).toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
-  await expect(page.getByRole("option", { name: /LOGIC 1/ })).toHaveAttribute(
+  await expect(page.getByRole("option", { name: /Meadow.*ROOM 1.*LOGIC 1/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /Missing art.*ROOM 2/ })).not.toHaveAttribute(
     "aria-disabled",
     "true",
   );
@@ -114,13 +110,12 @@ test("palette and quick open work from the keyboard @webkit-desktop", async ({ p
   await expect(input).toBeFocused();
   await page.keyboard.press(`${modifier}+P`);
   await expect(quick).toBeFocused();
-  await page.keyboard.type("r1md");
+  await page.keyboard.type("meadow");
   await expect(page.getByRole("option")).toHaveCount(1);
   await page.keyboard.press("Enter");
-  const studio = page.getByTestId("room-studio");
+  const studio = page.getByTestId("workspace-logic-editor").filter({ visible: true });
   await expect(studio).toBeVisible();
-  await expect(studio.getByTestId("studio-picture")).toHaveText("PIC 5");
-  await expect(studio).toContainText("Meadow");
+  await expect(page.getByTestId("project-tab-logic:1")).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press(`${modifier}+Shift+P`);
   await expect(palette).toBeFocused();
   await page.keyboard.type("step over");
@@ -136,23 +131,30 @@ test("focus zones isolate game input and Help lists registered shortcuts @webkit
   page,
 }) => {
   await boot(page);
+  await page.getByTestId("part-room:1:logic").click();
   const modifier = await mod(page);
   const input = page.getByTestId("input-line");
   await input.focus();
   await page.keyboard.press("Shift+F6");
-  const parts = page.getByTestId("create-dock-left");
+  await expect(page.getByTestId("workspace-editor")).toBeFocused();
+  await page.keyboard.press("Shift+F6");
+  const parts = page.getByTestId("parts-list");
   await expect(parts).toBeFocused();
   await expect(parts).toHaveAttribute("data-focus-zone-active", "");
   await expect(page.locator(".focus-zone-announcement")).toHaveText("Parts focused");
   await page.keyboard.type("look");
   await expect(input).toHaveValue("");
   await page.keyboard.press("F6");
+  await expect(page.getByTestId("workspace-editor")).toBeFocused();
+  await page.keyboard.press("F6");
   await expect(page.locator(".play-area")).toBeFocused();
   await page.keyboard.type("look");
   await expect(input).toHaveValue("look");
   await input.fill("");
   await page.keyboard.press("F6");
-  await expect(page.locator(".assistant-host")).toBeFocused();
+  await expect(parts).toBeFocused();
+  await page.keyboard.press("F6");
+  await expect(page.getByTestId("workspace-editor")).toBeFocused();
   await page.keyboard.type("editor typing");
   await expect(input).toHaveValue("");
   await page.keyboard.press("Control+Backquote");
@@ -176,7 +178,7 @@ test("focus zones isolate game input and Help lists registered shortcuts @webkit
   await page.keyboard.press(`${modifier}+Enter`);
   await expect(page).toHaveURL(/#play\//);
   await expect(input).toBeFocused();
-  await expect(parts).toHaveCount(0);
+  await expect(parts).toBeHidden();
   await page.keyboard.type("look");
   await expect(input).toHaveValue("look");
   await page.keyboard.press(`${modifier}+Shift+P`);

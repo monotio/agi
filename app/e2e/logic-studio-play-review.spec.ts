@@ -1,9 +1,15 @@
-import { expect, test, reviewShot } from "./test.ts";
-import { isolateStorage, openLibraryActions, savedGameCard, textHook } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openLibraryActions,
+  savedGameCard,
+  textHook,
+  workspaceSaved,
+} from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
+import { openWorkspaceLogic, replaceWorkspaceDocument } from "./workspaceShared.ts";
 
 test("a no-key source and vocabulary edit changes the game a player actually runs", async ({
   page,
-  browserName,
 }) => {
   await isolateStorage(page);
   // These editor scenarios use local projects rather than the development
@@ -44,39 +50,19 @@ test("a no-key source and vocabulary edit changes the game a player actually run
   await openLibraryActions(page, card);
   await expect(page.getByTestId("edit-library-game")).toBeVisible();
   await page.getByTestId("edit-library-game").click();
-  await expect(page.getByTestId("logic-studio")).toBeVisible();
-  const explorer = page.getByTestId("logic-explorer");
-  const editor = page.getByTestId("logic-editor");
+  await openWorkspaceLogic(page);
   const message = "I made a secret garden without an AI key.";
   const source = prepared.source
     .replace(/#message 1 "[^"]*"/, `#message 1 "${message}"`)
     .replace('said("look")', 'said("inspect")');
   expect(source).not.toBe(prepared.source);
-  await explorer.getByTestId("logic-doc-logic:1").click();
-  await editor.locator(".view-lines").click();
-  await page.keyboard.press("ControlOrMeta+A");
-  if (browserName === "chromium")
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.evaluate((text) => navigator.clipboard.writeText(text), source);
-  await page.keyboard.press("ControlOrMeta+V");
+  await replaceWorkspaceDocument(page, "logic:1", source);
   const words = JSON.parse(prepared.words) as [string, number][];
   const look = words.find(([word]) => word === "look");
   expect(look).toBeDefined();
   words.push(["inspect", look![1]]);
-  await explorer.getByTestId("logic-doc-words").click();
-  await editor.locator(".view-lines").click();
-  await page.keyboard.press("ControlOrMeta+A");
-  await page.evaluate((text) => navigator.clipboard.writeText(text), JSON.stringify(words));
-  await page.keyboard.press("ControlOrMeta+V");
-  await expect(page.getByTestId("logic-studio-status")).toContainText("2 changes");
-  await page.getByTestId("logic-review-build").click();
-  await expect(page.getByTestId("logic-keep-confirm")).toBeEnabled();
-  await page.getByTestId("logic-review-doc-logic:1").click();
-  await expect(
-    page.getByTestId("logic-review-diff").locator(".modified .view-lines[data-mprt]"),
-  ).toContainText(message);
-  await page.getByTestId("logic-keep-confirm").click();
-  await expect(page.getByTestId("logic-studio-status")).toContainText("No changes");
+  await replaceWorkspaceDocument(page, "words", JSON.stringify(words));
+  await workspaceSaved(page);
   const stored = await page.evaluate(async (id) => {
     const { loadAuthoredGame } = await import("/src/project/gameStorage.ts");
     const data = await loadAuthoredGame(id as never);
@@ -84,9 +70,7 @@ test("a no-key source and vocabulary edit changes the game a player actually run
   }, prepared.id);
   expect(stored.revision).not.toBe(prepared.revision);
   expect(stored.words).toContainEqual(["inspect", look![1]]);
-  await page.getByTestId("logic-close").click();
-  await expect(page.getByTestId("logic-studio")).toBeHidden();
-  await card.getByRole("button", { name: "Play", exact: true }).click();
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const input = page.getByTestId("input-line");
   await expect(input).toBeEnabled();

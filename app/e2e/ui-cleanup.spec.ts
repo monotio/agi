@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
-  isolateStorage,
-  openCreateAdventure,
-  openAiSettings,
   enterCreateMode,
+  isolateStorage,
+  openAiSettings,
+  openCreateAdventure,
+  openWorkspaceAgent,
 } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -81,8 +82,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeEnabled();
   await page.getByTestId("catalog-play-adventure-department").click();
   await enterCreateMode(page);
-  await expect(page.getByTestId("power-up")).toBeVisible();
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await page.getByTestId("connect-assistant-ai").click();
   const remixKeyLink = dialog.getByRole("link", { name: "Get an API key" });
   await expect(remixKeyLink).toHaveAttribute("href", "https://platform.openai.com/api-keys");

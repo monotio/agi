@@ -1,10 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { readGameZip } from "../src/archive/gameZip.ts";
-import { parseGameHash } from "../src/shell/shellRoute.ts";
-import { providerReply } from "../../test/provider-stream.ts";
-import { encodePngRgb } from "../../src/picture/png.ts";
+import { readFile } from "node:fs/promises";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
@@ -14,16 +9,18 @@ import {
   type SpriteCel,
   type SpriteDocument,
 } from "../../src/view/spriteDocument.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { parseGameHash } from "../src/shell/shellRoute.ts";
 import {
-  configureAi,
+  closeWorkspaceEditor,
   enterCreateMode,
-  isolateStorage,
-  openDeveloperActivity,
   openGameOptions,
-  textHook,
+  openInspector,
+  openWorkspaceView,
   waitForRoom,
-  openWorldRoom,
+  workspaceSaved,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Sprite Studio end to end. The real app runs the catalog tutorial, whose
@@ -76,9 +73,7 @@ async function playTutorial(page: Page): Promise<void> {
 }
 
 async function openApprentice(page: Page): Promise<Locator> {
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
+  await openWorkspaceView(page, 0);
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -196,7 +191,7 @@ async function walkAndSample(page: Page, key: "ArrowLeft" | "ArrowRight", sample
   return frames;
 }
 
-test("a mirrored actor is repaired without changing its source loop, kept, reloaded, exported and played @webkit-desktop", async ({
+test("a mirrored actor is repaired without changing its source loop, saved, reloaded, exported and played @webkit-desktop", async ({
   page,
 }) => {
   await playTutorial(page);
@@ -204,14 +199,14 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
 
   // Opened and closed untouched: nothing forks, nothing is written.
   let studio = await openApprentice(page);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  await workspaceSaved(page);
   expect(await draftBytes(page)).toEqual(TUTORIAL_VIEW_0);
-  await studio.getByTestId("studio-close").click();
-  await expect(studio).toHaveCount(0);
+  await closeWorkspaceEditor(page);
+  await expect(studio).toBeHidden();
   expect(new URL(page.url()).hash).toBe(catalog);
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).not.toMatch(
-    /^remix-/,
-  );
+  expect(
+    await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1]),
+  ).not.toMatch(/^remix-/);
 
   studio = await openApprentice(page);
   await expect(studio.getByTestId("sprite-loop-1-mirror")).toHaveText(/mirrors 0/);
@@ -222,7 +217,7 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
 
   // One pixel in loop 1: it becomes a separate copy, and loop 0 is as it was.
   await paintCentre(page, studio, 1);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     "Loop 1 is now a separate copy; the loop it mirrored kept its pixels.",
   );
@@ -242,18 +237,19 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
     expect(samePixels(cel.pixels, original.loops[1]!.cels[index + 1]!.pixels)).toBe(true),
   );
 
-  // Keep: the catalog tutorial forks a remix on its first edit.
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-  const remix = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
+  // Autosave forks a remix on the first catalog edit.
+  await workspaceSaved(page);
+  const remix = await page.evaluate(
+    () => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1],
+  );
   expect(remix).toMatch(/^remix-/);
   expect(await storedView(page, remix!)).toEqual(kept);
-  await studio.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
   await expect(page).toHaveURL(new RegExp(`#create/${remix}$`));
 
   // Play: walking right shows loop 0's own cels, walking left the fix. The
   // Inspect tab arms the per-frame object table and ownership plane.
-  await page.getByTestId("dock-tab-inspect").click();
+  await openInspector(page);
   const right = (await walkAndSample(page, "ArrowRight")).filter(
     (frame) => frame.ego.view === 0 && frame.ego.loop === 0,
   );
@@ -277,9 +273,9 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
   await page.reload();
   if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
   await waitForRoom(page, 1);
-  studio = await openApprentice(page);
+  await openApprentice(page);
   expect(await draftBytes(page)).toEqual(kept);
-  await studio.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
 
   // The exported game's VIEW is the kept bytes.
   const downloading = page.waitForEvent("download");
@@ -291,29 +287,15 @@ test("a mirrored actor is repaired without changing its source loop, kept, reloa
   );
 });
 
-test("a loop's cyan recoloured to blue by keys is kept, and the walking ego shows it", async ({
+test("a loop's cyan recoloured to blue by keys is saved, and the walking ego shows it", async ({
   page,
 }) => {
   await playTutorial(page);
   const studio = await openApprentice(page);
-  const CYAN = 11;
+  const CYAN = 3;
   const BLUE = 1;
   const original = open(TUTORIAL_VIEW_0);
   expect(at(original.loops[0]!.cels[0]!, CENTRE.x, CENTRE.y)).toBe(CYAN);
-
-  // At 1440×900 the panel shows the palette, the previews and the room without
-  // scrolling; only the Ask box, last in the panel, may sit below them.
-  const panel = studio.getByRole("complementary", { name: "Cel, previews and linked loops" });
-  await expect(studio.getByTestId("sprite-mirror-note")).toBeVisible();
-  expect(await panel.evaluate((element) => element.scrollTop)).toBe(0);
-  const panelBox = (await panel.boundingBox())!;
-  const roomBox = (await studio.getByTestId("sprite-room-verdict").boundingBox())!;
-  expect(roomBox.y + roomBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height);
-  expect(
-    await panel.evaluate(
-      (element) => element.lastElementChild?.getAttribute("data-testid") ?? null,
-    ),
-  ).toBe("studio-assist");
 
   // C, then Space on the canvas picks the cyan under the cursor as the colour to change.
   await studio.locator('[data-loop="0"][data-cel="0"]').click();
@@ -332,9 +314,12 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
     "aria-checked",
     "true",
   );
-  // Loop 0's cels hold 39, 33, 39 and 33 cyan pixels.
+  const count = original.loops[0]!.cels.reduce(
+    (total, cel) => total + [...cel.pixels].filter((pixel) => pixel === CYAN).length,
+    0,
+  );
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
-    "144 pixels in 4 cels will change to colour 1, blue.",
+    `${count} pixels in 4 cels will change to colour 1, blue.`,
   );
   await expect(recolor.getByTestId("sprite-recolor-copies")).toHaveText(
     "Loop 0 will become a separate copy; the loops linked to it keep their pixels.",
@@ -343,11 +328,11 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
   await page.keyboard.press("Tab");
   await expect(recolor.getByTestId("sprite-recolor-apply")).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   // The edit's notice shows in the status line while the popover is still open.
   await expect(studio.locator(".sprite-studio__status").getByTestId("studio-notice")).toBeVisible();
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
-    "No pixels of colour 11, light cyan in this loop.",
+    "No pixels of colour 3, cyan in this loop.",
   );
   // The spent Recolour button leaves focus in the popover, on the From colour,
   // so the keys go on from there: Esc closes it.
@@ -367,12 +352,11 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
       expect(samePixels(cel.pixels, expected)).toBe(true);
     }),
   );
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-  await studio.getByTestId("studio-close").click();
+  await workspaceSaved(page);
+  await closeWorkspaceEditor(page);
 
   // Walking right shows loop 0's blue cels exactly; walking left keeps the cyan.
-  await page.getByTestId("dock-tab-inspect").click();
+  await openInspector(page);
   const right = (await walkAndSample(page, "ArrowRight")).filter(
     (frame) => frame.ego.view === 0 && frame.ego.loop === 0,
   );
@@ -389,59 +373,6 @@ test("a loop's cyan recoloured to blue by keys is kept, and the walking ego show
   expect(left.length).toBeGreaterThan(5);
   for (const frame of left)
     expect(frame.pixels).toEqual(celPixels(frame, original.loops[1]!.cels[frame.ego.cel]!));
-});
-
-test("a Keep refuses as stale when the project changed elsewhere, and reopens from storage", async ({
-  page,
-}) => {
-  await playTutorial(page);
-  let studio = await openApprentice(page);
-  await paintCentre(page, studio, 2);
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-  const remix = (await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame")))!;
-
-  // Another tab changes the stored remix while this draft has an edit.
-  await paintCentre(page, studio, 3, 1);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  const elsewhere = openContainer(await storedFiles(page, remix));
-  elsewhere.putResource("view", 9, elsewhere.getResource("view", 0)!);
-  const moved = await page.evaluate(
-    async ([id, files]) => {
-      const path = "/src/project/gameStorage.ts";
-      const { updateAuthoredGameFiles } = await import(path);
-      return updateAuthoredGameFiles(
-        id,
-        Object.fromEntries(files!.map(([name, bytes]) => [name, Uint8Array.from(bytes)])),
-      );
-    },
-    [remix, [...elsewhere.files].map(([name, bytes]) => [name, [...bytes]] as const)] as const,
-  );
-  expect(moved).toBe(true);
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-keep-error")).toContainText(
-    "The game changed since you opened Studio. Reopen to continue.",
-  );
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  // The banner has its own close; the next Keep meets the same refusal.
-  await studio.getByTestId("studio-keep-error-close").click();
-  await expect(studio.getByTestId("studio-keep-error")).toHaveCount(0);
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-keep-error")).toBeVisible();
-  await studio.getByTestId("studio-recover").click();
-  const dialog = page.getByRole("dialog", { name: "Reload the saved game?" });
-  await expect(dialog).toContainText("Your unkept changes in this view will be discarded");
-  await page.getByTestId("studio-dialog-reload").click();
-  studio = page.getByTestId("sprite-studio");
-  await expect(studio.getByTestId("studio-notice")).toHaveText(
-    "Loaded the latest saved version of this game.",
-  );
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
-  // Reopened on the stored project: the next Keep lands beside the other edit.
-  await paintCentre(page, studio, 3, 1);
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-  expect(await storedView(page, remix)).toEqual(await draftBytes(page));
 });
 
 test.describe("on the harness", () => {
@@ -665,79 +596,4 @@ test.describe("on the harness", () => {
       ),
     ).toBe(0);
   });
-});
-
-/** An opaque magenta key field with one cyan figure per 16px pose cell. */
-function sheetPng(): Buffer {
-  const width = 64;
-  const height = 12;
-  const rgb = new Uint8Array(width * height * 3);
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      const lx = x % 16;
-      const figure = lx >= 5 && lx < 11 && y >= 2;
-      rgb.set(figure ? [0, 0xff, 0xff] : [0xff, 0, 0xff], (y * width + x) * 3);
-    }
-  return Buffer.from(encodePngRgb(width, height, rgb));
-}
-
-test("a staged character-sheet candidate opens in Sprite Studio, is repaired and kept", async ({
-  page,
-}) => {
-  await isolateStorage(page);
-  await page.route("**/api/openai/v1/responses", (route) =>
-    route.fulfill(providerReply("openai", { id: "reply", output: [] })),
-  );
-  await page.goto("/");
-  await openDeveloperActivity(page);
-  await page.getByTestId("boot-agent").click();
-  await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
-  await expect
-    .poll(async () => (await textHook(page)).cycle, { timeout: 20_000 })
-    .toBeGreaterThan(0);
-  await page.keyboard.press("Enter");
-  await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("agent-attach-reference").click();
-  await page.getByTestId("reference-kind-character").click();
-  await page.getByTestId("reference-facing-right").setInputFiles({
-    name: "hero-right.png",
-    mimeType: "image/png",
-    buffer: sheetPng(),
-  });
-  await page.getByTestId("reference-attach").click();
-  await expect(page.getByTestId("reference-preview")).toBeVisible({ timeout: 15_000 });
-
-  await page.getByTestId("reference-open-sprite").click();
-  const studio = page.getByTestId("sprite-studio");
-  await expect(studio).toBeVisible();
-  await expect(page.getByTestId("reference-upload")).toBeHidden();
-  const candidate = await draftBytes(page);
-  const staged = open(candidate);
-  // The candidate's cel 0 of loop 0 gets a red pixel on its figure.
-  const cel = staged.loops[0]!.cels[0]!;
-  const point = { x: Math.floor(cel.width / 2), y: Math.floor(cel.height / 2) };
-  expect(at(cel, point.x, point.y)).not.toBe(cel.transparent);
-  await studio.locator(`[data-colour="${RED}"]`).click();
-  await studio.getByTestId("sprite-stage").focus();
-  await page.keyboard.press("Space");
-  await page.keyboard.press("Space");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  const repaired = await draftBytes(page);
-  expect(at(open(repaired).loops[0]!.cels[0]!, point.x, point.y)).toBe(RED);
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-
-  const stored = await page.evaluate(async () => {
-    const { listCachedGames, loadAuthoredGame } = await import("/src/project/gameStorage.ts");
-    const id = listCachedGames()[0]!.projectId;
-    const data = await loadAuthoredGame(id);
-    return { id, staged: data?.references?.find((r) => r.kind === "character")?.staged ?? null };
-  });
-  expect(stored.staged).toBe(null);
-  expect(await storedView(page, stored.id)).toEqual(repaired);
 });

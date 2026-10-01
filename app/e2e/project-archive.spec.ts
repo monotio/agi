@@ -1,11 +1,17 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/archive/zip.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { configureAi, isolateStorage, openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import { buildZip } from "../src/archive/zip.ts";
+import {
+  configureAi,
+  enterCreateMode,
+  isolateStorage,
+  openGameOptions,
+  openWorkspaceAgent,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 test("Download project resumes private history in a fresh browser; Download game has only playable resources", async ({
   page,
@@ -135,7 +141,7 @@ test("Download project resumes private history in a fresh browser; Download game
       );
     });
     await enterCreateMode(other);
-    await other.getByTestId("power-up").click();
+    await openWorkspaceAgent(other);
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
     await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
     expect(requests).toHaveLength(0);

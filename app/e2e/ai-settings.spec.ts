@@ -1,6 +1,12 @@
 import { expect, test } from "@playwright/test";
 import { providerReply } from "../../test/provider-stream.ts";
-import { isolateStorage, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
+import {
+  enterCreateMode,
+  isolateStorage,
+  openAiSettings,
+  openWorkspaceAgent,
+  textHook,
+} from "./engineProbe.ts";
 
 test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
   page,
@@ -98,7 +104,7 @@ test("AI settings pause only their own game interaction and preserve the assista
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
@@ -157,7 +163,7 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await dialog.getByTestId("provider-select").selectOption("openai");

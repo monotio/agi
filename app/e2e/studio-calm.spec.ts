@@ -1,7 +1,15 @@
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
 import { TARGET_PROPERTY } from "../src/ui/explain.ts";
+import {
+  closeWorkspaceEditor,
+  enterCreateMode,
+  isolateStorage,
+  openWorkspacePicture,
+  openWorkspaceView,
+  textHook,
+  workspaceSaved,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * The calm canvas on the real app: nothing covers the picture, not even the
@@ -21,18 +29,14 @@ async function playTutorial(page: Page): Promise<void> {
 }
 
 async function openRoomStudio(page: Page, room: number): Promise<Locator> {
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, room);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, room);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
 }
 
 async function openApprentice(page: Page): Promise<Locator> {
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
+  await openWorkspaceView(page, 0);
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -106,7 +110,10 @@ for (const [width, height] of [
     await expect(studio.getByTestId("studio-hint")).toHaveText(/^Arrows nudge/);
     expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
     await expect(bar.getByTestId("studio-selection-bar")).toBeVisible();
-    await expect(bar.getByTestId("selection-name")).toHaveText(/^West doorway/);
+    await expect(studio.getByRole("treeitem", { name: /^West doorway/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await expect(bar.getByTestId("selection-priority")).toBeVisible();
     await expect.poll(barFits).toBe(true);
     // Ask is in the bar or, short of room, in its More menu.
@@ -119,7 +126,7 @@ for (const [width, height] of [
       expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
       await expect.poll(barFits).toBe(true);
     }
-    await studio.getByTestId("studio-close").click();
+    await closeWorkspaceEditor(page);
     await expect(studio).toBeHidden();
 
     // Sprite Studio, the pencil: the cel is clear too.
@@ -138,11 +145,8 @@ for (const [width, height] of [
 }
 
 // The labels follow the viewer's platform; both chords work on either.
-for (const { platform, mod } of [
-  { platform: "MacIntel", mod: "⌘" },
-  { platform: "Linux x86_64", mod: "Ctrl+" },
-]) {
-  test(`${mod}\\ hides the side panels and brings them back on ${platform}; Tab and Shift+Tab only move focus`, async ({
+for (const { platform } of [{ platform: "MacIntel" }, { platform: "Linux x86_64" }]) {
+  test(`Focus hides the side panels and brings them back on ${platform}; Tab and Shift+Tab only move focus`, async ({
     page,
   }) => {
     await page.addInitScript((reported) => {
@@ -154,40 +158,20 @@ for (const { platform, mod } of [
     const studio = await openRoomStudio(page, 2);
     const canvas = studio.getByRole("group", { name: /^Canvas/ });
     const scene = studio.locator(".studio__scene");
-    const inspector = studio.locator(".studio__inspector");
-    const toggle = studio.getByRole("button", { name: "Focus mode" });
-    const hint = studio.getByTestId("studio-hint");
+    const toggle = page.getByTestId("workspace-focus");
     const pane = studio.locator(".studio-pane").last();
-    await expect(canvas).toHaveAttribute(
-      "aria-label",
-      /Command or Control plus backslash hides the side panels/,
-    );
-    await expect(toggle).toHaveAttribute("aria-keyshortcuts", "Meta+Backslash Control+Backslash");
-    await expect(toggle).toHaveAttribute("title", `Focus mode (${mod}\\)`);
     const before = (await pane.boundingBox())!.width;
-
     await canvas.focus();
-    await page.keyboard.press("ControlOrMeta+Backslash");
+    await page.keyboard.press(platform === "MacIntel" ? "Meta+k" : "Control+k");
+    await page.keyboard.press("z");
     await expect(scene).toBeHidden();
-    await expect(inspector).toBeHidden();
-    await expect(canvas).toBeFocused();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await expect(studio.locator('[data-role="announce"]')).toHaveText("Side panels hidden");
-    // The first time, the status bar says how to get them back; nothing lands on the canvas.
-    await expect(hint).toHaveText(`Side panels hidden · ${mod}\\ brings them back`);
     await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
-
-    await page.keyboard.press("ControlOrMeta+Backslash");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
     await expect(scene).toBeVisible();
-    await expect(inspector).toBeVisible();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await expect(canvas).toBeFocused();
-    // The tip is a first-time one: the next toggle leaves the tool's own line.
-    await page.keyboard.press("ControlOrMeta+Backslash");
-    await expect(hint).not.toContainText("Side panels hidden");
-    await page.keyboard.press("ControlOrMeta+Backslash");
-    await expect(scene).toBeVisible();
-
+    await canvas.focus();
     // Tab and Shift+Tab are never taken: each moves focus off the canvas and back.
     await page.keyboard.press("Tab");
     await expect(canvas).not.toBeFocused();
@@ -242,7 +226,7 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   await expect(studio).toBeVisible();
 
   // Sprite Studio has its own.
-  await studio.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
   const sprite = await openApprentice(page);
   await sprite.getByTestId("sprite-stage").focus();
   await page.keyboard.press("?");
@@ -261,6 +245,7 @@ test("the drawing backdrop is view only: it never changes the view's bytes, and 
   let sprite = await openApprentice(page);
   const bytes = () => page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()]);
   const original = await bytes();
+  await page.getByTestId("workspace-focus").click();
   const backdrop = sprite.getByTestId("sprite-backdrop");
   /** The canvas colour at the cel's top-left pixel, transparent in the apprentice's first cel. */
   const corner = () =>
@@ -269,13 +254,13 @@ test("the drawing backdrop is view only: it never changes the view's bytes, and 
       .evaluate((canvas: HTMLCanvasElement) => [
         ...canvas.getContext("2d")!.getImageData(2, 2, 1, 1).data.slice(0, 3),
       ]);
-  await expect(sprite.getByTestId("sprite-transparent")).toContainText("∅ transparent");
+  await expect(sprite.getByTestId("sprite-transparent")).toContainText("Transparent colour");
 
   const seen: string[] = [];
-  for (const choice of ["checker-light", "colour-14", "room", "checker-dark"]) {
+  for (const choice of ["checker-light", "colour-14", "colour-1", "checker-dark"]) {
     await backdrop.selectOption(choice);
     seen.push((await corner()).join(","));
-    await expect(sprite.getByTestId("studio-draft-status")).toHaveText("No changes");
+    await workspaceSaved(page);
     expect(await bytes()).toEqual(original);
   }
   // Each backdrop shows behind the transparent pixel: yellow (14) is 255,255,85.
@@ -284,9 +269,10 @@ test("the drawing backdrop is view only: it never changes the view's bytes, and 
 
   // Remembered for this viewer: the next Sprite Studio opens on the same backdrop.
   await backdrop.selectOption("checker-light");
-  await sprite.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
   await expect(sprite).toBeHidden();
   sprite = await openApprentice(page);
+  await page.getByTestId("workspace-focus").click();
   await expect(sprite.getByTestId("sprite-backdrop")).toHaveValue("checker-light");
   expect(await bytes()).toEqual(original);
 });

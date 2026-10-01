@@ -1,17 +1,18 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
-import { providerReply } from "../../test/provider-stream.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import {
   configureAi,
+  enterCreateMode,
   isolateStorage,
   openGameOptions,
+  openWorkspaceAgent,
   textHook,
   waitForRoom,
-  enterCreateMode,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Brief item 8, end to end: record a playthrough as a game test, patch the
@@ -89,7 +90,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   // Record: walk to the frame, paint the mural, dismiss the payoff window.
   // Playtest recording lives in the editing tools — the remix bubble.
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await page.getByTestId("btn-record-test").click();
   await expect(page.getByTestId("agent-bubble")).toBeHidden();
   await expect(page.getByTestId("recording-bar")).toBeVisible();
@@ -125,7 +126,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   // tool reruns every room-1 test and leads with the failure verdict.
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Change the mural lesson text");
   await page.getByTestId("agent-bubble-send").click();
@@ -134,7 +135,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
 
   // Repair: the same rerun reports the whole selection green again.
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Restore the mural lesson text");
   await page.getByTestId("agent-bubble-send").click();
@@ -184,7 +185,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
       .toBe(project.progress!.autosave!.room);
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
     await enterCreateMode(other);
-    await other.getByTestId("power-up").click();
+    await openWorkspaceAgent(other);
     await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
     await other.getByTestId("agent-bubble-input").fill("Run every stored game test");
     await other.getByTestId("agent-bubble-send").click();

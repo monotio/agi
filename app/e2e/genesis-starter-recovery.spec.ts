@@ -1,6 +1,5 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { test, expect, reviewShot } from "./test.ts";
 import type { Page } from "@playwright/test";
+import { providerReply } from "../../test/provider-stream.ts";
 import {
   isolateStorage,
   openAiSettings,
@@ -9,6 +8,7 @@ import {
   waitForAutosaveAfter,
   waitForRoom,
 } from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
 /**
  * Browser proof for Genesis starter recovery. A real Create whose provider
@@ -104,7 +104,7 @@ test("a refused genesis offers Open starter and opens a real editable starter pr
   await openStarter.click();
   await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(/#create\/local-/);
-  await expect(page.getByTestId("create-dock-left")).toBeVisible();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect(page.getByTestId("input-line")).toBeVisible();
   expect(requests).toBe(1);
   await reviewShot(page, "genesis-recovered-starter");

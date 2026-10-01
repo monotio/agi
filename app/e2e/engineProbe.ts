@@ -459,6 +459,7 @@ export async function openWorldMap(
  * whole stage for the game) and close the sheet again.
  */
 export async function openInspector(page: Page): Promise<void> {
+  await enterPlayMode(page);
   await openGameOptions(page, "settings-menu");
   const advanced = page.getByTestId("settings-advanced");
   if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
@@ -486,11 +487,85 @@ export async function openWorldRoom(panel: Locator, room: number): Promise<void>
   await expect(panel.getByTestId("map-detail")).toHaveAttribute("data-room", String(room));
 }
 
+/** Open a room's real PICTURE through the workspace parts list. */
+export async function openWorkspacePicture(
+  page: Page,
+  room: number,
+  showGame = true,
+): Promise<Locator> {
+  await enterCreateMode(page);
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  await page.locator(`[data-testid^="part-room:${room}:picture:"]`).first().click();
+  if (showGame && (await show.isVisible())) await show.click();
+  if (
+    !showGame &&
+    (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
+  )
+    await page.getByTestId("workspace-focus").click();
+  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  await expect(studio).toBeVisible();
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  return studio;
+}
+
+/** Open a VIEW beside MAIN through the workspace parts list. */
+export async function openWorkspaceView(
+  page: Page,
+  view: number,
+  showGame = true,
+): Promise<Locator> {
+  await enterCreateMode(page);
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  await page.getByTestId(`part-view:${view}`).click();
+  if (showGame && (await show.isVisible())) await show.click();
+  if (
+    !showGame &&
+    (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
+  )
+    await page.getByTestId("workspace-focus").click();
+  const studio = page.getByTestId("sprite-studio").filter({ visible: true });
+  await expect(studio).toBeVisible();
+  await studio.getByTestId("sprite-stage").focus();
+  return studio;
+}
+
+/** Close the selected editor tab while keeping MAIN running. */
+export async function closeWorkspaceEditor(page: Page): Promise<void> {
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  const tab = page.getByRole("tab", { selected: true });
+  await tab
+    .locator("..")
+    .getByRole("button", { name: /^Close / })
+    .click();
+}
+
+/** Observe completed gesture publication and durable autosave. */
+export async function workspaceSaved(page: Page): Promise<void> {
+  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await page.evaluate(async () => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getSession(): { flush(): Promise<void> } };
+    };
+    await probe.__AGI_PROJECT__.getSession().flush();
+  });
+  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+}
+
 export async function enterCreateMode(page: Page): Promise<void> {
   const create = page.getByRole("radio", { name: "Create", exact: true });
   if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
   await expect(create).toHaveAttribute("aria-checked", "true");
   await expect(page).toHaveURL(/#create\//);
+}
+
+/** Open the Create assistant through its registered workspace command. */
+export async function openWorkspaceAgent(page: Page): Promise<void> {
+  await enterCreateMode(page);
+  await page.getByTestId("workspace-agent").click();
+  await expect(page.getByTestId("agent-bubble")).toBeVisible();
 }
 
 /** Return to the full game before opening player tools. */

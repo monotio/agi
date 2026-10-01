@@ -3,6 +3,7 @@ import {
   enterCreateMode,
   isolateStorage,
   openLibraryActions,
+  openWorkspaceAgent,
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
@@ -79,7 +80,7 @@ test("one Settings menu owns AI and budget while Remix stays compact", async ({ 
   await dialog.getByTestId("task-budget").fill("3");
   await dialog.getByTestId("ai-settings-save").click();
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   const composer = page.getByTestId("agent-bubble");
   await expect(composer.getByTestId("agent-bubble-input")).toBeEnabled();
   await expect(composer.getByTestId("connect-assistant-ai")).toHaveCount(0);

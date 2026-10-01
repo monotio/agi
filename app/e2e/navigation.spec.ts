@@ -1,9 +1,9 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
 import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 test("top navigation groups controls and follows game sound through shortcuts, app toggles and restore", async ({
   page,
@@ -41,7 +41,7 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   const settings = nav.getByTestId("settings-menu");
   const exit = nav.getByTestId("btn-exit");
   await expect(nav).toBeVisible();
-  await expect(exit).toHaveAccessibleName("Exit to game selection");
+  await expect(exit).toHaveAccessibleName("Back to library");
 
   // The map is a top-bar button and read-only assistance the stage's Ask
   // button; Help owns the guide, movement/input help and the walkthrough, with

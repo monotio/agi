@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 import {
+  enterCreateMode,
   isolateStorage,
+  openAiSettings,
   openSavedGameDetails,
+  openWorkspaceAgent,
   savedGameCard,
   textHook,
-  openAiSettings,
-  enterCreateMode,
 } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -78,7 +79,7 @@ test("the hero and Save settings share the one filled primary; card actions stay
   await resume.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   for (const action of await page.locator(".agent-mode-switch button, .remix-close").all()) {
     expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }

@@ -1,5 +1,5 @@
-import { expect, test, reviewShot } from "./test.ts";
 import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
 for (const kind of ["starter", "boilerplate"] as const) {
   test(`create a ${kind} locally without an AI key, then reopen the saved game`, async ({
@@ -21,7 +21,7 @@ for (const kind of ["starter", "boilerplate"] as const) {
     await form.getByRole("button", { name: "Start building", exact: true }).click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await expect(page).toHaveURL(/#create\/local-/);
-    await expect(page.getByTestId("create-dock-left")).toBeVisible();
+    await expect(page.getByTestId("parts-list")).toBeVisible();
     if (kind === "boilerplate") {
       await expect.poll(async () => (await textHook(page)).modal).toBe("print");
       await page.locator(".screen").click();

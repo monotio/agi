@@ -1,14 +1,15 @@
-import { test, expect } from "@playwright/test";
-import { providerReply } from "../../test/provider-stream.ts";
+import { expect, test } from "@playwright/test";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import {
   configureAi,
+  enterCreateMode,
   isolateStorage,
+  openWorkspaceAgent,
   savedGameCard,
   storedAutosave,
   textHook,
   waitForAutosaveAfter,
-  enterCreateMode,
 } from "./engineProbe.ts";
 
 /** The catalog installs the bundled tutorial under a deterministic project ID. */
@@ -64,7 +65,7 @@ test("forking the tutorial moves its checkpoint to the remix card", async ({ pag
 
   // Author a change to trigger a remix fork
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Rename the gallery");
   await page.getByTestId("agent-bubble-send").click();

@@ -1,9 +1,9 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
+import { configureAi, textHook } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted options", async ({
   page,
@@ -66,11 +66,10 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   });
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await configureAi(page, { provider: "anthropic", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where am I?");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("You are in room 1.");

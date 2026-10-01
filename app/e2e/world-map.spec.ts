@@ -1,16 +1,17 @@
 import { expect, test, type Page } from "@playwright/test";
-import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { fixtureSkip, KNOWN_GAME_HASH } from "../../test/fixtures.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
+  enterCreateMode,
   observe,
   openCardMenu,
+  openInspector,
+  openWorldRoom,
   textHook,
   waitForCycles,
-  enterCreateMode,
-  openWorldRoom,
 } from "./engineProbe.ts";
 
 test.use({ headless: process.platform !== "darwin" });
@@ -188,20 +189,21 @@ test("the map records a live transition and matches it against plan and logic", 
   // Visit room 2 through the inspector's flag write: logic 1's literal
   // new.room(2) fires, so the journal edge joins the planned and static ones.
   await enterCreateMode(page);
-  await page.getByTestId("dock-tab-inspect").click();
+  await openInspector(page);
   await page.getByTestId("dbg-tab-state").click();
   await page.getByTestId("dbg-flags").locator("button").nth(6).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
 
-  // Create docks the plan view as its World panel; the map button shows it.
+  // The map combines the plan and live room evidence.
   await page.getByTestId("btn-world-map").click();
-  await expect(page.getByTestId("world-panel")).toBeVisible();
-  await expect(page.getByTestId("world-map")).toHaveCount(0);
+  await expect(page.getByTestId("world-map")).toBeVisible();
+  await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("map-room-2")).toContainText("visited");
   await expect(page.getByTestId("map-room-2")).toHaveClass(/current/);
   await expect(page.getByTestId("map-node-2")).toBeInViewport();
   await page.screenshot({ path: "test-results/world-map-transition.png" });
-  // The panel follows the player: room 2's card shows without a pick.
+  // Select the visited room to inspect its three sources of evidence.
+  await page.getByTestId("map-node-2").click();
   const detail = page.getByTestId("map-detail");
   await expect(detail).toHaveAttribute("data-room", "2");
   await expect(detail).toContainText("Visited 1×");
