@@ -8,7 +8,16 @@ import { rngDraw } from "../../../src/runtime/rng.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
 import type { WorkerContext } from "./context.ts";
 
+let hostSerial = 0;
+
 export function createEngineHost(ctx: WorkerContext): EngineHost {
+  // A fresh host also owns a fresh presentation namespace after boot/restore.
+  const namespace =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `audio-${Date.now().toString(36)}-${++hostSerial}`;
+  let stream = 0;
+  let soundTick = 0;
   return {
     randomByte() {
       // Live and replay share the interpreter's 16-bit RNG
@@ -176,17 +185,30 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     },
     /** Playback state only; the engine emits scheduled audio commands separately. */
     playSound(soundNum) {
+      stream++;
+      soundTick = 0;
       ctx.ports.presentation({ type: "sound", soundNum });
     },
     soundDevice() {
       ctx.recording.recording?.tape.host(["soundDevice", ctx.boot.selectedSoundDevice]);
       return ctx.boot.selectedSoundDevice;
     },
+    soundTickOutput(outputs, complete) {
+      ctx.ports.presentation({
+        type: "soundTick",
+        stream: `${namespace}:${stream}`,
+        tick: soundTick++,
+        outputs,
+        complete,
+      });
+    },
     soundOutput(output) {
       ctx.ports.presentation({ type: "soundOutput", output });
     },
     /** 0x64 stop.sound: silence playback on the main thread. */
     stopSound() {
+      stream++;
+      soundTick = 0;
       ctx.ports.presentation({ type: "stopSound" });
     },
   };

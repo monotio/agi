@@ -219,6 +219,8 @@ export interface EngineHost {
   playSound?(soundNum: number, payload: Uint8Array): void;
   /** Timed sound command; the backend synthesizes output without scheduling completion. */
   soundOutput?(output: SoundOutput): void;
+  /** Grouped presentation of one heartbeat, including its final silence writes. */
+  soundTickOutput?(outputs: readonly SoundOutput[], complete: boolean): void;
   /** Device selector for a new playback (default1, four channels). */
   soundDevice?(): number;
   /** Optional adapter override for v23 attenuation, read on every sound tick. */
@@ -3830,8 +3832,16 @@ export class Engine {
       this.flags[F_SOUND_ENABLED] !== 0,
       this.host.soundAttenuation?.() ?? this.vars[23]!,
     );
-    for (const output of tick.outputs) this.host.soundOutput?.(output);
-    if (tick.complete) this.stopSound();
+    if (this.host.soundTickOutput) {
+      const outputs = tick.complete
+        ? [...tick.outputs, ...this.soundPlayback.stop()]
+        : tick.outputs;
+      this.host.soundTickOutput(outputs, tick.complete);
+      if (tick.complete) this.stopSound(false);
+    } else {
+      for (const output of tick.outputs) this.host.soundOutput?.(output);
+      if (tick.complete) this.stopSound();
+    }
     this.observePhase("sound", null);
   }
 
@@ -3846,15 +3856,16 @@ export class Engine {
    * stop.sound state teardown, shared with pause (spec: pause stops sound);
    * the host also calls it before changing audio devices.
    */
-  stopSound(): void {
+  stopSound(present = true): void {
     if (this.stopLatch !== null) return; // sound state is frozen while stopped
     if (this.playingSound === null) return;
-    for (const output of this.soundPlayback?.stop() ?? []) this.host.soundOutput?.(output);
+    const silence = this.soundPlayback?.stop() ?? [];
+    if (present) for (const output of silence) this.host.soundOutput?.(output);
     if (this.soundDoneFlag !== null) this.flags[this.soundDoneFlag] = 1;
     this.playingSound = null;
     this.soundDoneFlag = null;
     this.soundPlayback = null;
-    this.host.stopSound?.();
+    if (present) this.host.stopSound?.();
   }
 
   /**

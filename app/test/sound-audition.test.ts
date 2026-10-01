@@ -957,9 +957,9 @@ describe("sound audition lifecycle", () => {
   it("abandons a wake when the audio adapter reenters a lifecycle call", async () => {
     const { audition, scheduler, audio, leaseLog } = auditionWith();
     let stopped = false;
-    const original = audio.output.bind(audio);
-    audio.output = (event) => {
-      original(event);
+    const original = audio.outputTick.bind(audio);
+    audio.outputTick = (packet) => {
+      original(packet);
       if (!stopped) {
         stopped = true;
         audition.stop();
@@ -1035,10 +1035,10 @@ describe("sound audition lifecycle", () => {
     }
     const { audition, scheduler, audio } = auditionWith();
     const seen: unknown[] = [];
-    const original = audio.output.bind(audio);
-    audio.output = (event) => {
-      seen.push(event);
-      original(event);
+    const original = audio.outputTick.bind(audio);
+    audio.outputTick = (packet) => {
+      seen.push(...packet.outputs);
+      original(packet);
     };
     audition.setTarget(target(payload));
     await audition.play();

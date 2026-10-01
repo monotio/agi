@@ -19,6 +19,7 @@ class ReviewAudio extends AgiAudio {
   override setPauseOwner(): void {}
   override stop(): void {}
   override output(): void {}
+  override outputTick(): void {}
   override close(): Promise<void> {
     return Promise.resolve();
   }

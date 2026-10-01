@@ -79,6 +79,7 @@ const OUTBOUND_TYPES = [
   "soundEnabled",
   "sound",
   "soundOutput",
+  "soundTick",
   "soundPaused",
   "stopSound",
   "quit",
@@ -153,6 +154,7 @@ function makeLink(over: { getBootedGame?: () => BootedGame | null } = {}) {
     setMode: (mode: string) => audioCalls.push(`setMode:${mode}`),
     stop: () => audioCalls.push("stop"),
     output: () => audioCalls.push("output"),
+    outputTick: () => audioCalls.push("outputTick"),
   } as unknown as AgiAudio;
   const depCalls: string[] = [];
   const logged: string[] = [];
@@ -765,6 +767,11 @@ test("every WorkerOutbound member reaches its handler once", async () => {
       case "soundOutput":
         deliver(w, { type, output: {} as never });
         assert.ok(audioCalls.includes("output"));
+        break;
+      case "soundTick":
+        deliver(w, { type, stream: "test", tick: 0, outputs: [], complete: true });
+        assert.ok(audioCalls.includes("outputTick"));
+        assert.equal(state.soundPlaying, false);
         break;
       case "soundPaused":
         deliver(w, { type, paused: true });

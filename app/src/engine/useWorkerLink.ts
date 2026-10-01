@@ -7,6 +7,7 @@
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import type { AgiAudio } from "../audio/AgiAudio.ts";
+import { deliverSoundTick } from "../audio/useAudioController.ts";
 import type { BootedGame, Frame } from "../project/gameTypes.ts";
 import type { HistoryBatch } from "../../../src/agent/history.ts";
 import { decodeTextRows } from "../project/gameTypes.ts";
@@ -382,6 +383,10 @@ export function useWorkerLink(options: WorkerLinkOptions) {
         state.soundPlaying = true;
       },
       soundOutput: (msg) => audio.output(msg.output),
+      soundTick: (msg) => {
+        deliverSoundTick(audio, msg);
+        if (msg.complete) state.soundPlaying = false;
+      },
       soundPaused: (msg) => setWorkerAudioPause(msg.paused),
       stopSound: () => {
         state.soundPlaying = false;

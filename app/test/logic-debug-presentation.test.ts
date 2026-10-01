@@ -46,6 +46,9 @@ function fakeAudio(): DebugAudioPort & {
     owners: new Set<string>(),
     stopped: 0,
     closed: false,
+    outputTick(packet: { outputs: readonly SoundOutput[] }) {
+      audio.outputs.push(...packet.outputs);
+    },
     output(e: SoundOutput) {
       audio.outputs.push(e);
     },
@@ -210,4 +213,28 @@ test("dispose drops frames, mirrors and future output", async () => {
   assert.equal(bridge.lastFrame, null);
   assert.equal(made.length, 1, "no second audio for a dead preview");
   assert.equal(made[0]!.outputs.length, 1);
+});
+
+test("lazy debugger audio preserves every queued heartbeat", async () => {
+  const audio = fakeAudio();
+  let resolve!: (audio: DebugAudioPort) => void;
+  const pending = new Promise<DebugAudioPort>((done) => {
+    resolve = done;
+  });
+  const bridge = createDebugPresentation({ present() {}, createAudio: () => pending });
+  for (const tick of [0, 1, 2])
+    bridge.handle({
+      type: "soundTick",
+      stream: "preview",
+      tick,
+      outputs: [{ kind: "speaker", divisor: 100 + tick }],
+      complete: tick === 2,
+    });
+  resolve(audio);
+  await flush();
+  assert.deepEqual(
+    audio.outputs,
+    [100, 101, 102].map((divisor) => ({ kind: "speaker", divisor })),
+  );
+  bridge.dispose();
 });

@@ -57,7 +57,11 @@ function play(ctx: GuidedContext) {
   const profile = PROFILES[ctx.profileId];
   const host = new ActorHost();
   const engine = new Engine(openContainer(files, { profile }), host, dictionary, { profile });
-  for (let cycle = 0; cycle < 6; cycle++) engine.tick();
+  for (let cycle = 0; cycle < 6; cycle++) {
+    // Acknowledge the template's welcome message through the real modal input.
+    if (engine.modalKind === "print") engine.modalKey(13);
+    engine.tick();
+  }
   return { engine, host };
 }
 
@@ -146,4 +150,76 @@ test("partial hand-written hero setup stays intact when guided placement refuses
   if (!operation.ok) assert.equal(operation.code, "custom-code");
   assert.equal(draft.capture().revision, before.revision);
   assert.equal(draft.capture().read("logic:1")!.content, partial);
+});
+
+for (const statement of [
+  "animate.obj(o0);",
+  "if (isset(f10)) { set.view(o0, 7); }",
+  "set.view.v(o0, v30);",
+  "load.view.v(v30);",
+]) {
+  test(`actor-free placement refuses partial or computed setup: ${statement}`, () => {
+    const { ctx, draft } = boilerplateWorkspace();
+    installExistingView(draft);
+    const base = draft.capture();
+    const source = (base.read("logic:1")!.content as string).replace(
+      "  accept.input();",
+      `  ${statement}\n  accept.input();`,
+    );
+    draft.edit("logic:1", source, base.version("logic:1"));
+    const before = draft.capture();
+    const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) assert.equal(outcome.code, "custom-code");
+    assert.equal(draft.capture().revision, before.revision);
+  });
+}
+
+for (const [x, y] of [
+  [159, 120],
+  [100, 30],
+  [100, 168],
+] as const) {
+  test(`actor-free placement validates the hero footprint at ${x},${y}`, () => {
+    const { ctx, draft } = boilerplateWorkspace();
+    installExistingView(draft);
+    const before = draft.capture();
+    const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x, y });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) assert.equal(outcome.code, "invalid-input");
+    assert.equal(draft.capture().revision, before.revision);
+  });
+}
+
+test("actor-free placement validates the current PICTURE walk barrier", () => {
+  const { ctx, draft } = boilerplateWorkspace();
+  installExistingView(draft);
+  const base = draft.capture();
+  draft.edit("picture:1", "pri 0\nfill 0,0\nend\n", base.version("picture:1"));
+  const before = draft.capture();
+  const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.code, "invalid-input");
+    assert.match(outcome.message, /walk barrier/);
+  }
+  assert.equal(draft.capture().revision, before.revision);
+});
+
+test("actor-free placement asks for a drawn cel instead of installing a transparent VIEW", () => {
+  const { ctx, draft } = boilerplateWorkspace();
+  const base = draft.capture();
+  draft.apply(
+    draft.propose(base, "Empty VIEW", [
+      {
+        key: "view:7",
+        content: JSON.stringify({
+          loops: [{ cels: [{ width: 1, height: 1, transparentColor: 0, pixels: [0] }] }],
+        }),
+      },
+    ]),
+  );
+  const outcome = prepareGuidedPlaceHero(ctx, { room: 1, view: 7, x: 100, y: 120 });
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) assert.equal(outcome.code, "missing");
 });
