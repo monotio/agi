@@ -199,6 +199,8 @@ const emit = defineEmits<{
   close: [];
   edit: [source: string];
   "game-host": [host: HTMLElement];
+  "agent-context": [context: { label: string; text: string } | null];
+  "agent-ask": [];
   reopen: [fromStorage: boolean];
   "play-here": [target: PlayHereTarget];
 }>();
@@ -403,6 +405,29 @@ const askTargets = computed<string[]>(() => {
 });
 const itemLabel = (id: string): string =>
   draft.document.value.items.find((item) => item.id === id)?.label ?? id;
+watch(
+  [askTargets, lens],
+  ([ids, currentLens]) => {
+    if (embedded)
+      emit(
+        "agent-context",
+        ids.length
+          ? {
+              label: `PICTURE ${pictureNumber} · ${ids.map(itemLabel).join(", ")}`,
+              text: `Selected item ids: ${ids.join(", ")}. Lens: ${currentLens}.`,
+            }
+          : null,
+      );
+  },
+  { immediate: true },
+);
+function askAgent(): boolean {
+  if (embedded) {
+    emit("agent-ask");
+    return true;
+  }
+  return assistPanel.value?.focus() ?? false;
+}
 const currentPicture = () => ({ kind: "picture" as const, source: draft.source.value });
 const assist = useStudioAssist({
   host: () => assistHost,
@@ -1075,7 +1100,7 @@ function pickMenu(id: string): void {
   else if (id === "priority") priorityOpen.value = true;
   else if (id === "combine") openCombine();
   else if (id === "ungroup") editing.ungroup();
-  else if (id === "ask") assistPanel.value?.focus();
+  else if (id === "ask") askAgent();
   else if (id === "play") void playHere(cell);
   else if (id === "walk-from") {
     pickTool("walk");
@@ -1188,7 +1213,7 @@ const keys: StudioKeyActions = {
   redo: undoOrder.redo,
   tool: toolKey,
   finish: tools.finish,
-  ask: () => assistPanel.value?.focus() ?? false,
+  ask: askAgent,
   insertPoint: insertPointAtCursor,
   focusMode: toggleFocus,
   keySheet: () => (calm.sheetOpen.value = true),
@@ -1355,7 +1380,7 @@ function onKeyup(event: KeyboardEvent): void {
         :askable="assistHost !== null"
         :grouped="editing.grouped.value"
         :fold="optionsFold.level.value"
-        @ask="assistPanel?.focus()"
+        @ask="askAgent"
         @combine="openCombine"
         @ungroup="editing.ungroup()"
       />

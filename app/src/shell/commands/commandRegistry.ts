@@ -2,6 +2,7 @@ import { shallowRef } from "vue";
 import { isApplePlatform } from "../../ui/keyLabel.ts";
 
 export interface CommandContext {
+  readonly agentFocus?: boolean;
   readonly editorFocus: boolean;
   readonly gameFocus: boolean;
   readonly textInputFocus: boolean;

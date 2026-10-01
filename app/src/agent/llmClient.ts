@@ -3,13 +3,13 @@ import type { AgentRun } from "./agentRun.ts";
  * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Sonnet 5.5 / Fable 5.1) and OpenAI
  * (GPT-6 Astra / Sol / Luna) directly from the browser with prompt caching.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import type {
   BetaMessageParam,
   BetaUsage,
   BetaToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
 import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
 import {
@@ -300,15 +300,20 @@ export function createAnthropicConversation(
    */
   catalog?: readonly ToolDefinition[],
 ): UnifiedConversation {
-  const client = new Anthropic({
-    apiKey: config.apiKey,
-    baseURL: getDevBaseUrl("/api/anthropic"),
-    dangerouslyAllowBrowser: true,
-    // The SDK's own retries (twice, with backoff and retry-after) absorb a
-    // transient 429, 5xx or overload before the turn and its staged work fail.
-    maxRetries: 2,
-    timeout: 600000,
-  });
+  let client: Promise<Anthropic> | undefined;
+  const getClient = () =>
+    (client ??= import("@anthropic-ai/sdk").then(
+      ({ default: Anthropic }) =>
+        new Anthropic({
+          apiKey: config.apiKey,
+          baseURL: getDevBaseUrl("/api/anthropic"),
+          dangerouslyAllowBrowser: true,
+          // The SDK's own retries (twice, with backoff and retry-after) absorb a
+          // transient 429, 5xx or overload before the turn and its staged work fail.
+          maxRetries: 2,
+          timeout: 600000,
+        }),
+    ));
 
   // A custom catalog is detached completely — names, descriptions and nested
   // schemas — so caller mutation afterwards cannot rewrite the cached prefix.
@@ -368,7 +373,7 @@ export function createAnthropicConversation(
       const startedAt = performance.now();
       // Official SDK accumulation preserves thinking signatures and complete tool inputs.
       // https://platform.claude.com/docs/en/build-with-claude/streaming
-      const stream = client.beta.messages.stream(
+      const stream = (await getClient()).beta.messages.stream(
         {
           model: config.model || DEFAULT_MODELS.anthropic,
           // Cache the growing tool/result history as well as the static prefix.
@@ -607,15 +612,20 @@ export function createOpenAiConversation(
    */
   catalog?: readonly ToolDefinition[],
 ): UnifiedConversation {
-  const client = new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: getDevBaseUrl("/api/openai/v1"),
-    dangerouslyAllowBrowser: true,
-    // The SDK's own retries (twice, with backoff and retry-after) absorb a
-    // transient 429, 5xx or overload before the turn and its staged work fail.
-    maxRetries: 2,
-    timeout: 600000,
-  });
+  let client: Promise<OpenAI> | undefined;
+  const getClient = () =>
+    (client ??= import("openai").then(
+      ({ default: OpenAI }) =>
+        new OpenAI({
+          apiKey: config.apiKey,
+          baseURL: getDevBaseUrl("/api/openai/v1"),
+          dangerouslyAllowBrowser: true,
+          // The SDK's own retries (twice, with backoff and retry-after) absorb a
+          // transient 429, 5xx or overload before the turn and its staged work fail.
+          maxRetries: 2,
+          timeout: 600000,
+        }),
+    ));
 
   // One captured snapshot drives both the advertised wire tools and the
   // allowed-tools name lookup for the whole conversation; caller mutation of
@@ -673,7 +683,9 @@ export function createOpenAiConversation(
       const startedAt = performance.now();
       // Use typed SSE events for presentation; only a terminal response may enter history.
       // https://developers.openai.com/api/docs/guides/streaming-responses
-      const stream = await client.responses.create(
+      const stream = await (
+        await getClient()
+      ).responses.create(
         {
           stream: true,
           max_output_tokens: maxTokens,

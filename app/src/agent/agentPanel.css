@@ -1,0 +1,194 @@
+.agent-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+.agent-panel__header,
+.agent-panel__mode {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--hairline);
+}
+.agent-panel__chat-title {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-panel button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.agent-panel__chat-title,
+.agent-panel__model,
+.agent-panel__context button,
+.agent-panel__chats button {
+  border: 0;
+  background: transparent;
+}
+.agent-panel__mode {
+  font-size: var(--text-xs);
+  flex-wrap: wrap;
+}
+.agent-panel__mode label {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.agent-panel__model {
+  color: var(--muted);
+}
+.agent-panel__feed {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  padding: var(--space-4);
+}
+.agent-panel__intro {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.agent-panel__message {
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.agent-panel__message p {
+  white-space: pre-wrap;
+  margin: var(--space-2) 0;
+}
+.agent-panel__message--user {
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.agent-panel__message strong {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.agent-panel__progress {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin: var(--space-4) 0;
+}
+.agent-panel__review {
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.agent-panel__review > header,
+.agent-panel__review > footer {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3);
+}
+.agent-panel__review h3 {
+  font-size: var(--text-sm);
+  margin: 0;
+  flex: 1;
+}
+.agent-panel__preview {
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
+.agent-panel__resource {
+  padding: var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+.agent-panel__resource > label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+}
+.agent-panel__composer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--hairline);
+}
+.agent-panel__composer textarea {
+  resize: vertical;
+  box-sizing: border-box;
+  width: 100%;
+  background: var(--surface-0);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  font: inherit;
+}
+.agent-panel__composer > div:last-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.agent-panel__context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-3);
+}
+.agent-panel__context > span,
+.agent-panel__context button {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.agent-panel__error {
+  color: var(--danger);
+  font-size: var(--text-xs);
+  padding: var(--space-3);
+}
+.agent-panel__chats {
+  max-height: 240px;
+  overflow: auto;
+  border-bottom: 1px solid var(--hairline);
+}
+.agent-panel__chats > div {
+  display: flex;
+  padding: var(--space-2);
+}
+.agent-panel__chats button:first-child {
+  flex: 1;
+  text-align: left;
+}
+.agent-panel__checkpoints {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.shell-body--workspace.shell-body--agent {
+  grid-template-columns:
+    var(--workspace-parts) var(--workspace-game) 5px var(--workspace-edit)
+    minmax(320px, 360px) !important;
+}
+.shell-body--workspace.shell-body--agent > .shell-side {
+  position: static;
+  grid-column: 5;
+  grid-row: 1 / 3;
+  width: auto;
+  box-shadow: none;
+  min-width: 0;
+}
+.shell-body--workspace.shell-body--picture.shell-body--agent {
+  grid-template-columns: var(--workspace-parts) minmax(0, 1fr) minmax(320px, 360px) !important;
+}
+.shell-body--workspace.shell-body--picture.shell-body--agent > .shell-side {
+  grid-column: 3;
+}

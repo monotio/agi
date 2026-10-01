@@ -53,6 +53,7 @@ function context(): CommandContext {
       target.matches("input, textarea, select, [role='textbox']") ||
       !!target.closest(".monaco-editor"));
   return {
+    agentFocus: zone === "agent",
     editorFocus: zone === "editor",
     gameFocus: zone === "game",
     textInputFocus,

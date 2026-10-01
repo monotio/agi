@@ -445,6 +445,7 @@ export function useEngine(
 
   const authoringController = useAuthoringController({
     state,
+    getProjectSession: () => projectSession,
     getWorker: link.getWorker,
     query: link.query,
     awaitPatched: link.awaitPatched,
@@ -838,8 +839,15 @@ export function useEngine(
     drainHistoryCommits: historyController.drainHistoryCommits,
     observeMapFrame: roomMap.observeFrame,
     readFrames: debug.readFrames,
+    getAgentRuntime: authoringController.getAgentRuntime,
     updateAiConfig,
-    openPowerUp,
+    openPowerUp(config: LlmConfig) {
+      if (projectMode !== "create") return openPowerUp(config);
+      state.powerUp.open = true;
+      state.powerUp.mode = "remix";
+      state.powerUp.busy = false;
+      return Promise.resolve();
+    },
     closePowerUp,
     submitPowerUp,
     listReferences: authoringController.listReferences,

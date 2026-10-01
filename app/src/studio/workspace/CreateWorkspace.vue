@@ -28,6 +28,7 @@ import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
 import { createWorkspaceWrites } from "./workspaceWrites.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 const props = defineProps<{ creating: boolean }>();
+const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
 const GuidedAdd = defineAsyncComponent(() => import("./GuidedAdd.vue"));
 const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
@@ -37,6 +38,10 @@ const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+function openAgent(): void {
+  engine.state.powerUp.mode = "remix";
+  engine.state.powerUp.open = true;
+}
 const snapshot = shallowRef<ProjectSnapshot>();
 const historyState = shallowRef<ProjectHistoryState>();
 const optimistic = shallowRef<Readonly<Record<string, ProjectContent>>>({});
@@ -179,7 +184,9 @@ const tabRows = computed(() =>
         ? "WORDS"
         : key === "inventory"
           ? "OBJECTS"
-          : key.replace(":", " ").toUpperCase(),
+          : key === "notes"
+            ? "Notes"
+            : key.replace(":", " ").toUpperCase(),
     dirty: false,
     missing: !snapshot.value?.keys.includes(key),
   })),
@@ -224,7 +231,9 @@ const writes = createWorkspaceWrites({
   async write(key, value) {
     if (retired || session === null || session !== engine.getProjectSession())
       throw new Error("Open this project again to retry the change.");
-    const origin = (key.split(":")[0] ?? "logic") as ProjectEditOrigin;
+    const origin = (
+      key === "notes" ? "logic" : (key.split(":")[0] ?? "logic")
+    ) as ProjectEditOrigin;
     const result = await engine.submitProjectEdit({
       changes: [{ key, content: value }],
       origin,
@@ -521,6 +530,8 @@ onBeforeUnmount(() => {
         :workspace-focus="editor.focus.value"
         embedded
         @game-host="gameHost(key, $event)"
+        @agent-context="editor.setAgentContext(key, $event)"
+        @agent-ask="openAgent"
         :picture-number="Number(key.split(':')[1])"
         :bytes="native(key)!"
         :authored-source="
@@ -539,6 +550,8 @@ onBeforeUnmount(() => {
         :workspace-focus="editor.focus.value"
         embedded
         :view-number="Number(key.split(':')[1])"
+        @agent-context="editor.setAgentContext(key, $event)"
+        @agent-ask="openAgent"
         :bytes="native(key)!"
         :profile="profile"
         :base-revision="revision"
@@ -553,6 +566,7 @@ onBeforeUnmount(() => {
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
+        @selection="editor.setAgentContext(key, $event)"
       />
       <TableEditor
         v-else-if="(key === 'words' || key === 'inventory') && text(key) !== undefined"
@@ -566,6 +580,11 @@ onBeforeUnmount(() => {
         :bytes="native(key)!"
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
+        @edit="edit(key, $event)"
+      />
+      <NotesEditor
+        v-else-if="key === 'notes'"
+        :source="text(key) ?? ''"
         @edit="edit(key, $event)"
       />
       <p v-else class="workspace-error">Open an authored part to edit it.</p>

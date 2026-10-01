@@ -9,6 +9,12 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
   const selected = ref<string>();
+  const agentContext = shallowRef<{ label: string; text: string } | null>(null);
+  const agentContexts: Record<string, { label: string; text: string } | null> = {};
+  function setAgentContext(key: string, context: { label: string; text: string } | null): void {
+    agentContexts[key] = context;
+    if (selected.value === key) agentContext.value = context;
+  }
   const tabs = ref<string[]>([]);
   const retained = ref<string[]>([]);
   const focus = ref(false);
@@ -30,6 +36,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const kind = computed(() => selected.value?.split(":")[0] ?? "");
   function open(key: string): void {
     selected.value = key;
+    agentContext.value = agentContexts[key] ?? null;
     if (!tabs.value.includes(key)) tabs.value.push(key);
     if (!retained.value.includes(key)) retained.value.push(key);
     try {
@@ -82,6 +89,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
   function reset(): void {
     selected.value = undefined;
+    agentContext.value = null;
+    for (const key of Object.keys(agentContexts)) delete agentContexts[key];
     tabs.value = [];
     retained.value = [];
     focus.value = false;
@@ -94,6 +103,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     pictureLive,
     gameHost,
     selected,
+    agentContext,
+    setAgentContext,
     tabs,
     retained,
     focus,

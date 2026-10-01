@@ -11,8 +11,8 @@
  *   scenario          shape       min stability   mean cacheable share
  *   remix-references  anthropic   100%            95.3%
  *   remix-references  openai      100%            95.4%
- *   room-build        anthropic   100%            93.2%
- *   room-build        openai      100%            93.3%
+ *   room-build        anthropic   100% within each background task
+ *   room-build        openai      100% within each background task
  *   studio-assist     anthropic   100%            96.8%
  *   studio-assist     openai      100%            96.8%
  *   ask               anthropic   100%            96.1%
@@ -41,24 +41,28 @@ const CACHEABLE_FLOOR: Record<string, number> = {
 for (const scenario of SCENARIOS)
   for (const shape of ["anthropic", "openai"] as const)
     test(`${scenario.id} keeps an append-only prefix in the ${shape} shape`, async () => {
-      const requests = await probeScenario(scenario, shape, DEFAULT_MODELS[shape]);
-      const report = analyseRequests(
-        scenario.id,
-        shape,
-        requests.map((request) => request.body),
-      );
-      assert.ok(report.requests >= 4, `expected a multi-request task, got ${report.requests}`);
-      const broken = report.pairs.filter((pair) => pair.divergence);
-      assert.equal(
-        report.minStability,
-        1,
-        `request prefix rewritten: ${broken.map((pair) => `#${pair.request} ${pair.divergence!.kind} in ${pair.divergence!.segment}`).join("; ")}`,
-      );
-      assert.equal(report.catalogHashes.length, 1, "the tool catalog changed within the session");
-      assert.ok(
-        report.meanCacheableShare >= CACHEABLE_FLOOR[scenario.id]!,
-        `mean cacheable share ${(report.meanCacheableShare * 100).toFixed(1)}% is below the floor`,
-      );
+      const conversations = await probeScenario(scenario, shape, DEFAULT_MODELS[shape]);
+      assert.ok(conversations.flat().length >= 4, "expected a multi-request scenario");
+      assert.equal(conversations.length, scenario.id === "room-build" ? 2 : 1);
+      for (const requests of conversations) {
+        const report = analyseRequests(
+          scenario.id,
+          shape,
+          requests.map((request) => request.body),
+        );
+        assert.ok(report.requests >= 3, `expected a multi-request task, got ${report.requests}`);
+        const broken = report.pairs.filter((pair) => pair.divergence);
+        assert.equal(
+          report.minStability,
+          1,
+          `request prefix rewritten: ${broken.map((pair) => `#${pair.request} ${pair.divergence!.kind} in ${pair.divergence!.segment}`).join("; ")}`,
+        );
+        assert.equal(report.catalogHashes.length, 1, "the tool catalog changed within the session");
+        assert.ok(
+          report.meanCacheableShare >= CACHEABLE_FLOOR[scenario.id]!,
+          `mean cacheable share ${(report.meanCacheableShare * 100).toFixed(1)}% is below the floor`,
+        );
+      }
     });
 
 /**

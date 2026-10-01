@@ -1,0 +1,30 @@
+{
+  "name": "project-agent-withdraw-native-edits",
+  "description": "A task withdrew changes after staging a native PICTURE edit. The document proposal driver had no pending proposal, so withdrawal failed and the native edit was still offered. Withdrawal must clear every staged resource and the current task's review.",
+  "projectAgent": {
+    "documents": { "logic:0": "return;", "picture:1": "vis 1\nfill 0,0\nend\n", "words": "[]" },
+    "request": "Try a different background and withdraw it",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "picture",
+            "name": "write_picture",
+            "input": { "room": 1, "source": "vis 4\nfill 0,0\nend\n" }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "withdraw",
+            "name": "withdraw_changes",
+            "input": { "reason": "Keep the current background." }
+          }
+        ]
+      },
+      { "text": "Kept the current background.", "toolCalls": [] }
+    ],
+    "expectedKeys": []
+  }
+}

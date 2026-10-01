@@ -6,7 +6,6 @@ import AiSettingsDialog from "./settings/AiSettings.vue";
 import SoundPreview from "./authoring/SoundPreview.vue";
 import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
 import PlayArea from "./play/PlayArea.vue";
-import AssistantStart from "./shell/AssistantStart.vue";
 import { createWorkspaceEditor, provideWorkspaceEditor } from "./shell/workspaceEditor.ts";
 import { createCommandRegistry } from "./shell/commands/commandRegistry.ts";
 import { emptyCommandContext, provideCommands } from "./shell/commands/commandContext.ts";
@@ -48,6 +47,7 @@ import { useCreateMode } from "./shell/useCreateMode.ts";
 import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 
+const AgentPanel = defineAsyncComponent(() => import("./agent/AgentPanel.vue"));
 const ProjectRestartNotice = defineAsyncComponent(
   () => import("./project/ProjectRestartNotice.vue"),
 );
@@ -701,6 +701,7 @@ watch(
         :class="{
           'shell-body--create': creating,
           'shell-body--workspace': creating,
+          'shell-body--agent': creating && state.powerUp.open && !workspaceEditor.focus.value,
           'shell-body--no-editor': creating && !workspaceEditor.selected.value,
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
           'shell-body--picture': creating && workspaceEditor.pictureLive.value,
@@ -784,8 +785,8 @@ watch(
         >
           <div v-show="!creating || assistantShown" class="assistant-host">
             <!-- Mounted through the turn, so it sees the panel open and close. -->
-            <AssistantStart v-if="creating" v-show="!state.powerUp.open" :phone />
-            <AgentBubble :surface="creating && !phone ? 'dock' : 'drawer'" />
+            <AgentPanel v-if="creating && state.powerUp.open" />
+            <AgentBubble v-else-if="!creating" surface="drawer" />
           </div>
         </aside>
       </div>

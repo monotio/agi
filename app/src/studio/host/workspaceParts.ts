@@ -14,6 +14,7 @@ export interface WorkspacePartGroup {
   readonly entries: readonly WorkspacePart[];
 }
 const HELP: Record<string, string> = {
+  GAME: "Notes hold your game’s style, tone and rules.",
   ROOMS: VOCABULARY.room.help,
   "SHARED LOGIC": VOCABULARY.sharedLogic.help,
   PICTURES: VOCABULARY.picture.help,
@@ -95,6 +96,7 @@ export function workspaceParts(input: {
         return row(key, name ? `${name} · ${label} ${num}` : `${label} ${num}`);
       });
   return [
+    group("GAME", [row("notes", "Notes")]),
     group("ROOMS", roomRows),
     group(
       "SHARED LOGIC",

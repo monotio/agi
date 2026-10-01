@@ -120,6 +120,8 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
     const content = JSON.parse(readFileSync(filePath, "utf-8"));
 
     it(`replays bad case: ${content.name} (${file})`, async () => {
+      // Complete-project tasks have their own real session replay driver.
+      if (content.projectAgent) return;
       // A turn's tool log and reply, graded by the under-fetch rule.
       if (content.referenceTurn) {
         assert.deepEqual(

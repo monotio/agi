@@ -12,7 +12,10 @@ const props = defineProps<{
   profileId: ProfileId;
   active: boolean;
 }>();
-const emit = defineEmits<{ edit: [source: string] }>();
+const emit = defineEmits<{
+  edit: [source: string];
+  selection: [context: { label: string; text: string } | null];
+}>();
 const root = useTemplateRef("root");
 const client = new LogicAnalysisClient();
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
@@ -74,6 +77,17 @@ onMounted(() => {
     wordWrap: "on",
     tabSize: 2,
     padding: { top: 16, bottom: 16 },
+  });
+  editor.onDidChangeCursorSelection(({ selection }) => {
+    emit(
+      "selection",
+      selection.isEmpty()
+        ? null
+        : {
+            label: `${props.documentKey.replace(":", " ").toUpperCase()} lines ${selection.startLineNumber}–${selection.endLineNumber}`,
+            text: model!.getValueInRange(selection),
+          },
+    );
   });
   model.onDidChangeContent(() => {
     if (!syncing && model) {

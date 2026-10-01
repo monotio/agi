@@ -238,7 +238,7 @@ flowchart LR
 5. Each tool validates what it writes: logic goes through the assembler (`src/logic/assembler.ts`), pictures and views through their compilers, and the `finish` tool runs the room's game tests.
 6. The gate: `turnBaseGuard` (`authoring/useAuthoringController.ts`) records the revision the turn builds on, and `requireSaved` (`project/projectTransaction.ts`) refuses the turn before it spends and again before its room lands if the stored project moved on.
 7. `prepareRoomPatch` (`src/agent/roomPatch.ts`) checks the room as a whole, the answer returns in `hostAnswer`, and the worker checks it again before `Engine.patchResources` resumes `new.room`.
-8. The controller saves the room over the stored project (`writeOverSaved`), and `confirmSaved` moves the booted game to that revision only once the running game's files read back as exactly the saved ones.
+8. For an owned project, the controller validates the complete candidate through `ProjectSession`. After the room answer resumes the worker, `mainProjectAdmission.ts` verifies the exact landed resource revision before recording one History commit and saving the background task chat. Detached compatibility services retain `writeOverSaved` and `confirmSaved`.
 
 **A Room Studio edit becomes bytes**
 
@@ -262,9 +262,9 @@ are fixed. Every editor shares its Undo, Redo, History and autosave owner.
 
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
-- `editValidation.ts` and `assistScope.ts` judge Studio edits and AI proposals by their decoded pixels, whatever the operations or the model claim.
+- `editValidation.ts` checks Studio gestures by their decoded pixels. Workspace agent changes use `projectAgentCandidate.ts` to validate complete coordinated documents and native resources; `assistScope.ts` remains in detached Studio compatibility services.
 - `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (an editor change, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Every workspace editor submits through it; checkpoints wait for its save and retain their own runtime state.
+- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Every workspace editor and agent change submits through it. Review selects a validated coordinated change set; Auto-approve records each valid proposal immediately. Chat checkpoints identify the change and its preceding History commit.
 - `project/resourceCommit.ts` and `project/editableProject.ts` retain the compatibility and detached authoring services exercised by their unit tests.
 - The logic assembler and the container writer are the validators of last resort.
 
@@ -274,9 +274,13 @@ is the check on that answer. The known-games catalog (`src/games/knownGames.ts`)
 fingerprints releases, while the Home shelf (`app/src/library/gameCatalog.ts` and a
 host's `catalog.json`) lists games to play.
 
-**Project storage and archives, version 2.** Stored project bodies, the
-localStorage index and `PROJECT.JSON` in a downloaded project archive are
-version 2, and readers still accept version 1. Version 2 makes the
+**Project storage and archives.** Stored bodies and private `PROJECT.JSON`
+archives use version 4 when they carry task chats; readers still accept versions
+1–3. The localStorage index remains version 2. Workspace and History envelopes
+use version 2 for game Notes and chat checkpoints, retaining their original
+version-1 readers and frozen fixtures. Chats contain transcripts and messages,
+with model handoffs summarized into a continuing conversation. Public game
+exports omit chats and authoring documents. Version 2 makes the
 assistant metadata optional for locally authored games, and adds two separate envelopes:
 `workspace`, the kept authoring documents (exact source text where it
 exists, retained native bytes where it does not), and `recoveryDraft`,

@@ -1,0 +1,149 @@
+import { compilePictureSource } from "../../src/picture/source.ts";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createWorkerContext } from "../src/worker/context.ts";
+import { createEngineHost } from "../src/worker/host.ts";
+import { onWorkerMessage } from "../src/worker/dispatch.ts";
+import { openProjectSession } from "../src/project/projectSession.ts";
+import { createMainProjectAdmission } from "../src/engine/mainProjectAdmission.ts";
+import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { createContainer, openContainer } from "../../src/container/container.ts";
+import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { requireProjectId } from "../../src/gameIdentity.ts";
+import type { WorkerControl, WorkerInbound, WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+
+test("an authored room answer joins the owned project History at the resumed boundary", async () => {
+  const documents = {
+    "logic:0": "if (v40 == 0) { assignn(v40,1); new.room(2); } return;",
+    words: "[]",
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const messages: WorkerControl[] = [];
+  let now = 0;
+  const ctx = createWorkerContext({
+    control: (message) => messages.push(message),
+    presentation: () => {},
+    now: () => now,
+    seedWord: () => 1,
+  });
+  ctx.host = createEngineHost(ctx);
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(compiled.files()),
+    words: [],
+    profile: "2.936",
+    authorRooms: true,
+    projectMode: "create",
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  const ack = messages.find((message) => message.type === "booted");
+  assert.ok(ack?.type === "booted" && ack.projectAdmission);
+  let queryId = 100;
+  const query = (async (type, extra) => {
+    const id = ++queryId;
+    onWorkerMessage(ctx, { type, id, ...extra } as WorkerInbound);
+    return messages.findLast((message) => "id" in message && message.id === id);
+  }) as WorkerQueryFn;
+  const admission = createMainProjectAdmission({
+    ...ack.projectAdmission,
+    query,
+    current: () => ctx.engine !== null,
+  });
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("agent-room-worker"),
+      title: "Room",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+      roomGeneration: true,
+    },
+    lifetime: "test",
+    admission,
+    boundary: async () => {
+      now += 100;
+      ctx.fns.tickEngine();
+    },
+    async write(request) {
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  now += 100;
+  ctx.fns.tickEngine();
+  const request = messages.find(
+    (message) => message.type === "hostRequest" && message.op === "room",
+  );
+  assert.ok(request?.type === "hostRequest");
+  const base = session.model.capture();
+  const changes = [
+    { key: "logic:2", content: "return;" },
+    { key: "picture:2", content: "vis 2\nfill 0,0\nend\n" },
+  ];
+  const candidate = compileProjectDocuments({
+    files: Object.fromEntries(compiled.files()),
+    documents: { ...documents, "logic:2": "return;", "picture:2": "vis 2\nfill 0,0\nend\n" },
+    profileId: "2.936",
+  });
+  const image = openContainer(candidate.files());
+  onWorkerMessage(ctx, {
+    type: "hostAnswer",
+    id: request.id,
+    response: JSON.stringify({
+      room: 2,
+      resources: ["logic", "picture"].map((kind) => ({
+        kind,
+        num: 2,
+        data: Array.from(image.getResource(kind as "logic" | "picture", 2)!),
+      })),
+    }),
+  });
+  const result = await session.submitPreparedRoom({
+    proposal: session.model.propose(base, "Built room 2", changes),
+    label: "AI: Built room 2",
+    author: "agent",
+    origin: "agent",
+    chatId: "room-task",
+    messageId: "result",
+  });
+  assert.ok(["committed", "unchanged"].includes(result.status), JSON.stringify(result));
+  assert.equal(session.history.capture().commits.at(-1)!.chatId, "room-task");
+  assert.equal(session.model.capture().read("logic:2")!.content, "return;");
+  const cursor = session.history.capture().cursor;
+  ctx.engine!.patchResources([
+    { kind: "picture", num: 2, payload: compilePictureSource("vis 3\nfill 0,0\nend\n").bytes },
+  ]);
+  await assert.rejects(
+    () =>
+      session.submitPreparedRoom({
+        proposal: session.model.propose(session.model.capture(), "Conflict", [
+          { key: "notes", content: "A later lesson." },
+        ]),
+        label: "AI: Conflict",
+        author: "agent",
+        origin: "agent",
+        chatId: "room-task",
+        messageId: "later",
+      }),
+    /image changed/,
+  );
+  assert.equal(session.history.capture().cursor, cursor);
+  assert.equal(session.model.capture().read("notes"), undefined);
+  session.dispose();
+  ctx.fns.stopTimers();
+});
