@@ -27,9 +27,12 @@ test("templates expose editable Markdown and genesis receives the edited brief",
       new URL(`../../games/${templateId}/SKILL.md`, import.meta.url),
       "utf8",
     );
+    await expect(page.getByTestId("adventure-outline-preview")).toBeVisible();
+    await page.getByRole("button", { name: "Edit as text", exact: true }).click();
     await expect(brief).toHaveValue(source);
   }
   await page.getByTestId("template-mop-jockey").click();
+  await page.getByRole("button", { name: "Edit as text", exact: true }).click();
   const edited =
     (await brief.inputValue()) +
     "\n\n## Player direction\nThe station is run by a talking otter.\n";
@@ -39,6 +42,7 @@ test("templates expose editable Markdown and genesis receives the edited brief",
   await expect(brief).toHaveValue("");
   await expect(page.getByTestId("boot-game")).toBeDisabled();
   await page.getByTestId("template-mop-jockey").click();
+  await page.getByRole("button", { name: "Edit as text", exact: true }).click();
   await expect(brief).toHaveValue(edited);
   await expect(page.getByTestId("local-create-title")).toHaveValue("Otter Station");
   await brief.fill("");

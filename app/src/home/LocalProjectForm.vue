@@ -161,11 +161,7 @@ defineExpose({ focus, select: choice.select });
         @click="choice.select(option.value)"
         @keydown="onChoiceKey($event, option.value)"
       >
-        <TemplatePicture
-          v-if="option.value === 'starter' || option.value === 'boilerplate'"
-          :kind="option.value"
-        />
-        <span v-else-if="option.value === 'blank'" class="empty-art" aria-hidden="true" />
+        <TemplatePicture v-if="option.value !== 'ai'" :kind="option.value" />
         <span v-else class="ai-art" aria-hidden="true">
           <svg width="40" height="40" viewBox="0 0 16 16">
             <path d="M8 1.5 9.4 6.6 14.5 8 9.4 9.4 8 14.5 6.6 9.4 1.5 8 6.6 6.6z" />
@@ -277,16 +273,12 @@ defineExpose({ focus, select: choice.select });
 .tpl-ai {
   background: linear-gradient(160deg, var(--surface-2), var(--surface-1));
 }
-.ai-art,
-.empty-art {
+.ai-art {
   aspect-ratio: 320 / 168;
   display: grid;
   place-items: center;
   position: relative;
   border-bottom: 1px solid var(--hairline);
-}
-.empty-art {
-  background: var(--surface-0);
 }
 .ai-art {
   background: radial-gradient(circle at 50% 55%, var(--action-soft), transparent 60%);
