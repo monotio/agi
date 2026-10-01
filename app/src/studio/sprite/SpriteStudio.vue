@@ -565,7 +565,10 @@ const keySheet = spriteKeySheet();
 const optionsBar = useTemplateRef("optionsBar");
 const optionsFold = useFold(optionsBar, 3, (bar) => {
   const options = bar.querySelector<HTMLElement>(".sprite-options");
-  return !options || options.scrollWidth <= options.clientWidth;
+  return (
+    !options ||
+    (options.scrollWidth <= options.clientWidth && options.scrollHeight <= bar.clientHeight)
+  );
 });
 const viewFold = computed(() => [0, 1, 1, 2][optionsFold.level.value] ?? 2);
 watch(
@@ -980,6 +983,9 @@ const status = computed(() => {
   color: var(--ink);
   font-weight: var(--weight-bold);
 }
+.sprite-options > * {
+  flex-shrink: 0;
+}
 .sprite-options__colour {
   display: inline-flex;
   align-items: center;
@@ -1080,6 +1086,16 @@ const status = computed(() => {
 .sprite-studio.is-embedded {
   grid-template-columns: 44px minmax(0, 1fr) 180px;
   grid-template-rows: 0 40px minmax(0, 1fr) 120px 28px;
+}
+.sprite-studio.is-embedded .sprite-studio__options {
+  grid-column: 1 / -1;
+}
+.sprite-studio.is-embedded .sprite-options {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.sprite-studio.is-embedded .sprite-studio__panel {
+  grid-row: 3 / 5;
 }
 .sprite-studio.is-workspace-focus {
   grid-template-columns: 44px minmax(0, 1fr) 0;
