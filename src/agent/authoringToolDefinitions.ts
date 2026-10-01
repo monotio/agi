@@ -54,7 +54,7 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
         edits: {
           type: "array",
           minItems: 1,
-          maxItems: 64,
+          maxItems: 65535,
           items: {
             type: "object",
             additionalProperties: false,

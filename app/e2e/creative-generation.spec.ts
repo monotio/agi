@@ -522,3 +522,23 @@ test("cancellation aborts locally and a provider refusal surfaces its named reas
   expect(api.requests).toHaveLength(2);
   expect(api.paid()).toBe(0);
 });
+
+test("custom image dimensions appear in the concrete request review", async ({ page }) => {
+  await isolateStorage(page);
+  const api = await mockImageApi(page, []);
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const fixturePath = "/e2e/fixtures/creativeGenerationReview.ts";
+    const { mount } = await import(fixturePath);
+    mount();
+  });
+  const creative = page;
+  await expect(creative.getByTestId("generate-form")).toBeVisible();
+  await creative.getByTestId("generate-prompt").fill("A courtyard.");
+  await creative.getByTestId("generate-size").selectOption("custom");
+  await creative.getByTestId("generate-custom-size").fill("2048x2048");
+  await creative.getByTestId("generate-review").click();
+  await expect(creative.getByTestId("generate-review-sheet")).toContainText("2048x2048");
+  expect(api.requests).toHaveLength(0);
+  await reviewShot(page, "custom-image-size-review");
+});

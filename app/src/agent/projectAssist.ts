@@ -34,9 +34,6 @@ import {
 import type { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 
-/** Provider turns with tool calls one request may take: a ceiling, not a target. */
-const MAX_PROJECT_ASSIST_ROUNDS = 8;
-
 type DocumentContent = string | Uint8Array;
 type WorkspaceProposal = ReturnType<ProjectDraft["propose"]>;
 type WorkspaceTransaction = ReturnType<ProjectDraft["apply"]>;
@@ -200,7 +197,7 @@ export interface ProjectAssist {
   /** Abandon the in-flight request. */
   cancel(): void;
   /** Continue a parked request, adding another budget allowance when budgeted. */
-  resume(): void;
+  resume(requestLimit?: number): void;
   /**
    * Explicit approval policy. Review is the default and the only mode that
    * needs no scope. Auto requires the workspace's autoApproveEligible flag and
@@ -429,14 +426,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
     // connection died inside an event sink must never start a paid call.
     admit();
     let turn = await race(conversation.sendUserMessage(prompt));
-    let rounds = 0;
     while (turn.toolCalls.length > 0) {
-      if (rounds >= MAX_PROJECT_ASSIST_ROUNDS) {
-        conversation.recordInterruption?.(
-          `Stopped after ${MAX_PROJECT_ASSIST_ROUNDS} tool rounds; the pending calls were not executed.`,
-        );
-        return { text: turn.text ?? "", toolCalls: [] };
-      }
       await activeRun.checkpoint(false);
       admit();
       const results: { toolCallId: string; result: AgentToolResult }[] = [];
@@ -444,7 +434,7 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
         for (const call of turn.toolCalls) {
           admit();
           const result: AgentToolResult = driver.execute(call.name, call.input);
-          activeRun.recordTool(call.name, call.input, result);
+          activeRun.recordTool(call.name, call.input, result, driver.baseRevision);
           results.push({ toolCallId: call.id, result });
           // The log sink is a host callback; it may have ended the request.
           emit("log", call.name, result.success ? result.details : { error: result.error });
@@ -456,7 +446,6 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
         // provider calls that never ran.
         if (results.length > 0) conversation.appendToolResults(results);
       }
-      rounds++;
       admit();
       turn = await race(conversation.complete());
     }
@@ -728,8 +717,8 @@ export function createProjectAssist(options: ProjectAssistOptions): ProjectAssis
       run?.cancel();
       cancelWaits?.();
     },
-    resume(): void {
-      run?.resume();
+    resume(requestLimit?: number): void {
+      run?.resume(requestLimit);
     },
     setApprovalMode(mode: ProjectAssistApproval): void {
       if (closed) throw new Error("Project assist session is closed.");

@@ -43,7 +43,7 @@ export const REFERENCE_WORKING_EDGE = 1024;
  * session's diagnostic store, retrievable by read_diagnostic; the compact
  * projection keeps scalars, revisions, counts and verdict fields.
  */
-const DETAIL_FIELD_BUDGET = 400;
+const DETAIL_FIELD_BUDGET = 8000;
 
 /**
  * Scalar payload kept inside an evicted field's summary. Room, ego position,

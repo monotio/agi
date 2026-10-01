@@ -32,15 +32,13 @@ type WorkspaceProposal = ReturnType<ProjectDraft["propose"]>;
 type DocumentContent = string | Uint8Array;
 
 /** Largest single document read page, in UTF-16 code units. */
-const MAX_READ_TEXT_CHARS = 32000;
+const MAX_READ_TEXT_CHARS = 131072;
 /** Default document read page, in UTF-16 code units. */
-const DEFAULT_READ_TEXT_CHARS = 8000;
+const DEFAULT_READ_TEXT_CHARS = MAX_READ_TEXT_CHARS;
 /** Largest byte window a binary document read may return, in bytes. */
-const MAX_READ_BYTES = 1024;
+const MAX_READ_BYTES = 65536;
 /** Longest single proposed document text, in UTF-16 code units. */
 const MAX_PROPOSE_TEXT_CHARS = 131072;
-/** Most documents one propose call may coordinate. */
-export const MAX_PROPOSE_CHANGES = 40;
 
 export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
@@ -57,7 +55,7 @@ export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_document",
     description:
-      "Read one captured document exactly as authored — current draft text including comments and invalid syntax, never a decompiled substitute. Text pages by zero-based UTF-16 offset and limit (default 8000, at most 32000 code units). A byte document reports its length and SHA-256 plus a small base64 window (at most 1024 bytes); it never dumps the whole payload.",
+      "Read one captured document exactly as authored — current draft text including comments and invalid syntax, never a decompiled substitute. Text pages by zero-based UTF-16 offset and limit (default and maximum 131072 code units). A byte document reports its length and SHA-256 plus a base64 window (default and maximum 65536 bytes).",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -81,7 +79,6 @@ export const PROJECT_ASSIST_TOOLS: readonly ToolDefinition[] = [
         changes: {
           type: "array",
           minItems: 1,
-          maxItems: MAX_PROPOSE_CHANGES,
           items: {
             type: "object",
             additionalProperties: false,
@@ -119,6 +116,7 @@ export const PROJECT_ASSIST_TOOL_NAMES: readonly string[] = PROJECT_ASSIST_TOOLS
 
 /** One request's proposal bookkeeping behind the tool surface. */
 export interface ProjectAssistDriver {
+  readonly baseRevision: number;
   /** Dispatch one provider tool call. Names outside the catalog are denied. */
   execute(name: string, args: Record<string, unknown>): AgentToolResult;
   /** The currently pending issued proposal, or null. */
@@ -241,7 +239,10 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
         },
       };
     }
-    const limit = Math.min(typeof args["limit"] === "number" ? args["limit"] : 128, MAX_READ_BYTES);
+    const limit = Math.min(
+      typeof args["limit"] === "number" ? args["limit"] : MAX_READ_BYTES,
+      MAX_READ_BYTES,
+    );
     const window = content.slice(offset, offset + limit);
     const next = offset + limit < content.length ? offset + limit : null;
     return {
@@ -284,7 +285,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
     if (keyErrors.length)
       return {
         success: false,
-        error: `Invalid arguments for propose_project_documents; nothing was changed. ${keyErrors.slice(0, 8).join(" ")}`,
+        error: `Invalid arguments for propose_project_documents; nothing was changed. ${[...new Set(keyErrors)].join(" ")}`,
       };
     const base = workspace.documents();
     const effective = changes.filter(({ key, content }) => !sameContent(base[key], content));
@@ -342,6 +343,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
   }
 
   return {
+    baseRevision: workspace.base.revision,
     execute(name, args) {
       const definition = PROJECT_ASSIST_TOOLS.find((tool) => tool.name === name);
       if (!definition)
@@ -357,7 +359,7 @@ export function createProjectAssistDriver(workspace: AgentWorkspace): ProjectAss
       if (errors.length)
         return {
           success: false,
-          error: `Invalid arguments for ${name}; nothing was changed. ${errors.slice(0, 8).join(" ")}`,
+          error: `Invalid arguments for ${name}; nothing was changed. ${[...new Set(errors)].join(" ")}`,
         };
       switch (name) {
         case "read_project_context":

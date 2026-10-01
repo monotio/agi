@@ -383,7 +383,7 @@ test("art under the lock is refused in plain words, and a retry replaces nothing
   assert.equal(refused.success, false);
   assert.match(
     refused.error ?? "",
-    /^Refused; nothing was proposed: the art \(visual plane\) is locked, but 960 cells at 60,118\.\.99,141 would change\. Leave the locked plane exactly as it is\. There is no candidate yet\. 3 proposals left/,
+    /^Refused; nothing was proposed: the art \(visual plane\) is locked, but 960 cells at 60,118\.\.99,141 would change\. Leave the locked plane exactly as it is\. There is no candidate yet\.$/,
   );
   assert.equal(assist.candidate, null);
   const retry = await propose(state, assist, [crossing]);
@@ -516,7 +516,7 @@ test("a candidate that draws the same pixels is refused, and an earlier candidat
   assert.equal(refused.success, false);
   assert.match(
     refused.error ?? "",
-    /^Refused; nothing was proposed: the operations draw the same pixels as the draft \(visual and priority planes unchanged, \+\d+ bytes\)\. Propose a change that alters the requested plane within the selection, or reply with one sentence explaining why none can work within the selection and locks\. There is no candidate yet\. 3 proposals left in this request\.$/,
+    /^Refused; nothing was proposed: the operations draw the same pixels as the draft \(visual and priority planes unchanged, \+\d+ bytes\)\. Propose a change that alters the requested plane within the selection, or reply with one sentence explaining why none can work within the selection and locks\. There is no candidate yet\.$/,
   );
   assert.deepEqual(
     (refused.details!["violations"] as { constraint: string }[]).map((v) => v.constraint),
@@ -607,7 +607,7 @@ test("withdraw_edit clears the candidate, and a later proposal can still be made
   assert.equal(withdrawn.success, true, withdrawn.error ?? "");
   assert.equal(
     withdrawn.message,
-    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call propose_edit to propose something else (3 left), or reply with one sentence saying what blocks the change.",
+    "Withdrew candidate c1: the creator sees no proposal, only your reply. Call propose_edit to propose something else, or explain what blocks the change.",
   );
   assert.deepEqual(withdrawn.details, {
     ok: true,
@@ -621,4 +621,62 @@ test("withdraw_edit clears the candidate, and a later proposal can still be made
   const again = await propose(state, assist, [crossing]);
   assert.equal(again.details?.["candidateId"], "c2");
   assert.equal(assist.candidate?.candidateId, "c2");
+});
+
+test("default Studio proposals continue beyond four and carry no countdown", async () => {
+  const state = session();
+  const assist = bridgeAssist();
+  for (let i = 0; i < 6; i++) {
+    const result = await executeAgentToolAsync(
+      state,
+      "propose_edit",
+      {
+        baseRevision: draftRevision(assist.focus.draft()),
+        summary: "Make a crossing",
+        pictureOps: [crossing],
+        spriteOps: null,
+      },
+      { studio: assist, allowedTools: STUDIO_ASSIST_TASK_TOOLS },
+    );
+    assert.equal(result.success, true, result.error ?? "");
+    assert.doesNotMatch(JSON.stringify(result), /proposalsLeft|\d+ proposals? left|\d+ left/);
+  }
+});
+
+test("Studio validates coordinated operation batches larger than thirty-two", async () => {
+  const state = session();
+  const assist = bridgeAssist();
+  const result = await propose(
+    state,
+    assist,
+    Array.from({ length: 33 }, (_, i) =>
+      op("pictureOps", {
+        type: "setItemMeta",
+        itemId: "bridge",
+        label: `Bridge ${i}`,
+      }),
+    ),
+  );
+  assert.equal(result.success, true, result.error ?? "");
+});
+
+test("selected source includes ordinary long items and offers character paging", async () => {
+  const state = session();
+  const source = BRIDGE_SOURCE.replace(
+    "pri off\n",
+    "pri off\n" + Array.from({ length: 200 }, (_, i) => `# source note ${i}\n`).join(""),
+  );
+  const assist = bridgeAssist(() => ({ kind: "picture", source }));
+  const result = await run(state, assist, "read_edit_context", { images: false });
+  assert.equal(result.success, true, result.error ?? "");
+  assert.match(result.message ?? "", /# source note 150/);
+  assert.equal(result.details?.["nextSourceOffset"], null);
+});
+
+test("sprite pixel edits permit a complete largest cel", () => {
+  const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+  const sprite = propose.parameters.properties["spriteOps"] as {
+    items: { properties: { changes: { maxItems: number } } };
+  };
+  assert.equal(sprite.items.properties.changes.maxItems, 65025);
 });

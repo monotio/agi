@@ -289,9 +289,7 @@ describe("read_room_context state/objects sections", () => {
 
   it("keeps the live summary under the detail budget when objects carry motion state", async () => {
     const session = createAgentSessionState();
-    // The full Engine.readObjects field set: three records serialize well
-    // past the 400-character detail budget, so they travel in a sibling
-    // field and `live` keeps its scalars.
+    // Ordinary motion records stay inline alongside the live summary.
     const objectRecord = (num: number) => ({
       num,
       view: 1,
@@ -330,7 +328,9 @@ describe("read_room_context state/objects sections", () => {
     assert.equal(res.success, true);
     const projected = projectToolResult(res, new Map(), "d1");
     assert.ok(projected.details?.["live"]);
-    assert.ok(!(projected.details["truncatedFields"] as string[]).includes("live"));
+    assert.deepEqual(projected.details["live"], res.details?.["live"]);
+    assert.deepEqual(projected.details["liveObjects"], res.details?.["liveObjects"]);
+    assert.equal(projected.details["diagnosticId"], undefined);
   });
 
   it("returns the live interpreter state in the state section", async () => {

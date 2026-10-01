@@ -151,6 +151,8 @@ export interface OpenAiImageModel {
   readonly qualities: readonly OpenAiImageQuality[];
   /** Exact "WIDTHxHEIGHT" strings the record admits. */
   readonly sizes: readonly string[];
+  /** Documented 2.5 custom dimensions. */
+  readonly customSizes?: boolean;
   readonly backgrounds: readonly OpenAiImageBackground[];
 }
 
@@ -176,6 +178,7 @@ export const OPENAI_IMAGE_MODELS: Readonly<Record<string, OpenAiImageModel>> = O
     mask: true,
     inputFidelity: true,
     qualities: QUALITIES_25,
+    customSizes: true,
     sizes: STANDARD_SIZES,
     backgrounds: BACKGROUNDS_25,
   }),
@@ -186,6 +189,7 @@ export const OPENAI_IMAGE_MODELS: Readonly<Record<string, OpenAiImageModel>> = O
     mask: true,
     inputFidelity: true,
     qualities: QUALITIES_25,
+    customSizes: true,
     sizes: STANDARD_SIZES,
     backgrounds: BACKGROUNDS_25,
   }),
@@ -213,16 +217,16 @@ export const OPENAI_IMAGE_DEFAULTS = Object.freeze({
 /** Engineering admission bounds — a policy ceiling, not a promised dollar cost. */
 export const OPENAI_IMAGE_LIMITS = Object.freeze({
   /** Selected image inputs on one request: the asset plus approved references. */
-  maxInputImages: 4,
+  maxInputImages: 16,
   /** Encoded bytes per input image, mask or returned original. */
   maxEncodedBytes: CREATIVE_LIMITS.maxFileBytes,
   /** Total encoded input bytes, mask included. */
   maxInputBytesTotal: 16 * 1024 * 1024,
   /** Prompt length in UTF-16 code units. */
-  maxPromptLength: 16 * 1024,
+  maxPromptLength: 32000,
   /** Whole-body response ceiling; covers the 4/3 base64 expansion of the output cap. */
   maxResponseBytes: 12 * 1024 * 1024,
-  /** Measured request timeout; the guide's own latency bound is about two minutes. */
+  /** Baseline whole-job timeout; quality and pixel count extend it. */
   timeoutMs: 180_000,
 });
 
@@ -521,7 +525,20 @@ function capture(
   const capability = models[model];
   if (capability === undefined)
     throw unsupported(`Model '${model}' is not in the configured image models.`);
-  if (!capability.sizes.includes(size))
+  const dimensions = parseSize(size);
+  const pixels = dimensions.width * dimensions.height;
+  const customSize =
+    capability.customSizes &&
+    dimensions.width > 0 &&
+    dimensions.height > 0 &&
+    dimensions.width % 16 === 0 &&
+    dimensions.height % 16 === 0 &&
+    Math.max(dimensions.width, dimensions.height) <= 3840 &&
+    Math.max(dimensions.width, dimensions.height) <=
+      3 * Math.min(dimensions.width, dimensions.height) &&
+    pixels >= 655360 &&
+    pixels <= 8294400;
+  if (!capability.sizes.includes(size) && !customSize)
     throw unsupported(`${capability.label} does not offer size '${size}'.`);
   if (!capability.qualities.includes(quality))
     throw unsupported(`${capability.label} does not offer quality '${quality}'.`);
@@ -956,7 +973,6 @@ export function createOpenAiImageProvider(
     options.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   const makeFormData = options.createFormData ?? (() => new FormData());
   const baseUrl = (options.baseUrl ?? defaultBaseUrl()).replace(/\/+$/, "");
-  const timeoutMs = options.timeoutMs ?? OPENAI_IMAGE_LIMITS.timeoutMs;
   const jobs = new WeakMap<PreparedOpenAiImage, CapturedRequest>();
   let activeJob = false;
 
@@ -997,6 +1013,18 @@ export function createOpenAiImageProvider(
   }
 
   async function run(captured: CapturedRequest, signal?: AbortSignal): Promise<OpenAiImageOffer> {
+    const size = parseSize(captured.size);
+    const qualityScale =
+      captured.quality === "max"
+        ? 6
+        : captured.quality === "xhigh"
+          ? 4
+          : captured.quality === "high"
+            ? 2
+            : 1;
+    const pixelScale = Math.max(1, (size.width * size.height) / (1024 * 1024));
+    const timeoutMs =
+      options.timeoutMs ?? Math.ceil(OPENAI_IMAGE_LIMITS.timeoutMs * qualityScale * pixelScale);
     if (signal?.aborted) throw new MintedImageError("cancelled", "The request was cancelled.");
     const controller = new AbortController();
     let aborted: "cancelled" | "timeout" | undefined;

@@ -93,7 +93,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", (state) => {
       if (state.status === "paused") paused();
     });
-    const config = { provider, apiKey: "placeholder", model: "test" };
+    const config = { provider, apiKey: "placeholder", model: "gpt-6-sol" };
     const conversation =
       provider === "openai"
         ? createOpenAiConversation(config, undefined, undefined, run)
@@ -135,7 +135,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       started = resolve;
     });
     const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", () => {});
-    const config = { provider, apiKey: "placeholder", model: "test" };
+    const config = { provider, apiKey: "placeholder", model: "gpt-6-sol" };
     let request: Record<string, unknown> = {};
     t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
       request = JSON.parse(String(init.body));
@@ -285,7 +285,7 @@ for (const provider of ["openai", "anthropic"] as const) {
         }),
     );
     const run = new AgentRun("gpt-6-sol", () => {});
-    const config = { provider, apiKey: "placeholder", model: "test" };
+    const config = { provider, apiKey: "placeholder", model: "gpt-6-sol" };
     const conversation =
       provider === "openai"
         ? createOpenAiConversation(config, undefined, undefined, run)
@@ -337,7 +337,7 @@ test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of 
     try {
       assert.deepEqual(
         request["thinking"],
-        displayed ? { type: "adaptive", display: "summarized" } : undefined,
+        displayed ? { type: "adaptive", display: "updates" } : undefined,
       );
       controller.enqueue(
         new TextEncoder().encode(

@@ -6,7 +6,6 @@ const config: KnipConfig = {
     "app/e2e/fixtures/creativeDockReview.ts",
     "app/e2e/fixtures/studioFrameReview.ts",
     "app/e2e/fixtures/studioFrameTabsReview.ts",
-    "app/src/studio/creative/CreativeGenerate.vue",
     "app/src/studio/host/ProjectExplorer.vue",
     "app/src/studio/host/ProjectOverview.vue",
     "app/src/studio/host/ProjectTabs.vue",
@@ -44,6 +43,8 @@ const config: KnipConfig = {
         "playwright*.config.ts",
         // Documentation captures, matched by playwright.media.config.ts.
         "e2e/media/*.media.ts",
+        // Loaded by the review spec through a Vite-root runtime URL.
+        "e2e/fixtures/creativeGenerationReview.ts",
         "production/**/*.spec.ts",
         // node --test glob from the app `test:app` script.
         "test/*.test.ts",

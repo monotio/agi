@@ -34,7 +34,7 @@ export interface StudioAssistRequest {
   /** The creator's words. */
   readonly instruction: string;
   readonly focus: StudioFocus;
-  /** propose_edit calls allowed; DEFAULT_MAX_PROPOSALS otherwise. */
+  /** Optional caller-requested proposal ceiling. */
   readonly maxProposals?: number;
   /** Stored reference records the creator attached to this request. */
   readonly referenceIds?: readonly string[];
@@ -50,7 +50,6 @@ export interface StudioAssistResult {
 }
 
 /** Provider turns with tool calls one request may take: a ceiling, not a target. */
-export const MAX_STUDIO_ROUNDS = 8;
 
 /** The user turn of a Studio assist request; the cached system prompt stays unchanged. */
 export function createStudioAssistPrompt(instruction: string, focus: StudioFocus): string {

@@ -55,7 +55,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     if (!address || typeof address === "string") throw new Error("Missing test server address");
     const endpoint = `http://127.0.0.1:${address.port}/stream`;
     await page.route(
-      provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages",
+      provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages*",
       (route) => route.continue({ url: endpoint }),
     );
     const game = createContainer();

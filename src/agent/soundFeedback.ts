@@ -387,7 +387,7 @@ export function soundFeedback(payload: Uint8Array, options: SoundFeedbackOptions
   const channel =
     options.channel === null ? null : checkedInteger(options.channel, "Channel", 0, 3);
   const offset = checkedInteger(options.offset, "Offset", 0, 65_535);
-  const limit = checkedInteger(options.limit, "Limit", 1, 64);
+  const limit = checkedInteger(options.limit, "Limit", 1, 65535);
   const representation = options.representation ?? "sound";
   if (representation !== "music" && representation !== "sound")
     throw new RangeError("Sound representation must be 'music' or 'sound'.");

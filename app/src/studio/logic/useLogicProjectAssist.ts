@@ -225,7 +225,7 @@ export function useLogicProjectAssist(options: LogicAssistOptions) {
   const budget = computed(() => {
     const run = state.value.run;
     if (!run) return "";
-    if (!run.priceKnown) return `Budget $${run.budget.toFixed(2)} · usage estimate unavailable`;
+    if (!run.priceKnown) return `Spend unknown · ${run.requests} requests`;
     return `$${Math.max(0, run.budget - run.spent).toFixed(2)} of $${run.budget.toFixed(2)} left`;
   });
   /** One status line for the live region and the running block. */
@@ -371,8 +371,8 @@ export function useLogicProjectAssist(options: LogicAssistOptions) {
   function cancel(): void {
     session?.cancel();
   }
-  function resume(): void {
-    session?.resume();
+  function resume(requestLimit?: number): void {
+    session?.resume(requestLimit);
   }
 
   /** Explicit approval policy. Auto needs an exact document-key scope. */

@@ -27,7 +27,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
       content: { tool_use_id: string; is_error: boolean; content: { text: string }[] }[];
     }[];
   }[] = [];
-  await page.route("**/api/anthropic/v1/messages", async (route) => {
+  await page.route("**/api/anthropic/v1/messages*", async (route) => {
     requests.push(route.request().postDataJSON());
     const turn = requests.length;
     await route.fulfill(

@@ -88,6 +88,7 @@ const role = ref<OpenAiImageRole>("room");
 const model = ref<string>(modelIds[0] ?? "");
 const prompt = ref("");
 const size = ref("");
+const customSize = ref("2048x2048");
 const quality = ref<OpenAiImageQuality | "">("");
 const background = ref<OpenAiImageBackground | "">("");
 const inputFidelity = ref<"low" | "high" | "">("");
@@ -126,7 +127,8 @@ watch(
   () => {
     const caps = capability.value;
     if (caps === undefined) return;
-    if (!caps.sizes.includes(size.value)) size.value = caps.sizes[0] ?? "";
+    if (!caps.sizes.includes(size.value) && !(caps.customSizes && size.value === "custom"))
+      size.value = caps.sizes[0] ?? "";
     if (!caps.qualities.includes(quality.value as OpenAiImageQuality))
       quality.value = caps.qualities[0] ?? "";
     if (!caps.backgrounds.includes(background.value as OpenAiImageBackground))
@@ -254,7 +256,7 @@ function currentInput(): CreativeGenerationInput {
     role: role.value,
     model: model.value,
     prompt: prompt.value,
-    size: size.value,
+    size: size.value === "custom" ? customSize.value : size.value,
     quality: quality.value as OpenAiImageQuality,
     background: background.value as OpenAiImageBackground,
     ...(inputFidelity.value !== "" ? { inputFidelity: inputFidelity.value } : {}),
@@ -371,10 +373,20 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
             :disabled="formDisabled"
             data-testid="generate-size"
           >
+            <option v-if="capability?.customSizes" value="custom">Custom</option>
             <option v-for="entry in capability?.sizes ?? []" :key="entry" :value="entry">
               {{ entry }}
             </option>
           </UiSelect>
+        </label>
+        <label v-if="size === 'custom'" class="generate__field">
+          <span>Custom size</span>
+          <input
+            v-model="customSize"
+            :disabled="formDisabled"
+            placeholder="2048x2048"
+            data-testid="generate-custom-size"
+          />
         </label>
         <label class="generate__field">
           <span>Quality</span>

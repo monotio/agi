@@ -159,7 +159,7 @@ function imageSizes(value: unknown): { width: number; height: number }[] {
   return sizes;
 }
 
-const MODEL = { provider: "openai", apiKey: "test-placeholder", model: "test" } as const;
+const MODEL = { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" } as const;
 
 test("a remix turn with three references sends manifests and one strip, and views a region", async (t) => {
   const stored = references();
@@ -363,7 +363,7 @@ test("the Anthropic transcript keeps a viewed reference on later user messages",
     ],
   };
   const conversation = createAnthropicConversation(
-    { provider: "anthropic", model: "test", apiKey: "placeholder" },
+    { provider: "anthropic", model: "gpt-6-sol", apiKey: "placeholder" },
     [
       { role: "user", content: "Look at the harbour." },
       {

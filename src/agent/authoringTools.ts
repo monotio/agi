@@ -271,8 +271,8 @@ export function resolveSourceEdit(
         "Source revision changed. Read the current source before editing; its text, dictionary, profile, or named bindings may have drifted.",
       );
     const edits = args["edits"];
-    if (!Array.isArray(edits) || !edits.length || edits.length > 64)
-      throw new Error("edits must name 1..64 find/replace pairs.");
+    if (!Array.isArray(edits) || !edits.length || edits.length > 65535)
+      throw new Error("edits must name 1..65535 find/replace pairs.");
     const fail = (message: string, editIndex: number, excerpt: string): AgentToolResult => ({
       success: false,
       error: message,

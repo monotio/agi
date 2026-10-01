@@ -123,6 +123,7 @@ const spoken = computed(() => {
       return held.text;
   }
 });
+const requestLimit = ref(5);
 </script>
 
 <template>
@@ -236,12 +237,16 @@ const spoken = computed(() => {
           <p class="lagent__warn" data-testid="logic-assistant-paused">
             {{ assist.state.value.run.reason }}
           </p>
+          <label v-if="!assist.state.value.run?.priceKnown">
+            Requests
+            <input v-model.number="requestLimit" type="number" min="1" step="1" />
+          </label>
           <div class="lagent__actions">
             <UiButton
               size="sm"
               variant="primary"
               data-testid="logic-assistant-continue"
-              @click="assist.resume()"
+              @click="assist.resume(assist.state.value.run?.priceKnown ? undefined : requestLimit)"
             >
               Continue
             </UiButton>
