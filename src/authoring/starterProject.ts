@@ -6,8 +6,9 @@
  * table and a valid empty WORDS.TOK — no actor, menu, death or story.
  * `createStarterProject("starter")` returns the complete playable seed: the
  * shared boot/menu boilerplate, the shared death LOGIC 255 and SOUND 255,
- * a room with a simple original picture, and an original four-direction
- * animated ego. Both target AGI 2.936 and carry authored sources, real
+ * a room with a simple original picture, an original four-direction
+ * animated ego, and a small editable SOUND 1 cue answering listen. Both
+ * target AGI 2.936 and carry authored sources, real
  * named bindings and deterministic seed provenance; fresh project/storage
  * identities are assigned by the caller, never here.
  *
@@ -20,7 +21,10 @@ import { createContainer } from "../container/container.ts";
 import { buildWordsTok, type WordEntry } from "../logic/words.ts";
 import { compilePictureSource } from "../picture/source.ts";
 import { PROFILES, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
-import { buildSound, type SoundTrackInput } from "../sound/build.ts";
+import { buildSound } from "../sound/build.ts";
+import { createSoundDocument } from "../sound/document.ts";
+import { applySoundPreset } from "../sound/presets.ts";
+import { compileSoundDocumentSource, type SoundSourceBody } from "../sound/source.ts";
 import { buildView, type BuildViewInput } from "../view/view.ts";
 import { compileViewSource } from "../view/viewSource.ts";
 import {
@@ -60,7 +64,7 @@ export interface StarterProject {
     readonly views: ReadonlyMap<number, BuildViewInput>;
     readonly words: ReadonlyMap<string, number>;
     readonly objects: readonly { readonly name: string; readonly startingRoom: number }[];
-    readonly sounds: ReadonlyMap<number, readonly SoundTrackInput[]>;
+    readonly sounds: ReadonlyMap<number, SoundSourceBody>;
   };
   /** Actual names allocated by the seed; ordinary uses, never reserved ownership. */
   readonly bindings: Readonly<Record<string, StarterBinding>>;
@@ -70,10 +74,18 @@ export interface StarterProject {
 
 const STARTER_PROFILE_ID: ProfileId = "2.936";
 const STARTER_PROFILE: AgiProfile = PROFILES[STARTER_PROFILE_ID]!;
-const STARTER_TEMPLATE_REVISION = 1;
+/**
+ * Explicit revision per seed kind: bump the one whose contents change.
+ * Revision 2 of the starter adds the meadowlark LISTEN answer and its
+ * editable SOUND 1 cue; existing projects are never migrated.
+ */
+const STARTER_TEMPLATE_REVISION: Record<StarterKind, number> = { blank: 1, starter: 2 };
 
 /** The starter ego VIEW number. */
 const STARTER_EGO_VIEW = 1;
+/** The starter listen-cue SOUND number and its completion flag. */
+const STARTER_CHIME_SOUND = 1;
+const STARTER_CHIME_FLAG = 204;
 
 // ---------- blank ----------
 
@@ -118,10 +130,12 @@ const BLANK_BINDINGS: Record<string, StarterBinding> = {
 
 const STARTER_ROOM1_SOURCE = `// Room 1 — a sunny clearing. The f5 block runs once on room entry: draw
 // the picture, place ego, then hand control to the player. Everything below
-// runs every cycle.
+// runs every cycle: each said() answers one parser command, and when none
+// matched (f4 still clear) logic 0 prints its generic fallback.
 #message 1 "You stand in a sunny clearing. A worn path leads north into the trees."
 #message 2 "Type a command and press ENTER. The arrow keys walk. ESC opens the menu; F1 shows this help."
 #message 3 "The ground gives way under you. It was lava all along."
+#message 4 "A meadowlark answers from the trees."
 if (isset(f5)) {
   assignn(v50, clearing_pic);
   load.pic(v50);
@@ -139,6 +153,14 @@ if (isset(f5)) {
 }
 if (said("look")) { print(m1); }
 if (said("help")) { print(m2); }
+// Playing a cue is load.sound plus sound(n, flag): the flag sets when the
+// cue finishes. chime_sound is a small editable cue — a resource like any
+// other, with its source on record. It starts before the print window opens.
+if (said("listen")) {
+  load.sound(chime_sound);
+  sound(chime_sound, chime_done);
+  print(m4);
+}
 if (said("die")) { print(m3); call(death_logic); }
 return;
 `;
@@ -388,8 +410,8 @@ endview
 `;
 
 /**
- * The starter dictionary: one verb group each for look, help and the
- * authored death command, plus the ordinary ignored filler words.
+ * The starter dictionary: one verb group each for look, help, listen and
+ * the authored death command, plus the ordinary ignored filler words.
  */
 const STARTER_WORD_ENTRIES: readonly WordEntry[] = [
   { word: "a", id: 0 },
@@ -403,6 +425,8 @@ const STARTER_WORD_ENTRIES: readonly WordEntry[] = [
   { word: "help", id: 101 },
   { word: "hint", id: 101 },
   { word: "die", id: 102 },
+  { word: "hear", id: 103 },
+  { word: "listen", id: 103 },
 ];
 
 const STARTER_BINDINGS: Record<string, StarterBinding> = {
@@ -410,6 +434,8 @@ const STARTER_BINDINGS: Record<string, StarterBinding> = {
   first_room: { kind: "logic", num: 1 },
   clearing_pic: { kind: "picture", num: 1 },
   ego_view: { kind: "view", num: STARTER_EGO_VIEW },
+  chime_sound: { kind: "sound", num: STARTER_CHIME_SOUND },
+  chime_done: { kind: "flag", num: STARTER_CHIME_FLAG },
   death_logic: { kind: "logic", num: TEMPLATE_DEATH_LOGIC },
   death_sound: { kind: "sound", num: TEMPLATE_DEATH_SOUND },
   dead: { kind: "flag", num: 202 },
@@ -417,6 +443,18 @@ const STARTER_BINDINGS: Record<string, StarterBinding> = {
   death_choice: { kind: "flag", num: 203 },
   death_cursor: { kind: "variable", num: 250 },
 };
+
+/**
+ * SOUND 1's editable source: the shared "discovery" cue preset stored as a
+ * tagged `agi.sound-document` envelope, so the project opens it in the sound
+ * editor with stable event ids — the same original cue the preset offers.
+ */
+function starterChimeSource(): SoundSourceBody {
+  return applySoundPreset(
+    createSoundDocument({ profileId: STARTER_PROFILE_ID }),
+    "discovery",
+  ).serialize();
+}
 
 function compileAuthored(
   source: string,
@@ -452,7 +490,7 @@ export function createStarterProject(kind: StarterKind): StarterProject {
   const logics = new Map<number, string>();
   const pictures = new Map<number, string>();
   const views = new Map<number, BuildViewInput>();
-  const sounds = new Map<number, readonly SoundTrackInput[]>();
+  const sounds = new Map<number, SoundSourceBody>();
 
   if (kind === "blank") {
     logics.set(0, BLANK_LOGIC0_SOURCE);
@@ -464,6 +502,7 @@ export function createStarterProject(kind: StarterKind): StarterProject {
     logics.set(TEMPLATE_DEATH_LOGIC, BASE_TEMPLATE_DEATH_LOGIC_SOURCE);
     pictures.set(1, STARTER_PIC1_SOURCE);
     views.set(STARTER_EGO_VIEW, compileViewSource(STARTER_EGO_VIEW_SOURCE));
+    sounds.set(STARTER_CHIME_SOUND, starterChimeSource());
     sounds.set(
       TEMPLATE_DEATH_SOUND,
       BASE_TEMPLATE_DEATH_TRACKS.map((track) => ({
@@ -484,8 +523,12 @@ export function createStarterProject(kind: StarterKind): StarterProject {
   for (const [num, input] of views) {
     container.putResource("view", num, buildView(input, profile));
   }
-  for (const [num, tracks] of sounds) {
-    container.putResource("sound", num, buildSound(tracks));
+  for (const [num, body] of sounds) {
+    container.putResource(
+      "sound",
+      num,
+      Array.isArray(body) ? buildSound(body) : compileSoundDocumentSource(body, profile.id),
+    );
   }
 
   const stored = new Map(
@@ -493,7 +536,7 @@ export function createStarterProject(kind: StarterKind): StarterProject {
   );
   const seed = Object.freeze({
     templateId: `agihere.${kind}`,
-    templateRevision: STARTER_TEMPLATE_REVISION,
+    templateRevision: STARTER_TEMPLATE_REVISION[kind],
     digest: computeResourceRevision(Object.fromEntries(stored)),
   });
   return Object.freeze({

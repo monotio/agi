@@ -1,4 +1,5 @@
 import { AGI_SYSTEM_PROMPT, createGenesisPrompt } from "../../src/agent/prompt.ts";
+import { createStarterProject } from "../../src/authoring/starterProject.ts";
 
 interface PromptMessage {
   role: "system" | "user";
@@ -19,7 +20,7 @@ export default function ({ vars }: PromptVars): PromptMessage[] {
     },
     {
       role: "user",
-      content: createGenesisPrompt(templateText),
+      content: createGenesisPrompt(templateText, createStarterProject("starter")),
     },
   ];
 }

@@ -13,6 +13,8 @@ import { decodeInventoryFile } from "../src/runtime/inventoryFile.ts";
 import { Engine, HostWait, type EngineHost } from "../src/runtime/engine.ts";
 import { PROFILES } from "../src/runtime/profile.ts";
 import { buildSound } from "../src/sound/build.ts";
+import { compileSoundDocumentSource } from "../src/sound/source.ts";
+import type { SoundDocumentEnvelope } from "../src/sound/document.ts";
 import { buildView, parseView } from "../src/view/view.ts";
 import { compileViewSource } from "../src/view/viewSource.ts";
 import type { GameContainer, ResourceKind } from "../src/types.ts";
@@ -37,11 +39,14 @@ class StarterHost implements EngineHost {
     this.sounds.push(num);
   }
   soundOutput(): void {}
-  saveGame(): boolean {
+  saved: Uint8Array[] = [];
+  restoreImage: Uint8Array | null = null;
+  saveGame(bytes: Uint8Array): boolean {
+    this.saved.push(bytes);
     return true;
   }
   restoreGame(): Uint8Array | null {
-    return null;
+    return this.restoreImage;
   }
   print(): void {}
   displayAt(): void {}
@@ -112,7 +117,7 @@ describe("starter project determinism and ownership", () => {
     assert.notEqual(blank.seed.digest, starter.seed.digest);
     assert.match(blank.seed.digest, /^[0-9a-f]{64}$/);
     assert.equal(blank.seed.templateRevision, 1);
-    assert.equal(starter.seed.templateRevision, 1);
+    assert.equal(starter.seed.templateRevision, 2);
     assert.notEqual(blank.seed.templateId, starter.seed.templateId);
   });
 });
@@ -147,8 +152,10 @@ describe("starter project source fidelity", () => {
         assert.ok(stored, `VIEW ${num} missing`);
         assert.deepEqual([...compiled], [...stored], `VIEW ${num} does not rebuild`);
       }
-      for (const [num, tracks] of project.sources.sounds) {
-        const compiled = buildSound(tracks);
+      for (const [num, body] of project.sources.sounds) {
+        const compiled = Array.isArray(body)
+          ? buildSound(body)
+          : compileSoundDocumentSource(body, PROFILE.id);
         const stored = container.getResource("sound", num);
         assert.ok(stored, `SOUND ${num} missing`);
         assert.deepEqual([...compiled], [...stored], `SOUND ${num} does not rebuild`);
@@ -284,6 +291,64 @@ describe("starter starter project", () => {
     assert.doesNotMatch(text, /I don't know/);
   });
 
+  test("listen plays the seeded cue and answers once, with no parser fallback", () => {
+    const { engine, host } = boot("starter");
+    tick(engine, 6);
+    host.lines.push("listen");
+    tick(engine, 3);
+    const text = surfaceRows(engine).join("\n");
+    assert.match(text, /meadowlark/i);
+    assert.doesNotMatch(text, /I don't understand/);
+    assert.doesNotMatch(text, /I don't know/);
+    assert.deepEqual(host.sounds, [1], "the meadowlark cue is SOUND 1");
+  });
+
+  test("the listen cue is an editable tagged sound document over its native bytes", () => {
+    const project = createStarterProject("starter");
+    const body = project.sources.sounds.get(1)!;
+    assert.ok(!Array.isArray(body) && typeof body === "object", "SOUND 1 is a tagged document");
+    const envelope = body as SoundDocumentEnvelope;
+    assert.equal(envelope.format, "agi.sound-document");
+    assert.equal(envelope.version, 1);
+    assert.equal(envelope.profileId, "2.936");
+    const container = openContainer(project.files());
+    const native = container.getResource("sound", 1);
+    assert.ok(native, "SOUND 1 exists in the container");
+    assert.deepEqual([...compileSoundDocumentSource(body, "2.936")], [...native]);
+  });
+
+  test("hear shares the listen word group", () => {
+    const project = createStarterProject("starter");
+    const listen = project.sources.words.get("listen");
+    assert.ok(listen, "listen is in the seeded dictionary");
+    assert.equal(project.sources.words.get("hear"), listen, "hear is a listen synonym");
+  });
+
+  test("ESC opens the seeded menu bar; a saved image restores past a death", () => {
+    const { engine, host } = boot("starter");
+    tick(engine, 6);
+    host.keys.push(0x1b);
+    tick(engine, 2);
+    assert.equal(engine.modalKind, "menu");
+    assert.deepEqual(
+      engine.readMenuState().headings.map((h) => h.title),
+      ["File", "Speed", "Sound", "Help"],
+    );
+    host.keys.push(0x1b); // leave the menu
+    tick(engine, 2);
+    assert.equal(engine.modalKind, null);
+    const image = engine.serialize();
+    host.lines.push("die");
+    tick(engine, 2);
+    host.keys.push(0x0d);
+    tick(engine, 3);
+    assert.equal(engine.readState().flags[202], 1);
+    host.restoreImage = image;
+    host.keys.push(0x4100); // F7
+    tick(engine, 3);
+    assert.equal(engine.readState().flags[202], 0, "restore revived the player");
+  });
+
   test("the authored die command prints the room line then enters the shared death", () => {
     const { engine, host } = boot("starter");
     tick(engine, 6);
@@ -318,12 +383,16 @@ test("editing a returned binding cannot change future Starter projects", () => {
 
 test("editing returned sound notes cannot change future Starter projects", () => {
   const project = createStarterProject("starter");
-  const note = project.sources.sounds.get(255)![0]!.notes[0]!;
+  const body = project.sources.sounds.get(255)!;
+  assert.ok(Array.isArray(body), "SOUND 255 stays a plain editable track list");
+  const note = body[0]!.notes[0]!;
   const original = note.duration;
   try {
     note.duration = original + 1;
     const fresh = createStarterProject("starter");
-    assert.equal(fresh.sources.sounds.get(255)![0]!.notes[0]!.duration, original);
+    const freshBody = fresh.sources.sounds.get(255)!;
+    assert.ok(Array.isArray(freshBody));
+    assert.equal(freshBody[0]!.notes[0]!.duration, original);
     assert.equal(fresh.seed.digest, project.seed.digest);
   } finally {
     note.duration = original;

@@ -6,7 +6,7 @@ import type { StudioAssistRequest, StudioAssistResult } from "../agent/studioAss
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import type { AgentFrame, FrameRequest } from "../../../src/agent/frames.ts";
-import { continuationTranscript } from "../archive/projectArchive.ts";
+import { continuationTranscript } from "../archive/projectConversation.ts";
 import { gameRevision, updateBootedResources } from "../project/gameMetadata.ts";
 import { buildWordsTok, parseWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
@@ -57,8 +57,10 @@ import {
 } from "../references/referenceArt.ts";
 import type { CharacterSheetSpec, SheetFacing } from "../../../src/view/characterSheet.ts";
 import { worldRevision } from "../../../src/agent/worldPlan.ts";
-import { gameStorageKey, type BootedGame } from "../project/gameTypes.ts";
-import { projectId, requireProjectId, type ProjectId } from "../../../src/gameIdentity.ts";
+import type { BootedGame } from "../project/gameTypes.ts";
+import { bindProgressTarget } from "../project/progressBinding.ts";
+import { projectProgressTarget } from "../project/progressTarget.ts";
+import { requireProjectId, type ProjectId } from "../../../src/gameIdentity.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import type { WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
 import type { AwaitPatchedFn } from "../engine/workerQueries.ts";
@@ -102,6 +104,17 @@ const STALE_TURN_MESSAGE =
  */
 export const STALE_SAVE_MESSAGE =
   "The game was changed elsewhere, so this conversation was not saved over it. Reload the game to continue from the saved project.";
+
+/**
+ * The physical address an installed edition's conversation record lives
+ * under — the bound `installed:` locator, never the folder, hash or alias
+ * spellings two distinct folders can share. An edition with no bound
+ * target has no addressable record.
+ */
+function installedConversationLocator(game: BootedGame): string | null {
+  if (!game.installed) return null;
+  return game.progressTarget?.kind === "installed" ? game.progressTarget.locator : null;
+}
 
 /** The conversation half of `author`'s record: what a turn that wrote no resources grew. */
 function conversationOf(author: AgentSession): ConversationUpdate {
@@ -279,7 +292,6 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     setBootedGame,
     flushAutosave,
     getAutosaveWrite,
-    clearAutosave,
     onRemixCreated,
     configForGame,
     getLlmConfig,
@@ -375,10 +387,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
    */
   async function saveConversationRecord(game: BootedGame, author: AgentSession): Promise<boolean> {
     if (game.installed) {
-      await saveGameConversationUpdate(
-        game.hash ?? game.alias ?? "installed",
-        conversationOf(author),
-      );
+      // The instance's own physical record: editions that share a hash or
+      // alias never share a conversation, and a released spelling is never
+      // the address. An unbound edition has no record to write.
+      const locator = installedConversationLocator(game);
+      if (locator === null) return false;
+      await saveGameConversationUpdate(locator, conversationOf(author));
       return true;
     }
     return writeOverSaved(game, sessionBase(false), ({ generation }) =>
@@ -389,9 +403,16 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   async function createGameSession(game: BootedGame, config: LlmConfig): Promise<AgentSession> {
     const stack = await loadAuthoring();
     const authored = game.installed ? null : await loadAuthoredGame(game.projectId!);
+    const installedLocator = game.installed ? installedConversationLocator(game) : null;
     const cached = game.installed
-      ? await loadGameConversation(game.hash ?? game.alias ?? "installed")
+      ? installedLocator === null
+        ? undefined
+        : await loadGameConversation(installedLocator)
       : authored;
+    // The reads answered after the capture: a superseding boot owns the
+    // slot now, and this session must not hydrate its game or be installed.
+    if (getBootedGame() !== game)
+      throw new Error("The game changed while the session loaded. Try again.");
     // The session holds this record's authoring content from now on: one
     // another tab changed since boot leaves the game stale for authoring.
     hydrateAuthoring(game, cached?.authoringState, authored?.workspace ?? null);
@@ -612,11 +633,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     let owner = game;
     if (game.installed || catalogChanged) {
       const remixProjectId = requireProjectId(`remix-${crypto.randomUUID()}`);
-      // The parent's project is its own storage key: an authored entry's id,
-      // an installed edition's folder/hash. When none resolves there is no
-      // parent identity to record.
+      // The parent is the original's own identity: a stored body's id, or
+      // the bound target's logical project — an installed edition's minted
+      // or folder id — never a physical locator or a shared hash/alias
+      // spelling. When none resolves there is no parent identity to record.
       const parentProject =
-        original?.projectId ?? game.projectId ?? projectId(gameStorageKey(game)) ?? undefined;
+        original?.projectId ?? game.progressTarget?.identity.project ?? game.projectId ?? undefined;
       const data: Omit<CachedGameData, "projectId" | "authoredAt"> = {
         title: `${original?.title ?? game.title} Remix`,
         library: {
@@ -629,7 +651,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
           parent: parentProject
             ? {
                 project: parentProject,
-                revision: original?.library?.revision ?? (await gameRevision(game.files)),
+                revision: original?.library?.revision ?? game.revision,
               }
             : undefined,
           validation: {
@@ -648,9 +670,13 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       };
       const historyLifetime = await saveAuthoredGameWithLifetime(remixProjectId, data);
       if (historyLifetime === null) throw unavailable;
-      // The checkpoint moves with the progress: the original card must never
-      // offer a snapshot taken under resources its own container does not have.
-      clearAutosave(gameStorageKey(game));
+      // The durable remix exists either way, but a boot or session that
+      // superseded this one owns the slot now: this turn's owner and its
+      // remix callback must never install into the newer game.
+      if (getBootedGame() !== game || session !== author)
+        throw new Error("The game changed while saving the remix.");
+      // The original's progress is independent of the remix: its physical
+      // checkpoint and any released-spelling records stay as they are.
       // The remix runs on in the same worker, on the bytes it confirmed.
       owner = {
         installed: false,
@@ -663,6 +689,10 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         words: game.words,
         authoredGame: { ...data, projectId: remixProjectId, authoredAt: new Date().toISOString() },
       };
+      // The saved body's own epoch and the committed revision bind the
+      // owner's physical progress before it is installed or announced.
+      owner.progressTarget =
+        projectProgressTarget(remixProjectId, revision, historyLifetime) ?? undefined;
       setBootedGame(owner);
       onRemixCreated?.(remixProjectId);
     } else if (
@@ -692,7 +722,11 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     author: AgentSession,
     files: Record<string, Uint8Array>,
   ): Promise<void> {
-    await updateBootedResources(await saveTurn(game, author, files), files);
+    const owner = await saveTurn(game, author, files);
+    await updateBootedResources(owner, files);
+    // The bound target stays the same address across the revision move;
+    // the rebind keeps its identity at the committed revision.
+    bindProgressTarget(owner);
   }
 
   async function commitTestsFile(
@@ -712,6 +746,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       { resources: [], metadata: { "TESTS.JSON": tests.slice() } },
       "The recorded test",
     );
+    bindProgressTarget(owner);
   }
 
   /** The running game an install of `owner`'s saved files goes to, as it stands now. */
@@ -849,6 +884,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const owner = await saveTurn(booted, session, saved.files);
       const running = runningGame(owner, session);
       await installSaved(running, saved, { resources: patched, metadata: files }, "The remix");
+      bindProgressTarget(owner);
       // The tape checkpoint rides the same ordered queue: it lands after
       // the commit's patches, so a take between them restores the state
       // that produced them.
@@ -1070,6 +1106,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
         { resources: compiled.resources, metadata: metadataFiles },
         `Room ${room}`,
       );
+      bindProgressTarget(owner);
       postSessionSnapshot(author);
     } finally {
       resumeEngine("mapBuild");
@@ -1087,10 +1124,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const delivered = new Promise<void>((resolve, reject) => {
       roomDelivery = { resolve, reject };
     });
-    confirmSaved(running, saved, delivered, `Room ${room}`).catch((error: unknown) => {
-      logAgent("error", error instanceof Error ? error.message : String(error));
-      onBehindStorage?.();
-    });
+    confirmSaved(running, saved, delivered, `Room ${room}`)
+      .then(() => bindProgressTarget(running.game))
+      .catch((error: unknown) => {
+        logAgent("error", error instanceof Error ? error.message : String(error));
+        onBehindStorage?.();
+      });
   }
 
   function roomAnswered(): void {

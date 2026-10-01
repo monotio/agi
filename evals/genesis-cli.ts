@@ -29,6 +29,7 @@ import {
 } from "../src/agent/toolTransport.ts";
 import { validateGenesis } from "../src/agent/playtest.ts";
 import { createGenesisPrompt, AGI_SYSTEM_PROMPT } from "../src/agent/prompt.ts";
+import { installStarterSeed } from "../src/agent/baseTemplate.ts";
 import { DEFAULT_MODELS, MODEL_CAPABILITIES } from "../src/agent/modelEffort.ts";
 import { assertLiveRun } from "./lib/live-guard.ts";
 import { requestCost } from "./lib/usage.ts";
@@ -303,7 +304,12 @@ async function runCliGenesis(): Promise<void> {
   if (args.provider !== "stub") {
     try {
       if (!args.apiKey) throw new Error(`Missing API key for ${args.provider}.`);
-      const genesisPrompt = createGenesisPrompt(templateText);
+      // Install the same complete Starter the app seeds before Genesis, then
+      // describe THAT seed in the prompt — the offered tools must see what
+      // the prompt claims, not a lookalike or a blank session. The offline
+      // stub above keeps its own intentional direct-authoring fixture.
+      const seed = installStarterSeed(session);
+      const genesisPrompt = createGenesisPrompt(templateText, seed);
       if (args.provider === "openai") await runOpenAiGenesis(args, genesisPrompt, session, trace);
       else await runAnthropicGenesis(args, genesisPrompt, session, trace);
     } catch (error) {
