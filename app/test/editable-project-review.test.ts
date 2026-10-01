@@ -17,7 +17,7 @@ Object.defineProperty(globalThis, "localStorage", {
 });
 
 test("mutating review diagnostics cannot authorize a broken resource reference", async () => {
-  const seed = prepareLocalProject({ title: "Review authority", kind: "blank" });
+  const seed = prepareLocalProject({ title: "Review authority", kind: "boilerplate" });
   await seed.save();
   const workspace = await openEditableProject(seed.projectId);
   workspace.draft.edit(
@@ -41,7 +41,7 @@ test("mutating review diagnostics cannot authorize a broken resource reference",
 });
 
 test("a consumer's saved identity copy cannot corrupt the next Keep baseline", async () => {
-  const seed = prepareLocalProject({ title: "Saved identity", kind: "blank" });
+  const seed = prepareLocalProject({ title: "Saved identity", kind: "boilerplate" });
   await seed.save();
   const workspace = await openEditableProject(seed.projectId);
   const snapshot = workspace.draft.capture();

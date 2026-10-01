@@ -288,7 +288,7 @@ test("connect door writes real Walk rules in both room sources as one proposal",
   harness.ws.value = await openEditableProject(projectId);
   const ws = harness.ws.value;
 
-  const added = guided.prepare("add-room", { title: "Forest path", heroView: 1 });
+  const added = guided.prepare("add-room", { title: "Forest path", heroView: 0 });
   assert.ok(added?.ok);
   assert.equal(guided.apply(), true);
 

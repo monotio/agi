@@ -13,13 +13,13 @@ const readOpeningRoom = {
   arguments: JSON.stringify({ num: 1, offset: 0, limit: 5 }),
 };
 
-test("Genesis tool-call assertions inspect the complete Starter promised by the prompt", () => {
+test("Genesis tool-call assertions inspect the complete Boilerplate promised by the prompt", () => {
   const result = validateGenesisToolCalls("", { providerResponse: { output: [readOpeningRoom] } });
   assert.equal(result.pass, true, result.reason);
 });
 
 test(
-  "Genesis CLI offers its promised Starter to the first real tool request",
+  "Genesis CLI offers its promised Boilerplate to the first real tool request",
   { timeout: 20000 },
   async () => {
     const requests: unknown[] = [];
@@ -83,7 +83,7 @@ test(
       clearTimeout(timer);
       assert.equal(code, 1, output);
       assert.equal(requests.length, 2, output);
-      assert.match(JSON.stringify(requests[0]), /agihere\.starter/);
+      assert.match(JSON.stringify(requests[0]), /agihere\.boilerplate/);
       const report = JSON.parse(readFileSync(join(dir, "trace.json"), "utf8")) as {
         trace: {
           type: string;

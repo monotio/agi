@@ -84,7 +84,7 @@ const RED_2X2 = intake(2, 2, () => [255, 0, 0, 255]);
 const SHEET_4X2 = intake(4, 2, (x) => (x < 2 ? [255, 0, 0, 255] : [0, 255, 0, 64]));
 
 async function seed(name: string): Promise<EditableProject> {
-  const prepared = prepareLocalProject({ title: name, kind: "blank" });
+  const prepared = prepareLocalProject({ title: name, kind: "boilerplate" });
   await prepared.save();
   return openEditableProject(prepared.projectId);
 }

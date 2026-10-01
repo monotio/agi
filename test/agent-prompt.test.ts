@@ -248,7 +248,7 @@ describe("agent system prompt", () => {
 
   it("keeps individual game briefs and phase framing outside the shared system prompt", () => {
     const brief = "A clockmaker searches for a silver pendulum.";
-    assert.ok(createGenesisPrompt(brief, createStarterProject("starter")).includes(brief));
+    assert.ok(createGenesisPrompt(brief, createStarterProject("boilerplate")).includes(brief));
     for (const banned of [brief, "GENESIS PHASE", "Genesis Workflow"]) {
       assert.ok(!AGI_SYSTEM_PROMPT.includes(banned), `system prompt must not mention '${banned}'`);
     }
@@ -259,7 +259,7 @@ describe("first-turn prompts", () => {
   it("creates a genesis prompt carrying the instructions and the adventure template", () => {
     const userPrompt = createGenesisPrompt(
       "# The Lost Kingdom\nA test adventure.",
-      createStarterProject("starter"),
+      createStarterProject("boilerplate"),
     );
     assert.ok(userPrompt.includes("# The Lost Kingdom"), "includes template title");
     assert.ok(userPrompt.includes("GENESIS"), "includes genesis instruction");
@@ -273,19 +273,16 @@ describe("first-turn prompts", () => {
     assert.ok(userPrompt.includes("unmannered prose"), "mandates unmannered prose");
   });
 
-  it("describes the installed starter seed's inventory instead of an absent room", () => {
-    const seed = createStarterProject("starter");
+  it("describes the installed Boilerplate seed's inventory instead of an absent room", () => {
+    const seed = createStarterProject("boilerplate");
     const prompt = createGenesisPrompt("# Night Train\nA sleeper car mystery.", seed);
     assert.ok(prompt.includes(seed.seed.templateId), "names the seed's template identity");
     assert.ok(prompt.includes(seed.profileId), "names the seed's profile");
-    for (const name of [
-      "boot_logic",
-      "first_room",
-      "clearing_pic",
-      "ego_view",
-      "death_logic",
-      "death_sound",
-    ])
+    assert.match(prompt, /VIEWS is empty/);
+    assert.match(prompt, /WORDS.TOK knows 0 words/);
+    assert.match(prompt, /Your game starts here/);
+    assert.doesNotMatch(prompt, /boots, walks/);
+    for (const name of ["boot_logic", "first_room", "first_pic", "death_logic", "death_sound"])
       assert.ok(prompt.includes(name), `names the '${name}' binding`);
     assert.ok(
       !/no room exists|does not yet exist|nothing is authored/i.test(prompt),

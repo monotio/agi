@@ -4,9 +4,9 @@ import type { Page } from "@playwright/test";
 import { isolateStorage, openAiSettings, openCreateAdventure, textHook } from "./engineProbe.ts";
 
 /**
- * Browser proof for the Genesis/Starter parity: the real Create entry runs a
+ * Browser proof for the Genesis/Boilerplate parity: the real Create entry runs a
  * real AgentSession against a mocked OpenAI transport (zero paid calls). The
- * first request must already describe the installed starter seed, and a
+ * first request must already describe the installed Boilerplate seed, and a
  * one-request genesis boots the seeded room. A refused first request leaves
  * the menu's error surface without persisting a half-authored project.
  */
@@ -34,7 +34,7 @@ async function launchGenesis(page: Page): Promise<void> {
   await page.getByTestId("boot-game").click();
 }
 
-test("genesis through the real create entry is offered the installed starter seed", async ({
+test("genesis through the real create entry is offered the installed Boilerplate seed", async ({
   page,
 }) => {
   const requests: Record<string, unknown>[] = [];
@@ -77,15 +77,15 @@ test("genesis through the real create entry is offered the installed starter see
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
 
   // One provider request, no retries, on the shipped default model — and the
-  // prompt it carried describes the starter already installed, not a void.
+  // prompt it carried describes the Boilerplate already installed, not a void.
   expect(requests).toHaveLength(1);
   expect(requests[0]!["model"]).toBe("gpt-6.1-sol");
   const sent = JSON.stringify(requests[0]);
-  expect(sent).toContain("agihere.starter");
+  expect(sent).toContain("agihere.boilerplate");
   expect(sent).toContain("2.936");
   expect(sent).toContain("seeded room 1");
 
-  // The stored session snapshot carries the starter's sources and words:
+  // The stored session snapshot carries the Boilerplate's sources and words:
   // logic 1 existed in the session before the provider ever answered.
   const stored = await page.evaluate(async () => {
     const storage = await import("/src/project/gameStorage.ts");
@@ -107,22 +107,25 @@ test("genesis through the real create entry is offered the installed starter see
   expect(stored.title).toBe("Seed Proof");
   expect(stored.logicNums).toEqual([0, 1, 255]);
   expect(stored.pictureNums).toEqual([1]);
-  expect(stored.viewNums).toEqual([1]);
-  expect(stored.soundNums).toEqual([1, 255]);
-  expect(stored.words).toContain("listen");
-  expect(stored.words).toContain("hear");
+  expect(stored.viewNums).toEqual([]);
+  expect(stored.soundNums).toEqual([255]);
+  expect(stored.words).toEqual([]);
 
-  // The running game is the seeded starter: 'listen' is revision-2
-  // vocabulary answered from room 1's own source.
+  // Dismiss the welcome, then try the shared parser response.
+  await expect
+    .poll(async () => (await textHook(page)).rows.join(" "))
+    .toContain("Your game starts here.");
+  await page.keyboard.press("Enter");
   const input = page.getByTestId("input-line");
   await input.focus();
-  await input.fill("listen");
+  await input.fill("look");
   await input.press("Enter");
   await expect
     .poll(async () => (await textHook(page)).rows.join(" ").replace(/#/g, " "), {
       timeout: 10_000,
     })
-    .toContain("meadowlark");
+    .toContain("I don't know the word");
+  await page.screenshot({ path: test.info().outputPath("boilerplate-parser.png") });
 });
 
 test("a refused first genesis request surfaces an error and stores no half project", async ({

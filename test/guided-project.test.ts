@@ -81,16 +81,16 @@ describe("guided add room", () => {
     assert.equal(draft.capture().revision, before.revision, "prepare must not write");
     assert.deepEqual(
       [...op.affectedKeys].sort(),
-      ["bindings", "logic:2", "picture:2", "world"],
+      ["bindings", "logic:1", "picture:1", "world"],
       "lowest free ids on the blank seed",
     );
-    const room = op.changes.find((c) => c.key === "logic:2")!.content as string;
+    const room = op.changes.find((c) => c.key === "logic:1")!.content as string;
     assert.equal(
       room,
       `// Moonlit Hall — an empty room. The f5 block runs once on room entry: draw
 // the picture.
 if (isset(f5)) {
-  assignn(pic_num, 2);
+  assignn(pic_num, 1);
   load.pic(pic_num);
   draw.pic(pic_num);
   show.pic();
@@ -99,11 +99,11 @@ if (isset(f5)) {
 return;
 `,
     );
-    const pic = op.changes.find((c) => c.key === "picture:2")!.content as string;
+    const pic = op.changes.find((c) => c.key === "picture:1")!.content as string;
     assert.equal(pic, `# Moonlit Hall — an empty picture. Draw on it or replace it.\nend\n`);
     const world = JSON.parse(op.changes.find((c) => c.key === "world")!.content as string);
-    assert.equal(world.rooms["2"].title, "Moonlit Hall");
-    assert.deepEqual(world.rooms["2"].exits, {});
+    assert.equal(world.rooms["1"].title, "Moonlit Hall");
+    assert.deepEqual(world.rooms["1"].exits, {});
     // The picture number rides a freshly allocated variable, not a shared
     // convention slot: bindings reserve pic_num at the lowest free variable.
     const bindingsChange = JSON.parse(
@@ -113,9 +113,9 @@ return;
 
     const tx = op.apply();
     assert.equal(tx.keys.length, 4);
-    assert.match(docText(draft, "logic:2"), /isset\(f5\)/);
+    assert.match(docText(draft, "logic:1"), /isset\(f5\)/);
     draft.undo(tx.id);
-    assert.equal(draft.capture().read("logic:2"), undefined, "undo removes the room");
+    assert.equal(draft.capture().read("logic:1"), undefined, "undo removes the room");
   });
 
   test("honors explicit ids and names bindings only when asked", () => {
@@ -311,7 +311,7 @@ return;
       assert.equal(missing.code, "missing");
       assert.equal(missing.key, "view:42");
     }
-    const offscreen = prepareGuidedAddRoom(ctx, { heroView: 1, spawn: { x: 158, y: 100 } });
+    const offscreen = prepareGuidedAddRoom(ctx, { heroView: 0, spawn: { x: 158, y: 100 } });
     assert.equal(offscreen.ok, false);
     if (!offscreen.ok) assert.equal(offscreen.code, "invalid-input");
   });
@@ -338,22 +338,22 @@ describe("guided place hero", () => {
   test("rebinds the hero view through the room's own literal references", () => {
     const { ctx, draft } = workspace("starter");
     const bindings = JSON.parse(docText(draft, "bindings"));
-    bindings.shadow_view = { kind: "view", num: 1 };
+    bindings.shadow_view = { kind: "view", num: 0 };
     draft.edit("bindings", JSON.stringify(bindings), draft.capture().version("bindings"));
     const before = docText(draft, "logic:1");
-    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, view: 1 }));
+    const op = mustPrepare(prepareGuidedPlaceHero(ctx, { room: 1, view: 0 }));
     const after = op.changes[0]!.content as string;
     assert.equal(
       after,
       before
-        .replace("load.view(ego_view)", "load.view(1)")
-        .replace("set.view(o0, ego_view)", "set.view(o0, 1)"),
+        .replace("load.view(ego_view)", "load.view(0)")
+        .replace("set.view(o0, ego_view)", "set.view(o0, 0)"),
       "only the view references change",
     );
   });
 
   test("refuses an entry block without a literal ego position", () => {
-    const { ctx } = workspace("blank");
+    const { ctx } = workspace("boilerplate");
     const op = prepareGuidedPlaceHero(ctx, { room: 1, x: 10, y: 100 });
     assert.equal(op.ok, false);
     if (!op.ok) {
@@ -416,7 +416,7 @@ describe("guided respond to command", () => {
     const words = JSON.parse(op.changes.find((c) => c.key === "words")!.content as string);
     const wave = words.find((e: [string, number]) => e[0] === "wave");
     assert.ok(wave, "wave is registered");
-    assert.equal(wave[1], 104, "next free id after the seeded 100-103");
+    assert.equal(wave[1], 108, "next free id after the seeded 100-107");
     for (const entry of beforeWords) {
       const kept = words.find((e: [string, number]) => e[0] === entry.word);
       assert.equal(kept?.[1], entry.id, `word '${entry.word}' keeps id ${entry.id}`);
@@ -585,7 +585,7 @@ describe("guided connect door", () => {
   });
 
   test("connects arbitrary resource ids", () => {
-    const ws = workspace("blank");
+    const ws = workspace("boilerplate");
     mustPrepare(prepareGuidedAddRoom(ws.ctx, { logicId: 37, pictureId: 40 })).apply();
     const op = mustPrepare(
       prepareGuidedConnectDoor(ws.ctx, {

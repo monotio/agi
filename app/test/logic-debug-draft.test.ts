@@ -89,7 +89,12 @@ test("a stored starter project freezes, runs, and stops on an authored line", as
   t.after(() => workspace.dispose());
 
   // A source breakpoint on the room's `if (said("look"))` statement.
-  workspace.toggleBreakpoint({ logic: 1, line: 24 });
+  const lookLine =
+    String(ws.draft.capture().read("logic:1")!.content)
+      .split("\n")
+      .findIndex((line) => line.startsWith('if (said("look"))')) + 1;
+  assert.ok(lookLine > 0);
+  workspace.toggleBreakpoint({ logic: 1, line: lookLine });
   const run = await workspace.test();
   assert.equal(workers.length, 1);
   assert.equal(workspace.state.buildId, run.buildId);
@@ -114,7 +119,7 @@ test("a stored starter project freezes, runs, and stops on an authored line", as
 });
 
 test("a draft edit stays out of the frozen run; the stale flag is version-exact", async (t) => {
-  const prepared = prepareLocalProject({ title: "ws-debug-stale", kind: "blank" });
+  const prepared = prepareLocalProject({ title: "ws-debug-stale", kind: "boilerplate" });
   await prepared.save();
   const ws = await openEditableProject(prepared.projectId);
   const workers: FakeWorker[] = [];
@@ -262,13 +267,17 @@ test("a byte-only logic joins the set stale and fabricates no source", async (t)
 test("run-to-cursor refuses a document the draft moved past", async (t) => {
   const { ws, workspace } = await draftHarness(t, "ws-debug-runto");
   await workspace.test();
-  const ok = await workspace.runToCursor("logic:1", 24);
+  const lookLine =
+    String(ws.draft.capture().read("logic:1")!.content)
+      .split("\n")
+      .findIndex((line) => line.startsWith('if (said("look"))')) + 1;
+  const ok = await workspace.runToCursor("logic:1", lookLine);
   assert.equal(ok.ok, true);
 
   const snapshot = ws.draft.capture();
   ws.draft.edit("logic:1", "// moved\nreturn;", snapshot.version("logic:1"));
   workspace.noteDraftChanged();
-  const refused = await workspace.runToCursor("logic:1", 24);
+  const refused = await workspace.runToCursor("logic:1", lookLine);
   assert.equal(refused.ok, false, "a stale line cannot bind to the frozen map");
   assert.match(refused.error ?? "", /moved|latest draft/i);
 });

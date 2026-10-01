@@ -38,7 +38,7 @@ Object.defineProperty(globalThis, "localStorage", {
 
 async function seedProject(
   name: string,
-  kind: "blank" | "starter" = "blank",
+  kind: "boilerplate" | "starter" = "boilerplate",
   adjust?: (data: CachedGameData) => void,
 ) {
   const prepared = prepareLocalProject({ title: name, kind });

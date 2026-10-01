@@ -60,7 +60,7 @@ test("the tool is catalogued for Ask turns and validates its topic argument", ()
   assert.equal(rejected.success, false);
   assert.ok(AGI_SYSTEM_PROMPT.includes("read_authoring_guide"));
   assert.ok(
-    createGenesisPrompt("A brief", createStarterProject("starter")).includes(
+    createGenesisPrompt("A brief", createStarterProject("boilerplate")).includes(
       "read_authoring_guide",
     ),
   );
@@ -69,7 +69,7 @@ test("the tool is catalogued for Ask turns and validates its topic argument", ()
 test("the genesis prompt names the template boot without prescribing the opening's shape", () => {
   const prompt = createGenesisPrompt(
     "# Night Train\nA sleeper car mystery.",
-    createStarterProject("starter"),
+    createStarterProject("boilerplate"),
   );
   assert.ok(prompt.startsWith("### GENESIS:"));
   assert.match(prompt, /recommended starting point/);

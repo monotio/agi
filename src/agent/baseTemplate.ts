@@ -1,6 +1,6 @@
 /**
  * Session adapters for the editable boilerplate in src/authoring/baseTemplate.ts
- * and the complete Starter seed in src/authoring/starterProject.ts. The
+ * and the complete Boilerplate seed in src/authoring/starterProject.ts. The
  * template text and pure compile/build steps live there so provider-free
  * project creation can use them; this module keeps the AgentSession install
  * paths and the existing import surface.
@@ -29,7 +29,7 @@ export {
 
 /**
  * Compile and install just the boot/death boilerplate into a session state.
- * Genesis now seeds the complete Starter instead (installStarterSeed); this
+ * Genesis seeds the complete Boilerplate with installBoilerplateSeed; this
  * narrower install stays for callers that ask specifically for logic 0, the
  * shared death logic and its cue — nothing else.
  */
@@ -139,7 +139,7 @@ function isBlankSession(state: AgentSessionState): boolean {
 }
 
 /**
- * Install the complete deterministic Starter — the same provider-free
+ * Install the complete deterministic Boilerplate — the same provider-free
  * snapshot manual Create produces — as a Genesis session's initial state:
  * native files, authored sources, dictionary, inventory and named bindings,
  * all before the first model turn.
@@ -153,8 +153,8 @@ function isBlankSession(state: AgentSessionState): boolean {
  * its partial work stays in place for review. Returns the installed seed so
  * the caller can describe exactly what the session holds.
  */
-export function installStarterSeed(state: AgentSessionState): StarterProject {
-  const seed = createStarterProject("starter");
+export function installBoilerplateSeed(state: AgentSessionState): StarterProject {
+  const seed = createStarterProject("boilerplate");
   if (state.genesisComplete) {
     throw new Error(
       "Genesis cannot seed this session: it already holds a completed or imported game.",
@@ -162,12 +162,12 @@ export function installStarterSeed(state: AgentSessionState): StarterProject {
   }
   if (state.profile.id !== seed.profileId) {
     throw new Error(
-      `Genesis seeds the ${seed.profileId} Starter; this session's ${state.profile.id} target would need its own template.`,
+      `Genesis seeds the ${seed.profileId} Boilerplate; this session's ${state.profile.id} target would need its own template.`,
     );
   }
   if (!isUntouchedSeed(state, seed) && !isBlankSession(state)) {
     throw new Error(
-      "Genesis cannot seed this session: it holds authored work that is not the untouched Starter.",
+      "Genesis cannot seed this session: it holds authored work that is not the untouched Boilerplate.",
     );
   }
   const seedFiles = seed.files();

@@ -57,11 +57,11 @@ function grumbleChanges(project: StarterProject): { key: string; content: string
   const edited = room1
     .replace(
       '#message 3 "The ground gives way',
-      '#message 5 "The clearing grumbles back."\n#message 3 "The ground gives way',
+      '#message 8 "The clearing grumbles back."\n#message 3 "The ground gives way',
     )
     .replace(
       'if (said("die")) { print(m3); call(death_logic); }',
-      'if (said("grumble")) { print(m5); }\nif (said("die")) { print(m3); call(death_logic); }',
+      'if (said("grumble")) { print(m8); }\nif (said("die")) { print(m3); call(death_logic); }',
     );
   assert.notEqual(edited, room1);
   const nextId = Math.max(...project.sources.words.values()) + 1;
@@ -326,7 +326,7 @@ describe("projectAssist: review lifecycle", () => {
 
   test("unknown provider tool names are denied and surfaced in the tool result", async () => {
     const fake = fakeConversation([
-      { tools: [{ name: "write_view", input: { view: 0 } }] },
+      { tools: [{ name: "write_view", input: { view: 42 } }] },
       { text: "Nothing changed." },
     ]);
     const { assist, draft } = createAssist({ conversationFactory: () => fake.conversation });
@@ -335,7 +335,7 @@ describe("projectAssist: review lifecycle", () => {
     assert.equal(result.outcome, "none");
     assert.equal(fake.resultsSeen[0]!.result.success, false);
     assert.match(fake.resultsSeen[0]!.result.error!, /not available in this phase/);
-    assert.equal(draft.capture().read("view:0"), undefined);
+    assert.equal(draft.capture().read("view:42"), undefined);
   });
 });
 

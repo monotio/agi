@@ -141,7 +141,7 @@ test("a novice's guided chain produces a playable two-room game", () => {
   const dictionary = new Map(
     parseWordsTok(gameFiles.get("WORDS.TOK")!).map(({ word, id }) => [word, id]),
   );
-  assert.equal(dictionary.get("wave"), 104, "the new word registered beside the seeded ones");
+  assert.equal(dictionary.get("wave"), 108, "the new word registered beside the seeded ones");
   const container = openContainer(gameFiles, { profile: PROFILES[project.profileId] });
   const host = new JourneyHost();
   const engine = new Engine(container, host, dictionary, { profile: PROFILES[project.profileId] });
@@ -156,7 +156,7 @@ test("a novice's guided chain produces a playable two-room game", () => {
   const ego = () => engine.readObjects().find((o) => o.num === 0)!;
   assert.equal(ego().x, 100);
   assert.equal(ego().y, 130);
-  assert.equal(ego().view, 1);
+  assert.equal(ego().view, 0);
 
   // "wave" answers and starts the cue.
   host.lines.push("wave");

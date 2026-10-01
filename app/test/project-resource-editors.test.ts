@@ -121,7 +121,7 @@ function recolouredView(payload: Uint8Array, colour: number): Uint8Array {
   return buildView({ ...spec, loops }, PROFILE);
 }
 
-function viewEdit(ws: EditableProject, bytes: Uint8Array, num = 1): ViewEdit {
+function viewEdit(ws: EditableProject, bytes: Uint8Array, num = 0): ViewEdit {
   return {
     viewNumber: num,
     bytes,
@@ -194,11 +194,11 @@ test("opens a starter PIC from the draft and keeps a drawing through EditablePro
 test("a recoloured VIEW keeps exact native bytes and drops the stale source claim", async () => {
   const projectId = await seedProject("res-view-keep");
   const ws = await openEditableProject(projectId);
-  const session = openProjectResourceEditor(ws, "view:1");
+  const session = openProjectResourceEditor(ws, "view:0");
   try {
     assert.equal(session.kind, "view");
-    assert.equal(session.number, 1);
-    const storedBefore = storedResource(await storedBody(projectId), "view", 1)!;
+    assert.equal(session.number, 0);
+    const storedBefore = storedResource(await storedBody(projectId), "view", 0)!;
     assert.ok(sameBytes(session.bytes, storedBefore));
     assert.equal(session.authoredSource, undefined);
 
@@ -208,21 +208,21 @@ test("a recoloured VIEW keeps exact native bytes and drops the stale source clai
 
     // The draft document is the exact reviewed bytes — never a source claim
     // left pointing at old bytes.
-    const doc = ws.draft.capture().read("view:1")!;
+    const doc = ws.draft.capture().read("view:0")!;
     assert.ok(doc.content instanceof Uint8Array);
     assert.ok(sameBytes(doc.content, edit.bytes));
     const data = await storedBody(projectId);
-    assert.ok(sameBytes(storedResource(data, "view", 1)!, edit.bytes));
+    assert.ok(sameBytes(storedResource(data, "view", 0)!, edit.bytes));
     const sources = data.authoringState!["sources"] as { views: [number, unknown][] };
     assert.equal(
-      sources.views.some(([num]) => num === 1),
+      sources.views.some(([num]) => num === 0),
       false,
       "the byte-only view keeps no source claim",
     );
 
     // Cold reopen carries the bytes, still editable, display identical to review.
     const reopened = await openEditableProject(projectId);
-    const reopenedDoc = reopened.draft.capture().read("view:1")!;
+    const reopenedDoc = reopened.draft.capture().read("view:0")!;
     assert.ok(reopenedDoc.content instanceof Uint8Array);
     assert.ok(sameBytes(reopenedDoc.content, edit.bytes));
     assert.deepEqual(parseView(reopenedDoc.content, PROFILE), parseView(edit.bytes, PROFILE));
@@ -313,10 +313,10 @@ test("opening a resource refuses precisely: missing doc, wrong kind, broken sour
   assert.equal([...opaque.bytes].join(","), "250,240");
   assert.equal(opaque.authoredSource, undefined);
   opaque.close();
-  editDoc(ws, "view:1", "{ not json"); // invalid view document
-  assert.throws(() => openProjectResourceEditor(ws, "view:1"));
-  editDoc(ws, "view:1", new Uint8Array([0, 0])); // below the 5-byte header
-  assert.throws(() => openProjectResourceEditor(ws, "view:1"));
+  editDoc(ws, "view:0", "{ not json"); // invalid view document
+  assert.throws(() => openProjectResourceEditor(ws, "view:0"));
+  editDoc(ws, "view:0", new Uint8Array([0, 0])); // below the 5-byte header
+  assert.throws(() => openProjectResourceEditor(ws, "view:0"));
 });
 
 test("a closed session or swapped workspace refuses a late Keep without touching the draft", async () => {

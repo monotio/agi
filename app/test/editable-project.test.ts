@@ -41,7 +41,7 @@ Object.defineProperty(globalThis, "localStorage", {
 
 async function seedProject(
   name: string,
-  kind: StarterKind = "blank",
+  kind: StarterKind = "boilerplate",
   adjust?: (data: CachedGameData) => void,
 ) {
   const prepared = prepareLocalProject({ title: name, kind });
@@ -189,7 +189,7 @@ test("a kept music document stores the authored tempo and reopening recovers it"
 });
 
 test("legacy authored music hydrates as a document and survives an unrelated Keep", async () => {
-  const projectId = await seedProject("ws-music-legacy", "blank", (data) => {
+  const projectId = await seedProject("ws-music-legacy", "boilerplate", (data) => {
     (data.authoringState!["authoring"] as { music?: Record<string, unknown> }).music = {
       "9": { revision: "21-abcdef12", tempo: 90 },
     };
@@ -368,7 +368,7 @@ test("replaying a finished candidate returns its receipt without rolling a newer
 });
 
 test("a refused source claim blocks build and Keep without touching storage", async () => {
-  const projectId = await seedProject("ws-source-review", "blank", (data) => {
+  const projectId = await seedProject("ws-source-review", "boilerplate", (data) => {
     const documents = readProjectWorkspace(data.workspace);
     data.workspace = writeProjectWorkspace({ ...documents, "logic:1": "if (broken" });
   });
@@ -406,7 +406,7 @@ test("a pending portable recovery draft is carried through every saved body", as
 });
 
 test("tests and references documents pass through unchanged but refuse edits and removal", async () => {
-  const projectId = await seedProject("ws-metadata", "blank", (data) => {
+  const projectId = await seedProject("ws-metadata", "boilerplate", (data) => {
     const documents = readProjectWorkspace(data.workspace);
     data.workspace = writeProjectWorkspace({
       ...documents,
@@ -459,20 +459,20 @@ test("a byte-only view document drops its stale source claim", async () => {
   const projectId = await seedProject("ws-byte-view", "starter");
   const ws = await openEditableProject(projectId);
   const seeded = await storedBody(projectId);
-  const viewBytes = openContainer(new Map(Object.entries(seeded.files))).getResource("view", 1);
+  const viewBytes = openContainer(new Map(Object.entries(seeded.files))).getResource("view", 0);
   assert.ok(viewBytes);
   const snapshot = ws.draft.capture();
-  ws.draft.edit("view:1", new Uint8Array(viewBytes), snapshot.version("view:1"));
-  await ws.keepCandidate(ws.buildSelected(["view:1"]));
+  ws.draft.edit("view:0", new Uint8Array(viewBytes), snapshot.version("view:0"));
+  await ws.keepCandidate(ws.buildSelected(["view:0"]));
 
   const data = await storedBody(projectId);
   const sources = data.authoringState!["sources"] as { views: [number, unknown][] };
   assert.equal(
-    sources.views.some(([num]) => num === 1),
+    sources.views.some(([num]) => num === 0),
     false,
     "a byte-carried resource keeps no source claim",
   );
-  assert.ok(openContainer(new Map(Object.entries(data.files))).getResource("view", 1) !== null);
+  assert.ok(openContainer(new Map(Object.entries(data.files))).getResource("view", 0) !== null);
 });
 
 test("removing a kept resource is refused at Keep", async () => {
@@ -499,7 +499,7 @@ test("a manual project refuses a missing static room; an explicit generation pol
   await assert.rejects(manualWs.keepCandidate(blocked), /absent|missing|reference/i);
   assert.equal(readProjectWorkspace((await storedBody(manual)).workspace)["logic:1"], original);
 
-  const generated = await seedProject("ws-room-generated", "blank", (data) => {
+  const generated = await seedProject("ws-room-generated", "boilerplate", (data) => {
     data.roomGeneration = true;
   });
   const generatedWs = await openEditableProject(generated);

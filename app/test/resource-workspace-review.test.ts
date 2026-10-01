@@ -221,7 +221,7 @@ function rig(
 }
 
 /** Prepare, save and boot a local project — the body carries a real workspace. */
-async function projectRig(t: TestContext, name: string, kind: StarterKind = "blank") {
+async function projectRig(t: TestContext, name: string, kind: StarterKind = "boilerplate") {
   const prepared = prepareLocalProject({ title: name, kind });
   await prepared.save();
   const stored = (await loadAuthoredGame(prepared.projectId))!;
@@ -247,12 +247,14 @@ const storedResource = (files: Record<string, Uint8Array>, kind: "picture" | "vi
 /** A deliberately formatted LOGIC with a comment: must survive unrelated Keeps exactly. */
 const COMMENTED_LOGIC = [
   "// Room 1 — formatted and commented on purpose.",
+  '#message 1 "Your game starts here."',
   "if (isset(f5)) {",
   "    assignn(v50, first_pic);   // the first picture",
   "    load.pic(v50);",
   "    draw.pic(v50);",
   "    show.pic();",
   "    accept.input();",
+  "    print(m1);",
   "}",
   "return;",
   "",
@@ -363,7 +365,7 @@ test("a view Keep updates its own workspace claim, preserves metadata and lets L
   });
   assert.equal(await saveAuthoredGame(projectId, seeded), true);
 
-  const original = storedResource(files, "view", 1)!;
+  const original = storedResource(files, "view", 0)!;
   const after = applySpriteEdit(openSprite(original, DEFAULT_V2_PROFILE), {
     type: "setPixels",
     loop: 0,
@@ -372,16 +374,16 @@ test("a view Keep updates its own workspace claim, preserves metadata and lets L
   });
   assert.ok("document" in after);
   const kept = await r.controller.commitViewEdit({
-    viewNumber: 1,
+    viewNumber: 0,
     bytes: after.document.payload,
     baseRevision: revision,
   });
   assert.equal(kept.status, "committed");
 
   const stored = (await loadAuthoredGame(projectId))!;
-  assert.deepEqual(storedResource(stored.files, "view", 1), after.document.payload);
+  assert.deepEqual(storedResource(stored.files, "view", 0), after.document.payload);
   const documents = readProjectWorkspace(stored.workspace);
-  const claim = documents["view:1"];
+  const claim = documents["view:0"];
   if (typeof claim === "string") {
     // A verified spec claim: it rebuilds exactly the kept bytes.
     assert.deepEqual(
@@ -399,7 +401,7 @@ test("a view Keep updates its own workspace claim, preserves metadata and lets L
   assert.equal(reopened.inspection.requiresSourceReview, false);
   const spec = viewSpec(after.document.payload, DEFAULT_V2_PROFILE);
   const views = (stored.authoringState!["sources"] as { views: [number, unknown][] }).views;
-  assert.deepEqual(views.find(([num]) => num === 1)![1], spec);
+  assert.deepEqual(views.find(([num]) => num === 0)![1], spec);
   const follow = await keepLogic(reopened, "logic:1", SECOND_LOGIC);
   assert.equal(follow.kind, "savedOnly");
 });

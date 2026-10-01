@@ -66,7 +66,7 @@ const opening = {
 };
 
 function starterFiles() {
-  const starter = createStarterProject("blank");
+  const starter = createStarterProject("boilerplate");
   return {
     title: "Synthetic art project",
     provider: "stub",

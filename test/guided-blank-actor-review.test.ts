@@ -13,7 +13,7 @@ import { PROFILES } from "../src/runtime/profile.ts";
 class ActorHost implements EngineHost {
   keys: number[] = [];
   waitKey(): number {
-    return 0;
+    return 13;
   }
   takeKeys(): number[] {
     return this.keys.splice(0);
@@ -27,8 +27,8 @@ class ActorHost implements EngineHost {
   statusLine(): void {}
 }
 
-function blankWorkspace() {
-  const project = createStarterProject("blank");
+function boilerplateWorkspace() {
+  const project = createStarterProject("boilerplate");
   const files = Object.fromEntries(project.files());
   const sources: Record<string, string> = {};
   for (const [num, source] of project.sources.logics) sources[`logic:${num}`] = source;
@@ -62,14 +62,14 @@ function play(ctx: GuidedContext) {
 }
 
 function installExistingView(draft: ProjectDraft): void {
-  const view = createStarterProject("starter").sources.views.get(1);
+  const view = createStarterProject("starter").sources.views.get(0);
   assert.ok(view);
   const base = draft.capture();
   draft.apply(draft.propose(base, "Draw hero", [{ key: "view:7", content: JSON.stringify(view) }]));
 }
 
-test("Blank boots as an actor-free game until an author adds one", () => {
-  const { ctx, draft } = blankWorkspace();
+test("Boilerplate boots as an actor-free game until an author adds one", () => {
+  const { ctx, draft } = boilerplateWorkspace();
   assert.equal(draft.capture().read("view:1"), undefined);
   const { engine } = play(ctx);
   assert.equal(engine.readState().room, 1);
@@ -78,7 +78,7 @@ test("Blank boots as an actor-free game until an author adds one", () => {
 });
 
 test("Place hero installs an existing drawn VIEW into an actor-free room as one undoable edit", () => {
-  const { ctx, draft } = blankWorkspace();
+  const { ctx, draft } = boilerplateWorkspace();
   installExistingView(draft);
   const before = draft.capture();
   const roomBefore = before.read("logic:1")!.content;
@@ -134,7 +134,7 @@ test("Place hero installs an existing drawn VIEW into an actor-free room as one 
 });
 
 test("partial hand-written hero setup stays intact when guided placement refuses", () => {
-  const { ctx, draft } = blankWorkspace();
+  const { ctx, draft } = boilerplateWorkspace();
   installExistingView(draft);
   const base = draft.capture();
   const original = base.read("logic:1")!.content as string;

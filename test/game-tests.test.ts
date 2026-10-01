@@ -885,7 +885,7 @@ test("the speedrun runner imports the shared step vocabulary", () => {
 });
 
 test("genesis and orientation prompts require a stored test per puzzle", () => {
-  const genesis = createGenesisPrompt("A quiet courtyard.", createStarterProject("starter"));
+  const genesis = createGenesisPrompt("A quiet courtyard.", createStarterProject("boilerplate"));
   assert.match(genesis, /write_game_tests/);
   assert.match(genesis, /run_game_tests/);
   assert.match(genesis, /each puzzle|every puzzle/);

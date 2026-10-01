@@ -72,7 +72,7 @@ Every tool's own description states what it does, what it returns and how it fai
 
 /**
  * The seed inventory line a Genesis prompt carries: every resource the
- * installed Starter ships, named by its bindings, plus the dictionary and
+ * installed Boilerplate ships, named by its bindings, plus the dictionary and
  * inventory counts. Generated from the seed itself so it can never drift
  * from what the session actually holds.
  */
@@ -93,7 +93,7 @@ function describeSeedInventory(seed: StarterProject): string {
   const resources = [
     `logics ${table("logic", seed.sources.logics)}`,
     `picture ${table("picture", seed.sources.pictures)}`,
-    `view ${table("view", seed.sources.views)}`,
+    seed.sources.views.size === 0 ? "VIEWS is empty" : `views ${table("view", seed.sources.views)}`,
     `sounds ${table("sound", seed.sources.sounds)}`,
   ].join("; ");
   const stateBindings = Object.entries(seed.bindings)
@@ -112,7 +112,7 @@ function describeSeedInventory(seed: StarterProject): string {
  * The agent records the whole plan through update_world first — the world
  * map shows it as it lands and the player edits it there while later rooms
  * build just-in-time — then makes the opening room its own. `seed` is the
- * complete Starter already installed in the session: the prompt describes
+ * complete Boilerplate already installed in the session: the prompt describes
  * exactly what was installed, so the wording can never claim a missing room.
  */
 export function createGenesisPrompt(templateText: string, seed: StarterProject): string {
@@ -122,7 +122,7 @@ First design a small connected world (3 to 6 rooms) and record the whole plan th
 
 Then author ONLY the opening room: adapt or replace the seeded room 1 (picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
 
-The session already holds the complete '${seed.seed.templateId}' seed (revision ${seed.seed.templateRevision}) — the same playable ${seed.profileId} project a key-free new Starter produces: ${describeSeedInventory(seed)}. It boots, walks and answers commands before you write anything; treat it as a recommended starting point, not a finished game — extend or replace any of it to serve the brief. Its logic 0 builds the menu bar, binds the classic keys, dispatches call.v(v0) to the current room each cycle and answers unhandled input; logic 255 and sound 255 supply a death sequence reached with call(255). Read the seeded sources with the read_* tools before changing them and coordinate affected room calls, state and keys. If you keep the parser fallback, set f4 after your own reply to a parsed line without a said() match.
+The session already holds the complete '${seed.seed.templateId}' seed (revision ${seed.seed.templateRevision}) — the same playable ${seed.profileId} project a new Boilerplate produces: ${describeSeedInventory(seed)}. It boots into a black PICTURE 1 with the message "Your game starts here." and accepts typed commands. Author the opening picture, hero VIEW 0, actors and WORDS for the brief; treat it as a recommended starting point, not a finished game — extend or replace any of it to serve the brief. Its logic 0 builds the menu bar, binds the classic keys, dispatches call.v(v0) to the current room each cycle and answers unhandled input; logic 255 and sound 255 supply a death sequence reached with call(255). Read the seeded sources with the read_* tools before changing them and coordinate affected room calls, state and keys. If you keep the parser fallback, set f4 after your own reply to a parsed line without a said() match.
 
 The brief decides the shape. A plain start in room 1 is one shape; a title card, a text-screen intro paced by counters and skippable with have.key, an opening cutscene, a cursor-driven screen or something the brief invents are others. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 

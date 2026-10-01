@@ -51,7 +51,7 @@ import {
 import { readInventoryObjects } from "../../../src/agent/inventory.ts";
 import { prepareRoomPatch } from "../../../src/agent/roomPatch.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
-import { installStarterSeed } from "../../../src/agent/baseTemplate.ts";
+import { installBoilerplateSeed } from "../../../src/agent/baseTemplate.ts";
 import { buildWordsTok } from "../../../src/logic/words.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import {
@@ -1182,12 +1182,12 @@ Answer the player's question using evidence from inspection when needed. For hin
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
-    // Install the complete deterministic Starter before the first model
+    // Install the complete deterministic Boilerplate before the first model
     // turn — the same playable snapshot manual Create produces without a
     // provider. Admission is explicit: a blank session and the untouched
     // seed are seeded; a session holding completed, imported or divergent
     // authored work is refused rather than silently reseeded.
-    const seed = installStarterSeed(this.state);
+    const seed = installBoilerplateSeed(this.state);
     // Genesis carries no reference art yet, so view_reference stays off its list.
     const genesisTools = withReferences(GENESIS_TOOLS, undefined);
     this.conversation?.setAvailableTools(genesisTools);
