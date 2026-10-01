@@ -1,19 +1,31 @@
 import type { captureProjectBuild } from "../authoring/projectBuild.ts";
 import type { ExecutionBoundary } from "./engine.ts";
 
-/** Session-local execution plan. The controller pins the build and run identity. */
+/**
+ * Session-local execution plan. The controller pins the build and run identity
+ * and discards the plan when the run epoch is replaced. A null origin starts
+ * detached — a phase or idle stop has no parked LOGIC invocation, so "over"
+ * and "out" have nothing to step relative to and are refused. No stack or PC
+ * is ever synthesized for a null origin.
+ */
 export function createDebugStepPlan(input: {
-  readonly origin: ExecutionBoundary;
+  readonly origin: ExecutionBoundary | null;
   readonly mode: "into" | "over" | "out" | "cycle";
   readonly granularity: "statement" | "instruction";
   readonly build: ReturnType<typeof captureProjectBuild>;
 }) {
-  const originSequence = input.origin.sequence;
-  const originInvocation = input.origin.frames.at(-1)?.invocationId;
-  if (originInvocation === undefined) throw new Error("A step requires a stopped invocation.");
-  const ancestors = new Set(input.origin.frames.slice(0, -1).map((frame) => frame.invocationId));
+  const origin = input.origin;
   const mode = input.mode;
   const granularity = input.granularity;
+  if (origin === null && (mode === "over" || mode === "out")) {
+    throw new Error(`A step ${mode} requires a stopped invocation.`);
+  }
+  const originSequence = origin?.sequence ?? 0;
+  const originInvocation = origin?.frames.at(-1)?.invocationId;
+  if (origin !== null && originInvocation === undefined) {
+    throw new Error("A step requires a stopped invocation.");
+  }
+  const ancestors = new Set((origin?.frames ?? []).slice(0, -1).map((frame) => frame.invocationId));
   const generatedJumps = new Map(
     input.build.logics.map((logic) => [
       logic.num,
@@ -39,6 +51,11 @@ export function createDebugStepPlan(input: {
       (boundary.kind === "predicate" || generatedJumps.get(boundary.logic)?.has(boundary.pc))
     )
       return null;
+    if (origin === null) {
+      // Detached "into": the first eligible real instruction boundary stops.
+      finished = true;
+      return "step";
+    }
     const top = boundary.frames.at(-1)?.invocationId;
     const originPresent = boundary.frames.some((frame) => frame.invocationId === originInvocation);
     if (!originPresent && !boundary.frames.some((frame) => ancestors.has(frame.invocationId))) {

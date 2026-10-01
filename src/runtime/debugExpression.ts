@@ -49,7 +49,12 @@ interface DebugInventoryItem {
   readonly room: number;
 }
 
-/** Detached primitive game state; never an Engine and never callback-bearing. */
+/**
+ * Detached primitive game state; never an Engine and never callback-bearing.
+ * `logic` and `pc` are null when the stop has no parked LOGIC stack — a pure
+ * phase or idle stop has no instruction location to report and none is
+ * fabricated.
+ */
 export interface DebugSnapshot {
   readonly vars: readonly number[];
   readonly flags: readonly boolean[];
@@ -57,8 +62,8 @@ export interface DebugSnapshot {
   readonly objects: readonly DebugObjectState[];
   readonly inventory: readonly DebugInventoryItem[];
   readonly room: number;
-  readonly logic: number;
-  readonly pc: number;
+  readonly logic: number | null;
+  readonly pc: number | null;
   readonly cycle: number;
   readonly old?: DebugValue;
   readonly new?: DebugValue;
@@ -594,8 +599,15 @@ function evalNode(node: Node, snap: DebugSnapshot): DebugValue {
       return readBoolean(readSlot(snap, "flags", node.num, `f${node.num}`), `f${node.num}`);
     case "str":
       return readString(readSlot(snap, "strings", node.num, `s${node.num}`), `s${node.num}`);
-    case "scalar":
-      return readNumber(ownValue(snap, node.name, node.name), node.name);
+    case "scalar": {
+      const value = ownValue(snap, node.name, node.name);
+      if (value === null && (node.name === "logic" || node.name === "pc")) {
+        throw new DebugExpressionError(
+          `'${node.name}' is unavailable: the stop has no instruction location`,
+        );
+      }
+      return readNumber(value, node.name);
+    }
     case "watch":
       return readWatch(node, snap);
     case "object": {
