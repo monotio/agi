@@ -15,6 +15,27 @@ import { inspectProjectReferences } from "./projectReferences.ts";
 import { PROJECT_RESOURCE_KEY } from "./projectRemoval.ts";
 import { inspectProjectSourceDependencies } from "./projectSourceDependencies.ts";
 
+/** Dependencies of one complete proposal; every document already participates. */
+export function inspectProjectDocumentDependencies(input: {
+  readonly documents: Readonly<Record<string, string | Uint8Array>>;
+  readonly profileId: ProfileId;
+}): Readonly<Record<string, readonly string[]>> {
+  const profile = PROFILES[input.profileId];
+  if (!profile) throw new Error(`Unknown build profile: ${input.profileId}`);
+  const text = input.documents["bindings"];
+  if (text !== undefined && typeof text !== "string")
+    throw new ProjectDocumentCompileError("bindings", new Error("Expected JSON text."));
+  const bindings = readBindingsDocument(text ?? "{}");
+  const dependencies: Record<string, readonly string[]> = Object.create(null);
+  for (const [key, content] of Object.entries(input.documents)) {
+    if (key.startsWith("logic:") && typeof content === "string")
+      dependencies[key] = Object.freeze(
+        inspectProjectSourceDependencies({ source: content, profile, bindings }).dependencies,
+      );
+  }
+  return Object.freeze(dependencies);
+}
+
 export function compileProjectSelection(input: {
   readonly draft: ProjectDraft;
   /** Current kept image; callers retain its storage identity through admission. */

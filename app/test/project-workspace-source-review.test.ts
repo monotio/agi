@@ -15,15 +15,15 @@ function data(sources: Record<string, unknown>) {
   };
 }
 
-test("an undefined legacy builder for an absent resource still requires source review", () => {
+test("an undefined legacy builder for an absent resource reports a nonblocking diagnostic", () => {
   const project = data({ views: [[4, undefined]] });
   const inspected = inspectEditableProject(project);
-  assert.equal(inspected.requiresSourceReview, true);
+  assert.equal(inspected.requiresSourceReview, false);
   assert.ok(Object.keys(inspected.rejectedSources).length > 0);
   assert.equal(project.authoringState.sources["views"] instanceof Array, true);
 });
 
-test("multiple malformed legacy claims for the same resource are all retained for review", () => {
+test("multiple malformed legacy claims for the same resource are all retained as compatibility data", () => {
   const project = data({
     logics: [
       [4, 17],
@@ -31,7 +31,7 @@ test("multiple malformed legacy claims for the same resource are all retained fo
     ],
   });
   const inspected = inspectEditableProject(project);
-  assert.equal(inspected.requiresSourceReview, true);
+  assert.equal(inspected.requiresSourceReview, false);
   assert.deepEqual(Object.values(inspected.rejectedSources).sort(), ["17", "23"]);
 });
 
@@ -52,7 +52,7 @@ test("a refused text claim cannot overwrite a malformed claim for the same legac
     ],
   ]) {
     const inspected = inspectEditableProject(data({ logics: entries }));
-    assert.equal(inspected.requiresSourceReview, true);
+    assert.equal(inspected.requiresSourceReview, false);
     assert.deepEqual(Object.values(inspected.rejectedSources).sort(), ["17", "return;"]);
   }
 });

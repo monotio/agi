@@ -12,10 +12,10 @@
  * exactly the stored bytes; byte claims are admitted the same way. Every
  * refused claim — stale text, malformed structure, a byte payload that does
  * not match, source for an absent resource — is set aside in
- * rejectedSources with a diagnostic so the next service can resolve or keep
- * it before writing a replacement workspace. Valid string and byte claims
+ * rejectedSources as inactive compatibility data with a diagnostic. Opening
+ * always permits editing the verified document inventory. Valid string and byte claims
  * keep their exact content; malformed values are kept as a diagnostic
- * representation for review. The raw input data stays the preservation
+ * representation. The raw input data stays the preservation
  * authority: a verified document set is a read, not a migration or a save.
  */
 import {
@@ -55,11 +55,11 @@ export interface EditableProjectInspection {
    * document key, or its `sources.<list>[<index>]` slot when the claim
    * could not even be read as one. Valid strings and bytes keep their exact
    * content; malformed values are kept as a diagnostic representation for
-   * review. Nothing claimed is dropped.
+   * compatibility. Nothing claimed is dropped.
    */
   readonly rejectedSources: Readonly<Record<string, EditableDocumentContent>>;
   readonly diagnostics: readonly EditableSourceDiagnostic[];
-  /** True while rejectedSources holds anything: review before writing a workspace. */
+  /** Compatibility flag: opening reports diagnostics and always permits editing. */
   readonly requiresSourceReview: boolean;
 }
 
@@ -386,6 +386,6 @@ export function inspectEditableProject(data: CachedGameData): EditableProjectIns
     documents: sortedRecord(documents),
     rejectedSources: sortedRecord(rejected),
     diagnostics: Object.freeze(diagnostics),
-    requiresSourceReview: Object.keys(rejected).length > 0,
+    requiresSourceReview: false,
   });
 }

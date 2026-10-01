@@ -158,7 +158,7 @@ describe("inspectEditableProject", () => {
     ];
     const before = structuredClone(data);
     const inspection = inspectEditableProject(data);
-    assert.equal(inspection.requiresSourceReview, true);
+    assert.equal(inspection.requiresSourceReview, false);
     // The playable bytes stay authoritative; refused claims are preserved verbatim.
     assert.deepEqual(
       [...(inspection.documents["logic:0"] as Uint8Array)],
@@ -182,7 +182,7 @@ describe("inspectEditableProject", () => {
     sources["pictures"] = "not an array";
     sources["views"] = [[7, { loops: [] }]];
     const inspection = inspectEditableProject(data);
-    assert.equal(inspection.requiresSourceReview, true);
+    assert.equal(inspection.requiresSourceReview, false);
     assert.equal(inspection.rejectedSources["sources.pictures"], "not an array");
     assert.equal(inspection.documents["view:7"], undefined);
     // A well-formed builder claim for an absent VIEW is still an orphan claim.
@@ -226,7 +226,7 @@ describe("inspectEditableProject", () => {
     const inspection = inspectEditableProject(data);
     assert.equal(inspection.documents["logic:9"], undefined);
     assert.equal(inspection.rejectedSources["logic:9"], "return;");
-    assert.equal(inspection.requiresSourceReview, true);
+    assert.equal(inspection.requiresSourceReview, false);
     assert.ok(inspection.diagnostics.some(({ key }) => key === "logic:9"));
   });
 
@@ -245,7 +245,7 @@ describe("inspectEditableProject", () => {
     );
     assert.deepEqual([...(inspection.rejectedSources["logic:1"] as Uint8Array)], [...claimed]);
     assert.ok(inspection.diagnostics.some(({ key }) => key === "logic:1"));
-    assert.equal(inspection.requiresSourceReview, true);
+    assert.equal(inspection.requiresSourceReview, false);
     // A byte claim equal to the native payload stays an ordinary byte document.
     assert.deepEqual(
       [...(inspection.documents["logic:0"] as Uint8Array)],
@@ -283,7 +283,7 @@ describe("inspectEditableProject", () => {
     assert.equal(inspection.rejectedSources["logic:1"], "// newer but refused claim\nif (");
     assert.notEqual(inspection.documents["logic:1"], good);
     assert.ok(inspection.documents["logic:1"] instanceof Uint8Array);
-    assert.equal(inspection.requiresSourceReview, true);
+    assert.equal(inspection.requiresSourceReview, false);
   });
 
   test("the selected interpreter profile override is respected", () => {
@@ -353,7 +353,7 @@ describe("inspectEditableProject", () => {
     );
     assert.equal(malformed.documents["music"], undefined);
     assert.equal(malformed.rejectedSources["music"], "{not json");
-    assert.equal(malformed.requiresSourceReview, true);
+    assert.equal(malformed.requiresSourceReview, false);
     assert.ok(malformed.diagnostics.some(({ key }) => key === "music"));
 
     const legacy = legacyProject("blank");
