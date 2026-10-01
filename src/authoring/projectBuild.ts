@@ -57,7 +57,11 @@ export function captureProjectBuild(input: ProjectBuildInput) {
   }
   const container = openContainer(owned, { profile });
   const words = owned.get("WORDS.TOK");
-  const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
+  const dictionary = new Map(
+    words && Object.keys(input.sources).length > 0
+      ? parseWordsTok(words).map(({ word, id }) => [word, id])
+      : [],
+  );
   const bindings = Object.fromEntries(
     Object.entries(input.bindings)
       .sort(([a], [b]) => compareCodePoints(a, b))

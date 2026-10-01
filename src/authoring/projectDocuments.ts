@@ -98,6 +98,13 @@ export interface ProjectDocumentsCompile {
   files(): ReadonlyMap<string, Uint8Array>;
 }
 
+const compiledProjects = new WeakSet<ProjectDocumentsCompile>();
+
+/** Only an actual detached compiler result may supply a model image. */
+export function isCompiledProjectDocuments(value: ProjectDocumentsCompile): boolean {
+  return compiledProjects.has(value);
+}
+
 type DocumentKey =
   | { readonly type: "resource"; readonly kind: ResourceKind; readonly num: number }
   | { readonly type: "words" }
@@ -660,9 +667,15 @@ export function compileProjectDocuments(
         if (!current || !sameBytes(current, wordsDocument)) parseWordsTok(wordsDocument);
         wordsBytes = wordsDocument;
       }
-      // The compile dictionary comes from the final words image; a corrupt
-      // unchanged payload refuses here with the words document identity.
-      dictionary = new Map(parseWordsTok(wordsBytes).map(({ word, id }) => [word, id]));
+      // Authored LOGIC needs a readable final dictionary. A fully bytes-only
+      // import preserves unchanged opaque WORDS until source needs it.
+      if (
+        typeof wordsDocument === "string" ||
+        [...documents].some(
+          ([key, content]) => key.startsWith("logic:") && typeof content === "string",
+        )
+      )
+        dictionary = new Map(parseWordsTok(wordsBytes).map(({ word, id }) => [word, id]));
     }
   } catch (error) {
     throw new ProjectDocumentCompileError("words", error);
@@ -751,7 +764,7 @@ export function compileProjectDocuments(
     bindings: numBindings(bindings),
   });
 
-  return Object.freeze({
+  const compiled = Object.freeze({
     build,
     documents(): Readonly<Record<string, DocumentContent>> {
       return copyDocuments(Object.fromEntries(documents));
@@ -760,4 +773,6 @@ export function compileProjectDocuments(
       return new Map([...finalFiles].map(([name, bytes]) => [name, new Uint8Array(bytes)]));
     },
   });
+  compiledProjects.add(compiled);
+  return compiled;
 }

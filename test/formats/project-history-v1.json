@@ -1,0 +1,32 @@
+{
+  "format": "monotio.agi.project-history",
+  "version": 1,
+  "blobs": {
+    "a5f68f82c927a0f3438e3cfb034036f1c40eaf508606988746adfc6d1788aaff": {
+      "type": "text",
+      "text": "return;\r\n"
+    },
+    "ae4b3280e56e2faf83f414a6e3dabe9d5fbe18976544c05fed121accb85b53fc": {
+      "type": "bytes",
+      "bytes": [1, 2]
+    }
+  },
+  "commits": [
+    {
+      "id": "1d4f0623c3fce19a5af02c6a725ff1e6e780bfad6e2320b80da435907ceaee62",
+      "parent": null,
+      "documents": {
+        "logic:1": "a5f68f82c927a0f3438e3cfb034036f1c40eaf508606988746adfc6d1788aaff",
+        "view:1": "ae4b3280e56e2faf83f414a6e3dabe9d5fbe18976544c05fed121accb85b53fc"
+      },
+      "changed": ["logic:1", "view:1"],
+      "label": "Initial",
+      "origin": "template",
+      "author": "creator",
+      "time": 0
+    }
+  ],
+  "cursor": "1d4f0623c3fce19a5af02c6a725ff1e6e780bfad6e2320b80da435907ceaee62",
+  "future": [],
+  "tags": {}
+}
