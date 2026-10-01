@@ -36,6 +36,7 @@ import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
+import UiSegmented from "../ui/UiSegmented.vue";
 import PaletteStrip from "./workspace/PaletteStrip.vue";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
@@ -1290,23 +1291,6 @@ function onKeyup(event: KeyboardEvent): void {
       /></template>
     </StudioTopBar>
 
-    <div v-if="embedded" class="studio__top workspace-lenses">
-      <UiButton
-        v-for="item in ['art', 'depth', 'walk'] as const"
-        :key="item"
-        size="sm"
-        :aria-pressed="lens === item"
-        :title="
-          item === 'art'
-            ? VOCABULARY.art.help
-            : item === 'depth'
-              ? VOCABULARY.depth.help
-              : VOCABULARY.walk.help
-        "
-        @click="lens = item"
-        >{{ item === "art" ? "Art" : item === "depth" ? "Depth" : "Walk" }}</UiButton
-      >
-    </div>
     <PaletteStrip
       v-if="embedded"
       class="studio__scrubber"
@@ -1380,7 +1364,19 @@ function onKeyup(event: KeyboardEvent): void {
         :spilled="proposal.sideEffects !== null"
       />
       <span class="studio__spacer"></span>
+      <UiSegmented
+        v-if="embedded"
+        v-model="lens"
+        size="sm"
+        :label="VOCABULARY.lens.label"
+        :options="[
+          { value: 'art', label: VOCABULARY.art.label, title: VOCABULARY.art.help },
+          { value: 'depth', label: VOCABULARY.depth.label, title: VOCABULARY.depth.help },
+          { value: 'walk', label: VOCABULARY.walk.label, title: VOCABULARY.walk.help },
+        ]"
+      />
       <StudioViewBar
+        v-else
         v-model:mode="mode"
         v-model:bands="showBands"
         :lens
@@ -1795,6 +1791,7 @@ function onKeyup(event: KeyboardEvent): void {
   grid-column: 4;
 }
 .studio__status {
+  grid-row: 5;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -1883,7 +1880,7 @@ function onKeyup(event: KeyboardEvent): void {
    takes editor gestures; only an unfinished gesture paints a preview over MAIN. */
 .studio.is-embedded {
   grid-template-columns: 0 44px minmax(0, 1fr) 236px;
-  grid-template-rows: 36px 40px minmax(0, 1fr) 52px 28px;
+  grid-template-rows: 0 40px minmax(0, 1fr) 52px 28px;
 }
 .studio.is-embedded .studio__scene {
   grid-column: 4;

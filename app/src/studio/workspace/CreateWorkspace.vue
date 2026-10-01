@@ -48,6 +48,7 @@ function refresh(): void {
   const capture = session.capture();
   snapshot.value = capture.snapshot;
   historyState.value = capture.history;
+  editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
     capture.save.state === "saved"
       ? editor.busy.value
@@ -181,6 +182,7 @@ const tabRows = computed(() =>
           ? "OBJECTS"
           : key.replace(":", " ").toUpperCase(),
     dirty: false,
+    preview: key === editor.preview.value,
     missing: !snapshot.value?.keys.includes(key),
   })),
 );
@@ -266,6 +268,7 @@ function edit(key: string, value: ProjectContent): void {
   )
     return;
   editor.error.value = "";
+  editor.pin(key);
   writes.edit(key, value);
 }
 function text(key: string): string | undefined {
@@ -331,7 +334,10 @@ async function add(group: string): Promise<void> {
     const key = group === "WORDS" ? "words" : "inventory";
     const source = text(key);
     const rows = typeof source === "string" ? (JSON.parse(source) as unknown[]) : [];
-    rows.push(group === "WORDS" ? ["word", 1] : { name: "Object", startingRoom: 255 });
+    if (group === "WORDS") {
+      const { nextWordGroup } = await import("./wordGroups.ts");
+      rows.push(["word", nextWordGroup(rows as [string, number][])]);
+    } else rows.push({ name: "Object", startingRoom: 255 });
     edit(key, JSON.stringify(rows));
     editor.open(key);
     return;
@@ -445,6 +451,7 @@ onBeforeUnmount(() => {
     :views="viewThumbnails"
     :profile="profile"
     @open="editor.open"
+    @pin="(key) => editor.open(key, true)"
     @add="add"
   />
   <div
@@ -472,7 +479,8 @@ onBeforeUnmount(() => {
       <ProjectTabs
         :tabs="tabRows"
         :selected-key="editor.selected.value ?? null"
-        @select="editor.open"
+        @select="(key) => editor.open(key)"
+        @pin="editor.pin"
         @close="editor.close"
       />
       <GuidedAdd

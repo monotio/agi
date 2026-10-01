@@ -12,7 +12,7 @@ const props = defineProps<{
   profile?: AgiProfile;
   addGroups?: readonly string[];
 }>();
-const emit = defineEmits<{ open: [key: string]; add: [group: string] }>();
+const emit = defineEmits<{ open: [key: string]; pin: [key: string]; add: [group: string] }>();
 const root = useTemplateRef("root");
 const focused = ref("");
 const rows = computed(() => props.groups.flatMap((group) => group.entries));
@@ -105,6 +105,7 @@ function onKey(event: KeyboardEvent): void {
         :data-testid="`part-${row.id}`"
         @focus="focused = row.id"
         @click="emit('open', row.key)"
+        @dblclick="emit('pin', row.key)"
       >
         <img v-if="thumbnails[row.id]" :src="thumbnails[row.id]" alt="" />
         <ViewThumbnail
@@ -187,7 +188,7 @@ h2 {
   background: var(--agi-0);
   border-radius: var(--radius-sm);
 }
-.part span {
+.part > span:not(.view-thumbnail) {
   flex: 1;
   min-width: 0;
 }

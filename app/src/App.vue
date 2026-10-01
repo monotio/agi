@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../src/vocabulary.ts";
 import AgentLogPanel from "./authoring/AgentLogPanel.vue";
 import AgentBubble from "./authoring/AgentBubble.vue";
 import GameHeader from "./shell/GameHeader.vue";
@@ -89,7 +90,6 @@ const playArea = useTemplateRef("playArea");
 
 watch(crtEnabled, (on) => {
   localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
-  presentation.setCrt(on);
 });
 
 function onMenuHashChange(): void {
@@ -187,6 +187,7 @@ const shell = createShell({
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
+watch([crtEnabled, creating], ([on, create]) => presentation.setCrt(on && !create));
 const createKeyboard = useTemplateRef("createKeyboard");
 const commands = createCommandRegistry(
   () => createKeyboard.value?.context() ?? emptyCommandContext(),
@@ -693,8 +694,8 @@ watch(
         :style="
           creating
             ? {
-                '--workspace-game': `minmax(0, ${workspaceEditor.split.value}fr)`,
-                '--workspace-edit': `minmax(0, ${100 - workspaceEditor.split.value}fr)`,
+                '--workspace-game': `minmax(0, ${workspaceEditor.effectiveSplit.value}fr)`,
+                '--workspace-edit': `minmax(0, ${100 - workspaceEditor.effectiveSplit.value}fr)`,
               }
             : undefined
         "
@@ -732,7 +733,7 @@ watch(
             v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
             ref="playArea"
             :touch-controls="touchControls"
-            :crt-enabled="crtEnabled"
+            :crt-enabled="crtEnabled && !creating"
             :original-aspect="originalAspect"
             :inspector-docked="creating"
           >
@@ -746,7 +747,15 @@ watch(
               >
                 {{ playHereFromStudio.note.value }}
               </UiToast>
-              <UiChip v-if="creating" tone="ok" dot data-testid="workspace-live">LIVE</UiChip>
+              <UiChip
+                v-if="creating"
+                :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
+                dot
+                data-testid="workspace-live"
+                >{{
+                  workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "LIVE"
+                }}</UiChip
+              >
               <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
               <StaleTabNote />
             </template>

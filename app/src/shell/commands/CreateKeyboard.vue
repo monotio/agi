@@ -1,5 +1,6 @@
 <script setup lang="ts">
 /** The existing Create shell's adapter; commands and choosers stay host-independent. */
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { nextTick, onMounted, onScopeDispose, shallowRef, ref, watch } from "vue";
 import { useCreateWorkspace } from "../useCreateWorkspace.ts";
 import { useShell } from "../useShell.ts";
@@ -125,6 +126,15 @@ const offEscape = props.registry.register({
   },
 });
 
+const offClose = props.registry.register({
+  id: "editor.close",
+  title: VOCABULARY.closeEditor.label,
+  keys: [{ key: "Mod+W", textInput: true, game: true }],
+  when: (c) => !c.dialogOpen && editor.selected.value !== undefined,
+  run: () => {
+    if (editor.selected.value) editor.close(editor.selected.value);
+  },
+});
 const offFocus = props.registry.register({
   id: "editor.focus",
   title: "Focus",
@@ -147,6 +157,7 @@ onScopeDispose(() => {
   offDefaults();
   offHelp();
   offFocus();
+  offClose();
   offEscape();
   zones.dispose();
 });
@@ -168,7 +179,7 @@ defineExpose({ context, blocksGame });
 </template>
 
 <style scoped>
-:global([data-focus-zone-active]) {
+:global([data-focus-zone-active]:is(:focus-visible, :has(:focus-visible))) {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
 }

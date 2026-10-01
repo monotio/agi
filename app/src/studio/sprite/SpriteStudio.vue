@@ -1076,8 +1076,11 @@ const status = computed(() => {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+.sprite-studio.is-embedded .sprite-options__name {
+  min-width: 0;
+}
 .sprite-studio.is-embedded {
-  grid-template-columns: 44px minmax(0, 1fr) 180px;
+  grid-template-columns: 44px minmax(0, 1fr) 300px;
   grid-template-rows: 0 40px minmax(0, 1fr) 120px 28px;
 }
 .sprite-studio.is-workspace-focus {
