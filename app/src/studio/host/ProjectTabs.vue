@@ -20,6 +20,7 @@ const { tabs, selectedKey = null } = defineProps<{
 const emit = defineEmits<{
   select: [key: string];
   close: [key: string];
+  pin: [key: string];
 }>();
 
 const root = useTemplateRef("root");
@@ -96,6 +97,23 @@ watch(
   },
 );
 
+watch(
+  () => [selectedKey, tabs],
+  () => {
+    void nextTick(() => {
+      if (selectedKey === null) return;
+      const button = tabElement(selectedKey);
+      const strip = root.value;
+      if (!button || !strip) return;
+      const tab = button.parentElement!;
+      if (tab.offsetLeft < strip.scrollLeft) strip.scrollLeft = tab.offsetLeft;
+      else if (tab.offsetLeft + tab.offsetWidth > strip.scrollLeft + strip.clientWidth)
+        strip.scrollLeft = tab.offsetLeft + tab.offsetWidth - strip.clientWidth;
+    });
+  },
+  { immediate: true },
+);
+
 function tabLabel(tab: ProjectStudioTab): string {
   const base = tab.name ?? tab.label;
   const state = `${tab.missing ? ", missing" : ""}${tab.dirty ? ", unsaved changes" : ""}`;
@@ -129,6 +147,7 @@ function tabLabel(tab: ProjectStudioTab): string {
         role="tab"
         class="project-tabs__name"
         :aria-selected="tab.key === selectedKey"
+        :class="{ 'project-tabs__name--preview': tab.preview }"
         :aria-label="tabLabel(tab)"
         aria-keyshortcuts="Delete"
         :tabindex="rovingKey === tab.key ? 0 : -1"
@@ -136,6 +155,7 @@ function tabLabel(tab: ProjectStudioTab): string {
         :data-testid="`project-tab-${tab.key}`"
         :title="tab.name !== undefined ? `${tab.label}: ${tab.name}` : tab.label"
         @click="emit('select', tab.key)"
+        @dblclick="emit('pin', tab.key)"
         @focus="focusKey = tab.key"
       >
         <span
@@ -162,6 +182,7 @@ function tabLabel(tab: ProjectStudioTab): string {
 
 <style scoped>
 .project-tabs {
+  position: relative;
   display: flex;
   align-items: stretch;
   overflow-x: auto;
@@ -192,6 +213,9 @@ function tabLabel(tab: ProjectStudioTab): string {
   background: transparent;
   font: var(--text-sm) / var(--leading) var(--font-sans);
   cursor: pointer;
+}
+.project-tabs__name--preview {
+  font-style: italic;
 }
 .project-tabs__tab--active .project-tabs__name {
   color: var(--ink);

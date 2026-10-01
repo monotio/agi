@@ -120,13 +120,35 @@ test("editor action tooltips bind to shared action help", () => {
   assert.equal(ROOM_TOOL_NAMES.walk, VOCABULARY_ACTIONS.playtest_room.label);
   assert.equal(ROOM_TOOL_HINTS.walk, VOCABULARY_ACTIONS.playtest_room.help);
   const bindings: Readonly<Record<string, readonly string[]>> = {
-    "app/src/studio/workspace/GuidedAdd.vue": [
-      '"play-sound": VOCABULARY_ACTIONS.play_sound.label',
-    ],
+    "app/src/studio/workspace/GuidedAdd.vue": ['"play-sound": VOCABULARY_ACTIONS.play_sound.label'],
     "app/src/studio/StudioToolRail.vue": [
       'if (entry.id === "walk") return VOCABULARY_ACTIONS.playtest_room.help;',
       "label: VOCABULARY_ACTIONS.playtest_room.label",
       ':title="toolTitle(entry)"',
+    ],
+  };
+  for (const [file, expressions] of Object.entries(bindings)) {
+    const source = readFileSync(file, "utf8");
+    for (const expression of expressions)
+      assert.ok(source.includes(expression), `${file}: ${expression}`);
+  }
+});
+
+test("workspace copy shares vocabulary labels and explainers", () => {
+  const bindings: Readonly<Record<string, readonly string[]>> = {
+    "app/src/shell/commands/CreateKeyboard.vue": ["VOCABULARY.closeEditor.label"],
+    "app/src/studio/RoomStudio.vue": ["VOCABULARY.lens.label"],
+    "app/src/studio/StudioCurrentValues.vue": [
+      "VOCABULARY.drawingDepth.help",
+      "VOCABULARY.none.label",
+    ],
+    "app/src/App.vue": ["VOCABULARY.waitingUpdate.label"],
+    "app/src/studio/workspace/TableEditor.vue": [
+      "VOCABULARY.wordGroup.help",
+      "VOCABULARY.objectColumn.label",
+      "VOCABULARY.roomColumn.label",
+      "VOCABULARY.addWord.label",
+      "VOCABULARY.addGroup.label",
     ],
   };
   for (const [file, expressions] of Object.entries(bindings)) {

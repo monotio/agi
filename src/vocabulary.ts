@@ -10,6 +10,84 @@ export interface VocabularyAction extends VocabularyTerm {
 }
 
 export const VOCABULARY = {
+  closeEditor: {
+    id: "closeEditor",
+    label: "Close editor",
+    help: "Closes the active tab. Your changes stay saved.",
+    technical: "",
+  },
+  lens: {
+    id: "lens",
+    label: "Lens",
+    help: "Shows Art, Depth or Walk while you draw.",
+    technical: "",
+  },
+  drawingDepth: {
+    id: "drawingDepth",
+    label: "Drawing depth",
+    help: "The depth the drawing tools also paint. None leaves the existing depth as you draw.",
+    technical: "PICTURE priority drawing value.",
+  },
+  none: {
+    id: "none",
+    label: "None",
+    help: "Leaves the existing depth as you draw.",
+    technical: "Priority plane disabled.",
+  },
+  waitingUpdate: {
+    id: "waitingUpdate",
+    label: "Updates when the game continues",
+    help: "Your edits are saved. The game uses them when it continues.",
+    technical: "Admission waits for a safe interpreter boundary.",
+  },
+  objectColumn: {
+    id: "objectColumn",
+    label: "Object",
+    help: "Something the player can pick up and carry.",
+    technical: "Entry in the OBJECT file.",
+  },
+  roomColumn: {
+    id: "roomColumn",
+    label: "Room",
+    help: "Where the object starts. Room 255 puts it in the inventory.",
+    technical: "OBJECT starting room.",
+  },
+  wordGroup: {
+    id: "wordGroup",
+    label: "Meaning",
+    help: "Words in this row share a meaning. Add another word with Enter.",
+    technical: "WORDS.TOK group",
+  },
+  addWord: {
+    id: "addWord",
+    label: "Add word",
+    help: "Type a word and press Enter to add it to this meaning.",
+    technical: "",
+  },
+  addGroup: {
+    id: "addGroup",
+    label: "Add meaning",
+    help: "Starts a row of words with a new meaning.",
+    technical: "Allocates an unused WORDS.TOK group, preserving reserved ids.",
+  },
+  ignoredWords: {
+    id: "ignoredWords",
+    label: "Ignored words",
+    help: "The game skips these words when it reads a command.",
+    technical: "WORDS.TOK group 0.",
+  },
+  anyWord: {
+    id: "anyWord",
+    label: "Any word",
+    help: "Matches one word in a command.",
+    technical: "Reserved WORDS.TOK group 1.",
+  },
+  restOfLine: {
+    id: "restOfLine",
+    label: "Remaining words",
+    help: "Matches the rest of a command.",
+    technical: "Reserved WORDS.TOK group 9999.",
+  },
   room: {
     id: "room",
     label: "ROOM",

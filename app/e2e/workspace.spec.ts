@@ -260,6 +260,11 @@ test("drawing, LOGIC and VIEW edit MAIN, Undo spans editors, reload keeps edits 
     .poll(() => page.evaluate(() => window.__AGI_FRAME__?.()?.visual[112 * 160 + 22]))
     .toBe(4);
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  // Saved covers the documents; this reload also needs progress for the current image.
+  const checkpointCycle = (await textHook(page)).cycle;
+  await expect
+    .poll(async () => (await textHook(page)).autosave, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(checkpointCycle);
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect
@@ -494,6 +499,11 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
     await expect(page.getByTestId("workspace-undo")).toBeEnabled();
   }
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  // Saved covers the documents; this reload also needs progress for the current image.
+  const checkpointCycle = (await textHook(page)).cycle;
+  await expect
+    .poll(async () => (await textHook(page)).autosave, { timeout: 10_000 })
+    .toBeGreaterThanOrEqual(checkpointCycle);
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect
@@ -550,4 +560,233 @@ test("adding a room opens its PICTURE beside the current game @webkit-desktop", 
   await expect(page.locator(".shell-body > .play-area")).toBeVisible();
   expect((await textHook(page)).room).toBe(1);
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+});
+
+test("Home Continue resumes the Starter in its room", async ({ page }) => {
+  await starter(page);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  const before = (await textHook(page)).egoX;
+  await page.keyboard.press("Control+`");
+  await page.keyboard.down("ArrowRight");
+  await expect.poll(async () => (await textHook(page)).egoX).toBeGreaterThan(before + 6);
+  await page.keyboard.up("ArrowRight");
+  const position = (await textHook(page)).egoX;
+  await page.getByTestId("btn-exit").click();
+  await expect.poll(() => page.evaluate(() => window.__AGI_STATE__?.phase)).toBe("idle");
+  await page.getByRole("button", { name: "Continue Workspace proof", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  const resumed = (await textHook(page)).cycle;
+  expect((await textHook(page)).egoX).toBeGreaterThanOrEqual(position);
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(resumed);
+});
+
+test("parts preview replaces, double click and editing pin, close uses the keyboard", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByTestId("project-tab-picture:1")).toHaveCSS("font-style", "italic");
+  await page.getByTestId("part-view:0").click();
+  await expect(page.getByTestId("project-tab-picture:1")).toHaveCount(0);
+  await page.getByTestId("part-view:0").dblclick();
+  await expect(page.getByTestId("project-tab-view:0")).toHaveCSS("font-style", "normal");
+  await page.getByTestId("part-words").click();
+  await expect(page.getByTestId("project-tab-view:0")).toBeVisible();
+  await page.getByTestId("project-tab-words").dblclick();
+  await expect(page.getByTestId("project-tab-words")).toHaveCSS("font-style", "normal");
+  await page.getByTestId("part-room:1:logic").click();
+  await page.locator(".monaco-editor").click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.insertText("\n// Pinned by typing");
+  await expect(page.getByTestId("project-tab-logic:1")).toHaveCSS("font-style", "normal");
+  await page.keyboard.press("ControlOrMeta+w");
+  await expect(page.getByTestId("project-tab-logic:1")).toHaveCount(0);
+  const parts = await page
+    .locator("[data-part-row]")
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-testid")!));
+  for (const id of parts) await page.getByTestId(id).dblclick();
+  await page.getByTestId("part-inventory").click();
+  const strip = page.getByTestId("project-studio-tabs");
+  await expect
+    .poll(() => strip.evaluate((root) => root.scrollWidth - root.clientWidth))
+    .toBeGreaterThan(0);
+  await expect.poll(() => strip.evaluate((root) => root.scrollLeft)).toBeGreaterThan(0);
+  const stripBox = (await strip.boundingBox())!;
+  const active = (await strip.getByRole("tab", { selected: true }).boundingBox())!;
+  expect(active.x).toBeGreaterThanOrEqual(stripBox.x);
+  expect(active.x + active.width).toBeLessThanOrEqual(stripBox.x + stripBox.width);
+});
+
+test("Undo and History restore update the editor while a game message waits", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page.getByTestId("part-room:1:logic").click();
+  await page.locator(".monaco-editor").click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.insertText("\n// Instant Undo");
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await page.keyboard.press("Control+`");
+  await page.keyboard.type("look");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("sunny clearing");
+  await page.getByTestId("workspace-undo").click();
+  await expect(page.locator(".monaco-editor")).not.toContainText("Instant Undo");
+  await expect(page.getByTestId("workspace-redo")).toBeEnabled();
+  await expect(page.getByTestId("workspace-live")).toHaveText("Updates when the game continues");
+  await page.getByTestId("workspace-redo").click();
+  await expect(page.locator(".monaco-editor")).toContainText("Instant Undo");
+  await page.getByTestId("workspace-saved").click();
+  const restore = page
+    .getByTestId("workspace-history")
+    .getByRole("button", { name: "Restore", exact: true })
+    .last();
+  await expect(restore).toBeEnabled();
+  await restore.click();
+  await expect(page.locator(".monaco-editor")).not.toContainText("Instant Undo");
+  await page
+    .getByTestId("workspace-history")
+    .getByRole("button", { name: "×", exact: true })
+    .click();
+  await page.locator(".monaco-editor").click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.insertText("\n// Latest while waiting");
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await page.keyboard.press("Control+`");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("workspace-live")).toHaveText("LIVE");
+  await expect(page.locator(".monaco-editor")).toContainText("Latest while waiting");
+});
+
+for (const size of [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 800 },
+]) {
+  test(`polished workspace at ${size.width}×${size.height}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await starter(page);
+    const shot = (name: string) =>
+      reviewShot(page, `chromium-${size.width}x${size.height}-${name}`);
+    const body = (await page.locator(".shell-body").boundingBox())!;
+    const parts = (await page.getByTestId("parts-list").boundingBox())!;
+    const area = (await page.locator(".play-area").boundingBox())!;
+    expect(area.width).toBeGreaterThan(body.width - parts.width - 10);
+    await shot("idle-create");
+    await page.getByTestId("part-room:1:picture:1").click();
+    const studio = page.getByTestId("room-studio");
+    await expect(studio.getByRole("radiogroup", { name: "Lens", exact: true })).toBeVisible();
+    await expect(studio.getByRole("radio", { name: "Art", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    const options = (await studio.getByTestId("studio-options-bar").boundingBox())!;
+    const lens = (await studio
+      .getByRole("radiogroup", { name: "Lens", exact: true })
+      .boundingBox())!;
+    expect(lens.y).toBeGreaterThanOrEqual(options.y);
+    expect(lens.y + lens.height).toBeLessThanOrEqual(options.y + options.height);
+    const footer = (await studio.locator(".studio__status").boundingBox())!;
+    const palette = (await studio.locator(".workspace-palette").boundingBox())!;
+    expect(footer.y).toBeGreaterThanOrEqual(palette.y + palette.height);
+    await expect(studio.getByTestId("studio-value-priority")).toHaveText("None");
+    await studio.getByTestId("explain-drawing-depth").click();
+    await expect(page.getByTestId("explain-pop")).toContainText("drawing tools");
+    await page.keyboard.press("Escape");
+    await shot("picture");
+    await page.getByTestId("part-view:0").click();
+    const panel = (await page.locator(".sprite-studio__panel").boundingBox())!;
+    expect(panel.width).toBeGreaterThanOrEqual(290);
+    const optionsFit = await page
+      .locator(".sprite-options")
+      .evaluate((element) => element.scrollWidth <= element.clientWidth);
+    expect(optionsFit).toBe(true);
+    const edit = (await page.getByTestId("workspace-editor").boundingBox())!;
+    const game = (await page.locator(".play-area").boundingBox())!;
+    expect(edit.width).toBeGreaterThan(game.width);
+    await shot("view");
+    await page.getByTestId("part-words").click();
+    await expect(
+      page.getByTestId("workspace-table-editor").getByRole("columnheader", { name: "Group" }),
+    ).toHaveCount(0);
+    const ignored = page.locator('[data-word-group="0"]');
+    await expect(ignored).toContainText("a");
+    const group = page.locator('[data-word-group="100"]');
+    const input = group.getByRole("textbox");
+    await input.fill("inspect");
+    await input.press("Enter");
+    await expect(group.getByRole("button", { name: "Remove inspect", exact: true })).toBeVisible();
+    await input.press("Backspace");
+    await expect(group.getByRole("button", { name: "Remove inspect", exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await shot("words");
+    await page.getByTestId("part-inventory").click();
+    await expect(page.getByRole("columnheader", { name: "Object", exact: true })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Room", exact: true })).toBeVisible();
+    await page.getByTestId("part-view:0").dblclick();
+    await page.getByTestId("part-words").dblclick();
+    await page.getByTestId("part-room:1:picture:1").click();
+    await expect(page.getByTestId("project-tab-picture:1")).toHaveCSS("font-style", "italic");
+    await shot("preview-tabs");
+  });
+}
+
+test("parts show keyboard focus and align the VIEW thumbnail with other rows", async ({ page }) => {
+  await starter(page);
+  const part = page.getByTestId("part-view:0");
+  await part.click();
+  await expect(page.getByTestId("sprite-studio")).toBeVisible();
+  await part.click();
+  await expect(part).toBeFocused();
+  await expect.soft(page.getByTestId("parts-list")).toHaveCSS("outline-style", "none");
+  const thumbnailWidth = await part
+    .locator(".view-thumbnail")
+    .evaluate((element) => element.getBoundingClientRect().width);
+  expect.soft(thumbnailWidth).toBe(44);
+  const gap = await part.evaluate((row) => {
+    const thumbnail = row.querySelector(".view-thumbnail")!.getBoundingClientRect();
+    const label = row.querySelector("span:not(.view-thumbnail)")!.getBoundingClientRect();
+    return label.left - thumbnail.right;
+  });
+  expect.soft(gap).toBeLessThanOrEqual(10);
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(part).toBeFocused();
+  await expect(part).toHaveCSS("outline-style", "solid");
+});
+
+test("Create renders crisp while Play retains the CRT preference", async ({ page }) => {
+  await isolateStorage(page);
+  await page.addInitScript(() => localStorage.setItem("monotio_agi.crt", "on"));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  const sourceColour = await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="game-canvas"]')!;
+    return [...canvas.getContext("2d")!.getImageData(160, 160, 1, 1).data].slice(0, 3);
+  });
+  const renderedColour = async () => {
+    const bytes = [...(await page.getByTestId("gpu-canvas").screenshot())];
+    return page.evaluate(async (png) => {
+      const bitmap = await createImageBitmap(
+        new Blob([new Uint8Array(png)], { type: "image/png" }),
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      return [
+        ...context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height * 0.8), 1, 1)
+          .data,
+      ].slice(0, 3);
+    }, bytes);
+  };
+  await expect.poll(renderedColour).toEqual(sourceColour);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect.poll(renderedColour).toEqual(sourceColour);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(renderedColour).not.toEqual(sourceColour);
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.crt"))).toBe("on");
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect.poll(renderedColour).toEqual(sourceColour);
 });

@@ -60,6 +60,7 @@ export interface ProjectExplorerSection {
 
 /** One open tab: identity, resolved name, draft and availability state. */
 export interface ProjectStudioTab {
+  readonly preview?: boolean;
   readonly key: string;
   readonly label: string;
   readonly name?: string;

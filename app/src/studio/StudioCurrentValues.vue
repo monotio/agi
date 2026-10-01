@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed, ref, useTemplateRef } from "vue";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
@@ -52,7 +53,7 @@ const visualText = computed(() =>
 );
 const priorityText = computed(() => {
   const value = priorityShown.value;
-  if (value === null) return "Depth off";
+  if (value === null) return `${VOCABULARY.drawingDepth.label}: ${VOCABULARY.none.label}`;
   const meaning = `Depth ${value}, ${priorityMeaning(value)}`;
   return values.priority === "band" ? `${meaning} (the band under the cursor)` : meaning;
 });
@@ -112,9 +113,17 @@ function pick(patch: Partial<CurrentValues>): void {
       :data-value="values.priority ?? 'off'"
       @click="toggle('priority')"
     >
-      {{ priorityShown ?? "off" }}<small v-if="values.priority === 'band'">here</small>
+      {{ priorityShown ?? VOCABULARY.none.label
+      }}<small v-if="values.priority === 'band'">here</small>
     </button>
-    <span class="values__name" aria-hidden="true">Depth</span>
+    <span class="values__name">{{ VOCABULARY.drawingDepth.label }}</span>
+    <UiExplain
+      question
+      term="drawing-depth"
+      :name="VOCABULARY.drawingDepth.label"
+      :says="VOCABULARY.drawingDepth.help"
+      :technical="VOCABULARY.drawingDepth.technical"
+    />
 
     <div
       v-if="open"
@@ -218,6 +227,8 @@ function pick(patch: Partial<CurrentValues>): void {
   cursor: pointer;
 }
 .values__name {
+  max-width: 44px;
+  text-align: center;
   margin-bottom: var(--space-1);
   color: var(--ink-3);
   font-size: var(--text-2xs);
@@ -225,6 +236,8 @@ function pick(patch: Partial<CurrentValues>): void {
 /* A very short window keeps the rail's room for its tools: the swatches name themselves on hover. */
 @media (max-height: 540px) {
   .values__name {
+    max-width: 44px;
+    text-align: center;
     display: none;
   }
 }

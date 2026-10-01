@@ -10,6 +10,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const gameHost = shallowRef<HTMLElement | null>(null);
   const selected = ref<string>();
   const tabs = ref<string[]>([]);
+  const preview = ref<string>();
+  const pendingAdmission = ref(false);
   const retained = ref<string[]>([]);
   const focus = ref(false);
   const panel = ref(false);
@@ -27,10 +29,23 @@ export function createWorkspaceEditor(engine: EngineApi) {
   } catch {
     /* Use the default split. */
   }
+  const effectiveSplit = computed(() =>
+    kind.value === "view" ? Math.min(split.value, 30) : split.value,
+  );
   const kind = computed(() => selected.value?.split(":")[0] ?? "");
-  function open(key: string): void {
+  function pin(key: string): void {
+    if (preview.value === key) preview.value = undefined;
+  }
+  function open(key: string, pinned = false): void {
     selected.value = key;
-    if (!tabs.value.includes(key)) tabs.value.push(key);
+    if (!tabs.value.includes(key)) {
+      if (!pinned && preview.value !== undefined) {
+        const index = tabs.value.indexOf(preview.value);
+        tabs.value.splice(index, 1, key);
+      } else tabs.value.push(key);
+      preview.value = pinned ? preview.value : key;
+    }
+    if (pinned) pin(key);
     if (!retained.value.includes(key)) retained.value.push(key);
     try {
       const pref = localStorage.getItem(`monotio_agi.workspaceFocus.${kind.value}`);
@@ -42,6 +57,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
 
   function close(key: string): void {
+    if (preview.value === key) preview.value = undefined;
     const index = tabs.value.indexOf(key);
     tabs.value = tabs.value.filter((tab) => tab !== key);
     if (selected.value === key)
@@ -83,6 +99,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   function reset(): void {
     selected.value = undefined;
     tabs.value = [];
+    preview.value = undefined;
+    pendingAdmission.value = false;
     retained.value = [];
     focus.value = false;
     panel.value = history.value = false;
@@ -95,6 +113,10 @@ export function createWorkspaceEditor(engine: EngineApi) {
     gameHost,
     selected,
     tabs,
+    preview,
+    pin,
+    pendingAdmission,
+    effectiveSplit,
     retained,
     focus,
     panel,

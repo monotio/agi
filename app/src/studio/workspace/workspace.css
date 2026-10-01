@@ -33,8 +33,7 @@
   --workspace-parts: 0px;
 }
 .shell-body--workspace.shell-body--no-editor {
-  --workspace-game: minmax(0, 1fr);
-  --workspace-edit: 0px;
+  grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;
 }
 .shell-body--workspace.shell-body--picture {
   grid-template-columns: var(--workspace-parts) minmax(0, 1fr) !important;

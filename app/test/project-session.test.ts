@@ -135,7 +135,7 @@ test("a late admission after disposal leaves the old model and storage untouched
   assert.equal(saved, 0);
 });
 
-test("deferred admission retries at a supplied natural boundary before publication", async () => {
+test("deferred admission publishes documents then retries at a supplied natural boundary", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
     documents: { "logic:0": "return;" },
@@ -180,7 +180,8 @@ test("deferred admission retries at a supplied natural boundary before publicati
     author: "creator",
   });
   assert.equal(result.status, "committed");
-  assert.deepEqual(order, ["admit", "boundary", "admit", "publish"]);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(order, ["admit", "publish", "boundary", "admit", "publish"]);
   session.dispose();
 });
 
@@ -253,4 +254,162 @@ test("opening source errors before the first History commit preserves typed work
   );
   assert.ok(session.capture().diagnostics.some((finding) => finding.code === "compile"));
   session.dispose();
+});
+
+test("deferred Undo, Redo, Restore and typing publish immediately and admit only the latest image", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  let waiting = false;
+  let release: (() => void) | undefined;
+  const admitted: string[] = [];
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("instant-history"),
+      title: "Instant",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "instant-run",
+      admit: async (image) => {
+        if (!waiting) admitted.push(image.documents()["logic:0"] as string);
+        return {
+          status: waiting ? "deferred" : "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        };
+      },
+    },
+    boundary: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  });
+  try {
+    const opened = session.history.capture().cursor!;
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Edit", [
+        { key: "logic:0", content: 'print("Changed"); return;' },
+      ]),
+      origin: "logic",
+      label: "Edit",
+      author: "creator",
+    });
+    const changed = session.history.capture().cursor!;
+    waiting = true;
+    const undo = session.undo();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(
+      session.model.capture().read("logic:0")!.content,
+      "return;",
+      "Undo changes the document while MAIN waits",
+    );
+    await undo;
+    assert.equal(session.history.capture().cursor, opened);
+    assert.equal(session.capture().pendingAdmission, true);
+    await session.redo();
+    assert.equal(session.history.capture().cursor, changed);
+    await session.restore(opened);
+    assert.equal(session.model.capture().read("logic:0")!.content, "return;");
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Typing", [
+        { key: "logic:0", content: 'print("Latest"); return;' },
+      ]),
+      origin: "logic",
+      label: "Typing",
+      author: "creator",
+    });
+    assert.equal(session.model.capture().read("logic:0")!.content, 'print("Latest"); return;');
+    waiting = false;
+    release!();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(admitted, ['print("Changed"); return;', 'print("Latest"); return;']);
+    assert.equal(session.capture().pendingAdmission, false);
+  } finally {
+    session.dispose();
+  }
+});
+
+test("invalid typing retains the latest waiting runnable image and saves exact documents", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  let waiting = true;
+  let release: (() => void) | undefined;
+  let admitted = "";
+  let saved = "";
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("waiting-typing"),
+      title: "Typing",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "typing-run",
+      admit: async (image) => {
+        if (!waiting) admitted = image.documents()["logic:0"] as string;
+        return {
+          status: waiting ? "deferred" : "committed",
+          expected: null,
+          current: null,
+          patchGeneration: 1,
+        };
+      },
+    },
+    boundary: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    write: async (request) => {
+      saved = JSON.stringify(request.data.workspace);
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  try {
+    for (const content of ['print("Ready"); return;', "if ("]) {
+      await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Typing", [
+          { key: "logic:0", content },
+        ]),
+        origin: "logic",
+        label: "Typing",
+        author: "creator",
+      });
+    }
+    await session.flush();
+    assert.match(saved, /if \(/);
+    assert.equal(session.capture().pendingAdmission, true);
+    waiting = false;
+    release!();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(admitted, 'print("Ready"); return;');
+    assert.equal(session.model.capture().read("logic:0")!.content, "if (");
+  } finally {
+    session.dispose();
+  }
 });
