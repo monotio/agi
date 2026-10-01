@@ -60,7 +60,7 @@ export async function createProjectViaUi(page: Page, title: string): Promise<voi
     await page.getByTestId("create-adventure-toggle").click();
   }
   await page.getByTestId("local-create-title").fill(title);
-  await page.getByTestId("local-create-kind-starter").check();
+  await page.getByTestId("local-create-kind-starter").click();
   await page.getByTestId("local-create-submit").click();
   // Creation can open the project's workspace; the library card holds the
   // Edit entry, so leave the workspace when it took over the shell. Race the

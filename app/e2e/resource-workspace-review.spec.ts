@@ -1,6 +1,12 @@
 import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { isolateStorage, openWorldRoom, waitForCycles, waitForRoom } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openWorldRoom,
+  waitForCycles,
+  waitForRoom,
+  textHook,
+} from "./engineProbe.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { buildView, type BuildViewInput } from "../../src/view/view.ts";
@@ -18,13 +24,17 @@ import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 test.use({ viewport: { width: 1440, height: 900 } });
 
 /** Create a local project through the same dialog a player uses; returns its id. */
-async function createLocal(page: Page, title: string, kind: "blank" | "starter"): Promise<string> {
+async function createLocal(
+  page: Page,
+  title: string,
+  kind: "boilerplate" | "starter",
+): Promise<string> {
   await page.getByTestId("create-adventure-toggle").click();
   const form = page.locator(".local-create");
-  await expect(form.getByRole("button", { name: "Create game", exact: true })).toBeEnabled();
+  await expect(form.getByRole("button", { name: "Start building", exact: true })).toBeEnabled();
   await form.getByRole("textbox").fill(title);
-  await form.getByRole("radio", { name: new RegExp(kind, "i") }).check();
-  await form.getByRole("button", { name: "Create game", exact: true }).click();
+  await form.getByRole("radio", { name: new RegExp(kind, "i") }).click();
+  await form.getByRole("button", { name: "Start building", exact: true }).click();
   await waitForRoom(page, 1, { coldBoot: true });
   return page.evaluate(async (name) => {
     const { listStoredProjects } = await import("/src/project/gameStorage.ts");
@@ -35,7 +45,11 @@ async function createLocal(page: Page, title: string, kind: "blank" | "starter")
 }
 
 /** Seed a local project through production persistence without booting it. */
-async function seedLocal(page: Page, title: string, kind: "blank" | "starter"): Promise<string> {
+async function seedLocal(
+  page: Page,
+  title: string,
+  kind: "boilerplate" | "starter",
+): Promise<string> {
   return page.evaluate(
     async ({ name, template }) => {
       const { prepareLocalProject } = await import("/src/project/localProject.ts");
@@ -70,6 +84,12 @@ async function playFromLibrary(page: Page, title: string): Promise<void> {
     .locator("[data-project-id]")
     .filter({ has: page.getByTestId("saved-game-title").filter({ hasText: title }) });
   await card.getByTestId("btn-resume-cached").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  if ((await textHook(page)).modal === "print") {
+    await page.locator(".screen").click();
+    await page.keyboard.press("Enter");
+    await expect.poll(async () => (await textHook(page)).modal).toBe(null);
+  }
   await waitForRoom(page, 1, { coldBoot: true });
   const create = page.getByRole("radio", { name: "Create", exact: true });
   if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
@@ -195,7 +215,7 @@ test("a Room Studio Keep keeps the workspace agreeing so Logic Studio still buil
     return route.abort();
   });
   await page.goto("/");
-  const projectId = await seedLocal(page, "Workspace coherence", "blank");
+  const projectId = await seedLocal(page, "Workspace coherence", "boilerplate");
   await page.reload();
 
   // Reverse order first: a Logic Studio Keep lands on the stored project
@@ -268,10 +288,10 @@ test("a Sprite Studio Keep keeps the workspace agreeing so Logic Studio still bu
   await page.goto("/");
   const projectId = await createLocal(page, "Sprite coherence", "starter");
 
-  // Sprite Studio repaints a pixel of the ego's VIEW 1 and keeps it.
+  // Sprite Studio repaints a pixel of the ego's VIEW 0 and keeps it.
   const panel = page.getByTestId("world-panel");
   await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-1").click();
+  await panel.getByTestId("world-open-sprite-0").click();
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   await studio.locator('[data-colour="4"]').click();
@@ -287,7 +307,7 @@ test("a Sprite Studio Keep keeps the workspace agreeing so Logic Studio still bu
   await reviewShot(page, "resource-workspace-sprite-kept");
   await studio.getByTestId("studio-close").click();
 
-  const stored = await storedClaim(page, projectId, "view", 1);
+  const stored = await storedClaim(page, projectId, "view", 0);
   if (typeof stored.claim === "string") {
     // A verified spec claim rebuilds exactly the kept VIEW bytes.
     expect([...buildView(JSON.parse(stored.claim) as BuildViewInput, DEFAULT_V2_PROFILE)]).toEqual(
@@ -302,7 +322,7 @@ test("a Sprite Studio Keep keeps the workspace agreeing so Logic Studio still bu
   await openLogicStudio(page, projectId);
   await appendComment(page, "// kept after the sprite edit");
   await buildAndKeep(page);
-  const again = await storedClaim(page, projectId, "view", 1);
+  const again = await storedClaim(page, projectId, "view", 0);
   expect(again.logicOne).toContain("// kept after the sprite edit");
   expect(again.claim).toEqual(stored.claim);
   await closeLogicStudio(page);

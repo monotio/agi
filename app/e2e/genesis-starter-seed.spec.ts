@@ -30,7 +30,7 @@ async function connectDefaultOpenAi(page: Page): Promise<void> {
 async function launchGenesis(page: Page): Promise<void> {
   await openCreateAdventure(page);
   await page.getByTestId("template-mop-jockey").click();
-  await page.getByLabel("Adventure name").fill("Seed Proof");
+  await page.getByTestId("local-create-title").fill("Seed Proof");
   await page.getByTestId("boot-game").click();
 }
 
