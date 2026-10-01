@@ -20,7 +20,7 @@ npm --prefix app ci
 npm run dev
 ```
 
-The app opens at `http://localhost:5199/`. Without an AI key,
+The app opens at `http://localhost:5199/` with the manual editors ready to use.
 `npm --prefix app run dev -- --mode test --port 5199` runs the same app with the
 offline stub provider the browser tests use; to choose another port, pass
 `-- --port N` to this app script. The repository has two package roots: the root
@@ -55,7 +55,7 @@ server is already running, give the browser tests their own port:
 | `npm run media:capture`                                      | Recapture the README and `docs/media` images from the real app and agent tools; on demand, stub provider                                                          |
 
 The full gate takes a few minutes. Playwright runs Vite in `test` mode with a
-deterministic stub provider, so browser tests run offline at no cost. Live
+deterministic stub provider, so browser tests run offline. Live
 model evaluations are described in [evals](evals/README.md). A paid run takes
 both `--live` and `--budget-usd` on the command line (`EVAL_LIVE=1` and a budget
 variable for the promptfoo lanes).
@@ -100,7 +100,7 @@ npm run --silent language-server -- --stdio
 Configure an LSP client to launch this command from the repository and associate
 AGI source files with language id `agi-logic`. Standard output is reserved for
 protocol messages, so keep `--silent`. `--help` prints options to standard error.
-No AI key or hosted service is needed.
+The command runs locally over stdio.
 
 The server uses the shared AGI compiler and language service for diagnostics,
 completion, signature help, hover, same-document definitions and references, and
@@ -240,13 +240,13 @@ flowchart LR
 
 **A Logic Studio edit becomes a saved project**
 
-Library **Game actions → Edit** opens `project/editableProject.ts` directly, without
-booting a game or an agent. `studio/logic/LogicStudio.vue` owns the Monaco models,
+Library **Game actions → Edit** opens `project/editableProject.ts` directly.
+`studio/logic/LogicStudio.vue` owns the Monaco models,
 analysis-worker context and draft recovery. `buildSelected` captures the selected
 documents and their dependency closure for review; `keepCandidate` checks that
 captured authority and writes through `commitProject`. Changes typed during a save
-stay dirty, and storage failures preserve the draft for retry. This Keep is
-saved-only: it does not install code into a running worker.
+stay dirty, and storage failures preserve the draft for retry. This Keep writes
+the saved project. Worker installation is a separate operation.
 
 **Where authority lives.** Each of these is a check in code:
 
@@ -267,8 +267,7 @@ host's `catalog.json`) lists games to play.
 **Project storage and archives, version 2.** Stored project bodies, the
 localStorage index and `PROJECT.JSON` in a downloaded project archive are
 version 2, and readers still accept version 1. Version 2 makes the
-assistant metadata optional, so a game created locally without a provider
-carries no provider, model or transcript, and adds two separate envelopes:
+assistant metadata optional for locally authored games, and adds two separate envelopes:
 `workspace`, the kept authoring documents (exact source text where it
 exists, retained native bytes where it does not), and `recoveryDraft`,
 unfinished draft state that is never installed as playable resources. A

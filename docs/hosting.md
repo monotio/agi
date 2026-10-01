@@ -1,6 +1,6 @@
 # Hosting
 
-AGI IS HERE is a static web app with no server of its own: players' browsers
+AGI IS HERE is a static web app: players' browsers
 talk to their AI provider directly. Any static host that serves HTTPS can run a
 copy.
 
@@ -21,7 +21,7 @@ requests locally.
 
 ## Including games on your site
 
-The bundled tutorial needs no setup. To offer additional games you have
+The tutorial is included in the build. To offer additional games you have
 permission to redistribute, put their public AGI resources under
 `app/public/games/<id>/` and add an entry to `app/public/catalog.json` before
 building. You can also upload these folders and the manifest directly beside a

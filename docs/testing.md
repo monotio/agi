@@ -433,8 +433,7 @@ third-party walkthrough text and game resources out of tests. See
 
 ## Walkthrough tools
 
-These tools help write routes. No provider or commercial fixture is needed to
-use them; supply the game directory you want to investigate.
+These local tools help write routes for the game directory you want to investigate.
 
 ### Logic reference
 

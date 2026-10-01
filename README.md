@@ -8,7 +8,7 @@ This AGI is Sierra's
 [Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter),
 the engine behind King's Quest, Space Quest and Leisure Suit Larry, rebuilt
 from scratch, with manual editors and an optional AI co-author. Play the classics
-from your own copies, start a game locally without an API key, or describe a new
+from your own copies, create a game in the Studios, or describe a new
 adventure and play it while an agent builds the world around you. With an agent
 connected, ask for changes mid-game: give the guard a different personality, add
 a puzzle, or turn the courtyard into a swamp. Everything you make is a real AGI
@@ -24,8 +24,8 @@ cents and two dollars. From the [Genesis benchmark](evals/benchmarks/genesis/1.0
 
 Open [agi.monotio.com](https://agi.monotio.com/) and click **Play now** on
 **Adventure Department**, a three-room tutorial about how these games are made:
-you repair a picture, wake up a sprite and sort out a clerk's priority. You need
-no account, no API key and no Sierra files.
+you repair a picture, wake up a sprite and sort out a clerk's priority. It is
+ready to play in your browser.
 
 ![Adventure Department in Play: the apprentice has just painted the gallery's mural, and the status line reads Mural fixed! Next exhibit: go EAST.](docs/media/tutorial-gallery.png)
 
@@ -89,18 +89,18 @@ A few things worth knowing:
   needs, it asks. [Testing](docs/testing.md#testing-compatibility) lists the
   exact editions and builds.
 
-Bring your own copies of commercial games; they stay in your browser. No copies?
-Fans have made over a hundred free AGI games since the late nineties, collected
+Bring your own copies of commercial games; they stay in your browser.
+Explore over a hundred free AGI games made by fans since the late nineties, collected
 on the
 [AGI Wiki's fan release list](https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List)
 and in the
 [SCI Programming community's game list](https://sciprogramming.com/fangames.php?eng=agi&cat=Complete&sort=downloads).
-Their content varies, as fan works do.
+Fan games span many genres and audiences.
 
 ## Make your own adventure
 
 **Create an adventure** on the home screen offers two ways in. **Create
-game** builds a playable project locally, with no AI provider: **Starter**
+game** builds a playable project in your browser: **Starter**
 opens in a sunny clearing you can walk through, with an animated hero and
 the shared menu, death and save code, all editable; **Blank** is the
 smallest game that still runs, one room showing an empty picture. Both open
@@ -109,7 +109,7 @@ connected provider can pick them up later like any other project.
 
 To edit a saved game's code, open its library card's **Game actions → Edit**.
 **Logic Studio** gives you source tabs, code completion, hover help, definition
-navigation and a Problems panel without a key. Edit the logic and vocabulary,
+navigation and a Problems panel. Edit the logic and vocabulary,
 choose which changes to build, inspect the diff, then **Keep** them in the library.
 Unfinished work stays in a separate draft and is offered for recovery when you
 reopen. Games from the shared catalog need a personal copy before editing.
@@ -156,14 +156,14 @@ The agent checks its own work with rendered previews, compiler messages and
 playtests of its own. It can still get art, puzzles or writing wrong, so play
 it, and ask for revisions when something is off.
 
-**Your key, your provider, no server.** The app talks to your provider directly
+**Your key and provider.** The app talks to your provider directly
 from the browser. Your key is saved in browser storage and sent only to the
 provider you choose, along with the game content each request needs. Requests
 are billed to your account; each task starts with an estimated $5 budget that
 you can change. Each request extends the one before it, so the provider's
 prompt cache serves the conversation so far at its lower cache-read price. What
-the agent writes comes from your provider's model and is not reviewed by the
-app, so play a game through before you share it, especially with children. [Security](SECURITY.md) covers storage and data flow, and
+the agent writes comes from your provider's model. Review the story, puzzles and artwork before
+sharing the game, especially with children. [Security](SECURITY.md) covers storage and data flow, and
 [adventure briefs](games/README.md) covers writing your own templates.
 
 ## Edit every room by hand
@@ -216,7 +216,7 @@ waving robot._
   moves the door in the same Keep. Exits written in the room's own logic stay
   read-only. Right-click any spot and **Play here** jumps into the game there.
 - **Ask** has your connected AI change only the selected items: "make this
-  bridge walkable without changing the art". Attach reference art (a file, a
+  bridge walkable and preserve the art". Attach reference art (a file, a
   drop or a saved image) and the AI can look at it while it works. Its proposal
   shows on the canvas, Before or After, with the changed cells outlined. The
   app's own checks hold it to the selection and the lens's locks, and Accept
