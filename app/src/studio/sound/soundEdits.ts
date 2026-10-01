@@ -4,8 +4,14 @@ import { resourceCacheHint } from "../../../../src/authoring/authoringState.ts";
 import type { ProjectChange } from "../../../../src/authoring/projectContent.ts";
 import { PIT_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import type { SoundDocument } from "../../../../src/sound/document.ts";
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
 
-export const LANE_NAMES = ["Voice 1", "Voice 2", "Voice 3", "Noise"] as const;
+export const LANE_NAMES = [
+  `${VOCABULARY.voice.label} 1`,
+  `${VOCABULARY.voice.label} 2`,
+  `${VOCABULARY.voice.label} 3`,
+  VOCABULARY.drums.label,
+] as const;
 export const NOISE_CONTROL_NAMES: Record<number, string> = {
   0: "Periodic high",
   1: "Periodic medium",

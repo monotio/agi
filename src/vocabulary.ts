@@ -340,9 +340,51 @@ export const VOCABULARY = {
   },
   voice: {
     id: "voice",
-    label: "voice",
+    label: "Voice",
     help: "One of the sound's parts that play together. The PC speaker plays one voice; Tandy and PCjr play three plus noise.",
     technical: "",
+  },
+  drums: {
+    id: "drums",
+    label: "Drums",
+    help: "Kick, snare and hat use the noise voice.",
+    technical: "SN76489 noise control, 0..7.",
+  },
+  grid: {
+    id: "grid",
+    label: "Grid",
+    help: "Notes: time across, pitch up. Click to add or remove; drag to lengthen.",
+    technical: "Positions and lengths use native 60 Hz ticks.",
+  },
+  tracker: {
+    id: "tracker",
+    label: "Tracker",
+    help: "Edit each voice as note, length in ticks and volume from 0 to F.",
+    technical: "Volume is 15 minus native attenuation.",
+  },
+  importMusic: {
+    id: "importMusic",
+    label: "Import MIDI or VGM…",
+    help: "Bring music into the three voices and Drums.",
+    technical: "SMF type 0/1 or SN76489 VGM 1.50/1.51, converted to native SOUND bytes.",
+  },
+  exportMidi: {
+    id: "exportMidi",
+    label: "Export MIDI",
+    help: "Download music with one MIDI track per voice.",
+    technical: "SMF type 1. Pitches use the nearest MIDI note; timing uses 60 Hz ticks.",
+  },
+  addSound: {
+    id: "addSound",
+    label: "Add SOUND",
+    help: "Adds this music as a new SOUND.",
+    technical: "Allocates a free SOUND resource number.",
+  },
+  startFrom: {
+    id: "startFrom",
+    label: "Start from",
+    help: "Choose a preset to edit and play.",
+    technical: "Replaces the SOUND with native preset events.",
   },
   note: {
     id: "note",

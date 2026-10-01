@@ -176,8 +176,8 @@ A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it, with the rewind timeline. **Create** shows the parts list on
 the left and the same running game beside its editors. Open a PICTURE to draw
 with Room Studio’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
-loops and cels. WORDS and OBJECTS have table editors; SOUND offers playback and
-presets. **Focus** gives an editor the workspace while the game keeps running.
+loops and cels. WORDS and OBJECTS have table editors; SOUND has a step grid,
+tracker, presets and playback. **Focus** gives an editor the workspace while the game keeps running.
 Create works best on a larger screen; games play on phones too.
 
 Some Create edits need a fresh room or game start. **Re-enter room** runs the
@@ -233,10 +233,14 @@ waving robot._
 - **LOGIC** uses code intelligence, completion and diagnostics. Typing saves
   the source; errors leave the last working build running. **+ Add** guides
   room creation, hero placement, responses, doors and sounds.
-- **SOUND** opens beside the game. Start from a preset, change notes, beat lengths,
-  volume and tempo, and play a private audition with **Space**. **Details** exposes
-  native timing and pitch fields. Edits save to History and play next time the game
-  uses the sound.
+- **SOUND** opens beside the game. Draw the three voices and Drums on the **Grid**,
+  or type notes, tick lengths and hex volumes in the **Tracker**. Start from a preset,
+  set tempo and snap, and play a private audition with **Space**. Import MIDI type 0/1
+  or SN76489 VGM 1.50/1.51 after reviewing the conversion summary; export type 1 MIDI.
+  Drop music onto the editor or game to import it. **Details** exposes native ticks,
+  divisors and attenuation. Musical views retain exact native values until edited.
+  MIDI exports use the nearest musical pitch. Edits save to History and play next
+  time the game uses the sound.
 - **Agent** opens from the top bar or **⌘I**. Tell it what to change across
   the game, then use the workspace's shared History and Undo.
 - **VIEW editor** edits a view's loops and cels beside the running game.

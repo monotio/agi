@@ -704,6 +704,7 @@ watch(
           'shell-body--workspace': creating,
           'shell-body--no-editor': creating && !workspaceEditor.selected.value,
           'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
+          'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
           'shell-body--picture': creating && workspaceEditor.pictureLive.value,
           'shell-body--focus':
             creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,

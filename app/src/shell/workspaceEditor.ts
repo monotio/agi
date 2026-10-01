@@ -36,7 +36,11 @@ export function createWorkspaceEditor(engine: EngineApi) {
     /* Use the default split. */
   }
   const effectiveSplit = computed(() =>
-    kind.value === "view" ? Math.min(split.value, 30) : split.value,
+    kind.value === "view"
+      ? Math.min(split.value, 30)
+      : kind.value === "sound"
+        ? Math.max(split.value, 60)
+        : split.value,
   );
   const kind = computed(() => selected.value?.split(":")[0] ?? "");
   function pin(key: string): void {

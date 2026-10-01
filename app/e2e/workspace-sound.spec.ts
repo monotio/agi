@@ -23,7 +23,9 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
   await page.getByTestId("part-sound:1").click();
   const panel = page.getByTestId("workspace-sound");
   await expect(panel).toBeVisible();
-  await panel.locator("[data-note-id]").first().click();
+  await panel.getByRole("button", { name: "Tracker", exact: true }).click();
+  await panel.locator("[data-note-id] input.note").first().focus();
+  await panel.getByText("Details", { exact: true }).click();
   await panel.getByLabel("Note", { exact: true }).fill("A4");
   await panel.getByLabel("Note", { exact: true }).press("Tab");
   await panel.getByLabel("Length in beats").fill("4");
@@ -33,7 +35,7 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
   await expect(panel.getByLabel("Length in beats")).toHaveValue("4");
-  await panel.getByText("Details", { exact: true }).click();
+
   await expect(panel.getByLabel("Divisor", { exact: true })).toHaveValue("226");
   await expect(panel.getByLabel("Attenuation", { exact: true })).toHaveValue("3");
   await expect(panel.getByLabel("Ticks", { exact: true })).toHaveValue("120");
@@ -106,7 +108,9 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
   await page.reload();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await page.getByTestId("part-sound:1").click();
-  await panel.locator("[data-note-id]").first().click();
+  await panel.getByRole("button", { name: "Tracker", exact: true }).click();
+  await panel.locator("[data-note-id] input.note").first().focus();
+  await panel.getByText("Details", { exact: true }).click();
   await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
   await expect(panel.getByLabel("Volume", { exact: true })).toHaveValue("12");
 });
@@ -122,17 +126,22 @@ test("sound presets, note keyboard edits and guided cue creation share the works
     .click();
   const panel = page.getByTestId("workspace-sound").filter({ visible: true });
   await expect(panel.getByRole("heading", { name: "SOUND 2", exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(panel.locator("[data-note-id]")).toHaveCount(3);
-  await panel.getByRole("button", { name: "Danger", exact: true }).click();
+  await panel.getByLabel("Start from", { exact: true }).selectOption("danger");
   await expect(panel.locator("[data-note-id]")).toHaveCount(4);
-  await panel.getByRole("button", { name: "Add note to Voice 1", exact: true }).click();
-  const note = panel.locator("[data-note-id]").filter({ hasText: "A4" });
-  await expect(note).toBeFocused();
-  await note.press("Alt+ArrowLeft");
+  const note = panel.getByLabel("Voice 1, tick 34, note", { exact: true });
+  await note.fill("A4");
+  await note.press("Enter");
+  await note.focus();
+  await panel.getByText("Details", { exact: true }).click();
+  await panel.getByLabel("Length in beats").fill("1");
+  await panel.getByLabel("Length in beats").press("Tab");
   await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
-  await page.keyboard.press("Delete");
-  await expect(panel.locator("[data-note-id]")).toHaveCount(4);
-  await page.keyboard.press("Insert");
+  await panel.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(note).toHaveValue("Rest");
+  await note.fill("A4");
+  await note.press("Enter");
   await expect(panel.locator("[data-note-id]")).toHaveCount(5);
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await reviewShot(page, "sound-notes");
@@ -147,6 +156,7 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await page.getByTestId("part-sound:3").click();
   const success = page.getByTestId("workspace-sound").filter({ visible: true });
+  await success.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(success.locator("[data-note-id]")).toHaveCount(5);
   await reviewShot(page, "sound-preset-success");
   await page.getByTestId("part-sound:2").click();
@@ -155,20 +165,12 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await retained.getByLabel("Tempo", { exact: true }).fill("240");
   await retained.getByLabel("Tempo", { exact: true }).press("Tab");
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
-  await retained
-    .getByRole("region", { name: "Voice 1", exact: true })
-    .locator("[data-note-id]")
-    .last()
-    .click();
-  await retained.getByText("Details", { exact: true }).click();
+  await retained.locator("td.voice-0[data-note-id] input.note").last().focus();
+
   await expect(retained.getByLabel("Ticks", { exact: true })).toHaveValue("15");
   await page.getByTestId("workspace-undo").click();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
-  await retained
-    .getByRole("region", { name: "Voice 1", exact: true })
-    .locator("[data-note-id]")
-    .last()
-    .click();
+  await retained.locator("td.voice-0[data-note-id] input.note").last().focus();
   await expect(retained.getByLabel("Ticks", { exact: true })).toHaveValue("30");
   await expect(retained.getByLabel("Tempo", { exact: true })).toHaveValue("120");
   await page.getByTestId("workspace-redo").click();
