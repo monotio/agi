@@ -1,0 +1,182 @@
+import { expect, reviewShot, test } from "./test.ts";
+import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import type { Page } from "@playwright/test";
+
+async function starter(page: Page): Promise<void> {
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("Sound proof");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+}
+
+test("SOUND edits autosave, audition privately and play in MAIN on listen @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page.getByTestId("part-sound:1").click();
+  const panel = page.getByTestId("workspace-sound");
+  await expect(panel).toBeVisible();
+  await panel.locator("[data-note-id]").first().click();
+  await panel.getByLabel("Note", { exact: true }).fill("A4");
+  await panel.getByLabel("Note", { exact: true }).press("Tab");
+  await panel.getByLabel("Length in beats").fill("4");
+  await panel.getByLabel("Length in beats").press("Tab");
+  await panel.getByLabel("Volume", { exact: true }).fill("12");
+  await panel.getByLabel("Volume", { exact: true }).press("Tab");
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
+  await expect(panel.getByLabel("Length in beats")).toHaveValue("4");
+  await panel.getByText("Details", { exact: true }).click();
+  await expect(panel.getByLabel("Divisor", { exact: true })).toHaveValue("226");
+  await expect(panel.getByLabel("Attenuation", { exact: true })).toHaveValue("3");
+  await expect(panel.getByLabel("Ticks", { exact: true })).toHaveValue("120");
+  const stored = await page.evaluate(() => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: {
+          getSession(): { model: { capture(): { read(key: string): { content: Uint8Array } } } };
+        };
+      }
+    ).__AGI_PROJECT__.getSession();
+    return [...session.model.capture().read("sound:1").content.slice(8, 13)];
+  });
+  expect(stored).toEqual([120, 0, 14, 130, 147]);
+  await panel.getByLabel("Ticks", { exact: true }).scrollIntoViewIfNeeded();
+  await reviewShot(page, "sound-details");
+  await panel.getByText("Details", { exact: true }).click();
+  const cycle = (await textHook(page)).cycle;
+  await page.evaluate(async () => {
+    const { AgiAudio } = await import("/src/audio/AgiAudio.ts");
+    const original = AgiAudio.prototype.outputTick;
+    const samples: { owner: string; outputs: unknown[] }[] = [];
+    (window as unknown as { soundSamples: typeof samples }).soundSamples = samples;
+    AgiAudio.prototype.outputTick = function (packet) {
+      if (samples.length < 1000)
+        samples.push({
+          owner: this === window.__AGI_AUDIO__ ? "main" : "audition",
+          outputs: [...packet.outputs],
+        });
+      return original.call(this, packet);
+    };
+  });
+  await panel.getByTestId("sound-play").click();
+  await expect(panel.getByTestId("sound-status")).toHaveText("Playing");
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
+  await expect.poll(() => page.evaluate(() => window.__AGI_AUDIO__?.isPlaying)).toBe(false);
+  await reviewShot(page, "sound-playing");
+  await panel.getByTestId("sound-play").press("Space");
+  await expect(panel.getByTestId("sound-status")).toHaveText("Ready");
+  await page.keyboard.press("Control+`");
+  await page.keyboard.type("listen");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("meadowlark");
+  await expect.poll(() => page.evaluate(() => window.__AGI_AUDIO__?.isPlaying)).toBe(true);
+  const samples = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          soundSamples: {
+            owner: string;
+            outputs: { kind: string; divisor?: number; bytes?: number[] }[];
+          }[];
+        }
+      ).soundSamples,
+  );
+  for (const owner of ["main", "audition"]) {
+    const outputs = samples
+      .filter((sample) => sample.owner === owner)
+      .flatMap((sample) => sample.outputs);
+    expect(
+      outputs.some(
+        (output) =>
+          output.kind === "psg" && output.bytes?.[0] === 0x82 && output.bytes?.[1] === 0x0e,
+      ),
+    ).toBe(true);
+  }
+  await reviewShot(page, "sound-listen");
+  await page.keyboard.press("Enter");
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await page.reload();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await page.getByTestId("part-sound:1").click();
+  await panel.locator("[data-note-id]").first().click();
+  await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
+  await expect(panel.getByLabel("Volume", { exact: true })).toHaveValue("12");
+});
+
+test("sound presets, note keyboard edits and guided cue creation share the workspace @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await starter(page);
+  await page
+    .getByTestId("parts-list")
+    .getByRole("button", { name: "Add a sound", exact: true })
+    .click();
+  const panel = page.getByTestId("workspace-sound").filter({ visible: true });
+  await expect(panel.getByRole("heading", { name: "SOUND 2", exact: true })).toBeVisible();
+  await expect(panel.locator("[data-note-id]")).toHaveCount(3);
+  await panel.getByRole("button", { name: "Danger", exact: true }).click();
+  await expect(panel.locator("[data-note-id]")).toHaveCount(4);
+  await panel.getByRole("button", { name: "Add note to Voice 1", exact: true }).click();
+  const note = panel.locator("[data-note-id]").filter({ hasText: "A4" });
+  await expect(note).toBeFocused();
+  await note.press("Alt+ArrowLeft");
+  await expect(panel.getByLabel("Note", { exact: true })).toHaveValue("A4");
+  await page.keyboard.press("Delete");
+  await expect(panel.locator("[data-note-id]")).toHaveCount(4);
+  await page.keyboard.press("Insert");
+  await expect(panel.locator("[data-note-id]")).toHaveCount(5);
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await reviewShot(page, "sound-notes");
+  await page.getByTestId("part-room:1:logic").click();
+  await page.getByTestId("workspace-add").click();
+  await page.getByRole("menuitem", { name: "Play sound", exact: true }).click();
+  const form = page.getByTestId("workspace-guided-form");
+  await form.getByLabel("Command", { exact: true }).fill("help");
+  await form.getByLabel("Sound preset").selectOption("success");
+  await form.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(page.getByTestId("part-sound:3")).toBeVisible();
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await page.getByTestId("part-sound:3").click();
+  const success = page.getByTestId("workspace-sound").filter({ visible: true });
+  await expect(success.locator("[data-note-id]")).toHaveCount(5);
+  await reviewShot(page, "sound-preset-success");
+  await page.getByTestId("part-sound:2").click();
+  const retained = page.getByTestId("workspace-sound").filter({ visible: true });
+  await expect(retained.getByLabel("Note", { exact: true })).toHaveValue("A4");
+  await retained.getByLabel("Tempo", { exact: true }).fill("240");
+  await retained.getByLabel("Tempo", { exact: true }).press("Tab");
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await retained
+    .getByRole("region", { name: "Voice 1", exact: true })
+    .locator("[data-note-id]")
+    .last()
+    .click();
+  await retained.getByText("Details", { exact: true }).click();
+  await expect(retained.getByLabel("Ticks", { exact: true })).toHaveValue("15");
+  await page.getByTestId("workspace-undo").click();
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await retained
+    .getByRole("region", { name: "Voice 1", exact: true })
+    .locator("[data-note-id]")
+    .last()
+    .click();
+  await expect(retained.getByLabel("Ticks", { exact: true })).toHaveValue("30");
+  await expect(retained.getByLabel("Tempo", { exact: true })).toHaveValue("120");
+  await page.getByTestId("workspace-redo").click();
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await waitForAutosaveAfter(page, (await textHook(page)).cycle);
+  await page.reload();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await page.getByTestId("part-sound:2").click();
+  const reopened = page.getByTestId("workspace-sound").filter({ visible: true });
+  await expect(reopened.getByLabel("Tempo", { exact: true })).toHaveValue("240");
+});
