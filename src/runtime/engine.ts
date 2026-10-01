@@ -13,7 +13,7 @@
  * version strings.
  */
 
-import { matchDictionaryPhrase } from "../logic/words.ts";
+import { parseSentence } from "./parser.ts";
 import type { GameContainer } from "../types.ts";
 import {
   createPictureSurface,
@@ -5138,59 +5138,11 @@ export class Engine {
     this.flags[F_INPUT_READY] = 0;
     this.flags[F_SAID_MATCHED] = 0;
     this.lastInputLine = line;
-    this.parserCount = 0;
-    // Spec "Parser normalization": space and , . ? ! ( ) ; : [ ] { } separate;
-    // apostrophe, backtick, hyphen and double quote drop WITHOUT separating
-    // ("don't" is one token); separator runs collapse to one space; a trailing
-    // space is removed; ASCII matching ignores case. A leading separator
-    // leaves an empty leading token, which is not a token at all.
-    const normalized = line
-      .toLowerCase()
-      .replace(/['`\-"]/g, "")
-      .replace(/[ ,.?!();:[\]{}]+/g, " ")
-      .replace(/ $/, "");
-    const words: number[] = [];
-    const texts: string[] = [];
-    // Spec "Parser results": id-0 words occupy no slot; the first unknown
-    // token stores its text, v9 = retained count + 1, f2 set, stop parsing.
-    if (normalized.length > 0 && this.dictionary) {
-      let unknown = false;
-      const tokens = normalized.split(" ").filter((token) => token.length > 0);
-      for (let index = 0; index < tokens.length;) {
-        const { text: token, id, length } = matchDictionaryPhrase(tokens, index, this.dictionary);
-        index += length;
-        if (id === undefined) {
-          // First unknown token: v9 and the parser count take its one-based
-          // position; later tokens are not parsed. The token still occupies
-          // a parsed slot — group zero — so said(1) and said(0) match it
-          // (docs/fidelity.md, parser unknown-word audit).
-          texts.push(token);
-          this.parserCount = words.length + 1;
-          this.vars[V_WORDS] = this.parserCount;
-          if (words.length < 10) words.push(0);
-          unknown = true;
-          break;
-        }
-        if (id === 0) continue;
-        if (words.length < 10) {
-          words.push(id);
-          texts.push(token);
-        }
-      }
-      if (!unknown) {
-        // A fully recognised line leaves v9 at zero (spec: v9 is written only
-        // at an unknown token); the parser count is internal state.
-        this.parserCount = words.length;
-        // Only retained identifiers raise f2; an all-ignored line does not.
-        if (words.length === 0) {
-          this.parsedWords = words;
-          this.parsedWordTexts = texts;
-          return;
-        }
-      }
-    }
-    this.parsedWords = words;
-    this.parsedWordTexts = texts;
+    const parsed = parseSentence(line, this.dictionary);
+    this.parserCount = parsed.count;
+    if (parsed.unknownPosition > 0) this.vars[V_WORDS] = parsed.unknownPosition;
+    this.parsedWords = parsed.words;
+    this.parsedWordTexts = parsed.texts;
     if (this.parserCount > 0) this.flags[F_INPUT_READY] = 1;
   }
 

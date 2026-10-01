@@ -762,6 +762,14 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.fns.historyRecord({ kind: "device", device });
       return;
     }
+    if (msg.type === "observeSentences") {
+      ctx.input.observeSentences = msg.enabled;
+      if (!msg.enabled) {
+        ctx.input.sentence = null;
+        ctx.fns.applyTraceChannel();
+      }
+      return;
+    }
     if (msg.type === "input") {
       ctx.fns.onInput(msg);
       return;

@@ -303,6 +303,7 @@ export interface PatchResource {
 }
 
 export type WorkerInbound =
+  | { type: "observeSentences"; enabled: boolean }
   | BootMessage
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number }
@@ -584,6 +585,7 @@ export type WorkerInbound =
  * notices. Posted through sendControl; not suppressed while seeking.
  */
 export type WorkerControl =
+  | { type: "missedSentence"; text: string; room: number; unknown: string }
   | { type: "paused"; paused: boolean; cycle: number }
   | {
       type: "hostRequest";

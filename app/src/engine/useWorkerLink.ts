@@ -27,6 +27,7 @@ import type {
 
 /** Controllers the wire dispatches to; useEngine fills it once each exists. */
 interface WorkerLinkDeps {
+  missedSentence?(msg: Extract<WorkerOutbound, { type: "missedSentence" }>): void;
   projectBooted?(msg: Extract<WorkerOutbound, { type: "booted" }>): void;
   projectClosed?(): void;
   resetScreenState(): void;
@@ -228,6 +229,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
     // The map is required, not partial: a union member without a handler is a
     // type error here, so deleting one fails `npm run check` at compile time.
     const handlers: WorkerOutboundHandlers = {
+      missedSentence: (msg) => deps.missedSentence?.(msg),
       // Query replies — each settles its pending promise with the payload the
       // request asked for (see WorkerQueryReplies / WorkerQueryPayload).
       engineState: (msg) => workerQueries.resolveQuery(msg.id, msg.state),

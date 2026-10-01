@@ -1,3 +1,10 @@
+import {
+  readPlayerSentences,
+  savePlayerSentences,
+  recordPlayerSentence,
+  resolvePlayerSentence,
+  type PlayerSentence,
+} from "../project/playerSentences.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
@@ -418,7 +425,28 @@ export function useEngine(
         if (projectSessionOpening === grant.runToken) projectSessionOpening = undefined;
       });
   }
-  link.deps.projectBooted = (msg) => openSession(msg.projectAdmission);
+  const playerSentences = shallowRef<readonly PlayerSentence[]>([]);
+  let triedProject = "";
+  function loadTried(): void {
+    const project = lifecycle.getBootedGame()?.projectId ?? "";
+    if (project === triedProject) return;
+    triedProject = project;
+    playerSentences.value = project ? readPlayerSentences(project) : [];
+  }
+  link.deps.missedSentence = (msg) => {
+    if (projectMode !== "create") return;
+    loadTried();
+    playerSentences.value = recordPlayerSentence(playerSentences.value, msg);
+    if (triedProject) savePlayerSentences(triedProject, playerSentences.value);
+  };
+  link.deps.projectBooted = (msg) => {
+    openSession(msg.projectAdmission);
+    loadTried();
+    link.getWorker()?.postMessage({
+      type: "observeSentences",
+      enabled: projectMode === "create",
+    } satisfies WorkerInbound);
+  };
 
   // Another tab committing a newer revision of the running project marks it
   // behind at once, not at its next refused write; removing it stops every
@@ -701,8 +729,18 @@ export function useEngine(
   link.deps.handleHistoryView = historyView.applyReport;
 
   return {
+    playerSentences,
+    resolvePlayerSentence(entry: PlayerSentence) {
+      playerSentences.value = resolvePlayerSentence(playerSentences.value, entry);
+      if (triedProject) savePlayerSentences(triedProject, playerSentences.value);
+    },
     setProjectMode(mode: "create" | "play") {
       projectMode = mode;
+      loadTried();
+      link.getWorker()?.postMessage({
+        type: "observeSentences",
+        enabled: mode === "create",
+      } satisfies WorkerInbound);
       const game = lifecycle.getBootedGame();
       const worker = link.getWorker();
       if (

@@ -1,3 +1,4 @@
+import type { PendingSentence } from "./missedSentences.ts";
 /**
  * Worker context: every piece of mutable worker state, grouped by the module
  * that owns it, plus the ports out of the worker and the cross-module
@@ -99,6 +100,8 @@ interface BootState {
 
 /** worker/input.ts */
 interface InputState {
+  observeSentences: boolean;
+  sentence: PendingSentence | null;
   /** Queued key presses; a parked key wait is answered straight from here. */
   keyQueue: number[];
   /** Admitted walking releases and later walking keys wait for ordinary input. */
@@ -641,6 +644,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     },
     clocks: { sound: new SoundClock(now), cycle: new CycleClock(now) },
     input: {
+      observeSentences: false,
+      sentence: null,
       keyQueue: [],
       deferredMovement: [],
       inputBuffer: [],

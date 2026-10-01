@@ -1,3 +1,4 @@
+import { observeSentence } from "./missedSentences.ts";
 /**
  * The worker's timers: the 60 Hz host-poll interval and the sound clock
  * interval, plus the functions a logic cycle is made of. Pure functions of
@@ -31,6 +32,11 @@ export function createCycle(ctx: WorkerContext) {
     if (ctx.fns.debugStoppedHeld()) return false;
     const armedSerial = engine.executionControlActive ? engine.completedCycleSerial : null;
     run();
+    observeSentence(
+      ctx,
+      undefined,
+      !engine.continuationPending && !engine.awaitingHostAnswer && engine.modalKind === null,
+    );
     // Whatever the entry latched — a breakpoint, a watch, a pause — is
     // reported before the next atomic operation in the outer loop, and a
     // deferred control arm lands on the boundary a completed pass left.

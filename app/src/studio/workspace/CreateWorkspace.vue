@@ -18,6 +18,9 @@ import { useEngineApi } from "../../engine/engineContext.ts";
 import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
+import { useShellBridge } from "../../shell/shellBridge.ts";
+import { useAiSettings } from "../../settings/useAiSettings.ts";
+import type { WordsTask } from "./wordsAgent.ts";
 import UiButton from "../../ui/UiButton.vue";
 import PartsList from "./PartsList.vue";
 import ProjectTabs from "../host/ProjectTabs.vue";
@@ -33,6 +36,7 @@ import type { WorkspaceAction } from "./workspaceGuided.ts";
 const props = defineProps<{ creating: boolean }>();
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
 const GuidedAdd = defineAsyncComponent(() => import("./GuidedAdd.vue"));
+const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
 const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
 const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));
 const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.vue"));
@@ -333,6 +337,72 @@ const diagnostics = computed(() => {
   return session?.capture().diagnostics ?? [];
 });
 const guidedKind = ref<WorkspaceAction["kind"]>();
+const guidedCommand = ref("");
+const logicLocation = ref<{ key: string; line: number; serial: number }>();
+function openWordLogic(logic: number, line: number): void {
+  const key = `logic:${logic}`;
+  logicLocation.value = { key, line, serial: (logicLocation.value?.serial ?? 0) + 1 };
+  editor.open(key);
+}
+function wordResponse(room: number, command: string): void {
+  editor.open(`logic:${room}`);
+  guidedCommand.value = command;
+  guidedKind.value = "response";
+}
+const bridge = useShellBridge();
+const ai = useAiSettings();
+async function wordsTask(task: WordsTask): Promise<void> {
+  editor.focus.value = false;
+  const { openWordsTask } = await import("./wordsAgent.ts");
+  const scoped =
+    task.kind === "suggest"
+      ? task
+      : { ...task, pictures: engine.roomMap.resources.value.scans.get(task.room)?.pictures ?? [] };
+  await openWordsTask({
+    task: scoped,
+    documents: snapshot.value?.documents() ?? {},
+    engine,
+    bridge,
+    configured: ai.aiConfigured.value,
+    config: ai.llmConfig(),
+    setup: () => ai.openAiSettings(null, "assistant"),
+  });
+}
+async function wordChange(
+  action: { from: number; to: number; word?: string } | { remove: string },
+): Promise<void> {
+  await writes.flush();
+  const captured = session?.model.capture();
+  if (!captured) return;
+  try {
+    const { changeMeaning, removeMeaningWord } = await import("./wordsAnalysis.ts");
+    const document = captured.read("words")!.content;
+    const words =
+      typeof document === "string"
+        ? (JSON.parse(document) as [string, number][])
+        : parseWordsTok(document).map(({ word, id }) => [word, id] as [string, number]);
+    const changes =
+      "remove" in action
+        ? removeMeaningWord(words, captured.documents(), action.remove, profile.value)
+        : changeMeaning(words, captured.documents(), action, profile.value);
+    const result = await engine.submitProjectEdit({
+      changes,
+      origin: "words",
+      author: "creator",
+      label:
+        "remove" in action
+          ? `Removed word ${action.remove}`
+          : `Changed meaning ${action.from} to ${action.to}`,
+    });
+    if (!["committed", "unchanged"].includes(result.status))
+      throw new Error("Check Problems before changing this meaning.");
+    editor.pin("words");
+    editor.error.value = "";
+    refresh();
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
 async function guidedAction(action: WorkspaceAction): Promise<void> {
   await writes.flush();
   const capture = session?.model.capture();
@@ -350,6 +420,12 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     });
     if (!["committed", "unchanged"].includes(result.status))
       throw new Error("The action could not build. Check Problems and retry.");
+    if (action.kind === "response") {
+      const entry = engine.playerSentences.value.find(
+        (row) => row.room === action.room && row.text === action.command,
+      );
+      if (entry) engine.resolvePlayerSentence(entry);
+    }
     if (action.kind === "add-room") {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
       if (key) editor.open(key);
@@ -465,7 +541,7 @@ function escape(event: KeyboardEvent): void {
     openExplainer.value !== null ||
     [
       ...document.querySelectorAll(
-        'dialog[open], [role="menu"], .suggest-widget.visible, .monaco-hover, .workspace-guided__form',
+        'dialog[open], [role="menu"], .suggest-widget.visible, .monaco-hover, .workspace-guided__form, .words-choice, .word-suggestion',
       ),
     ].some((popover) => popover.getClientRects().length > 0)
   ) {
@@ -537,6 +613,7 @@ onBeforeUnmount(() => {
         v-if="editor.kind.value === 'logic'"
         v-model:action="guidedKind"
         :room="Number(editor.selected.value?.split(':')[1] ?? 0)"
+        :initial-command="guidedCommand"
         :busy="editor.busy.value"
         @add="guidedAction"
       />
@@ -606,14 +683,29 @@ onBeforeUnmount(() => {
       <LogicEditor
         v-else-if="key.startsWith('logic:') && text(key) !== undefined && snapshot"
         :document-key="key"
+        :location="logicLocation?.key === key ? logicLocation : undefined"
         :source="text(key)!"
         :snapshot="snapshot"
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
       />
+      <WordsEditor
+        v-else-if="key === 'words' && text(key) !== undefined && snapshot"
+        :source="text(key)!"
+        :documents="snapshot.documents()"
+        :profile="profile"
+        :room="engine.roomMap.currentRoom.value ?? 0"
+        :active="creating && key === editor.selected.value"
+        @edit="edit(key, $event)"
+        @move="wordChange"
+        @remove="wordChange({ remove: $event })"
+        @open-logic="openWordLogic"
+        @response="wordResponse"
+        @task="wordsTask"
+      />
       <TableEditor
-        v-else-if="(key === 'words' || key === 'inventory') && text(key) !== undefined"
+        v-else-if="key === 'inventory' && text(key) !== undefined"
         :kind="key"
         :source="text(key)!"
         @edit="edit(key, $event)"
