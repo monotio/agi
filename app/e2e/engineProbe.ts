@@ -205,10 +205,28 @@ export async function waitForAutosaveAfter(
 }
 
 /** The autosave record the host stored for `gameKey`, straight out of localStorage. */
+/** The live storage address bound to a saved body or a served fixture. */
+export async function progressStorageKey(page: Page, gameKey: string): Promise<string> {
+  return page.evaluate(async (key) => {
+    const bindingPath = "/src/project/progressBinding.ts";
+    const { bindSavedProgressTarget } = await import(/* @vite-ignore */ bindingPath);
+    const saved = await bindSavedProgressTarget(key);
+    if (saved) return saved.locator;
+    const discoveryPath = "/src/library/gameDiscovery.ts";
+    const metadataPath = "/src/project/gameMetadata.ts";
+    const targetPath = "/src/project/progressTarget.ts";
+    const { fetchFixtureFiles } = await import(/* @vite-ignore */ discoveryPath);
+    const { gameRevision } = await import(/* @vite-ignore */ metadataPath);
+    const { installedProgressLocator } = await import(/* @vite-ignore */ targetPath);
+    return installedProgressLocator(key, await gameRevision(await fetchFixtureFiles(key)))!;
+  }, gameKey);
+}
+
 export async function storedAutosave(
   page: Page,
   gameKey: string,
 ): Promise<{ room: number; cycle: number; imageLength: number } | null> {
+  const locator = await progressStorageKey(page, gameKey);
   return page.evaluate((key) => {
     const raw = localStorage.getItem(`monotio_agi.autosave.${key}`);
     if (!raw) return null;
@@ -218,7 +236,7 @@ export async function storedAutosave(
       cycle: Number(parsed.cycle),
       imageLength: atob(String(parsed.image)).length,
     };
-  }, gameKey);
+  }, locator);
 }
 
 /**
@@ -473,6 +491,14 @@ export async function enterCreateMode(page: Page): Promise<void> {
   if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
   await expect(create).toHaveAttribute("aria-checked", "true");
   await expect(page).toHaveURL(/#create\//);
+}
+
+/** Return to the full game before opening player tools. */
+export async function enterPlayMode(page: Page): Promise<void> {
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  if ((await play.getAttribute("aria-checked")) !== "true") await play.click();
+  await expect(play).toHaveAttribute("aria-checked", "true");
+  await expect(page).toHaveURL(/#play\//);
 }
 
 /** Seed through the production persistence boundary, so fixtures use the release contract. */

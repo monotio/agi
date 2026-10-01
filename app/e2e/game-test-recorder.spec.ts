@@ -9,6 +9,7 @@ import {
   isolateStorage,
   openGameOptions,
   textHook,
+  waitForRoom,
   enterCreateMode,
 } from "./engineProbe.ts";
 
@@ -83,7 +84,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.addInitScript(() => localStorage.setItem("monotio_agi.touchControls", "on"));
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 
   // Record: walk to the frame, paint the mural, dismiss the payoff window.
   // Playtest recording lives in the editing tools — the remix bubble.
@@ -177,7 +178,10 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles(projectPath!);
     await other.getByTestId("btn-resume-cached").click();
-    await expect.poll(async () => (await textHook(other)).room).toBe(1);
+    expect(project.progress?.autosave).not.toBeNull();
+    await expect
+      .poll(async () => (await textHook(other)).room)
+      .toBe(project.progress!.autosave!.room);
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
     await enterCreateMode(other);
     await other.getByTestId("power-up").click();

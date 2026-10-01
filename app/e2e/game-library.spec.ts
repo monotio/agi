@@ -390,7 +390,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
       remixProjectId: remix.projectId,
       remixSource: remix.library!.source,
       parent: remix.library!.parent,
-      currentProjectId: localStorage.getItem("monotio_agi.lastGame"),
+      currentProjectId: localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1],
     };
   }, before.projectId);
   expect(after.count).toBe(2);
@@ -474,7 +474,7 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
       projectId,
     ),
   ).toEqual([]);
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget"))).toBeNull();
 
   await page.getByTestId("game-zip-input").setInputFiles(upload);
   const readded = savedGameCard(page, "forgettable");

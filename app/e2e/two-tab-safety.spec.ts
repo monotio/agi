@@ -148,7 +148,12 @@ function stored(page: Page) {
     const path = "/src/project/gameStorage.ts";
     const { loadAuthoredGame } = await import(path);
     const body = await loadAuthoredGame(id);
-    const checkpoint = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${id}`) ?? "null");
+    const bindingPath = "/src/project/progressBinding.ts";
+    const { bindSavedProgressTarget } = await import(bindingPath);
+    const target = await bindSavedProgressTarget(id);
+    const checkpoint = JSON.parse(
+      localStorage.getItem(`monotio_agi.autosave.${target!.locator}`) ?? "null",
+    );
     return {
       revision: body?.library?.revision as string | undefined,
       generation: body?.generation as number | undefined,

@@ -149,7 +149,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
 
   const saved = await page.evaluate(async () => {
-    const projectId = localStorage.getItem("monotio_agi.lastGame")!;
+    const projectId = localStorage.getItem("monotio_agi.resumeTarget")!;
     const record = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${projectId}`)!);
     const observed = (window as Window & { menuSaveObservation?: SaveObservation })
       .menuSaveObservation;
@@ -180,7 +180,7 @@ test("Resume shows the same saved scene and position, including after reopening 
       if (index % 4 !== 3 && rgba[index] !== actual[index]) differences++;
     }
     return {
-      projectId,
+      projectId: record.game.identity.project,
       preview: record.preview,
       room: record.room,
       matchingSave:
@@ -331,13 +331,13 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  const originalProjectId = await page.evaluate(() =>
-    localStorage.getItem("monotio_agi.lastGame")!,
+  const originalProjectId = await page.evaluate(
+    () => localStorage.getItem("monotio_agi.resumeTarget")!.split(":")[1]!,
   );
   const copy = await page.evaluate(async () => {
     const path = "/src/library/gameLibrary.ts";
     const { copyLibraryGame } = await import(path);
-    return copyLibraryGame(localStorage.getItem("monotio_agi.lastGame")!);
+    return copyLibraryGame(localStorage.getItem("monotio_agi.resumeTarget")!.split(":")[1]!);
   });
   // The reload happened from the menu, so the app stays on the menu; resume the original.
   await page.reload();
@@ -359,8 +359,9 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   const checkpoint = await page.evaluate(async () => {
     const path = "/src/project/gameStorage.ts";
     const storage = await import(path);
-    const projectId = localStorage.getItem("monotio_agi.lastGame")!;
-    const key = `monotio_agi.autosave.${projectId}`;
+    const locator = localStorage.getItem("monotio_agi.resumeTarget")!;
+    const projectId = locator.split(":")[1]!;
+    const key = `monotio_agi.autosave.${locator}`;
     const raw = localStorage.getItem(key);
     if (!raw) throw new Error("No checkpoint was stored before returning to the menu");
     const cached = await storage.loadAuthoredGame(projectId);

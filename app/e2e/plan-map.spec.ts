@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   configureAi,
+  enterPlayMode,
   isolateStorage,
   openCreateAdventure,
   openDeveloperActivity,
@@ -39,11 +40,14 @@ async function createAdventure(page: Page): Promise<void> {
 async function openMap(page: Page): Promise<void> {
   // The plan surface is the creator entry — "Discovered" is the player's
   // view and shows no plan.
+  await enterPlayMode(page);
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
+  const allRooms = page.getByTestId("world-map").getByTestId("world-all-rooms");
+  if (await allRooms.isVisible()) await allRooms.click();
 }
 
 /**
@@ -102,9 +106,9 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
   // The map shows the plan over the running game: room 1 is authored and
   // visited, rooms 2 and 3 are planned nodes the player can already edit.
   await openMap(page);
-  await expect(page.getByTestId("map-room-1")).toBeVisible();
-  await expect(page.getByTestId("map-room-2")).toContainText("The Hall");
-  await expect(page.getByTestId("map-room-3")).toContainText("The Vault");
+  await expect(page.getByTestId("world-map").getByTestId("map-node-1")).toBeVisible();
+  await expect(page.getByTestId("world-map").getByTestId("map-node-2")).toContainText("The Hall");
+  await expect(page.getByTestId("world-map").getByTestId("map-node-3")).toContainText("The Vault");
   await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("map-detail")).toContainText("planned");
   await page.screenshot({ path: "test-results/plan-map-created.png" });
@@ -140,6 +144,7 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   // The player entry is the discovered view: room 1 was walked; rooms 2 and
   // 3 exist only in the creator's plan and must not appear — nor may any
   // plan affordance.
+  await enterPlayMode(page);
   await page.getByTestId("btn-world-map").click();
   const map = page.getByTestId("world-map");
   await expect(map).toBeVisible();
@@ -148,9 +153,9 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await expect(page.getByTestId("btn-world-plan")).toBeVisible();
   await expect(map.getByRole("heading", { name: "Map" })).toBeVisible();
   await expect(page.getByTestId("btn-world-discovered")).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByTestId("map-room-1")).toBeVisible();
-  await expect(page.getByTestId("map-room-2")).toHaveCount(0);
-  await expect(page.getByTestId("map-room-3")).toHaveCount(0);
+  await expect(page.getByTestId("world-map").getByTestId("map-node-1")).toBeVisible();
+  await expect(page.getByTestId("world-map").getByTestId("map-node-2")).toHaveCount(0);
+  await expect(page.getByTestId("world-map").getByTestId("map-node-3")).toHaveCount(0);
   await expect(map).not.toContainText("planned");
   await expect(map).not.toContainText("in code");
   await expect(page.getByTestId("map-add-room")).toHaveCount(0);
@@ -161,14 +166,15 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await page.getByTestId("map-close").click();
 
   // The creator entry on the same session shows the full plan.
+  await enterPlayMode(page);
   await page.getByTestId("btn-world-map").click();
   await expect(page.getByTestId("world-map")).toBeVisible();
   await page.getByTestId("btn-world-plan").click();
   await expect(map).toBeVisible();
   await expect(page.getByTestId("btn-world-plan")).toHaveText("Plan");
   await expect(page.getByTestId("btn-world-plan")).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByTestId("map-room-2")).toContainText("The Hall");
-  await expect(page.getByTestId("map-room-3")).toContainText("The Vault");
+  await expect(page.getByTestId("world-map").getByTestId("map-node-2")).toContainText("The Hall");
+  await expect(page.getByTestId("world-map").getByTestId("map-node-3")).toContainText("The Vault");
   // The room picked earlier still shows; its list, with Add a room, is one step back.
   await expect(map.getByTestId("map-detail")).toHaveAttribute("data-room", "1");
   await map.getByTestId("world-all-rooms").click();
@@ -190,7 +196,9 @@ test("editing a planned node and walking into it builds the edited version", asy
   const brief = page.getByTestId("plan-room-brief");
   await brief.fill("A long gallery of portraits.");
   await brief.press("Tab");
-  await expect(page.getByTestId("map-room-2")).toContainText("The Gallery");
+  await expect(page.getByTestId("world-map").getByTestId("map-node-2")).toContainText(
+    "The Gallery",
+  );
   await page.getByTestId("map-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 
@@ -325,7 +333,7 @@ test("a running authored game extends from a planned map node", async ({ page })
   });
   // The map stayed open on the paused game and the node is now authored.
   await expect(page.getByTestId("world-map")).toBeVisible();
-  await expect(page.getByTestId("map-room-2")).toContainText("logic");
+  await expect(page.getByTestId("map-detail")).toContainText("logic");
 
   // Closing the map resumes play; walking east enters the authored room —
   // it exists, so no second authoring turn fires.

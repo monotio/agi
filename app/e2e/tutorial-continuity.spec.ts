@@ -81,9 +81,9 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
   await older.getByTestId("btn-resume-cached").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_1_0}$`));
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
-    TUTORIAL_1_0,
-  );
+  expect(
+    await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1]),
+  ).toBe(TUTORIAL_1_0);
 
   // Its Help guide has no Studio lessons: the 1.1 lessons verify 1.1 resources.
   await openGameOptions(page, "help-menu");

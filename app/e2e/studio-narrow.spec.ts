@@ -165,9 +165,9 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
     if (await locator.isVisible()) expect(await onTop(locator), `${name} is on top`).toBe(true);
   await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600.png") });
 
-  // The folded options live in More: the grid, the baseline and All cels. The
-  // backdrop and the Onion menu stay in the bar.
-  await expect(studio.getByTestId("sprite-backdrop")).toBeVisible();
+  // The options bar measures its available width: at this size the backdrop
+  // joins the grid, baseline and All cels in More. Onion stays in the bar.
+  await expect(studio.getByTestId("sprite-backdrop")).toBeHidden();
   await expect(studio.getByTestId("sprite-onion")).toBeVisible();
   await expect(studio.getByTestId("sprite-grid")).toBeHidden();
   const more = studio.getByTestId("sprite-view-more");
@@ -182,7 +182,13 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   await expect(grid).toHaveAttribute("aria-checked", gridNow);
   await expect(menu.getByRole("menuitemcheckbox", { name: "Baseline" })).toBeVisible();
   await expect(menu.getByRole("menuitemcheckbox", { name: "All cels" })).toBeVisible();
-  await expect(menu.getByRole("menuitemradio")).toHaveCount(0);
+  await expect(
+    menu.getByRole("menuitemradio", { name: "Dark checker", exact: true }),
+  ).toBeVisible();
+  await menu.getByRole("menuitemradio", { name: "Light checker", exact: true }).click();
+  await expect(
+    menu.getByRole("menuitemradio", { name: "Light checker", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
   await page.screenshot({ path: test.info().outputPath("sprite-studio-1024x600-more.png") });
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
@@ -190,6 +196,7 @@ test("Sprite Studio at 1024×600: the options bar folds its view options into Mo
   // A wide window has room for every option in the bar, and no More.
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(studio.getByTestId("sprite-backdrop")).toBeVisible();
+  await expect(studio.getByTestId("sprite-backdrop")).toHaveValue("checker-light");
   await expect(studio.getByTestId("sprite-grid")).toHaveAttribute("aria-pressed", gridNow);
   await expect(more).toBeHidden();
 });

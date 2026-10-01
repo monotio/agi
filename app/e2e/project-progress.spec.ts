@@ -97,9 +97,12 @@ test("project import names each stored and refused progress entry", async ({ pag
     const { listCachedGames } = await import("/src/project/gameStorage.ts");
     const { readGameSaves } = await import("/src/saves/gameSaves.ts");
     const projectId = listCachedGames()[0]!.projectId;
+    const bindingPath = "/src/project/progressBinding.ts";
+    const { bindSavedProgressTarget } = await import(bindingPath);
+    const target = await bindSavedProgressTarget(projectId);
     return {
-      slots: Object.keys(readGameSaves(localStorage, projectId)),
-      autosave: localStorage.getItem(`monotio_agi.autosave.${projectId}`),
+      slots: Object.keys(readGameSaves(localStorage, target!.locator)),
+      autosave: localStorage.getItem(`monotio_agi.autosave.${target!.locator}`),
     };
   });
   expect(stored).toEqual({ slots: ["1"], autosave: null });

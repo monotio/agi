@@ -613,8 +613,11 @@ test("the graph pans in both axes, zooms, and the detail pane dismisses", async 
   const sidecarLayout = () =>
     page.evaluate(
       () =>
-        (JSON.parse(localStorage.getItem("monotio_agi.map.world-map-dense") ?? "{}").layout ??
-          {}) as Record<string, unknown>,
+        (JSON.parse(
+          localStorage.getItem(
+            `monotio_agi.map.${localStorage.getItem("monotio_agi.resumeTarget")}`,
+          ) ?? "{}",
+        ).layout ?? {}) as Record<string, unknown>,
     );
   const node = page.getByTestId("map-node-4");
   const nb = (await node.boundingBox())!;

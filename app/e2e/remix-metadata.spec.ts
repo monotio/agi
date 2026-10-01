@@ -92,7 +92,7 @@ test("power-up vocabulary and inventory reach the live worker and exported game"
       );
       const words = [...state.sources.words];
       const session = new AgentSession(
-        { provider: "openai", apiKey: "test-placeholder", model: "test" },
+        { provider: "openai", apiKey: "test-placeholder", model: "gpt-6.1-sol" },
         () => {},
         state,
       );
