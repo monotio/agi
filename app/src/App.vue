@@ -264,7 +264,8 @@ const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
   // studios over a run: nothing typed there may reach the game.
   intercept: (ev) =>
     onDockKey(ev) ||
-    (creating.value && (createKeyboard.value?.blocksGame(ev) ?? true)) ||
+    (creating.value &&
+      (createKeyboard.value?.blocksGame(ev) ?? ev.target !== playArea.value?.inputEl)) ||
     studio.value !== null ||
     logicProjectId.value !== undefined ||
     soundProjectId.value !== undefined,
