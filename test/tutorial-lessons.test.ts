@@ -134,7 +134,10 @@ describe("Adventure Department lessons", () => {
         ),
       );
       assert.equal(verdict.ok, false);
-      assert.equal(verdict.hint, "Only the sun should change, and this also changed Cottage.");
+      assert.equal(
+        verdict.hint,
+        "This also changed Cottage. Undo your last change, then edit Sun.",
+      );
     });
 
     it("fails a change to another object alone", () => {
@@ -142,7 +145,7 @@ describe("Adventure Department lessons", () => {
         pictureEdit(4, { type: "setItemColor", itemId: "cottage", plane: "visual", value: 5 }),
       );
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /^Only the sun should change, but this changed Cottage\./);
+      assert.match(verdict.hint ?? "", /^This changed Cottage\./);
     });
 
     it("fails a new shape drawn in the meadow", () => {
@@ -166,7 +169,7 @@ describe("Adventure Department lessons", () => {
         }),
       );
       assert.equal(verdict.ok, false);
-      assert.equal(verdict.hint, "Only the sun should change, and this also added a new shape.");
+      assert.equal(verdict.hint, "A new item was added. Undo that change, then edit Sun.");
     });
 
     it("fails a copy of the sun", () => {
@@ -181,7 +184,7 @@ describe("Adventure Department lessons", () => {
         }),
       );
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /added a new shape/);
+      assert.match(verdict.hint ?? "", /A new item was added/);
     });
 
     it("fails the sun deleted", () => {
@@ -196,7 +199,7 @@ describe("Adventure Department lessons", () => {
     it("fails no edit", () => {
       const verdict = verifyMuralObject(pictureEdit(4));
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /Nothing has changed yet/);
+      assert.match(verdict.hint ?? "", /Make your first change|To begin/);
     });
   });
 
@@ -248,13 +251,13 @@ describe("Adventure Department lessons", () => {
         viewEdit(2, { type: "recolor", scope: "loop", loop: 1, from: 14, to: 10, propagate: true }),
       );
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /loop 0 changed too/);
+      assert.match(verdict.hint ?? "", /Loop 0 changed too/);
     });
 
     it("fails no edit", () => {
       const verdict = verifyMirrorEdit(viewEdit(2));
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /Nothing has changed yet/);
+      assert.match(verdict.hint ?? "", /Make your first change|To begin/);
     });
   });
 
@@ -314,13 +317,13 @@ describe("Adventure Department lessons", () => {
         pictureEdit(3, { type: "setItemColor", itemId: "ledger-stand", plane: "visual", value: 4 }),
       );
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /depth only/);
+      assert.match(verdict.hint ?? "", /edit in the Depth lens/);
     });
 
     it("fails no edit", () => {
       const verdict = verifyStandDepth(pictureEdit(3));
       assert.equal(verdict.ok, false);
-      assert.match(verdict.hint ?? "", /Nothing has changed yet/);
+      assert.match(verdict.hint ?? "", /Make your first change|To begin/);
     });
   });
 });

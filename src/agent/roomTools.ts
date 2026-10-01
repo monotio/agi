@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
 /** Room scaffolding compiles ordinary AGI resources; the low-level source tools remain available. */
 import { assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok, parseWordsTok, matchDictionaryPhrase } from "../logic/words.ts";
@@ -28,8 +29,11 @@ const EDGES: Readonly<Record<string, number>> = { top: 1, right: 2, bottom: 3, l
 export const ROOM_TOOLS: readonly ToolDefinition[] = [
   {
     name: "write_room",
-    description: `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceCacheHint(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
-    parameters: {
+    description: toolDescription(
+      "write_room",
+      `Compile a complete room scaffold with picture, ego, spawn, edge exits and command interactions; title and description record the room intent. Resource references are integer IDs or reserved binding names, not quoted numbers. Registers needed words while preserving IDs. Use expectedRevision "${resourceCacheHint(null)}" for a new room; otherwise match its revision. Picture, ego view and inventory items must exist; exit rooms can be authored later. Leaves boot logic intact and returns revision, bindings, commands and intent updates.`,
+    ),
+    parameters: parameterDescriptions("write_room", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -117,7 +121,7 @@ export const ROOM_TOOLS: readonly ToolDefinition[] = [
         "exits",
         "interactions",
       ],
-    },
+    }),
   },
 ];
 
@@ -147,7 +151,7 @@ function referenceId(
     const binding = state.authoring.bindings[value];
     if (!binding || binding.kind !== kind)
       throw new Error(
-        `${label}: '${value}' needs a ${kind} binding. Use reserve_binding or a numeric ID.`,
+        `${label}: '${value}' needs a ${kind} binding. Use reserve_name or a numeric ID.`,
       );
     return integer(binding.num, label, min, 255);
   }
@@ -158,7 +162,7 @@ function flag(state: AgentSessionState, value: unknown): number | null {
   if (typeof value === "number") return integer(value, "flag", 0, 255);
   if (typeof value !== "string")
     throw new Error("A flag must be a named binding, numeric ID, or null.");
-  const result = executeAuthoringTool(state, "reserve_binding", {
+  const result = executeAuthoringTool(state, "reserve_name", {
     name: value,
     kind: "flag",
     id: null,
@@ -277,7 +281,7 @@ export function executeRoomTool(
       throw new Error("exits must contain at most four edge definitions.");
     if (!Array.isArray(interactions) || interactions.length > 32)
       throw new Error(
-        "interactions must contain at most 32 entries in this helper. Use write_logic_source for more elaborate room behavior.",
+        "interactions must contain at most 32 entries in this helper. Use write_logic for more elaborate room behavior.",
       );
 
     const files = state.getFiles();
@@ -303,7 +307,7 @@ export function executeRoomTool(
       const id = integer(value, label, 0, 255);
       if (!inventory[id])
         throw new Error(
-          `${label}: inventory item ${id} is missing. Define it with write_inventory_objects mode "merge" first.`,
+          `${label}: inventory item ${id} is missing. Define it with write_objects mode "merge" first.`,
         );
       return id;
     };
@@ -316,7 +320,7 @@ export function executeRoomTool(
       "room_ego_current_x",
       "room_ego_current_y",
     ] as const;
-    const reserved = executeAuthoringTool(staged, "reserve_binding", {
+    const reserved = executeAuthoringTool(staged, "reserve_name", {
       bindings: variableNames.map((name) => ({ name, kind: "variable", id: null })),
     });
     if (!reserved?.success)

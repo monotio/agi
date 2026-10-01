@@ -176,14 +176,14 @@ test("a cancelled genesis offers the same recovery, and late bytes cannot take t
           {
             type: "function_call",
             call_id: "plan",
-            name: "update_world",
+            name: "update_plan",
             arguments: JSON.stringify({
               rooms: [
                 { num: 1, title: "Late world", description: "Arrived after cancel.", exits: [] },
               ],
             }),
           },
-          { type: "function_call", call_id: "hand", name: "handover", arguments: "{}" },
+          { type: "function_call", call_id: "hand", name: "finish", arguments: "{}" },
         ],
       }),
     );

@@ -4,7 +4,15 @@ import {
   workerEntryImportBacks,
   workerStaticClosure,
   type GraphChunk,
+  isStudioModule,
 } from "../scripts/check-bundle-budget.ts";
+
+test("shared vocabulary may load with Help while editor kernels remain lazy", () => {
+  assert.equal(isStudioModule("src/studio/vocabulary.ts"), false);
+  assert.equal(isStudioModule("src/studio/editOperations.ts"), true);
+  assert.equal(isStudioModule("app/src/studio/studioTerms.ts"), true);
+  assert.equal(isStudioModule("src/studio/vocabularyEditor.ts"), true);
+});
 
 /**
  * The worker-budget measure: a startup worker's initial download is its

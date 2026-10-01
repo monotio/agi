@@ -355,7 +355,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
                   type: "function_call",
                   id: "patch",
                   call_id: "patch",
-                  name: "write_logic_source",
+                  name: "write_logic",
                   arguments: JSON.stringify({ room: 1, source: patched }),
                 },
               ]

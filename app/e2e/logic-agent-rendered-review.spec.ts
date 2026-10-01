@@ -18,7 +18,7 @@ test("proposal review renders the exact removed and inserted source before appro
             {
               type: "function_call",
               call_id: id,
-              name: "propose_project_documents",
+              name: "propose_changes",
               arguments: JSON.stringify({
                 label: "Explain the room",
                 changes: [{ key: "logic:1", content: after }],

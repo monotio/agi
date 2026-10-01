@@ -193,8 +193,8 @@ const assistHost: StudioAssistHost | null =
 /** What an Ask is about: the selected cel, or every cel of its loop. */
 const askScope = ref<"cel" | "loop">("loop");
 const ASK_SCOPES = [
-  { value: "cel", label: "Cel", title: "Ask about this cel" },
-  { value: "loop", label: "Loop", title: "Ask about every cel of this loop" },
+  { value: "cel", label: "Cel", title: "Tell the agent about this cel" },
+  { value: "loop", label: "Loop", title: "Edit every cel in this loop with the agent" },
 ] as const;
 const askCels = computed(() => {
   const cels = draft.document.value.loops[loop.value]?.cels ?? [];
@@ -228,7 +228,7 @@ const assist = useStudioAssist({
   current: currentView,
   apply: (candidate, focus) => {
     if (candidate.kind !== "view" || focus.scope.kind !== "view")
-      return { ok: false, message: "That proposal is not for this view." };
+      return { ok: false, message: "That change is not for this view." };
     const outcome = draft.adopt(candidate.draft.payload, "AI edit", focus.scope);
     report(outcome);
     return outcome.ok ? outcome : { ok: false, message: outcome.refusal.message };
@@ -366,11 +366,11 @@ function edit(
   feetFrom?: typeof currentCel.value,
 ): void {
   if (frozen()) {
-    say({ tone: "warn", text: "This sprite is read-only." });
+    say({ tone: "warn", text: "This actor is read-only." });
     return;
   }
   if (assist.holds.value) {
-    say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
+    say({ tone: "warn", text: "Approve or reject the AI's change first." });
     return;
   }
   const ops = "type" in op ? [op] : op;
@@ -610,7 +610,7 @@ const status = computed(() => {
     data-testid="sprite-studio"
     tabindex="-1"
     role="region"
-    :aria-label="`Sprite Studio: VIEW ${viewNumber}`"
+    :aria-label="`VIEW editor: ${viewNumber}`"
     @keydown="onKeydown"
     @keyup.stop
     @keypress.stop
@@ -829,7 +829,7 @@ const status = computed(() => {
             v-if="!assist.holds.value"
             v-model="askScope"
             size="sm"
-            label="Ask about"
+            label="Scope"
             :options="ASK_SCOPES"
           />
         </template>
@@ -873,11 +873,11 @@ const status = computed(() => {
       />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
-    <StudioTour :tour :stage name="Sprite Studio" />
+    <StudioTour :tour :stage name="VIEW editor" />
 
     <StudioKeySheet
       v-model:open="calm.sheetOpen.value"
-      name="Sprite Studio"
+      name="VIEW editor"
       :sections="keySheet"
       @tour="tour.start()"
     />
@@ -890,7 +890,7 @@ const status = computed(() => {
       @keep="leave.answer('keep')"
       @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
     />
-    <StudioSmallScreen name="Sprite Studio" :draft :keeper @close="emit('close')" />
+    <StudioSmallScreen name="VIEW editor" :draft :keeper @close="emit('close')" />
   </div>
 </template>
 

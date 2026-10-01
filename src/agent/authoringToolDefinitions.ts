@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
 /** Schemas for the authoring tools (bindings and source edits); executeAuthoringTool runs them. */
 import type { ToolDefinition } from "./tools.ts";
 
@@ -6,10 +7,12 @@ const string = { type: "string" };
 
 export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
   {
-    name: "reserve_binding",
-    description:
+    name: "reserve_name",
+    description: toolDescription(
+      "reserve_name",
       "Bind stable lowercase names to resources, flags or variables of `kind` (logic, picture, view, sound, flag or variable). Supports a `bindings` array to reserve multiple names at once, or single `name`/`kind`/`id`. Null `id` allocates a free slot; an explicit `id` binds that slot without changing its contents. Returns `#define` lines.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("reserve_name", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -38,13 +41,15 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
         id: nullableId,
       },
       required: ["bindings", "name", "kind", "id"],
-    },
+    }),
   },
   {
-    name: "edit_resource_source",
-    description:
-      "Apply a batch of exact-text edits to logic or picture `kind` number `num` in one call. Every `find` must occur exactly once in the same source snapshot read_logic or read_picture returns — overlapping occurrences count, and all matches resolve against that snapshot before any edit applies. Edits must not overlap; they apply together through one compilation and one commit. `expectedRevision` must match the current revision. Any conflict or compile error changes nothing.",
-    parameters: {
+    name: "edit_source",
+    description: toolDescription(
+      "edit_source",
+      "Apply a batch of exact-text edits to logic or picture `kind` number `num` in one call. Every `find` must occur exactly once in the same source snapshot read_logic or read_picture returns. overlapping occurrences count, and all matches resolve against that snapshot before any edit applies. Edits must not overlap; they apply together through one compilation and one commit. `expectedRevision` must match the current revision. Any conflict or compile error changes nothing.",
+    ),
+    parameters: parameterDescriptions("edit_source", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -64,13 +69,15 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["kind", "num", "expectedRevision", "edits"],
-    },
+    }),
   },
   {
-    name: "update_world",
-    description:
+    name: "update_plan",
+    description: toolDescription(
+      "update_plan",
       "Update persistent `rooms`, `facts` and `quests` intent. Empty arrays leave other entries unchanged. Intent does not alter or verify game behavior.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("update_plan", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -125,6 +132,6 @@ export const AUTHORING_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["rooms", "facts", "quests"],
-    },
+    }),
   },
 ];

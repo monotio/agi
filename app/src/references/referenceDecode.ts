@@ -68,7 +68,7 @@ export async function decodeReferenceFile(file: Blob): Promise<DecodedImage> {
   }
 }
 
-/** A stored reference image's pixels, for view_reference and the turn manifest. */
+/** A stored reference image's pixels, for read_reference_image and the turn manifest. */
 export async function decodeStoredImage(
   bytes: Uint8Array,
   mime: string,

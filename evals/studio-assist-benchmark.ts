@@ -2,7 +2,7 @@
 /**
  * Studio assist benchmark: the creator's selection in Room Studio or Sprite
  * Studio, one instruction, and a real provider driving read_edit_context and
- * propose_edit through the production AgentSession on the Adventure
+ * propose_changes through the production AgentSession on the Adventure
  * Department tutorial. Records per run whether a candidate passed its scope
  * (`ok`), how many proposals were refused, rounds, tokens and cost.
  *

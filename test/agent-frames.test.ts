@@ -126,13 +126,13 @@ describe("frame compositing", () => {
   });
 });
 
-describe("read_room_context frames section", () => {
+describe("read_room frames section", () => {
   const session = createAgentSessionState();
 
   it("reports a live origin with the cycle checkpoint and resource-set identity", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
       { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([7]) },
     );
@@ -147,7 +147,7 @@ describe("read_room_context frames section", () => {
   it("returns one image per frame when sheet is disabled", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: 1, state: null, frames: { count: 3, stride: 1, sheet: false, plane: null } },
       { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([10, 11, 12]) },
     );
@@ -161,7 +161,7 @@ describe("read_room_context frames section", () => {
   it("packs frames into one contact sheet on request, labelled by cycle", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: 1, state: null, frames: { count: 5, stride: 1, sheet: true, plane: "visual" } },
       { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([1, 2, 3, 4, 5]) },
     );
@@ -176,7 +176,7 @@ describe("read_room_context frames section", () => {
   it("returns every frame up to the documented maximum", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: 1, state: null, frames: { count: 9, stride: 1, sheet: false, plane: null } },
       {
         allowedTools: AUTHORING_TOOL_NAMES,
@@ -190,7 +190,7 @@ describe("read_room_context frames section", () => {
     // The schema bound is the contract, as for playtest_room.ticks; nothing is clamped silently.
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: 1, state: null, frames: { count: 99, stride: 1, sheet: null, plane: null } },
       {
         allowedTools: AUTHORING_TOOL_NAMES,
@@ -205,7 +205,7 @@ describe("read_room_context frames section", () => {
   it("reports an empty ring rather than an empty image", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: null } },
       { allowedTools: AUTHORING_TOOL_NAMES, frames: { read: () => [] } },
     );
@@ -217,7 +217,7 @@ describe("read_room_context frames section", () => {
   it("fails clearly when a null room has no live game to resolve", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       {
         room: null,
         state: null,
@@ -232,7 +232,7 @@ describe("read_room_context frames section", () => {
   it("reports a missing live game per section when a room is given", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       {
         room: 1,
         state: null,
@@ -249,7 +249,7 @@ describe("read_room_context frames section", () => {
   it("rejects an unknown plane", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: 1, state: null, frames: { count: 1, stride: 1, sheet: null, plane: "depth" } },
       { allowedTools: AUTHORING_TOOL_NAMES, frames: fakeSource([1]) },
     );
@@ -259,7 +259,7 @@ describe("read_room_context frames section", () => {
   });
 });
 
-describe("read_room_context state/objects sections", () => {
+describe("read_room state/objects sections", () => {
   const session = createAgentSessionState();
   const engine = {
     objects: () => [{ num: 0, view: 1, x: 40, y: 120 }],
@@ -279,7 +279,7 @@ describe("read_room_context state/objects sections", () => {
   it("reports the active object table in the live section", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: null, state: null, frames: null },
       { allowedTools: AUTHORING_TOOL_NAMES, engine },
     );
@@ -315,7 +315,7 @@ describe("read_room_context state/objects sections", () => {
     });
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: null, state: null, frames: null },
       {
         allowedTools: AUTHORING_TOOL_NAMES,
@@ -336,7 +336,7 @@ describe("read_room_context state/objects sections", () => {
   it("returns the live interpreter state in the state section", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       {
         room: null,
         state: { variables: null, flags: null, compact: null },
@@ -353,7 +353,7 @@ describe("read_room_context state/objects sections", () => {
   it("combines sections in one call and omits unrequested ones", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       {
         room: null,
         state: { variables: null, flags: null, compact: null },
@@ -371,7 +371,7 @@ describe("read_room_context state/objects sections", () => {
   it("omits state and frames sections when they are not requested", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       { room: null, state: null, frames: null },
       { allowedTools: AUTHORING_TOOL_NAMES, engine },
     );
@@ -384,7 +384,7 @@ describe("read_room_context state/objects sections", () => {
   it("reports a missing interpreter in the requested sections only", async () => {
     const res = await executeAgentToolAsync(
       session,
-      "read_room_context",
+      "read_room",
       {
         room: 1,
         state: { variables: null, flags: null, compact: null },

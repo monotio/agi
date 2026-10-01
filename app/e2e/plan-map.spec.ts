@@ -12,7 +12,7 @@ import {
 
 /**
  * The map as a plan surface under one-flow genesis: the agent records the
- * world through update_world and builds the opening room in the same turn,
+ * world through update_plan and builds the opening room in the same turn,
  * the map shows the plan on the running game and stays editable, and a
  * planned room builds just-in-time — by walking into it or from "Build this
  * room". No fixture needed — every byte here is generated.

@@ -56,7 +56,7 @@ function fixture(onEvent?: (kind: string, data?: unknown) => void) {
               ? [
                   {
                     id: "proposal",
-                    name: "propose_project_documents",
+                    name: "propose_changes",
                     input: {
                       label: "Add room",
                       changes: [{ key: "logic:9", content: "return;\n" }],

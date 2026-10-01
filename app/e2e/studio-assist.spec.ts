@@ -204,7 +204,7 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
     "Floor (estimate): 880 → 960 cells in the selection",
   );
   await expect(studio.getByTestId("assist-walkable-unchanged")).toBeHidden();
-  await expect(studio.getByTestId("assist-live")).toContainText("Proposal ready");
+  await expect(studio.getByTestId("assist-live")).toContainText("Changes ready");
   // The canvas shows the proposal with its changed cells outlined; Before shows the draft.
   // Before and After dock in the options bar, off the picture.
   const compare = studio.getByTestId("studio-options-bar").getByTestId("assist-compare");
@@ -212,17 +212,17 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   await expect(studio.locator('[data-role="changed"]').first()).toBeVisible();
   const controlLabels = studio.locator('[data-role="control-labels"] text');
   // After: the banks split into a left and a right barrier around the water.
-  await expect(controlLabels).toHaveText(["water", "barrier", "barrier"]);
+  await expect(controlLabels).toHaveText(["Water", "Wall", "Wall"]);
   await reviewShot(page, "room-candidate-after");
   await compare.getByRole("radio", { name: "Before" }).click();
   // Before: the draft's water (79,130) and barrier (79,139) labels would
   // stack in one column 18 px apart at 2x; the smaller run's is left out.
-  await expect(controlLabels).toHaveText(["water"]);
+  await expect(controlLabels).toHaveText(["Water"]);
   await reviewShot(page, "room-candidate-before");
   await compare.getByRole("radio", { name: "After" }).click();
   // The lens and the unlocks wait with the proposal: controls off, keys inert.
   const lensSwitch = studio.getByTestId("studio-lens");
-  const HELD = "Finish or reject the AI's proposal first";
+  const HELD = "Finish or reject the AI's change first";
   await expect(lensSwitch.getByRole("radio", { name: /Art/ })).toHaveAttribute("title", HELD);
   await expect(lensSwitch.getByRole("radio", { name: /Art/ })).toBeDisabled();
   const lockChip = studio.locator(".top-bar__lens").getByTestId("studio-lock-chip");
@@ -246,7 +246,7 @@ test("Room Studio: make the bridge walkable, accept as one undo step, the art un
   expect(await draftSource(page)).toBe(source);
 
   await studio.getByTestId("assist-accept").click();
-  await expect(studio.getByTestId("assist-outcome")).toContainText("Accepted as one undo step");
+  await expect(studio.getByTestId("assist-outcome")).toContainText("Approved as one undo step");
   await expect(compare).toBeHidden();
   await expect(lensSwitch.getByRole("radio", { name: /Art/ })).toBeEnabled();
   await lockChip.locator("[data-term]").click();
@@ -405,7 +405,7 @@ test("Sprite Studio: make the eyes blue on loop 1, accept, loop 0 unchanged", as
 
 // ---- A request held open: Stop, and an edit while the AI works ------------
 
-const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!;
+const propose = STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!;
 const pictureOpFields = (
   propose.parameters.properties["pictureOps"] as { items: { required: readonly string[] } }
 ).items.required;
@@ -504,7 +504,7 @@ test("Room Studio: an edit while the AI works makes its proposal stale", async (
       const baseRevision = /baseRevision (picture-\d+-[0-9a-f]{8})/.exec(sent)![1];
       return fulfil(
         route,
-        call("p1", "propose_edit", {
+        call("p1", "propose_changes", {
           baseRevision,
           summary: "Opened the barrier under the bridge.",
           pictureOps: [walkwayOp],
@@ -540,10 +540,10 @@ test("Room Studio: an edit while the AI works makes its proposal stale", async (
     release();
     await expect(studio.getByTestId("assist-candidate")).toBeVisible();
     await expect(studio.getByTestId("assist-stale")).toHaveText(
-      "You changed the picture while the AI worked. Ask again.",
+      "You changed the picture while the AI worked. Follow up.",
     );
     await expect(studio.getByTestId("assist-accept")).toBeDisabled();
-    await expect(studio.getByTestId("assist-compare")).toContainText("Stale proposal");
+    await expect(studio.getByTestId("assist-compare")).toContainText("Stale change");
     await reviewShot(page, "room-stale");
     await studio.getByTestId("assist-reject").click();
     expect(await draftSource(page)).toBe(source);
@@ -582,7 +582,7 @@ test("Room Studio: drawing outside the selection is refused in the activity; a f
     const sent = JSON.stringify(route.request().postDataJSON());
     const baseRevision = /baseRevision (picture-\d+-[0-9a-f]{8})/.exec(sent)?.[1];
     const propose = (id: string, ops: unknown[]) =>
-      call(id, "propose_edit", {
+      call(id, "propose_changes", {
         baseRevision,
         summary: "Opened the barrier under the bridge.",
         pictureOps: ops,

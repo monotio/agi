@@ -362,7 +362,7 @@ test("saving with F5 writes a real save-file image and F7 restores it without lo
  * than the walk, which the text hook publishes; nothing here waits on a clock.
  *
  * The Vite HMR half of the same mechanism (flush on `vite:beforeFullReload`,
- * in-memory handover through `import.meta.hot.dispose`) is NOT covered here:
+ * in-memory finish through `import.meta.hot.dispose`) is NOT covered here:
  * proving it means editing files under app/src while the dev server watches
  * them, which is exactly what invalidates a suite run (AGENTS.md). It has a
  * manual proof run instead — `node app/e2e/manual/hmr-resume.mjs`, whose

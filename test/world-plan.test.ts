@@ -83,7 +83,7 @@ test("an empty base revision adopts unconditionally (restored draft)", () => {
 test("commitWorldDraft rejects invalid worlds through the shared validator", () => {
   const state = worldWith({ "1": { title: "Hall", description: "", exits: {} } });
   const draft = createWorldDraft(state.world);
-  draft.world.rooms["1"]!.exits["east"] = 999; // same limit update_world enforces
+  draft.world.rooms["1"]!.exits["east"] = 999; // same limit update_plan enforces
   const result = commitWorldDraft(state, draft);
   assert.equal(result.status, "invalid");
 });
@@ -151,7 +151,7 @@ test("draftRemoveRoom keeps the world valid at the room-count limit", () => {
   );
 });
 
-test("validateWorldDraft surfaces the same limits as update_world", () => {
+test("validateWorldDraft surfaces the same limits as update_plan", () => {
   const draft = createWorldDraft(
     worldWith({ "1": { title: "T", description: "", exits: {} } }).world,
   );

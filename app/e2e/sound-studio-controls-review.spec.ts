@@ -110,7 +110,7 @@ test("Sound Studio controls are named, aligned and 24px or larger @webkit-deskto
 
   // Lane heads: the M/S accessible names match their tooltips, and every
   // gate sits at the same offsets on all four heads.
-  const laneNames = ["Tone 0", "Tone 1", "Tone 2", "Noise"];
+  const laneNames = ["Voice 1", "Voice 2", "Voice 3", "Noise"];
   const muteX: number[] = [];
   const soloX: number[] = [];
   for (let lane = 0; lane < 4; lane++) {

@@ -583,7 +583,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       if (this.abandoned(stamp)) return;
       if (before.closed) throw fail("closed", "The workspace is closed.");
       if (before.busy)
-        throw fail("busy", "A creative Keep is in progress; try again once it finishes.");
+        throw fail("busy", "A creative Save is in progress; try again once it finishes.");
 
       const titles: string[] = [];
       const consulted: ConsultedMaterial[] = [];

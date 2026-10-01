@@ -217,13 +217,16 @@ onBeforeUnmount(() => {
 });
 
 /* --- Form validity: a light local gate; the review re-checks everything. --- */
-const formReady = computed(() => {
-  if (prompt.value.trim() === "") return false;
-  if (model.value === "") return false;
-  if (usesAsset.value && assetKey.value === "") return false;
-  if (kind.value === "edit" && !selectionValid.value) return false;
-  return true;
+const formProblem = computed(() => {
+  if (prompt.value.trim() === "") return "The prompt is empty. Describe the image to generate.";
+  if (model.value === "") return "An image model is required. Choose a model.";
+  if (usesAsset.value && assetKey.value === "")
+    return "A source image is required. Choose a reference image.";
+  if (kind.value === "edit" && !selectionValid.value)
+    return "The selection is empty. Select an area to edit.";
+  return "";
 });
+const formReady = computed(() => formProblem.value === "");
 
 const formDisabled = computed(
   () => phase.value === "preparing" || phase.value === "submitting" || phase.value === "using",
@@ -436,7 +439,7 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         <UiSelect
           v-model="assetKey"
           size="sm"
-          aria-label="Departure asset"
+          aria-label="Reference image"
           :disabled="formDisabled"
           data-testid="generate-asset"
         >
@@ -478,7 +481,7 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
             class="generate__base-canvas"
             :width="baseRaster.width"
             :height="baseRaster.height"
-            aria-label="Departure asset preview"
+            aria-label="Reference image preview"
           />
           <span class="generate__region" :style="selectionStyle" aria-hidden="true" />
         </div>
@@ -527,7 +530,7 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         variant="primary"
         block
         :disabled="!formReady || formDisabled"
-        :title="formReady ? '' : 'A prompt is needed; a variation or edit also needs a source'"
+        :title="formReady ? '' : formProblem"
         data-testid="generate-review"
       >
         {{ phase === "preparing" ? "Preparing review…" : "Review request" }}

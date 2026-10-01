@@ -8,7 +8,7 @@ describe("compact music authoring tools", () => {
   it("advertises strict, bounded schemas", () => {
     assert.deepEqual(
       SOUND_TOOLS.map((tool) => tool.name),
-      ["write_music", "read_sound", "preview_sound"],
+      ["write_music", "read_sound", "play_sound"],
     );
     for (const tool of SOUND_TOOLS) {
       assert.equal(tool.parameters.additionalProperties, false);

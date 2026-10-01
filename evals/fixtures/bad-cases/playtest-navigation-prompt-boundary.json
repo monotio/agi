@@ -17,7 +17,7 @@
       }
     },
     {
-      "tool": "write_logic_source",
+      "tool": "write_logic",
       "args": {
         "room": 0,
         "source": "if (!isset(f200)) { set(f200); assignn(v0,1); load.pic(v0); draw.pic(v0); show.pic(); load.view(0); animate.obj(0); set.view(0,0); position(0,80,120); draw(0); accept.input(); print(\"Choose deliberately\"); } return;"

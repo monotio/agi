@@ -143,7 +143,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
                     type: "function_call",
                     id: "patch",
                     call_id: "patch",
-                    name: "write_logic_source",
+                    name: "write_logic",
                     arguments: JSON.stringify({
                       room: 1,
                       source: patchedSource,
@@ -221,7 +221,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
                   type: "function_call",
                   id: "patch",
                   call_id: "patch",
-                  name: "write_logic_source",
+                  name: "write_logic",
                   arguments: JSON.stringify({ room: 0, source: patched }),
                 },
               ]

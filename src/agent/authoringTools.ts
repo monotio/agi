@@ -9,7 +9,7 @@ import { allocateProjectIds } from "../authoring/resourceAllocation.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
-/** The exact text read_logic/read_picture show and edit_resource_source patches. */
+/** The exact text read_logic/read_picture show and edit_source patches. */
 export function editableSource(
   state: AgentSessionState,
   kind: "logic" | "picture",
@@ -65,8 +65,8 @@ export function sourceContextRevision(
 }
 
 /**
- * Runs reserve_binding and update_world, which change only authoring state.
- * edit_resource_source is not here: resolveSourceEdit patches the text, and
+ * Runs reserve_name and update_plan, which change only authoring state.
+ * edit_source is not here: resolveSourceEdit patches the text, and
  * the dispatcher writes it through the ordinary logic or picture writer.
  */
 export function executeAuthoringTool(
@@ -74,9 +74,9 @@ export function executeAuthoringTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name !== "reserve_binding" && name !== "update_world") return undefined;
+  if (name !== "reserve_name" && name !== "update_plan") return undefined;
   try {
-    if (name === "reserve_binding") {
+    if (name === "reserve_name") {
       let items: { name: unknown; kind: unknown; id: unknown }[];
       if (Array.isArray(args["bindings"])) {
         items = args["bindings"] as { name: unknown; kind: unknown; id: unknown }[];
@@ -232,7 +232,7 @@ function unchanged(tool: string, error: unknown): AgentToolResult {
   };
 }
 
-/** The text an edit_resource_source call leaves, for the writer to compile. */
+/** The text an edit_source call leaves, for the writer to compile. */
 export interface SourceEdit {
   readonly kind: "logic" | "picture";
   readonly num: number;
@@ -240,7 +240,7 @@ export interface SourceEdit {
 }
 
 /**
- * Resolves edit_resource_source against the revision the agent read: every
+ * Resolves edit_source against the revision the agent read: every
  * find must match exactly one section of the same snapshot. Returns the
  * patched text, or a failure that changed nothing.
  */
@@ -248,7 +248,7 @@ export function resolveSourceEdit(
   state: AgentSessionState,
   args: Record<string, unknown>,
 ): SourceEdit | AgentToolResult {
-  const tool = "edit_resource_source";
+  const tool = "edit_source";
   try {
     const kind = args["kind"];
     const num = args["num"];

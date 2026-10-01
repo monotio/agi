@@ -14,7 +14,7 @@ test("authoring converts smart punctuation once while preserving explicit messag
   const source = String.raw`// Leave this comment — and "quoted text" alone.
 #message 1 "She said “hello”—it’s open… 1–2.\x97\"\\"
 print(1); return;`;
-  const result = executeAgentTool(state, "write_logic_source", { room: 1, source });
+  const result = executeAgentTool(state, "write_logic", { room: 1, source });
   assert.equal(result.success, true, result.error ?? "logic compiles");
   assert.deepEqual(parseLogicResource(state.container.getResource("logic", 1)!).messages, [
     'She said "hello"--it\'s open... 1-2.\x97"\\',
@@ -24,9 +24,9 @@ print(1); return;`;
     state.sources.logics.get(1)?.startsWith('// Leave this comment — and "quoted text" alone.'),
   );
   assert.throws(() => assembleLogic(source, { dictionary: new Map() }), /not a single byte/);
-  executeAgentTool(state, "write_logic_source", { room: 1, source: "return;" });
+  executeAgentTool(state, "write_logic", { room: 1, source: "return;" });
   const before = state.container.getResource("logic", 1)!.slice();
-  const invalid = executeAgentTool(state, "write_logic_source", {
+  const invalid = executeAgentTool(state, "write_logic", {
     room: 1,
     source: 'print("A dragon 🐉"); return;',
   });
@@ -37,8 +37,8 @@ print(1); return;`;
 test("world inspection reads compiled resources and inventory after reopening a game", () => {
   const original = createAgentSessionState();
   executeAgentTool(original, "write_words", { words: ["key", "brass"] });
-  executeAgentTool(original, "write_logic_source", { room: 7, source: "return;" });
-  executeAgentTool(original, "write_inventory_objects", {
+  executeAgentTool(original, "write_logic", { room: 7, source: "return;" });
+  executeAgentTool(original, "write_objects", {
     objects: [{ name: "Brass key", startingRoom: 7 }],
   });
   original.container.putResource(
@@ -48,13 +48,13 @@ test("world inspection reads compiled resources and inventory after reopening a 
   );
   const restored = createAgentSessionState(openContainer(original.getFiles()));
   assert.equal(restored.sources.logics.size, 0);
-  const result = executeAgentTool(restored, "inspect_world_bible", { filter: null });
+  const result = executeAgentTool(restored, "read_plan", { filter: null });
   assert.equal(result.details?.["wordCount"], original.sources.words.size);
   assert.deepEqual(result.details?.["rooms"], [7]);
   assert.deepEqual(result.details?.["views"], [9]);
   assert.deepEqual(result.details?.["objects"], ["Brass key"]);
   assert.deepEqual(result.details?.["inventory"], [{ name: "Brass key", startingRoom: 7 }]);
-  const filtered = executeAgentTool(restored, "inspect_world_bible", { filter: "objects" });
+  const filtered = executeAgentTool(restored, "read_plan", { filter: "objects" });
   assert.equal(filtered.details?.["rooms"], undefined);
   assert.deepEqual(filtered.details?.["inventory"], result.details?.["inventory"]);
 });

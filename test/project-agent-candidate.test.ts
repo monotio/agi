@@ -247,7 +247,7 @@ describe("captureAgentWorkspace: capture and the invalid-draft contract", () => 
     );
     // A real said() lookup compiles through that normalized dictionary.
     assert.equal(
-      executeAgentTool(candidate.state, "write_logic_source", {
+      executeAgentTool(candidate.state, "write_logic", {
         room: 9,
         source: 'if (said("look")) { set(f6); }\nreturn;',
       }).success,
@@ -298,7 +298,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
       true,
     );
     assert.equal(
-      executeAgentTool(candidate.state, "reserve_binding", {
+      executeAgentTool(candidate.state, "reserve_name", {
         bindings: null,
         name: "maze_room",
         kind: "logic",
@@ -308,7 +308,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     );
     const room14 = `// The maze entrance.\nif (said("grumble")) {\n  assignn(v0, maze_room);\n  call.v(v0);\n}\nreturn;`;
     assert.equal(
-      executeAgentTool(candidate.state, "write_logic_source", { room: 14, source: room14 }).success,
+      executeAgentTool(candidate.state, "write_logic", { room: 14, source: room14 }).success,
       true,
     );
 
@@ -356,7 +356,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     const original = project.sources.logics.get(1)!;
     const commented = `// A room header the player never sees.\n${original}`;
     assert.equal(
-      executeAgentTool(candidate.state, "write_logic_source", {
+      executeAgentTool(candidate.state, "write_logic", {
         room: 1,
         source: commented,
       }).success,
@@ -426,7 +426,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
       .replace(`if (said("look", "tree")) { print(m6); }\n`, "");
     assert.notEqual(fixed, room);
     assert.equal(
-      executeAgentTool(candidate.state, "write_logic_source", { room: 1, source: fixed }).success,
+      executeAgentTool(candidate.state, "write_logic", { room: 1, source: fixed }).success,
       true,
     );
     const proposal = candidate.finish("drop look");
@@ -443,7 +443,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     const workspace = capture(project, draft);
     const candidate = workspace.openToolState();
     assert.equal(
-      executeAgentTool(candidate.state, "write_logic_source", {
+      executeAgentTool(candidate.state, "write_logic", {
         room: 9,
         source: "call(10);\nreturn;",
       }).success,
@@ -455,7 +455,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     // The missing-room exception is about new.room only.
     const rooms = workspace.openToolState();
     assert.equal(
-      executeAgentTool(rooms.state, "write_logic_source", {
+      executeAgentTool(rooms.state, "write_logic", {
         room: 9,
         source: "new.room(42);\nreturn;",
       }).success,
@@ -465,7 +465,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
 
     const permissive = capture(project, draft, { allowMissingRooms: true }).openToolState();
     assert.equal(
-      executeAgentTool(permissive.state, "write_logic_source", {
+      executeAgentTool(permissive.state, "write_logic", {
         room: 9,
         source: "new.room(42);\nreturn;",
       }).success,
@@ -485,7 +485,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     const candidate = workspace.openToolState();
 
     assert.equal(
-      executeAgentTool(candidate.state, "update_world", {
+      executeAgentTool(candidate.state, "update_plan", {
         rooms: [{ num: 1, title: "Clearing", description: "First room.", exits: [] }],
         facts: [],
         quests: [],
@@ -493,7 +493,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
       true,
     );
     assert.equal(
-      executeAgentTool(candidate.state, "write_inventory_objects", {
+      executeAgentTool(candidate.state, "write_objects", {
         objects: [{ name: "Brass Key", startingRoom: 1 }],
       }).success,
       true,
@@ -544,8 +544,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     const candidate = workspace.openToolState();
     assert.equal(candidate.state.sources.sounds.has(7), false, "no invented claim");
     assert.equal(
-      executeAgentTool(candidate.state, "write_logic_source", { room: 9, source: "return;" })
-        .success,
+      executeAgentTool(candidate.state, "write_logic", { room: 9, source: "return;" }).success,
       true,
     );
     const proposal = candidate.finish("new room only");
@@ -650,7 +649,7 @@ describe("captureAgentWorkspace: isolated tool candidate", () => {
     const revision = draft.capture().revision;
 
     const candidate = workspace.openToolState();
-    executeAgentTool(candidate.state, "write_logic_source", { room: 9, source: "return;" });
+    executeAgentTool(candidate.state, "write_logic", { room: 9, source: "return;" });
     // Never finish: the isolated writes stay inside the candidate.
     assert.equal(draft.capture().revision, revision);
     assert.equal(draft.capture().read("logic:9"), undefined);
@@ -666,7 +665,7 @@ describe("captureAgentWorkspace: proposal authority and staleness", () => {
     const { draft } = authoredDraft(project);
     const workspace = capture(project, draft);
     const candidate = workspace.openToolState();
-    executeAgentTool(candidate.state, "write_logic_source", { room: 9, source: "return;" });
+    executeAgentTool(candidate.state, "write_logic", { room: 9, source: "return;" });
     const proposal = candidate.finish("new room");
 
     // Human typing after the capture.

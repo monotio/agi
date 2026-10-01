@@ -154,14 +154,14 @@ describe("read_project_context / read_document", () => {
   });
 });
 
-describe("propose_project_documents", () => {
+describe("propose_changes", () => {
   test("a valid coordinated change issues a proposal; nothing is applied", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
     const driver = createProjectAssistDriver(capture(project, draft));
     const room = room1Key(project);
     const newSource = "return;\n";
-    const result = driver.execute("propose_project_documents", {
+    const result = driver.execute("propose_changes", {
       label: "simplify room",
       changes: [
         { key: room, content: newSource },
@@ -186,7 +186,7 @@ describe("propose_project_documents", () => {
     const driver = createProjectAssistDriver(capture(project, draft));
     const room = room1Key(project);
     assert.equal(
-      driver.execute("propose_project_documents", {
+      driver.execute("propose_changes", {
         label: "good",
         changes: [{ key: "logic:9", content: "return;\n" }],
       }).success,
@@ -194,7 +194,7 @@ describe("propose_project_documents", () => {
     );
     const first = driver.pending()!;
 
-    const refused = driver.execute("propose_project_documents", {
+    const refused = driver.execute("propose_changes", {
       label: "bad",
       changes: [{ key: room, content: "if (isset(" }],
     });
@@ -208,7 +208,7 @@ describe("propose_project_documents", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
     const driver = createProjectAssistDriver(capture(project, draft));
-    const refused = driver.execute("propose_project_documents", {
+    const refused = driver.execute("propose_changes", {
       label: "dangle",
       changes: [{ key: "logic:9", content: "call(10);\nreturn;" }],
     });
@@ -228,14 +228,14 @@ describe("propose_project_documents", () => {
     const room = room1Key(project);
     const current = project.sources.logics.get(project.bindings["first_room"]!.num)!;
 
-    const noop = driver.execute("propose_project_documents", {
+    const noop = driver.execute("propose_changes", {
       label: "same",
       changes: [{ key: room, content: current }],
     });
     assert.equal(noop.success, false);
     assert.match(noop.error!, /no difference/);
 
-    const dup = driver.execute("propose_project_documents", {
+    const dup = driver.execute("propose_changes", {
       label: "dup",
       changes: [
         { key: room, content: "return;\n" },
@@ -245,7 +245,7 @@ describe("propose_project_documents", () => {
     assert.equal(dup.success, false);
     assert.match(dup.error!, /Duplicate/);
 
-    const coordinated = driver.execute("propose_project_documents", {
+    const coordinated = driver.execute("propose_changes", {
       label: "flood",
       changes: Array.from({ length: 41 }, (_, i) => ({
         key: `logic:${i + 10}`,
@@ -259,11 +259,11 @@ describe("propose_project_documents", () => {
     const project = createStarterProject("starter");
     const draft = authoredDraft(project);
     const driver = createProjectAssistDriver(capture(project, draft));
-    driver.execute("propose_project_documents", {
+    driver.execute("propose_changes", {
       label: "first",
       changes: [{ key: "logic:9", content: "return;\n" }],
     });
-    driver.execute("propose_project_documents", {
+    driver.execute("propose_changes", {
       label: "second",
       changes: [{ key: "logic:10", content: "return;\n" }],
     });
@@ -283,15 +283,15 @@ describe("withdraw and dispatch policy", () => {
     const draft = authoredDraft(project);
     const driver = createProjectAssistDriver(capture(project, draft));
     assert.equal(
-      driver.execute("withdraw_proposal", { reason: "nothing yet" }).success,
+      driver.execute("withdraw_changes", { reason: "nothing yet" }).success,
       false,
       "no pending proposal to withdraw",
     );
-    driver.execute("propose_project_documents", {
+    driver.execute("propose_changes", {
       label: "temp",
       changes: [{ key: "logic:9", content: "return;\n" }],
     });
-    const withdrawn = driver.execute("withdraw_proposal", { reason: "not worth it" });
+    const withdrawn = driver.execute("withdraw_changes", { reason: "not worth it" });
     assert.equal(withdrawn.success, true);
     assert.equal(driver.pending(), null);
   });
@@ -331,8 +331,8 @@ describe("withdraw and dispatch policy", () => {
     for (const name of [
       "read_project_context",
       "read_document",
-      "propose_project_documents",
-      "withdraw_proposal",
+      "propose_changes",
+      "withdraw_changes",
       "read_command_reference",
       "read_authoring_guide",
     ])
@@ -350,7 +350,7 @@ test("document reads return complete ordinary text and binary resources", () => 
   assert.equal(result.success, true);
   assert.ok(result.message?.endsWith(text));
   assert.equal(result.details?.["nextOffset"], null);
-  const largeProposal = driver.execute("propose_project_documents", {
+  const largeProposal = driver.execute("propose_changes", {
     label: "Coordinated shared logic",
     changes: Array.from({ length: 41 }, (_, i) => ({
       key: `logic:${i + 100}`,

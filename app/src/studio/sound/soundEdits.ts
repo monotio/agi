@@ -8,7 +8,21 @@
 import { PIT_BASE_FREQ } from "../../../../src/sound/sound.ts";
 import type { SoundDocument, SoundEvent } from "../../../../src/sound/document.ts";
 
-export const LANE_NAMES = ["Tone 0", "Tone 1", "Tone 2", "Noise"] as const;
+export const LANE_NAMES = ["Voice 1", "Voice 2", "Voice 3", "Noise"] as const;
+
+/** Human volume and encoded attenuation use opposite scales. */
+export function volumeToAttenuation(volume: number): number {
+  if (!Number.isInteger(volume) || volume < 0 || volume > 15)
+    throw new Error("Volume must be an integer from 0 to 15.");
+  return 15 - volume;
+}
+
+/** Convert a stored AGI attenuation into the editor's volume scale. */
+export function attenuationToVolume(attenuation: number): number {
+  if (!Number.isInteger(attenuation) || attenuation < 0 || attenuation > 15)
+    throw new Error("Attenuation must be an integer from 0 to 15.");
+  return 15 - attenuation;
+}
 
 /** The noise control byte's readable name (periodic/white × rate). */
 export const NOISE_CONTROL_NAMES: Record<number, string> = {
@@ -43,9 +57,9 @@ export function describeEvent(event: SoundEvent): string {
     case "rest":
       return `Rest · ${ticks}`;
     case "tone":
-      return `${divisorNoteLabel(event.data.divisor) || "Tone"} ${event.data.divisor} · att ${event.data.attenuation} · ${ticks}`;
+      return `${divisorNoteLabel(event.data.divisor) || "Tone"} · volume ${attenuationToVolume(event.data.attenuation)} · ${ticks}`;
     case "noise":
-      return `${NOISE_CONTROL_NAMES[event.data.control & 7] ?? `Noise ${event.data.control}`} · att ${event.data.attenuation} · ${ticks}`;
+      return `${NOISE_CONTROL_NAMES[event.data.control & 7] ?? `Noise ${event.data.control}`} · volume ${attenuationToVolume(event.data.attenuation)} · ${ticks}`;
     case "raw":
       return `Raw record · ${ticks}`;
   }

@@ -24,7 +24,7 @@ cents and two dollars. From the [Genesis benchmark](evals/benchmarks/genesis/1.0
 
 Open [agi.monotio.com](https://agi.monotio.com/) and click **Play now** on
 **Adventure Department**, a three-room tutorial about how these games are made:
-you repair a picture, wake up a sprite and sort out a clerk's priority. It is
+you repair a picture, wake up an actor and sort out a clerk's Depth. It is
 ready to play in your browser.
 
 ![Adventure Department in Play: the apprentice has just painted the gallery's mural, and the status line reads Mural fixed! Next exhibit: go EAST.](docs/media/tutorial-gallery.png)
@@ -110,7 +110,7 @@ connected provider can pick them up later like any other project.
 To edit a saved game's code, open its library card's **Game actions → Edit**.
 **Logic Studio** gives you source tabs, code completion, hover help, definition
 navigation and a Problems panel. Edit the logic and vocabulary,
-choose which changes to build, inspect the diff, then **Keep** them in the library.
+choose which changes to build, inspect the diff, then **Save** them in the library.
 Unfinished work stays in a separate draft and is offered for recovery when you
 reopen. Games from the shared catalog need a personal copy before editing.
 
@@ -133,12 +133,12 @@ while the agent writes it. Along the way you can:
   briefs and pin notes the agent reads when it builds that part of the world;
 - use **Ask** in Play for hints and questions that leave the game untouched,
   or **Remix** in Create to change it, including any game you imported;
-- attach reference images for rooms and character sprites: the agent gets a
+- attach reference images for rooms and actors: the agent gets a
   thumbnail of each and looks closer at the parts it needs;
 - preview the game's sounds as WAV clips.
 
 Everything the agent writes is a standard AGI resource: logic, vector pictures,
-animated sprites, vocabulary, inventory and sound. The heroes above walk because
+animated actors, vocabulary, inventory and sound. The heroes above walk because
 the agent drew each frame of each direction, then compiled them into the same
 kind of view file Sierra's artists made:
 
@@ -175,8 +175,8 @@ sharing the game, especially with children. [Security](SECURITY.md) covers stora
 A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it. **Create** docks the tools around it: the world map and its
 rooms on the left, the assistant on the right. From a room in the World panel,
-its picture opens in **Room Studio** and its views in **Sprite Studio**. Room
-Studio, Sprite Studio and Logic Studio are designed for a larger screen than a
+its picture opens in **Room Studio** and its views in **VIEW editor**. Room
+Studio, VIEW editor and Logic Studio are designed for a larger screen than a
 phone; games play on phones too.
 
 Some Create edits need a fresh room or game start. **Re-enter room** runs the
@@ -197,12 +197,12 @@ awaiting an editor or debugger implementation appear as **Unavailable**.
 <p align="center">
   <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>
   <a href="docs/media/room-studio-walk.png"><img src="docs/media/room-studio-walk.png" width="49%" alt="The Walk lens on the tutorial's Sprite Lab: the walkable tint, doors labelled Picture Gallery and Priority Archive, and a test walk from the west door that reports Reached"></a>
-  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Ask on a bridge over a river: the proposed change outlined on the canvas with Before and After, the AI's summary, and Accept and Reject"></a>
-  <a href="docs/media/sprite-studio.png"><img src="docs/media/sprite-studio.png" width="49%" alt="Sprite Studio on the tutorial's waving robot: the cel canvas, the loops and cels timeline with a mirrored loop, loop previews and the robot standing in its room"></a>
+  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Agent on a bridge over a river: the changes outlined on the canvas with Before and After, the AI's summary, and Approve and Reject"></a>
+  <a href="docs/media/sprite-studio.png"><img src="docs/media/sprite-studio.png" width="49%" alt="VIEW editor on the tutorial's waving robot: the cel canvas, the loops and cels timeline with a mirrored loop, loop previews and the robot standing in its room"></a>
 </p>
 
 _Left to right, top to bottom: Room Studio with the velvet rope selected, a test
-walk across the Sprite Lab, a proposal from Ask, and Sprite Studio on the
+walk across the Sprite Lab, an agent change, and the VIEW editor on the
 waving robot._
 
 - **Room Studio** shows a room's picture under three lenses: Art for what the
@@ -213,18 +213,18 @@ waving robot._
 - **Editing** works on items: click one to select it, or drag a box to select
   the items wholly inside it; drag the selection, or its points with the Point
   tool, nudge it with the arrow keys (a move stops at the picture's edge),
-  change its colour, priority or draw order, duplicate or delete it.
+  change its colour, Depth or draw order, duplicate or delete it.
   Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
   A box, Shift+click, a group row or Shift+Alt+arrows select several
   items, which then move, copy and delete together as one step, so an imported
   bush's outline and fill stay together; Group (⌘G) names neighbours as one
   item without changing a byte, and Ungroup (⇧⌘G) splits it again.
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
-  the scrubber's point in the draw order, and a ghost actor shows whether a
+  the slider's point in the draw order, and a stand-in shows whether a
   character would stand in front of the scene or behind it.
-- **Keep** saves the picture into the game. Each lens locks painting on the
+- **Save** saves the picture into the game. Each lens locks painting on the
   other planes until you unlock them, while a whole item moves with all its
-  planes; every change can be undone, even after Keep, and leaving with
+  planes; every change can be undone, even after saving, and leaving with
   unkept changes asks first.
 - **Test walks and doors** live in the Walk lens. A test walk runs the real game
   in a throwaway copy and reports Reached, Blocked at whatever was in the way,
@@ -232,20 +232,20 @@ waving robot._
   an edge walks through it (to the edge, then one step across), and a door a
   walk went through is marked tested. Door boxes and edge exits
   lead to other rooms; a door can follow its doorway art, so moving the art
-  moves the door in the same Keep. Exits written in the room's own logic stay
+  moves the door in the same save. Exits written in the room's own logic stay
   read-only. Right-click any spot and **Play here** jumps into the game there.
-- **Ask** has your connected AI change only the selected items: "make this
+- **Agent** has your connected AI change only the selected items: "make this
   bridge walkable and preserve the art". Attach reference art (a file, a
-  drop or a saved image) and the AI can look at it while it works. Its proposal
-  shows on the canvas, Before or After, with the changed cells outlined. The
-  app's own checks hold it to the selection and the lens's locks, and Accept
+  drop or a saved image) and the AI can look at it while it works. Its changes
+  show on the canvas, Before or After, with the changed cells outlined. The
+  app's own checks hold it to the selection and the lens's locks, and Approve
   makes it one undo step.
-- **Sprite Studio** edits a view's loops and cels. Open it from a room's views,
+- **VIEW editor** edits a view's loops and cels. Open it from a room's views,
   the Resources tab or a staged character sheet, draw with the pixel tools, and
   reorder, duplicate and flip cels on a loops × cels timeline. The previews play
   the loop at the game's speed and stand it in a room at its real depth. Editing
   a loop that mirrors another makes it a separate copy, so fixing one facing
-  leaves the other as it is unless you ask. Ask works here too, on the selected
+  leaves the other as it is unless you edit both. The agent works here too, on the selected
   cel or its whole loop, with every other loop protected.
 - **Explainers** sit beside the Studios' terms: each ⓘ says in one sentence
   what the control does and links to its Help topic. Each Studio shows a

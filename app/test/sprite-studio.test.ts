@@ -114,7 +114,7 @@ describe("useSpriteDraft", () => {
     assert.equal(refused.ok, false);
     assert.match(
       !refused.ok ? refused.refusal.message : "",
-      /would also change loop 1\. Turn on Edit both to allow it\./,
+      /would also change loop 1\. Turn on Edit both, or edit only this loop\./,
     );
     assert.equal(draft.document.value, original);
     const outcome = draft.apply(
@@ -150,7 +150,7 @@ describe("useSpriteDraft", () => {
     assert.equal(outcome.ok, false);
     assert.equal(
       !outcome.ok && outcome.refusal.message,
-      "That is the transparent colour. The eraser paints it.",
+      "That is the transparent colour. Use the eraser to paint it.",
     );
     assert.equal(draft.changes.value, 0);
   });
@@ -659,7 +659,7 @@ describe("sprite view helpers", () => {
   it("words the kernel's refusals plainly", () => {
     assert.equal(
       plainSpriteRefusal("cannot delete the last cel of loop 2; delete the loop"),
-      "A loop needs at least one cel. Delete the loop instead.",
+      "Loops hold one or more cels. To remove this cel, delete the loop.",
     );
     assert.equal(
       plainSpriteRefusal("loop 3's cels are not exact mirror images of loop 1's; pass force"),
@@ -667,7 +667,7 @@ describe("sprite view helpers", () => {
     );
     assert.equal(
       plainSpriteRefusal("something new"),
-      "Sprite edit rejected. Open Details for the reason.",
+      "VIEW edit: something new. Correct the source or undo your last change.",
     );
   });
 });

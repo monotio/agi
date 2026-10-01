@@ -27,11 +27,7 @@ test("productive runs can exceed old turn counts; repeated failures pause", asyn
   });
   const stalled = run.run(async () => {
     for (let i = 0; i < 8; i++)
-      run.recordTool(
-        "write_logic_source",
-        { source: "bad" },
-        { success: false, error: "unknown action" },
-      );
+      run.recordTool("write_logic", { source: "bad" }, { success: false, error: "unknown action" });
     await run.checkpoint();
   });
   await new Promise((resolve) => setImmediate(resolve));

@@ -246,7 +246,7 @@ test("? lists every key in a dialog, and Esc puts it away without leaving Studio
   const sprite = await openApprentice(page);
   await sprite.getByTestId("sprite-stage").focus();
   await page.keyboard.press("?");
-  const spriteSheet = page.getByRole("dialog", { name: "Sprite Studio keys" });
+  const spriteSheet = page.getByRole("dialog", { name: "VIEW editor keys" });
   await expect(spriteSheet).toContainText("Previous or next loop");
   await page.keyboard.press("Escape");
   await expect(spriteSheet).toBeHidden();

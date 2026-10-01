@@ -179,7 +179,7 @@ test("a write to a transitively called logic reruns the starting room's tests", 
   putLogic(state, 2, "call(3);\nreturn;");
   putLogic(state, 3, "return;");
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [takeKey] });
-  const written = executeAgentTool(state, "write_logic_source", { room: 3, source: "return;" });
+  const written = executeAgentTool(state, "write_logic", { room: 3, source: "return;" });
   assert.equal(written.success, true, written.error ?? "");
   assert.match(
     written.message ?? "",
@@ -187,7 +187,7 @@ test("a write to a transitively called logic reruns the starting room's tests", 
   );
 });
 
-test("write_view, write_music and patch_view_cels rerun the tests they can affect", () => {
+test("write_view, write_music and edit_cels rerun the tests they can affect", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
   const verdict = /^Game tests: 0 game tests pass, 1 fail: "needs the key" Expected flag 30=true/;
@@ -218,7 +218,7 @@ test("write_view, write_music and patch_view_cels rerun the tests they can affec
   assert.equal(music.success, true, music.error ?? "");
   assert.match(music.message ?? "", verdict);
   assert.deepEqual(music.details?.["gameTestsRerun"], coverage);
-  const patched = executeAgentTool(state, "patch_view_cels", {
+  const patched = executeAgentTool(state, "edit_cels", {
     num: 1,
     expectedRevision: String(actor.details?.["revision"]),
     patches: [{ loop: 0, cel: 0, rows: ["999", "999"] }],
@@ -231,7 +231,7 @@ test("write_view, write_music and patch_view_cels rerun the tests they can affec
 test("writers that delegate to another write tool rerun exactly once", () => {
   const state = world();
   executeAgentTool(state, "write_game_tests", { mode: null, names: null, tests: [needsKey] });
-  const upserted = executeAgentTool(state, "write_inventory_objects", {
+  const upserted = executeAgentTool(state, "write_objects", {
     mode: "merge",
     objects: null,
     item: { id: null, name: "Letter", location: "room", room: 1 },
@@ -245,7 +245,7 @@ test("writers that delegate to another write tool rerun exactly once", () => {
     .split("\n")
     .find((entry) => entry.includes("set(f30)"));
   assert.ok(line, "the disassembled source still sets flag 30");
-  const edited = executeAgentTool(state, "edit_resource_source", {
+  const edited = executeAgentTool(state, "edit_source", {
     kind: "logic",
     num: 1,
     edits: [{ find: line, replace: line }],
@@ -329,7 +329,7 @@ test("a global dynamic dispatcher conservatively reruns even another room's test
     names: null,
     tests: [takeKey, roomTwo],
   });
-  const written = executeAgentTool(state, "write_logic_source", { room: 5, source: "return;" });
+  const written = executeAgentTool(state, "write_logic", { room: 5, source: "return;" });
   assert.equal(written.success, true, written.error ?? "");
   assert.match(
     written.message ?? "",

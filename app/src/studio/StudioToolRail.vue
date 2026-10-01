@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/studio/vocabulary.ts";
 import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -76,18 +77,20 @@ const GROUPS: readonly (readonly RailTool[])[] = [
 ];
 /** The Walk view's own tools: a test walk the game runs, and the room's doors. */
 const WALK_GROUP: readonly RailTool[] = [
-  { id: "walk", icon: "footprints", label: "Test walk" },
+  { id: "walk", icon: "footprints", label: VOCABULARY_ACTIONS.playtest_room.label },
   { id: "door", icon: "exit", label: "Door box", doors: true },
   { id: "edge", icon: "move", label: "Edge exit", doors: true },
 ];
 const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
 /** Why a tool is off, on its tooltip; its name and key while it is on. */
-const PAUSED = "Drawing pauses while the picture is read-only or an AI proposal is open";
-const NEEDS_LOGIC = "Edit this room's scripted exits in Logic Studio or ask the assistant";
-const PROBE_NEEDS_VIEWS = "Ghost · G · needs a character in the game";
+const PAUSED = "Drawing pauses while the picture is read-only or an AI change is open";
+const NEEDS_LOGIC =
+  "Edit this room's scripted exits in LOGIC editor or tell the agent to change them";
+const PROBE_NEEDS_VIEWS = "Stand-in · G · needs a character in the game";
 function toolTitle(entry: RailTool): string {
   if ((entry.draws || entry.doors) && frozen) return PAUSED;
   if (entry.doors && !doorsEditable) return NEEDS_LOGIC;
+  if (entry.id === "walk") return VOCABULARY_ACTIONS.playtest_room.help;
   return `${entry.label} · ${TOOL_SHORTCUTS[entry.id]}`;
 }
 
@@ -165,11 +168,11 @@ watch(scroller, (el) => {
           <div class="tool-rail__tool">
             <UiIconButton
               icon="actor"
-              label="Ghost"
+              label="Stand-in"
               :shortcut="TOOL_SHORTCUTS.probe"
               :pressed="probeActive"
               :disabled="!probeAvailable"
-              :title="probeAvailable ? `Ghost · ${TOOL_SHORTCUTS.probe}` : PROBE_NEEDS_VIEWS"
+              :title="probeAvailable ? VOCABULARY.standIn.help : PROBE_NEEDS_VIEWS"
               data-testid="studio-probe-toggle"
               @click="emit('probe')"
             />

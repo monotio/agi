@@ -9,7 +9,7 @@ import { assertNoImageData } from "./modelText.ts";
 
 test("animated sprite feedback explains timing and baseline without silently changing logic", () => {
   const state = createAgentSessionState();
-  const before = executeAgentTool(state, "write_logic_source", { room: 1, source: "return;" });
+  const before = executeAgentTool(state, "write_logic", { room: 1, source: "return;" });
   assert.equal(before.success, true);
   const logic = state.container.getResource("logic", 1)!.slice();
   const result = executeAgentTool(state, "write_view", {
@@ -32,9 +32,9 @@ test("animated sprite feedback explains timing and baseline without silently cha
 
 test("invented fix.priority is rejected with the authentic correction and no mutation", () => {
   const state = createAgentSessionState();
-  executeAgentTool(state, "write_logic_source", { room: 2, source: "return;" });
+  executeAgentTool(state, "write_logic", { room: 2, source: "return;" });
   const original = state.container.getResource("logic", 2)!.slice();
-  const bad = executeAgentTool(state, "write_logic_source", {
+  const bad = executeAgentTool(state, "write_logic", {
     room: 2,
     source: "fix.priority(o1); return;",
   });
@@ -43,7 +43,7 @@ test("invented fix.priority is rejected with the authentic correction and no mut
   assert.match(JSON.stringify(bad.details), /set.priority/);
   assert.deepEqual(state.container.getResource("logic", 2), original);
   assert.match(AGI_SYSTEM_PROMPT, /cycle.time/);
-  assert.match(AGI_SYSTEM_PROMPT, /v10.*pace/);
+  assert.match(AGI_SYSTEM_PROMPT, /v10.*cycle delay/);
 });
 
 test("generated boot chooses a deliberate global cycle pace", () => {

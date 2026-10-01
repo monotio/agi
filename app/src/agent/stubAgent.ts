@@ -149,12 +149,12 @@ export class StubAgent implements AgentHandler {
 
   /**
    * Deterministic world plan: writes a small connected world through the real
-   * update_world tool, so the one-flow genesis exercises the same
+   * update_plan tool, so the one-flow genesis exercises the same
    * plan → build path the model uses — the map's planned nodes land in the
    * same turn the opening room does.
    */
   plan(state: AgentSessionState): void {
-    const result = executeAgentTool(state, "update_world", {
+    const result = executeAgentTool(state, "update_plan", {
       rooms: [
         {
           num: 1,

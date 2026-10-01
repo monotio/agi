@@ -153,12 +153,12 @@ The world is frozen at a cycle boundary in room ${room}, and the player has aske
 
 "${instruction.trim()}"
 
-Look before you write: read_room_context carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is patch_view_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. handover runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
+Look before you write: read_room carries the room's live state, object table and resources — pass its 'frames' arg for the paused screen and 'state' for the full tables; read_logic / read_picture only when the request touches that resource. Patch the smallest thing that achieves what was asked — a color remap is edit_cels with 'recolor', no pixel rows needed — in the room the player is standing in unless they said otherwise. finish runs the full stored suite; playtest only when behavior is uncertain. When you are done, reply with one short sentence telling the player what changed — that sentence closes the bubble and the game resumes.`;
 }
 
 /**
  * The host verdict for a staged remix candidate — the executable half of
- * handover. Every stored game test replays against the staged resources
+ * finish. Every stored game test replays against the staged resources
  * and every declared plan exit needs a reachable compiled transition. The
  * genesis boot check is absent on purpose: the running game already proves
  * it boots, and an imported game has no genesis to re-litigate. Returns the
@@ -183,7 +183,7 @@ function remixVerdict(staged: AgentSessionState): string | null {
     return (
       `room ${first.from} declares exit ${JSON.stringify(first.name)} ` +
       `to room ${first.to} but ${cause}. ` +
-      "Implement the exit in the room's logic or revise the plan with update_world." +
+      "Implement the exit in the room's logic or revise the plan with update_plan." +
       (extra > 0 ? ` ${extra} more declared exit(s) also fail validation.` : "")
     );
   }
@@ -305,7 +305,7 @@ export class AgentSession implements AgentHandler {
   /** Conversation data retained while a non-stub provider has no connected key. */
   private readonly retainedTranscript: unknown[];
   private readonly retainedSessionId: string | undefined;
-  /** Live-game sources for read_room_context. */
+  /** Live-game sources for read_room. */
   private runtime: AgentRuntimeDeps = {};
   /** Local tool-execution ms since the last provider request, for telemetry. */
   private pendingToolMs = 0;
@@ -382,7 +382,7 @@ export class AgentSession implements AgentHandler {
     if (!this.conversation) {
       const result = await executeAgentToolAsync(
         this.state,
-        "read_room_context",
+        "read_room",
         {
           room,
           state: { compact: true, variables: null, flags: null },
@@ -467,7 +467,7 @@ Answer the player's question using evidence from inspection when needed. For hin
 
   /**
    * The first request's scene brief, read under the task's own list. Ask
-   * (`readOnly`) reads the room as its read_room_context calls do, so the
+   * (`readOnly`) reads the room as its read_room calls do, so the
    * plan entry that tool withholds from the player's surface stays out of
    * the brief too.
    */
@@ -479,12 +479,12 @@ Answer the player's question using evidence from inspection when needed. For hin
     if (!this.orientation || this.oriented) return "";
     const input = { ...this.orientation, room };
     // The compact scene brief reads through the same tools the model uses —
-    // read_room_context, read_picture — so the brief and the
+    // read_room, read_picture — so the brief and the
     // on-demand deep dive can never disagree about what the session holds.
     const [roomContext, picture] = [
       await executeAgentToolAsync(
         this.state,
-        "read_room_context",
+        "read_room",
         { room, state: null, frames: null },
         { ...this.runtime, allowedTools, readOnly },
       ),
@@ -548,7 +548,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       // perception chain: worker frame ring -> transfer -> composited PNG.
       const frames = await executeAgentToolAsync(
         this.state,
-        "read_room_context",
+        "read_room",
         {
           room,
           state: null,
@@ -558,7 +558,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       );
       this.onEvent(
         frames.success ? "response" : "error",
-        `[Remix] read_room_context -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
+        `[Remix] read_room -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
         { images: frames.images?.map((i) => i.caption) },
       );
       const result = await this.stubFallback.powerUp(instruction, room);
@@ -590,7 +590,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       // text turn closes the remix in one of two ways: no write succeeded,
       // or the host's own verdict — every stored game test and every
       // declared plan exit checked against this exact staged candidate —
-      // passes. The genesis leg of handover is skipped here: the running
+      // passes. The genesis leg of finish is skipped here: the running
       // game already proves it boots, and imported games have no genesis
       // to re-litigate. A failing verdict goes back to the model for repair
       // until completion or a visible task pause. A text reply may be a
@@ -611,7 +611,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           turn = await this.observeTurn(
             this.conversation.sendUserMessage(
               `The staged changes cannot be committed: ${verdict} ` +
-                "Repair them and call handover. If something blocks the repair, say what blocks it.",
+                "Repair them and call finish. If something blocks the repair, say what blocks it.",
             ),
             "remix",
           );
@@ -631,7 +631,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             res = {
               success: false,
               error:
-                "Not executed: this turn ended at a successful handover. Ask for this change in the next Remix request.",
+                "Not executed: this turn ended at a successful finish. Ask for this change in the next Remix request.",
             };
           } else {
             res = watch.record(
@@ -646,7 +646,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           }
           if (res.success) {
             Object.assign(staged, candidate);
-            if (tc.name === "handover") handedOver = true;
+            if (tc.name === "finish") handedOver = true;
             else if (
               res.details?.["writtenResources"] ||
               res.details?.["updatedFiles"] ||
@@ -675,7 +675,7 @@ Answer the player's question using evidence from inspection when needed. For hin
           results.push({ toolCallId: tc.id, result: this.projectForModel(res) });
         }
         this.conversation.appendToolResults(results);
-        // A passing handover is the host's own verdict: append the results,
+        // A passing finish is the host's own verdict: append the results,
         // commit below and resume without another provider request.
         if (handedOver) break;
         turn = await this.observeTurn(this.conversation.complete(), "remix");
@@ -1148,7 +1148,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   /**
-   * Genesis is one turn: the agent records the world through update_world —
+   * Genesis is one turn: the agent records the world through update_plan —
    * the map shows the plan as it lands — and builds the opening room in the
    * same run. There is no separate plan approval: the map stays editable
    * afterwards and later rooms build when entered or from Build this room.
@@ -1194,12 +1194,12 @@ Answer the player's question using evidence from inspection when needed. For hin
     // seed are seeded; a session holding completed, imported or divergent
     // authored work is refused rather than silently reseeded.
     const seed = installBoilerplateSeed(this.state);
-    // Genesis carries no reference art yet, so view_reference stays off its list.
+    // Genesis carries no reference art yet, so read_reference_image stays off its list.
     const genesisTools = withReferences(GENESIS_TOOLS, undefined);
     this.conversation?.setAvailableTools(genesisTools);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
-      // The stub records its world plan through the same update_world tool —
+      // The stub records its world plan through the same update_plan tool —
       // the map's planned nodes land in the same turn the room does.
       this.stubFallback.plan(this.state);
       const resources = this.stubFallback.initialResources();
@@ -1243,13 +1243,13 @@ Answer the player's question using evidence from inspection when needed. For hin
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
           const toolStart = performance.now();
-          // Terminal barrier: a successful handover ends the batch; later
+          // Terminal barrier: a successful finish ends the batch; later
           // calls get an explicit rejection result, never a silent drop.
           const res = this.state.genesisComplete
             ? {
                 success: false,
                 error:
-                  "Not executed: this turn ended at a successful handover. Use an Ask or Remix request for further changes.",
+                  "Not executed: this turn ended at a successful finish. Use an Ask or Remix request for further changes.",
               }
             : await executeAgentToolAsync(this.state, tc.name, tc.input, {
                 allowedTools: genesisTools,
@@ -1286,7 +1286,7 @@ Answer the player's question using evidence from inspection when needed. For hin
         });
         turn = await this.observeTurn(
           this.conversation.sendUserMessage(
-            "Genesis is not finished: record the world plan with update_world, adapt the seeded opening room to the brief with your write_* tools, then call handover.",
+            "Genesis is not finished: record the world plan with update_plan, adapt the seeded opening room to the brief with your write_* tools, then call finish.",
           ),
           "genesis",
         );
@@ -1367,7 +1367,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       roomNotes: this.runtime.roomNotes,
     };
     this.onEvent("request", `[Runtime room] authoring room ${room} from room ${from}`);
-    const resources = executeAgentTool(staged, "inspect_world_bible", {
+    const resources = executeAgentTool(staged, "read_plan", {
       filter: "slots",
       section: null,
       name: null,
@@ -1401,7 +1401,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       let completed = false;
       for (;;) {
         if (turn.toolCalls.length === 0) {
-          // Only a passing handover — the host's own validation of the exact
+          // Only a passing finish — the host's own validation of the exact
           // staged candidate — completes the room; a text reply commits
           // nothing, whether or not the resources merely exist.
           const missing =
@@ -1417,7 +1417,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             this.conversation.sendUserMessage(
               missing
                 ? `Room ${room} still needs both logic and picture. Author the missing resources.`
-                : `Room ${room} is authored but not handed over. Call handover to validate and commit it; a text reply alone commits nothing.`,
+                : `Room ${room} is authored but not handed over. Call finish to validate and commit it; a text reply alone commits nothing.`,
             ),
             "room",
           );
@@ -1435,16 +1435,16 @@ Answer the player's question using evidence from inspection when needed. For hin
               result = {
                 success: false,
                 error:
-                  "Not executed: this turn ended at a successful handover. The room is already committed.",
+                  "Not executed: this turn ended at a successful finish. The room is already committed.",
               };
-            } else if (tc.name === "handover") {
+            } else if (tc.name === "finish") {
               if (
                 staged.container.getResource("logic", room) &&
                 staged.container.getResource("picture", room)
               ) {
                 // The room's structural gate first, then the shared host
                 // validation (stored game tests) against the staged candidate.
-                result = await executeAgentToolAsync(candidate, "handover", tc.input, snapshot);
+                result = await executeAgentToolAsync(candidate, "finish", tc.input, snapshot);
                 if (result.success) {
                   staged = candidate;
                   completed = true;

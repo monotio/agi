@@ -50,7 +50,7 @@ test("genesis through the real create entry is offered the installed Boilerplate
           {
             type: "function_call",
             call_id: "plan",
-            name: "update_world",
+            name: "update_plan",
             arguments: JSON.stringify({
               rooms: [
                 {
@@ -62,7 +62,7 @@ test("genesis through the real create entry is offered the installed Boilerplate
               ],
             }),
           },
-          { type: "function_call", call_id: "hand", name: "handover", arguments: "{}" },
+          { type: "function_call", call_id: "hand", name: "finish", arguments: "{}" },
         ],
       }),
     );

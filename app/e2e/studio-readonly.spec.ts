@@ -138,9 +138,7 @@ for (const deviceScaleFactor of [1, 2]) {
       "aria-selected",
       "true",
     );
-    await expect(page.locator('[data-role="announce"]')).toHaveText(
-      "Bench occluder, depth, 18 steps",
-    );
+    await expect(page.locator('[data-role="announce"]')).toHaveText("Bench depth, depth, 18 steps");
     await context.close();
   });
 }

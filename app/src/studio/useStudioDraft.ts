@@ -314,7 +314,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     } catch (error) {
       return refuse({
         kind: "kernel",
-        message: "The proposal doesn't compile any more.",
+        message: "The change doesn't compile any more.",
         detail: String(error),
       });
     }
@@ -322,7 +322,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     if (!scoped.ok)
       return refuse({
         kind: "kernel",
-        message: "The proposal now reaches outside its scope. Ask again.",
+        message: "The change now reaches outside its scope. Follow up.",
         detail: assistRefusalText(scoped),
       });
     const known = new Set(document.value.items.map((item) => item.id));
@@ -341,7 +341,7 @@ export function useStudioDraft(options: StudioDraftOptions) {
     if (!recorded.ok)
       return refuse({
         kind: "kernel",
-        message: "The picture changed while the AI worked. Ask again.",
+        message: "The picture changed while the AI worked. Follow up.",
         detail: recorded.reason,
       });
     history.value = recorded.history;

@@ -39,7 +39,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     if (request === 2) await first;
     if (request === 3) await second;
     if (request === 4) await last;
-    const tool = "read_room_context";
+    const tool = "read_room";
     const output =
       request >= 4
         ? [
@@ -103,7 +103,7 @@ test("remix progress follows activity, preserves reading position and jumps to l
     const firstEntry = await feed.locator(".agent-bubble-line").first().textContent();
     releaseFirst();
     await expect.poll(() => requests).toBe(3);
-    await expect(feed).toContainText("read_room_context");
+    await expect(feed).toContainText("read_room");
     expect(await feed.evaluate((el) => el.scrollTop)).toBe(0);
     expect(await feed.locator(".agent-bubble-line").first().textContent()).toBe(firstEntry);
     await expect(page.getByTestId("agent-stream-status")).toHaveText("Waiting for the model…");

@@ -380,7 +380,7 @@ async function keep(): Promise<void> {
 function applyView(): void {
   try {
     const key = workspace.applyViewToDraft();
-    status.value = `VIEW ${workspace.viewJob?.destination ?? "?"} is ready. Keep to save it.`;
+    status.value = `VIEW ${workspace.viewJob?.destination ?? "?"} is ready. Save to add it to the game.`;
     emit("changed", [key]);
   } catch (error) {
     status.value = error instanceof Error ? error.message : String(error);
@@ -554,7 +554,7 @@ defineExpose({ importFile });
       </div>
 
       <section v-if="underlay !== null" class="creative__job" data-testid="underlay-job">
-        <h3 class="creative__sub">Room underlay · PIC {{ underlay.resourceId }}</h3>
+        <h3 class="creative__sub">Trace · PIC {{ underlay.resourceId }}</h3>
         <div class="creative__underlay">
           <canvas
             ref="underlayCanvas"
@@ -576,7 +576,7 @@ defineExpose({ importFile });
                 "
                 min="0"
                 max="255"
-                aria-label="Underlay destination picture"
+                aria-label="Trace destination picture"
                 data-testid="underlay-destination"
                 @input="drafts.edit(underlayKey('resourceId'), String(underlay.resourceId), $event)"
                 @change="
@@ -815,7 +815,7 @@ defineExpose({ importFile });
               <UiSelect
                 size="sm"
                 :model-value="underlay.fit"
-                aria-label="Underlay fit"
+                aria-label="Trace fit"
                 @update:model-value="
                   guard(() => workspace.updateUnderlay({ fit: $event as UnderlayJob['fit'] }))
                 "
@@ -852,7 +852,7 @@ defineExpose({ importFile });
                 max="1"
                 step="0.05"
                 :value="underlay.opacity"
-                aria-label="Underlay opacity"
+                aria-label="Trace opacity"
                 @input="
                   guard(() =>
                     workspace.updateUnderlay({
@@ -867,7 +867,7 @@ defineExpose({ importFile });
         </div>
         <p class="creative__note-text">Shown over the room art as a tracing guide.</p>
         <UiButton size="sm" variant="ghost" @click="guard(() => workspace.clearUnderlay())"
-          >Remove underlay</UiButton
+          >Remove trace</UiButton
         >
       </section>
 
@@ -979,7 +979,7 @@ defineExpose({ importFile });
           data-testid="creative-keep"
           @click="keep"
         >
-          Keep creative work
+          Save creative work
         </UiButton>
       </div>
     </template>

@@ -32,13 +32,13 @@ describe("the Studio assist stub", () => {
     );
   });
 
-  it("takes a well-formed context and proceeds to propose_edit", async () => {
+  it("takes a well-formed context and proceeds to propose_changes", async () => {
     const stub = createStudioAssistStub("make this walkable");
     const turn = await stub.sendUserMessage("make this walkable");
     stub.appendToolResults([
       { toolCallId: turn.toolCalls[0]!.id, result: { success: true, details: PICTURE_CONTEXT } },
     ]);
     const next = await stub.complete();
-    assert.equal(next.toolCalls[0]?.name, "propose_edit");
+    assert.equal(next.toolCalls[0]?.name, "propose_changes");
   });
 });

@@ -1223,7 +1223,7 @@ defineExpose({ cursor });
 </script>
 
 <template>
-  <section class="logic-studio" data-testid="logic-studio" aria-label="Logic Studio">
+  <section class="logic-studio" data-testid="logic-studio" aria-label="LOGIC editor">
     <header class="logic-studio__bar">
       <div class="logic-studio__title">
         <h1>{{ title }}</h1>
@@ -1291,13 +1291,13 @@ defineExpose({ cursor });
           icon="pencil"
           :title="
             editableResource.startsWith('picture:')
-              ? 'Draw this picture in Room Studio'
-              : 'Edit this view in Sprite Studio'
+              ? 'Draw this picture in PICTURE editor'
+              : 'Edit this view in VIEW editor'
           "
           data-testid="logic-resource-edit"
           @click="openResourceEditor"
         >
-          {{ editableResource.startsWith("picture:") ? "Edit picture" : "Edit sprite" }}
+          {{ editableResource.startsWith("picture:") ? "Edit picture" : "Edit VIEW" }}
         </UiButton>
         <UiButton
           ref="assistantToggle"
@@ -1306,11 +1306,11 @@ defineExpose({ cursor });
           icon="sparkles"
           :aria-expanded="assistantOpen"
           aria-controls="logic-companion"
-          title="Show or hide the assistant"
+          title="Show or hide the agent"
           data-testid="logic-assistant-toggle"
           @click="toggleAssistant"
         >
-          Assistant
+          Agent
         </UiButton>
         <UiButton
           variant="ghost"
@@ -1335,7 +1335,7 @@ defineExpose({ cursor });
           data-testid="logic-review-build"
           @click="requestKeep()"
         >
-          Keep
+          Save
         </UiButton>
         <UiIconButton
           icon="x"
@@ -1413,7 +1413,7 @@ defineExpose({ cursor });
             {{ contextError }}
           </p>
           <p v-if="!contextError && problems.length === 0" class="logic-studio__problem-none">
-            No problems in the open documents.
+            All open documents compile cleanly.
           </p>
           <button
             v-for="(problem, index) in problems"
@@ -1459,7 +1459,7 @@ defineExpose({ cursor });
         id="logic-companion"
         ref="companion"
         class="logic-studio__companion"
-        aria-label="Assistant"
+        aria-label="Agent"
         data-testid="logic-companion"
         tabindex="-1"
         @keydown.esc="onCompanionEscape"
@@ -1470,9 +1470,9 @@ defineExpose({ cursor });
 
     <UiDialog
       :open="leaveAsk"
-      title="Keep your changes?"
+      title="Save your changes?"
       size="sm"
-      :description="`${title} has ${changes} unkept ${changes === 1 ? 'change' : 'changes'}. Keep builds and reviews them first.`"
+      :description="`${title} has ${changes} unkept ${changes === 1 ? 'change' : 'changes'}. Save builds and reviews them first.`"
       data-testid="logic-leave-dialog"
       @update:open="(next) => (next ? (leaveAsk = true) : cancelLeave())"
     >
@@ -1492,7 +1492,7 @@ defineExpose({ cursor });
           data-testid="logic-leave-keep"
           @click="keepAndClose"
         >
-          Keep
+          Save
         </UiButton>
       </template>
     </UiDialog>

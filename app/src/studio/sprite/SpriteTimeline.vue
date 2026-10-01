@@ -261,7 +261,7 @@ function onMenuFocusOut(event: FocusEvent): void {
 
 /** The loop picker: every loop (a move skips the cel's own), then Back. */
 /** Why the timeline's edits are off, on their tooltips. */
-const PAUSED = "Editing pauses while the sprite is read-only or an AI proposal is open";
+const PAUSED = "Editing pauses while the actor is read-only or an AI change is open";
 const ONE_CEL = "A loop keeps at least one cel";
 
 function loopPicker(l: number, c: number, pick: "copy" | "move"): MenuItem[][] {

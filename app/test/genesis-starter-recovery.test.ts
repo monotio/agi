@@ -1,6 +1,6 @@
 /**
  * Genesis starter recovery: a provider-driven Create that fails or is
- * cancelled before handover offers "Open starter" on the error surface, and
+ * cancelled before finish offers "Open starter" on the error surface, and
  * the explicit click commits the same prepared canonical Starter once and
  * boots it as an ordinary manual project. Storage is the real contract —
  * the fake IndexedDB and localStorage fixtures carry it — while the

@@ -201,12 +201,12 @@ export function useSpriteDraft(options: {
     try {
       next = withPayload(document.value, payload);
     } catch (error) {
-      return refuse({ message: "The proposal doesn't decode any more.", detail: String(error) });
+      return refuse({ message: "The change doesn't decode any more.", detail: String(error) });
     }
     const scoped = checkCandidate(document.value, next, scope);
     if (!scoped.ok)
       return refuse({
-        message: "The proposal now reaches outside its scope. Ask again.",
+        message: "The change now reaches outside its scope. Follow up.",
         detail: assistRefusalText(scoped),
       });
     const targets = [...new Set(scope.targetCels.map(({ loop }) => loop))];
@@ -220,7 +220,7 @@ export function useSpriteDraft(options: {
     const recorded = recordSpriteEdit(history.value, label, document.value, next);
     if (!recorded.ok)
       return refuse({
-        message: "The view changed while the AI worked. Ask again.",
+        message: "The view changed while the AI worked. Follow up.",
         detail: recorded.reason,
       });
     history.value = recorded.history;

@@ -250,7 +250,7 @@ async function admit(
 ): Promise<ResourceCommitResult> {
   checkAuthority(state);
   if (state.inFlight)
-    throw new ResourceCommitError("busy", "A Keep is already in progress for this resource.");
+    throw new ResourceCommitError("busy", "A Save is already in progress for this resource.");
   state.inFlight = true;
   try {
     const snapshot = state.draft.capture();

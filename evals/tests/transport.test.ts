@@ -22,18 +22,18 @@ const finish = [
     },
   },
   {
-    name: "write_logic_source",
+    name: "write_logic",
     args: { room: 0, source: "if (!isset(f200)) {set(f200);new.room(1);} call.v(v0);return;" },
   },
   {
-    name: "write_logic_source",
+    name: "write_logic",
     args: {
       room: 1,
       source:
         "if (isset(f5)) {load.pic(v0);draw.pic(v0);show.pic();load.view(0);animate.obj(0);set.view(0,0);position(0,80,120);draw(0);accept.input();} return;",
     },
   },
-  { name: "handover", args: { notes: "ready" } },
+  { name: "finish", args: { notes: "ready" } },
 ];
 
 for (const provider of ["openai", "anthropic"]) {
@@ -51,7 +51,7 @@ for (const provider of ["openai", "anthropic"]) {
             ? [
                 { name: "write_picture", args: { room: 1, source: "vis 1\nfill 0,0\nend" } },
                 {
-                  name: "write_logic_source",
+                  name: "write_logic",
                   args: { room: 1, source: "invalid opcode nonsense" },
                 },
               ]

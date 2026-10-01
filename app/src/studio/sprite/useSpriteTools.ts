@@ -146,11 +146,11 @@ export function useSpriteTools(options: SpriteToolsOptions) {
 
   function blocked(): boolean {
     if (options.frozen()) {
-      options.say({ tone: "warn", text: "This sprite is read-only." });
+      options.say({ tone: "warn", text: "This actor is read-only." });
       return true;
     }
     if (!options.paused?.()) return false;
-    options.say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
+    options.say({ tone: "warn", text: "Approve or reject the AI's change first." });
     return true;
   }
 

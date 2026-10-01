@@ -21,7 +21,7 @@ import {
  * an image attached in the Ask section is stored with the game as the
  * room's reference art and rides the next request as a handle, a manifest
  * line and one contact strip of thumbnails, never the image itself. The
- * stub's "reference" scenario views the attached art with view_reference and
+ * stub's "reference" scenario views the attached art with read_reference_image and
  * says which art it viewed and what images its request carried. A chip
  * removed before asking leaves the art off the request.
  */

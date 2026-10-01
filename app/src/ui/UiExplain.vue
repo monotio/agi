@@ -30,12 +30,14 @@ const {
   term,
   name,
   says,
+  technical = undefined,
   help = undefined,
 } = defineProps<{
   /** The registry id: `data-term` and the test id `explain-{term}`. */
   term: string;
   name: string;
   says: string;
+  technical?: string | undefined;
   help?: HelpTarget | undefined;
 }>();
 
@@ -178,6 +180,7 @@ onBeforeUnmount(() => {
     class="ui-explain"
     :class="{ 'is-open': open }"
     :aria-label="`What is ${name}?`"
+    :title="technical || says"
     :aria-expanded="open"
     :aria-controls="open ? popId : undefined"
     aria-haspopup="dialog"
@@ -211,7 +214,7 @@ onBeforeUnmount(() => {
       @focusout="onFocusOut"
     >
       <h4 :id="nameId" class="ui-explain__name">{{ name }}</h4>
-      <p class="ui-explain__says" data-testid="explain-says">{{ says }}</p>
+      <p :title="technical" class="ui-explain__says" data-testid="explain-says">{{ says }}</p>
       <div v-if="$slots['action'] || (help && bridge)" class="ui-explain__row">
         <slot name="action" :close="() => close(true)" />
         <button

@@ -1,6 +1,6 @@
 {
   "name": "studio-assist-art-changed-under-lock",
-  "description": "Asked to make a bridge walkable in the Walk lens, a model recolours the bridge art instead. The visual plane is locked: propose_edit must refuse on decoded pixels, name the plane and the cells, and keep no candidate.",
+  "description": "Asked to make a bridge walkable in the Walk lens, a model recolours the bridge art instead. The visual plane is locked: propose_changes must refuse on decoded pixels, name the plane and the cells, and keep no candidate.",
   "async": true,
   "studio": {
     "kind": "picture",
@@ -9,7 +9,7 @@
     "targetIds": ["bridge"],
     "lens": "walk"
   },
-  "tool": "propose_edit",
+  "tool": "propose_changes",
   "args": {
     "baseRevision": "picture-638-246da3a7",
     "summary": "Made the bridge walkable.",

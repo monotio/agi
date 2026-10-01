@@ -48,7 +48,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
     requests++;
     const calls = [
       ["write_view", { num: 11, source: sprite }],
-      ["write_logic_source", { room: 1, source: remixed }],
+      ["write_logic", { room: 1, source: remixed }],
     ];
     await route.fulfill(
       providerReply("openai", {

@@ -43,7 +43,7 @@ save(
 );
 save(
   "sound-preview",
-  executeAgentTool(session, "preview_sound", {
+  executeAgentTool(session, "play_sound", {
     num: 1,
     startSeconds: 0,
     durationSeconds: 4,

@@ -132,7 +132,7 @@ function commitName(event: Event): void {
         @change="commitName"
         @keydown.enter="($event.target as HTMLInputElement).blur()"
       />
-      <h2 v-else>{{ row ? row.label : "Nothing selected" }}</h2>
+      <h2 v-else>{{ row ? row.label : "Select an item to inspect its steps and colours." }}</h2>
       <p class="inspector__sub" data-testid="inspector-subtitle">
         <template v-if="row"
           ><span>{{ summary }}</span

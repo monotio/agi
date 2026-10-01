@@ -66,7 +66,7 @@ test("rows: items in draw order, then loose lines as Unassigned, without the clo
   }));
   assert.deepEqual(summary, [
     { id: "a", kind: "art", entries: [0, 1], swatch: 4, value: 4, tag: "art" },
-    { id: "d", kind: "depth", entries: [2, 3, 4], swatch: 10, value: 10, tag: "pri 10" },
+    { id: "d", kind: "depth", entries: [2, 3, 4], swatch: 10, value: 10, tag: "Depth 10" },
     { id: UNASSIGNED, kind: "loose", entries: [5, 6], swatch: 2, value: 2, tag: "loose" },
   ]);
   // Two unlike items: no groups, and Unassigned stays out of the branches.
@@ -126,7 +126,7 @@ test("branches fold consecutive inferred items of one kind and dominant value in
       ["Brown art · 3", ["el-1", "el-2", "el-3"]],
       [null, ["el-4"]],
       ["Brown art · 2", ["el-5", "el-6"]],
-      ["Band 9 depth · 2", ["el-7", "el-8"]],
+      ["Depth band 9 · 2", ["el-7", "el-8"]],
     ],
   );
   const [first] = model.groups;
@@ -136,7 +136,7 @@ test("branches fold consecutive inferred items of one kind and dominant value in
   assert.equal(first!.id, "(group)el-1");
   assert.deepEqual(
     model.groups.map((group) => group.tag),
-    ["art", "art", "pri 9"],
+    ["art", "art", "Depth 9"],
   );
 });
 
@@ -169,7 +169,7 @@ test("authored items always stand alone: they never join a group, but do break o
       [null, ["el-3"]],
       [null, ["el-4"]],
       ["Brown art · 2", ["el-5", "el-6"]],
-      ["Band 9 depth · 2", ["el-7", "el-8"]],
+      ["Depth band 9 · 2", ["el-7", "el-8"]],
     ],
   );
 });
@@ -240,8 +240,8 @@ test("a list of more than 60 rows folds into draw-order sections", () => {
 test("group labels name the colour, the priority meaning or a covered run", () => {
   assert.equal(groupLabel("art", 6, 12), "Brown art · 12");
   assert.equal(groupLabel("mixed", 7, 2), "Light grey mixed · 2");
-  assert.equal(groupLabel("depth", 9, 4), "Band 9 depth · 4");
-  assert.equal(groupLabel("walk", 0, 3), "Barrier walk · 3");
+  assert.equal(groupLabel("depth", 9, 4), "Depth band 9 · 4");
+  assert.equal(groupLabel("walk", 0, 3), "Wall walk · 3");
   assert.equal(groupLabel("art", null, 2), "Covered art · 2");
 });
 
@@ -269,10 +269,10 @@ test("the demo picture's rows and occluder mask match its hand-placed shapes", (
       "wall:art",
       "bench:art",
       "lamp:art",
-      "bench-occluder:pri 10",
-      "floor-edge:barrier",
-      "gate:conditional",
-      "south-exit:signal",
+      "bench-occluder:Depth 10",
+      "floor-edge:Wall",
+      "gate:Gate",
+      "south-exit:Trigger",
       "pond:mixed",
     ],
   );

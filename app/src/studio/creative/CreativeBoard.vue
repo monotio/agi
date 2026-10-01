@@ -37,7 +37,7 @@ const emit = defineEmits<{
 const ROLE_LABELS: Record<string, string> = {
   style: "Style",
   composition: "Composition",
-  "character-identity": "Character",
+  "character-identity": "Actor",
   "exact-source": "Exact source",
 };
 
@@ -81,23 +81,23 @@ function thumb(canvas: HTMLCanvasElement | null, preview: BoardPreview | null | 
           v-if="row.preview !== null && row.preview !== undefined && row.preview.recipes > 0"
           class="board__recipes"
         >
-          {{ row.preview.recipes }} recipe{{ row.preview.recipes === 1 ? "" : "s" }}
+          {{ row.preview.recipes }} preparation{{ row.preview.recipes === 1 ? "" : "s" }}
         </span>
       </span>
       <span class="board__actions">
         <UiButton
           size="sm"
           variant="ghost"
-          title="Prepare this source as a room underlay"
+          title="Prepare this source as a room trace"
           @click="emit('prepare-room', row.entry)"
-          >Room</UiButton
+          >PICTURE</UiButton
         >
         <UiButton
           size="sm"
           variant="ghost"
-          title="Prepare this source as a sprite"
+          title="Prepare this source as a VIEW"
           @click="emit('prepare-view', row.entry)"
-          >Sprite</UiButton
+          >VIEW</UiButton
         >
         <UiIconButton
           icon="trash"

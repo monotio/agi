@@ -119,7 +119,7 @@ function metrics(
 }
 
 // Genesis has no live game; the full catalog stays advertised anyway since
-// read_room_context's live sections degrade cleanly without an attached game.
+// read_room's live sections degrade cleanly without an attached game.
 const GENESIS_TOOLS = AGENT_TOOLS;
 
 interface CliArgs {
@@ -265,7 +265,7 @@ async function runCliGenesis(): Promise<void> {
       source: "vis 1\nline 0,0 159,167\nend\n",
     });
     // Write logic 0
-    executeAgentTool(session, "write_logic_source", {
+    executeAgentTool(session, "write_logic", {
       room: 0,
       source: `
       if (!isset(f200)) {
@@ -278,7 +278,7 @@ async function runCliGenesis(): Promise<void> {
       `,
     });
     // Write logic 1
-    executeAgentTool(session, "write_logic_source", {
+    executeAgentTool(session, "write_logic", {
       room: 1,
       source: `
       #message 1 "Starting room."
@@ -292,7 +292,7 @@ async function runCliGenesis(): Promise<void> {
       return;
       `,
     });
-    const finish = executeAgentTool(session, "handover", {
+    const finish = executeAgentTool(session, "finish", {
       notes: "Stub world genesis complete.",
     });
     if (!finish.success) {
@@ -463,7 +463,7 @@ async function runOpenAiGenesis(
       input.push({
         role: "user",
         content:
-          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and handover.",
+          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic, and finish.",
       });
       continue;
     }
@@ -581,7 +581,7 @@ async function runAnthropicGenesis(
       messages.push({
         role: "user",
         content:
-          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic_source, and handover.",
+          "Genesis is not yet complete. Please call write_words, write_view, write_picture, write_logic, and finish.",
       });
       continue;
     }

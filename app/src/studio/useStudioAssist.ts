@@ -65,10 +65,10 @@ export interface StudioAssistOptions {
   readonly apply: (candidate: StudioCandidate, focus: StudioFocus) => AssistOutcome;
 }
 
-export const STALE_TEXT = "You changed the picture while the AI worked. Ask again.";
+export const STALE_TEXT = "You changed the picture while the AI worked. Follow up.";
 /** Why the lens and the unlocks wait while a request runs or its proposal awaits a verdict. */
-export const HOLD_TEXT = "Finish or reject the AI's proposal first";
-export const STALE_VIEW_TEXT = "You changed the view while the AI worked. Ask again.";
+export const HOLD_TEXT = "Finish or reject the AI's change first";
+export const STALE_VIEW_TEXT = "You changed the view while the AI worked. Follow up.";
 
 type Violation = { readonly constraint?: string; readonly plane?: string };
 
@@ -123,9 +123,9 @@ export function assistSteps(entries: readonly AgentLogEntry[]): string[] {
     const rest = entry.detail.slice(STUDIO.length);
     if (entry.kind === "request" && rest === "read_edit_context")
       steps.push({ text: "Reading the selection…", refused: false });
-    else if (entry.kind === "request" && rest === "propose_edit")
+    else if (entry.kind === "request" && rest === "propose_changes")
       steps.push({ text: "Proposing…", refused: false });
-    else if (rest.startsWith("propose_edit -> ")) {
+    else if (rest.startsWith("propose_changes -> ")) {
       const last = steps.at(-1);
       if (!last) continue;
       if (entry.kind === "error") {
@@ -134,14 +134,14 @@ export function assistSteps(entries: readonly AgentLogEntry[]): string[] {
         last.text = `Refused: ${refusalWords(data?.result?.details?.violations ?? [])}`;
         last.refused = true;
       } else last.text = "Proposed a change";
-    } else if (entry.kind === "request" && rest === "withdraw_edit")
-      steps.push({ text: "Withdrawing its proposal…", refused: false });
-    else if (rest.startsWith("withdraw_edit -> ")) {
+    } else if (entry.kind === "request" && rest === "withdraw_changes")
+      steps.push({ text: "Withdrawing its change…", refused: false });
+    else if (rest.startsWith("withdraw_changes -> ")) {
       const last = steps.at(-1);
       const reason = (entry.data as { result?: { details?: { reason?: unknown } } } | undefined)
         ?.result?.details?.reason;
       if (last && entry.kind !== "error")
-        last.text = `Withdrew its proposal${typeof reason === "string" ? `: ${reason}` : ""}`;
+        last.text = `Withdrew its change${typeof reason === "string" ? `: ${reason}` : ""}`;
       else if (last) last.text = "Nothing to withdraw";
     } else if (rest.startsWith("read_edit_context -> ")) {
       const last = steps.at(-1);

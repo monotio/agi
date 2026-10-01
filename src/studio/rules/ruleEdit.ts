@@ -13,7 +13,7 @@
  *     follows a finished statement), or else at the end.
  *
  * Allocation reuses the authoring tools: a flag name without a binding is
- * reserved through reserve_binding (kind flag, lowest free id from 32), and
+ * reserved through reserve_name (kind flag, lowest free id from 32), and
  * message text is an inline print string the assembler numbers after the
  * logic's highest #message. Native fragments — any rule parseRule does not
  * recognise — are never touched; they change only through an explicit text
@@ -254,7 +254,7 @@ export function applyRuleEdit(
       if (binding?.kind === "flag") continue;
       if (binding)
         return { error: `'${name}' already names ${binding.kind} ${binding.num}, not a flag.` };
-      const reserved = executeAuthoringTool(staged as AgentSessionState, "reserve_binding", {
+      const reserved = executeAuthoringTool(staged as AgentSessionState, "reserve_name", {
         bindings: null,
         name,
         kind: "flag",

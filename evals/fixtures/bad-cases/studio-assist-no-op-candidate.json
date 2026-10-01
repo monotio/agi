@@ -9,7 +9,7 @@
     "targetIds": ["wake-plate"],
     "lens": "walk"
   },
-  "tool": "propose_edit",
+  "tool": "propose_changes",
   "args": {
     "baseRevision": "picture-4702-be91202e",
     "summary": "Restore open-floor walkability under the lever plate while leaving its visual art untouched.",

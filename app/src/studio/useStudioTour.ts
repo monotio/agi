@@ -33,8 +33,8 @@ export type TourSide = "below" | "above" | "right" | "left";
 export const STUDIO_TOUR_KEY = "monotio_agi.studioTour";
 
 const KEEP_MARK: TourMark = {
-  title: "Keep",
-  body: "Keep puts your changes in the game. Undo works before and after.",
+  title: "Save",
+  body: "Save puts your changes in the game. Undo works before and after.",
   anchors: ["studio-keep"],
   place: "studio-keep",
   side: "below",
@@ -77,7 +77,7 @@ export const STUDIO_TOURS: Record<StudioTourName, readonly TourMark[]> = {
     },
     {
       ...KEEP_MARK,
-      body: "Keep saves the character into every room that uses it. Undo works before and after.",
+      body: "Save adds the character into every room that uses it. Undo works before and after.",
     },
   ],
 };

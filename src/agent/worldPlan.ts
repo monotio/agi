@@ -2,7 +2,7 @@
  * The world plan's revisioned write path.
  *
  * `AuthoringState.world` is the canonical plan; every writer — the agent's
- * update_world and the player's map edits — goes through
+ * update_plan and the player's map edits — goes through
  * validateAuthoringState, so both share the same limits. A player draft forks
  * from a base revision and commits only while the world still matches it; a
  * mismatch is a conflict the caller surfaces rather than a silent overwrite.
@@ -56,7 +56,7 @@ export type WorldCommit =
 /**
  * Commit a draft back: the base revision must still match (unless the draft
  * is an adoption), then the merged world passes the shared validator —
- * the same limits update_world enforces. `authoring` is never mutated.
+ * the same limits update_plan enforces. `authoring` is never mutated.
  */
 export function commitWorldDraft(authoring: AuthoringState, draft: WorldDraft): WorldCommit {
   if (draft.baseRevision !== "" && worldRevision(authoring.world) !== draft.baseRevision)

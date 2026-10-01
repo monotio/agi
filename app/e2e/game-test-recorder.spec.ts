@@ -68,12 +68,12 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     const turns = [
       ...remixResponses(
         "break",
-        [["write_logic_source", { room: 1, source: BROKEN_ROOM_ONE }]],
+        [["write_logic", { room: 1, source: BROKEN_ROOM_ONE }]],
         "The mural lesson is remixed.",
       ),
       ...remixResponses(
         "repair",
-        [["write_logic_source", { room: 1, source: ROOM_ONE }]],
+        [["write_logic", { room: 1, source: ROOM_ONE }]],
         "The mural lesson is restored.",
       ),
     ];

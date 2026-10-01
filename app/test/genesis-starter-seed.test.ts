@@ -105,7 +105,7 @@ test("Genesis refuses to reseed a session whose authored work diverged from the 
           {
             type: "function_call",
             call_id: "w1",
-            name: "write_logic_source",
+            name: "write_logic",
             arguments: JSON.stringify({ room: 1, source: "return;" }),
           },
         ],

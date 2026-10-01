@@ -93,7 +93,7 @@ test("library Sound Studio creates, edits, keeps and exports an exact native cue
   await page.getByTestId("sound-new").click();
   await page.getByTestId("sound-preset-danger").click();
   const cueName = page.getByTestId("sound-cue-name");
-  await expect(cueName).toContainText("SND");
+  await expect(cueName).toContainText("SOUND");
   const num = Number((await cueName.textContent())!.replace(/\D/g, ""));
   await expect(studio.getByTestId(`sound-item-${num}`)).toBeVisible();
   const lane0 = studio.getByTestId("sound-lane-0");
@@ -101,7 +101,7 @@ test("library Sound Studio creates, edits, keeps and exports an exact native cue
   const count0 = await lane0.locator(".sound-event").count();
   await reviewShot(page, "sound-studio-preset-cue");
 
-  // Edit the first event: duration, note and attenuation through the inspector.
+  // Edit the first event: duration, pitch and volume through the inspector.
   await lane0.locator(".sound-event").first().click();
   const ticks = page.getByTestId("sound-event-ticks");
   await ticks.fill("24");
@@ -110,14 +110,19 @@ test("library Sound Studio creates, edits, keeps and exports an exact native cue
   await note.fill("A4");
   await note.press("Tab");
   const att = page.getByTestId("sound-event-attenuation");
-  await att.fill("4");
+  await expect(note).toHaveValue("A4");
+  await expect(page.getByText("Volume (0–15)", { exact: true })).toHaveAttribute(
+    "title",
+    /AGI attenuation/,
+  );
+  await att.fill("11");
   await att.press("Tab");
   await expect(page.getByTestId("sound-edit-error")).toBeHidden();
   // The event's own label proves the commits landed in the document —
   // a silently dropped commit would leave the preset's values there.
   const edited = lane0.locator(".sound-event").first();
   await expect(edited).toHaveAttribute("aria-label", /24t/);
-  await expect(edited).toHaveAttribute("aria-label", /att 4/);
+  await expect(edited).toHaveAttribute("aria-label", /volume 11/);
 
   // Keyboard: the focused event's lane takes a rest at its cursor; lane 3's
   // track takes a noise hit. Delete removes the selected event.
@@ -163,7 +168,7 @@ test("library Sound Studio creates, edits, keeps and exports an exact native cue
     .click();
   await expect(studio).toBeVisible();
   await studio.getByTestId(`sound-item-${num}`).click();
-  await expect(cueName).toContainText(`SND ${num}`);
+  await expect(cueName).toContainText(`SOUND ${num}`);
   await expect(lane0.locator(".sound-event")).toHaveCount(count0 + 1);
 
   // Download asserts exact bytes against the stored container resource.
@@ -228,7 +233,7 @@ test("Sound Studio over a running game freezes the worker and its preview releas
   // its own lease on top of the mount hold and the worker stays frozen.
   await page.getByTestId("sound-new").click();
   await page.getByTestId("sound-preset-success").click();
-  await expect(page.getByTestId("sound-cue-name")).toContainText("SND");
+  await expect(page.getByTestId("sound-cue-name")).toContainText("SOUND");
   await page.getByTestId("sound-play").click();
   await expect(page.getByTestId("sound-pause")).toBeVisible();
   expect(await cyclesFrozen(page)).toBe(true);
@@ -386,7 +391,7 @@ test("a project switch during open lands on the newer project with no stale stat
   // open leaked into its draft or selection state.
   await page.getByTestId("sound-new").click();
   await page.getByTestId("sound-preset-blank").click();
-  await expect(page.getByTestId("sound-cue-name")).toContainText("SND");
+  await expect(page.getByTestId("sound-cue-name")).toContainText("SOUND");
   await page.getByTestId("sound-keep").click();
   await page.getByTestId("sound-review-keep").click();
   await expect(page.getByTestId("sound-studio-status")).toContainText("Saved");

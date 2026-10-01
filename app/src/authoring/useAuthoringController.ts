@@ -439,7 +439,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       frames: { read: readFrames },
       engine: engineSource,
       checkpoint: checkpointSource,
-      // Map-pinned intent is visible to read_room_context for any room the
+      // Map-pinned intent is visible to read_room for any room the
       // agent inspects, not just the one a request names.
       roomNotes: (room) => getRoomNotes?.(room) ?? [],
       referenceArt: projectReferenceArt,
@@ -835,7 +835,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       const booted = getBootedGame();
       // Attached references ride the turn as handles: a manifest line and a
       // thumbnail each, marked attached; the agent views what it needs with
-      // view_reference (the session's referenceArt source).
+      // read_reference_image (the session's referenceArt source).
       const selectedIds =
         referenceIds ??
         pendingReferences
@@ -1180,7 +1180,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
   function postSessionSnapshot(author: AgentSession | null = session): void {
     if (!author) return;
     // The world may have moved — plan surfaces re-read it even when no
-    // resource changed (a plan-only update_world produces no patch).
+    // resource changed (a plan-only update_plan produces no patch).
     state.worldTick++;
     getWorker()?.postMessage({
       type: "authoring",

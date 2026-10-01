@@ -224,7 +224,7 @@ export function useStudioTools(options: StudioToolsOptions) {
       return true;
     }
     if (!options.paused?.()) return false;
-    options.say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
+    options.say({ tone: "warn", text: "Approve or reject the AI's change first." });
     return true;
   }
 

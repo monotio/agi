@@ -142,6 +142,7 @@ function pick(patch: Partial<CurrentValues>): void {
           <button
             v-for="control in CONTROL_VALUES"
             :key="control.value"
+            :title="`${control.help} ${control.technical}`"
             type="button"
             role="radio"
             class="values__control"
@@ -167,7 +168,7 @@ function pick(patch: Partial<CurrentValues>): void {
           </button>
         </div>
         <p class="values__note values__with">
-          Walk lines 0–3 only <UiExplain v-bind="explain('walk-lines')" />
+          Wall / Gate / Trigger / Water <UiExplain v-bind="explain('walk-lines')" />
         </p>
       </template>
       <template v-else>

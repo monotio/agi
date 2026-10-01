@@ -112,8 +112,8 @@ function reason(error: unknown): string {
 const STEP_WORDS: Record<string, { doing: string; done: string }> = {
   read_project_context: { doing: "Reading the project…", done: "Read the project" },
   read_document: { doing: "Reading a document…", done: "Read a document" },
-  propose_project_documents: { doing: "Proposing changes…", done: "Proposed changes" },
-  withdraw_proposal: { doing: "Withdrawing its proposal…", done: "Withdrew its proposal" },
+  propose_changes: { doing: "Proposing changes…", done: "Proposed changes" },
+  withdraw_changes: { doing: "Withdrawing its change…", done: "Withdrew its change" },
   read_command_reference: { doing: "Reading the command reference…", done: "Read the reference" },
   read_authoring_guide: { doing: "Reading the authoring guide…", done: "Read the guide" },
 };
@@ -355,7 +355,7 @@ export function useLogicProjectAssist(options: LogicAssistOptions) {
         break;
       case "refused":
         pending.value = null;
-        error.value = result.text || "The proposal was refused.";
+        error.value = result.text || "The change was refused.";
         break;
       case "none":
       case "cancelled":

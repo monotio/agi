@@ -129,7 +129,7 @@ export interface EngineState {
   phase: "idle" | "loading" | "running" | "error";
   error: string;
   /**
-   * A provider-driven Create that ended before handover keeps its prepared
+   * A provider-driven Create that ended before finish keeps its prepared
    * canonical Starter on offer: Home's error surface shows "Open starter"
    * while this is set. Ephemeral — never stored, retired by the next boot.
    */

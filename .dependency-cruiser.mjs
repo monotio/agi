@@ -54,6 +54,8 @@ export default {
       },
       to: {
         path: "^(?:app/src/studio/|src/studio/)",
+        // Plain vocabulary is shared by Help and the agent; it loads no editor code.
+        pathNot: "^src/studio/vocabulary\\.ts$",
         dependencyTypesNot: ["dynamic-import", "type-only"],
       },
     },
