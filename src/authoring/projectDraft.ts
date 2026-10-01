@@ -3,11 +3,54 @@
  * Drafts may be incomplete. Resource validation, durable Keep and run installation
  * belong to their respective services; accepting a proposal performs none of them.
  */
+import { checkProjectDocumentKey } from "./projectDocumentKey.ts";
+export { checkProjectDocumentKey } from "./projectDocumentKey.ts";
+
 type DocumentContent = string | Uint8Array;
 interface DocumentChange {
   readonly key: string;
   readonly content: DocumentContent | null;
 }
+/**
+ * Issued by `edit` for one authorized write. Identity is the object itself —
+ * a caller-built lookalike confers nothing — and content images stay private:
+ * the issuer restores origins, never bytes matched by a caller.
+ */
+export interface DraftEditReceipt {
+  readonly key: string;
+}
+
+/**
+ * Issued by `acquireHistoryMutation` for one native history step. Object
+ * identity is the authority; cancellation revokes its privileged writes while
+ * exclusion lasts until release.
+ */
+export interface DraftHistoryLease {
+  readonly kind: "native-history";
+}
+
+/**
+ * Issued by `admitKeep` for one admitted storage attempt. The reservation
+ * holds baseline acknowledgement authority for its exact selection until the
+ * attempt settles; it is not an exclusive lock on ordinary editing.
+ */
+export interface DraftKeepAdmission {
+  readonly kind: "keep-admission";
+}
+
+/** Why an ordinary mutation is currently refused. */
+export type DraftBusyReason = "native-history" | "keep-pending";
+
+/** The typed refusal a busy draft gives ordinary writers before any mutation. */
+export class DraftBusyError extends Error {
+  readonly reason: DraftBusyReason;
+  constructor(reason: DraftBusyReason, message: string) {
+    super(message);
+    this.name = "DraftBusyError";
+    this.reason = reason;
+  }
+}
+
 /** Detached recovery data; the persistence adapter validates its envelope and base. */
 export interface DraftRecovery {
   readonly changes: readonly (DocumentChange & { readonly version: number })[];
@@ -77,17 +120,37 @@ interface UndoState {
   readonly afterOrigins: Readonly<Record<string, number>>;
   applied: boolean;
 }
-
-export function checkProjectDocumentKey(key: string): void {
-  if (
-    !/^(?:logic|picture|view|sound):(0|[1-9]\d{0,2})$/.test(key) &&
-    !["words", "inventory", "bindings", "world", "tests", "references"].includes(key)
-  )
-    throw new Error(`Invalid project document: ${key}`);
-  const colon = key.indexOf(":");
-  if (colon >= 0 && Number(key.slice(colon + 1)) > 255)
-    throw new Error(`Invalid project document: ${key}`);
+interface EditReceiptState {
+  readonly before: DocumentChange;
+  readonly after: DocumentChange;
+  readonly beforeOrigin: number;
+  readonly afterOrigin: number;
+  // Origins are restored identities, not the timeline clock: versions are never
+  // restored, so a version chain detects a write that landed between receipts
+  // even when it is later walked back to the same origin or bytes.
+  readonly beforeVersion: number;
+  readonly afterVersion: number;
+  applied: boolean;
 }
+interface HistoryLeaseState {
+  cancelled: boolean;
+  released: boolean;
+}
+interface KeepAdmissionState {
+  readonly selection: DraftSelection;
+  resolved: boolean;
+}
+/**
+ * Authority a public mutator resolved before writing — produced only by the
+ * guard helpers, so no caller can bypass the busy check with a flag. `write`
+ * requires one; the `open` token exists for construction/recovery only.
+ */
+interface WriteAuthority {
+  readonly via: "open" | "ordinary" | "native-history";
+}
+const OPEN_WRITE: WriteAuthority = Object.freeze({ via: "open" });
+const ORDINARY_WRITE: WriteAuthority = Object.freeze({ via: "ordinary" });
+const HISTORY_WRITE: WriteAuthority = Object.freeze({ via: "native-history" });
 
 function copyContent(content: DocumentContent | null): DocumentContent | null {
   if (content === null || typeof content === "string") return content;
@@ -129,6 +192,13 @@ export class ProjectDraft {
   private snapshots = new WeakMap<DraftSnapshot, SnapshotState>();
   private proposals = new WeakMap<DraftProposal, ProposalState>();
   private transactions = new WeakMap<TransactionId, UndoState>();
+  private editReceipts = new WeakMap<DraftEditReceipt, EditReceiptState>();
+  private historyLeases = new WeakMap<DraftHistoryLease, HistoryLeaseState>();
+  private keepAdmissions = new WeakMap<DraftKeepAdmission, KeepAdmissionState>();
+  /** The currently held native-history lease; its exclusion outlives cancel. */
+  private historyLease: DraftHistoryLease | undefined;
+  /** Admitted Keep attempts whose durable settlement has not yet been reported. */
+  private unresolvedKeeps = new Set<DraftKeepAdmission>();
   private nextTransaction = 1;
   private kept: Readonly<Record<string, DocumentSlot>> = Object.create(null);
   private keptRevision = 0;
@@ -136,7 +206,11 @@ export class ProjectDraft {
   private pendingGroups: { readonly revision: number; readonly keys: readonly string[] }[] = [];
 
   constructor(documents: Readonly<Record<string, DocumentContent>>) {
-    this.write(copyChanges(Object.entries(documents).map(([key, content]) => ({ key, content }))));
+    this.write(
+      copyChanges(Object.entries(documents).map(([key, content]) => ({ key, content }))),
+      undefined,
+      OPEN_WRITE,
+    );
     this.kept = { ...this.documents };
     this.pendingGroups = [];
   }
@@ -163,7 +237,7 @@ export class ProjectDraft {
       return Object.freeze([...group].sort());
     });
     const draft = new ProjectDraft(documents);
-    draft.write(changes);
+    draft.write(changes, undefined, OPEN_WRITE);
     const dirty = new Set(draft.dirtyKeys());
     // Restoring all text at once must not couple otherwise independent edits.
     draft.pendingGroups = groups
@@ -319,6 +393,23 @@ export class ProjectDraft {
    * without turning a durable success into a failure or rolling back newer content.
    */
   acknowledgeKept(selection: DraftSelection): boolean {
+    this.ordinaryWrite();
+    return this.acknowledgeSelection(selection);
+  }
+
+  /**
+   * The admitted-Keep acknowledgement: the reservation issued for this exact
+   * selection is the authority. History acquisition remains excluded until
+   * the admitted save settles. Everything else matches acknowledgeKept.
+   */
+  acknowledgeAdmittedKeep(admission: DraftKeepAdmission): boolean {
+    const state = this.keepAdmissions.get(admission);
+    if (!state) throw new Error("Keep admission belongs to another workspace.");
+    if (state.resolved) throw new Error("Keep admission is already settled.");
+    return this.acknowledgeSelection(state.selection);
+  }
+
+  private acknowledgeSelection(selection: DraftSelection): boolean {
     const state = this.selections.get(selection);
     if (!state) throw new Error("Selection belongs to another workspace.");
     if (state.acknowledged) return true;
@@ -346,6 +437,87 @@ export class ProjectDraft {
     return true;
   }
 
+  /**
+   * Reserve one document's native history step. Acquisition is synchronous and
+   * pins the expected revision; it refuses while another lease is held — even
+   * a cancelled one awaiting release — or while any admitted Keep is still
+   * settling. The returned token is opaque: only this issuer recognizes it.
+   */
+  acquireHistoryMutation(expectedRevision: number): DraftHistoryLease {
+    if (this.historyLease !== undefined)
+      throw new DraftBusyError(
+        "native-history",
+        "A native history step is already running on this draft.",
+      );
+    if (this.unresolvedKeeps.size > 0)
+      throw new DraftBusyError(
+        "keep-pending",
+        "A Keep is still settling; the next history step must wait for it.",
+      );
+    if (expectedRevision !== this.revision)
+      throw new Error(
+        `Stale revision: expected ${expectedRevision}, draft is at ${this.revision}.`,
+      );
+    const lease: DraftHistoryLease = Object.freeze({ kind: "native-history" });
+    this.historyLeases.set(lease, { cancelled: false, released: false });
+    this.historyLease = lease;
+    return lease;
+  }
+
+  /**
+   * Revoke the lease's privileged write authority immediately. The lease's
+   * exclusion lasts until `releaseHistoryMutation`, so a cancelled step still
+   * holds the draft closed until its holder finishes reconciling.
+   */
+  cancelHistoryMutation(lease: DraftHistoryLease): void {
+    const state = this.historyLeases.get(lease);
+    if (state === undefined) throw new Error("History lease belongs to another workspace.");
+    if (state.released) return;
+    state.cancelled = true;
+  }
+
+  /** End the lease. Idempotent for the issuing token; foreign tokens refuse. */
+  releaseHistoryMutation(lease: DraftHistoryLease): void {
+    const state = this.historyLeases.get(lease);
+    if (state === undefined) throw new Error("History lease belongs to another workspace.");
+    if (state.released) return;
+    state.released = true;
+    state.cancelled = true;
+    if (this.historyLease === lease) this.historyLease = undefined;
+  }
+
+  /**
+   * Admit one Keep's storage attempt for this exact selection: the caller has
+   * already built and reviewed the request, so admission is synchronous —
+   * selection identity and currentness plus native-history exclusion. Several
+   * admissions may be pending at once; each blocks history acquisition until
+   * its attempt settles. Not a lock on ordinary editing.
+   */
+  admitKeep(selection: DraftSelection): DraftKeepAdmission {
+    if (this.historyLease !== undefined)
+      throw new DraftBusyError(
+        "native-history",
+        "A native history step is running; this Keep must wait for it to settle.",
+      );
+    this.assertCurrent(selection);
+    const admission: DraftKeepAdmission = Object.freeze({ kind: "keep-admission" });
+    this.keepAdmissions.set(admission, { selection, resolved: false });
+    this.unresolvedKeeps.add(admission);
+    return admission;
+  }
+
+  /**
+   * Report that an admitted Keep attempt settled — durably saved or failed.
+   * Idempotent for the issuing token; foreign tokens refuse.
+   */
+  finishKeepAdmission(admission: DraftKeepAdmission): void {
+    const state = this.keepAdmissions.get(admission);
+    if (state === undefined) throw new Error("Keep admission belongs to another workspace.");
+    if (state.resolved) return;
+    state.resolved = true;
+    this.unresolvedKeeps.delete(admission);
+  }
+
   /** Capture the complete consulted workspace, including dependencies not written. */
   propose(base: DraftSnapshot, label: string, changes: readonly DocumentChange[]): DraftProposal {
     const state = this.snapshots.get(base);
@@ -365,6 +537,7 @@ export class ProjectDraft {
 
   /** Review and auto-approval use this same atomic compare-and-apply path. */
   apply(proposal: DraftProposal): DraftTransaction {
+    const authority = this.ordinaryWrite();
     const state = this.proposals.get(proposal);
     if (!state) throw new Error("Proposal belongs to another workspace.");
     if (state.consumed) throw new Error("Proposal was already applied.");
@@ -372,7 +545,7 @@ export class ProjectDraft {
       throw new Error("Stale proposal: the consulted workspace changed. Review a fresh proposal.");
     if (!Number.isSafeInteger(this.nextTransaction))
       throw new Error("Draft transaction identity exhausted; reopen the workspace.");
-    const change = this.write(state.edits);
+    const change = this.write(state.edits, undefined, authority);
     state.consumed = true;
     const id = Object.freeze({ sequence: this.nextTransaction++ });
     this.transactions.set(id, { ...change, applied: true });
@@ -383,28 +556,124 @@ export class ProjectDraft {
     });
   }
 
-  /** Native editor typing/undo checks only that document, without an agent lock. */
-  edit(key: string, content: DocumentContent | null, expectedVersion: number): void {
+  /**
+   * Native editor typing/undo checks only that document, without an agent lock.
+   * A real write issues a frozen receipt an authorized editor may later reverse
+   * through `reverseEdits`; an identical-content call stays a no-op and issues
+   * none. Callers that never reverse simply ignore the return.
+   */
+  edit(
+    key: string,
+    content: DocumentContent | null,
+    expectedVersion: number,
+  ): DraftEditReceipt | undefined {
+    const authority = this.ordinaryWrite();
     checkProjectDocumentKey(key);
-    if ((this.documents[key]?.version ?? 0) !== expectedVersion)
-      throw new Error(`Stale document: ${key}`);
-    this.write(copyChanges([{ key, content }]));
+    const slot = this.documents[key];
+    if ((slot?.version ?? 0) !== expectedVersion) throw new Error(`Stale document: ${key}`);
+    const beforeVersion = slot?.version ?? 0;
+    const beforeOrigin = slot?.origin ?? 0;
+    const change = this.write(copyChanges([{ key, content }]), undefined, authority);
+    if (change.after.length === 0) return undefined;
+    const receipt: DraftEditReceipt = Object.freeze({ key });
+    this.editReceipts.set(receipt, {
+      before: change.before[0]!,
+      after: change.after[0]!,
+      beforeOrigin,
+      afterOrigin: change.afterOrigins[key]!,
+      beforeVersion,
+      afterVersion: this.documents[key]!.version,
+      applied: true,
+    });
+    return receipt;
+  }
+
+  /**
+   * Reverse one contiguous oldest-to-newest group of this issuer's receipts on
+   * a single document — the authority half of a native editor undo group. Every
+   * receipt must resolve here, share the key, be currently applied, and chain
+   * without a gap on the version clock; the newest receipt's origin must be the
+   * document's current origin. Any failure refuses before the single aggregate
+   * write, so nothing — content, origins, dirty keys, receipt states — moves.
+   */
+  reverseEdits(receipts: readonly DraftEditReceipt[], lease?: DraftHistoryLease): void {
+    const authority = this.privilegedWrite(lease);
+    const { key, states } = this.resolveReceiptGroup(receipts, true);
+    const newest = states[states.length - 1]!;
+    if ((this.documents[key]?.origin ?? 0) !== newest.afterOrigin)
+      throw new Error(`Undo/redo conflict: ${key} has later edits. Review a revert instead.`);
+    this.write(
+      [{ key, content: states[0]!.before.content }],
+      { [key]: states[0]!.beforeOrigin },
+      authority,
+    );
+    for (const state of states) state.applied = false;
+  }
+
+  /** The symmetric redo of `reverseEdits`: same list, same ordering rules. */
+  reapplyEdits(receipts: readonly DraftEditReceipt[], lease?: DraftHistoryLease): void {
+    const authority = this.privilegedWrite(lease);
+    const { key, states } = this.resolveReceiptGroup(receipts, false);
+    const oldest = states[0]!;
+    if ((this.documents[key]?.origin ?? 0) !== oldest.beforeOrigin)
+      throw new Error(`Undo/redo conflict: ${key} has later edits. Review a revert instead.`);
+    const newest = states[states.length - 1]!;
+    this.write([{ key, content: newest.after.content }], { [key]: newest.afterOrigin }, authority);
+    for (const state of states) state.applied = true;
+  }
+
+  /**
+   * Validate a caller's receipt list into issuer states without mutating
+   * anything: foreign or forged handles, duplicates, mixed applied states,
+   * several keys, and non-contiguous ordering all refuse identically.
+   */
+  private resolveReceiptGroup(
+    receipts: readonly DraftEditReceipt[],
+    applied: boolean,
+  ): { key: string; states: EditReceiptState[] } {
+    if (receipts.length === 0) throw new Error("An edit group needs at least one receipt.");
+    const seen = new Set<DraftEditReceipt>();
+    const states: EditReceiptState[] = [];
+    let key: string | undefined;
+    for (const receipt of receipts) {
+      const state = this.editReceipts.get(receipt);
+      if (state === undefined) throw new Error("Edit receipt belongs to another workspace.");
+      if (seen.has(receipt)) throw new Error("Duplicate edit receipt in a group.");
+      seen.add(receipt);
+      if (key === undefined) key = receipt.key;
+      else if (receipt.key !== key)
+        throw new Error("Edit receipts in one group must name a single document.");
+      if (state.applied !== applied)
+        throw new Error(
+          applied
+            ? "Edit receipt is not in the applied state."
+            : "Edit receipt is not in the reversed state.",
+        );
+      states.push(state);
+    }
+    for (let index = 0; index + 1 < states.length; index++) {
+      if (states[index]!.afterVersion !== states[index + 1]!.beforeVersion)
+        throw new Error("Edit receipts are not a contiguous ordered group.");
+    }
+    return { key: key!, states };
   }
 
   /** Refuses a partial rollback; a conflict needs an explicitly reviewed new proposal. */
   undo(transactionId: TransactionId): void {
+    const authority = this.ordinaryWrite();
     const state = this.transactions.get(transactionId);
     if (!state || !state.applied) throw new Error("No applied transaction to undo.");
     this.checkOrigins(state.afterOrigins);
-    this.write(state.before, state.beforeOrigins);
+    this.write(state.before, state.beforeOrigins, authority);
     state.applied = false;
   }
 
   redo(transactionId: TransactionId): void {
+    const authority = this.ordinaryWrite();
     const state = this.transactions.get(transactionId);
     if (!state || state.applied) throw new Error("No undone transaction to redo.");
     this.checkOrigins(state.beforeOrigins);
-    this.write(state.after, state.afterOrigins);
+    this.write(state.after, state.afterOrigins, authority);
     state.applied = true;
   }
 
@@ -415,18 +684,70 @@ export class ProjectDraft {
     }
   }
 
+  /**
+   * Every public mutator resolves its authority through these guards before it
+   * touches state — a busy draft refuses before proposal consumption, no-op
+   * detection, transaction flags, baseline or groups, not merely before bytes.
+   */
+  private ordinaryWrite(): WriteAuthority {
+    if (this.historyLease !== undefined)
+      throw new DraftBusyError(
+        "native-history",
+        "A native history step is running; this change must wait for it to settle.",
+      );
+    return ORDINARY_WRITE;
+  }
+
+  /**
+   * Receipt reversal/reapplication are the privileged operations: with a lease
+   * held, only the live, uncancelled, same-issuer token authorizes them. With
+   * no lease they run as ordinary operations; a supplied token must still be a
+   * live issued lease — a foreign, released or cancelled token confers nothing.
+   */
+  private privilegedWrite(lease: DraftHistoryLease | undefined): WriteAuthority {
+    const held = this.historyLease;
+    if (lease === undefined) {
+      if (held !== undefined) return this.ordinaryWrite();
+      return ORDINARY_WRITE;
+    }
+    const state = this.historyLeases.get(lease);
+    if (state === undefined) throw new Error("History lease belongs to another workspace.");
+    if (state.released) throw new Error("History lease is already released.");
+    if (held !== lease)
+      throw new DraftBusyError(
+        "native-history",
+        "A native history step is running; this lease is not the active one.",
+      );
+    if (state.cancelled)
+      throw new DraftBusyError(
+        "native-history",
+        "This native history lease was cancelled; its privileged writes are revoked.",
+      );
+    return HISTORY_WRITE;
+  }
+
   private write(
     edits: readonly DocumentChange[],
-    restoredOrigins?: Readonly<Record<string, number>>,
+    restoredOrigins: Readonly<Record<string, number>> | undefined,
+    authority: WriteAuthority,
   ): {
     before: readonly DocumentChange[];
     after: readonly DocumentChange[];
     beforeOrigins: Readonly<Record<string, number>>;
     afterOrigins: Readonly<Record<string, number>>;
   } {
-    const changed = edits.filter(
-      ({ key, content }) => !sameContent(this.documents[key]?.content ?? null, content),
-    );
+    if (authority !== OPEN_WRITE && authority !== ORDINARY_WRITE && authority !== HISTORY_WRITE)
+      throw new Error("Write authority is unresolved.");
+    const changed = edits.filter(({ key, content }) => {
+      if (!sameContent(this.documents[key]?.content ?? null, content)) return true;
+      // A verified restoration also counts when only the origin moves: a
+      // net-zero native group must still return the document's lineage
+      // position, or the operation it sits over stays blocked forever. The
+      // ordinary edit path never supplies restoredOrigins, so its
+      // identical-content writes remain no-ops.
+      const restored = restoredOrigins?.[key];
+      return restored !== undefined && restored !== (this.documents[key]?.origin ?? 0);
+    });
     const before = copyChanges(
       changed.map(({ key }) => ({ key, content: this.documents[key]?.content ?? null })),
     );

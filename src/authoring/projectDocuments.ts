@@ -3,12 +3,15 @@
  * document — `logic:N`, `picture:N`, `view:N`, `sound:N` (N 0..255), `words`,
  * `inventory` and `bindings`. Logic and picture documents carry their source
  * DSL text; a view document is JSON of the BuildViewInput, a sound document
- * JSON of the SoundTrackInput[], `words` JSON of [word, id] pairs, `inventory`
+ * JSON of the SoundTrackInput[] or the bounded `agi.sound-document` v1
+ * envelope (src/sound/source.ts), `words` JSON of [word, id] pairs, `inventory`
  * JSON of {name, startingRoom} items and `bindings` JSON of the named-binding
  * record. A Uint8Array for a resource, `words` or `inventory` document means
  * retained native bytes — never mistaken for original source.
- * `world`, `tests` and `references` are owner metadata: carried detached by
- * the compiled result, never turned into playable files.
+ * `world`, `tests`, `references` and `music` are owner metadata: carried
+ * detached by the compiled result, never turned into playable files. A `music`
+ * document is JSON of the authoring-state music map — sound number to
+ * {revision cache hint, tempo} — validated through that same schema.
  *
  * readProjectDocuments detaches every indexed resource and the WORDS.TOK and
  * OBJECT files, and re-associates a claimed source only while it still
@@ -32,6 +35,7 @@ import { decodeInventoryFile } from "../runtime/inventoryFile.ts";
 import { PROFILES, type AgiProfile, type ProfileId } from "../runtime/profile.ts";
 import { buildSound, type SoundTrackInput } from "../sound/build.ts";
 import { parseSound } from "../sound/sound.ts";
+import { compileSoundDocumentSource, isSoundDocumentEnvelopeClaim } from "../sound/source.ts";
 import {
   createPictureSurface,
   RESOURCE_KINDS,
@@ -120,6 +124,7 @@ function classifyDocumentKey(key: string): DocumentKey {
     case "world":
     case "tests":
     case "references":
+    case "music":
       return { type: "metadata" };
     default:
       throw new Error(`Invalid project document: ${key}`);
@@ -325,6 +330,30 @@ function readViewInput(value: unknown): BuildViewInput {
   };
 }
 
+/**
+ * Strict music document: the authoring-state music map — sound number to
+ * {revision cache hint, tempo} — carried by the same schema the session
+ * record uses. Authoring intent only; native SOUND bytes stay authoritative.
+ */
+export function readMusicDocument(text: string): NonNullable<AuthoringState["music"]> {
+  const parsed = parseJson(text, "music");
+  try {
+    return (
+      validateAuthoringState({
+        version: 1,
+        music: parsed,
+        bindings: {},
+        world: { rooms: {}, facts: {}, quests: {} },
+      }).music ?? {}
+    );
+  } catch (error) {
+    throw new Error(
+      `Invalid project document music: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
 /** Authoring-state validation is the single bindings schema; reuse it here. */
 export function readBindingsDocument(text: string): AuthoringState["bindings"] {
   const parsed = parseJson(text, "bindings");
@@ -403,8 +432,14 @@ function compileTextDocument(
           return compilePictureSource(text, { profile: context.profile }).bytes;
         case "view":
           return buildView(readViewInput(parseJson(text, "view")), context.profile);
-        case "sound":
-          return buildSound(readSoundTracks(parseJson(text, "sound")));
+        case "sound": {
+          const body = parseJson(text, "sound");
+          // The tagged envelope pins its profile and compiles to exactly its
+          // encode() bytes; legacy track arrays keep the strict reader.
+          if (isSoundDocumentEnvelopeClaim(body))
+            return compileSoundDocumentSource(body, context.profile.id);
+          return buildSound(readSoundTracks(body));
+        }
       }
   }
 }
@@ -600,6 +635,17 @@ export function compileProjectDocuments(
     bindings = readBindingsDocument(bindingsDocument ?? "{}");
   } catch (error) {
     throw new ProjectDocumentCompileError("bindings", error);
+  }
+
+  const musicDocument = documents.get("music");
+  try {
+    if (musicDocument !== undefined) {
+      if (typeof musicDocument !== "string")
+        throw new Error("Invalid project document music: expected JSON text.");
+      readMusicDocument(musicDocument);
+    }
+  } catch (error) {
+    throw new ProjectDocumentCompileError("music", error);
   }
 
   const wordsDocument = documents.get("words");

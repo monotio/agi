@@ -126,6 +126,25 @@ test("JSON round trip keeps unfinished text, unpaired surrogates, deletion and b
   assert.equal(restored.capture().read("words")?.content, "");
 });
 
+test("a music document change round trips through recovery", () => {
+  const draft = new ProjectDraft({ ...kept });
+  draft.edit(
+    "music",
+    '{"9":{"revision":"21-abcdef12","tempo":120}}',
+    draft.capture().version("music"),
+  );
+  const stored = JSON.parse(JSON.stringify(writeProjectRecovery(base(), draft.captureRecovery())));
+  const restored = restoreProjectRecovery({
+    documents: { ...kept },
+    base: base(),
+    recovery: stored,
+  });
+  assert.equal(
+    restored.capture().read("music")?.content,
+    '{"9":{"revision":"21-abcdef12","tempo":120}}',
+  );
+});
+
 test("the stored v1 fixture decodes and the writer reproduces it exactly", () => {
   const path = fileURLToPath(new URL("./formats/recovery-draft-v1.json", import.meta.url));
   const text = readFileSync(path, "utf8");

@@ -12,6 +12,7 @@ import {
 } from "./projectDocuments.ts";
 import type { ProjectDraft } from "./projectDraft.ts";
 import { inspectProjectReferences } from "./projectReferences.ts";
+import { PROJECT_RESOURCE_KEY } from "./projectRemoval.ts";
 import { inspectProjectSourceDependencies } from "./projectSourceDependencies.ts";
 
 export function compileProjectSelection(input: {
@@ -171,8 +172,10 @@ export function compileProjectSelection(input: {
       selection,
       compiled,
       references,
+      // Only the four AGI resource families are native removals: tagged
+      // source keys such as music:<id> carry intent, not resource bytes.
       removedResources: Object.keys(keptDocuments)
-        .filter((key) => key.includes(":") && documents[key] === undefined)
+        .filter((key) => PROJECT_RESOURCE_KEY.test(key) && documents[key] === undefined)
         .sort(),
     };
   }

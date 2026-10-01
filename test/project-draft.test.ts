@@ -164,3 +164,18 @@ test("an old workspace transaction cannot undo an identically numbered new trans
   assert.throws(() => right.undo(oldTransaction.id), /transaction/i);
   assert.equal(right.capture().read("logic:1")!.content, "C");
 });
+
+test("the music metadata document is an admitted draft document", () => {
+  const draft = new ProjectDraft({ "logic:1": "return;" });
+  const tempo = '{"9":{"revision":"21-abcdef12","tempo":120}}';
+  draft.edit("music", tempo, draft.capture().version("music"));
+  assert.equal(draft.capture().read("music")!.content, tempo);
+  const proposal = draft.propose(draft.capture(), "slower", [
+    { key: "music", content: '{"9":{"revision":"21-abcdef12","tempo":90}}' },
+  ]);
+  draft.apply(proposal);
+  assert.equal(
+    draft.capture().read("music")!.content,
+    '{"9":{"revision":"21-abcdef12","tempo":90}}',
+  );
+});

@@ -4,6 +4,8 @@ import { containerFromResources, openContainer } from "../src/container/containe
 import { ProjectDraft } from "../src/authoring/projectDraft.ts";
 import {
   compileProjectDocuments,
+  ProjectDocumentCompileError,
+  readMusicDocument,
   readProjectDocuments,
 } from "../src/authoring/projectDocuments.ts";
 import { compileProjectLogic } from "../src/authoring/projectLogic.ts";
@@ -432,5 +434,53 @@ describe("compileProjectDocuments", () => {
         JSON.stringify(Object.keys(bad)),
       );
     }
+  });
+
+  test("the music document compiles through the authoring schema and preserves exact text", () => {
+    const project = createStarterProject("blank");
+    const files = filesRecord(project);
+    const documents = { ...readAll(project).documents };
+    const music = '{"9":{"revision":"21-abcdef12","tempo":120}}';
+    const result = compileProjectDocuments({
+      files,
+      profileId: PROFILE_ID,
+      documents: { ...documents, music },
+    });
+    assert.equal(result.documents()["music"], music);
+    assertFilesEqual(result.files(), project.files());
+  });
+
+  test("malformed music documents refuse with a scoped diagnostic and leave input untouched", () => {
+    const project = createStarterProject("blank");
+    const files = filesRecord(project);
+    const documents = { ...readAll(project).documents };
+    for (const music of [
+      Uint8Array.of(1),
+      "not json",
+      '{"9":{"revision":"bogus","tempo":120}}',
+      '{"9":{"revision":"21-abcdef12","tempo":5}}',
+      '{"9":{"revision":"21-abcdef12","tempo":120,"extra":true}}',
+      '{"x":{"revision":"21-abcdef12","tempo":120}}',
+    ]) {
+      const before = { ...documents, music: music as string };
+      assert.throws(
+        () =>
+          compileProjectDocuments({
+            files,
+            profileId: PROFILE_ID,
+            documents: before,
+          }),
+        (error: unknown) => {
+          assert.ok(error instanceof ProjectDocumentCompileError);
+          assert.equal(error.key, "music");
+          return true;
+        },
+        JSON.stringify(music),
+      );
+    }
+    assert.deepEqual(documents["music"], undefined);
+    assert.deepEqual(readMusicDocument("{}"), {});
+    const parsed = readMusicDocument('{"9":{"revision":"21-abcdef12","tempo":120}}');
+    assert.deepEqual(parsed, { "9": { revision: "21-abcdef12", tempo: 120 } });
   });
 });

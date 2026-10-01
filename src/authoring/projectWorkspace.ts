@@ -9,7 +9,7 @@
  * credentials are deliberately absent — unfinished drafts keep their own
  * separate envelope (projectRecovery.ts).
  */
-import { checkProjectDocumentKey } from "./projectDraft.ts";
+import { checkProjectDocumentKey } from "./projectDocumentKey.ts";
 
 export const PROJECT_WORKSPACE_FORMAT = "monotio.agi.project-workspace";
 

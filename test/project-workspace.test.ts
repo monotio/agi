@@ -87,6 +87,15 @@ test("the stored v1 fixture decodes and the writer reproduces it exactly", () =>
   assert.equal(JSON.stringify(rewritten), JSON.stringify(JSON.parse(text)));
 });
 
+test("a music metadata document round trips through the workspace envelope", () => {
+  const written = writeProjectWorkspace({
+    "logic:0": "return;",
+    music: '{"9":{"revision":"21-abcdef12","tempo":120}}',
+  });
+  const parsed = readProjectWorkspace(JSON.parse(JSON.stringify(written)));
+  assert.equal(parsed["music"], '{"9":{"revision":"21-abcdef12","tempo":120}}');
+});
+
 test("an empty document set round trips", () => {
   const written = writeProjectWorkspace({});
   assert.deepEqual(written, {
