@@ -1,15 +1,10 @@
 <script setup lang="ts">
 /** The existing Create shell's adapter; commands and choosers stay host-independent. */
-import { computed, nextTick, onMounted, onScopeDispose, shallowRef, ref, watch } from "vue";
-import { openContainer } from "../../../../src/container/container.ts";
-import { roomPictureUse } from "../../../../src/agent/roomPictures.ts";
-import { useEngineApi } from "../../engine/engineContext.ts";
+import { nextTick, onMounted, onScopeDispose, shallowRef, ref, watch } from "vue";
 import { useCreateWorkspace } from "../useCreateWorkspace.ts";
 import { useShell } from "../useShell.ts";
 import { useShellBridge } from "../shellBridge.ts";
-import { useStudioLauncher } from "../useStudioLauncher.ts";
-import { useRoomStudio } from "../../world/useRoomStudio.ts";
-import { viewScan } from "../../world/studioSource.ts";
+import { useWorkspaceEditor } from "../workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
 import CommandPalette from "./CommandPalette.vue";
 import QuickOpen from "./QuickOpen.vue";
@@ -17,25 +12,23 @@ import { emptyCommandContext } from "./commandContext.ts";
 import type { CommandContext, CommandRegistry } from "./commandRegistry.ts";
 import { registerDefaultCommands } from "./defaultCommands.ts";
 import { useFocusZones, type FocusZone } from "./useFocusZones.ts";
-import type { ChooserItem } from "./chooserItems.ts";
 
 const props = defineProps<{ registry: CommandRegistry }>();
 const emit = defineEmits<{ "focus-game": []; "zone-change": [] }>();
-const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const shell = useShell();
+const editor = useWorkspaceEditor();
 const bridge = useShellBridge();
-const studios = useStudioLauncher();
-const rooms = useRoomStudio();
 const palette = ref(false);
 const quickOpen = ref(false);
 const origin = shallowRef<CommandContext>(emptyCommandContext());
 
 const SELECTORS: Record<FocusZone, string> = {
-  parts: '.create-dock--left, [data-testid="world-panel"]',
-  editor: '[data-testid="room-studio"], [data-testid="sprite-studio"]',
+  parts: '.parts-list, .create-dock--left, [data-testid="world-panel"]',
+  editor: '[data-testid="workspace-editor"]',
   game: ".play-area",
-  panel: '[data-testid="dock-panel-activity"], [data-testid="dock-panel-inspect"]',
+  panel:
+    '[data-testid="workspace-problems"], [data-testid="dock-panel-activity"], [data-testid="dock-panel-inspect"]',
   agent: ".assistant-host",
 };
 function roots(): ReadonlyMap<FocusZone, HTMLElement> {
@@ -70,6 +63,7 @@ function context(): CommandContext {
 function blocksGame(event: KeyboardEvent): boolean {
   return (
     event.defaultPrevented ||
+    event.key === "Tab" ||
     context().dialogOpen ||
     zones.zoneFor(document.activeElement) !== "game"
   );
@@ -84,7 +78,6 @@ function showChooser(mode: "palette" | "parts"): void {
 }
 async function play(): Promise<void> {
   if (!(await workspace.confirmStudioLeave())) return;
-  workspace.closeStudio();
   shell.setMode("play");
 }
 function agent(): void {
@@ -99,6 +92,11 @@ const offDefaults = registerDefaultCommands(props.registry, {
   quickOpen: () => showChooser("parts"),
   palette: () => showChooser("palette"),
   parts: () => workspace.toggleDock("left"),
+  panel: () => {
+    editor.panel.value = !editor.panel.value;
+  },
+  undo: () => editor.step("undo"),
+  redo: () => editor.step("redo"),
   agent,
   play,
   focusGame,
@@ -127,63 +125,14 @@ const offEscape = props.registry.register({
   },
 });
 
-async function openRoom(room: number, title: string, picture: number): Promise<void> {
-  if (!studios.available.value || !(await workspace.confirmStudioLeave())) return;
-  const request = rooms.request(room, title, picture);
-  if (request) workspace.openStudio(request);
-}
-const parts = computed<ChooserItem[]>(() => {
-  const scan = engine.roomMap.resources.value;
-  const available = studios.available.value;
-  const entries: ChooserItem[] = engine.roomMap.graph.value.nodes.map((node) => {
-    const uses = roomPictureUse(node.room, {
-      scans: scan.scans,
-      shared: scan.shared,
-      pictures: scan.picture,
-    });
-    const picture = uses.pictures.find((use) => use.exists)?.picture;
-    const title = `ROOM ${node.room}${node.title ? ` ${node.title}` : ""}`;
-    return {
-      id: `room-${node.room}`,
-      title,
-      disabled: !available || picture === undefined,
-      ...(picture === undefined
-        ? {}
-        : { run: () => openRoom(node.room, node.title ?? title, picture) }),
-    };
-  });
-  for (const num of [...scan.logic].sort((a, b) => a - b))
-    entries.push({ id: `logic-${num}`, title: `LOGIC ${num}`, disabled: true });
-  for (const num of [...scan.picture].sort((a, b) => a - b))
-    entries.push({
-      id: `picture-${num}`,
-      title: `PICTURE ${num}`,
-      disabled: !available,
-      run: () => studios.open({ studio: "room", picture: num }),
-    });
-  for (const view of viewScan(scan).views)
-    entries.push({
-      id: `view-${view.view}`,
-      title: `VIEW ${view.view}${view.description ? ` ${view.description}` : ""}`,
-      disabled: !available || !view.thumb,
-      run: () => studios.open({ studio: "sprite", view: view.view }),
-    });
-  try {
-    const container = openContainer(new Map(Object.entries(scan.files)), {
-      ...(scan.profile ? { profile: scan.profile } : {}),
-    });
-    for (let num = 0; num < 256; num++)
-      if (container.getResource("sound", num))
-        entries.push({ id: `sound-${num}`, title: `SOUND ${num}`, disabled: true });
-  } catch {
-    // Rooms and scanned resources remain searchable when a container cannot enumerate sounds.
-  }
-  for (const name of ["OBJECT", "WORDS.TOK"])
-    if (scan.files[name])
-      entries.push({ id: name, title: name === "OBJECT" ? "OBJECTS" : "WORDS", disabled: true });
-  return entries;
+const offFocus = props.registry.register({
+  id: "editor.focus",
+  title: "Focus",
+  keys: [{ key: "Mod+K Z", textInput: true, game: true }],
+  when: (c) => !c.dialogOpen && editor.selected.value !== undefined,
+  run: editor.toggleFocus,
 });
-const provideParts = (): readonly ChooserItem[] => parts.value;
+const provideParts = () => editor.parts.value;
 let offDispatcher: (() => void) | undefined;
 const onFocus = (event: FocusEvent): void =>
   zones.track(event.target instanceof Node ? event.target : null);
@@ -197,6 +146,7 @@ onScopeDispose(() => {
   document.removeEventListener("focusin", onFocus);
   offDefaults();
   offHelp();
+  offFocus();
   offEscape();
   zones.dispose();
 });

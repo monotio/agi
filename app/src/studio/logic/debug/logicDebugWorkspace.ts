@@ -111,7 +111,7 @@ export interface DebugDraftSource {
 type DebugPhase = "idle" | "building" | "starting" | "running" | "stopped" | "ended";
 
 /** One authored breakpoint and the status the run actually reported. */
-export interface DebugBreakpointRow {
+interface DebugBreakpointRow {
   readonly id: string;
   readonly spec: DebugBreakpointSpec;
   /**
@@ -128,7 +128,7 @@ export interface DebugBreakpointRow {
   readonly applied: boolean;
 }
 
-export interface DebugWatchRow {
+interface DebugWatchRow {
   readonly id: string;
   readonly spec: DebugWatchSpec;
   readonly baseline: number | boolean | null;
@@ -177,7 +177,7 @@ export interface DebugDecoration {
 export type DebugSpecVerdict =
   { readonly ok: true } | { readonly ok: false; readonly error: string };
 
-export interface DebugWorkspaceOptions {
+interface DebugWorkspaceOptions {
   readonly draft: DebugDraftSource;
   /** Parks the live game for a run's lifetime; absent = no live game. */
   readonly acquirePauseLease?: () => TestPauseLease | Promise<TestPauseLease>;
@@ -1963,4 +1963,4 @@ export function createDebugWorkspace(options: DebugWorkspaceOptions) {
   };
 }
 
-export type DebugWorkspace = ReturnType<typeof createDebugWorkspace>;
+type DebugWorkspace = ReturnType<typeof createDebugWorkspace>;

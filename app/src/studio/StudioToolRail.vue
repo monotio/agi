@@ -84,7 +84,7 @@ const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUP
 /** Why a tool is off, on its tooltip; its name and key while it is on. */
 const PAUSED = "Drawing pauses while the picture is read-only or an AI proposal is open";
 const NEEDS_LOGIC = "Edit this room's scripted exits in Logic Studio or ask the assistant";
-const PROBE_NEEDS_VIEWS = "Ghost · G · needs a character in the game";
+const PROBE_NEEDS_VIEWS = "Stand-in · G · needs a character in the game";
 function toolTitle(entry: RailTool): string {
   if ((entry.draws || entry.doors) && frozen) return PAUSED;
   if (entry.doors && !doorsEditable) return NEEDS_LOGIC;
@@ -165,11 +165,11 @@ watch(scroller, (el) => {
           <div class="tool-rail__tool">
             <UiIconButton
               icon="actor"
-              label="Ghost"
+              label="Stand-in"
               :shortcut="TOOL_SHORTCUTS.probe"
               :pressed="probeActive"
               :disabled="!probeAvailable"
-              :title="probeAvailable ? `Ghost · ${TOOL_SHORTCUTS.probe}` : PROBE_NEEDS_VIEWS"
+              :title="probeAvailable ? `Stand-in · ${TOOL_SHORTCUTS.probe}` : PROBE_NEEDS_VIEWS"
               data-testid="studio-probe-toggle"
               @click="emit('probe')"
             />

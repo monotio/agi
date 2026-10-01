@@ -31,8 +31,10 @@ const {
   name,
   says,
   help = undefined,
+  question = false,
 } = defineProps<{
   /** The registry id: `data-term` and the test id `explain-{term}`. */
+  question?: boolean;
   term: string;
   name: string;
   says: string;
@@ -49,6 +51,7 @@ const nameId = useId();
 /** Where the popover sits, and its arrow under the button. */
 const place = ref<{ left: number; top: number; arrow: number; above: boolean }>();
 /** Opened by a resting mouse: it closes when the mouse leaves, unless focus went in. */
+let returningFocus = false;
 let hovered = false;
 let hoverTimer: ReturnType<typeof setTimeout> | undefined;
 let anchor: { left: number; top: number } | undefined;
@@ -91,7 +94,12 @@ function position(): void {
 function close(refocus: boolean): void {
   clearTimeout(hoverTimer);
   if (openExplainer.value === me) openExplainer.value = null;
-  if (refocus) void nextTick(() => trigger.value?.focus({ preventScroll: true }));
+  if (refocus)
+    void nextTick(() => {
+      returningFocus = true;
+      trigger.value?.focus({ preventScroll: true });
+      returningFocus = false;
+    });
 }
 
 function toggle(): void {
@@ -184,10 +192,12 @@ onBeforeUnmount(() => {
     :data-testid="`explain-${term}`"
     :data-term="term"
     @click.stop="toggle"
+    @focus="question && !returningFocus && show('hover')"
     @pointerenter="onEnter"
     @pointerleave="onLeave"
   >
-    <UiIcon name="info" :size="12" />
+    <span v-if="question" aria-hidden="true">?</span>
+    <UiIcon v-else name="info" :size="12" />
   </button>
   <Teleport to="body">
     <div

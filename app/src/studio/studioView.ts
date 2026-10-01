@@ -28,16 +28,16 @@ export interface ControlValue {
 
 /** Priority values 0-3 are control lines, not depth (spec "Priority and control"). */
 export const CONTROL_VALUES: readonly ControlValue[] = [
-  { value: 0, name: "barrier", colour: 12, pattern: "solid" },
-  { value: 1, name: "conditional", colour: 14, pattern: "dashed" },
-  { value: 2, name: "signal", colour: 10, pattern: "dotted" },
-  { value: 3, name: "water", colour: 11, pattern: "long-dash" },
+  { value: 0, name: "Wall", colour: 12, pattern: "solid" },
+  { value: 1, name: "Gate", colour: 14, pattern: "dashed" },
+  { value: 2, name: "Trigger", colour: 10, pattern: "dotted" },
+  { value: 3, name: "Water", colour: 11, pattern: "long-dash" },
 ];
 
 /** The meaning of a priority value, for labels. */
 export function priorityMeaning(value: number): string {
   const control = CONTROL_VALUES[value];
-  return control ? control.name : value === 4 ? "background" : `band ${value}`;
+  return control ? control.name : value === 4 ? "background" : `depth band ${value}`;
 }
 
 /** Whether cell x,y of a control run is painted at full strength for `pattern`. */

@@ -93,9 +93,9 @@ const footprintText = computed(() => {
   if (footprint.bypassed) return "Anywhere (depth 15)";
   if (footprint.accepted) {
     const { signal, water } = footprint.controls;
-    return `Allowed${signal ? " · signal (f3 for ego)" : ""}${water ? " · all water (f0 for ego)" : ""}`;
+    return `Allowed${signal ? " · Trigger (flag 3 for hero)" : ""}${water ? " · Water (flag 0 for hero)" : ""}`;
   }
-  return footprint.controls.barrier ? "Blocked: barrier" : "Blocked: conditional barrier";
+  return footprint.controls.barrier ? "Stopped by Wall" : "Stopped by Gate";
 });
 
 const PRIORITIES = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
@@ -107,11 +107,11 @@ const viewLabel = (number: number, description: string | undefined): string =>
   <section
     class="ghost-readout"
     data-testid="ghost-probe-readout"
-    aria-label="Ghost"
+    aria-label="Stand-in"
     aria-live="polite"
   >
     <div class="ghost-readout__title">
-      <h2 class="ghost-readout__head">Ghost</h2>
+      <h2 class="ghost-readout__head">Stand-in</h2>
       <UiExplain v-bind="explain('ghost')" />
     </div>
     <label class="ghost-readout__row">
@@ -141,7 +141,7 @@ const viewLabel = (number: number, description: string | undefined): string =>
         >Feet <UiExplain v-bind="explain('feet')"
       /></span>
       <span
-        >x {{ x }} y {{ baselineY }} → band {{ result?.bandPriority
+        >x {{ x }} y {{ baselineY }} → depth band {{ result?.bandPriority
         }}<template v-if="result && fixedPriority !== 'band'">
           · draws at {{ result.drawPriority }}</template
         ></span

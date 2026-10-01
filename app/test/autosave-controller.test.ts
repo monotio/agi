@@ -1042,3 +1042,57 @@ test("an autosave without a preview keeps the card's previous picture", async (t
     clearAutosave(installedProgressLocator("kq4", bootedGame.revision)!);
   }
 });
+
+test("an owned project checkpoint waits for session saving and never republishes resource files", async (t) => {
+  const id = testProjectId("session-checkpoint");
+  t.after(() => clearCachedGame(id));
+  installLocalStorageMock(t);
+  const rig = await starterRig();
+  await saveAuthoredGame(id, { title: "Owned", files: rig.files, words: [] });
+  const held = await loadAuthoredGameWithHistoryLifetime(id);
+  assert.ok(held);
+  const game: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Owned",
+    revision: rig.revision,
+    files: rig.files,
+    words: [],
+    historyLifetime: held.lifetime!,
+  };
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let prepared = false;
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => null,
+    logAgent() {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_p, c) => c,
+    retireFailedRecovery() {},
+    async prepareCheckpoint() {
+      prepared = true;
+      await gate;
+      return "owned" as const;
+    },
+  });
+  controller.handleAutosave({ image: "owned-state", cycle: 10, room: 1, files: rig.files });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(prepared, true);
+  assert.equal(readAutosave(id), null);
+  release!();
+  assert.equal(await controller.getAutosaveWrite(), true);
+  assert.equal(
+    (await loadAuthoredGameWithHistoryLifetime(id))!.data.generation,
+    held.data.generation,
+  );
+  assert.equal(
+    readAutosave(projectProgressTarget(id, rig.revision, held.lifetime!)!.locator)?.image,
+    "owned-state",
+  );
+});

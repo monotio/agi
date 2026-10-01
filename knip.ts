@@ -3,12 +3,10 @@ import type { KnipConfig } from "knip";
 const config: KnipConfig = {
   // Temporary (1.2 workspace integration): remove each entry when the file is mounted.
   ignore: [
-    "app/e2e/fixtures/creativeDockReview.ts",
     "app/e2e/fixtures/studioFrameReview.ts",
     "app/e2e/fixtures/studioFrameTabsReview.ts",
     "app/src/studio/host/ProjectExplorer.vue",
     "app/src/studio/host/ProjectOverview.vue",
-    "app/src/studio/host/ProjectTabs.vue",
   ],
   workspaces: {
     ".": {

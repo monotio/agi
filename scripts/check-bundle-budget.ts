@@ -141,7 +141,10 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // Version 3 timeline readers synchronously verify document hashes and bounded
   // workspaces before replay: 166.6 kB gzip, 139.9 kB brotli. Admission and its
   // compiler remain outside the startup closure.
-  workers: { gzip: 167_000, brotli: 140_000 },
+  // Entering Create grants authority on the existing MAIN run without a reboot.
+  // The message gate and frozen-run denial bring this closure to 166.9 kB gzip,
+  // 140.0 kB brotli; the admission controller still loads on demand.
+  workers: { gzip: 167_500, brotli: 140_500 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {

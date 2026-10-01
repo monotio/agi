@@ -238,7 +238,7 @@ function openDetails(): void {
           data-testid="edit-library-game"
           @click="bridge.openLogicProject(game.projectId)"
         >
-          <span>Edit<small>Open in Logic Studio</small></span>
+          <span>Create<small>Open LOGIC</small></span>
         </button>
         <button
           v-if="game.library?.source !== 'catalog'"
@@ -247,7 +247,7 @@ function openDetails(): void {
           data-testid="edit-library-game-sound"
           @click="bridge.openSoundProject(game.projectId)"
         >
-          <span>Sound Studio<small>Edit sounds</small></span>
+          <span>SOUNDS<small>Open SOUND</small></span>
         </button>
         <button
           v-if="autosave"

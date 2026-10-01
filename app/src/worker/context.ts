@@ -87,6 +87,7 @@ export interface WorkerPorts {
 interface BootState {
   project: HistoryProjectDocuments | undefined;
   authorRooms: boolean;
+  createAllowed: boolean;
   selectedSoundDevice: number;
   liveDictionary: Map<string, number>;
   authoredWords: Uint8Array | null;
@@ -604,6 +605,7 @@ export interface WorkerContext {
     queue: WorkerInbound[];
     initialize?: (boot: BootMessage) => void;
     identity?: () => PreviewLaneIdentity | null;
+    enterCreate?: (msg: Inbound<"projectCreate">) => void;
   };
   debugger: DebuggerState;
   /** The controller's lazy loader (debugLoader.ts) — the inert seam's record. */
@@ -629,6 +631,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     boot: {
       project: undefined,
       authorRooms: false,
+      createAllowed: false,
       selectedSoundDevice: 1,
       liveDictionary: new Map(),
       authoredWords: null,

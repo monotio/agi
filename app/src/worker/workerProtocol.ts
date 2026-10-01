@@ -567,7 +567,13 @@ export type WorkerInbound =
    * from a skipped lower id: `unavailable` asserts neither execution nor
    * commit, and no caller may infer rollback from it.
    */
-  | { type: "previewUpdateStatus"; id: number; transactionId?: number };
+  | { type: "previewUpdateStatus"; id: number; transactionId?: number }
+  | {
+      type: "projectCreate";
+      id: number;
+      documents?: PortableProjectWorkspace;
+      history?: PortableProjectHistory;
+    };
 
 /**
  * Worker → host control channel: request/response traffic and lifecycle
@@ -841,6 +847,12 @@ export type WorkerControl =
    * `expected` echoes the request's claimed identity; `current` is always
    * the lane's actual recomputed identity.
    */
+  | {
+      type: "projectCreated";
+      id: number;
+      grant?: { runToken: string; identity: PreviewLaneIdentity };
+      reason?: string;
+    }
   | ({ type: "previewUpdateResult"; id: number; runToken: string } & PreviewUpdateOutcome)
   /**
    * The read-only reconciliation answer. `current` is recomputed from the
@@ -986,6 +998,7 @@ export type WorkerOutbound = WorkerControl | WorkerPresentation;
  * waiter table because a flush can outlive the caller's await (pagehide).
  */
 interface WorkerQueryReplies {
+  projectCreate: Extract<WorkerControl, { type: "projectCreated" }>;
   state: Extract<WorkerControl, { type: "engineState" }>;
   objects: Extract<WorkerControl, { type: "objects" }>;
   frames: Extract<WorkerControl, { type: "frames" }>;
@@ -1024,6 +1037,7 @@ export type WorkerQueryType = keyof WorkerQueryReplies;
 
 /** The value a reply resolves its pending query with. */
 export interface WorkerQueryPayload {
+  projectCreate: WorkerQueryReplies["projectCreate"];
   state: WorkerQueryReplies["state"]["state"];
   objects: WorkerQueryReplies["objects"]["objects"];
   frames: WorkerQueryReplies["frames"]["frames"];

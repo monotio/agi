@@ -7,11 +7,12 @@ import SoundPreview from "./authoring/SoundPreview.vue";
 import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
 import PlayArea from "./play/PlayArea.vue";
 import AssistantStart from "./shell/AssistantStart.vue";
-import CreateDock from "./shell/CreateDock.vue";
+import { createWorkspaceEditor, provideWorkspaceEditor } from "./shell/workspaceEditor.ts";
 import { createCommandRegistry } from "./shell/commands/commandRegistry.ts";
 import { emptyCommandContext, provideCommands } from "./shell/commands/commandContext.ts";
 import UiButton from "./ui/UiButton.vue";
 import UiDialog from "./ui/UiDialog.vue";
+import UiChip from "./ui/UiChip.vue";
 import UiToast from "./ui/UiToast.vue";
 import {
   computed,
@@ -108,16 +109,9 @@ provideInspector(createInspector(engine, presentation));
 
 // The map's graph code loads only when the player opens it — never on boot.
 const WorldMap = defineAsyncComponent(() => import("./world/WorldMap.vue"));
-const RoomStudio = defineAsyncComponent(() => import("./studio/RoomStudio.vue"));
-const SpriteStudio = defineAsyncComponent(() => import("./studio/sprite/SpriteStudio.vue"));
-// Logic Studio — Monaco plus its analysis worker — loads only when the
-// library's Edit asks for it; the Play boot path never sees it.
-const LogicStudio = defineAsyncComponent(() => import("./studio/logic/LogicStudio.vue"));
-// Sound Studio — the native cue workspace — loads on the same demand path.
-const SoundStudio = defineAsyncComponent(() => import("./studio/sound/SoundStudio.vue"));
-// The direct studio's creative dock host — image import, preparation and
-// the board — loads with a Studio, which is the only place it mounts.
-const StudioDockHost = defineAsyncComponent(() => import("./studio/creative/StudioDockHost.vue"));
+const CreateWorkspace = defineAsyncComponent(
+  () => import("./studio/workspace/CreateWorkspace.vue"),
+);
 const mapOpen = engine.roomMap.open;
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
@@ -172,8 +166,8 @@ const studioFits = computed(() => {
 });
 /** The Create docks' tabs and folds, and the centre's Studio (shell/useCreateWorkspace.ts). */
 const workspace = createCreateWorkspace({
-  pauseEngine: engine.pauseEngine,
-  resumeEngine: engine.resumeEngine,
+  pauseEngine: () => {},
+  resumeEngine: () => {},
   focusGame: () => shellBridge.focusGameInput(),
   viewOnly: () => phone.value,
   studioFits: () => studioFits.value,
@@ -186,7 +180,6 @@ const shell = createShell({
   librarySource: (projectId) =>
     lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
   initialMode: parseGameHash(location.hash)?.mode ?? "play",
-  createGuard: { unkept: workspace.studioUnkept, confirm: workspace.confirmStudioLeave },
 });
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
@@ -196,51 +189,21 @@ const commands = createCommandRegistry(
   () => createKeyboard.value?.context() ?? emptyCommandContext(),
 );
 provideCommands(commands);
-const studio = workspace.studio;
-/** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
-const studioOpen = computed(() => creating.value && studio.value !== null);
-
-/**
- * The running game's authored project — the creative dock host (a lazy
- * Studio chunk) gates its "Import image…" launch on it, so imported games
- * without a project offer none. `currentGame` reads non-reactive boot
- * state; the reactive phase flips to "running" when it lands, which is
- * what makes this computed re-evaluate.
- */
-const studioProjectId = computed(() =>
-  state.phase === "running" ? (engine.currentGame()?.projectId ?? null) : null,
+const workspaceEditor = createWorkspaceEditor(engine);
+provideWorkspaceEditor(workspaceEditor);
+watch(workspace.studio, (request) => {
+  if (!request) return;
+  workspaceEditor.open(
+    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`,
+  );
+  workspace.closeStudio();
+});
+watch(
+  () => state.phase,
+  (phase) => {
+    if (phase === "idle") workspaceEditor.reset();
+  },
 );
-/**
- * Logic Studio is a stored-project workspace, not a running-game mode: it
- * opens over whatever is mounted, holds its own pause while a run is hidden,
- * and closing hands the untouched game back. The URL keeps naming the run —
- * editing never adopts a play/create identity.
- */
-const logicProjectId = ref<ProjectId>();
-const logicStudioEl = useTemplateRef("logicStudio");
-watch(logicProjectId, (id, previous) => {
-  if (id !== undefined) {
-    releaseMovement();
-    if (state.phase === "running") engine.pauseEngine("logicStudio");
-  } else if (previous !== undefined) {
-    engine.resumeEngine("logicStudio");
-  }
-});
-/**
- * Sound Studio is the same stored-project mount: it opens over whatever is
- * running, holds its own pause while a run is hidden, and closing hands the
- * untouched game back. Audible preview adds its own per-lease freeze.
- */
-const soundProjectId = ref<ProjectId>();
-const soundStudioEl = useTemplateRef("soundStudio");
-watch(soundProjectId, (id, previous) => {
-  if (id !== undefined) {
-    releaseMovement();
-    if (state.phase === "running") engine.pauseEngine("soundStudio");
-  } else if (previous !== undefined) {
-    engine.resumeEngine("soundStudio");
-  }
-});
 const sheetOpen = workspace.sheetOpen;
 /** Room Studio's Play here: leave Studio, show Play, jump the game to the spot. */
 const playHereFromStudio = usePlayHereFromStudio({
@@ -260,18 +223,12 @@ const { onDockKey } = useCreateMode({
 const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
   engine,
   playArea: () => playArea.value,
-  // Create's dock keys, Studio holding the paused game, and the stored-project
-  // studios over a run: nothing typed there may reach the game.
+  // Workspace keys reach MAIN only while the game zone owns focus.
   intercept: (ev) =>
-    onDockKey(ev) ||
-    (creating.value && (createKeyboard.value?.blocksGame(ev) ?? true)) ||
-    studio.value !== null ||
-    logicProjectId.value !== undefined ||
-    soundProjectId.value !== undefined,
+    onDockKey(ev) || (creating.value && (createKeyboard.value?.blocksGame(ev) ?? true)),
 });
 /** The stored-project studios' keyup gets the same isolation as its keydown. */
 function onShellKeyup(ev: KeyboardEvent): void {
-  if (logicProjectId.value !== undefined || soundProjectId.value !== undefined) return;
   onGlobalKeyup(ev);
 }
 /** Create keeps Developer activity in its Activity tab while that shows. */
@@ -355,42 +312,31 @@ async function onStartWalkthrough(targetGame: string): Promise<void> {
   await startWalkthrough(targetGame);
 }
 shellBridge.startWalkthrough = (target) => void onStartWalkthrough(target);
-shellBridge.openLogicProject = (projectId) => {
-  logicProjectId.value = projectId;
-};
-shellBridge.openSoundProject = (projectId) => {
-  soundProjectId.value = projectId;
-};
-
-// Dev/e2e handle: open the stored-project workspace and read the caret, so a
-// scripted run can exercise Edit over a running game and check definition
-// navigation without reaching into the component tree.
-if (import.meta.env?.DEV) {
-  (
-    window as unknown as {
-      __AGI_LOGIC__?: {
-        open(projectId: string): void;
-        cursor(): { line: number; column: number } | undefined;
-      };
-    }
-  ).__AGI_LOGIC__ = {
-    open: (projectId) => shellBridge.openLogicProject(projectId as ProjectId),
-    cursor: () => logicStudioEl.value?.cursor() as { line: number; column: number } | undefined,
-  };
-  (
-    window as unknown as {
-      __AGI_SOUND__?: {
-        open(projectId: string): void;
-        cursor(): { eventId: string | null; lane: number; index: number } | undefined;
-      };
-    }
-  ).__AGI_SOUND__ = {
-    open: (projectId) => shellBridge.openSoundProject(projectId as ProjectId),
-    cursor: () =>
-      soundStudioEl.value?.cursor() as
-        { eventId: string | null; lane: number; index: number } | undefined,
-  };
+async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"): Promise<void> {
+  engine.setProjectMode("create");
+  if (engine.currentGame()?.projectId !== projectId) {
+    const stored = lib.savedGames.value.find((game) => game.projectId === projectId);
+    if (!stored) return;
+    shell.expectCreate(projectId);
+    await lib.onPlayLibraryGame(stored);
+    shell.expectCreate(projectId);
+  } else shell.setMode("create");
+  const { loadAuthoredGame } = await import("./project/gameStorage.ts");
+  const data = await loadAuthoredGame(projectId);
+  const { inspectEditableProject } = await import("./project/projectWorkspaceSource.ts");
+  const keys = data
+    ? Object.keys(inspectEditableProject(data).documents)
+        .filter((key) => key.startsWith(`${family}:`))
+        .sort((a, b) => Number(a.split(":")[1]) - Number(b.split(":")[1]))
+    : [];
+  workspaceEditor.open(keys.includes(`${family}:1`) ? `${family}:1` : (keys[0] ?? `${family}:1`));
 }
+shellBridge.openLogicProject = (id) => {
+  void openProjectPart(id, "logic");
+};
+shellBridge.openSoundProject = (id) => {
+  void openProjectPart(id, "sound");
+};
 
 const WATCH_HASH_PREFIX = "#watch/";
 
@@ -614,7 +560,12 @@ async function openRoutedGame(key: string): Promise<void> {
     return;
   }
   const navigation = performance.getEntriesByType("navigation")[0];
-  if (navigation instanceof PerformanceNavigationTiming && navigation.type === "reload") return;
+  if (
+    navigation instanceof PerformanceNavigationTiming &&
+    navigation.type === "reload" &&
+    parseGameHash(location.hash)?.mode !== "create"
+  )
+    return;
   if (stored) return lib.onPlayLibraryGame(stored);
   try {
     await lib.onPlayLocalGame(key);
@@ -678,11 +629,11 @@ watch(
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
       'original-aspect': originalAspect,
-      'studio-open': studioOpen,
+      'studio-open': creating && workspaceEditor.focus.value,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
-    <div class="shell" :inert="logicProjectId !== undefined || soundProjectId !== undefined">
+    <div class="shell">
       <CreateKeyboard
         v-if="creating"
         ref="createKeyboard"
@@ -727,9 +678,22 @@ watch(
            takes the right column. -->
       <div
         class="shell-body"
+        :style="
+          creating
+            ? {
+                '--workspace-game': `minmax(0, ${workspaceEditor.split.value}fr)`,
+                '--workspace-edit': `minmax(0, ${100 - workspaceEditor.split.value}fr)`,
+              }
+            : undefined
+        "
         :class="{
           'shell-body--create': creating,
-          'shell-body--studio': studioOpen,
+          'shell-body--workspace': creating,
+          'shell-body--no-editor': creating && !workspaceEditor.selected.value,
+          'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
+          'shell-body--picture': creating && workspaceEditor.pictureLive.value,
+          'shell-body--focus':
+            creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,
           'shell-body--sheet': creating && phone,
           'shell-body--fold-left': creating && !phone && workspace.collapsed.left,
           'shell-body--fold-right': creating && !phone && workspace.collapsed.right,
@@ -737,130 +701,74 @@ watch(
           'assistant-open': state.phase === 'running' && state.powerUp.open,
         }"
       >
-        <CreateDock
-          v-if="creating && !phone"
-          v-show="!studioOpen"
-          v-model:active="workspace.active.left"
-          side="left"
-          class="shell-dock shell-dock--left"
-          :collapsed="workspace.collapsed.left"
-          data-shell-keys
-          @toggle="workspace.toggleDock('left')"
+        <CreateWorkspace
+          v-if="
+            state.phase === 'running' && (creating || workspaceEditor.retained.value.length > 0)
+          "
+          :creating="creating"
         />
-        <PlayArea
-          v-show="!studio"
-          ref="playArea"
-          :touch-controls="touchControls"
-          :crt-enabled="crtEnabled"
-          :original-aspect="originalAspect"
-          :inspector-docked="creating"
+        <Teleport
+          :to="workspaceEditor.gameHost.value ?? 'body'"
+          :disabled="
+            !creating ||
+            !workspaceEditor.pictureLive.value ||
+            workspaceEditor.focus.value ||
+            !workspaceEditor.gameHost.value
+          "
         >
-          <template #stage-actions>
-            <UiToast
-              v-if="playHereFromStudio.note.value"
-              tone="warn"
-              dismissible
-              data-testid="play-here-note"
-              @dismiss="playHereFromStudio.dismiss()"
-            >
-              {{ playHereFromStudio.note.value }}
-            </UiToast>
-            <StaleTabNote />
-          </template>
-          <template #screen-notes>
-            <StartOverNote />
-          </template>
-          <template #strip-actions>
-            <UiButton
-              v-if="state.phase === 'running' && !creating"
-              icon="sparkles"
-              size="sm"
-              class="ask-button"
-              :class="{ 'ask-button--away': state.powerUp.open }"
-              data-testid="menu-assistant"
-              :aria-expanded="state.powerUp.open"
-              :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask about this game'"
-              :disabled="
-                (state.powerUp.mode === 'room' && state.powerUp.open) ||
-                state.recording.active ||
-                state.historyView.active
-              "
-              @click="shell.toggleAsk()"
-            >
-              Ask
-            </UiButton>
-          </template>
-        </PlayArea>
-        <StudioDockHost
-          v-if="studioOpen && studio"
-          class="shell-center"
-          :studio="studio"
-          :project-id="studioProjectId"
-        >
-          <template #default="{ launch, underlay }">
-            <RoomStudio
-              v-if="studio.kind === 'picture'"
-              :picture-number="studio.pictureNumber"
-              :bytes="studio.bytes"
-              :authored-source="studio.authoredSource"
-              :profile="studio.profile"
-              :title="studio.title"
-              :subtitle="studio.subtitle"
-              :base-revision="studio.baseRevision"
-              :base-authoring="studio.baseAuthoring"
-              :files="studio.files"
-              :walk="studio.walk"
-              :underlay="underlay"
-              :creative-launch="launch"
-              @close="workspace.closeStudio()"
-              @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
-              @play-here="(target) => void playHereFromStudio.play(target)"
-            />
-            <SpriteStudio
-              v-else-if="studio.kind === 'sprite'"
-              :key="`${studio.viewNumber}:${studio.baseRevision}:${studio.stagedReference ?? ''}`"
-              :view-number="studio.viewNumber"
-              :bytes="studio.bytes"
-              :profile="studio.profile"
-              :title="studio.title"
-              :base-revision="studio.baseRevision"
-              :base-authoring="studio.baseAuthoring"
-              :files="studio.files"
-              :usage="studio.usage"
-              :rooms="studio.rooms"
-              :speed="studio.speed"
-              :cyclers="studio.cyclers"
-              :priority-base="studio.priorityBase"
-              :staged-reference="studio.stagedReference"
-              :creative-launch="launch"
-              @close="workspace.closeStudio()"
-              @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
-            />
-          </template>
-        </StudioDockHost>
+          <PlayArea
+            v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
+            ref="playArea"
+            :touch-controls="touchControls"
+            :crt-enabled="crtEnabled"
+            :original-aspect="originalAspect"
+            :inspector-docked="creating"
+          >
+            <template #stage-actions>
+              <UiToast
+                v-if="playHereFromStudio.note.value"
+                tone="warn"
+                dismissible
+                data-testid="play-here-note"
+                @dismiss="playHereFromStudio.dismiss()"
+              >
+                {{ playHereFromStudio.note.value }}
+              </UiToast>
+              <UiChip v-if="creating" tone="ok" dot data-testid="workspace-live">LIVE</UiChip>
+              <StaleTabNote />
+            </template>
+            <template #screen-notes>
+              <StartOverNote />
+            </template>
+            <template #strip-actions>
+              <UiButton
+                v-if="state.phase === 'running' && !creating"
+                icon="sparkles"
+                size="sm"
+                class="ask-button"
+                :class="{ 'ask-button--away': state.powerUp.open }"
+                data-testid="menu-assistant"
+                :aria-expanded="state.powerUp.open"
+                :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask about this game'"
+                :disabled="
+                  (state.powerUp.mode === 'room' && state.powerUp.open) ||
+                  state.recording.active ||
+                  state.historyView.active
+                "
+                @click="shell.toggleAsk()"
+              >
+                Ask
+              </UiButton>
+            </template>
+          </PlayArea>
+        </Teleport>
         <aside
-          v-show="!studioOpen"
+          v-show="!creating || (state.powerUp.open && !workspaceEditor.focus.value)"
           class="shell-side"
           :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
-          :aria-label="creating ? 'Assistant panels' : 'Ask'"
+          aria-label="Agent"
           data-shell-keys
         >
-          <CreateDock
-            v-if="creating && phone"
-            v-model:active="workspace.active.sheet"
-            side="sheet"
-            :built-in="['assistant']"
-            :collapsed="!sheetOpen"
-            @toggle="workspace.sheetOpen.value = !workspace.sheetOpen.value"
-          />
-          <CreateDock
-            v-else-if="creating"
-            v-model:active="workspace.active.right"
-            side="right"
-            :built-in="['assistant']"
-            :collapsed="workspace.collapsed.right"
-            @toggle="workspace.toggleDock('right')"
-          />
           <div v-show="!creating || assistantShown" class="assistant-host">
             <!-- Mounted through the turn, so it sees the panel open and close. -->
             <AssistantStart v-if="creating" v-show="!state.powerUp.open" :phone />
@@ -869,24 +777,6 @@ watch(
         </aside>
       </div>
     </div>
-
-    <!-- The stored-project workspace sits above the shell; the mounted run
-         stays mounted and inert behind it, never replaced or re-identified. -->
-    <LogicStudio
-      v-if="logicProjectId"
-      ref="logicStudio"
-      :project-id="logicProjectId"
-      @update:project-id="logicProjectId = $event"
-      @close="logicProjectId = undefined"
-    />
-    <SoundStudio
-      v-if="soundProjectId"
-      ref="soundStudio"
-      :project-id="soundProjectId"
-      :acquire-pause-lease="engine.acquireRuntimePauseLease"
-      @update:project-id="soundProjectId = $event"
-      @close="soundProjectId = undefined"
-    />
 
     <AiSettingsDialog
       ref="aiSettingsDialog"
@@ -906,7 +796,6 @@ watch(
          out of Tab's reach. -->
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"
-      v-show="!studioOpen"
       :audio="latestAgentAudio"
       data-testid="latest-sound-preview"
     />

@@ -28,7 +28,7 @@ import {
   type PreparedGuidedOperation,
 } from "../../../../../src/authoring/guidedProject.ts";
 
-export interface GuidedInputs {
+interface GuidedInputs {
   readonly "add-room": GuidedAddRoomInput;
   readonly "place-hero": GuidedPlaceHeroInput;
   readonly "respond-to-command": GuidedRespondInput;

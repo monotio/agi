@@ -197,7 +197,7 @@ function onKeydown(event: KeyboardEvent): void {
       data-role="drag-handle"
       tabindex="0"
       role="application"
-      :aria-label="`Ghost actor at x ${x}, baseline ${baselineY}. Drag to move; arrows change cel and loop; Shift+arrows nudge.`"
+      :aria-label="`Stand-in at x ${x}, feet row ${baselineY}. Drag to move; arrows change cel and loop; Shift+arrows nudge.`"
       :style="box"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"

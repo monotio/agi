@@ -144,8 +144,8 @@ describe("tool state machines", () => {
       kind: "art",
     });
     assert.deepEqual(newItemNames(document, "Line", null, 0), {
-      id: "barrier-line-1",
-      label: "Barrier line 1",
+      id: "wall-line-1",
+      label: "Wall line 1",
       kind: "walk",
     });
     assert.deepEqual(newItemNames(document, "Polygon", null, 10), {
@@ -279,7 +279,7 @@ describe("useStudioTools", () => {
     assert.equal(draft.gesturing.value, false);
     assert.equal(draft.history.value.past.length, 1);
     const item = draft.document.value.items.at(-1)!;
-    assert.deepEqual([item.label, item.kind], ["Barrier line 1", "walk"]);
+    assert.deepEqual([item.label, item.kind], ["Wall line 1", "walk"]);
     const after = draft.compiled.value;
     assert.deepEqual(after.visual, before.visual, "art is byte for byte the same");
     for (let x = 10; x <= 60; x++) assert.equal(after.priority[at(x, 140)], 0);
@@ -515,7 +515,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
     assert.equal(tools.path.value, null);
     assert.equal(draft.history.value.past.length, 1);
     const item = draft.document.value.items.at(-1)!;
-    assert.deepEqual([item.label, item.kind], ["Barrier line 1", "walk"]);
+    assert.deepEqual([item.label, item.kind], ["Wall line 1", "walk"]);
     const after = draft.compiled.value;
     assert.deepEqual(after.visual, before.visual);
     for (let x = 10; x <= 60; x++) assert.equal(after.priority[at(x, 140)], 0);

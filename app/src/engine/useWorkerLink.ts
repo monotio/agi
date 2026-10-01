@@ -268,6 +268,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       // The play-preview lane's protocol: each settles its pending query —
       // the result is the request's one terminal settlement, the status its
       // read-only reconciliation.
+      projectCreated: (msg) => workerQueries.resolveQuery(msg.id, msg),
       previewUpdateResult: (msg) => workerQueries.resolveQuery(msg.id, msg),
       previewUpdateStatus: (msg) => workerQueries.resolveQuery(msg.id, msg),
       // The history transport's position reports: progress posts only update

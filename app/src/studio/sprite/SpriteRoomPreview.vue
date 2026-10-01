@@ -95,7 +95,7 @@ const result = computed(() => {
   });
 });
 
-const CONTROL_WORDS = ["a barrier", "a conditional barrier", "a signal line", "water"];
+const CONTROL_WORDS = ["Wall", "Gate", "Trigger", "Water"];
 const verdict = computed(() => {
   const r = result.value;
   if (!r) return null;

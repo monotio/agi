@@ -40,10 +40,10 @@ const MODES = [
       </button>
       <div role="separator"></div>
       <button type="button" role="menuitemcheckbox" :aria-checked="bands" @click="bands = !bands">
-        <UiIcon name="check" :size="16" class="view-more__check" />Bands
+        <UiIcon name="check" :size="16" class="view-more__check" />Depth bands
       </button>
     </ActionMenu>
-    <UiSegmented v-else v-model="mode" size="sm" label="Planes" :options="MODES" />
+    <UiSegmented v-else v-model="mode" size="sm" label="Lens view" :options="MODES" />
     <template v-if="fold < 3">
       <UiButton
         variant="ghost"
@@ -51,7 +51,7 @@ const MODES = [
         :aria-pressed="bands"
         @click="bands = !bands"
       >
-        Bands
+        Depth bands
       </UiButton>
       <UiExplain v-bind="explain('bands')" />
     </template>

@@ -1,3 +1,4 @@
+import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
 import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
@@ -50,7 +51,7 @@ import { createRuntimePauseLeaseAcquire } from "./runtimePauseLease.ts";
 import { createStartOver } from "./startOver.ts";
 import { useEngineDebug } from "./useEngineDebug.ts";
 import { useRoomMap } from "../world/useRoomMap.ts";
-import type { WorkerInbound, WorkerQueryPayload } from "../worker/workerProtocol.ts";
+import type { WorkerInbound, WorkerQueryPayload, WorkerControl } from "../worker/workerProtocol.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { HistoryBatch } from "../../../src/agent/history.ts";
 export type { ModalKind, TextHook, EngineState } from "./useEngineTypes.ts";
@@ -292,6 +293,19 @@ export function useEngine(
     state,
     getBootedGame: () => lifecycle.getBootedGame(),
     getWorker: link.getWorker,
+    async prepareCheckpoint(game, files) {
+      const session = projectSession;
+      if (session === null) return "legacy";
+      const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
+      if (files !== undefined && computeResourceRevision(files) !== revision) return "refused";
+      await session.flush();
+      return session === projectSession &&
+        lifecycle.getBootedGame() === game &&
+        session.saveStatus().state === "saved" &&
+        session.model.capture().lastAdmissibleBuild!.identity.revision === revision
+        ? "owned"
+        : "refused";
+    },
     onAutosaveStored: (cycle) => {
       hook.autosave = cycle;
       link.publishHook();
@@ -322,10 +336,18 @@ export function useEngine(
     projectSession?.dispose();
     projectSession = null;
   };
-  link.deps.projectBooted = (msg) => {
-    const grant = msg.projectAdmission;
+  let projectSessionOpening: string | undefined;
+  function openSession(
+    grant: Extract<WorkerControl, { type: "booted" }>["projectAdmission"],
+  ): void {
     const game = lifecycle.getBootedGame();
     const worker = link.getWorker();
+    if (
+      grant === undefined ||
+      projectSession?.runToken === grant.runToken ||
+      projectSessionOpening === grant.runToken
+    )
+      return;
     const epoch = ++projectOpenEpoch;
     if (
       grant === undefined ||
@@ -340,6 +362,7 @@ export function useEngine(
       link.getWorker() === worker &&
       !game.removed &&
       !game.behindStorage;
+    projectSessionOpening = grant.runToken;
     void Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
       .then(([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
@@ -375,11 +398,16 @@ export function useEngine(
             if (current()) state.status = projectSession?.saveStatus().message ?? "";
           },
         });
+        state.patchTick++;
       })
       .catch((error: unknown) => {
         if (current()) state.status = String(error instanceof Error ? error.message : error);
+      })
+      .finally(() => {
+        if (projectSessionOpening === grant.runToken) projectSessionOpening = undefined;
       });
-  };
+  }
+  link.deps.projectBooted = (msg) => openSession(msg.projectAdmission);
 
   // Another tab committing a newer revision of the running project marks it
   // behind at once, not at its next refused write; removing it stops every
@@ -664,6 +692,37 @@ export function useEngine(
   return {
     setProjectMode(mode: "create" | "play") {
       projectMode = mode;
+      const game = lifecycle.getBootedGame();
+      const worker = link.getWorker();
+      if (
+        mode !== "create" ||
+        projectSession ||
+        projectSessionOpening ||
+        !game?.authoredGame ||
+        game.installed ||
+        state.phase !== "running"
+      )
+        return;
+      const data = game.authoredGame;
+      void link
+        .query("projectCreate", {
+          ...(data.workspace ? { documents: data.workspace } : {}),
+          ...(data.projectHistory ? { history: data.projectHistory } : {}),
+        })
+        .then((reply) => {
+          if (
+            projectMode !== "create" ||
+            lifecycle.getBootedGame() !== game ||
+            link.getWorker() !== worker ||
+            projectSession
+          )
+            return;
+          if (reply.grant) openSession(reply.grant);
+          else state.status = reply.reason ?? "Open this game in Create to edit it.";
+        })
+        .catch((cause) => {
+          if (lifecycle.getBootedGame() === game) state.status = String(cause);
+        });
     },
     getProjectSession: () => projectSession,
     submitProjectEdit(

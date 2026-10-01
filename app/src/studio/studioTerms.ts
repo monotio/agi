@@ -37,27 +37,27 @@ export const STUDIO_TERMS = {
   },
   depth: {
     name: "Depth",
-    says: "Depth says what stands in front: a bigger number is nearer the player. AGI calls this priority.",
+    says: "What stands in front. Lower on the screen is nearer.",
     help: topic("studio-depth"),
   },
   bands: {
-    name: "Bands",
-    says: "Bands are the depth values the screen gives by height: lower on the screen means nearer.",
+    name: "Depth band",
+    says: "Each row of the screen has a depth. A character's depth comes from the row its feet are on.",
     help: topic("studio-depth"),
   },
   "walk-lines": {
-    name: "Walk lines",
-    says: "Values 0–3 steer the hero: 0 blocks, 1 blocks until a flag, 2 signals the script, 3 is water.",
+    name: "Walk",
+    says: "Where characters can go.",
     help: topic("studio-walk"),
   },
   order: {
     name: "Draw order",
-    says: "The picture paints itself top to bottom of this list, so a later item covers an earlier one.",
+    says: "The order a picture draws its items. Later items cover earlier ones.",
     help: topic("studio-order"),
   },
   step: {
     name: "Step",
-    says: "Each step is one AGI drawing command, the way the game itself draws the picture.",
+    says: "One drawing command. A picture draws its steps in order.",
     help: topic("studio-order"),
   },
   "insert-at": {
@@ -72,12 +72,12 @@ export const STUDIO_TERMS = {
   },
   group: {
     name: "Group",
-    says: "Group joins neighbours in the draw order into one item and keeps every pixel as it is.",
+    says: "Group joins neighbouring items into one item. Ungroup splits it into the parts it was made from.",
     help: topic("studio-select"),
   },
   ungroup: {
     name: "Ungroup",
-    says: "Ungroup splits an item back into the parts it was grouped from, or into its drawing elements.",
+    says: "Group joins neighbouring items into one item. Ungroup splits it into the parts it was made from.",
     help: topic("studio-select"),
   },
   fill: {
@@ -86,18 +86,18 @@ export const STUDIO_TERMS = {
     help: topic("studio-fill"),
   },
   stipple: {
-    name: "Stipple",
-    says: "Stipple paints a dotted pattern, the way AGI brushes do; Pattern picks which dots.",
+    name: "Speckled",
+    says: "Paints with a round or square pen; Speckled scatters dots.",
     help: topic("studio-tools"),
   },
   ghost: {
-    name: "Ghost",
-    says: "A still figure from the game's views, dropped where you like, to see what hides it.",
+    name: "Stand-in",
+    says: "A still figure you place in the room to see what hides it and where it can walk.",
     help: topic("studio-ghost"),
   },
   feet: {
     name: "Feet",
-    says: "The game places a character by its feet, the bottom row of the cel, and reads depth there.",
+    says: "The game places a character by its feet, the bottom row of its cel.",
     help: topic("sprites-feet"),
   },
   "floor-estimate": {
@@ -117,12 +117,12 @@ export const STUDIO_TERMS = {
   },
   "door-script": {
     name: "In script",
-    says: "This exit is written in the room's script. Change it in Logic Studio or ask the assistant.",
+    says: "This exit is written in the room's LOGIC. Edit its LOGIC or tell the agent what to change.",
     help: topic("studio-walk"),
   },
   follows: {
     name: "Follows",
-    says: "Drag the door's round handle onto art, and the door moves with it when you Keep.",
+    says: "Drag the door's round handle onto an item. The door moves with it.",
     help: topic("studio-walk"),
   },
   "ask-scope": {
@@ -137,7 +137,7 @@ export const STUDIO_TERMS = {
   },
   rebuilt: {
     name: "Rebuilt",
-    says: "Studio rebuilt these steps from the game's bytes; your first Keep makes them the source.",
+    says: "These steps come from the game's bytes. Your first edit saves their source.",
     help: topic("studio-source"),
   },
   issues: {
@@ -147,7 +147,7 @@ export const STUDIO_TERMS = {
   },
   "view-only": {
     name: "View only",
-    says: "Editing pauses while Keep runs or until you reload the game.",
+    says: "Reload the game to edit this part.",
     help: topic("studio-keep"),
   },
   keep: {
@@ -157,27 +157,27 @@ export const STUDIO_TERMS = {
   },
   loops: {
     name: "Loops",
-    says: "A loop is one facing of the character; its cels are the frames of that walk or wave.",
+    says: "One direction a VIEW faces, like walking left.",
     help: topic("sprites-loops"),
   },
   mirror: {
     name: "Mirror loop",
-    says: "A mirror loop shows its partner flipped. Edit both changes the pair; edit one and it becomes its own copy.",
+    says: "Shows another loop flipped. Edit both changes the pair; editing one gives it its own cels.",
     help: topic("sprites-mirror"),
   },
   transparent: {
     name: "Transparent colour",
-    says: "Pixels in this colour show the room behind the character. The eraser paints it.",
+    says: "Pixels in this colour show the room behind the character.",
     help: topic("sprites-transparent"),
   },
   backdrop: {
-    name: "Backdrop",
-    says: "What you see behind transparent pixels while drawing; the game shows the room instead.",
+    name: "Background",
+    says: "The colour behind the cel while you draw. The game ignores it.",
     help: topic("sprites-transparent"),
   },
   onion: {
-    name: "Onion",
-    says: "Onion skin shows the cels before and after this one, tinted, so a motion lines up.",
+    name: "Onion skin",
+    says: "Shows the cels before and after this one faintly, to line up the animation.",
     help: topic("sprites-loops"),
   },
   "mirror-bit": {
@@ -187,7 +187,7 @@ export const STUDIO_TERMS = {
   },
   "shared-view": {
     name: "Shared character",
-    says: "Keep changes this character in every room that uses it.",
+    says: "Changes to this VIEW show in every room that uses it.",
     help: topic("sprites-loops"),
   },
   "recolour-scope": {

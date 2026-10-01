@@ -5,13 +5,12 @@
  * shelf; dropping a ZIP or folder anywhere on it imports a game. The splash
  * shows while a new game is generated or a plain boot runs long.
  */
-import { ref, watch } from "vue";
+import { defineAsyncComponent, ref, watch } from "vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
 import HomeHero from "./HomeHero.vue";
-import EmptyProjectStage from "./EmptyProjectStage.vue";
 import { emptyProject } from "./emptyProjectRoute.ts";
 import BootCard from "../ui/BootCard.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -20,6 +19,9 @@ import { useShell } from "../shell/useShell.ts";
 
 /** Why Home opened instead of the game a link named (App.vue). */
 const { routeNote = "" } = defineProps<{ routeNote?: string }>();
+const EmptyProjectStage = defineAsyncComponent(
+  () => import("../studio/workspace/EmptyWorkspace.vue"),
+);
 
 const { state, stopAgent, continueAgent, discardAgent, openStarterRecovery, currentGame } =
   useEngineApi();

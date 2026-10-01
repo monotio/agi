@@ -236,26 +236,25 @@ flowchart LR
 3. `useStudioDraft.ts` applies it as an edit operation (`src/studio/editOperations.ts`), which rewrites the source; several selected items take a batch (`applyEdits`), checked and undone as one edit.
 4. `compileEditDocument` (`src/studio/editValidation.ts`) compiles the source to bytes and decoded planes.
 5. `checkStudioEdit` (`studioLocks.ts`) checks the decoded pixels against the lens's locks (`validateEdit` in `editValidation.ts`, and the Walk lens depth rule in `lensRules.ts`). What an accepted edit changes in other items' output, such as a fill that pours differently around a moved outline, is reported as a side effect (`src/studio/sideEffects.ts`), not refused; AI proposals report theirs the same way.
-6. **Keep** runs `useStudioKeep.ts` and `useStudioCommit.ts`, and then `project/resourceCommit.ts`, which refuses unless the booted game, the stored project (`requireSaved` in `project/projectTransaction.ts`) and the worker all sit at the edit's base; the edit validates, saves in one conditional write (`project/gameStorage.ts`), and `installPatch` posts `patch` to the worker and waits for its acknowledgement.
+6. A completed gesture emits its edited document to `studio/workspace/CreateWorkspace.vue`. `project/projectSession.ts` validates the complete candidate, admits it to MAIN at a safe boundary, records History and saves it conditionally. The embedded editor previews a gesture locally until it completes.
 
-**A Logic Studio edit becomes a saved project**
+**A LOGIC edit becomes a saved project**
 
-Library **Game actions → Edit** opens `project/editableProject.ts` directly.
-`studio/logic/LogicStudio.vue` owns the Monaco models,
-analysis-worker context and draft recovery. `buildSelected` captures the selected
-documents and their dependency closure for review; `keepCandidate` checks that
-captured authority and writes through `commitProject`. Changes typed during a save
-stay dirty, and storage failures preserve the draft for retry. This Keep writes
-the saved project. Worker installation is a separate operation.
+Library **Game actions → Create** opens the running workspace on a LOGIC.
+`studio/workspace/LogicEditor.vue` retains Monaco models and their view state,
+with code intelligence from the analysis worker. `workspaceWrites.ts` coalesces
+typing bursts and serializes completed gestures. `ProjectSession` stores invalid
+source alongside the last admissible build, so the game continues while errors
+are fixed. Every editor shares its Undo, Redo, History and autosave owner.
 
 **Where authority lives.** Each of these is a check in code:
 
 - `AUTHORING_TOOL_NAMES`, `ASK_TOOLS` and `STUDIO_ASSIST_TASK_TOOLS` in `src/agent/tools.ts` are allowlists: a tool outside the list is refused before dispatch.
 - `prepareRoomPatch` accepts a room only if it is whole: it parses every payload under the game's profile, lets the vocabulary only grow, and stages the result on a copy.
 - `editValidation.ts` and `assistScope.ts` judge Studio edits and AI proposals by their decoded pixels, whatever the operations or the model claim.
-- `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (a Keep, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
-- `project/resourceCommit.ts` coordinates Room and Sprite Studio Keeps against the stored and running game, with conditional persistence and an acknowledged worker install.
-- `project/editableProject.ts` owns Logic Studio's immutable build candidates and saved-only Keep; its storage receipt does not claim that a running worker installed the build.
+- `project/projectTransaction.ts` owns saved, installed and current: the base an edit was made from, what storage holds, and what the running game confirmed it installed. Every project write (an editor change, an AI turn, a room written mid-play, an autosave) is refused as stale unless storage still holds its base, and only an acknowledged install moves the booted game forward.
+- `project/projectSession.ts` owns Create’s current documents, diagnostics, live admission, autosave and History. Every workspace editor submits through it; checkpoints wait for its save and retain their own runtime state.
+- `project/resourceCommit.ts` and `project/editableProject.ts` retain the compatibility and detached authoring services exercised by their unit tests.
 - The logic assembler and the container writer are the validators of last resort.
 
 Two words carry more than one meaning. `prepareRoom` is the engine's host hook,

@@ -110,7 +110,7 @@ import type { DraftReceipt } from "../../project/projectDrafts.ts";
 import type { CreativeImageIntake } from "../../references/creativeImageDecode.ts";
 
 /** One staged source and its in-memory bytes, owned by this workspace. */
-export interface WorkspaceSource {
+interface WorkspaceSource {
   readonly record: CreativeSource;
   /** Canonical RGBA8 pixels (orientation applied once upstream). */
   readonly pixels: Uint8Array;
@@ -119,7 +119,7 @@ export interface WorkspaceSource {
 }
 
 /** Room-side work: an image placed under the 160x168 picture for tracing. */
-export interface UnderlayJob {
+interface UnderlayJob {
   readonly draftId: string;
   readonly incarnation: string;
   /** versionRefKey of the source being traced. */
@@ -139,7 +139,7 @@ export interface UnderlayJob {
 }
 
 /** View-side work: frames, loops, mask and palette for one VIEW. */
-export interface ViewJob {
+interface ViewJob {
   readonly draftId: string;
   readonly incarnation: string;
   /** versionRefKeys of every source the frames read. */

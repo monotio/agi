@@ -146,10 +146,10 @@ function tagFor(kind: SceneRow["kind"], entries: readonly TimelineEntry[]): stri
   ];
   if (values.length !== 1) return kind;
   const value = values[0]!;
-  return value < 4 ? CONTROL_VALUES[value]!.name : `pri ${value}`;
+  return value < 4 ? CONTROL_VALUES[value]!.name : `depth band ${value}`;
 }
 
-/** "Brown art · 12", "Band 9 depth · 4", "Barrier walk · 3"; "Covered" when no pixel is left. */
+/** "Brown art · 12", "Depth band 9 · 4", "Wall walk · 3"; "Covered" when no pixel is left. */
 export function groupLabel(kind: SceneRow["kind"], value: number | null, count: number): string {
   const name =
     value === null
@@ -157,7 +157,8 @@ export function groupLabel(kind: SceneRow["kind"], value: number | null, count: 
       : kind === "depth" || kind === "walk"
         ? priorityMeaning(value)
         : EGA_COLOUR_NAMES[value]!;
-  return `${name[0]!.toUpperCase()}${name.slice(1)} ${kind} · ${count}`;
+  const label = `${name[0]!.toUpperCase()}${name.slice(1)}`;
+  return `${label}${kind === "depth" && value !== null ? "" : ` ${kind}`} · ${count}`;
 }
 
 /** Fold consecutive items into automatic groups; one-item groups stay plain rows. */

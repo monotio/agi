@@ -20,8 +20,13 @@ export function useFocusZones(roots: () => ReadonlyMap<FocusZone, HTMLElement>) 
   function zoneFor(target: Node | null): FocusZone | null {
     if (!target) return null;
     const available = roots();
-    for (const zone of ORDER) if (available.get(zone)?.contains(target)) return zone;
-    return null;
+    let nearest: FocusZone | null = null;
+    for (const zone of ORDER) {
+      const root = available.get(zone);
+      if (root?.contains(target) && (nearest === null || available.get(nearest)?.contains(root)))
+        nearest = zone;
+    }
+    return nearest;
   }
 
   function activate(zone: FocusZone | null): void {
