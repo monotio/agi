@@ -30,6 +30,7 @@ import { derivedLogicSource } from "../logic/logicWorkspace.ts";
 import { roomPictureNumber } from "../logic/guided/guidedPreview.ts";
 import { createWorkspaceWrites } from "./workspaceWrites.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
+import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
 const GuidedAdd = defineAsyncComponent(() => import("./GuidedAdd.vue"));
@@ -37,10 +38,24 @@ const TableEditor = defineAsyncComponent(() => import("./TableEditor.vue"));
 const RoomStudio = defineAsyncComponent(() => import("../RoomStudio.vue"));
 const SpriteStudio = defineAsyncComponent(() => import("../sprite/SpriteStudio.vue"));
 const LogicEditor = defineAsyncComponent(() => import("./LogicEditor.vue"));
+const DebugPanel = defineAsyncComponent(() => import("./WorkspaceDebugPanel.vue"));
+const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControls.vue"));
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
 const snapshot = shallowRef<ProjectSnapshot>();
+const {
+  debug,
+  logicEditors,
+  reveal: revealDebug,
+  toggleBreakpoint,
+} = useWorkspaceDebug({
+  creating: () => props.creating,
+  engine,
+  editor,
+  snapshot,
+  profile: () => profile.value.id,
+});
 const historyState = shallowRef<ProjectHistoryState>();
 const optimistic = shallowRef<Readonly<Record<string, ProjectContent>>>({});
 let session: ProjectSession | null = null;
@@ -533,6 +548,17 @@ onBeforeUnmount(() => {
         @pin="editor.pin"
         @close="editor.close"
       />
+      <UiButton
+        v-if="editor.kind.value === 'logic'"
+        size="sm"
+        variant="ghost"
+        :disabled="debug?.state.busy"
+        data-testid="debug-start"
+        title="Start or continue debugging (F5)"
+        @click="editor.debugCommand.value?.('start')"
+        >{{ engine.executionDebug.stopped.value ? "Continue" : "Debug" }}</UiButton
+      >
+      <DebugControls v-if="debug?.state.epoch" :debug="debug" />
       <GuidedAdd
         v-if="editor.kind.value === 'logic'"
         v-model:action="guidedKind"
@@ -605,7 +631,25 @@ onBeforeUnmount(() => {
       />
       <LogicEditor
         v-else-if="key.startsWith('logic:') && text(key) !== undefined && snapshot"
+        :ref="
+          (instance) => {
+            if (instance) logicEditors.set(key, instance as unknown as LogicEditorHandle);
+            else logicEditors.delete(key);
+          }
+        "
         :document-key="key"
+        :breakpoints="
+          debug?.state.breakpoints
+            .filter((point) => point.logic === Number(key.slice(6)))
+            .map((point) => point.line)
+        "
+        :stopped-line="
+          debug?.position.value?.logic === Number(key.slice(6))
+            ? debug.position.value.line
+            : undefined
+        "
+        :running-source="debug?.state.epoch ? debug.sources.value[key.slice(6)] : undefined"
+        @breakpoint="toggleBreakpoint(key, $event)"
         :source="text(key)!"
         :snapshot="snapshot"
         :profile-id="profile.id"
@@ -635,7 +679,7 @@ onBeforeUnmount(() => {
       data-testid="workspace-show-game"
       @click="editor.toggleFocus"
     >
-      Game running · Show
+      {{ editor.debugStatus.value || "Game running" }} · Show
     </button>
   </section>
   <section
@@ -644,12 +688,21 @@ onBeforeUnmount(() => {
     aria-label="Problems"
     data-testid="workspace-problems"
   >
-    <header>
-      <h2>Problems</h2>
-      <UiButton size="sm" variant="ghost" @click="editor.panel.value = false">×</UiButton>
-    </header>
-    <p v-if="diagnostics.length === 0">Everything builds.</p>
-    <p v-for="(entry, index) in diagnostics" :key="index">{{ entry.message }}</p>
+    <DebugPanel
+      v-if="debug"
+      :debug="debug"
+      :problems="diagnostics"
+      @close="editor.panel.value = false"
+      @reveal="revealDebug"
+    />
+    <template v-else>
+      <header>
+        <h2>Problems</h2>
+        <UiButton size="sm" variant="ghost" @click="editor.panel.value = false">×</UiButton>
+      </header>
+      <p v-if="diagnostics.length === 0">Everything builds.</p>
+      <p v-for="(entry, index) in diagnostics" :key="index">{{ entry.message }}</p>
+    </template>
   </section>
   <aside
     v-if="creating && editor.history.value"
@@ -685,3 +738,13 @@ onBeforeUnmount(() => {
     </div>
   </aside>
 </template>
+
+<style scoped>
+.workspace-editor__header:has(.workspace-debug-controls) {
+  flex-wrap: wrap;
+}
+.workspace-problems:has(.workspace-debug-panel) {
+  max-height: 290px;
+  overflow: hidden;
+}
+</style>

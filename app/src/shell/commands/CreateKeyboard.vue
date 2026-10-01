@@ -58,7 +58,7 @@ function context(): CommandContext {
     gameFocus: zone === "game",
     textInputFocus,
     dialogOpen: !!document.querySelector("dialog[open]"),
-    debugging: false,
+    debugging: editor.debugging.value,
   };
 }
 function blocksGame(event: KeyboardEvent): boolean {
@@ -90,6 +90,12 @@ function agent(): void {
   });
 }
 const offDefaults = registerDefaultCommands(props.registry, {
+  run: () => editor.debugCommand.value?.("start"),
+  stop: () => editor.debugCommand.value?.("stop"),
+  breakpoint: () => editor.debugCommand.value?.("breakpoint"),
+  stepOver: () => editor.debugCommand.value?.("over"),
+  stepInto: () => editor.debugCommand.value?.("into"),
+  stepOut: () => editor.debugCommand.value?.("out"),
   quickOpen: () => showChooser("parts"),
   palette: () => showChooser("palette"),
   parts: () => workspace.toggleDock("left"),

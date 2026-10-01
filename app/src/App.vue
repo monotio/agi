@@ -748,7 +748,13 @@ watch(
                 {{ playHereFromStudio.note.value }}
               </UiToast>
               <UiChip
-                v-if="creating"
+                v-if="creating && workspaceEditor.debugStatus.value"
+                tone="warn"
+                data-testid="workspace-debug-status"
+                >{{ workspaceEditor.debugStatus.value }}</UiChip
+              >
+              <UiChip
+                v-else-if="creating"
                 :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
                 dot
                 data-testid="workspace-live"

@@ -1066,15 +1066,15 @@ export function createDebugController(ctx: WorkerContext) {
   /**
    * The play-preview lane's prevalidated install: a committed update's
    * captured build, sources and already-rebound plans land by bounded
-   * assignment only — no re-capture, no posts (the single
-   * previewUpdateResult carries the new identity). Detached sessions keep
+   * assignment only, with a source-reset event for MAIN workspace consumers.
+   * Isolated previews adopt the identity from previewUpdateResult. Detached sessions keep
    * their authority on the lane record itself. A fresh session epoch
    * retires every command, stop snapshot and queued answer minted under
    * the old source identity.
    */
   function previewSessionInstall(prepared: PreviewPreparedSession): void {
     const d = ctx.debugger;
-    const lane = d.preview;
+    const lane = ctx.projectAdmission ?? d.preview;
     if (lane === null || lane.engine !== ctx.engine || d.epoch === 0) return;
     d.epoch = ++d.epochCounter;
     d.build = prepared.build;
@@ -1085,6 +1085,15 @@ export function createDebugController(ctx: WorkerContext) {
     d.breakpointPlan = prepared.breakpointPlan;
     d.watchpointPlan = prepared.watchpointPlan;
     refreshRichSnapshot();
+    if (ctx.projectAdmission !== null)
+      control({
+        type: "debugSessionReset",
+        epoch: d.epoch,
+        buildId: d.buildId,
+        breakpoints: d.breakpointPlan.status(),
+        watchpoints: d.watchpointPlan.status(),
+        sources: { ...d.sources },
+      });
   }
 
   function onDebugSetValues(msg: Inbound<"debugSetValues">): void {

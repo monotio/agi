@@ -16,6 +16,7 @@ export function createMainProjectAdmission(input: {
   readonly identity: PreviewLaneIdentity;
   readonly query: WorkerQueryFn;
   readonly current: () => boolean;
+  readonly waitForContinue?: () => Promise<void> | undefined;
 }) {
   let identity = { ...input.identity };
   let runToken = input.runToken;
@@ -26,6 +27,8 @@ export function createMainProjectAdmission(input: {
     origins: { key: string; version: number }[],
     mode?: "restart" | "reenter",
   ): Promise<PreviewUpdateOutcome> {
+    const continuation = input.waitForContinue?.();
+    if (continuation) await continuation;
     if (!current()) throw new Error("Project run was replaced.");
     const documents = compiled.documents();
     const sources: Record<string, string> = {};

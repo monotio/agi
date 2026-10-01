@@ -1,3 +1,4 @@
+import { createExecutionDebugLink } from "./executionDebugLink.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
@@ -231,6 +232,8 @@ export function useEngine(
   const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
   const startOverNote = useStartOverNote(state);
 
+  const executionDebug = createExecutionDebugLink(link.query);
+  link.deps.handleDebugEvent = executionDebug.handle;
   const debug = useEngineDebug({ state, link });
 
   const replayDriver = createReplayDriver({
@@ -333,6 +336,7 @@ export function useEngine(
   });
 
   link.deps.projectClosed = () => {
+    executionDebug.reset();
     projectOpenEpoch++;
     projectSession?.dispose();
     projectSession = null;
@@ -368,7 +372,12 @@ export function useEngine(
     void Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
       .then(([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
-        const admission = createMainProjectAdmission({ ...grant, query: link.query, current });
+        const admission = createMainProjectAdmission({
+          ...grant,
+          query: link.query,
+          current,
+          waitForContinue: executionDebug.waitForContinue,
+        });
         projectSession = openProjectSession({
           data: game.authoredGame!,
           lifetime: game.historyLifetime!,
@@ -881,6 +890,7 @@ export function useEngine(
     },
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
+    executionDebug,
     setDebugConsumer: debug.setDebugConsumer,
     debugWrite: debug.debugWrite,
     playHere,

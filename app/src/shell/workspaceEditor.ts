@@ -4,6 +4,12 @@ import type { EngineApi } from "../engine/engineContext.ts";
 import type { ChooserItem } from "./commands/chooserItems.ts";
 
 export function createWorkspaceEditor(engine: EngineApi) {
+  const debugCommand =
+    shallowRef<
+      (action: "start" | "stop" | "breakpoint" | "over" | "into" | "out") => Promise<void>
+    >();
+  const debugging = ref(false);
+  const debugStatus = ref("");
   const flush = shallowRef<() => Promise<void>>();
   const retry = shallowRef<() => Promise<void>>();
   const pictureLive = ref(false);
@@ -107,6 +113,9 @@ export function createWorkspaceEditor(engine: EngineApi) {
     parts.value = [];
   }
   return {
+    debugCommand,
+    debugging,
+    debugStatus,
     flush,
     retry,
     pictureLive,
