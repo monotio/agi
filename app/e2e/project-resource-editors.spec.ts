@@ -11,7 +11,7 @@ import { openSprite } from "../../src/view/spriteDocument.ts";
 /**
  * The stored project's visual editors, end to end on the real app with no
  * key, no engine and no provider: Logic Studio's explorer opens PIC 1 in the
- * existing Room Studio and VIEW 1 in the existing Sprite Studio; their Keeps
+ * existing Room Studio and VIEW 0 in the existing Sprite Studio; their Keeps
  * land in the same EditableProject, so stored bytes, the draft and a cold
  * reopen all agree. Expected pixels are decoded here with the engine's own
  * renderer and sprite kernel from bytes read out of the page and storage;
@@ -108,9 +108,7 @@ test("a starter PIC draws in Room Studio through Logic Studio, keeps and reopens
 
   // The picture document opens as text; the launch action names the editor.
   await explorer.getByTestId("logic-doc-picture:1").click();
-  await expect(page.getByTestId("logic-editor").locator(".view-lines")).toContainText(
-    "sunny clearing",
-  );
+  await expect(page.getByTestId("logic-editor").locator(".view-lines")).toContainText("Meadow");
   const launch = page.getByTestId("logic-resource-edit");
   await expect(launch).toHaveText("Edit picture");
 
@@ -123,7 +121,7 @@ test("a starter PIC draws in Room Studio through Logic Studio, keeps and reopens
   const beforeSource = await page.evaluate(() => window.__AGI_STUDIO__!.source());
   await reviewShot(page, "project-resource-room-open");
 
-  // A keyboard nudge of the first item: the trunk moves one row down.
+  // A keyboard nudge of the first item: the sun moves one row down.
   await room.locator("[data-row]").first().click();
   await room.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowDown");
@@ -132,10 +130,10 @@ test("a starter PIC draws in Room Studio through Logic Studio, keeps and reopens
   expect(drawnSource).not.toBe(beforeSource);
   const drawn = Uint8Array.from(await page.evaluate(() => [...window.__AGI_STUDIO__!.bytes()]));
   expect(drawn).toEqual(compilePictureSource(drawnSource, { profile: DEFAULT_V2_PROFILE }).bytes);
-  // The trunk's new bottom row is its brown where the water line was.
+  // The sun's old top row becomes sky.
   const [oldPlane, newPlane] = [visual(before), visual(drawn)];
-  expect(at(oldPlane, 31, 89)).toBe(2);
-  expect(at(newPlane, 31, 89)).toBe(6);
+  expect(at(oldPlane, 147, 3)).toBe(14);
+  expect(at(newPlane, 147, 3)).toBe(9);
 
   // Keep is durable through the shared workspace: status, stored bytes and
   // the stored annotated source all say the same thing.
@@ -182,7 +180,7 @@ test("a VIEW recolour keeps exact bytes while an unrelated dirty LOGIC stays dir
 
   const studio = await openLogicStudio(page, "Recoloured ego");
   const explorer = page.getByTestId("logic-explorer");
-  const originalBytes = openContainer(await storedFiles(page, projectId)).getResource("view", 1)!;
+  const originalBytes = openContainer(await storedFiles(page, projectId)).getResource("view", 0)!;
   const original = openSprite(originalBytes, DEFAULT_V2_PROFILE);
   // The starter ego walks right in loop 0; loop 1 mirrors it.
   expect(original.loops[1]!.alias).toBe(0);
@@ -197,8 +195,8 @@ test("a VIEW recolour keeps exact bytes while an unrelated dirty LOGIC stays dir
   await page.keyboard.type("// an unfinished note");
   await expect(page.getByTestId("logic-studio-status")).toContainText("1 change");
 
-  // VIEW 1 opens in Sprite Studio on the real bytes.
-  await explorer.getByTestId("logic-doc-view:1").click();
+  // VIEW 0 opens in Sprite Studio on the real bytes.
+  await explorer.getByTestId("logic-doc-view:0").click();
   const launch = page.getByTestId("logic-resource-edit");
   await expect(launch).toHaveText("Edit sprite");
   await launch.click();
@@ -207,7 +205,7 @@ test("a VIEW recolour keeps exact bytes while an unrelated dirty LOGIC stays dir
   await expect(sprite.getByTestId("studio-draft-status")).toHaveText("No changes");
   await reviewShot(page, "project-resource-sprite-open");
 
-  // Recolour the loop: the colour under the standing cel's centre (blue) to
+  // Recolour the loop: the colour under the standing cel's centre (light red) to
   // the next swatch, scoped to this loop.
   await sprite.locator('[data-loop="0"][data-cel="0"]').click();
   await sprite.getByTestId("sprite-stage").focus();
@@ -217,7 +215,7 @@ test("a VIEW recolour keeps exact bytes while an unrelated dirty LOGIC stays dir
   await page.keyboard.press("Space");
   await expect(
     recolor.getByTestId("sprite-recolor-from").getByRole("radio", { checked: true }),
-  ).toHaveAttribute("data-colour", "1");
+  ).toHaveAttribute("data-colour", "12");
   // To green by swatch name — the keyboard arrow order is not under test here.
   const toColour = 2;
   await recolor.getByRole("radio", { name: "To colour 2, green" }).click();
@@ -243,11 +241,11 @@ test("a VIEW recolour keeps exact bytes while an unrelated dirty LOGIC stays dir
     explorer.getByTestId("logic-doc-logic:1").locator(".logic-explorer__dot--dirty"),
   ).toBeVisible();
   // The kept document is bytes now: no stale source claim survives the recolour.
-  await expect(explorer.getByTestId("logic-doc-view:1")).toContainText("Bytes");
-  expect(await storedDocument(page, projectId, "view:1")).toBeNull();
+  await expect(explorer.getByTestId("logic-doc-view:0")).toContainText("Bytes");
+  expect(await storedDocument(page, projectId, "view:0")).toBeNull();
 
   // Storage holds the exact reviewed bytes; the mirror still shows the old pixels.
-  const storedBytes = openContainer(await storedFiles(page, projectId)).getResource("view", 1)!;
+  const storedBytes = openContainer(await storedFiles(page, projectId)).getResource("view", 0)!;
   const stored = openSprite(storedBytes, DEFAULT_V2_PROFILE);
   expect(storedBytes).toEqual(recoloured);
   // The mirror keeps showing its old pixels (it now owns a copy of them);
@@ -260,7 +258,7 @@ test("a VIEW recolour keeps exact bytes while an unrelated dirty LOGIC stays dir
   stored.loops[0]!.cels.forEach((cel, index) => {
     const before = original.loops[0]!.cels[index]!;
     cel.pixels.forEach((pixel, i) => {
-      expect(pixel).toBe(before.pixels[i] === 1 ? toColour : before.pixels[i]);
+      expect(pixel).toBe(before.pixels[i] === 12 ? toColour : before.pixels[i]);
     });
   });
   await reviewShot(page, "project-resource-sprite-kept");
@@ -270,7 +268,7 @@ test("a VIEW recolour keeps exact bytes while an unrelated dirty LOGIC stays dir
   await page.getByTestId("logic-leave-discard").click();
   await expect(studio).toHaveCount(0);
   await openLogicStudio(page, "Recoloured ego");
-  await expect(page.getByTestId("logic-explorer").getByTestId("logic-doc-view:1")).toContainText(
+  await expect(page.getByTestId("logic-explorer").getByTestId("logic-doc-view:0")).toContainText(
     "Bytes",
   );
   expect(providerCalls).toBe(0);

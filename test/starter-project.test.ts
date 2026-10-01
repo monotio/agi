@@ -118,7 +118,7 @@ describe("starter project determinism and ownership", () => {
     assert.notEqual(blank.seed.digest, starter.seed.digest);
     assert.match(blank.seed.digest, /^[0-9a-f]{64}$/);
     assert.equal(blank.seed.templateRevision, 2);
-    assert.equal(starter.seed.templateRevision, 3);
+    assert.equal(starter.seed.templateRevision, 4);
     assert.notEqual(blank.seed.templateId, starter.seed.templateId);
   });
 });
@@ -243,7 +243,11 @@ describe("starter starter project", () => {
     const ego = objects.find((o) => o.num === 0);
     assert.ok(ego, "ego is an active screen object");
     assert.equal(ego.view, 0);
-    assert.ok(ego.width >= 6 && ego.height >= 28, "the hero is clearly visible");
+    assert.equal(ego.width, 7);
+    assert.equal(ego.height, 24);
+    assert.equal(ego.x, 80);
+    assert.equal(ego.y, 140);
+    assert.equal(engine.horizon, 74);
     assert.equal(ego.cycling, false, "the hero stands still while idle");
   });
 
@@ -286,7 +290,11 @@ describe("starter starter project", () => {
     const view = parseView(payload, PROFILE);
     assert.equal(view.loops.length, 4, "right/left/front/back loops");
     for (const [index, loop] of view.loops.entries()) {
-      assert.ok(loop.cels.length >= 2, `loop ${index} animates`);
+      assert.equal(loop.cels.length, 4, `loop ${index} has four poses`);
+      for (const cel of loop.cels) {
+        assert.equal(cel.width, 7);
+        assert.equal(cel.height, 24);
+      }
       const first = loop.cels[0]!;
       const differs = loop.cels.some(
         (cel) =>
@@ -332,8 +340,8 @@ describe("starter starter project", () => {
   });
 
   for (const [command, answer] of [
-    ["look at cottage", /cottage/i],
-    ["look at tree", /tree/i],
+    ["look at cottage", /grey cottage.*red[\s#]*roof.*green shutters.*red[\s#]*door/is],
+    ["look at tree", /big leafy tree/is],
     ["open door", /locked/i],
   ] as const) {
     test(`${command} answers once through the room parser`, () => {
@@ -467,18 +475,81 @@ test("editing returned sound notes cannot change future Starter projects", () =>
   }
 });
 
-test("the clearing has a sky, sun, solid tree and the path described by look", () => {
-  const { engine } = boot("starter");
+test("the meadow has the cottage, leafy tree and path described by look", () => {
+  const { engine, container } = boot("starter");
   tick(engine, 6);
+  assert.equal(container.getResource("picture", 1)!.length, 803);
   const pixels = engine.getFrame().visual;
   const at = (x: number, y: number) => pixels[y * 160 + x];
   assert.equal(at(5, 20), 9, "blue sky");
-  assert.equal(at(135, 18), 14, "yellow sun");
-  assert.equal(at(25, 40), 10, "light green leaves");
-  assert.equal(at(31, 80), 6, "solid brown trunk");
-  assert.equal(at(76, 80), 6, "path leads north");
-  assert.equal(at(5, 150), 2, "grass left of path");
-  assert.equal(at(140, 150), 2, "grass right of path");
+  assert.equal(at(147, 12), 14, "yellow sun");
+  assert.equal(at(8, 70), 7, "grey cottage front");
+  assert.equal(at(30, 58), 4, "red roof");
+  assert.equal(at(8, 78), 2, "green shutter");
+  assert.equal(at(22, 84), 4, "red door");
+  assert.equal(at(135, 60), 2, "leafy tree");
+  assert.equal(at(135, 90), 6, "brown trunk");
+  assert.equal(at(78, 80), 6, "path leads north");
+  assert.equal(at(22, 100), 6, "path reaches the door");
+  assert.equal(at(5, 150), 10, "grass left of path");
+  assert.equal(at(140, 150), 10, "grass right of path");
+});
+
+for (const [name, sideways, key, boundary] of [
+  ["horizon", 0, 0x4d00, 75],
+  ["cottage wall", 58, 0x4b00, 98],
+  ["tree trunk base", 52, 0x4d00, 108],
+] as const) {
+  test(`the hero walks from its start to the ${name} and stops below it`, () => {
+    const { engine, host } = boot("starter");
+    tick(engine, 6);
+    if (sideways) {
+      host.keys.push(key);
+      tick(engine, sideways);
+      host.keys.push(key);
+      tick(engine);
+    }
+    host.keys.push(0x4800);
+    for (let i = 0; i < 160; i++) {
+      tick(engine);
+      const ego = engine.readObjects().find((o) => o.num === 0)!;
+      assert.ok(ego.y >= boundary, `${name} blocks the hero baseline at ${boundary}`);
+    }
+    assert.equal(engine.readObjects().find((o) => o.num === 0)!.y, boundary);
+  });
+}
+
+test("the hero can follow the path from its start to the cottage door", () => {
+  const { engine, host } = boot("starter");
+  tick(engine, 6);
+  for (const [key, cycles, x, y] of [
+    [0x4800, 14, 80, 126],
+    [0x4b00, 12, 68, 126],
+    [0x4700, 6, 62, 120],
+    [0x4b00, 10, 52, 120],
+    [0x4700, 6, 46, 114],
+    [0x4b00, 8, 38, 114],
+    [0x4700, 8, 30, 106],
+    [0x4b00, 6, 24, 106],
+    [0x4700, 2, 22, 104],
+    [0x4800, 6, 22, 98],
+  ] as const) {
+    host.keys.push(key);
+    for (let i = 0; i < cycles; i++) {
+      tick(engine);
+      const ego = engine.readObjects().find((o) => o.num === 0)!;
+      assert.equal(
+        engine.getPictureSurface().visual[ego.y * 160 + ego.x + 3],
+        6,
+        `feet stay on the path at ${ego.x + 3},${ego.y}`,
+      );
+    }
+    host.keys.push(key);
+    tick(engine);
+    const ego = engine.readObjects().find((o) => o.num === 0)!;
+    assert.equal(ego.x, x);
+    assert.equal(ego.y, y);
+  }
 });
 
 test("playability is LOGIC 0 presence; Blank opens in the workspace empty state", () => {
