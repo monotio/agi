@@ -67,6 +67,7 @@ test("stopped source positions use only the captured build and its authored offs
     location: { logic: 0, pc: 0, kind: "action" },
   } as Extract<WorkerControl, { type: "debugStopped" }>);
   assert.equal(h.debug.position.value, null);
+  assert.deepEqual(h.debug.usedValues.value, []);
   h.debug.dispose();
 });
 

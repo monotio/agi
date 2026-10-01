@@ -1,5 +1,9 @@
 /** Source-aware debugging of the existing MAIN run. Loaded by an explicit debug action. */
 import { computed, reactive, shallowRef } from "vue";
+import { openContainer } from "../../../../src/container/container.ts";
+import { disassembleLogic } from "../../../../src/logic/disassembler.ts";
+import { PROFILES } from "../../../../src/runtime/profile.ts";
+import { logicValues, type LogicValue } from "./debugValues.ts";
 import { captureProjectBuild } from "../../../../src/authoring/projectBuild.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
@@ -52,6 +56,13 @@ export function createWorkspaceDebug(input: {
   const build = shallowRef<Build | null>(null);
   const bindings = shallowRef<ReturnType<typeof readBindingsDocument>>({});
   const sources = shallowRef<Record<string, string>>({});
+  const valuesByLogic = shallowRef<Record<string, LogicValue[]>>({});
+  const usedValues = computed(() => {
+    const stop = input.link.stopped.value;
+    if (stop?.buildId !== build.value?.identity.buildId) return [];
+    const logic = stop?.location?.logic;
+    return logic === undefined ? [] : (valuesByLogic.value[String(logic)] ?? []);
+  });
   let revision = 0;
   let watchSerial = 0;
   let pendingBuildId: string | undefined;
@@ -86,6 +97,17 @@ export function createWorkspaceDebug(input: {
           .filter(([key, text]) => key.startsWith("logic:") && typeof text === "string")
           .map(([key, text]) => [key.slice(6), text as string]),
       );
+    const container = openContainer(image.files(), { profile: PROFILES[input.profile()] });
+    valuesByLogic.value = Object.fromEntries(
+      Array.from({ length: 256 }, (_, num) => {
+        const payload = container.getResource("logic", num);
+        if (!payload) return [];
+        const source =
+          sources.value[String(num)] ??
+          disassembleLogic(payload, { profile: PROFILES[input.profile()] });
+        return [[String(num), logicValues(source, bindings.value)]];
+      }).flat(),
+    );
     build.value = captureProjectBuild({
       files: Object.fromEntries(image.files()),
       profileId: input.profile(),
@@ -214,6 +236,7 @@ export function createWorkspaceDebug(input: {
     status,
     sources,
     bindings,
+    usedValues,
     stopped: input.link.stopped,
     refresh(): void {
       if (
