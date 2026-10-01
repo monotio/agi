@@ -6,7 +6,7 @@
  * card is also that catalog release's only card on the shelf (the tutorial):
  * it keeps the catalog card's test ids and badge.
  */
-import { computed, ref } from "vue";
+import { computed, ref, useTemplateRef } from "vue";
 import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import GameCard, { type CardImage } from "./GameCard.vue";
@@ -43,7 +43,7 @@ const {
   gameTitle,
   renameError,
   catalogEntries,
-  libraryAutosaves,
+  savedProgress,
   libraryActionBusy,
   importBusy,
   exportBusy,
@@ -64,7 +64,15 @@ const bridge = useShellBridge();
 const { isUnreadable, playGuarded } = useProjectRecovery();
 const now = useNow();
 
-const autosave = computed(() => libraryAutosaves.value[game.projectId]);
+/**
+ * This card's own progress: the bound physical target plus the record read
+ * under its locator. Pending and unbound states keep the opening — a card
+ * never borrows another game's progress through a shared id or spelling.
+ */
+const progress = computed(() => savedProgress(game.projectId));
+const autosave = computed(() =>
+  progress.value.status === "ready" ? (progress.value.autosave ?? undefined) : undefined,
+);
 const editing = computed(() => renaming.value && selectedProjectId.value === game.projectId);
 
 /** A copy of a release the catalog no longer carries is titled with its release. */
@@ -89,8 +97,12 @@ const image = computed<CardImage | undefined>(() => {
  * nothing either way.
  */
 function lastJournalRoom(): number | undefined {
+  const current = progress.value;
+  // The journal lives under the bound physical locator — never the bare
+  // project id — so a card with no ready target has no map to read.
+  if (current.status !== "ready") return undefined;
   try {
-    return readMapSidecar(localStorage, game.projectId).journal.at(-1)?.to;
+    return readMapSidecar(localStorage, current.target.locator).journal.at(-1)?.to;
   } catch {
     return undefined;
   }
@@ -132,6 +144,16 @@ function play(): void {
 /** Remove game deletes everything stored for the game: it asks first. */
 const confirmRemove = ref(false);
 
+const card = useTemplateRef("card");
+
+/** Return dialog focus to this card's action menu. */
+function menuTrigger(): HTMLElement | null {
+  const root = card.value?.$el;
+  return root instanceof HTMLElement
+    ? root.querySelector<HTMLElement>("[data-testid^='game-actions-']")
+    : null;
+}
+
 async function remove(): Promise<void> {
   confirmRemove.value = false;
   await onRemoveLibraryGame(game);
@@ -139,12 +161,13 @@ async function remove(): Promise<void> {
 
 function openDetails(): void {
   selectLibraryGame(game);
-  showDetails(libraryDetails(game));
+  showDetails(libraryDetails(game, { returnFocus: menuTrigger() ?? undefined }));
 }
 </script>
 
 <template>
   <GameCard
+    ref="card"
     :title
     title-test-id="saved-game-title"
     :monogram
@@ -215,7 +238,16 @@ function openDetails(): void {
           data-testid="edit-library-game"
           @click="bridge.openLogicProject(game.projectId)"
         >
-          <span>Edit<small>Open in Logic Studio; no engine needed</small></span>
+          <span>Edit<small>Open in Logic Studio</small></span>
+        </button>
+        <button
+          v-if="game.library?.source !== 'catalog'"
+          type="button"
+          role="menuitem"
+          data-testid="edit-library-game-sound"
+          @click="bridge.openSoundProject(game.projectId)"
+        >
+          <span>Sound Studio<small>Edit sounds</small></span>
         </button>
         <button
           v-if="autosave"
@@ -269,9 +301,7 @@ function openDetails(): void {
           :disabled="exportBusy"
           @click="onExportLibraryGame(game, true)"
         >
-          <span
-            >Download game…<small>ZIP for development: editing work, saves and history</small></span
-          >
+          <span>Download game…<small>The whole project: edits, saves and history</small></span>
         </button>
         <button
           type="button"
@@ -280,11 +310,7 @@ function openDetails(): void {
           :disabled="exportBusy"
           @click="onExportLibraryGame(game)"
         >
-          <span
-            >Export game…<small
-              >ZIP for publishing: the playable game and its public details</small
-            ></span
-          >
+          <span>Export game…<small>The playable game, ready to share</small></span>
         </button>
         <div role="separator"></div>
         <button

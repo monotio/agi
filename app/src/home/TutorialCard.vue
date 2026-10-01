@@ -132,6 +132,7 @@ async function focusPlay(): Promise<void> {
         label="Game actions"
         icon="ellipsis"
         icon-only
+        :disabled="libraryActionBusy"
         :test-id="`game-actions-${entry.id}`"
       >
         <button

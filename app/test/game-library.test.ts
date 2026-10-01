@@ -15,6 +15,7 @@ import {
   readPublicMetadata,
 } from "../src/project/gameMetadata.ts";
 import { addLibraryGame, copyLibraryGame } from "../src/library/gameLibrary.ts";
+import { bindSavedProgressTarget } from "../src/project/progressBinding.ts";
 import {
   clearCachedGame,
   loadAuthoredGame,
@@ -659,11 +660,18 @@ test("import stores saves and autosave without a progress observer", async (t) =
     "zip",
     opening,
   );
-  const stored = readGameProgress(localStorage, projectId);
+  const target = await bindSavedProgressTarget(projectId);
+  assert.ok(target);
+  const stored = readGameProgress(localStorage, target);
   assert.deepEqual(stored.saves["3"], slot);
   assert.equal(stored.autosave?.image, progress.autosave?.image);
   assert.equal(stored.autosave?.game.identity.project, projectId);
   assert.equal(stored.autosave?.game.identity.revision, await gameRevision(files));
+  // The released bare-id spelling stays empty: imported progress lives
+  // under the published body's bound locator only.
+  const bare = readGameProgress(localStorage, projectId);
+  assert.deepEqual(bare.saves, {});
+  assert.equal(bare.autosave, null);
 });
 
 test("an interpreter override travels with both exports and decodes the saves they carry", async (t) => {

@@ -86,9 +86,7 @@ export function inspectGame(game: PreviewWorkerInbound): GameInspection {
   );
   return {
     status: needsInput ? "needs-input" : "ready",
-    message: needsInput
-      ? "Opening checked. The game may need a key or an answer to continue."
-      : "Opening checked. Later rooms have not been playtested.",
+    message: needsInput ? "Opening checked. Play to continue." : "Opening checked.",
     profile: detected.id,
     kind: engine.profileKind,
     build: engine.profileBuild ?? undefined,

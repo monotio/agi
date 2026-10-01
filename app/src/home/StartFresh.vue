@@ -44,7 +44,7 @@ async function confirm(): Promise<void> {
         version of the app cannot read. This unreadable local copy will be removed, with the
         progress and history stored alongside it, so the game can be added again.
       </p>
-      <p class="start-fresh__copy">Games you exported or downloaded as files are not affected.</p>
+      <p class="start-fresh__copy">Your exported and downloaded files stay as they are.</p>
       <p v-if="error" class="start-fresh__error" role="alert">{{ error }}</p>
       <template #footer>
         <UiButton @click="open = false">Cancel</UiButton>

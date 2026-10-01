@@ -22,12 +22,12 @@ const KIND_OPTIONS: readonly { value: StarterKind; title: string; description: s
   {
     value: "starter",
     title: "Starter",
-    description: "A playable room with an actor, menus and saving.",
+    description: "A playable room with a hero, menus and saving.",
   },
   {
     value: "blank",
     title: "Blank",
-    description: "The smallest possible empty room.",
+    description: "An empty room to build on.",
   },
 ];
 

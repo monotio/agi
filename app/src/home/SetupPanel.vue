@@ -7,17 +7,32 @@
  */
 import { ref } from "vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
+import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
 import HomeHero from "./HomeHero.vue";
 import BootCard from "../ui/BootCard.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { useShell } from "../shell/useShell.ts";
 
 /** Why Home opened instead of the game a link named (App.vue). */
 const { routeNote = "" } = defineProps<{ routeNote?: string }>();
 
-const { state, stopAgent, continueAgent, discardAgent } = useEngineApi();
+const { state, stopAgent, continueAgent, discardAgent, openStarterRecovery, currentGame } =
+  useEngineApi();
+const shell = useShell();
+
+/**
+ * "Open starter" after a failed Create commits the prepared project and
+ * boots it; landing on its Create view matches a manual create, and the
+ * shell only spends the switch when that project is the running one.
+ */
+async function openStarter(): Promise<void> {
+  await openStarterRecovery();
+  const projectId = currentGame()?.projectId;
+  if (projectId) shell.expectCreate(projectId);
+}
 const { activeTemplate, onGameDrop } = useGameLibrary();
 const createOpen = ref(false);
 
@@ -46,6 +61,15 @@ function onDrop(event: DragEvent): void {
     <div v-if="state.phase === 'error'" class="error-banner" data-testid="error-panel" role="alert">
       <span class="error-badge">ERROR</span>
       <span class="error-msg">{{ state.error }}</span>
+      <UiButton
+        v-if="state.genesisStarter"
+        size="sm"
+        data-testid="open-starter"
+        :disabled="state.genesisStarter.opening"
+        @click="openStarter"
+      >
+        Open starter
+      </UiButton>
     </div>
     <CreatePanel v-model:open="createOpen" />
     <LibraryPanel />

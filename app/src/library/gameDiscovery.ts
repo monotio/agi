@@ -1,24 +1,8 @@
-import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
+import { preferCatalogedEdition, type InstalledGameDescriptor } from "../project/gameTypes.ts";
 import { isPlayableFileName } from "../project/gameMetadata.ts";
 import { canonicalResourceName } from "../../../src/types.ts";
-import { detectKnownGameByHashes } from "../../../src/games/knownGames.ts";
-
-/**
- * Ports of the same game share the WORDS.TOK vocabulary hash but not the
- * OBJECT fingerprint. A bare hash or alias query resolves to the vocabulary's
- * catalogued edition — the release walkthroughs and profiles were verified
- * against — while ports stay selectable by folder.
- */
-function preferCataloged(
-  matches: readonly InstalledGameDescriptor[],
-): InstalledGameDescriptor | null {
-  const cataloged = matches.filter((m) => {
-    if (m.wordsSha256 === undefined) return false;
-    const detected = detectKnownGameByHashes(m.wordsSha256, m.objectSha256);
-    return detected !== null && detected === detectKnownGameByHashes(m.wordsSha256);
-  });
-  return cataloged.length === 1 ? cataloged[0]! : null;
-}
+import { gameIdentity, resourceRevision } from "../../../src/gameIdentity.ts";
+import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 
 /**
  * Discover games installed in the local fixtures directory (Vite dev server).
@@ -34,6 +18,16 @@ export async function discoverInstalledGames(): Promise<InstalledGameDescriptor[
           if (typeof item === "string") {
             return { hash: item, alias: item, title: item.toUpperCase() };
           }
+          // The public metadata spellings a GAME.JSON export declares are
+          // validated at the transport edge like the archive readers do: a
+          // revision and parent become branded identities or stay out, and
+          // only an interpreter this build ships can be named.
+          const revision = resourceRevision(item.revision);
+          const parent = gameIdentity(item.parent);
+          const profile: ProfileId | undefined =
+            typeof item.profile === "string" && Object.hasOwn(PROFILES, item.profile)
+              ? (item.profile as ProfileId)
+              : undefined;
           return {
             hash: item.hash ?? item.wordsSha256 ?? item.folder,
             alias: item.alias ?? item.folder,
@@ -42,8 +36,10 @@ export async function discoverInstalledGames(): Promise<InstalledGameDescriptor[
             ...(item.walkthroughLabel ? { walkthroughLabel: item.walkthroughLabel } : {}),
             ...(item.wordsSha256 ? { wordsSha256: item.wordsSha256 } : {}),
             ...(item.objectSha256 ? { objectSha256: item.objectSha256 } : {}),
-            ...(item.revision ? { revision: item.revision } : {}),
+            ...(revision ? { revision } : {}),
             ...(item.folder ? { folder: item.folder } : {}),
+            ...(profile ? { profile } : {}),
+            ...(parent ? { parent } : {}),
           } as InstalledGameDescriptor;
         })
       : [];
@@ -62,10 +58,23 @@ export function resolveFixtureTarget(
   const norm = query.toLowerCase();
   const games = installedGames ?? [];
 
-  // Match folder first for unambiguous exact instance selection
-  const byFolder = games.find((g) => g.folder?.toLowerCase() === norm);
-  if (byFolder) {
-    return { target: byFolder.folder ?? query, match: byFolder };
+  // Match folder first for unambiguous instance selection: the exact
+  // case-sensitive spelling names one instance outright, while a folded
+  // spelling is a convenience that resolves only when a single folder
+  // answers — two folders differing only by case are distinct instances.
+  const exactFolder = games.find((g) => g.folder === query);
+  if (exactFolder) {
+    return { target: query, match: exactFolder };
+  }
+  const byFolder = games.filter((g) => g.folder?.toLowerCase() === norm);
+  if (byFolder.length === 1) {
+    const match = byFolder[0]!;
+    return { target: match.folder ?? query, match };
+  }
+  if (byFolder.length > 1) {
+    throw new Error(
+      `Ambiguous fixture query "${query}" matches multiple folders (${byFolder.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+    );
   }
 
   // Match by exact hash
@@ -74,10 +83,27 @@ export function resolveFixtureTarget(
     const match = byHash[0]!;
     return { target: match.folder ?? match.hash, match };
   } else if (byHash.length > 1) {
-    const cataloged = preferCataloged(byHash);
+    const cataloged = preferCatalogedEdition(byHash);
     if (cataloged) return { target: cataloged.folder ?? cataloged.hash, match: cataloged };
     throw new Error(
       `Ambiguous fixture query "${query}" matches multiple editions (${byHash.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
+    );
+  }
+
+  // Match by full bundle revision — the exact-content spelling
+  const byRevision = games.filter((g) => g.revision?.toLowerCase() === norm);
+  if (byRevision.length === 1) {
+    const match = byRevision[0]!;
+    return { target: match.folder ?? match.revision ?? match.hash, match };
+  } else if (byRevision.length > 1) {
+    const cataloged = preferCatalogedEdition(byRevision);
+    if (cataloged)
+      return {
+        target: cataloged.folder ?? cataloged.revision ?? cataloged.hash,
+        match: cataloged,
+      };
+    throw new Error(
+      `Ambiguous fixture query "${query}" matches multiple editions (${byRevision.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
     );
   }
 
@@ -87,7 +113,7 @@ export function resolveFixtureTarget(
     const match = byWords[0]!;
     return { target: match.folder ?? match.wordsSha256 ?? match.hash, match };
   } else if (byWords.length > 1) {
-    const cataloged = preferCataloged(byWords);
+    const cataloged = preferCatalogedEdition(byWords);
     if (cataloged)
       return {
         target: cataloged.folder ?? cataloged.wordsSha256 ?? cataloged.hash,
@@ -104,6 +130,8 @@ export function resolveFixtureTarget(
     const match = byAlias[0]!;
     return { target: match.folder ?? match.alias, match };
   } else if (byAlias.length > 1) {
+    const cataloged = preferCatalogedEdition(byAlias);
+    if (cataloged) return { target: cataloged.folder ?? cataloged.alias, match: cataloged };
     throw new Error(
       `Ambiguous fixture query "${query}" matches multiple editions (${byAlias.map((g) => g.folder).join(", ")}); specify the fixture folder.`,
     );
@@ -116,13 +144,14 @@ export function resolveFixtureTarget(
  * Fetch directory manifest and files for a fixture game.
  */
 export async function fetchFixtureFiles(target: string): Promise<Record<string, Uint8Array>> {
-  const manifestRes = await fetch(`/fixtures/${target}/`);
+  const encoded = encodeURIComponent(target);
+  const manifestRes = await fetch(`/fixtures/${encoded}/`);
   if (!manifestRes.ok) throw new Error(`Fixture manifest fetch failed for ${target}`);
   const manifest: string[] = await manifestRes.json();
   const names = manifest.filter(isPlayableFileName);
   const files: Record<string, Uint8Array> = {};
   for (const name of names) {
-    const res = await fetch(`/fixtures/${target}/${name}`);
+    const res = await fetch(`/fixtures/${encoded}/${encodeURIComponent(name)}`);
     if (!res.ok) throw new Error(`fixture fetch failed: ${name}`);
     files[canonicalResourceName(name)] = new Uint8Array(await res.arrayBuffer());
   }

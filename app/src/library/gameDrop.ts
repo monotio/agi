@@ -1,3 +1,7 @@
+import { captureDropHandles, type CapturedDrop } from "./gameDropCapture.ts";
+
+export type { CapturedDrop } from "./gameDropCapture.ts";
+
 export type GameDrop = { kind: "zip"; file: File } | { kind: "folder"; files: Map<string, File> };
 
 const MAX_FOLDER_FILES = 1024;
@@ -94,10 +98,9 @@ function isZip(file: File): boolean {
   return /\.zip$/i.test(file.name);
 }
 
-async function resolveCapturedEntries(
-  entries: FileSystemEntry[],
-  fallbackFiles: File[],
-): Promise<GameDrop> {
+/** Resolve drop handles captured while the event was live: traverse folders, apply the budgets. */
+export async function resolveGameDrop(captured: CapturedDrop): Promise<GameDrop> {
+  const { entries, fallbackFiles } = captured;
   if (entries.length > 1 || (entries.length > 0 && fallbackFiles.length > 0))
     throw new Error(PICK_ONE_ERROR);
   const entry = entries[0];
@@ -116,26 +119,10 @@ async function resolveCapturedEntries(
   throw new Error("Drop a game folder or ZIP to open it.");
 }
 
-/** Capture browser-owned drop handles before the drop event becomes invalid. */
+/**
+ * The one-call form for callers that already have this module loaded:
+ * captures the handles synchronously, then resolves them asynchronously.
+ */
 export function captureGameDrop(dataTransfer: DataTransfer): Promise<GameDrop> {
-  const entries: FileSystemEntry[] = [];
-  const fallbackFiles: File[] = [];
-  for (let index = 0; index < dataTransfer.items.length; index++) {
-    const item = dataTransfer.items[index];
-    if (!item || item.kind !== "file") continue;
-    const getEntry = item.webkitGetAsEntry;
-    const entry = typeof getEntry === "function" ? getEntry.call(item) : null;
-    if (entry) entries.push(entry);
-    else {
-      const file = item.getAsFile();
-      if (file) fallbackFiles.push(file);
-    }
-  }
-  if (entries.length === 0 && fallbackFiles.length === 0) {
-    for (let index = 0; index < dataTransfer.files.length; index++) {
-      const file = dataTransfer.files[index];
-      if (file) fallbackFiles.push(file);
-    }
-  }
-  return resolveCapturedEntries(entries, fallbackFiles);
+  return resolveGameDrop(captureDropHandles(dataTransfer));
 }

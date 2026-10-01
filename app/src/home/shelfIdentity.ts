@@ -10,7 +10,9 @@
 import type { CachedGameMeta } from "../project/gameStorage.ts";
 import type { GameCatalogEntry } from "../library/gameCatalog.ts";
 import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
+import { installedProgressTarget } from "../project/progressTarget.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
+import { projectId, type GameIdentity } from "../../../src/gameIdentity.ts";
 
 /** The library copy Play stored for this catalog release, if any. */
 export function catalogLibraryCopy(
@@ -69,11 +71,51 @@ function storedRelease(
   return { id: match[1]!, name: match[2]! };
 }
 
-/** An installed fixture that is the same known game as this catalog entry. */
+/** A verified catalog release shares its card; declared remixes keep their own. */
 export function isInstalledCatalogCopy(
   game: InstalledGameDescriptor,
   entry: GameCatalogEntry,
 ): boolean {
-  const known = game.revision ? getKnownGameByRevision(game.revision) : null;
-  return (known?.alias ?? game.alias) === entry.id;
+  if (game.parent !== undefined || game.revision === undefined) return false;
+  return getKnownGameByRevision(game.revision)?.alias === entry.id;
+}
+
+/**
+ * Share a shelf card for the same explicit instance, full revision and declared
+ * interpreter. Declared remixes keep their own cards. Progress stays separate.
+ */
+export function coalescesInstalled(saved: CachedGameMeta, game: InstalledGameDescriptor): boolean {
+  if (game.parent !== undefined || saved.library?.parent !== undefined) return false;
+  if (saved.library?.profile !== game.profile) return false;
+  if (game.revision === undefined || saved.library?.revision !== game.revision) return false;
+  const target = installedProgressTarget(game, game.revision);
+  return target !== null && saved.projectId === target.identity.project;
+}
+
+/**
+ * Resolve the declared parent pair against saved entries and installed identities,
+ * including supplied legacy identity spellings. Conflicting titles show the raw
+ * project id; an unmatched pair can use its verified known-release title.
+ */
+export function parentDisplayTitle(
+  parent: GameIdentity,
+  saved: readonly CachedGameMeta[],
+  installed: readonly InstalledGameDescriptor[],
+): string {
+  const titles = new Set<string>();
+  for (const game of saved) {
+    if (game.projectId === parent.project && game.library?.revision === parent.revision)
+      titles.add(game.title);
+  }
+  for (const game of installed) {
+    if (game.revision === undefined || game.revision !== parent.revision) continue;
+    const candidates = new Set<string>([game.hash, game.alias]);
+    if (game.folder !== undefined && projectId(game.folder) !== null) candidates.add(game.folder);
+    const target = installedProgressTarget(game, game.revision);
+    if (target !== null) candidates.add(target.identity.project);
+    if (candidates.has(parent.project)) titles.add(game.title);
+  }
+  if (titles.size === 1) return [...titles][0]!;
+  if (titles.size > 1) return parent.project;
+  return getKnownGameByRevision(parent.revision)?.title ?? parent.project;
 }

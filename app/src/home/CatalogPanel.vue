@@ -23,7 +23,7 @@ import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
-import { gameStorageKey, type InstalledGameDescriptor } from "../project/gameTypes.ts";
+import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
 import type { GameCatalogEntry } from "../library/gameCatalog.ts";
 
 const { resumeAudio, startOver } = useEngineApi();
@@ -32,6 +32,7 @@ const {
   featuredCatalog,
   localGames,
   localAutosave,
+  installedProgress,
   availableCatalogEntries,
   catalogOpenings,
   catalogErrors,
@@ -77,8 +78,12 @@ function playHosted(entry: GameCatalogEntry): void {
 }
 
 function onStartLocalGameOver(game: InstalledGameDescriptor): void {
+  // Start over answers only to the instance's proven physical target — the
+  // folder/hash/alias spellings stay routing and read context, never proof.
+  const progress = installedProgress(game);
+  if (progress.status !== "ready") return;
   resumeAudio();
-  startOver(gameStorageKey({ installed: true, ...game }), llmConfig());
+  startOver(progress.target.locator, llmConfig());
 }
 
 function localImage(game: InstalledGameDescriptor) {

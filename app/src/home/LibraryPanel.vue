@@ -18,17 +18,21 @@ import SavedGameCard from "./SavedGameCard.vue";
 import TemplateCard from "./TemplateCard.vue";
 import TutorialCard from "./TutorialCard.vue";
 import { catalogLibraryCopy } from "./shelfIdentity.ts";
+import { earlierProgressDetails, showDetails } from "./cardDetails.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
+import { useEarlierProgressPresence } from "./useEarlierProgress.ts";
 import { useNow } from "./useNow.ts";
 import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
+import { installedProgressTarget } from "../project/progressTarget.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
 import { computed } from "vue";
 
 const {
   savedGames,
   pendingAutosave,
+  pendingProgressTarget,
   localGames,
   featuredCatalog,
   hostedCatalogError,
@@ -51,6 +55,21 @@ const {
 } = useGameLibrary();
 const bridge = useShellBridge();
 const now = useNow();
+const {
+  presence: earlierPresence,
+  presenceError: earlierPresenceError,
+  retryPresence: retryEarlierPresence,
+} = useEarlierProgressPresence(savedGames);
+
+/** The footer's one Earlier progress link opens the shared Details dialog. */
+function openEarlierProgress(event: MouseEvent): void {
+  const trigger = event.currentTarget;
+  showDetails(
+    earlierProgressDetails({
+      returnFocus: trigger instanceof HTMLElement ? trigger : undefined,
+    }),
+  );
+}
 
 /** The tutorial's library copy shows on the tutorial's own card. */
 const shelfSavedGames = computed(() => {
@@ -58,23 +77,50 @@ const shelfSavedGames = computed(() => {
   return savedGames.value.filter((game) => game !== tutorial);
 });
 
-/** The leftover-autosave card's name: a known game's title, else its storage key. */
-const pendingAutosaveTitle = computed(
-  () =>
+/**
+ * The leftover-autosave card's name: the exact instance's title when the
+ * pending target resolves to a served descriptor, then a known game's
+ * release title, then the record's own id — never a same-spelled card's
+ * name from the other domain.
+ */
+const pendingAutosaveTitle = computed(() => {
+  const target = pendingProgressTarget.value;
+  const descriptor =
+    target?.kind === "installed"
+      ? localGames.value.find(
+          (game) =>
+            game.revision !== undefined &&
+            installedProgressTarget(game, game.revision)?.locator === target.locator,
+        )
+      : undefined;
+  return (
+    descriptor?.title ??
     getKnownGameByRevision(pendingAutosave.value?.game.identity.revision ?? "")?.title ??
     pendingAutosave.value?.game.identity.project ??
-    "Saved game",
-);
+    "Saved game"
+  );
+});
 
-/** A leftover autosave from an installed or unavailable game gets a card of its own. */
+/**
+ * A leftover autosave whose own instance has no card on the shelf gets one.
+ * The claim is physical: the pending offer's target names the domain — a
+ * project locator is a saved card's when the ids match, an installed
+ * locator is a local card's only when the card's own bound target is the
+ * same address. A shared spelling across domains claims nothing.
+ */
 const orphanAutosave = computed(() => {
   const record = pendingAutosave.value;
-  if (!record) return undefined;
-  const project = record.game.identity.project;
-  if (savedGames.value.some((game) => game.projectId === project)) return undefined;
-  if (localGames.value.some((game) => (game.folder ?? game.hash ?? game.alias) === project))
-    return undefined;
-  return record;
+  const target = pendingProgressTarget.value;
+  if (!record || !target) return undefined;
+  if (target.kind === "project")
+    return savedGames.value.some((game) => game.projectId === target.project) ? undefined : record;
+  return localGames.value.some(
+    (game) =>
+      game.revision !== undefined &&
+      installedProgressTarget(game, game.revision)?.locator === target.locator,
+  )
+    ? undefined
+    : record;
 });
 
 /** Initials stand in for a screen that cannot be shown. */
@@ -235,6 +281,34 @@ function startCreating(templateId: string): void {
     </div>
 
     <footer class="shelf-notes">
+      <p v-if="earlierPresence === 'present'" data-testid="earlier-progress-note">
+        Explore
+        <button
+          type="button"
+          class="shelf-notes__link"
+          data-testid="earlier-progress-link"
+          @click="openEarlierProgress"
+        >
+          earlier progress
+        </button>
+        saved in this browser.
+      </p>
+      <p
+        v-else-if="earlierPresence === 'failed'"
+        role="status"
+        class="shelf-message--error"
+        data-testid="earlier-progress-error"
+      >
+        {{ earlierPresenceError }}
+        <button
+          type="button"
+          class="shelf-notes__link"
+          data-testid="earlier-progress-retry"
+          @click="retryEarlierPresence"
+        >
+          Retry
+        </button>
+      </p>
       <p data-testid="verified-games-hint">
         Verified to boot: King's Quest, Space Quest, Police Quest and more.
         <button
@@ -247,7 +321,7 @@ function startCreating(templateId: string): void {
         </button>
       </p>
       <p data-testid="fan-games-hint">
-        No Sierra copies? Fans have made over a hundred free AGI games:
+        Explore over a hundred free AGI games made by fans:
         <a
           href="https://agiwiki.sierrahelp.com/index.php/Fan_AGI_Release_List"
           target="_blank"
@@ -260,7 +334,7 @@ function startCreating(templateId: string): void {
           target="_blank"
           rel="noopener noreferrer"
           >SCI Programming</a
-        >. Their content varies, as fan works do.
+        >. Fan games span many genres and audiences.
       </p>
     </footer>
 
