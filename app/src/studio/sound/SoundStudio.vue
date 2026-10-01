@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VOCABULARY_ACTIONS } from "../../../../src/studio/vocabulary.ts";
+import { VOCABULARY_ACTIONS } from "../../../../src/vocabulary.ts";
 /**
  * Sound Studio: the stored-project workspace for native SOUND cues. It opens
  * through openEditableProject like Logic Studio — no worker, no provider, no

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed } from "vue";
 import UiChip from "../ui/UiChip.vue";
 import UiExplain from "../ui/UiExplain.vue";

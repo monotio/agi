@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../../../src/studio/vocabulary.ts";
+import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../../../src/vocabulary.ts";
 /**
  * The optional Guided actions panel inside Logic Studio: five provider-free
  * operations over the open project's real draft. Each fills a small form,

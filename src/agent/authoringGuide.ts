@@ -1,4 +1,4 @@
-import { VOCABULARY, toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { VOCABULARY, toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /**
  * Design and engine notes for the authoring agent, read on demand through
  * `read_authoring_guide`. Each topic records how the shipped Sierra

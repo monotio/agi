@@ -9,7 +9,7 @@
  * checks that every Help topic exists.
  */
 
-import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import type { Explainer, HelpTarget } from "../ui/explain.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
 

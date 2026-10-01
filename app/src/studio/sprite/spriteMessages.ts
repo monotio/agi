@@ -1,4 +1,4 @@
-import { VOCABULARY } from "../../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
 /**
  * Sprite Studio's plain wording for the sprite kernel's refusals and the
  * validation that follows every edit. The kernel's text names operands and

@@ -1,4 +1,4 @@
-import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * The in-app Help guide (HelpGuide.vue): short topics for players and game
  * makers. A topic may offer one "Show me" action that opens the real control;

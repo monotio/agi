@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Accessible, bounded shape authoring compiled to authentic AGI picture commands. */
 import { resourceCacheHint } from "./authoringState.ts";
 import {

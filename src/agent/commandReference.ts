@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Agent command discovery uses the same profile-filtered tables as the assembler. */
 import { commandReference, relatedCommands } from "../logic/commandReference.ts";
 import type { AgiProfile } from "../runtime/profile.ts";

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VOCABULARY } from "../../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef, watch } from "vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiExplain from "../../ui/UiExplain.vue";

@@ -1,4 +1,4 @@
-import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * Pure view helpers for the Room Studio: lens painting, mask geometry for
  * the SVG overlay, priority band guides, control-line labels, the

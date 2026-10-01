@@ -2,7 +2,7 @@
 import { ref, watch } from "vue";
 import type { SoundEvent } from "../../../../src/sound/document.ts";
 import type { SoundEntry } from "./soundWorkspace.ts";
-import { VOCABULARY } from "../../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import {
   attenuationToVolume,
   volumeToAttenuation,

@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Schemas for the authoring tools (bindings and source edits); executeAuthoringTool runs them. */
 import type { ToolDefinition } from "./tools.ts";
 

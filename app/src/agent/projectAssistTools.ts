@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../../../src/studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../../../src/vocabulary.ts";
 /**
  * The project assist tool catalog and its deny-by-default dispatcher.
  *

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
 import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";

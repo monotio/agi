@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 import { decodeRecordedReplay } from "./recordedReplay.ts";
 /**
  * Game tests: playthrough regression tests stored with the game.

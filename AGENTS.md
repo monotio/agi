@@ -129,8 +129,7 @@ code, comments or documentation.
   the few older ones as warnings, and a new cycle fails `npm run lint:deps`.
 - Studio editor code (`src/studio/`, `app/src/studio/`) stays off the Play boot path: the
   shell loads it through dynamic `import()`, and `npm run check:bundle` fails a
-  build that pulls it in. The platform-free `src/studio/vocabulary.ts` text records
-  are shared with Help and agent definitions and may load statically.
+  build that pulls it in.
 - The browser app is BYOK and requires no server. Optional local developer tools
   may expose stdio protocols; Node and protocol SDK dependencies stay in
   `scripts/`, outside `src/` and the browser graph. Playwright runs Vite in `test`

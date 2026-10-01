@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Schemas for core resource editing and runtime inspection tools. */
 import type { ToolDefinition } from "./tools.ts";
 import { MAX_FRAMES } from "./frames.ts";

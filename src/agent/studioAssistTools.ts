@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /**
  * Studio assist tools: the model changes just what the creator selected in
  * Room Studio or Sprite Studio. Offered only in a Studio assist task; every

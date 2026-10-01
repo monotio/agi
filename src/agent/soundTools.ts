@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Compact, bounded authoring and inspection helpers for authentic AGI sounds. */
 import { resourceCacheHint } from "./authoringState.ts";
 import {

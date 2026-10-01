@@ -2,7 +2,7 @@ import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAnthropicConversation, createOpenAiConversation } from "../src/agent/llmClient.ts";
-import { parameterDescriptions } from "../../src/studio/vocabulary.ts";
+import { parameterDescriptions } from "../../src/vocabulary.ts";
 import { AGENT_TOOLS } from "../../src/agent/tools.ts";
 import {
   PROJECT_ASSIST_TOOLS,

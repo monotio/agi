@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /**
  * Reference art by handle. The player's uploads (room plates, character
  * sheets, mood boards) reach the model as ids: a turn carries one

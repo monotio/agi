@@ -5,7 +5,7 @@ import {
   VOCABULARY_ACTIONS,
   toolDescription,
   parameterHelp,
-} from "../src/studio/vocabulary.ts";
+} from "../src/vocabulary.ts";
 import { AGENT_TOOLS } from "../src/agent/tools.ts";
 import { PROJECT_ASSIST_TOOLS } from "../app/src/agent/projectAssistTools.ts";
 import { STUDIO_TERMS } from "../app/src/studio/studioTerms.ts";

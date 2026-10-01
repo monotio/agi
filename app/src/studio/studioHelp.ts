@@ -1,4 +1,4 @@
-import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
 /**
  * The Studios' keyboard help, kept off the canvas: a tool's name and one
  * short line for the status bar, and the full key list the `?` sheet shows

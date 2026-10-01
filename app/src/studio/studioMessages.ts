@@ -1,4 +1,4 @@
-import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * Room Studio's plain wording for the edit kernel's refusals. The kernel's
  * own text names lines, operands and coordinate ranges, which is right for

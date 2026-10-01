@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Room scaffolding compiles ordinary AGI resources; the low-level source tools remain available. */
 import { assembleLogic } from "../logic/assembler.ts";
 import { buildWordsTok, parseWordsTok, matchDictionaryPhrase } from "../logic/words.ts";

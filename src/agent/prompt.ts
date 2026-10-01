@@ -18,7 +18,7 @@
  * cost show what a change costs.
  */
 
-import { VOCABULARY } from "../studio/vocabulary.ts";
+import { VOCABULARY } from "../vocabulary.ts";
 import { PICTURE_SOURCE_DOC } from "../picture/source.ts";
 import type { AgentToolResult } from "./agentState.ts";
 import type { StarterProject } from "../authoring/starterProject.ts";

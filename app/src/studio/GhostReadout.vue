@@ -4,7 +4,7 @@ import { SCREEN_WIDTH } from "../../../src/types.ts";
 import UiExplain from "../ui/UiExplain.vue";
 import { explain } from "./studioTerms.ts";
 import { keyLabel } from "../ui/keyLabel.ts";
-import { VOCABULARY } from "../../../src/studio/vocabulary.ts";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { CONTROL_VALUES } from "./studioView.ts";
 import type { GhostProbe } from "./useGhostProbe.ts";
 

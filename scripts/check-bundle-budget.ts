@@ -173,11 +173,9 @@ const HOME_START = ["games/adventure-department/game.ts"];
 const STUDIO_MODULES = [/^app\/src\/studio\//, /^src\/studio\//];
 const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
 
-/** Identify lazy editor code, allowing the platform-free vocabulary shared by Help. */
+/** Identify lazy editor code. */
 export function isStudioModule(module: string): boolean {
-  return (
-    module !== "src/studio/vocabulary.ts" && STUDIO_MODULES.some((pattern) => pattern.test(module))
-  );
+  return STUDIO_MODULES.some((pattern) => pattern.test(module));
 }
 
 /**

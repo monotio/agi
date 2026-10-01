@@ -1,4 +1,4 @@
-import { toolDescription, parameterDescriptions } from "../studio/vocabulary.ts";
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Bounded, row-oriented helpers for mechanical AGI sprite authoring. */
 import { resourceCacheHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
