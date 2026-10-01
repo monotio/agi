@@ -4,7 +4,7 @@
  * App.vue provides one controller; LibraryPanel, CatalogPanel and CreatePanel
  * inject it instead of receiving this surface as props.
  */
-import { computed, inject, nextTick, provide, ref, watch } from "vue";
+import { computed, inject, nextTick, provide, ref, shallowRef, watch } from "vue";
 import type { InjectionKey } from "vue";
 import {
   lastGameKey,
@@ -432,7 +432,7 @@ export function createGameLibrary(
    * beginning. Record and target move together: a record never offers
    * itself under a target that did not vouch for it.
    */
-  const pendingAutosave = ref<AutosaveRecord>();
+  const pendingAutosave = shallowRef<AutosaveRecord>();
   const pendingProgressTarget = ref<ProgressTarget>();
 
   // One card per game: a stored entry hides its installed instance only by
