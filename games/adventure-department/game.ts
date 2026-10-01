@@ -257,8 +257,9 @@ if (isset(f5)) {
   get.posn(o0, v56, v57);
 }
 get.posn(o0, v54, v55);
+// Stand on cel 0 when still, or held against a wall; walk the cels while moving.
 if (equaln(v6, 0)) {
-  stop.cycling(o0); assignn(v63, 0);
+  stop.cycling(o0); set.cel(o0, 0); assignn(v63, 0);
 }
 if (!equaln(v6, 0) && (!equalv(v54, v56) || !equalv(v55, v57))) {
   start.cycling(o0); assignn(v63, 0);
@@ -273,7 +274,7 @@ if (!equaln(v6, 0) && (!equalv(v54, v56) || !equalv(v55, v57))) {
 }
 if (!equaln(v6, 0) && equalv(v54, v56) && equalv(v55, v57)) {
   if (lessn(v63, 2)) { increment(v63); }
-  if (equaln(v63, 2)) { stop.cycling(o0); }
+  if (equaln(v63, 2)) { stop.cycling(o0); set.cel(o0, 0); }
 }
 assignv(v56, v54); assignv(v57, v55);
 return;

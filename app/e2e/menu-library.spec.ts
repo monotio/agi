@@ -197,7 +197,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   expect([saved.width, saved.height]).toEqual([320, 200]);
   expect(saved.differences, "preview must match the composed frame of its own save").toBe(0);
   // The tutorial's stored copy is the tutorial's own card.
-  expect(saved.projectId).toBe("catalog-adventure-department-1.1.0");
+  expect(saved.projectId).toBe("catalog-adventure-department-1.2.0");
   const card = page.getByTestId("catalog-adventure-department");
   await expect(card).toHaveAttribute("data-project-id", saved.projectId);
   expect(

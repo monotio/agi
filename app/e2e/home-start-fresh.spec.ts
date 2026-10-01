@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 const UNRELATED_PROJECT_ID = "keep-me";
 
 /** The keys currently in the project store. */

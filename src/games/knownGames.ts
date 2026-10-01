@@ -69,6 +69,9 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     walkthroughCoverage: "complete-game",
     builtin: true,
   },
+  // The 1.2.0 tutorial, whose sources replaced 1.1.0's. Both releases share
+  // one vocabulary and object table, so the (WORDS.TOK, OBJECT) pair answers
+  // with this current release and a full bundle revision names the exact one.
   {
     alias: "adventure-department",
     title: "Adventure Department",
@@ -80,11 +83,27 @@ export const KNOWN_GAMES: readonly KnownAgiGame[] = [
     // TESTS.JSON is not part of the canonical playable set, so the fixture
     // server's public file set and the full project boot to one revision.
     targetRevision: requireResourceRevision(
-      "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a",
+      "f57a70aba797f21c5caa9ac44d0ce0a725b817fdab0dfad1281c0b5a2993991b",
     ),
     walkthroughLabel: "Complete route (30 pts)",
     walkthroughCoverage: "complete-game",
     builtin: true,
+  },
+  // The released 1.1.0 tutorial, which players may still have stored: it stays
+  // recognised as Adventure Department by its revision. Its sources were
+  // replaced by 1.2.0, so it is neither built nor walked through;
+  // app/test/formats/ holds its bytes.
+  {
+    alias: "adventure-department-1.1",
+    title: "Adventure Department",
+    author: "Monotio",
+    era: "v2-split",
+    profile: "2.936",
+    wordsSha256: KNOWN_GAME_HASH.ADVENTURE_DEPARTMENT,
+    objectSha256: "1a3d0818f9664f9d92b8e1b4721bc2568419849067c44bf36fc1a4ed0e8d67a9",
+    targetRevision: requireResourceRevision(
+      "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a",
+    ),
   },
   // The released 1.0.0 tutorial, which players may still have stored: it stays
   // recognised as Adventure Department. Its sources were replaced by 1.1.0, so
@@ -410,14 +429,23 @@ export function getKnownGameByRevision(revision: string): KnownAgiGame | null {
 
 /**
  * Look up a known game by its WORDS.TOK hash (and optional OBJECT hash).
- * With the OBJECT hash the (WORDS.TOK, OBJECT) pair is unique per edition;
- * without it the vocabulary's catalogued edition answers.
+ * With the OBJECT hash the (WORDS.TOK, OBJECT) pair identifies the edition;
+ * without it the vocabulary's catalogued edition answers. Releases of one
+ * game can share a pair (the tutorial's 1.1.0 and 1.2.0), and the pair then
+ * answers with the first, current release; a full bundle `revision` that
+ * names a catalogued release of the same vocabulary selects that release.
  */
 export function detectKnownGameByHashes(
   wordsSha256: string,
   objectSha256?: string,
+  revision?: string,
 ): KnownAgiGame | null {
   const norm = wordsSha256.toLowerCase();
+  const release = revision === undefined ? undefined : BY_REVISION.get(revision.toLowerCase());
+  if (release && release.wordsSha256.toLowerCase() === norm) {
+    if (!objectSha256 || release.objectSha256.toLowerCase() === objectSha256.toLowerCase())
+      return release;
+  }
   if (!objectSha256) return BY_WORDS_HASH.get(norm) ?? null;
   const obj = objectSha256.toLowerCase();
   return (

@@ -72,3 +72,55 @@ export async function seedTutorial10(page: Page, remix?: string): Promise<void> 
     { id: TUTORIAL_1_0, revision, progress: { saves: {}, autosave } },
   );
 }
+
+/** Where Play stored the 1.1.0 tutorial. */
+export const TUTORIAL_1_1 = "catalog-adventure-department-1.1.0";
+
+/**
+ * A browser that played the released 1.1.0 tutorial: the library copy Play
+ * stored, from the released 1.1.0 Game download (app/test/formats/
+ * tutorial-1.1.zip, never regenerated), and an autosave at the unscoped
+ * address 1.1.0 wrote it to. Seeded through the production storage boundary;
+ * the caller reloads. Returns the stored autosave string.
+ */
+export async function seedTutorial11(page: Page): Promise<string> {
+  const game = await readGameZip(
+    new Uint8Array(await readFile(new URL("../test/formats/tutorial-1.1.zip", import.meta.url))),
+  );
+  const revision = await gameRevision(game.files);
+  expect(revision, "the fixture is the released 1.1.0 tutorial").toBe(
+    getKnownGameByAlias("adventure-department-1.1")?.targetRevision,
+  );
+  await cacheGame(page, {
+    title: "Adventure Department",
+    provider: "stub",
+    model: "offline-tutorial",
+    imported: true,
+    roomGeneration: false,
+    files: game.files,
+    words: game.words,
+    projectId: TUTORIAL_1_1 as never,
+    library: {
+      ...game.metadata,
+      version: 1 as const,
+      revision,
+      validation: { status: "ready" as const, message: "Checked.", profile: "2.936" },
+      source: "catalog",
+      catalog: { id: "adventure-department", version: "1.1.0" },
+    },
+  });
+  const autosave = JSON.stringify({
+    format: "monotio.agi.autosave",
+    version: 1,
+    image: "AA==",
+    room: 2,
+    cycle: 480,
+    savedAt: 1_759_000_000_000,
+    game: { installed: false, identity: { project: TUTORIAL_1_1, revision } },
+  });
+  await page.evaluate(
+    ([key, value]) => localStorage.setItem(key!, value!),
+    [`monotio_agi.autosave.${TUTORIAL_1_1}`, autosave],
+  );
+  return autosave;
+}

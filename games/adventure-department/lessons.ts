@@ -278,7 +278,7 @@ export function verifyStandDepth(input: LessonVerifyInput): Verdict {
 
 export const TUTORIAL_LESSONS: LessonSet = {
   catalogId: "adventure-department",
-  version: "1.1.0",
+  version: "1.2.0",
   title: "Adventure Department",
   lessons: [
     {

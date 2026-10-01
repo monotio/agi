@@ -51,7 +51,7 @@ export interface LessonSet {
   /** The catalog entry the lessons belong to, e.g. "adventure-department". */
   readonly catalogId: string;
   /**
-   * The catalog release whose resources the checks verify, e.g. "1.1.0":
+   * The catalog release whose resources the checks verify, e.g. "1.2.0":
    * another release of the same entry (or its remixes) gets no lessons.
    */
   readonly version: string;

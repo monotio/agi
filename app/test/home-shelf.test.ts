@@ -121,6 +121,11 @@ test("a stored copy of an older catalog release is titled with its release", () 
     catalog: { id: "adventure-department", version: "1.0.0" },
   });
   assert.equal(shelfTitle(older, GAME_CATALOG), "Adventure Department 1.0");
+  const played11 = storedGame({
+    source: "catalog",
+    catalog: { id: "adventure-department", version: "1.1.0" },
+  });
+  assert.equal(shelfTitle(played11, GAME_CATALOG), "Adventure Department 1.1");
 });
 
 test("the current release and other stored games keep their stored title", () => {
@@ -142,6 +147,12 @@ test("an imported, unchanged copy of an older release keeps its release name", (
   // A renamed copy is the player's name; other bytes are another game.
   assert.equal(shelfTitle({ ...imported, title: "My gallery" }, GAME_CATALOG), "My gallery");
   assert.equal(shelfTitle(storedGame({ source: "zip" }), GAME_CATALOG), "Adventure Department");
+  // 1.1.0 shares 1.2.0's vocabulary; its revision alone names the release.
+  const revision11 = getKnownGameByAlias("adventure-department-1.1")!.targetRevision!;
+  assert.equal(
+    shelfTitle(storedGame({ source: "zip", revision: revision11 }), GAME_CATALOG),
+    "Adventure Department 1.1",
+  );
   // The current release's bytes need no release name.
   const current = getKnownGameByAlias("adventure-department")!.targetRevision!;
   assert.equal(

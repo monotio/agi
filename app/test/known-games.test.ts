@@ -25,22 +25,39 @@ installIndexedDbFixture();
 test("known games catalog is internally consistent and collision-free", () => {
   const hex64 = /^[0-9a-f]{64}$/;
   const aliases = new Set<string>();
-  const pairs = new Set<string>();
+  const pairs = new Map<string, (typeof KNOWN_GAMES)[number]>();
 
   for (const game of KNOWN_GAMES) {
     assert.ok(!aliases.has(game.alias), `Duplicate known game alias: ${game.alias}`);
     aliases.add(game.alias);
 
     // Platform ports may share a WORDS.TOK hash with their PC release; the
-    // (WORDS.TOK, OBJECT) pair fingerprints the edition and must stay unique.
+    // (WORDS.TOK, OBJECT) pair fingerprints the edition. Releases of one game
+    // may share a pair only when each pins its own bundle revision: the pair
+    // answers with the first (current) release, the revision with the exact one.
     const pair = `${game.wordsSha256}/${game.objectSha256}`;
-    assert.ok(!pairs.has(pair), `Collision on (WORDS.TOK, OBJECT) pair for ${game.alias}`);
-    pairs.add(pair);
-    assert.equal(
-      detectKnownGameByHashes(game.wordsSha256, game.objectSha256)?.alias,
-      game.alias,
-      `${game.alias} must resolve through its own (WORDS.TOK, OBJECT) pair`,
-    );
+    const owner = pairs.get(pair);
+    if (owner === undefined) {
+      pairs.set(pair, game);
+      assert.equal(
+        detectKnownGameByHashes(game.wordsSha256, game.objectSha256)?.alias,
+        game.alias,
+        `${game.alias} must resolve through its own (WORDS.TOK, OBJECT) pair`,
+      );
+    } else {
+      assert.ok(
+        owner.targetRevision && game.targetRevision && owner.targetRevision !== game.targetRevision,
+        `Collision on (WORDS.TOK, OBJECT) pair for ${game.alias} without distinct revisions`,
+      );
+      assert.equal(owner.title, game.title, `${game.alias} shares a pair with another game`);
+      assert.equal(detectKnownGameByHashes(game.wordsSha256, game.objectSha256), owner);
+    }
+    if (game.targetRevision)
+      assert.equal(
+        detectKnownGameByHashes(game.wordsSha256, game.objectSha256, game.targetRevision)?.alias,
+        game.alias,
+        `${game.alias} must resolve through its pair and revision`,
+      );
     // A bare vocabulary hash resolves to the first catalogued edition of it.
     const first = KNOWN_GAMES.find((g) => g.wordsSha256 === game.wordsSha256)!;
     assert.equal(detectKnownGameByHashes(game.wordsSha256)?.alias, first.alias);
@@ -166,6 +183,43 @@ test("a stored 1.0 tutorial is still recognised beside 1.1, and offers no walkth
   assert.equal((await detectKnownGame(current))?.alias, "adventure-department");
   assert.equal(getKnownGameByRevision(revision)?.alias, "adventure-department");
   assert.equal(resolveWalkthrough(revision), "adventure-department");
+});
+
+test("a stored 1.1 tutorial is still recognised beside 1.2 by its revision, and offers no walkthrough", async () => {
+  // The released 1.1.0 tutorial's Game download: the same vocabulary and
+  // object table as 1.2.0, told apart by the bundle revision alone.
+  const old = await readGameZip(
+    new Uint8Array(readFileSync(new URL("./formats/tutorial-1.1.zip", import.meta.url))),
+  );
+  const oldRevision = await gameRevision(old.files);
+  const current = buildTutorial().files;
+  const revision = await gameRevision(current);
+  assert.deepEqual(old.files["WORDS.TOK"], current["WORDS.TOK"]);
+  assert.deepEqual(old.files["OBJECT"], current["OBJECT"]);
+  assert.notEqual(oldRevision, revision);
+
+  assert.equal((await detectKnownGame(old.files))?.alias, "adventure-department-1.1");
+  assert.equal(getKnownGameByRevision(oldRevision)?.alias, "adventure-department-1.1");
+  assert.equal(getKnownGameByRevision(oldRevision)?.title, "Adventure Department");
+  assert.equal(getKnownGameByAlias("adventure-department-1.1")?.builtin, undefined, "not built");
+  assert.equal(hasWalkthrough(oldRevision), false, "1.1's route was replaced with its sources");
+
+  assert.equal((await detectKnownGame(current))?.alias, "adventure-department");
+  assert.equal(getKnownGameByRevision(revision)?.alias, "adventure-department");
+  assert.equal(resolveWalkthrough(revision), "adventure-department");
+  // Without a revision the shared pair and vocabulary name the current release.
+  const words = getKnownGameByAlias("adventure-department-1.1")!;
+  assert.equal(
+    detectKnownGameByHashes(words.wordsSha256, words.objectSha256)?.alias,
+    "adventure-department",
+  );
+  assert.equal(detectKnownGameByHashes(words.wordsSha256)?.alias, "adventure-department");
+  // A revision of another game never borrows this vocabulary.
+  const kq1 = getKnownGameByAlias("kq1")!.targetRevision!;
+  assert.equal(
+    detectKnownGameByHashes(words.wordsSha256, words.objectSha256, kq1)?.alias,
+    "adventure-department",
+  );
 });
 
 for (const targetHash of [KNOWN_GAME_HASH.MH1, KNOWN_GAME_HASH.KQ1, KNOWN_GAME_HASH.SQ1] as const) {

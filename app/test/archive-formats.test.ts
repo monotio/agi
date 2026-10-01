@@ -6,6 +6,7 @@ import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
 import { progressEntries } from "../src/saves/gameProgress.ts";
 import { mapArchiveData } from "../src/world/roomMapStore.ts";
 import { historyArchiveData } from "../src/archive/historyArchive.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 
 /**
  * The first released archive formats, as the 1.0 app wrote them: a Game and
@@ -66,6 +67,25 @@ test("a 1.0 Game download reads back as the game it was", async () => {
     },
   });
   assert.equal(member(again, "GAME.JSON"), member(zip, "GAME.JSON"));
+});
+
+test("the released 1.1.0 tutorial's Game download reads back as the game it was", async () => {
+  // Written by the v1.1.0 Game download writer from the v1.1.0 tutorial
+  // sources; never regenerated. Its revision is the 1.1.0 catalog release's.
+  const zip = fixture("tutorial-1.1.zip");
+  const game = await readGameZip(zip);
+  assert.equal(game.title, "Adventure Department");
+  assert.deepEqual(game.metadata, {
+    description: "Learn pictures, sprites and priority in a three-room tutorial.",
+    author: "Monotio",
+    license: "MIT",
+  });
+  assert.equal(game.roomGeneration, false);
+  assert.equal(game.project, undefined);
+  assert.equal(
+    await gameRevision(game.files),
+    "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a",
+  );
 });
 
 test("a 1.0 Project download restores its session, map, progress and tests", async () => {
