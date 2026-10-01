@@ -1,3 +1,4 @@
+import { readAgentChats, appendAgentTasks, type AgentChat } from "../../../src/agent/chats.ts";
 import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
 import {
   readProjectWorkspace,
@@ -59,7 +60,7 @@ interface StoredGameIndex extends CachedGameMeta {
 /** The browser's project record; PROJECT.JSON is the archive format. */
 interface StoredGameBody extends CachedGameData {
   format: "monotio.agi.stored-project";
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   editHistory?: StoredProjectHistory | undefined;
 }
 
@@ -706,7 +707,7 @@ async function writeCurrentBody(
       // A record this release does not recognise is never overwritten.
       if (
         value &&
-        (value.format !== "monotio.agi.stored-project" || ![1, 2, 3].includes(value.version))
+        (value.format !== "monotio.agi.stored-project" || ![1, 2, 3, 4].includes(value.version))
       ) {
         contractError = new Error(UNREADABLE_PROJECT_MESSAGE);
         transaction.abort();
@@ -779,7 +780,7 @@ async function writeCurrentBody(
         const body = storedBody(data);
         if (history === undefined && value?.editHistory !== undefined) {
           body.editHistory = value.editHistory;
-          body.version = 3;
+          body.version = data.chats === undefined ? 3 : 4;
         }
         try {
           const keys = [
@@ -862,7 +863,7 @@ function storedBody(data: CachedGameData): StoredGameBody {
   return {
     ...body,
     format: "monotio.agi.stored-project",
-    version: projectHistory === undefined ? 2 : 3,
+    version: data.chats !== undefined ? 4 : projectHistory === undefined ? 2 : 3,
     ...(projectHistory !== undefined
       ? { editHistory: { ...projectHistory, blobs: Object.keys(projectHistory.blobs).sort() } }
       : {}),
@@ -878,18 +879,22 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   if (raw === null || typeof raw !== "object" || Array.isArray(raw))
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const record = raw as StoredGameBody;
-  if (record.format !== "monotio.agi.stored-project" || ![1, 2, 3].includes(record.version))
+  if (record.format !== "monotio.agi.stored-project" || ![1, 2, 3, 4].includes(record.version))
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const storedId = record.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
   if (
     record.editHistory !== undefined &&
-    (record.version !== 3 || record.editHistory.version !== 1)
+    (record.version < 3 || ![1, 2].includes(record.editHistory.version))
   )
     throw new Error("This project history version is not supported by this app.");
   const { format: _format, version: _version, editHistory: _editHistory, ...data } = record;
   const normalized = { ...data, projectId };
+  if (data.chats !== undefined) {
+    if (record.version < 4) throw new Error("Game chats need a version 4 project.");
+    normalized.chats = readAgentChats(data.chats);
+  }
   if (
     record.version === 1 &&
     (normalized.recoveryDraft !== undefined || normalized.workspace !== undefined)
@@ -1590,7 +1595,7 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
             const body = storedBody(data);
             if (history === undefined && current?.editHistory !== undefined) {
               body.editHistory = current.editHistory;
-              body.version = 3;
+              body.version = data.chats === undefined ? 3 : 4;
             }
             const puts: unknown[] = [
               body,
@@ -2533,12 +2538,14 @@ export function updateGameConversation(
   model?: string,
   files?: Record<string, Uint8Array>,
   expectedGeneration?: number,
+  backgroundChats?: readonly AgentChat[],
 ): Promise<boolean> {
   return serializeWrite(projectId, async () => {
     try {
       const data = await readBody(projectId);
       if (!data) return false;
       const gen = expectedGeneration ?? data.generation;
+      if (backgroundChats?.length) data.chats = appendAgentTasks(data, backgroundChats);
       applyConversation(data, transcript, sessionId, provider, model);
       if (authoringState) data.authoringState = authoringState;
       if (files) {
@@ -3090,7 +3097,7 @@ async function storedProjects(): Promise<StoredGameBody[]> {
             if (
               data !== undefined &&
               data.format === "monotio.agi.stored-project" &&
-              [1, 2, 3].includes(data.version) &&
+              [1, 2, 3, 4].includes(data.version) &&
               data.projectId === key &&
               data.files &&
               typeof data.files === "object"

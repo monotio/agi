@@ -1,4 +1,4 @@
-/** Bounded, hash-verified v1 History data. Decoding confers no model authority. */
+/** Bounded, hash-verified History data. Decoding confers no model authority. */
 import { checkProjectDocumentKey } from "./projectDocumentKey.ts";
 import { projectContentHash, type ProjectContent, type ProjectDigest } from "./projectContent.ts";
 import {
@@ -27,7 +27,7 @@ type PortableBlob =
   | { readonly type: "bytes"; readonly bytes: readonly number[] };
 export interface PortableProjectHistory {
   readonly format: typeof PROJECT_HISTORY_FORMAT;
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly prunedParents?: readonly string[];
   readonly blobs: Readonly<Record<string, PortableBlob>>;
   readonly commits: readonly ProjectHistoryCommit[];
@@ -78,7 +78,7 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
   const envelope = record(value);
   if (envelope["format"] !== PROJECT_HISTORY_FORMAT)
     throw new Error("Unsupported project history format.");
-  if (envelope["version"] !== 1)
+  if (![1, 2].includes(envelope["version"] as number))
     throw new Error(`Unsupported project history version: ${String(envelope["version"])}.`);
   fields(envelope, [
     "format",
@@ -143,6 +143,7 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
   const byId: Record<string, ProjectHistoryCommit> = Object.create(null);
   let entries = 0;
   for (const value of storedCommits) {
+    const offered = record(value);
     const stored = fields(value, [
       "id",
       "parent",
@@ -152,6 +153,9 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
       "origin",
       "author",
       "time",
+      ...(envelope["version"] === 2 && Object.hasOwn(offered, "chatId")
+        ? ["chatId", "messageId"]
+        : []),
     ]);
     const id = hash(stored["id"]);
     if (Object.hasOwn(byId, id)) invalid("duplicate commit identity.");
@@ -173,6 +177,8 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
       Object.fromEntries(
         keys.map((key) => {
           checkProjectDocumentKey(key);
+          if (key === "notes" && envelope["version"] === 1)
+            invalid("notes require History version 2.");
           const value = manifest[key];
           const blob = value === null ? null : hash(value);
           if (blob !== null && !Object.hasOwn(blobs, blob))
@@ -219,6 +225,9 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
       origin: origin as ProjectEditOrigin,
       author,
       time,
+      ...(stored["chatId"] === undefined
+        ? {}
+        : { chatId: text(stored["chatId"], 256), messageId: text(stored["messageId"], 256) }),
     });
     if (projectCommitId(commit, digest) !== id) invalid("commit hash differs from its identity.");
     commits.push(commit);
@@ -288,7 +297,11 @@ export function writeProjectHistory(
   }
   const portable: PortableProjectHistory = {
     format: PROJECT_HISTORY_FORMAT,
-    version: 1 as const,
+    version: state.commits.some(
+      (commit) => commit.chatId !== undefined || Object.hasOwn(commit.documents, "notes"),
+    )
+      ? 2
+      : 1,
     ...(state.prunedParents !== undefined ? { prunedParents: [...state.prunedParents] } : {}),
     blobs: Object.fromEntries(
       entries

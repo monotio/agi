@@ -109,7 +109,7 @@ test("an empty document set round trips", () => {
 test("format and version are validated before any content traversal", () => {
   assert.throws(() => readProjectWorkspace({ ...envelope(), format: "other" }), /format/);
   assert.throws(
-    () => readProjectWorkspace({ ...envelope(), version: 2, documents: "junk" }),
+    () => readProjectWorkspace({ ...envelope(), version: 3, documents: "junk" }),
     /version/,
   );
   for (const value of [null, 7, "workspace", []])

@@ -1,3 +1,4 @@
+import { readAgentChats } from "../../../src/agent/chats.ts";
 import { sha256Hex as sha256HexSync } from "../../../src/crypto.ts";
 import {
   readProjectHistory,
@@ -383,7 +384,8 @@ export async function collectProjectArchiveEntries(
     name: "PROJECT.JSON",
     data: JSON.stringify({
       format: "monotio.agi.project",
-      version: data.projectHistory === undefined ? 2 : 3,
+      version: data.chats !== undefined ? 4 : data.projectHistory === undefined ? 2 : 3,
+      ...(data.chats !== undefined ? { chats: await visit(readAgentChats(data.chats)) } : {}),
       ...(data.projectHistory !== undefined
         ? {
             projectHistory: writeProjectHistory(

@@ -88,6 +88,9 @@ function fakeAuthoring(run: () => Promise<BootResources>) {
       getAuthoringState(): Record<string, unknown> {
         return {};
       }
+      getMessages(): { role: "user" | "assistant"; text: string }[] {
+        return [];
+      }
       startGenesis(): Promise<BootResources> {
         return run();
       }

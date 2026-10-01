@@ -1,3 +1,4 @@
+import { migrateAgentChats } from "../../../src/agent/chats.ts";
 /**
  * Game lifecycle: boot (fixture / authored / stub-agent), eject, shutdown,
  * export, and the screen reset both boot and eject share. `booted` — the
@@ -707,6 +708,24 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // Superseded while detection and hashing ran: the newer flow owns the
     // slot, and this world's first save goes with the run that was retired.
     if (epoch !== undefined && epoch !== lifecycleEpoch) return;
+    authoredGame.chats = migrateAgentChats({
+      ...authoredGame,
+      transcript: transcript?.length
+        ? transcript
+        : session.getMessages().map((message) => ({ ...message })),
+    });
+    if (!authoredGame.chats.chats.length) {
+      authoredGame.chats.chats.push({
+        id: "genesis",
+        title: `Created ${title}`,
+        provider: config.provider,
+        model: config.model,
+        transcript: [],
+        messages: [{ id: "genesis-result", role: "assistant", text: `Created ${title}` }],
+      });
+      authoredGame.chats.active = "genesis";
+    }
+    if (authoredGame.chats.chats[0]) authoredGame.chats.chats[0].title = `Created ${title}`;
     const saved = await saveAuthoredGameCapture(projectId, {
       templateId,
       title,
@@ -717,6 +736,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       transcript,
       sessionId,
       authoringState,
+      chats: authoredGame.chats,
       roomGeneration: true,
     });
     const historyLifetime = saved?.lifetime ?? null;

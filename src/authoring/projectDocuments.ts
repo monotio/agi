@@ -128,6 +128,7 @@ function classifyDocumentKey(key: string): DocumentKey {
       return { type: "inventory" };
     case "bindings":
       return { type: "bindings" };
+    case "notes":
     case "world":
     case "tests":
     case "references":
