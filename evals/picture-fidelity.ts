@@ -321,6 +321,8 @@ class AnthropicProvider implements Provider {
         .stream({
           model: this.model,
           max_tokens: 32000,
+          // Cache the growing conversation too, as the app's client does.
+          cache_control: { type: "ephemeral" },
           system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
           output_config: { effort: this.effort },
           tools,

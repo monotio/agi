@@ -530,6 +530,9 @@ async function runAnthropicGenesis(
     const response = await client.messages.create({
       model: args.model,
       max_tokens: 128000,
+      // Cache the growing conversation too, as the app's client does; without
+      // it every turn re-sends the whole history uncached.
+      cache_control: { type: "ephemeral" },
       system: [{ type: "text", text: AGI_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       messages,
       tools,
