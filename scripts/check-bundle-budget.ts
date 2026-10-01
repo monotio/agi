@@ -1,12 +1,8 @@
-// Bundle budget for the startup path: the JavaScript, CSS and worker scripts
-// a browser fetches from opening Home to a catalog game's first frame,
-// compressed as a host serves them. That is the entry chunk's static import
-// closure plus the dynamic imports Home starts unconditionally (HOME_START),
-// each with its own static closure. It reads the chunk graph that
-// app/vite.config.ts records beside the production build, so no file name is
-// hard-coded, and fails when a budget is exceeded or when a Studio or AI
-// authoring module has joined the startup path. Features that load on a
-// player's action (Ask, the Studios, the map, lessons) stay outside it.
+// Measure Home, cold catalog Play and the Create shell from the emitted
+// module graph. Static closures count each downloaded chunk once. The Home
+// presence check and the cold-Play activity roots include their dynamic
+// imports; editor families, the agent and debugging wait for their actions.
+// Module-path checks enforce those activity boundaries independently of size.
 //
 //   npm run build && npm run check:bundle
 //   npm run check:bundle -- --warn    report only; `npm run build` uses this
@@ -113,7 +109,7 @@ interface Size {
   readonly brotli: number;
 }
 
-type Group = "entry" | "js" | "css" | "workers";
+type Group = "entry" | "home" | "js" | "css" | "workers";
 
 /**
  * Budgets in bytes (gzip level 9, brotli quality 11). Each began as a measured
@@ -129,12 +125,11 @@ type Group = "entry" | "js" | "css" | "workers";
 const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }> = {
   // The entry chunk alone: measured 453.0 kB gzip, 367.3 kB brotli.
   entry: { gzip: 500_000, brotli: 405_000 },
-  // The entry and HOME_START chunks with their static imports: measured
-  // 556.5 kB gzip, 458.7 kB brotli (the entry's closure alone was 536.7 kB,
-  // 441.8 kB). The shared shell's map access and editor context handoff bring
-  // startup to 576.1 kB gzip, 474.9 kB brotli; editor families and the agent
-  // panel still load on first use.
-  js: { gzip: 578_000, brotli: 476_000 },
+  home: { gzip: 500_000, brotli: 405_000 },
+  // Home through cold catalog Play: 555.4 kB gzip, 463.8 kB brotli after
+  // the agent, debugger, editor and preview boundaries. Keep the original
+  // 575/472 kB limits; Home's GPU stage and tutorial build wait for Play.
+  js: { gzip: 575_000, brotli: 472_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native
@@ -154,19 +149,45 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
 
 const GROUP_LABELS: Record<Group, string> = {
   entry: "entry chunk",
+  home: "Home JavaScript",
   js: "startup JavaScript",
   css: "startup CSS",
   workers: "startup workers",
 };
 
-/**
- * Dynamic imports Home starts on every visit, named by a source module of the
- * chunk they load: the catalog warm-up (mountCatalog in
- * app/src/library/useGameLibrary.ts) builds the bundled tutorial for its
- * thumbnail, and Play reuses that build. A name no chunk dynamically imported
- * from the startup path carries fails the check, so the list cannot go stale.
- */
-const HOME_START = ["games/adventure-department/game.ts"];
+/** Home checks for earlier progress without loading its export tools. */
+const HOME_START = ["app/src/project/earlierProgress.ts"];
+
+/** Modules requested when a cold catalog game starts, including the GPU stage. */
+const PLAY_START = [
+  "games/adventure-department/game.ts",
+  "app/src/play/PlayArea.vue",
+  "app/src/three/AgiStage.ts",
+  "app/src/audio/AgiAudio.ts",
+  "app/src/library/gamePreview.ts",
+  "app/src/library/gameLibrary.ts",
+  "app/src/project/projectHistoryStorage.ts",
+  "app/src/world/useRoomMap.ts",
+  "app/src/history/useHistoryView.ts",
+  "app/src/history/useHistoryController.ts",
+  "app/src/agent/agentLog.ts",
+];
+
+const HOME_DEFERRED_MODULES = [
+  /^app\/src\/agent\/.*\.ts$/,
+  /^app\/src\/authoring\/(AgentBubble|AgentLogPanel|AgentTaskControls|SoundPreview)\.vue(?:$|\?)/,
+  /^app\/src\/authoring\/useAuthoringController\.ts$/,
+  /^src\/agent\/(agentState|history|worldPlan|roomPictures|viewUsage|toolTransport|gameTestFormat|tools|prompt|playtest)\.ts$/,
+  /^app\/src\/engine\/(executionDebugLink|useEngineDebug)\.ts$/,
+  /^app\/src\/inspector\/.*\.vue(?:$|\?)/,
+  /^app\/src\/project\/playerSentences\.ts$/,
+  /^app\/src\/settings\/AiSettings\.vue(?:$|\?)/,
+  /^src\/sound\/.*\.ts$/,
+  /^app\/src\/audio\/(AgiAudio|iigsSynth|soundAudition)\.ts$/,
+  /^src\/runtime\/(engine|debugExpression|debugBreakpoints|debugStep|debugWatchpoints)\.ts$/,
+  /^app\/src\/(worker\/engine|library\/preview)\.worker\.ts$/,
+  /^app\/node_modules\/(openai|@anthropic-ai\/sdk|monaco-editor)\//,
+];
 
 /**
  * Studio code loads when Room Studio or Sprite Studio opens, never on the way
@@ -181,6 +202,11 @@ const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
 /** Identify lazy editor code. */
 export function isStudioModule(module: string): boolean {
   return STUDIO_MODULES.some((pattern) => pattern.test(module));
+}
+
+/** Identify code that belongs to an activity after Home. */
+export function isHomeDeferredModule(module: string): boolean {
+  return isStudioModule(module) || HOME_DEFERRED_MODULES.some((pattern) => pattern.test(module));
 }
 
 /**
@@ -232,8 +258,7 @@ function main(): void {
   }
   const entry = entries[0]!;
 
-  // The entry and the Home-start chunks, each with its static imports. Every
-  // other dynamic import() waits for a player's action and stays off the path.
+  // Home and Play are measured separately; every root contributes its static closure.
   const staticClosure = (roots: readonly string[], into: GraphChunk[]): void => {
     const pending = [...roots];
     while (pending.length > 0) {
@@ -244,17 +269,18 @@ function main(): void {
       pending.push(...chunk.imports);
     }
   };
-  const boot: GraphChunk[] = [];
-  staticClosure([entry.file], boot);
-  const lazy = new Set(boot.flatMap((chunk) => chunk.dynamicImports));
+  const home: GraphChunk[] = [];
+  staticClosure([entry.file], home);
   for (const module of HOME_START) {
-    const chunk = graph.chunks.find(
-      (candidate) => lazy.has(candidate.file) && candidate.modules.includes(module),
-    );
+    const chunk = graph.chunks.find((candidate) => candidate.modules.includes(module));
+    if (chunk === undefined) throw new Error(`Home activity chunk is missing ${module}`);
+    staticClosure([chunk.file], home);
+  }
+  const boot: GraphChunk[] = [...home];
+  for (const module of PLAY_START) {
+    const chunk = graph.chunks.find((candidate) => candidate.modules.includes(module));
     if (!chunk) {
-      console.error(
-        `Bundle budget: no chunk dynamically imported from the entry's static closure carries ${module}; update HOME_START.`,
-      );
+      console.error(`Bundle budget: no activity chunk carries ${module}; update PLAY_START.`);
       process.exit(1);
     }
     staticClosure([chunk.file], boot);
@@ -320,12 +346,44 @@ function main(): void {
 
   const groups: Record<Group, readonly string[]> = {
     entry: [entry.file],
+    home: home.map((chunk) => chunk.file),
     js: boot.map((chunk) => chunk.file),
     css,
     workers,
   };
 
   const kB = (bytes: number): string => `${(bytes / 1000).toFixed(1)} kB`;
+  const createEntry = graph.chunks.find((chunk) =>
+    chunk.modules.includes("app/src/studio/workspace/CreateWorkspace.vue"),
+  );
+  if (createEntry === undefined) failures.push("Create workspace has no activity chunk.");
+  else {
+    const create: GraphChunk[] = [];
+    staticClosure([createEntry.file], create);
+    const added = create.filter((chunk) => !boot.includes(chunk));
+    const total = added.reduce(
+      (sum, chunk) => ({
+        gzip: sum.gzip + sizeOf(chunk.file).gzip,
+        brotli: sum.brotli + sizeOf(chunk.file).brotli,
+      }),
+      { gzip: 0, brotli: 0 },
+    );
+    console.log(
+      `Create shell JavaScript: +${kB(total.gzip)} gzip, +${kB(total.brotli)} brotli after Play`,
+    );
+    for (const chunk of create)
+      for (const module of new Set(chunk.modules))
+        if (
+          AUTHORING_MODULES.some((pattern) => pattern.test(module)) ||
+          /\/node_modules\/monaco-editor\//.test(module) ||
+          /^app\/src\/studio\/(RoomStudio|sprite\/SpriteStudio|workspace\/(LogicEditor|WordsEditor|TableEditor|SoundPanel))\.vue/.test(
+            module,
+          )
+        )
+          failures.push(
+            `${module} is in the Create shell closure (${chunk.file}); editor families and the agent load on first use.`,
+          );
+  }
 
   for (const group of Object.keys(groups) as Group[]) {
     const files = [...groups[group]].sort((a, b) => sizeOf(b).gzip - sizeOf(a).gzip);
@@ -359,6 +417,12 @@ function main(): void {
     }
   }
 
+  for (const chunk of home)
+    for (const module of new Set(chunk.modules))
+      if (isHomeDeferredModule(module))
+        failures.push(
+          `${module} is in the Home entry closure (${chunk.file}); load it when its activity opens.`,
+        );
   for (const chunk of boot)
     for (const module of chunk.modules)
       if (isStudioModule(module))

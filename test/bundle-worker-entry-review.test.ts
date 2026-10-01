@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { GraphChunk } from "../scripts/check-bundle-budget.ts";
 
 const entry = "assets/engine.worker.js";
@@ -34,10 +34,42 @@ function runGate(startup: boolean, unsafe: boolean) {
       join(app, "bundle-graph.config.ts"),
       readFileSync(new URL("../app/bundle-graph.config.ts", import.meta.url)),
     );
+    for (const file of [
+      "app/src/settings/devProviderKeys.ts",
+      "app/src/settings/aiSettings.ts",
+      "src/agent/modelEffort.ts",
+    ]) {
+      const target = join(directory, file);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, readFileSync(new URL(`../${file}`, import.meta.url)));
+    }
     const main = { ...chunk("assets/index.js", [], [home]), isEntry: true };
-    const starter = { ...chunk(home), modules: ["games/adventure-department/game.ts"] };
+    const starter = {
+      ...chunk(home),
+      modules: [
+        "games/adventure-department/game.ts",
+        "app/src/play/PlayArea.vue",
+        "app/src/three/AgiStage.ts",
+        "app/src/audio/AgiAudio.ts",
+        "app/src/library/gamePreview.ts",
+        "app/src/library/gameLibrary.ts",
+        "app/src/project/projectHistoryStorage.ts",
+        "app/src/world/useRoomMap.ts",
+        "app/src/history/useHistoryView.ts",
+        "app/src/history/useHistoryController.ts",
+        "app/src/agent/agentLog.ts",
+      ],
+    };
+    const presence = {
+      ...chunk("assets/presence.js"),
+      modules: ["app/src/project/earlierProgress.ts"],
+    };
+    const create = {
+      ...chunk("assets/create.js"),
+      modules: ["app/src/studio/workspace/CreateWorkspace.vue"],
+    };
     const graph = {
-      chunks: [main, starter],
+      chunks: [main, starter, presence, create],
       assets: [{ file: entry }],
       workers: {
         [entry]: [chunk(entry, [], [debuggerFile]), chunk(debuggerFile, unsafe ? [entry] : [])],
@@ -49,6 +81,8 @@ function runGate(startup: boolean, unsafe: boolean) {
       startup ? 'new Worker("engine.worker.js");' : "export {};",
     );
     writeFileSync(join(assets, "home.js"), "export {};");
+    writeFileSync(join(assets, "presence.js"), "export {};");
+    writeFileSync(join(assets, "create.js"), "export {};");
     writeFileSync(join(assets, "engine.worker.js"), "self.onmessage = () => {};");
     writeFileSync(
       join(assets, "debugController.js"),

@@ -51,19 +51,9 @@ import type { AuthoringState } from "../../../src/agent/authoringState.ts";
 import type { BootedGame, Frame } from "../project/gameTypes.ts";
 import { resolveProgressTarget } from "../project/progressBinding.ts";
 import type { ProgressTarget } from "../project/progressTarget.ts";
-import type { ResourceRevision } from "../../../src/gameIdentity.ts";
-import type { AuthoringFingerprint } from "../project/gameStorage.ts";
-import { openDraft } from "../project/projectTransaction.ts";
 import type { EngineState, TextHook } from "../engine/useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
-import {
-  studioPictureSource,
-  studioRoomSource,
-  studioSpriteSource,
-  type StudioPictureSource,
-  type StudioRoomSource,
-  type StudioSpriteSource,
-} from "./studioSource.ts";
+
 import type { RoomTransitionNotice } from "../worker/workerProtocol.ts";
 
 /** Durable journal cap — the sidecar contract bounds at the same number. The
@@ -100,16 +90,6 @@ interface PlanFieldEdit {
 }
 
 /** The detail pane's edit session for one room's plan entry. */
-/** What a Studio draft opens on and keeps against: the booted bytes and the authoring content. */
-interface StudioBase {
-  readonly baseRevision: ResourceRevision;
-  readonly baseAuthoring: AuthoringFingerprint | undefined;
-}
-
-function studioBase(game: BootedGame): StudioBase {
-  return { baseRevision: game.revision, baseAuthoring: openDraft(game) };
-}
-
 export interface PlanRoomEdit {
   room: number;
   title: PlanFieldEdit;
@@ -230,15 +210,6 @@ export interface RoomMap {
   thumbnailFor(room: number): MapThumbnail | null;
   /** The static scan of the booted resources (files, logic scans, pictures, stored tests). */
   readonly resources: ComputedRef<ScannedResources>;
-  /** One picture's Room Studio input and the base it was read at (the draft's to keep against). */
-  studioSource(picture: number): (StudioPictureSource & StudioBase) | null;
-  /** The Walk view's input for `room`: its logic, bindings, plan, tests and the rooms a door can reach. */
-  studioRoom(room: number): StudioRoomSource | null;
-  /**
-   * One VIEW's Sprite Studio input and the booted revision it was read at;
-   * `bytes` stands in for a view not in the game yet (a staged candidate).
-   */
-  spriteSource(view: number, bytes?: Uint8Array): (StudioSpriteSource & StudioBase) | null;
   projectImageAdmitted(generation: number): void;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
@@ -1433,42 +1404,6 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     noteIntentFor,
     thumbnailFor,
     resources,
-    studioSource: (picture) => {
-      // The scan and the revision must describe the same booted files.
-      const game = deps.getBootedGame();
-      const scanned = scanResources();
-      if (!game || scanned.files !== game.files) return null;
-      const source = studioPictureSource(
-        scanned,
-        picture,
-        deps.getSession()?.state,
-        game.authoredGame?.authoringState,
-      );
-      return source && { ...source, ...studioBase(game) };
-    },
-    studioRoom: (room) => {
-      const game = deps.getBootedGame();
-      const scanned = scanResources();
-      if (!game || scanned.files !== game.files) return null;
-      const rooms = graph.value.nodes
-        .filter((node) => node.room > 0)
-        .map((node) => ({ room: node.room, title: node.title ?? "" }))
-        .sort((a, b) => a.room - b.room);
-      return studioRoomSource(
-        scanned,
-        room,
-        rooms,
-        deps.getSession()?.state,
-        game.authoredGame?.authoringState,
-      );
-    },
-    spriteSource: (view, bytes) => {
-      const game = deps.getBootedGame();
-      const scanned = scanResources();
-      if (!game || scanned.files !== game.files) return null;
-      const source = studioSpriteSource(scanned, view, currentRoom.value ?? undefined, bytes);
-      return source && { ...source, ...studioBase(game) };
-    },
     projectImageAdmitted(generation) {
       thumbs.clear();
       staticThumbs.clear();

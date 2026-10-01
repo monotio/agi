@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import SoundPreview from "./SoundPreview.vue";
+import { defineAsyncComponent, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -15,6 +14,7 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
  * `booted`, so the dialog can step aside for it.
  */
 const emit = defineEmits<{ booted: [] }>();
+const SoundPreview = defineAsyncComponent(() => import("./SoundPreview.vue"));
 
 const engine = useEngineApi();
 const { state, clearAgentLog, resumeAudio, bootAgentGame, currentGame } = engine;

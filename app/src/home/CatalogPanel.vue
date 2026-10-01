@@ -11,7 +11,6 @@ import ActionMenu from "../ui/ActionMenu.vue";
 import UiButton from "../ui/UiButton.vue";
 import GameCard from "./GameCard.vue";
 import StartFresh from "./StartFresh.vue";
-import { installedThumbnail, type ThumbnailSource } from "./useLazyThumbnail.ts";
 import { catalogProjectId, useProjectRecovery } from "./projectRecovery.ts";
 import { catalogDetails, showDetails } from "./cardDetails.ts";
 import { isInstalledCatalogCopy } from "./shelfIdentity.ts";
@@ -98,21 +97,8 @@ function localImage(game: InstalledGameDescriptor) {
 }
 
 function catalogImage(entry: GameCatalogEntry) {
-  const src = catalogOpenings.value[entry.id]?.preview;
+  const src = catalogOpenings.value[entry.id]?.preview ?? entry.preview;
   return src ? { src, alt: `${entry.title} opening scene`, kind: "opening" as const } : undefined;
-}
-
-/** The opening is the catalog's own check, run through the shelf's queue. */
-function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
-  return {
-    key: `catalog:${entry.id}:${entry.version}`,
-    async render() {
-      await loadCatalogOpening(entry.id);
-      const preview = catalogOpenings.value[entry.id]?.preview;
-      if (!preview) throw new Error(catalogErrors.value[entry.id] ?? "No opening preview.");
-      return preview;
-    },
-  };
 }
 </script>
 <template>
@@ -122,8 +108,6 @@ function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
     :title="game.title"
     :monogram="(game.alias || game.hash).slice(0, 8).toUpperCase()"
     :image="localImage(game)"
-    :lazy="installedThumbnail(game)"
-    :lazy-alt="`${game.title} opening scene`"
     :meta="localMeta(game)"
     :play-label="localAutosave(game) ? 'Resume' : 'Play'"
     :play-disabled="libraryActionBusy || importBusy"
@@ -174,7 +158,6 @@ function catalogThumbnail(entry: GameCatalogEntry): ThumbnailSource {
     :title="entry.title"
     monogram="AGI"
     :image="catalogImage(entry)"
-    :lazy="catalogErrors[entry.id] ? undefined : catalogThumbnail(entry)"
     :pending="catalogBusy[entry.id] === true"
     :meta="entry.author ? `${entry.author} · ${entry.license}` : entry.license"
     :play-label="

@@ -96,7 +96,7 @@ export interface WalkthroughControllerContext {
     soundPlaying: boolean;
     resumed: boolean;
   };
-  readonly audio: AgiAudio;
+  readonly audio: AgiAudio | null;
   readonly replayDriver: ReplayDriver;
   readonly getWorker: () => Worker | null;
   /**
@@ -147,7 +147,7 @@ export interface WalkthroughController {
 }
 
 export function useWalkthroughController(ctx: WalkthroughControllerContext): WalkthroughController {
-  const { state, audio, replayDriver } = ctx;
+  const { state, replayDriver } = ctx;
   let walkthroughAbortController: AbortController | null = null;
   let seekTargetTick: number | null = null;
   const resumeWaiters = new Set<() => void>();
@@ -295,11 +295,11 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
             }
           }
           if (state.walkthrough.status === "playing" && !state.walkthrough.scrubbing) {
-            audio.setPaused(false);
+            ctx.audio?.setPaused(false);
           } else {
             state.soundPlaying = false;
-            audio.stop();
-            audio.setPaused(true);
+            ctx.audio?.stop();
+            ctx.audio?.setPaused(true);
           }
           ctx.getWorker()?.postMessage({ type: "renderFrame" } satisfies WorkerInbound);
         },
@@ -365,7 +365,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         state.walkthrough.status = "completed";
         state.walkthrough.percent = 100;
         state.soundPlaying = false;
-        audio.stop();
+        ctx.audio?.stop();
       }
     } catch (err) {
       if (ctx.getActiveSessionId() !== sessionId) {
@@ -381,7 +381,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         state.walkthrough.error = String(err);
       }
       state.soundPlaying = false;
-      audio.stop();
+      ctx.audio?.stop();
     } finally {
       // A superseded batch leaves the flag to the run that replaced it.
       if (walkthroughAbortController === abortController) batchActive = false;
@@ -526,9 +526,9 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     }
 
     state.soundPlaying = false;
-    audio.stop();
+    ctx.audio?.stop();
     if (target > 0 || keepPaused) {
-      audio.setPaused(true);
+      ctx.audio?.setPaused(true);
     }
 
     ctx.setActiveReplaySeed(artifact.seed);
@@ -665,7 +665,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     seekTargetTick = null;
     state.walkthrough.seeking = false;
     state.soundPlaying = false;
-    audio.stop();
+    ctx.audio?.stop();
     notifyResume();
     state.walkthrough.status = "stopped";
     if (takeControl) {
@@ -714,8 +714,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       state.walkthrough.score = targetCp.score;
     }
     state.soundPlaying = false;
-    audio.stop();
-    audio.setPaused(true);
+    ctx.audio?.stop();
+    ctx.audio?.setPaused(true);
 
     if (
       clamped < currentTick ||
@@ -746,8 +746,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     if (state.walkthrough.active && state.walkthrough.status === "playing") {
       state.walkthrough.status = "paused";
       state.soundPlaying = false;
-      audio.stop();
-      audio.setPaused(true);
+      ctx.audio?.stop();
+      ctx.audio?.setPaused(true);
       if (skipDialogDwell) {
         const skip = skipDialogDwell;
         skipDialogDwell = null;
@@ -759,7 +759,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   function resumeWalkthrough(): void {
     if (state.walkthrough.active && state.walkthrough.status === "paused") {
       state.walkthrough.status = "playing";
-      audio.setPaused(false);
+      ctx.audio?.setPaused(false);
       notifyResume();
     }
   }

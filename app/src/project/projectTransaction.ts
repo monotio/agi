@@ -53,6 +53,10 @@ import { listenForProjectWrites, type NoticeChannel } from "./projectBroadcast.t
 import type { PatchResource, WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
 import type { AwaitPatchedFn } from "../engine/workerQueries.ts";
 
+/** A stale conversation is kept in this tab until the saved project reloads. */
+export const STALE_SAVE_MESSAGE =
+  "The game was changed elsewhere, so this conversation was not saved over it. Reload the game to continue from the saved project.";
+
 /** Why a project transaction refused or failed; `code` picks the UI's wording. */
 export type ResourceCommitErrorCode =
   /** An agent turn, a history adoption or another commit owns the session. */

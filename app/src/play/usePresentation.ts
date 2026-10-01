@@ -6,7 +6,7 @@
  */
 import { inject, provide, ref, shallowRef } from "vue";
 import type { InjectionKey } from "vue";
-import { AgiStage } from "../three/AgiStage.ts";
+import type { AgiStage } from "../three/AgiStage.ts";
 import {
   FRAME_HEIGHT,
   FRAME_WIDTH,
@@ -194,7 +194,10 @@ export function createPresentation() {
   /** Create the GPU stage once the canvas is mounted. */
   async function initStage(crt: boolean): Promise<void> {
     if (!gpuCanvasEl.value) return;
-    stage = await AgiStage.create(gpuCanvasEl.value);
+    const canvas = gpuCanvasEl.value;
+    const { AgiStage } = await import("../three/AgiStage.ts");
+    if (gpuCanvasEl.value !== canvas) return;
+    stage = await AgiStage.create(canvas);
     gpuBackend.value = stage?.backend;
     if (stage) {
       stage.crt = crt;

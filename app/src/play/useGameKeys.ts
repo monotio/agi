@@ -43,7 +43,6 @@ export function useGameKeys(deps: {
     toggleWalkthroughPause,
     resumeWalkthrough,
     advanceDialog,
-    historyView,
     sendKey,
   } = deps.engine;
   const area = deps.playArea;
@@ -117,17 +116,17 @@ export function useGameKeys(deps: {
       // engine gets nothing while the recording is under view.
       if (ev.key === " ") {
         ev.preventDefault();
-        historyView.transportToggle();
+        deps.engine.historyView.transportToggle();
         return;
       }
       if (ev.key === "Escape") {
         ev.preventDefault();
-        historyView.exitHistory();
+        deps.engine.historyView.exitHistory();
         return;
       }
       if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
         ev.preventDefault();
-        void historyView.stepMark(ev.key === "ArrowRight" ? 1 : -1);
+        void deps.engine.historyView.stepMark(ev.key === "ArrowRight" ? 1 : -1);
         return;
       }
       return;
@@ -138,7 +137,7 @@ export function useGameKeys(deps: {
       // does under a map or bubble pause.
       if (ev.key === " " || ev.key === "Escape") {
         ev.preventDefault();
-        historyView.resumeLive();
+        deps.engine.historyView.resumeLive();
         return;
       }
     }

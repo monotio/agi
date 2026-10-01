@@ -23,6 +23,33 @@ import type { HistoryBlock, HistoryRetry } from "../history/useHistoryController
 import type { GenesisStarterOffer } from "../authoring/genesisStarterRecovery.ts";
 import type { ProfileDetectionKind } from "../../../src/runtime/profile.ts";
 
+export function freshHistoryView(): HistoryViewUiState {
+  return {
+    active: false,
+    loading: false,
+    parked: false,
+    seeking: false,
+    playing: false,
+    watching: false,
+    scrubbing: false,
+    speed: 1,
+    segment: 0,
+    generation: 0,
+    segmentCount: 0,
+    tick: 0,
+    seq: 0,
+    room: 0,
+    score: 0,
+    marks: [],
+    canResume: false,
+    branches: 0,
+    pendingSwaps: 0,
+    dropped: 0,
+    diverged: null,
+    error: "",
+  };
+}
+
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
 

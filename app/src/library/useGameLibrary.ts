@@ -45,9 +45,7 @@ import {
   type ProgressTarget,
   type ProjectProgressTarget,
 } from "../project/progressTarget.ts";
-import { readEarlierProgress } from "../project/earlierProgress.ts";
 import type { RawLocalEntry } from "../project/legacyProgressRecovery.ts";
-import { loadProjectHistory } from "../history/historyStorage.ts";
 import { MAX_GAME_ZIP_BYTES } from "../archive/gameZipLimits.ts";
 import type { OpenedGame } from "../archive/gameZip.ts";
 import {
@@ -64,8 +62,7 @@ import type { GameDrop } from "./gameDrop.ts";
 import { GAME_CATALOG, type GameCatalogEntry } from "./gameCatalog.ts";
 import { loadHostedCatalog } from "./hostedCatalog.ts";
 import { resolveWalkthrough } from "../walkthrough/walkthrough.ts";
-import { previewGame } from "./gamePreview.ts";
-import { addLibraryGame, copyLibraryGame, type CheckedOpening } from "./gameLibrary.ts";
+import type { CheckedOpening } from "./gameLibrary.ts";
 import { gameRevision, normalizeLibraryMetadata } from "../project/gameMetadata.ts";
 import type { InstalledGameDescriptor, ProjectId } from "../project/gameTypes.ts";
 import { projectId, requireProjectId, type GameIdentity } from "../../../src/gameIdentity.ts";
@@ -823,7 +820,9 @@ export function createGameLibrary(
   async function observeLegacyLocal(target: ProjectProgressTarget): Promise<RawLocalEntry[]> {
     const byKey = new Map<string, RawLocalEntry>();
     for (const legacyKey of target.legacyKeys) {
-      const read = await readEarlierProgress({ kind: "live", legacyKey });
+      const read = await (
+        await import("../project/earlierProgress.ts")
+      ).readEarlierProgress({ kind: "live", legacyKey });
       if (read.kind === "live") for (const entry of read.local) byKey.set(entry.key, entry);
     }
     return [...byKey.values()];
@@ -1044,12 +1043,14 @@ export function createGameLibrary(
     title: string,
     source: "zip" | "folder",
   ): Promise<{ stored: ImportStorageReport | null; copy: boolean; title: string }> {
-    const opening = await previewGame(game, game.profile);
+    const opening = await (await import("./gamePreview.ts")).previewGame(game, game.profile);
     const before = new Map(
       savedGames.value.map((entry) => [entry.projectId, entry.library?.revision]),
     );
     let stored: ImportStorageReport | null = null;
-    const importedProjectId = await addLibraryGame(
+    const importedProjectId = await (
+      await import("./gameLibrary.ts")
+    ).addLibraryGame(
       game,
       game.title ?? title,
       source,
@@ -1268,7 +1269,9 @@ export function createGameLibrary(
     try {
       const game = catalogGames.get(id) ?? (await entry.load());
       catalogGames.set(id, game);
-      catalogOpenings.value[id] = await previewGame(game, game.profile);
+      catalogOpenings.value[id] = await (
+        await import("./gamePreview.ts")
+      ).previewGame(game, game.profile);
     } catch (error) {
       catalogGames.delete(id);
       catalogErrors.value[id] = String(error).replace(/^Error: /, "");
@@ -1289,7 +1292,9 @@ export function createGameLibrary(
       const opening = catalogOpenings.value[id];
       if (!game || !opening)
         throw new Error(catalogErrors.value[id] || "This game could not be opened.");
-      const projectId = await addLibraryGame(game, entry.title, "catalog", opening, {
+      const projectId = await (
+        await import("./gameLibrary.ts")
+      ).addLibraryGame(game, entry.title, "catalog", opening, {
         id: entry.id,
         version: entry.version,
       });
@@ -1333,7 +1338,9 @@ export function createGameLibrary(
     try {
       const game = await loadAuthoredGame(selected);
       if (!game) throw new Error("This game is missing from your library. Import it again.");
-      const opening = await previewGame(game, game.library?.profile);
+      const opening = await (
+        await import("./gamePreview.ts")
+      ).previewGame(game, game.library?.profile);
       const revision = game.library?.revision ?? (await gameRevision(game.files));
       if (!(await updateGamePreview(game.projectId, revision, opening.preview, opening)))
         throw new Error("The game changed while its opening was being checked. Try again.");
@@ -1353,7 +1360,7 @@ export function createGameLibrary(
     libraryActionError.value = "";
     libraryActionBusy.value = true;
     try {
-      const copied = await copyLibraryGame(selected);
+      const copied = await (await import("./gameLibrary.ts")).copyLibraryGame(selected);
       refreshLibrary(copied);
       return copied;
     } catch (error) {
@@ -1463,7 +1470,9 @@ export function createGameLibrary(
             () =>
               ownerTarget === undefined
                 ? Promise.resolve(null)
-                : loadProjectHistory(ownerTarget.locator),
+                : import("../history/historyStorage.ts").then(({ loadProjectHistory }) =>
+                    loadProjectHistory(ownerTarget.locator),
+                  ),
             live
               ? async () => {
                   recovery = await engine.recoverHistory();
@@ -1693,7 +1702,6 @@ export function createGameLibrary(
 
   /** Catalog warmup; App.vue calls it at the same onMounted point. */
   function mountCatalog(): void {
-    void loadCatalogOpening(featuredCatalog.id);
     void refreshHostedCatalog();
   }
 

@@ -94,7 +94,7 @@ export type WorkerOutboundHandlers = {
 export interface WorkerLinkOptions {
   readonly state: EngineState;
   readonly hook: TextHook;
-  readonly audio: AgiAudio;
+  readonly audio: AgiAudio | null;
   readonly onFrame: (frame: Frame) => void;
   readonly logAgent: LogAgentFn;
   readonly getBootedGame: () => BootedGame | null;
@@ -105,7 +105,7 @@ export interface WorkerLinkOptions {
 }
 
 export function useWorkerLink(options: WorkerLinkOptions) {
-  const { state, hook, audio, onFrame, logAgent, observationListeners } = options;
+  const { state, hook, onFrame, logAgent, observationListeners } = options;
   const deps = {} as WorkerLinkDeps;
 
   /**
@@ -115,6 +115,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
    * an overlay's. Doubles that predate the owner API keep the old join.
    */
   const setWorkerAudioPause = (paused: boolean) => {
+    const audio = options.audio;
+    if (!audio) return;
     if (typeof audio.setPauseOwner === "function") audio.setPauseOwner("worker", paused);
     else audio.setPaused(paused || state.paused);
   };
@@ -126,6 +128,8 @@ export function useWorkerLink(options: WorkerLinkOptions) {
    */
   let debugAudioEpoch: number | null = null;
   const setDebugAudioPause = (paused: boolean, epoch?: number) => {
+    const audio = options.audio;
+    if (!audio) return;
     if (typeof audio.setPauseOwner !== "function") return;
     if (paused) {
       debugAudioEpoch = epoch ?? null;
@@ -210,7 +214,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   function spawnWorker(): Worker {
     deps.projectClosed?.();
     worker?.terminate();
-    audio.stop();
+    options.audio?.stop();
     deps.resetScreenState();
     // A new session replaces the note about how the previous game ended.
     state.gameEnded = null;
@@ -384,20 +388,20 @@ export function useWorkerLink(options: WorkerLinkOptions) {
       },
       soundEnabled: (msg) => {
         state.soundMuted = !msg.enabled;
-        audio.setMuted(state.soundMuted);
+        options.audio?.setMuted(state.soundMuted);
       },
       sound: () => {
         state.soundPlaying = true;
       },
-      soundOutput: (msg) => audio.output(msg.output),
+      soundOutput: (msg) => options.audio?.output(msg.output),
       soundTick: (msg) => {
-        deliverSoundTick(audio, msg);
+        if (options.audio) deliverSoundTick(options.audio, msg);
         if (msg.complete) state.soundPlaying = false;
       },
       soundPaused: (msg) => setWorkerAudioPause(msg.paused),
       stopSound: () => {
         state.soundPlaying = false;
-        audio.stop();
+        options.audio?.stop();
       },
       autosave: (msg) => deps.handleAutosave(msg),
       // The always-on recording's transport unit: commit it, then free the

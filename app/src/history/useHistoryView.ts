@@ -45,7 +45,7 @@ import type {
 } from "../../../src/agent/history.ts";
 import type { AgentSession } from "../agent/agentSession.ts";
 import type { WorkerControl, WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
-import type { EngineState, HistoryViewUiState } from "../engine/useEngineTypes.ts";
+import type { EngineState } from "../engine/useEngineTypes.ts";
 import type { LogAgentFn } from "../play/useInputController.ts";
 import {
   useTransport,
@@ -66,32 +66,8 @@ export interface HistoryViewMark {
 
 export type HistoryViewReport = Extract<WorkerControl, { type: "historyView" }>;
 
-export function freshHistoryView(): HistoryViewUiState {
-  return {
-    active: false,
-    loading: false,
-    parked: false,
-    seeking: false,
-    playing: false,
-    watching: false,
-    scrubbing: false,
-    speed: 1,
-    segment: 0,
-    generation: 0,
-    segmentCount: 0,
-    tick: 0,
-    seq: 0,
-    room: 0,
-    score: 0,
-    marks: [],
-    canResume: false,
-    branches: 0,
-    pendingSwaps: 0,
-    dropped: 0,
-    diverged: null,
-    error: "",
-  };
-}
+export { freshHistoryView } from "../engine/useEngineTypes.ts";
+import { freshHistoryView } from "../engine/useEngineTypes.ts";
 
 export interface HistoryViewDeps {
   readonly state: EngineState;

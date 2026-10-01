@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { VOCABULARY } from "../../../src/vocabulary.ts";
-import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onWatcherCleanup,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
 import AgentTaskControls from "./AgentTaskControls.vue";
-import SoundPreview from "./SoundPreview.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
@@ -20,6 +27,7 @@ import UiKbd from "../ui/UiKbd.vue";
  */
 const { surface } = defineProps<{ surface: "drawer" | "dock" }>();
 
+const SoundPreview = defineAsyncComponent(() => import("./SoundPreview.vue"));
 const engine = useEngineApi();
 const { state, openPowerUp, closePowerUp, submitPowerUp, stopAgent, continueAgent, discardAgent } =
   engine;
@@ -33,6 +41,15 @@ const { aiConfigured, aiSettingsUnavailable, openAiSettings, llmConfig, taskBudg
  * stored tests — definitions the assistant runs before it finishes an edit,
  * not results.
  */
+watch(
+  () => llmConfig().provider,
+  (provider) => {
+    if (provider === "openai") void import("openai").catch(() => {});
+    else if (provider === "anthropic") void import("@anthropic-ai/sdk").catch(() => {});
+  },
+  { immediate: true },
+);
+prefetchAuthoringStack();
 const storedTests = computed(() => engine.roomMap.resources.value.testCoverage.tests);
 
 /**
@@ -150,6 +167,13 @@ watch(
     else if (!open && wasOpen && creatingRoom.value) bridge.focusGameInput();
   },
 );
+watch(
+  [powerUpEl, () => state.powerUp.busy],
+  ([el, busy]) => {
+    if (!busy) el?.focus({ preventScroll: true });
+  },
+  { flush: "post" },
+);
 watch(progressFeedEl, (el) => {
   if (!el) return;
   const observer = new ResizeObserver(() => {
@@ -180,7 +204,6 @@ async function onPowerUp(mode?: "ask" | "remix"): Promise<void> {
   await nextTick();
   powerUpEl.value?.focus({ preventScroll: true });
 }
-bridge.togglePowerUp = (mode) => void onPowerUp(mode);
 bridge.assistantInputEl = () => powerUpEl.value;
 
 async function onPowerUpSubmit(): Promise<void> {

@@ -14,7 +14,6 @@ import RemoveGameDialog from "./RemoveGameDialog.vue";
 import StartFresh from "./StartFresh.vue";
 import { libraryDetails, showDetails } from "./cardDetails.ts";
 import { shelfTitle } from "./shelfIdentity.ts";
-import { projectThumbnail } from "./useLazyThumbnail.ts";
 import { useProjectRecovery } from "./projectRecovery.ts";
 import { formatRelativeTime } from "./relativeTime.ts";
 import { useNow } from "./useNow.ts";
@@ -172,8 +171,6 @@ function openDetails(): void {
     title-test-id="saved-game-title"
     :monogram
     :image
-    :lazy="projectThumbnail(game)"
-    :lazy-alt="`${title} opening scene`"
     :badge
     :meta
     :heading-hidden="editing"

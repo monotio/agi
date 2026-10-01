@@ -10,7 +10,7 @@ import type { EngineApi } from "../engine/engineContext.ts";
 import type { LlmConfig, ProviderType } from "../agent/llmClient.ts";
 import { DEFAULT_MODELS, MODEL_OPTIONS } from "../../../src/agent/modelEffort.ts";
 import { copyAiSettings, loadAiSettings, saveAiSettings, type AiSettings } from "./aiSettings.ts";
-import { DEFAULT_TASK_BUDGET_USD } from "../agent/agentRun.ts";
+import { DEFAULT_TASK_BUDGET_USD } from "./aiSettings.ts";
 
 export type AiSettingsContext = "header" | "create" | "assistant";
 
@@ -54,6 +54,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
   const aiConfigured = computed(() => provider.value === "stub" || apiKey.value.trim().length > 0);
 
   const aiSettingsDialog = deps.dialog;
+  const dialogRequested = ref(false);
   const aiSettingsSaving = ref(false);
   const aiSettingsError = ref("");
   const aiSettingsContext = ref<AiSettingsContext>("header");
@@ -66,7 +67,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
   let aiSettingsReturnFocus: HTMLElement | null = null;
   let aiSettingsOwnedPause = false;
 
-  function openAiSettings(event: Event | null, context: AiSettingsContext): void {
+  async function openAiSettings(event: Event | null, context: AiSettingsContext): Promise<void> {
     if (aiSettingsUnavailable.value) return;
     aiSettingsContext.value = context;
     aiSettingsError.value = "";
@@ -79,8 +80,14 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
       pauseEngine("aiSettings");
       aiSettingsOwnedPause = true;
     }
+    dialogRequested.value = true;
+    await nextTick();
     aiSettingsDialog.value?.show();
   }
+
+  watch(aiSettingsDialog, (dialog) => {
+    if (dialogRequested.value) dialog?.show();
+  });
 
   function llmConfig(): LlmConfig {
     return {
@@ -137,6 +144,7 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
 
   return {
     testMode,
+    dialogRequested,
     taskBudget,
     aiSettings,
     aiModelLabel,
