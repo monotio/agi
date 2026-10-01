@@ -7,6 +7,35 @@ import {
   waitForRoom,
 } from "./engineProbe.ts";
 
+test("creation takes focus and Escape works while its form loads", async ({ page }) => {
+  await isolateStorage(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/home/LocalProjectForm.vue", async (route) => {
+    await held;
+    await route.continue();
+  });
+  try {
+    await page.goto("/");
+    const create = page.getByTestId("create-adventure-toggle");
+    const panel = page.getByTestId("create-adventure-disclosure");
+    await create.focus();
+    await page.keyboard.press("Enter");
+    await expect(panel).toHaveAttribute("open");
+    await expect(panel).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(panel).not.toHaveAttribute("open");
+    await expect(create).toBeFocused();
+    release();
+    await page.keyboard.press("Space");
+    await expect(page.getByTestId("local-create-title")).toBeFocused();
+  } finally {
+    release();
+  }
+});
+
 test("the game command input keeps its keys while Create commands load", async ({ page }) => {
   await isolateStorage(page);
   let release!: () => void;

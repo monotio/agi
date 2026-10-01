@@ -56,6 +56,13 @@ async function onLocalCreated(projectId: ProjectId, kind: StarterKind): Promise<
 
 const panel = useTemplateRef("panel");
 const form = useTemplateRef("form");
+watch(
+  form,
+  (value) => {
+    if (open.value) value?.focus();
+  },
+  { flush: "post" },
+);
 
 const HASH = "#create-adventure";
 let returnFocus: HTMLElement | null = null;
@@ -67,7 +74,8 @@ async function openCreateSection(updateHash = true): Promise<void> {
   if (updateHash && location.hash !== HASH) history.pushState(null, "", HASH);
   await nextTick();
   if (selectedTemplateId.value) form.value?.select("ai");
-  form.value?.focus();
+  if (form.value) form.value.focus();
+  else panel.value?.focus({ preventScroll: true });
   panel.value?.scrollIntoView({
     behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
     block: "start",
@@ -137,6 +145,7 @@ async function onAiCreated(title: string): Promise<void> {
     ref="panel"
     class="create-pane"
     data-testid="create-adventure-disclosure"
+    tabindex="-1"
     :open
     aria-labelledby="create-title"
     @keydown.esc.stop="closeCreateSection"
