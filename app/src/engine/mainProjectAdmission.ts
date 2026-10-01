@@ -18,11 +18,13 @@ export function createMainProjectAdmission(input: {
   readonly current: () => boolean;
 }) {
   let identity = { ...input.identity };
+  let runToken = input.runToken;
   let disposed = false;
   const current = () => !disposed && input.current();
   async function admit(
     compiled: ProjectDocumentsCompile,
     origins: { key: string; version: number }[],
+    mode?: "restart",
   ): Promise<PreviewUpdateOutcome> {
     if (!current()) throw new Error("Project run was replaced.");
     const documents = compiled.documents();
@@ -45,27 +47,30 @@ export function createMainProjectAdmission(input: {
       documentId: projectDocumentId(documents, sha256Hex),
       origins,
     };
+    const expectedRun = runToken;
     let outcome: PreviewUpdateOutcome;
     try {
       const reply = await input.query("previewUpdate", {
-        runToken: input.runToken,
+        runToken: expectedRun,
+        ...(mode === undefined ? {} : { mode }),
         expected: identity,
         candidate,
       });
-      if (reply.runToken !== input.runToken)
+      if (reply.runToken !== expectedRun)
         throw new Error("Project acknowledgement belongs to another run.");
       outcome = reply;
     } catch (error) {
       if (!(error instanceof WorkerQueryTimeoutError) || !current()) throw error;
       const status = await input.query("previewUpdateStatus", { transactionId: error.id });
       if (
-        status.runToken !== input.runToken ||
         typeof status.transaction !== "object" ||
         status.transaction === null ||
         status.transaction.id !== error.id
       )
         throw new Error("Project admission acknowledgement is unavailable.", { cause: error });
       outcome = status.transaction.outcome;
+      if (status.runToken !== expectedRun && status.runToken !== outcome.replacementRunToken)
+        throw new Error("Project acknowledgement belongs to another run.", { cause: error });
     }
     if (!current()) throw new Error("Project run was replaced.");
     if (outcome.status === "committed" || outcome.status === "unchanged") {
@@ -75,13 +80,21 @@ export function createMainProjectAdmission(input: {
         outcome.current.revision !== candidate.revision
       )
         throw new Error("Project acknowledgement names another image.");
+      if (mode === "restart" && !outcome.replacementRunToken)
+        throw new Error("Project restart acknowledgement carries no replacement token.");
       identity = { ...outcome.current };
+      runToken = outcome.replacementRunToken ?? runToken;
     }
     return outcome;
   }
   return {
-    runToken: input.runToken,
+    get runToken() {
+      return runToken;
+    },
     admit,
+    restart(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
+      return admit(compiled, origins, "restart");
+    },
     dispose() {
       disposed = true;
     },

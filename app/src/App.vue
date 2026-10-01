@@ -47,6 +47,9 @@ import { useCreateMode } from "./shell/useCreateMode.ts";
 import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
 
+const ProjectRestartNotice = defineAsyncComponent(
+  () => import("./project/ProjectRestartNotice.vue"),
+);
 const CreateKeyboard = defineAsyncComponent(() => import("./shell/commands/CreateKeyboard.vue"));
 const testMode = import.meta.env.MODE === "test";
 const touchControls = ref(
@@ -765,6 +768,7 @@ watch(
             >
               {{ playHereFromStudio.note.value }}
             </UiToast>
+            <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
             <StaleTabNote />
           </template>
           <template #screen-notes>

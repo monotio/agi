@@ -43,6 +43,18 @@ interface SessionSave {
   readonly data: ProjectCommitRequest["data"];
   request?: ProjectCommitRequest;
 }
+export interface PendingProjectRestart {
+  readonly action: "restart";
+  readonly reason: string;
+}
+
+function restartReason(reason: string): string {
+  return reason
+    .replace(/^preview candidate /, "This change ")
+    .replace(/\bview\b/g, "VIEW")
+    .replace(/\blogic\b/g, "LOGIC")
+    .replace(/\bpicture\b/g, "PICTURE");
+}
 const owners = new Map<string, ReturnType<typeof createSession>>();
 export function openProjectSession(input: Parameters<typeof createSession>[0]) {
   const previous = owners.get(input.data.projectId);
@@ -63,6 +75,10 @@ function createSession(input: {
   readonly admission: {
     readonly runToken: string;
     admit(
+      compiled: ProjectDocumentsCompile,
+      versions: { key: string; version: number }[],
+    ): Promise<PreviewUpdateOutcome>;
+    restart?(
       compiled: ProjectDocumentsCompile,
       versions: { key: string; version: number }[],
     ): Promise<PreviewUpdateOutcome>;
@@ -106,6 +122,7 @@ function createSession(input: {
       author: "creator",
       time: Date.now(),
     });
+  let pendingRestart: PendingProjectRestart | null = null;
   let disposed = false;
   let epoch = 0;
   let serial = 0;
@@ -210,15 +227,31 @@ function createSession(input: {
       admit: (compiled, documents) => input.admission.admit(compiled, documents),
       boundary: input.boundary ?? (() => new Promise<void>((resolve) => setTimeout(resolve, 50))),
     });
-    if (outcome !== undefined && outcome.status !== "committed" && outcome.status !== "unchanged")
+    if (
+      outcome !== undefined &&
+      outcome.status !== "committed" &&
+      outcome.status !== "unchanged" &&
+      outcome.status !== "restartRequired"
+    )
       return { ...outcome, diagnostics: prepared.diagnostics };
+    if (outcome?.status === "restartRequired")
+      pendingRestart = {
+        action: "restart",
+        reason: restartReason(outcome.reason ?? "This image needs a game restart."),
+      };
+    else if (prepared.compiled !== undefined) pendingRestart = null;
     diagnostics = prepared.diagnostics;
     const snapshot = model.apply(prepared.application);
     if (action !== undefined) history.accept(action);
     else history.record(snapshot.documents(), metadata);
     captureSave(snapshot, outcome);
     return {
-      status: prepared.compiled === undefined ? ("diagnostics" as const) : ("committed" as const),
+      status:
+        outcome?.status === "restartRequired"
+          ? ("restartRequired" as const)
+          : prepared.compiled === undefined
+            ? ("diagnostics" as const)
+            : ("committed" as const),
       diagnostics: prepared.diagnostics,
     };
   }
@@ -234,7 +267,38 @@ function createSession(input: {
     model,
     history,
     lifetime: input.lifetime,
-    runToken: input.admission.runToken,
+    get runToken() {
+      return input.admission.runToken;
+    },
+    get pendingRestart() {
+      return pendingRestart;
+    },
+    restartWithChanges() {
+      return schedule(async () => {
+        if (!current() || autosave.status().state === "conflict")
+          throw new Error("Project session is closed for writes.");
+        if (pendingRestart === null) return undefined;
+        const before = model.capture();
+        const prepared = prepareProjectEdit({
+          model,
+          proposal: model.propose(before, "Restart", []),
+          profileId: inspection.profileId,
+          policy: { allowMissingRooms: data.roomGeneration === true },
+        });
+        if (prepared.compiled === undefined)
+          return { status: "diagnostics" as const, diagnostics: prepared.diagnostics };
+        if (input.admission.restart === undefined)
+          throw new Error("The running game cannot restart with changes.");
+        const outcome = await input.admission.restart(prepared.compiled, versions(before));
+        if (!current() || before.documentId !== model.capture().documentId)
+          throw new Error("Project restart was superseded.");
+        if (outcome.status === "committed" || outcome.status === "unchanged") {
+          pendingRestart = null;
+          captureSave(model.apply(prepared.application), outcome);
+        }
+        return outcome;
+      });
+    },
     submit(edit: { proposal: ProjectProposal } & Omit<ProjectCommitMetadata, "time">) {
       return schedule(() =>
         apply(edit.proposal, {
@@ -296,6 +360,7 @@ function createSession(input: {
         snapshot: model.capture(),
         history: history.capture(),
         diagnostics,
+        pendingRestart,
         save: autosave.status(),
       };
     },

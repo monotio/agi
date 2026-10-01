@@ -182,6 +182,8 @@ export interface PreviewUpdateOutcome {
   /** Engine native-image generation observed at the verdict. */
   patchGeneration: number;
   reason?: string;
+  /** A deliberate replacement acknowledges the new physical Engine authority. */
+  replacementRunToken?: string;
 }
 
 /** The complete immutable candidate a previewUpdate ships. */
@@ -556,6 +558,7 @@ export type WorkerInbound =
       runToken: string;
       expected: PreviewLaneIdentity;
       candidate: PreviewUpdateCandidateMessage;
+      mode?: "restart";
     }
   /**
    * Read-only reconciliation: reports the lane's actual current identity —
