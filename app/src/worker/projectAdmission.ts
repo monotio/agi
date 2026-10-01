@@ -15,6 +15,7 @@ import {
   canonicalizeCandidateFiles,
   openStagedContainer,
   type PreviewUpdatePlan,
+  type PreviewUpdateResult,
 } from "../../../src/runtime/previewAdmission.ts";
 import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
@@ -359,6 +360,8 @@ export interface ProjectAdmissionOptions {
   readonly lane: () => ProjectAdmissionState | null;
   /** Legacy isolated previews carry LOGIC source rather than a complete document image. */
   readonly legacyPreview?: boolean;
+  /** Release debugger control only for the synchronous idle-boundary commit. */
+  readonly commitAtBoundary?: (commit: () => PreviewUpdateResult) => PreviewUpdateResult;
   /** Prepare any attached debugger plans before mutation; return bounded installation. */
   readonly prepareSession?: (candidate: {
     build: ReturnType<typeof CaptureProjectBuild>;
@@ -713,13 +716,14 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       settleRefused("the lane's identity moved while the candidate was staged");
       return;
     }
-    const result =
+    const commit = () =>
       msg.mode === "reenter"
         ? engine.commitRoomReentry(plan, () => {
             ctx.fns.historyEnd("resume");
             ctx.fns.markReenter();
           })
         : engine.commitPreviewUpdate(plan, { sourceAuthorityChanged });
+    const result = options.commitAtBoundary ? options.commitAtBoundary(commit) : commit();
 
     if (result.status === "deferred") {
       // A busy boundary is a terminal, honest answer: nothing is queued,

@@ -13,6 +13,30 @@ export function createPreviewAdmission(ctx: WorkerContext) {
   return createProjectAdmission(ctx, {
     lane: () => ctx.projectAdmission ?? ctx.debugger.preview,
     legacyPreview: ctx.projectAdmission === null,
+    commitAtBoundary(commit) {
+      const d = ctx.debugger;
+      const engine = ctx.engine;
+      if (
+        ctx.projectAdmission === null ||
+        !d.installed ||
+        engine === null ||
+        engine.executionStopInfo !== null
+      )
+        return commit();
+      try {
+        engine.setExecutionGate(null);
+        engine.setExecutionObserver(null);
+      } catch {
+        return commit();
+      }
+      d.installed = false;
+      d.armDeferred = true;
+      try {
+        return commit();
+      } finally {
+        ctx.fns.debugAfterEntry();
+      }
+    },
     prepareSession(candidate) {
       const d = ctx.debugger;
       const engine = ctx.engine;

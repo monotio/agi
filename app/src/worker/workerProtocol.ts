@@ -836,6 +836,8 @@ export type WorkerControl =
    */
   | {
       type: "debugSessionReset";
+      /** Exact source image adopted at a live update. */
+      sources?: Record<string, string>;
       epoch: number;
       buildId: string;
       breakpoints: readonly DebugBreakpointStatus[];
