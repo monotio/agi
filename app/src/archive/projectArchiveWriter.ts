@@ -1,3 +1,8 @@
+import { sha256Hex as sha256HexSync } from "../../../src/crypto.ts";
+import {
+  readProjectHistory,
+  writeProjectHistory,
+} from "../../../src/authoring/projectHistoryCodec.ts";
 /**
  * Private project-archive preparation: the exact entry list a project
  * download writes. The file a player opens on Home is never this one —
@@ -378,7 +383,15 @@ export async function collectProjectArchiveEntries(
     name: "PROJECT.JSON",
     data: JSON.stringify({
       format: "monotio.agi.project",
-      version: 2,
+      version: data.projectHistory === undefined ? 2 : 3,
+      ...(data.projectHistory !== undefined
+        ? {
+            projectHistory: writeProjectHistory(
+              readProjectHistory(data.projectHistory, sha256HexSync),
+              sha256HexSync,
+            ),
+          }
+        : {}),
       ...(assistant !== undefined ? { assistant } : {}),
       authoringState: data.authoringState ?? {},
       ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),

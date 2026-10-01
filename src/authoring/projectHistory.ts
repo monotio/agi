@@ -124,6 +124,9 @@ export class ProjectHistory {
     this.state = readProjectHistory(
       writeProjectHistory(
         {
+          ...(this.state.prunedParents !== undefined
+            ? { prunedParents: this.state.prunedParents }
+            : {}),
           blobs,
           commits: [...this.state.commits, commit],
           cursor: commit.id,
@@ -150,7 +153,9 @@ export class ProjectHistory {
   undo(model: ProjectModel): ProjectHistoryAction | undefined {
     const current = this.state.cursor;
     const parent = current === null ? null : this.commit(current).parent;
-    return parent === null ? undefined : this.action(model, parent, "undo");
+    return parent === null || !this.state.commits.some((commit) => commit.id === parent)
+      ? undefined
+      : this.action(model, parent, "undo");
   }
 
   redo(model: ProjectModel): ProjectHistoryAction | undefined {

@@ -1,4 +1,9 @@
 import {
+  readProjectHistory,
+  writeProjectHistory,
+  type PortableProjectHistory,
+} from "../../../src/authoring/projectHistoryCodec.ts";
+import {
   readProjectWorkspace,
   writeProjectWorkspace,
   type PortableProjectWorkspace,
@@ -55,6 +60,7 @@ export interface ProjectContext {
   transcript?: unknown[] | undefined;
   recoveryDraft?: PortableProjectRecovery | undefined;
   workspace?: PortableProjectWorkspace | undefined;
+  projectHistory?: PortableProjectHistory | undefined;
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
   references?: StoredReference[] | undefined;
@@ -297,7 +303,7 @@ export function readProjectContext(
     typeof envelope !== "object" ||
     Array.isArray(envelope) ||
     envelope.format !== "monotio.agi.project" ||
-    ![1, 2].includes(envelope.version)
+    ![1, 2, 3].includes(envelope.version)
   )
     throw new Error("This project version is not supported.");
   // The released version-1 envelope never carried creative data; a claim in
@@ -317,7 +323,7 @@ export function readProjectContext(
       throw new Error("Invalid or unknown project field.");
   }
   const hasAssistant = envelope.version === 1 || envelope.assistant !== undefined;
-  if (envelope.version === 2) {
+  if (envelope.version >= 2) {
     knownFields(envelope, [
       "format",
       "version",
@@ -328,6 +334,7 @@ export function readProjectContext(
       "references",
       "recoveryDraft",
       "workspace",
+      ...(envelope.version === 3 ? ["projectHistory"] : []),
     ]);
     if (hasAssistant)
       knownFields(envelope.assistant, [
@@ -353,7 +360,7 @@ export function readProjectContext(
     (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
   )
     throw new Error("Invalid project model metadata.");
-  if (envelope.version === 2) {
+  if (envelope.version >= 2) {
     if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
     if (raw.references !== undefined && !Array.isArray(raw.references))
       throw new Error("Invalid project reference field.");
@@ -363,12 +370,21 @@ export function readProjectContext(
     )
       throw new Error("Invalid project session field.");
   }
+  if (envelope.version < 3 && envelope.projectHistory !== undefined)
+    throw new Error("This project version cannot carry edit History.");
+  const projectHistory =
+    envelope.projectHistory === undefined
+      ? undefined
+      : writeProjectHistory(
+          readProjectHistory(envelope.projectHistory, sha256HexSync),
+          sha256HexSync,
+        );
   const workspace =
-    envelope.version === 2 && envelope.workspace !== undefined
+    envelope.version >= 2 && envelope.workspace !== undefined
       ? writeProjectWorkspace(readProjectWorkspace(envelope.workspace))
       : undefined;
   const recovered =
-    envelope.version === 2 && envelope.recoveryDraft !== undefined
+    envelope.version >= 2 && envelope.recoveryDraft !== undefined
       ? readProjectRecovery(envelope.recoveryDraft)
       : undefined;
   const recoveryDraft =
@@ -378,7 +394,7 @@ export function readProjectContext(
   // CREATIVE/<hash>.BIN entry. Declared-but-missing or mismatching bytes
   // refuse; undeclared CREATIVE entries carry no authority and are ignored.
   const creative =
-    envelope.version === 2 && envelope.creative !== undefined
+    envelope.version >= 2 && envelope.creative !== undefined
       ? readArchivedCreative(envelope.creative, entries, root)
       : undefined;
   // Durable work: the envelope is checked by its strict codec and every
@@ -386,7 +402,7 @@ export function readProjectContext(
   // CREATIVE/<hash>.BIN namespace — a hash the kept manifest also declares
   // resolves to the same verified entry.
   const creativeWork =
-    envelope.version === 2 && envelope.creativeWork !== undefined
+    envelope.version >= 2 && envelope.creativeWork !== undefined
       ? readArchivedCreativeWork(envelope.creativeWork, entries, root)
       : undefined;
 
@@ -398,7 +414,7 @@ export function readProjectContext(
   // the sources pass below, and only arrays actually sitting in a claimed
   // `payload` position get this accounting.
   const soundPayloads = new Set<unknown>();
-  if (envelope.version === 2) {
+  if (envelope.version >= 2) {
     const offeredState: unknown = raw.authoringState;
     const offeredSources =
       offeredState !== null && typeof offeredState === "object" && !Array.isArray(offeredState)
@@ -564,7 +580,7 @@ export function readProjectContext(
             // it: the resolved profile, and the stored native SOUND bytes
             // the claim must reproduce exactly. The stored body becomes the
             // adapter's owned serialized envelope.
-            if (envelope.version !== 2)
+            if (envelope.version < 2)
               throw new Error("A sound document source needs a version 2 project archive.");
             if ((soundEntryNums?.get(entry[0]) ?? 0) > 1)
               throw new Error(`Duplicate sound document source for SOUND ${String(entry[0])}.`);
@@ -633,6 +649,7 @@ export function readProjectContext(
     authoringState: authoringState as Record<string, unknown>,
     ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
     ...(workspace !== undefined ? { workspace } : {}),
+    ...(projectHistory !== undefined ? { projectHistory } : {}),
     ...(references !== undefined ? { references: normalizeReferences(references) } : {}),
     ...(creative !== undefined ? { creative } : {}),
     ...(creativeWork !== undefined ? { creativeWork } : {}),

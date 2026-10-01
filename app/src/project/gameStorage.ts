@@ -1,3 +1,4 @@
+import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
 import {
   readProjectWorkspace,
   writeProjectWorkspace,
@@ -58,7 +59,8 @@ interface StoredGameIndex extends CachedGameMeta {
 /** The browser's project record; PROJECT.JSON is the archive format. */
 interface StoredGameBody extends CachedGameData {
   format: "monotio.agi.stored-project";
-  version: 1 | 2;
+  version: 1 | 2 | 3;
+  editHistory?: StoredProjectHistory | undefined;
 }
 
 const STORAGE_PREFIX = "monotio_agi.authored.";
@@ -686,6 +688,9 @@ async function writeCurrentBody(
   data: CachedGameData,
   options?: ProjectWriteOptions,
 ): Promise<BodyWrite> {
+  const historyModule = await import("./projectHistoryStorage.ts");
+  const history = historyModule.checkedProjectHistory(data);
+  if (history !== undefined) data.projectHistory = history;
   readStoredBody(storedBody(data), data.projectId);
   const db = await openDatabase();
   return new Promise<BodyWrite>((resolve, reject) => {
@@ -701,7 +706,7 @@ async function writeCurrentBody(
       // A record this release does not recognise is never overwritten.
       if (
         value &&
-        (value.format !== "monotio.agi.stored-project" || ![1, 2].includes(value.version))
+        (value.format !== "monotio.agi.stored-project" || ![1, 2, 3].includes(value.version))
       ) {
         contractError = new Error(UNREADABLE_PROJECT_MESSAGE);
         transaction.abort();
@@ -771,7 +776,52 @@ async function writeCurrentBody(
             deleted: false,
           } satisfies HistoryLifetime);
         }
-        store.put(storedBody(data));
+        const body = storedBody(data);
+        if (history === undefined && value?.editHistory !== undefined) {
+          body.editHistory = value.editHistory;
+          body.version = 3;
+        }
+        try {
+          const keys = [
+            ...new Set([
+              ...historyModule.historyBlobKeys(data.projectId, value?.editHistory),
+              ...Object.keys(history?.blobs ?? {}).map((hash) =>
+                historyModule.projectHistoryBlobKey(data.projectId, hash),
+              ),
+            ]),
+          ];
+          const rows = new Map<string, unknown>();
+          const finish = () => {
+            const changes = historyModule.projectHistoryWrites(
+              data.projectId,
+              value?.editHistory,
+              history,
+              rows,
+            );
+            for (const key of changes.deletes) store.delete(key);
+            store.put(body);
+            for (const row of changes.puts) store.put(row);
+          };
+          let remaining = keys.length;
+          if (remaining === 0) finish();
+          for (const key of keys) {
+            const blob = store.get(key);
+            blob.onsuccess = () => {
+              rows.set(key, blob.result);
+              if (--remaining === 0) {
+                try {
+                  finish();
+                } catch (error) {
+                  contractError = error instanceof Error ? error : new Error(String(error));
+                  transaction.abort();
+                }
+              }
+            };
+          }
+        } catch (error) {
+          contractError = error instanceof Error ? error : new Error(String(error));
+          transaction.abort();
+        }
       };
     };
 
@@ -808,7 +858,15 @@ function storedIndex(data: CachedGameData): StoredGameIndex {
   };
 }
 function storedBody(data: CachedGameData): StoredGameBody {
-  return { ...data, format: "monotio.agi.stored-project", version: 2 };
+  const { projectHistory, ...body } = data;
+  return {
+    ...body,
+    format: "monotio.agi.stored-project",
+    version: projectHistory === undefined ? 2 : 3,
+    ...(projectHistory !== undefined
+      ? { editHistory: { ...projectHistory, blobs: Object.keys(projectHistory.blobs).sort() } }
+      : {}),
+  };
 }
 /**
  * Validate a stored project body offered as unknown input — an IDB record,
@@ -820,12 +878,17 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   if (raw === null || typeof raw !== "object" || Array.isArray(raw))
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const record = raw as StoredGameBody;
-  if (record.format !== "monotio.agi.stored-project" || ![1, 2].includes(record.version))
+  if (record.format !== "monotio.agi.stored-project" || ![1, 2, 3].includes(record.version))
     throw new Error(UNREADABLE_PROJECT_MESSAGE);
   const storedId = record.projectId;
   if (storedId !== projectId)
     throw new Error("The saved project identity does not match its index.");
-  const { format: _format, version: _version, ...data } = record;
+  if (
+    record.editHistory !== undefined &&
+    (record.version !== 3 || record.editHistory.version !== 1)
+  )
+    throw new Error("This project history version is not supported by this app.");
+  const { format: _format, version: _version, editHistory: _editHistory, ...data } = record;
   const normalized = { ...data, projectId };
   if (
     record.version === 1 &&
@@ -877,7 +940,10 @@ async function readBody(
   onLifetime?: (lifetime: string | null) => void,
 ): Promise<CachedGameData | null> {
   const raw = readableIndex(projectId);
-  const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
+  const snapshot = await readBodyRecords(projectId, (raw) => [
+    `lifetime/${projectId}`,
+    ...historyBlobKeys(projectId, (raw as StoredGameBody | undefined)?.editHistory),
+  ]);
   const stored = snapshot.head as StoredGameBody | undefined;
   onLifetime?.(liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime));
   if (!stored && raw === null) return null;
@@ -886,6 +952,12 @@ async function readBody(
       "The saved project data is unavailable. Open a downloaded project to recover it.",
     );
   const data = readStoredBody(stored, projectId);
+  if (stored.editHistory !== undefined)
+    data.projectHistory = (await import("./projectHistoryStorage.ts")).hydrateProjectHistory(
+      projectId,
+      stored.editHistory,
+      snapshot.records,
+    );
   data.library = readLibrary(data);
   return data;
 }
@@ -1071,6 +1143,8 @@ export interface ProjectCommitReceipt {
   readonly candidateHash: string;
   readonly documents: readonly { readonly key: string; readonly version: number }[];
   readonly saved: CommittedProjectIdentity;
+  /** Exact durable History acknowledged by this receipt. */
+  readonly history?: { readonly cursor: string | null; readonly hash: string };
   /** The kept and head catalog revisions this commit published, when it carried creative work. */
   readonly creative?: { readonly kept: number; readonly head: number } | undefined;
 }
@@ -1078,7 +1152,7 @@ export interface ProjectCommitReceipt {
 interface StoredProjectCommit {
   projectId: string;
   format: "monotio.agi.project-commit";
-  version: 1;
+  version: 1 | 2;
   receipt: ProjectCommitReceipt;
 }
 
@@ -1426,173 +1500,226 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
     await admitCreativeArchive(request, data, creative);
     let current: StoredGameBody | undefined;
     let previousLifetime: HistoryLifetime | undefined;
+    const historyModule = await import("./projectHistoryStorage.ts");
+    const history = historyModule.checkedProjectHistory(data);
+    if (history !== undefined) data.projectHistory = history;
     let catalogRaw: unknown;
     const receiptKey = `commit/${request.projectId}/${request.commitId}`;
     const committed = await updateBodyRecords(
       receiptKey,
       (raw) => {
-        if (current !== undefined) {
-          readStoredBody(current, request.projectId);
-          readLibrary(current);
-        }
-        const lifetime = liveLifetime(previousLifetime);
-        if (raw !== undefined) {
-          const stored = raw as StoredProjectCommit;
-          if (stored.format !== "monotio.agi.project-commit" || stored.version !== 1)
-            throw new Error("This project commit version is not supported by this app.");
-          if (stored.projectId !== receiptKey || stored.receipt.candidateHash !== candidateHash)
-            throw new Error("This commit ID was reused for a different candidate.");
-          if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
-            throw new ProjectDeletedError(
-              "This commit belongs to a removed or replaced project lifetime.",
-            );
-          return { result: { receipt: stored.receipt, body: current, changed: false } };
-        }
-        const expected = request.expected;
-        if (expected === null) {
-          if (current !== undefined) throw new ProjectExistsError("This project already exists.");
-        } else {
-          if (current === undefined || lifetime !== expected.lifetime)
-            throw new ProjectDeletedError(
-              "This project was removed or replaced by another window.",
-            );
-          if (
-            generationOf(current) !== expected.generation ||
-            current.library?.revision !== expected.revision ||
-            authoringFingerprint(current.authoringState, current.workspace) !== expected.authoring
-          )
-            throw new ConcurrencyConflictError(
-              "This project was modified by another window.",
-              current,
-            );
-        }
-        const generation = generationOf(current) + 1;
-        if (!Number.isSafeInteger(generation)) throw new Error("Project generation limit reached.");
-        data.generation = generation;
-        const epoch = current === undefined ? crypto.randomUUID() : lifetime;
-        if (epoch === null) throw new ProjectDeletedError("This project lifetime was removed.");
-        // One finish for both paths: the body, the commit receipt and, for a
-        // first commit, the lifetime receipt go in together. A creative
-        // publication adds its marker to the body and the new kept/head
-        // revisions to the receipt before they are written.
-        const finish = (published?: { kept: number; head: number }) => {
-          if (published !== undefined) data.creative = { kept: published.kept };
-          const receipt: ProjectCommitReceipt = {
-            commitId: request.commitId,
-            workspaceId: request.workspaceId,
-            candidateHash,
-            documents: request.documents,
-            saved: {
-              projectId: request.projectId,
-              generation,
-              lifetime: epoch,
-              revision: data.library!.revision,
-              authoring: authoringFingerprint(data.authoringState, data.workspace),
-              buildId: request.buildId,
-            },
-            ...(published !== undefined ? { creative: published } : {}),
+        const admit = (): BodyRecordsOutcome<{
+          receipt: ProjectCommitReceipt;
+          body: StoredGameBody;
+          changed: boolean;
+        }> => {
+          if (current !== undefined) {
+            readStoredBody(current, request.projectId);
+            readLibrary(current);
+          }
+          const lifetime = liveLifetime(previousLifetime);
+          if (raw !== undefined) {
+            const stored = raw as StoredProjectCommit;
+            if (
+              stored.format !== "monotio.agi.project-commit" ||
+              ![1, 2].includes(stored.version) ||
+              (stored.version === 1 && stored.receipt.history !== undefined)
+            )
+              throw new Error("This project commit version is not supported by this app.");
+            if (stored.projectId !== receiptKey || stored.receipt.candidateHash !== candidateHash)
+              throw new Error("This commit ID was reused for a different candidate.");
+            if (current === undefined || stored.receipt.saved.lifetime !== lifetime)
+              throw new ProjectDeletedError(
+                "This commit belongs to a removed or replaced project lifetime.",
+              );
+            return { result: { receipt: stored.receipt, body: current, changed: false } };
+          }
+          const expected = request.expected;
+          if (expected === null) {
+            if (current !== undefined) throw new ProjectExistsError("This project already exists.");
+          } else {
+            if (current === undefined || lifetime !== expected.lifetime)
+              throw new ProjectDeletedError(
+                "This project was removed or replaced by another window.",
+              );
+            if (
+              generationOf(current) !== expected.generation ||
+              current.library?.revision !== expected.revision ||
+              authoringFingerprint(current.authoringState, current.workspace) !== expected.authoring
+            )
+              throw new ConcurrencyConflictError(
+                "This project was modified by another window.",
+                current,
+              );
+          }
+          const generation = generationOf(current) + 1;
+          if (!Number.isSafeInteger(generation))
+            throw new Error("Project generation limit reached.");
+          data.generation = generation;
+          const epoch = current === undefined ? crypto.randomUUID() : lifetime;
+          if (epoch === null) throw new ProjectDeletedError("This project lifetime was removed.");
+          // One finish for both paths: the body, the commit receipt and, for a
+          // first commit, the lifetime receipt go in together. A creative
+          // publication adds its marker to the body and the new kept/head
+          // revisions to the receipt before they are written.
+          const finish = (published?: { kept: number; head: number }) => {
+            if (published !== undefined) data.creative = { kept: published.kept };
+            const receipt: ProjectCommitReceipt = {
+              commitId: request.commitId,
+              workspaceId: request.workspaceId,
+              candidateHash,
+              ...(history !== undefined
+                ? {
+                    history: {
+                      cursor: history.cursor,
+                      hash: sha256Hex(new TextEncoder().encode(JSON.stringify(history))),
+                    },
+                  }
+                : {}),
+              documents: request.documents,
+              saved: {
+                projectId: request.projectId,
+                generation,
+                lifetime: epoch,
+                revision: data.library!.revision,
+                authoring: authoringFingerprint(data.authoringState, data.workspace),
+                buildId: request.buildId,
+              },
+              ...(published !== undefined ? { creative: published } : {}),
+            };
+            const body = storedBody(data);
+            if (history === undefined && current?.editHistory !== undefined) {
+              body.editHistory = current.editHistory;
+              body.version = 3;
+            }
+            const puts: unknown[] = [
+              body,
+              {
+                projectId: receiptKey,
+                format: "monotio.agi.project-commit",
+                version: history === undefined ? 1 : 2,
+                receipt,
+              } satisfies StoredProjectCommit,
+            ];
+            if (current === undefined)
+              puts.push({
+                projectId: `lifetime/${request.projectId}`,
+                epoch,
+                deleted: false,
+              } satisfies HistoryLifetime);
+            return { receipt, body, puts };
           };
-          const body = storedBody(data);
-          const puts: unknown[] = [
-            body,
-            {
-              projectId: receiptKey,
-              format: "monotio.agi.project-commit",
-              version: 1,
-              receipt,
-            } satisfies StoredProjectCommit,
-          ];
-          if (current === undefined)
-            puts.push({
-              projectId: `lifetime/${request.projectId}`,
-              epoch,
-              deleted: false,
-            } satisfies HistoryLifetime);
-          return { receipt, body, puts };
-        };
-        if (creative === undefined) {
-          // The creative marker is storage-owned admission output: an
-          // ordinary commit keeps the durable body's marker (verified against
-          // the catalog), and a candidate offering any other marker — or one
-          // with nothing behind it — is refused before any write.
-          const storedMarker = current === undefined ? undefined : current.creative;
-          const offered = data.creative;
-          if (
-            offered !== undefined &&
-            (storedMarker === undefined || offered.kept !== storedMarker.kept)
-          )
+          if (creative === undefined) {
+            // The creative marker is storage-owned admission output: an
+            // ordinary commit keeps the durable body's marker (verified against
+            // the catalog), and a candidate offering any other marker — or one
+            // with nothing behind it — is refused before any write.
+            const storedMarker = current === undefined ? undefined : current.creative;
+            const offered = data.creative;
+            if (
+              offered !== undefined &&
+              (storedMarker === undefined || offered.kept !== storedMarker.kept)
+            )
+              throw new CreativeCatalogError(
+                "invalid",
+                "The candidate's creative marker has no matching catalog publication.",
+              );
+            const pinned = readCreativeCatalogRecord(catalogRaw, request.projectId);
+            if (storedMarker === undefined) {
+              // A catalog that already published must stay pinned by the body;
+              // a marker lost from durable storage is damage, not a clean slate.
+              if (pinned !== undefined && pinned.kept !== 0)
+                throw new CreativeCatalogError(
+                  "invalid",
+                  "The kept creative catalog lost its body marker.",
+                );
+            } else {
+              if (pinned === undefined || pinned.kept !== storedMarker.kept)
+                throw new CreativeCatalogError(
+                  "invalid",
+                  "The stored creative marker has no matching catalog.",
+                );
+              data.creative = { kept: storedMarker.kept };
+            }
+            // The transaction's own catalog read is the authority: a kept
+            // recipe still preparing a removed destination refuses here. A
+            // corrupt record already threw from readCreativeCatalogRecord
+            // instead of parsing, so a damaged catalog cannot admit removal.
+            if (removals.size > 0 && pinned !== undefined)
+              checkKeptRecipeDestinations(pinned, removals, CreativeCatalogError);
+            const finished = finish();
+            return { result: { ...finished, changed: true }, puts: finished.puts };
+          }
+          const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
+          if (catalog === undefined)
             throw new CreativeCatalogError(
               "invalid",
-              "The candidate's creative marker has no matching catalog publication.",
+              "The commit's staged creative catalog is missing.",
             );
-          const pinned = readCreativeCatalogRecord(catalogRaw, request.projectId);
-          if (storedMarker === undefined) {
-            // A catalog that already published must stay pinned by the body;
-            // a marker lost from durable storage is damage, not a clean slate.
-            if (pinned !== undefined && pinned.kept !== 0)
-              throw new CreativeCatalogError(
-                "invalid",
-                "The kept creative catalog lost its body marker.",
-              );
-          } else {
-            if (pinned === undefined || pinned.kept !== storedMarker.kept)
-              throw new CreativeCatalogError(
-                "invalid",
-                "The stored creative marker has no matching catalog.",
-              );
-            data.creative = { kept: storedMarker.kept };
-          }
-          // The transaction's own catalog read is the authority: a kept
-          // recipe still preparing a removed destination refuses here. A
-          // corrupt record already threw from readCreativeCatalogRecord
-          // instead of parsing, so a damaged catalog cannot admit removal.
-          if (removals.size > 0 && pinned !== undefined)
-            checkKeptRecipeDestinations(pinned, removals, CreativeCatalogError);
-          const finished = finish();
-          return { result: { ...finished, changed: true }, puts: finished.puts };
-        }
-        const catalog = readCreativeCatalogRecord(catalogRaw, request.projectId);
-        if (catalog === undefined)
-          throw new CreativeCatalogError(
-            "invalid",
-            "The commit's staged creative catalog is missing.",
-          );
-        // The same marker/catalog invariant as the ordinary path: a kept
-        // catalog must be pinned by the durable body, and a stored marker
-        // must pin this catalog — a publication never repairs damage by
-        // writing over it.
-        const storedMarker = current === undefined ? undefined : current.creative;
-        if (storedMarker === undefined ? catalog.kept !== 0 : storedMarker.kept !== catalog.kept)
-          throw new CreativeCatalogError(
-            "invalid",
-            "The body's creative marker does not pin this catalog.",
-          );
-        // Every admission check that can run against the captured catalog:
-        // expected head, lease liveness at the transaction's own clock,
-        // ownership and workspace, kept-set identities, budgets and blob
-        // descriptors.
-        const plan = planCreativeKeep(creative, catalog, Date.now());
-        const blobKeys = [
-          ...new Set(plan.referenced.map((ref) => creativeBlobKey(request.projectId, ref.hash))),
+          // The same marker/catalog invariant as the ordinary path: a kept
+          // catalog must be pinned by the durable body, and a stored marker
+          // must pin this catalog — a publication never repairs damage by
+          // writing over it.
+          const storedMarker = current === undefined ? undefined : current.creative;
+          if (storedMarker === undefined ? catalog.kept !== 0 : storedMarker.kept !== catalog.kept)
+            throw new CreativeCatalogError(
+              "invalid",
+              "The body's creative marker does not pin this catalog.",
+            );
+          // Every admission check that can run against the captured catalog:
+          // expected head, lease liveness at the transaction's own clock,
+          // ownership and workspace, kept-set identities, budgets and blob
+          // descriptors.
+          const plan = planCreativeKeep(creative, catalog, Date.now());
+          const blobKeys = [
+            ...new Set(plan.referenced.map((ref) => creativeBlobKey(request.projectId, ref.hash))),
+          ];
+          return {
+            reads: blobKeys,
+            complete: (records) => {
+              // Exact-byte verification for every kept reference; a missing,
+              // foreign or tampered blob aborts body, catalog and receipt alike.
+              for (const ref of plan.referenced)
+                verifyCreativeBlob(
+                  records.get(creativeBlobKey(request.projectId, ref.hash)),
+                  request.projectId,
+                  ref,
+                );
+              const next = applyCreativeKeep(catalog, creative, plan);
+              if (removals.size > 0)
+                checkKeptRecipeDestinations(next, removals, CreativeCatalogError);
+              const finished = finish({ kept: next.kept, head: next.head });
+              return {
+                result: { ...finished, changed: true },
+                puts: [...finished.puts, writeCreativeCatalogRecord(next)],
+              };
+            },
+          };
+        };
+        const outcome = admit();
+        const reads = [
+          ...new Set([
+            ...historyModule.historyBlobKeys(request.projectId, current?.editHistory),
+            ...Object.keys(history?.blobs ?? {}).map((hash) =>
+              historyModule.projectHistoryBlobKey(request.projectId, hash),
+            ),
+            ...("complete" in outcome ? outcome.reads : []),
+          ]),
         ];
         return {
-          reads: blobKeys,
-          complete: (records) => {
-            // Exact-byte verification for every kept reference; a missing,
-            // foreign or tampered blob aborts body, catalog and receipt alike.
-            for (const ref of plan.referenced)
-              verifyCreativeBlob(
-                records.get(creativeBlobKey(request.projectId, ref.hash)),
-                request.projectId,
-                ref,
-              );
-            const next = applyCreativeKeep(catalog, creative, plan);
-            if (removals.size > 0)
-              checkKeptRecipeDestinations(next, removals, CreativeCatalogError);
-            const finished = finish({ kept: next.kept, head: next.head });
+          reads,
+          complete: (rows: Map<string, unknown>) => {
+            const settled = "complete" in outcome ? outcome.complete(rows) : outcome;
+            const changes = historyModule.projectHistoryWrites(
+              request.projectId,
+              current?.editHistory,
+              settled.result.changed ? history : undefined,
+              rows,
+            );
             return {
-              result: { ...finished, changed: true },
-              puts: [...finished.puts, writeCreativeCatalogRecord(next)],
+              result: settled.result,
+              puts: [...(settled.puts ?? []), ...changes.puts],
+              deletes: [...changes.deletes],
             };
           },
         };
@@ -1804,6 +1931,9 @@ export async function publishNewProject(input: {
       generation: 1,
       ...(catalog !== undefined ? { creative: { kept: catalog.kept } } : {}),
     };
+    const historyModule = await import("./projectHistoryStorage.ts");
+    const history = historyModule.checkedProjectHistory(data);
+    if (history !== undefined) data.projectHistory = history;
     readStoredBody(storedBody(data), request.projectId);
     await stampLibraryMetadata(data, true);
     if (workPlan !== undefined) {
@@ -2030,6 +2160,8 @@ export async function publishNewProject(input: {
         };
         const puts: unknown[] = [
           storedBody(data),
+          ...historyModule.projectHistoryWrites(request.projectId, undefined, history, new Map())
+            .puts,
           {
             projectId: publishKey,
             format: "monotio.agi.project-publish",
@@ -2584,6 +2716,7 @@ async function removeProjectRecords(
         // The creative catalog and its staged/kept blobs belong to this
         // lifetime: a reimport under the same id must not inherit them.
         store.delete(`creative/${project}`);
+        queuePrefixScan(store, `project-history/${project}/`, (_key, cursor) => cursor.delete());
         // The namespaced tape the resolved epoch owned leaves with it.
         store.delete(`history/${locator}`);
         queuePrefixScan(store, `history/${locator}/`, (_key, cursor) => {
@@ -2949,7 +3082,7 @@ async function storedProjects(): Promise<StoredGameBody[]> {
             if (
               data !== undefined &&
               data.format === "monotio.agi.stored-project" &&
-              [1, 2].includes(data.version) &&
+              [1, 2, 3].includes(data.version) &&
               data.projectId === key &&
               data.files &&
               typeof data.files === "object"

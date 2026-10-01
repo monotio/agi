@@ -386,3 +386,48 @@ test("a corrupt HISTORY.JSON rejects the import and names the file", async () =>
   ]);
   await assert.rejects(() => readGameZip(zip), /HISTORY\.JSON is not readable/);
 });
+
+test("private archive carries edit History; public export omits its commits and blobs", async () => {
+  const { ProjectHistory } = await import("../../src/authoring/projectHistory.ts");
+  const { writeProjectHistory } = await import("../../src/authoring/projectHistoryCodec.ts");
+  const { sha256Hex } = await import("../../src/crypto.ts");
+  const { writeProjectWorkspace } = await import("../../src/authoring/projectWorkspace.ts");
+  const history = new ProjectHistory(sha256Hex);
+  const documents = { "logic:0": "return;" };
+  const commit = history.record(documents, {
+    label: "Private checkpoint",
+    origin: "logic",
+    author: "creator",
+    time: 1,
+  })!;
+  history.tag("Beginning", commit.id);
+  const container = createContainer();
+  container.putResource("logic", 0, assembleLogic("return;", { dictionary: new Map() }).payload);
+  const data = {
+    projectId: testProjectId("edit-history-archive"),
+    title: "History",
+    authoredAt: "2026-01-01",
+    files: { ...Object.fromEntries(container.files), "WORDS.TOK": new Uint8Array(52) },
+    words: [] as [string, number][],
+    workspace: writeProjectWorkspace(documents),
+    projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+  };
+  const zip = await buildProjectZip(data);
+  assert.deepEqual((await readGameZip(zip)).project?.projectHistory, data.projectHistory);
+  assert.equal(new TextDecoder().decode(buildPublicGameZip(data)).includes(commit.id), false);
+  assert.throws(
+    () =>
+      readProjectContext(
+        new TextEncoder().encode(
+          JSON.stringify({
+            format: "monotio.agi.project",
+            version: 3,
+            projectHistory: { ...data.projectHistory, version: 999 },
+          }),
+        ),
+        new Map(),
+        "",
+      ),
+    /history version/i,
+  );
+});
