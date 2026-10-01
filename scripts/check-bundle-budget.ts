@@ -142,12 +142,11 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // workspaces before replay: 166.6 kB gzip, 139.9 kB brotli. Admission and its
   // compiler remain outside the startup closure.
   // Candidate room-entry checks share Engine's private idle/cache state and
-  // remain synchronous: 167.3 kB gzip, 140.3 kB brotli. Complete restart
-  // validation and project admission still load only for Create.
-  // Entering Create grants authority on the existing MAIN run without a reboot.
-  // The message gate and frozen-run denial bring this closure to 166.9 kB gzip,
-  // 140.0 kB brotli; the admission controller still loads on demand.
-  workers: { gzip: 167_500, brotli: 140_500 },
+  // remain synchronous. Entering Create grants authority on the existing MAIN
+  // run without a reboot, through a message gate and frozen-run denial. Together
+  // they bring this closure to 167.5 kB gzip, 140.5 kB brotli; restart
+  // validation and the admission controller still load only for Create.
+  workers: { gzip: 168_000, brotli: 141_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {

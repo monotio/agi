@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
+import { VOCABULARY_ACTIONS } from "../../../../src/vocabulary.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
@@ -21,7 +22,7 @@ const labels: Record<WorkspaceAction["kind"], string> = {
   "place-hero": "Place hero",
   response: "Response",
   door: "Door",
-  "play-sound": "Play sound",
+  "play-sound": VOCABULARY_ACTIONS.play_sound.label,
 };
 function open(next: WorkspaceAction["kind"]): void {
   kind.value = next;
