@@ -64,9 +64,11 @@ only for released formats and keep their original fixtures.
 
 - The released archives in `app/test/formats/` are never regenerated;
   `app/test/archive-formats.test.ts` must keep reading them.
-- A new field in a released format, or a change to the engine replay state that
-  tapes and recorded tests carry, is a version bump. Most readers rebuild their
-  records and would drop the field on the next save.
+- Extend a released format in place: new optional fields keep its version, and
+  readers accept files without them. Bump the version only when older files
+  cannot express the change by omission (a changed meaning, a removed or
+  restructured field, or a change to the engine replay state that tapes and
+  recorded tests carry), with one migration from the released version.
 - Stored identities stay fixed: the resource revision (pinned in
   `app/test/game-library.test.ts`) and profile ids (pinned in
   `test/profile.test.ts`). Hashes and canonical serializations order by code
