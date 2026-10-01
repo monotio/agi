@@ -1,4 +1,10 @@
 /** Complete project admission with explicit run authority, independent of debugger loading. */
+import { compileWorkingProjectImage } from "../project/projectWorkingImage.ts";
+import {
+  readProjectHistory,
+  type PortableProjectHistory,
+} from "../../../src/authoring/projectHistoryCodec.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
 import { captureProjectBuild } from "../../../src/authoring/projectBuild.ts";
 import { inspectProjectReferences } from "../../../src/authoring/projectReferences.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
@@ -13,9 +19,17 @@ import {
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 import type { ProjectAdmissionState } from "./projectAdmissionState.ts";
-import { readProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../../../src/authoring/projectWorkspace.ts";
 import { projectDocumentId } from "../../../src/authoring/projectContent.ts";
-import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
+import {
+  compileProjectDocuments,
+  readProjectDocuments,
+  readBindingsDocument,
+} from "../../../src/authoring/projectDocuments.ts";
 import type { captureProjectBuild as CaptureProjectBuild } from "../../../src/authoring/projectBuild.ts";
 import type {
   PreviewLaneIdentity,
@@ -283,6 +297,57 @@ function validateCandidate(
   };
 }
 
+/** Establish the boot image from verified source or exact native documents. */
+export function initializeProjectAdmission(
+  ctx: WorkerContext,
+  lane: ProjectAdmissionState,
+  workspace: unknown,
+  history: PortableProjectHistory | undefined,
+): void {
+  const files = liveImageFiles(ctx);
+  const profileId = ctx.engine!.profile.id;
+  const claims = workspace === undefined ? undefined : readProjectWorkspace(workspace);
+  let nativeBindings = {};
+  try {
+    if (typeof claims?.["bindings"] === "string")
+      nativeBindings = readBindingsDocument(claims["bindings"]);
+  } catch {
+    /* Native documents retain their authority. */
+  }
+  const native = readProjectDocuments({
+    files,
+    profileId,
+    bindings: nativeBindings,
+    sources: Object.fromEntries(
+      Object.entries(claims ?? {}).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
+    ),
+  });
+  const compiled = compileWorkingProjectImage({
+    files,
+    profileId,
+    documents: claims ?? native.documents,
+    fallback: native.documents,
+    ...(history !== undefined ? { history: readProjectHistory(history, sha256Hex) } : {}),
+  });
+  const documents = compiled.documents();
+  lane.buildId = compiled.build.identity.buildId;
+  lane.documentId = projectDocumentId(documents, sha256Hex);
+  lane.sources = Object.fromEntries(
+    Object.entries(documents)
+      .filter(([key, content]) => key.startsWith("logic:") && typeof content === "string")
+      .map(([key, content]) => [key.slice(6), content as string]),
+  );
+  const bindings = documents["bindings"];
+  lane.sourceBindings =
+    typeof bindings === "string"
+      ? (JSON.parse(bindings) as ProjectAdmissionState["sourceBindings"])
+      : {};
+  lane.bindings = expressionBindings(lane.sourceBindings ?? {});
+  ctx.boot.project = { documents: writeProjectWorkspace(documents), documentId: lane.documentId };
+}
+
 export interface ProjectAdmissionOptions {
   /** The host grants authority explicitly for this physical run; null denies it. */
   readonly lane: () => ProjectAdmissionState | null;
@@ -398,6 +463,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     const candidate = validated.candidate;
     let captured: ReturnType<typeof CaptureProjectBuild>;
     let documentId: string | undefined;
+    let admittedDocuments: PortableProjectWorkspace | undefined;
     try {
       captured = captureProjectBuild({
         files: candidate.record,
@@ -413,6 +479,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         msg.candidate.documentId !== undefined
       ) {
         const documents = readProjectWorkspace(msg.candidate.documents);
+        admittedDocuments = writeProjectWorkspace(documents);
         documentId = projectDocumentId(documents, sha256Hex);
         if (documentId !== msg.candidate.documentId)
           throw new Error("claimed project document identity differs from its documents");
@@ -478,7 +545,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         container: openStagedContainer(candidate.files, engine.profile),
         profile: engine.profile,
         bindings: candidate.sourceBindings,
-        allowMissingRooms: false,
+        allowMissingRooms: ctx.projectAdmission === lane && ctx.boot.authorRooms,
       });
     } catch (error) {
       settleRefused(
@@ -488,7 +555,34 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       );
       return;
     }
-    const violations = inspection.diagnostics.filter((finding) => finding.severity === "error");
+    const existing: Record<string, number> = Object.create(null);
+    const marker = (finding: (typeof inspection.diagnostics)[number]) =>
+      JSON.stringify([finding.document, finding.code, finding.command, finding.message]);
+    if (ctx.projectAdmission === lane) {
+      const baseline = inspectProjectReferences({
+        container: openStagedContainer(
+          new Map(Object.entries(liveImageFiles(ctx))),
+          engine.profile,
+        ),
+        profile: engine.profile,
+        bindings: lane.sourceBindings ?? {},
+        allowMissingRooms: ctx.boot.authorRooms,
+      });
+      for (const finding of baseline.diagnostics)
+        if (finding.severity === "error") {
+          const key = marker(finding);
+          existing[key] = (existing[key] ?? 0) + 1;
+        }
+    }
+    const violations = inspection.diagnostics.filter((finding) => {
+      if (finding.severity !== "error") return false;
+      const key = marker(finding);
+      if ((existing[key] ?? 0) > 0) {
+        existing[key]!--;
+        return false;
+      }
+      return true;
+    });
     if (violations.length > 0) {
       const first = violations[0]!;
       settleRefused(
@@ -591,6 +685,18 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     // revision untouched.
     const installed = result.status === "committed" || sourceAuthorityChanged;
     if (installed) {
+      if (ctx.projectAdmission === lane)
+        ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
+      if (ctx.projectAdmission === lane)
+        ctx.fns.historyRecord({
+          kind: "projectImage",
+          files: Object.fromEntries(
+            [...candidate.files].map(([name, bytes]) => [name, bytesToBase64(bytes)]),
+          ),
+          documents: admittedDocuments!,
+          documentId: documentId!,
+          nativeChanged: result.status === "committed",
+        });
       lane.sources = candidate.sources;
       lane.sourceBindings = candidate.sourceBindings;
       lane.bindings = candidate.bindings;

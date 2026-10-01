@@ -15,6 +15,7 @@ import {
   useTemplateRef,
   watch,
 } from "vue";
+import { useEngineApi } from "../engine/engineContext.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
@@ -36,6 +37,7 @@ const {
   onBootSavedGame,
 } = useGameLibrary();
 const shell = useShell();
+const engine = useEngineApi();
 const bridge = useShellBridge();
 // Warm the optional assistant when a player selects an AI brief.
 watch(
@@ -46,6 +48,7 @@ watch(
 // The boot resolves while the game is still loading; the shell holds the
 // Create switch until this project is the running one.
 async function onLocalCreated(projectId: ProjectId): Promise<void> {
+  engine.setProjectMode("create");
   refreshLibrary(projectId);
   await onBootSavedGame();
   shell.expectCreate(projectId);

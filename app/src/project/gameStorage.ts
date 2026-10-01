@@ -2329,22 +2329,30 @@ export async function saveAuthoredGame(
 }
 
 /** Save and return the exact committed lifetime, without a second read racing recreation. */
-export function saveAuthoredGameWithLifetime(
+export async function saveAuthoredGameWithLifetime(
   projectId: ProjectId,
   data: Omit<CachedGameData, "projectId" | "authoredAt">,
   options?: ProjectWriteOptions,
 ): Promise<string | null> {
+  return (await saveAuthoredGameCapture(projectId, data, options))?.lifetime ?? null;
+}
+
+/** The first session uses the exact saved body and lifetime from its own transaction. */
+export function saveAuthoredGameCapture(
+  projectId: ProjectId,
+  data: Omit<CachedGameData, "projectId" | "authoredAt">,
+  options?: ProjectWriteOptions,
+): Promise<{ data: CachedGameData; lifetime: string } | null> {
   return serializeWrite(projectId, async () => {
     try {
       const gen = options?.expectedGeneration;
-      return await writeBody(
-        { ...data, projectId, authoredAt: new Date().toISOString() },
-        {
-          expectedGeneration: gen,
-          expectedLifetime: options?.expectedLifetime,
-          requireNew: options?.requireNew,
-        },
-      );
+      const saved = structuredClone({ ...data, projectId, authoredAt: new Date().toISOString() });
+      const lifetime = await writeBody(saved, {
+        expectedGeneration: gen,
+        expectedLifetime: options?.expectedLifetime,
+        requireNew: options?.requireNew,
+      });
+      return { data: structuredClone(saved), lifetime };
     } catch (error) {
       console.error("Project storage failed:", error);
       return null;

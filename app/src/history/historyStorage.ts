@@ -635,9 +635,9 @@ export async function mergeHistoryBatch(
       ledger.push(batch.batch);
       manifest.bytes[batch.segment] =
         (manifest.bytes[batch.segment] ?? 0) + JSON.stringify(batch).length;
-      // A current writer's first commit on a stored v1 tape upgrades the
-      // recording header in the same transaction — the tape is a v2 record
-      // from this batch on, before any v2-only reason can land in it. Reads,
+      // A current writer's first commit on an older tape upgrades the
+      // recording header in the same transaction before a current-only
+      // event can land in it. Reads,
       // bookmark/branch writes and dedup resent batches never reach here, so
       // they never rewrite the version; a refused batch aborts the upgrade
       // with its record.

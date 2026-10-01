@@ -7,6 +7,7 @@
  * cannot smuggle a reason its released reader never knew, and an unknown
  * version is refused outright instead of being rewritten.
  */
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -63,9 +64,9 @@ function endedRecording(version: unknown, reasons: { event?: unknown; end?: unkn
   };
 }
 
-test("the writer stamps version 2; the reader accepts the released 1 and the current 2", () => {
-  assert.equal(HISTORY_FORMAT_VERSION, 2);
-  assert.deepEqual(HISTORY_FORMAT_READ_VERSIONS, [1, 2]);
+test("the writer stamps version 3; the reader accepts versions 1, 2 and 3", () => {
+  assert.equal(HISTORY_FORMAT_VERSION, 3);
+  assert.deepEqual(HISTORY_FORMAT_READ_VERSIONS, [1, 2, 3]);
 });
 
 test("a version 1 recording validates unchanged and keeps its own version stamp", () => {
@@ -128,10 +129,18 @@ test("both versions reject a reason no contract knows", () => {
 });
 
 test("an unknown recording version is refused without rewriting the record", () => {
-  for (const version of [0, 3, -1, 1.5, "2", null, undefined]) {
+  for (const version of [0, 4, -1, 1.5, "2", null, undefined]) {
     const input = endedRecording(version, {});
     const before = structuredClone(input);
     assert.throws(() => validateHistoryRecording(input), /unsupported version/);
     assert.deepEqual(input, before);
   }
+});
+
+test("atomic project images are admitted only by recording version 3", () => {
+  const input = JSON.parse(
+    readFileSync(new URL("./formats/history-v3-project-image.json", import.meta.url), "utf8"),
+  ) as ReturnType<typeof endedRecording>;
+  assert.throws(() => validateHistoryRecording({ ...input, version: 2 }));
+  assert.equal(validateHistoryRecording(input).segments[0]!.events[0]!.cause.kind, "projectImage");
 });

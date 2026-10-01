@@ -16,7 +16,7 @@ import {
   loadAuthoredGame,
   loadAuthoredGameWithHistoryLifetime,
   readHistoryLifetime,
-  saveAuthoredGameWithLifetime,
+  saveAuthoredGameCapture,
 } from "../project/gameStorage.ts";
 import {
   gameStorageKey,
@@ -82,6 +82,8 @@ export interface GameLifecycleOptions {
   readonly resetPauseOwners: () => void;
   /** The history transport's scratch session dies with the worker. */
   readonly resetHistoryView: () => void;
+  readonly flushProject?: () => Promise<void>;
+  readonly getProjectMode?: () => "create" | "play";
   readonly getSessionId: () => number;
   readonly nextSessionId: () => number;
   readonly getActiveReplaySeed: () => number | null;
@@ -365,12 +367,32 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       if (resumeCarrier !== undefined && !resumeCarrier.isCurrent()) return;
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
+      await options.flushProject?.();
+      if (
+        bootEpoch !== lifecycleEpoch ||
+        (opening !== undefined && !opening.isCurrent()) ||
+        (resumeCarrier !== undefined && !resumeCarrier.isCurrent())
+      )
+        return;
       const w = link.spawnWorker();
       authoring.resetSession();
       booted = game;
       audio.useGameFiles(game.files);
       w.postMessage({
         type: "boot",
+        ...(options.getProjectMode?.() === "create"
+          ? {
+              projectMode: "create" as const,
+              ...(game.authoredGame?.workspace !== undefined
+                ? {
+                    projectDocuments: game.authoredGame.workspace,
+                    ...(game.authoredGame.projectHistory !== undefined
+                      ? { projectHistory: game.authoredGame.projectHistory }
+                      : {}),
+                  }
+                : {}),
+            }
+          : {}),
         sessionId: options.getSessionId(),
         ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
@@ -438,6 +460,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // A commit rejection means installation never began: it propagates with
     // the previous world, its worker, phase and error state exactly as they
     // were. The catch covers only failures after the slot starts moving.
+    await options.flushProject?.();
+    if (!admission.admitted({ kind: "installed", locator: landed.locator, folder: landed.folder }))
+      return { status: "superseded" };
     admission.commit();
     try {
       retireGenesisStarter();
@@ -448,6 +473,19 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       audio.useGameFiles(prepared.game.files);
       w.postMessage({
         type: "boot",
+        ...(options.getProjectMode?.() === "create"
+          ? {
+              projectMode: "create" as const,
+              ...(prepared.game.authoredGame?.workspace !== undefined
+                ? {
+                    projectDocuments: prepared.game.authoredGame.workspace,
+                    ...(prepared.game.authoredGame.projectHistory !== undefined
+                      ? { projectHistory: prepared.game.authoredGame.projectHistory }
+                      : {}),
+                  }
+                : {}),
+            }
+          : {}),
         sessionId: options.getSessionId(),
         ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
         soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
@@ -502,9 +540,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.leaving = true;
     // Departure owns both clocks before persistence/history can suspend.
     retireGenesisStarter();
+    const ejectEpoch = lifecycleEpoch;
     autosave.beginResumeBoot();
-    options.pauseEngine("eject");
     try {
+      await options.flushProject?.();
+      if (ejectEpoch !== lifecycleEpoch) {
+        state.leaving = false;
+        return;
+      }
+      options.pauseEngine("eject");
       const game = booted;
       const session = authoring.getSession();
       // Behind storage (another tab committed a newer revision) this game's
@@ -638,7 +682,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const { files, words, transcript, sessionId } = resources;
     const { projectId, templateId, title, config } = boot;
     const authoringState = session.getAuthoringState();
-    const authoredGame: CachedGameData = {
+    let authoredGame: CachedGameData = {
       projectId,
       templateId,
       title,
@@ -657,7 +701,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // Superseded while detection and hashing ran: the newer flow owns the
     // slot, and this world's first save goes with the run that was retired.
     if (epoch !== undefined && epoch !== lifecycleEpoch) return;
-    const historyLifetime = await saveAuthoredGameWithLifetime(projectId, {
+    const saved = await saveAuthoredGameCapture(projectId, {
       templateId,
       title,
       provider: config.provider,
@@ -669,6 +713,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       authoringState,
       roomGeneration: true,
     });
+    const historyLifetime = saved?.lifetime ?? null;
+    if (saved !== null) authoredGame = saved.data;
     if (epoch !== undefined && epoch !== lifecycleEpoch) return;
     if (historyLifetime === null)
       logAgent(
@@ -681,6 +727,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         `Saved the world and its authoring conversation in this browser (${projectId}).`,
       );
 
+    await options.flushProject?.();
+    if (epoch !== undefined && epoch !== lifecycleEpoch) return;
     const w = link.spawnWorker();
     const game: BootedGame = {
       installed: false,
@@ -705,6 +753,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     audio.useGameFiles(files);
     w.postMessage({
       type: "boot",
+      projectMode: "create",
       sessionId: options.getSessionId(),
       soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,
       files,
@@ -870,6 +919,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           if (resumeCarrier !== undefined && !resumeCarrier.isCurrent()) return;
           options.setActiveLlmConfig(cachedConfig);
           authoring.setSession(cachedSession);
+          await options.flushProject?.();
+          if (
+            bootEpoch !== lifecycleEpoch ||
+            (opening !== undefined && !opening.isCurrent()) ||
+            (resumeCarrier !== undefined && !resumeCarrier.isCurrent())
+          )
+            return;
           const w = link.spawnWorker();
           // The authoring content this boot read is the tab's base for it.
           hydrateAuthoring(game, cached.authoringState);
@@ -881,6 +937,19 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           audio.useGameFiles(cached.files);
           w.postMessage({
             type: "boot",
+            ...(options.getProjectMode?.() === "create"
+              ? {
+                  projectMode: "create" as const,
+                  ...(cached.workspace !== undefined
+                    ? {
+                        projectDocuments: cached.workspace,
+                        ...(cached.projectHistory !== undefined
+                          ? { projectHistory: cached.projectHistory }
+                          : {}),
+                      }
+                    : {}),
+                }
+              : {}),
             sessionId: options.getSessionId(),
             ...(activeReplaySeed !== null ? { replaySeed: activeReplaySeed } : {}),
             soundDevice: state.soundMode === "pc-speaker" ? 0 : 1,

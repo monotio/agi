@@ -1,6 +1,6 @@
 /**
  * The stored tape's nested recording version under the format bump: this
- * build writes version 2 (which adds the "debugger" end reason) while still
+ * build writes version 3 (which adds admitted project images) while still
  * reading and extending a released version-1 tape in place — never forking
  * it into an "older timeline" it is not. The upgrade is the first committed
  * append's business and lands in that commit's transaction; reads,
@@ -232,10 +232,10 @@ test("the first committed append upgrades a stored v1 tape atomically with its b
     ),
     true,
   );
-  assert.equal(manifestOf(key).recording.version, 2);
+  assert.equal(manifestOf(key).recording.version, HISTORY_FORMAT_VERSION);
 
   const tape = await loadGameHistory(key);
-  assert.equal(tape?.version, 2);
+  assert.equal(tape?.version, HISTORY_FORMAT_VERSION);
   assert.equal(tape?.segments[0]?.end?.reason, "debugger");
   assert.deepEqual(
     tape?.segments[0]?.events.map((e) => e.seq),
@@ -318,9 +318,9 @@ test("a mid-commit failure rolls back the batch and the upgrade together", async
     await appendHistoryBatch(target, batch(2, { end: DEBUG_END }), "2.936", INSTALLED_EPOCH),
     true,
   );
-  assert.equal(manifestOf(key).recording.version, 2);
+  assert.equal(manifestOf(key).recording.version, HISTORY_FORMAT_VERSION);
   const tape = await loadGameHistory(key);
-  assert.equal(tape?.version, 2);
+  assert.equal(tape?.version, HISTORY_FORMAT_VERSION);
   assert.equal(tape?.segments[0]?.end?.reason, "debugger");
 });
 
@@ -369,9 +369,9 @@ test("a v1 import lands supported — no fork, and the first live append upgrade
     ),
     true,
   );
-  assert.equal(manifestOf(key).recording.version, 2);
+  assert.equal(manifestOf(key).recording.version, HISTORY_FORMAT_VERSION);
   const tape = await loadGameHistory(key);
-  assert.equal(tape?.version, 2);
+  assert.equal(tape?.version, HISTORY_FORMAT_VERSION);
   assert.deepEqual(
     tape?.segments.map((s) => s.id),
     ["imp.s1", "live.s1"],
@@ -417,7 +417,7 @@ test("a v1 import of an unsettled staged candidate stays staged through the upgr
     ),
     true,
   );
-  assert.equal(manifestOf(key).recording.version, 2);
+  assert.equal(manifestOf(key).recording.version, HISTORY_FORMAT_VERSION);
   const exported = await loadProjectHistory(key);
   assert.deepEqual(
     exported?.staged?.map((s) => s.id),
@@ -511,8 +511,8 @@ test("moving a v1 tape to an empty key preserves its stamp; merging onto one lif
   assert.equal(manifestOf(to).recording.version, 1, "a re-keyed copy keeps its version");
   assert.equal((await loadGameHistory(to))?.version, 1);
 
-  // The destination already holds a v1 tape; a v2 source merging in lifts
-  // the union's stamp — the merged record must not claim v1 over v2 data.
+  // The destination already holds a v1 tape; a current source merging in lifts
+  // the union's stamp — the merged record must not claim v1 over current data.
   const srcTarget = installedTarget("fmt-move-src");
   assert.equal(
     await appendHistoryBatch(
@@ -524,13 +524,13 @@ test("moving a v1 tape to an empty key preserves its stamp; merging onto one lif
     true,
   );
   await moveHistoryRecord(srcTarget, toTarget, INSTALLED_EPOCH);
-  assert.equal(manifestOf(to).recording.version, 2);
+  assert.equal(manifestOf(to).recording.version, HISTORY_FORMAT_VERSION);
   const tape = await loadGameHistory(to);
-  assert.equal(tape?.version, 2);
+  assert.equal(tape?.version, HISTORY_FORMAT_VERSION);
   assert.ok((tape?.segments.length ?? 0) >= 2, "both tapes' segments merged");
 });
 
-test("the archive wrapper admits nested versions 1 and 2 and rejects the rest", () => {
+test("the archive wrapper admits nested versions 1, 2 and 3 and rejects the rest", () => {
   const archive = (version: unknown) =>
     new TextEncoder().encode(
       JSON.stringify({
@@ -548,7 +548,8 @@ test("the archive wrapper admits nested versions 1 and 2 and rejects the rest", 
     );
   assert.equal(readHistoryArchive(archive(1)).recording.version, 1);
   assert.equal(readHistoryArchive(archive(2)).recording.version, 2);
-  assert.throws(() => readHistoryArchive(archive(3)), /unsupported version/);
+  assert.equal(readHistoryArchive(archive(3)).recording.version, 3);
+  assert.throws(() => readHistoryArchive(archive(4)), /unsupported version/);
   assert.throws(() => readHistoryArchive(archive(0)), /unsupported version/);
   // The wrapper itself is unchanged — a v2 wrapper is still refused.
   assert.throws(

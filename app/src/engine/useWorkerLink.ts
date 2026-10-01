@@ -26,6 +26,8 @@ import type {
 
 /** Controllers the wire dispatches to; useEngine fills it once each exists. */
 interface WorkerLinkDeps {
+  projectBooted?(msg: Extract<WorkerOutbound, { type: "booted" }>): void;
+  projectClosed?(): void;
   resetScreenState(): void;
   cancelPrompt(): void;
   handleAutosave(msg: Extract<WorkerOutbound, { type: "autosave" }>): void;
@@ -188,6 +190,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
 
   /** Terminate the current worker and forget it (eject / shutdown paths). */
   function terminateWorker(): void {
+    deps.projectClosed?.();
     worker?.terminate();
     worker = null;
     // A dead worker holds no audio pause.
@@ -203,6 +206,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
   }
 
   function spawnWorker(): Worker {
+    deps.projectClosed?.();
     worker?.terminate();
     audio.stop();
     deps.resetScreenState();
@@ -496,6 +500,7 @@ export function useWorkerLink(options: WorkerLinkOptions) {
           state.roomJournal.splice(0, state.roomJournal.length - 4000);
       },
       booted: (msg) => {
+        deps.projectBooted?.(msg);
         const booted = options.getBootedGame();
         // The resume pointer moves only to the physical address the booted
         // game bound — a superseded boot's acknowledgement cannot arrive

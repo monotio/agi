@@ -13,6 +13,7 @@ import { AUTOSAVE_INTERVAL_MS } from "./autosave.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 import { resetSession } from "./session.ts";
 import { newDebuggerState, newPreviewLane, mintPreviewRunToken } from "./debuggerState.ts";
+import { newProjectAdmissionState } from "./projectAdmissionState.ts";
 import { controllerDemand, ensureDebugController } from "./debugLoader.ts";
 import type { BootMessage, FrozenTestBoot, WorkerInbound } from "./workerProtocol.ts";
 
@@ -203,6 +204,49 @@ function debugLoadGate(ctx: WorkerContext, msg: WorkerInbound): boolean {
 }
 
 export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
+  const loader = ctx.projectLoader;
+  if (
+    loader.loading !== null ||
+    (msg.type === "boot" && msg.projectMode === "create" && !loader.installed)
+  ) {
+    loader.queue.push(msg);
+    if (loader.loading === null) {
+      loader.loading = import("./projectAdmission.ts")
+        .then(
+          ({ createProjectAdmission, initializeProjectAdmission, projectAdmissionIdentity }) => {
+            Object.assign(
+              ctx.fns,
+              createProjectAdmission(ctx, { lane: () => ctx.projectAdmission }),
+            );
+            loader.initialize = (boot) => {
+              if (ctx.projectAdmission !== null)
+                initializeProjectAdmission(
+                  ctx,
+                  ctx.projectAdmission,
+                  boot.projectDocuments,
+                  boot.projectHistory,
+                );
+            };
+            loader.identity = () => projectAdmissionIdentity(ctx, ctx.projectAdmission);
+            loader.installed = true;
+          },
+        )
+        .catch((error: unknown) => {
+          ctx.ports.control({
+            type: "error",
+            message: `Project admission failed to load: ${String(error)}`,
+          });
+          loader.queue = [];
+        })
+        .finally(() => {
+          loader.loading = null;
+          const pending = loader.queue;
+          loader.queue = [];
+          for (const held of pending) onWorkerMessage(ctx, held);
+        });
+    }
+    return;
+  }
   if (debugLoadGate(ctx, msg)) return;
   const control = ctx.ports.control;
   try {
@@ -476,6 +520,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       ctx.boot.currentDictionary = ctx.boot.liveDictionary;
       ctx.replay.lastReplaySeed = Number.isInteger(boot.replaySeed) ? boot.replaySeed! : null;
       ctx.boot.authoredWords = null;
+      ctx.boot.project = undefined;
       // A test run never installs room authoring: already-built rooms
       // transition through the real engine and a missing one reports the
       // engine's deterministic outcome — no generation request, no fallback.
@@ -488,6 +533,11 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         ctx.boot.liveDictionary,
         ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
       );
+      ctx.projectAdmission =
+        boot.projectMode === "create" && frozen === undefined
+          ? newProjectAdmissionState(mintPreviewRunToken(), ctx.engine)
+          : null;
+      if (ctx.projectAdmission !== null) loader.initialize?.(boot);
       ctx.fns.armJournal();
       // Browser sessions start with game sound enabled; saved games restore their own flag.
       ctx.engine.flags[9] = 1;
@@ -545,7 +595,19 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
         if (!admitFrozenTest(ctx, frozen)) return;
       }
       if (!ctx.replay.replay) ctx.fns.startTimers();
-      control({ type: "booted", profile: ctx.engine.profile.id, kind: ctx.engine.profileKind });
+      control({
+        type: "booted",
+        profile: ctx.engine.profile.id,
+        kind: ctx.engine.profileKind,
+        ...(ctx.projectAdmission !== null
+          ? {
+              projectAdmission: {
+                runToken: ctx.projectAdmission.runToken,
+                identity: loader.identity!()!,
+              },
+            }
+          : {}),
+      });
       // A live debug session survives a normal boot under a fresh epoch,
       // rebound against the new image. The frozen admission just installed
       // its own session — rebinding would mint a second epoch and strand the

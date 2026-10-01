@@ -357,12 +357,14 @@ test("Exit still refuses when browser storage fails or the autosave times out", 
 });
 
 /** A boot-path lifecycle: real storage and binding, fake worker and session seams. */
-function bootHarness() {
+function bootHarness(overrides: Partial<GameLifecycleOptions> = {}) {
   const workers: { posted: unknown[]; postMessage(m: unknown): void }[] = [];
   const sessions: unknown[] = [];
   const noop = () => {};
   const state = {
     loading: null as unknown,
+    leaving: false,
+    powerUp: { busy: false },
     phase: "idle" as string,
     error: "",
     installedGames: [] as unknown[],
@@ -425,11 +427,35 @@ function bootHarness() {
     abortWalkthrough: noop,
     drainHistoryCommits: async () => {},
     stopHistoryWriter: noop,
+    ...overrides,
   } as unknown as GameLifecycleOptions);
   return { lifecycle, workers, sessions, state };
 }
 
 const STUB_CONFIG = { provider: "stub" as const, apiKey: "", model: "offline-stub" };
+
+test("Exit ignores a project flush that answers after the physical session is retired", async () => {
+  let release: (() => void) | undefined;
+  let pauses = 0;
+  const { lifecycle } = bootHarness({
+    flushProject: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    pauseEngine: () => {
+      pauses++;
+    },
+  });
+  const leaving = lifecycle.ejectGame();
+  lifecycle.shutdownEngine();
+  release!();
+  let failure: unknown;
+  await leaving.catch((error) => {
+    failure = error;
+  });
+  assert.equal(pauses, 0);
+  assert.equal(failure, undefined);
+});
 
 function saveBody(id: ProjectId, fill: number) {
   return saveAuthoredGame(id, {
@@ -532,5 +558,10 @@ test("a superseded creation's finish saves and boots nothing", async (t) => {
     "the saved body's own epoch binds the running game",
   );
   assert.equal(game?.historyLifetime, epoch);
+  assert.equal(
+    game?.authoredGame?.generation,
+    (await loadAuthoredGame(id))?.generation,
+    "the first editable session carries the generation its own save committed",
+  );
   assert.equal(workers.length, 1);
 });

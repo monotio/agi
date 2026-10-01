@@ -11,8 +11,8 @@ export function previewLaneIdentity(ctx: WorkerContext) {
 
 export function createPreviewAdmission(ctx: WorkerContext) {
   return createProjectAdmission(ctx, {
-    lane: () => ctx.debugger.preview,
-    legacyPreview: true,
+    lane: () => ctx.projectAdmission ?? ctx.debugger.preview,
+    legacyPreview: ctx.projectAdmission === null,
     prepareSession(candidate) {
       const d = ctx.debugger;
       const engine = ctx.engine;
