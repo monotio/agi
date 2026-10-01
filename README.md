@@ -176,7 +176,8 @@ A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it, with the rewind timeline. **Create** shows the parts list on
 the left and the same running game beside its editors. Open a PICTURE to draw
 with Room Studio’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
-loops and cels. WORDS and OBJECTS have table editors; SOUND offers playback and
+loops and cels. WORDS groups words by meaning, tests sentences with the game’s parser and
+keeps a local list of missed playtest commands. OBJECTS has a table editor; SOUND offers playback and
 presets. **Focus** gives an editor the workspace while the game keeps running.
 Create works best on a larger screen; games play on phones too.
 

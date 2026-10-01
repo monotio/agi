@@ -91,6 +91,23 @@ export function createEngineHost(ctx: WorkerContext): EngineHost {
     takeInputLine() {
       const line = ctx.input.inputBuffer.shift() ?? null;
       ctx.recording.recording?.tape.host(["line", line]);
+      if (
+        line !== null &&
+        ctx.input.observeSentences &&
+        ctx.projectAdmission &&
+        ctx.engine?.inputEnabled &&
+        !ctx.replay.replay
+      ) {
+        ctx.input.sentence = {
+          engine: ctx.engine,
+          text: line,
+          room: ctx.engine.vars[0]!,
+          matched: false,
+          unknown: "",
+          parsed: false,
+        };
+        ctx.fns.applyTraceChannel();
+      }
       return line;
     },
     takeKeys() {

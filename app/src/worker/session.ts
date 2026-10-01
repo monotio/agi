@@ -13,6 +13,7 @@ export function resetSession(ctx: WorkerContext): void {
   ctx.cycle.paused = false;
   ctx.cycle.pendingClock = null;
   ctx.input.inputBuffer = [];
+  ctx.input.sentence = null;
   ctx.input.keyQueue = [];
   ctx.input.clickQueue = [];
   ctx.input.deferredMovement.length = 0;

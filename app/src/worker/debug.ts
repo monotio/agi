@@ -1,3 +1,4 @@
+import { observeSentence } from "./missedSentences.ts";
 /**
  * Inspector plumbing: state diffs, the trace channel, and the debug
  * messages. Pure functions of the worker context — importable under Node.
@@ -61,8 +62,10 @@ export function createDebug(ctx: WorkerContext) {
 
   function applyTraceChannel(): void {
     ctx.engine?.setTraceListener(
-      ctx.debug.channels.trace
+      ctx.debug.channels.trace || ctx.input.sentence !== null
         ? (record) => {
+            observeSentence(ctx, record);
+            if (!ctx.debug.channels.trace) return;
             const stamped = { ...record, seq: ++ctx.debug.traceSeq, cycle: ctx.cycle.cycleCount };
             ctx.debug.traceRing.push(stamped);
             if (ctx.debug.traceRing.length > TRACE_CAP)

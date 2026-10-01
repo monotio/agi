@@ -51,9 +51,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "Stuck?",
         body: [
           "Look at everything, then look again. Sierra hid a lot in the scenery.",
-          "Ask for a hint gets a nudge and leaves the game as it is. The map shows the rooms you have walked, and games with a recorded walkthrough can play it for you, spoilers included.",
+          "Get a hint gives a nudge from the agent and leaves the game as it is. The map shows the rooms you have walked, and games with a recorded walkthrough can play it for you, spoilers included.",
         ],
-        action: { kind: "hint", label: "Ask for a hint" },
+        action: { kind: "hint", label: "Get a hint" },
       },
       {
         id: "map",

@@ -21,6 +21,7 @@ import { testRevision } from "./identity.ts";
  * and replacement guards.
  */
 const OUTBOUND_TYPES = [
+  "missedSentence",
   "paused",
   "hostRequest",
   "interactionCancelled",
@@ -240,6 +241,15 @@ test("every WorkerOutbound member reaches its handler once", async () => {
     depCalls.length = 0;
     audioCalls.length = 0;
     switch (type) {
+      case "missedSentence": {
+        let observed = "";
+        link.deps.missedSentence = (message) => {
+          observed = message.text;
+        };
+        deliver(w, { type, text: "sit", room: 1, unknown: "sit" });
+        assert.equal(observed, "sit");
+        break;
+      }
       case "paused":
         deliver(w, { type, paused: true, cycle: 42 });
         assert.equal(hook.paused, true);

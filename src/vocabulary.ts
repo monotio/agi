@@ -10,6 +10,133 @@ export interface VocabularyAction extends VocabularyTerm {
 }
 
 export const VOCABULARY = {
+  meaningButton: {
+    id: "meaningButton",
+    label: "+ Meaning",
+    help: "Starts a row of words with a new meaning.",
+    technical: "",
+  },
+  playtests: {
+    id: "playtests",
+    label: "from your playtests",
+    help: "Sentences from your playtests.",
+    technical: "",
+  },
+  sentenceParser: {
+    id: "sentenceParser",
+    label: "The game’s own parser reads it",
+    help: "Reads the sentence with the current WORDS.",
+    technical: "",
+  },
+  meanings: {
+    id: "meanings",
+    label: "Meanings",
+    help: "Words that mean the same thing. The game treats every word in a meaning alike, so LOGIC that answers “look” also answers “examine”.",
+    technical: "",
+  },
+  trySentence: {
+    id: "trySentence",
+    label: "Try a sentence",
+    help: "The game’s own parser reads it.",
+    technical: "",
+  },
+  playersTried: {
+    id: "playersTried",
+    label: "Players tried",
+    help: "Sentences from your playtests.",
+    technical: "",
+  },
+  findWord: {
+    id: "findWord",
+    label: "Find a word",
+    help: "Find a word or a group number.",
+    technical: "",
+  },
+  skippedWords: {
+    id: "skippedWords",
+    label: "Skipped",
+    help: "The parser passes over these, so “look at the tree” reads as “look tree”.",
+    technical: "",
+  },
+  typeSentence: {
+    id: "typeSentence",
+    label: "Type it in the game ↵",
+    help: "Types this sentence into the running game.",
+    technical: "",
+  },
+  readyResponse: {
+    id: "readyResponse",
+    label: "Ready for a response",
+    help: "Add a response for this meaning.",
+    technical: "",
+  },
+  addResponse: {
+    id: "addResponse",
+    label: "Add response",
+    help: "Adds a command and its response to this room’s LOGIC.",
+    technical: "",
+  },
+  predictCommands: {
+    id: "predictCommands",
+    label: "✦ Predict commands",
+    help: "Suggested by the agent from the room’s picture, objects and text.",
+    technical: "",
+  },
+  suggestWords: {
+    id: "suggestWords",
+    label: "✦ Suggest",
+    help: "Proposes words with the same meaning.",
+    technical: "",
+  },
+  sameAs: {
+    id: "sameAs",
+    label: "Same as…",
+    help: "Adds the new word to a meaning.",
+    technical: "",
+  },
+  moveWord: {
+    id: "moveWord",
+    label: "Move to…",
+    help: "Moves a word to another meaning.",
+    technical: "",
+  },
+  newWord: {
+    id: "newWord",
+    label: "new word",
+    help: "The game stops reading at this word.",
+    technical: "",
+  },
+  unreadWord: {
+    id: "unreadWord",
+    label: "not read",
+    help: "The parser stops at the first new word or after ten words.",
+    technical: "",
+  },
+  skippedWord: {
+    id: "skippedWord",
+    label: "skipped",
+    help: "The parser passes over this word.",
+    technical: "",
+  },
+  noResponse: {
+    id: "noResponse",
+    label: "This room has no response for it yet",
+    help: "Add a response for the sentence.",
+    technical: "",
+  },
+  orderWords: {
+    id: "orderWords",
+    label: "Order: most used",
+    help: "Meanings with the most LOGIC uses appear first.",
+    technical: "",
+  },
+  reviewCommands: {
+    id: "reviewCommands",
+    label: "Add all as changes to review",
+    help: "Hands the gaps to the agent as a scoped editing task.",
+    technical: "",
+  },
+
   closeEditor: {
     id: "closeEditor",
     label: "Close editor",

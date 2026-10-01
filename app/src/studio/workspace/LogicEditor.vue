@@ -15,6 +15,7 @@ const props = defineProps<{
   breakpoints?: readonly number[] | undefined;
   stoppedLine?: number | undefined;
   runningSource?: string | undefined;
+  location?: { line: number; serial: number } | undefined;
 }>();
 const emit = defineEmits<{ edit: [source: string]; breakpoint: [line: number] }>();
 const showRunning = ref(false);
@@ -146,6 +147,7 @@ onMounted(() => {
   observer.observe(root.value!);
   analysis();
   decorate();
+  revealLocation();
 });
 watch(
   () => props.source,
@@ -172,6 +174,13 @@ watch(
   },
 );
 watch(() => props.snapshot, analysis);
+function revealLocation(): void {
+  if (!props.location || !editor) return;
+  editor.setPosition({ lineNumber: props.location.line, column: 1 });
+  editor.revealLineInCenter(props.location.line);
+  editor.focus();
+}
+watch(() => props.location, revealLocation);
 watch(
   () => props.active,
   (active) => {

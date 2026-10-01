@@ -1,15 +1,21 @@
 <script setup lang="ts">
 import { VOCABULARY_ACTIONS } from "../../../../src/vocabulary.ts";
 import { SOUND_PRESETS } from "../../../../src/sound/presets.ts";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiButton from "../../ui/UiButton.vue";
-const props = defineProps<{ room: number; busy: boolean }>();
+const props = defineProps<{ room: number; busy: boolean; initialCommand?: string }>();
 const emit = defineEmits<{ add: [action: WorkspaceAction] }>();
 const kind = defineModel<WorkspaceAction["kind"] | undefined>("action");
 const title = ref("");
-const command = ref("");
+const command = ref(props.initialCommand ?? "");
+watch(
+  () => props.initialCommand,
+  (value) => {
+    command.value = value ?? "";
+  },
+);
 const response = ref("");
 const view = ref(0);
 const sound = ref(1);

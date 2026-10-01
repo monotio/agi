@@ -4,7 +4,7 @@ import { test } from "node:test";
 import ts from "typescript";
 import { baseParse, NodeTypes, type RootNode, type TemplateChildNode } from "@vue/compiler-dom";
 import { ROOM_TOOL_HINTS, ROOM_TOOL_NAMES } from "../src/studio/studioHelp.ts";
-import { VOCABULARY_ACTIONS, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
+import { VOCABULARY, VOCABULARY_ACTIONS, RETIRED_UI_TERMS } from "../../src/vocabulary.ts";
 
 // These are persisted values, editor modes and resource identifiers, rather than visible copy.
 const IDENTIFIERS: Readonly<Record<string, true>> = {
@@ -144,11 +144,8 @@ test("workspace copy shares vocabulary labels and explainers", () => {
     ],
     "app/src/App.vue": ["VOCABULARY.waitingUpdate.label"],
     "app/src/studio/workspace/TableEditor.vue": [
-      "VOCABULARY.wordGroup.help",
       "VOCABULARY.objectColumn.label",
       "VOCABULARY.roomColumn.label",
-      "VOCABULARY.addWord.label",
-      "VOCABULARY.addGroup.label",
     ],
   };
   for (const [file, expressions] of Object.entries(bindings)) {
@@ -156,4 +153,24 @@ test("workspace copy shares vocabulary labels and explainers", () => {
     for (const expression of expressions)
       assert.ok(source.includes(expression), `${file}: ${expression}`);
   }
+});
+
+test("Words editor copy binds to the approved vocabulary", () => {
+  const source = readFileSync("app/src/studio/workspace/WordsEditor.vue", "utf8");
+  for (const term of [
+    "meanings",
+    "trySentence",
+    "playersTried",
+    "findWord",
+    "skippedWords",
+    "typeSentence",
+    "readyResponse",
+    "predictCommands",
+    "suggestWords",
+  ])
+    assert.ok(source.includes(`VOCABULARY.${term}`), term);
+  assert.equal(
+    VOCABULARY.skippedWords.help,
+    "The parser passes over these, so “look at the tree” reads as “look tree”.",
+  );
 });
