@@ -42,7 +42,23 @@ async function seedLocalProject(page: Page, title: string): Promise<string> {
     return prepared.projectId as string;
   }, title);
   await page.waitForLoadState("networkidle");
+  await finishOpeningPreview(page);
   return projectId;
+}
+
+/**
+ * The installed fixture card's opening preview is the home shelf's lazy
+ * render: its fixture files are fetched one by one through the bounded
+ * queue, so `networkidle` can settle inside that sequence. A deliberate
+ * navigation must wait for the real thumbnail — WebKit reports a fetch cut
+ * by reload as a pageerror — and for the rest of the queue to drain behind
+ * it.
+ */
+async function finishOpeningPreview(page: Page): Promise<void> {
+  const card = page.getByTestId("local-game-card-synthetic");
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.getByTestId("library-thumbnail")).toBeVisible();
+  await expect(page.getByTestId("thumbnail-placeholder")).toHaveCount(0);
 }
 
 /**
@@ -69,6 +85,7 @@ async function seedMixedProject(page: Page, title: string): Promise<string> {
     { name: title, workspaceModule: WORKSPACE_MODULE },
   );
   await page.waitForLoadState("networkidle");
+  await finishOpeningPreview(page);
   return projectId;
 }
 
