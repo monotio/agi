@@ -44,9 +44,7 @@ test("v1 assistant history is preserved in a subsequent v2 backup", async () => 
     readFileSync(new URL("./formats/project-v1.zip", import.meta.url)),
   );
   const original = await readGameZip(fixture);
-  // A project context's creative assets are never restamped into a body's
-  // storage marker; the spread drops the context-only field explicitly.
-  const { creative: _creativeAssets, ...context } = original.project ?? {};
+  const context = original.project ?? {};
   const data = {
     ...manualProject(),
     ...context,

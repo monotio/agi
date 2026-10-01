@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
+import { EGA_PALETTE } from "../render/palette.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
@@ -72,8 +73,8 @@ const {
   /** The proposal's side effects: cells of other items it changes, outside the selection. */
   spilled?: MaskPaths | null;
   /**
-   * A prepared reference underlay (160x168 RGBA) blended over the art as a
-   * tracing guide — a display overlay only, never part of the picture data.
+   * A prepared reference underlay (160x168 RGBA) below the picture marks.
+   * It changes the drawing surface only; the PICTURE retains its native data.
    */
   underlay?: { pixels: Uint8Array; opacity: number } | null;
   /** The pointer is over the selection, which a drag moves: the move cursor. */
@@ -149,9 +150,9 @@ watchEffect(
     if (target.height !== backingHeight.value) target.height = backingHeight.value;
     const context = target.getContext("2d")!;
     context.imageSmoothingEnabled = false;
-    context.drawImage(scratch, 0, 0, target.width, target.height);
-    // The reference underlay sits over the art at its own opacity — a tracing
-    // guide on the canvas only, never part of the picture bytes.
+    context.fillStyle = `rgb(${EGA_PALETTE[15]!.join(" ")})`;
+    context.fillRect(0, 0, target.width, target.height);
+    // White is the PICTURE paper. The reference sits below its coloured marks.
     if (underlay !== null && underlay.opacity > 0) {
       underlayScratch ??= document.createElement("canvas");
       underlayScratch.width = SCREEN_WIDTH;
@@ -162,7 +163,10 @@ watchEffect(
       context.globalAlpha = underlay.opacity;
       context.drawImage(underlayScratch, 0, 0, target.width, target.height);
       context.globalAlpha = 1;
+      for (let i = 0; i < visual.length; i++) if (visual[i] === 15) image.data[i * 4 + 3] = 0;
+      scratch.getContext("2d")!.putImageData(image, 0, 0);
     }
+    context.drawImage(scratch, 0, 0, target.width, target.height);
   },
   { flush: "post" },
 );

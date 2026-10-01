@@ -18,6 +18,8 @@ export const PROJECT_WORKSPACE_LIMITS = Object.freeze({
   maxDocuments: 1030,
   /** Per-document payload: text counts 2 bytes per UTF-16 code unit, bytes count 1. */
   maxDocumentBytes: 8 * 1024 * 1024,
+  maxAttachmentBytes: 64 * 1024 * 1024,
+  maxImageTotalBytes: 128 * 1024 * 1024,
   maxTotalBytes: 64 * 1024 * 1024,
 });
 
@@ -28,7 +30,7 @@ type WorkspaceDocumentContent =
 /** Plain JSON structure: sorted, frozen and detached from the inputs. */
 export interface PortableProjectWorkspace {
   readonly format: typeof PROJECT_WORKSPACE_FORMAT;
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly documents: readonly {
     readonly key: string;
     readonly content: WorkspaceDocumentContent;
@@ -71,11 +73,21 @@ function documentKey(value: unknown): string {
   return value;
 }
 
-function checkPayload(key: string, size: number, total: { bytes: number }): void {
-  if (size > PROJECT_WORKSPACE_LIMITS.maxDocumentBytes)
+function checkPayload(key: string, size: number, total: { bytes: number; images: boolean }): void {
+  if (
+    size >
+    (key.startsWith("attachment:")
+      ? PROJECT_WORKSPACE_LIMITS.maxAttachmentBytes
+      : PROJECT_WORKSPACE_LIMITS.maxDocumentBytes)
+  )
     invalid(`document '${key}' payload exceeds the per-document limit.`);
   total.bytes += size;
-  if (total.bytes > PROJECT_WORKSPACE_LIMITS.maxTotalBytes)
+  if (
+    total.bytes >
+    (total.images
+      ? PROJECT_WORKSPACE_LIMITS.maxImageTotalBytes
+      : PROJECT_WORKSPACE_LIMITS.maxTotalBytes)
+  )
     invalid("document payloads exceed the total workspace limit.");
 }
 
@@ -93,7 +105,7 @@ export function writeProjectWorkspace(
   if (entries.length > PROJECT_WORKSPACE_LIMITS.maxDocuments)
     invalid(`kept documents must list at most ${PROJECT_WORKSPACE_LIMITS.maxDocuments} documents.`);
   const parsed: { key: string; content: string | Uint8Array }[] = [];
-  const total = { bytes: 0 };
+  const total = { bytes: 0, images: entries.some(([key]) => key.startsWith("attachment:")) };
   for (const [key, content] of entries) {
     checkProjectDocumentKey(key);
     if (typeof content === "string") {
@@ -108,7 +120,7 @@ export function writeProjectWorkspace(
   parsed.sort((a, b) => byKey(a.key, b.key));
   return Object.freeze({
     format: PROJECT_WORKSPACE_FORMAT,
-    version: 1,
+    version: entries.some(([key]) => key === "images" || key.startsWith("attachment:")) ? 2 : 1,
     documents: Object.freeze(
       parsed.map(({ key, content }) =>
         Object.freeze({
@@ -139,7 +151,7 @@ export function readProjectWorkspace(
   const envelope = plainObject(value, "envelope");
   if (envelope["format"] !== PROJECT_WORKSPACE_FORMAT)
     throw new Error(`Unsupported project workspace format: ${String(envelope["format"])}.`);
-  if (envelope["version"] !== 1)
+  if (envelope["version"] !== 1 && envelope["version"] !== 2)
     throw new Error(`Unsupported project workspace version: ${String(envelope["version"])}.`);
   const record = fields(envelope, "envelope", ENVELOPE_FIELDS);
   const documents = record["documents"];
@@ -147,10 +159,12 @@ export function readProjectWorkspace(
     invalid(`envelope must list at most ${PROJECT_WORKSPACE_LIMITS.maxDocuments} documents.`);
   const parsed: { key: string; content: string | readonly number[] }[] = [];
   const seen = new Set<string>();
-  const total = { bytes: 0 };
+  const total = { bytes: 0, images: envelope["version"] === 2 };
   for (const entry of documents) {
     const document = fields(entry, "document", DOCUMENT_FIELDS);
     const key = documentKey(document["key"]);
+    if (envelope["version"] === 1 && (key === "images" || key.startsWith("attachment:")))
+      invalid("image attachments require workspace version 2.");
     if (seen.has(key)) invalid(`duplicate document '${key}'.`);
     seen.add(key);
     const holder = plainObject(document["content"], `document '${key}' content`);

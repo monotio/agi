@@ -1,50 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  emptyCreativeCatalog,
-  readCreativePreparation,
-  writeCreativeBlobRecord,
-  writeCreativeCatalogRecord,
-} from "../src/creative/catalog.ts";
-import { sha256Hex } from "../src/crypto.ts";
-
-test("catalog writer detaches lease and hold records from caller ownership", () => {
-  const hash = sha256Hex(Uint8Array.of(1, 2, 3, 4));
-  const catalog = {
-    ...emptyCreativeCatalog("ownership"),
-    blobs: { [hash]: { hash, byteLength: 4, mime: "image/png", buckets: ["original" as const] } },
-    leases: [
-      {
-        id: "lease",
-        owner: "editor",
-        workspace: "work",
-        expiresAt: 100,
-        staged: { sources: [], derivatives: [], recipes: [], blobs: [] },
-      },
-    ],
-    holds: [{ id: "hold", kind: "recovery" as const, hashes: [hash] }],
-  };
-  const written = writeCreativeCatalogRecord(catalog);
-  const before = structuredClone(written);
-  catalog.leases[0]!.owner = "changed";
-  catalog.holds[0]!.hashes.push("b".repeat(64));
-  assert.deepEqual(written, before);
-});
-
-test("blob writer captures bytes before its result can be persisted asynchronously", () => {
-  const bytes = Uint8Array.of(1, 2, 3, 4);
-  const written = writeCreativeBlobRecord(
-    "ownership",
-    {
-      hash: sha256Hex(bytes),
-      byteLength: 4,
-      mime: "image/png",
-    },
-    bytes,
-  );
-  bytes[0] = 99;
-  assert.deepEqual(written["bytes"], Uint8Array.of(1, 2, 3, 4));
-});
+import { readCreativePreparation } from "../src/creative/catalog.ts";
 
 test("a captured View preparation owns its loop frame selection", () => {
   const identity = { id: "drawing", incarnation: "original", revision: 0 };

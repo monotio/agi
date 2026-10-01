@@ -98,9 +98,9 @@ interface FrameRegion {
   readonly height: number;
 }
 
-export type ViewFacing = "right" | "left" | "down" | "up";
+type ViewFacing = "right" | "left" | "down" | "up";
 
-export interface ViewRecipeMask {
+interface ViewRecipeMask {
   /** Alpha below this is transparent. Integer 0..255; the agreed default is 128. */
   readonly alphaThreshold: number;
   /** `null` for alpha-only masks, or an explicit key colour. */

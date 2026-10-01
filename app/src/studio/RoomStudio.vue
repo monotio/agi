@@ -70,7 +70,6 @@ import StudioViewBar from "./StudioViewBar.vue";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
-import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { fillFix, fillNotice } from "./fillAdvice.ts";
@@ -157,7 +156,6 @@ const {
   files = undefined,
   walk = undefined,
   underlay = null,
-  creativeLaunch = undefined,
   embedded = false,
   liveGame = false,
   workspaceFocus = false,
@@ -182,15 +180,10 @@ const {
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
   walk?: StudioRoomSource | null | undefined;
   /**
-   * A prepared reference underlay (160x168 RGBA) from the creative workspace,
+   * A prepared reference underlay (160x168 RGBA) from its project attachment,
    * blended over the art pane as a tracing guide — never a runtime bitmap.
    */
   underlay?: { pixels: Uint8Array; opacity: number } | null;
-  /**
-   * Opens the project's creative workspace (import, prepare, board) docked
-   * beside this studio. Undefined where no project authority serves it.
-   */
-  creativeLaunch?: (() => void) | undefined;
 }>();
 /**
  * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
@@ -1275,13 +1268,6 @@ function onKeyup(event: KeyboardEvent): void {
       @discard="leave.discarding.value = true"
     >
       <template #share
-        ><UiButton
-          v-if="creativeLaunch"
-          size="sm"
-          variant="ghost"
-          data-testid="creative-entry"
-          @click="creativeLaunch()"
-          >Import image…</UiButton
         ><SharePictureMenu
           :picture="model.compiled"
           :timeline="model.timeline"

@@ -80,7 +80,7 @@ export interface CreativeGenerationContext {
   /** The open workspace incarnation; a moved or reopened workspace changes it. */
   readonly workspaceId: string;
   readonly closed: boolean;
-  /** A workspace publication (Keep) holds the draft; reviews wait it out. */
+  /** A project write is busy; reviews wait it out. */
   readonly busy: boolean;
   /** The project's durable history lifetime. */
   readonly lifetime: string;
@@ -119,7 +119,7 @@ export interface CreativeGenerationReferenceOption {
 }
 
 /** What one explicit Use hands to the host's authoritative staging. */
-export interface CreativeGenerationUse {
+interface CreativeGenerationUse {
   readonly offer: OpenAiImageOffer;
   readonly intake: CreativeImageIntake;
   readonly review: CreativeGenerationReview;
@@ -134,7 +134,7 @@ export interface CreativeGenerationUse {
 }
 
 /** Edit Use adds the locally composited result and its provenance. */
-export interface CreativeGenerationCompositeUse extends CreativeGenerationUse {
+interface CreativeGenerationCompositeUse extends CreativeGenerationUse {
   readonly composite: SelectionComposite;
   /** The captured base source the composite derives from. */
   readonly base: VersionRef;
@@ -355,7 +355,7 @@ export interface CreativeGenerationOptions {
  * check uses this too, so the review's frozen tokens mean the same thing at
  * the write boundary as they did at every read boundary.
  */
-export function sameGenerationContext(
+function sameGenerationContext(
   a: CreativeGenerationContext,
   b: CreativeGenerationContext,
 ): boolean {
@@ -997,7 +997,7 @@ class CreativeGenerationControllerImpl implements CreativeGenerationController {
       ) {
         this.refuse("closed", "The image was staged; the workspace moved as it landed.");
       } else {
-        this.noticeText = "The generated image is staged with the project's sources.";
+        this.noticeText = "Image added to the workspace.";
         this.changed();
       }
     } catch (error) {

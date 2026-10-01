@@ -3,20 +3,10 @@ import { test } from "node:test";
 import { openContainer } from "../../src/container/container.ts";
 import { createSoundDocument } from "../../src/sound/document.ts";
 import {
-  CREATIVE_RECIPE_FORMAT,
-  CREATIVE_SOURCE_FORMAT,
-  creativeCatalogKey,
-  type CreativeRecipe,
-  type CreativeSource,
-} from "../../src/creative/catalog.ts";
-import { sha256Hex } from "../../src/crypto.ts";
-import { encodePngRgb } from "../../src/picture/png.ts";
-import {
   readProjectWorkspace,
   writeProjectWorkspace,
 } from "../../src/authoring/projectWorkspace.ts";
 import type { ProjectId } from "../../src/gameIdentity.ts";
-import { loadCreativeCatalog, stageCreativeBlobs } from "../src/project/creativeStore.ts";
 import {
   openEditableProject,
   type EditableKeepReview,
@@ -76,90 +66,6 @@ async function keepSound(ws: EditableProject, num = 42) {
 
 function soundBytes(data: { files: Record<string, Uint8Array> }, num: number) {
   return openContainer(new Map(Object.entries(data.files))).getResource("sound", num);
-}
-
-function pictureBytes(data: { files: Record<string, Uint8Array> }, num: number) {
-  return openContainer(new Map(Object.entries(data.files))).getResource("picture", num);
-}
-
-/** A tiny original/canonical source plus an underlay recipe targeting `picture:<num>`. */
-function underlayRecipe(num: number) {
-  const encoded = encodePngRgb(1, 1, Uint8Array.of(255, 0, 0));
-  const raster = Uint8Array.of(255, 0, 0, 255);
-  const source: CreativeSource = {
-    format: CREATIVE_SOURCE_FORMAT,
-    version: 1,
-    identity: { id: "source", incarnation: "original", revision: 0 },
-    encoded: { hash: sha256Hex(encoded), byteLength: encoded.length, mime: "image/png" },
-    availability: "original",
-    normalized: {
-      format: "rgba8-srgb-unpremultiplied-v1",
-      width: 1,
-      height: 1,
-      blob: { hash: sha256Hex(raster), byteLength: raster.length, mime: "application/x-rgba8" },
-    },
-    origin: { kind: "import", title: "Red reference" },
-  };
-  const recipe: CreativeRecipe = {
-    format: CREATIVE_RECIPE_FORMAT,
-    version: 1,
-    identity: { id: "room-reference", incarnation: "recipe", revision: 0 },
-    sources: [source.identity],
-    algorithm: "manual-picture-underlay-v1",
-    preparation: {
-      kind: "picture-underlay",
-      source: source.identity,
-      crop: { x: 0, y: 0, width: 1, height: 1 },
-      destination: { x: 0, y: 0, width: 160, height: 168 },
-      fit: "contain",
-      intendedAspect: "native",
-      sample: "nearest-centre-v1",
-      opacity: 0.5,
-      palette: "ega-weighted-243-v1",
-      alpha: { threshold: 128, matte: 0 },
-      scope: "art",
-    },
-    destination: { kind: "picture", resourceId: num },
-  };
-  return { source, recipe, encoded, raster };
-}
-
-async function stageUnderlay(ws: EditableProject, num: number) {
-  const { source, recipe, encoded, raster } = underlayRecipe(num);
-  const lease = { id: "reference", owner: "editor", workspace: ws.workspaceId };
-  const catalog = await loadCreativeCatalog(ws.projectId);
-  const staged = await stageCreativeBlobs({
-    projectId: ws.projectId,
-    expectedHead: catalog.catalog?.head ?? 0,
-    lease,
-    staged: { sources: [source], recipes: [recipe] },
-    blobs: [
-      { hash: source.encoded.hash, mime: source.encoded.mime, bytes: encoded },
-      { hash: source.normalized.blob.hash, mime: source.normalized.blob.mime, bytes: raster },
-    ],
-  });
-  return { source, recipe, lease, staged };
-}
-
-/** Keep an underlay recipe targeting `picture:<num>` through the real publication path. */
-async function keepPictureRecipe(ws: EditableProject, num: number) {
-  const { source, recipe, lease, staged } = await stageUnderlay(ws, num);
-  const data = await storedBody(ws.projectId);
-  await storage.commitProject({
-    projectId: ws.projectId,
-    commitId: crypto.randomUUID(),
-    workspaceId: ws.workspaceId,
-    buildId: "a".repeat(64),
-    expected: ws.savedIdentity(),
-    documents: [],
-    data,
-    creative: {
-      expectedHead: staged.head,
-      asOf: Date.now(),
-      lease,
-      keep: { sources: [source.identity], derivatives: [], recipes: [recipe.identity], board: [] },
-    },
-  });
 }
 
 test("the review list must name the candidate's exact removals, then retry admits", async () => {
@@ -497,94 +403,4 @@ test("removal preserves every unrelated resource byte-exact", async () => {
     readProjectWorkspace(after.workspace)["logic:1"],
     readProjectWorkspace(before.workspace)["logic:1"],
   );
-});
-
-test("an unrelated removal still works beside a kept picture recipe", async () => {
-  const projectId = await seedProject("rm-creative-unrelated");
-  const ws = await openEditableProject(projectId);
-  edit(ws, "picture:42", Uint8Array.of(0xff));
-  await ws.keepCandidate(ws.buildSelected(["picture:42"]));
-  await keepPictureRecipe(ws, 42);
-  const reopened = await openEditableProject(projectId);
-  await keepSound(reopened);
-  const generation = reopened.savedIdentity().generation;
-
-  edit(reopened, "sound:42", null);
-  const removal = reopened.buildSelected(["sound:42"]);
-  assert.deepEqual(removal.removedResources, ["sound:42"]);
-  await reopened.keepCandidate(removal, { reviewedRemovals: ["sound:42"] });
-
-  const after = await storedBody(projectId);
-  assert.equal(after.generation, generation + 1);
-  assert.equal(soundBytes(after, 42), null);
-  assert.ok(pictureBytes(after, 42) !== null, "the recipe's destination is untouched");
-  const catalog = await loadCreativeCatalog(projectId);
-  assert.equal(catalog.catalog?.recipes[0]?.destination.resourceId, 42);
-});
-
-test("a staged-only recipe is not a kept association and does not block removal", async () => {
-  const projectId = await seedProject("rm-creative-staged");
-  const ws = await openEditableProject(projectId);
-  // Blank logic:1 reads a picture from v50; repair it so the same-family
-  // unresolved rule does not gate this PICTURE removal.
-  edit(ws, "logic:1", "return;");
-  edit(ws, "picture:42", Uint8Array.of(0xff));
-  await ws.keepCandidate(ws.buildSelected(["logic:1", "picture:42"]));
-  await stageUnderlay(ws, 42);
-  assert.equal(
-    (await loadCreativeCatalog(projectId)).catalog?.recipes.length,
-    0,
-    "staging alone keeps no recipe",
-  );
-
-  const reopened = await openEditableProject(projectId);
-  edit(reopened, "picture:42", null);
-  const removal = reopened.buildSelected(["picture:42"]);
-  await reopened.keepCandidate(removal, { reviewedRemovals: ["picture:42"] });
-  assert.equal(pictureBytes(await storedBody(projectId), 42), null);
-});
-
-test("a recipe published between candidate build and keep refuses the removal", async () => {
-  const projectId = await seedProject("rm-creative-race");
-  const ws = await openEditableProject(projectId);
-  edit(ws, "logic:1", "return;");
-  edit(ws, "picture:42", Uint8Array.of(0xff));
-  await ws.keepCandidate(ws.buildSelected(["logic:1", "picture:42"]));
-  const reopened = await openEditableProject(projectId);
-  edit(reopened, "picture:42", null);
-  const removal = reopened.buildSelected(["picture:42"]);
-  const generation = reopened.savedIdentity().generation;
-
-  // Another window's publication lands first: the moved generation and the
-  // now-kept destination both refuse the stale removal, stranding nothing.
-  await keepPictureRecipe(reopened, 42);
-  await assert.rejects(
-    reopened.keepCandidate(removal, { reviewedRemovals: ["picture:42"] }),
-    /modified by another window|conflict|recipe/i,
-  );
-  const after = await storedBody(projectId);
-  assert.equal(after.generation, generation + 1, "only the publication landed");
-  assert.ok(pictureBytes(after, 42) !== null);
-  const catalog = await loadCreativeCatalog(projectId);
-  assert.equal(catalog.catalog?.recipes[0]?.destination.resourceId, 42);
-});
-
-test("a corrupt creative catalog refuses removal honestly", async () => {
-  const projectId = await seedProject("rm-creative-corrupt");
-  const ws = await openEditableProject(projectId);
-  await keepSound(ws);
-  const generation = ws.savedIdentity().generation;
-  await storage.bodyTransaction("readwrite", (store) =>
-    store.put({ projectId: creativeCatalogKey(projectId), format: "bogus", version: 99 }),
-  );
-
-  edit(ws, "sound:42", null);
-  const removal = ws.buildSelected(["sound:42"]);
-  await assert.rejects(
-    ws.keepCandidate(removal, { reviewedRemovals: ["sound:42"] }),
-    /creative catalog|Invalid creative catalog/i,
-  );
-  const after = await storedBody(projectId);
-  assert.equal(after.generation, generation);
-  assert.ok(soundBytes(after, 42) !== null);
 });

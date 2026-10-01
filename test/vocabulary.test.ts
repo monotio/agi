@@ -12,6 +12,7 @@ import { STUDIO_TERMS } from "../app/src/studio/studioTerms.ts";
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { executeAgentTool, ASK_TOOLS } from "../src/agent/tools.ts";
 import { renderPicture } from "../src/picture/renderer.ts";
+import { traceImageChanges, makeCelsChanges } from "../src/creative/imageOperations.ts";
 import { createPictureSurface } from "../src/types.ts";
 
 test("Add depth uses the item kernel, preserves art and rejects stale revisions", () => {
@@ -63,12 +64,18 @@ test("vocabulary records have stable ids, plain help and technical hover", () =>
   assert.match(VOCABULARY.gate.technical, /ignore\.blocks/);
 });
 
-test("each action shares its name stem and help with every tool catalog", () => {
+test("each action shares its name stem and help with its tool catalog or pure workspace operation", () => {
+  const workspaceOperations: Record<string, unknown> = {
+    trace_an_image: traceImageChanges,
+    make_cels_from_an_image: makeCelsChanges,
+  };
   const tools = [...AGENT_TOOLS, ...PROJECT_ASSIST_TOOLS];
   for (const action of Object.values(VOCABULARY_ACTIONS)) {
     assert.equal(action.label.toLowerCase().replaceAll(" ", "_"), action.tool);
     const definitions = tools.filter((tool) => tool.name === action.tool);
-    assert.ok(definitions.length > 0, action.tool);
+    if (Object.hasOwn(workspaceOperations, action.tool))
+      assert.equal(typeof workspaceOperations[action.tool], "function");
+    else assert.ok(definitions.length > 0, action.tool);
     for (const definition of definitions) {
       assert.ok(definition.description.startsWith(action.help + " "), action.tool);
       assert.ok(definition.description.length > action.help.length + 20, action.tool);

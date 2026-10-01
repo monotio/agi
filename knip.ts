@@ -41,8 +41,6 @@ const config: KnipConfig = {
         "playwright*.config.ts",
         // Documentation captures, matched by playwright.media.config.ts.
         "e2e/media/*.media.ts",
-        // Loaded by the review spec through a Vite-root runtime URL.
-        "e2e/fixtures/creativeGenerationReview.ts",
         "production/**/*.spec.ts",
         // node --test glob from the app `test:app` script.
         "test/*.test.ts",

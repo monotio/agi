@@ -11,36 +11,10 @@ import { publicGameMetadata, isPlayableFileName } from "../project/gameMetadata.
 import { buildObjectFile } from "../../../src/agent/agentState.ts";
 import { detectProfile } from "../../../src/runtime/profile.ts";
 import type { CachedGameData } from "../project/gameTypes.ts";
-import type { CreativeProjectManifest } from "../../../src/creative/project.ts";
-import type { BlobHash } from "../../../src/creative/catalog.ts";
-import type { PortableCreativeWork } from "../../../src/creative/workArchive.ts";
 
 export { validateTranscript } from "./projectConversation.ts";
 
 export const PROJECT_SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
-
-/**
- * The kept-creative capture `buildProjectZip` accepts: the portable assets
- * plus the binding of the body they were read from — project identity,
- * storage generation, kept pin and playable-byte revision. Structural, so
- * the archive layer does not depend on the storage module that produces the
- * snapshot (see `captureCreativeProject`).
- */
-export interface CreativeSnapshotOffer {
-  readonly projectId: string;
-  readonly generation: number;
-  readonly kept: number;
-  readonly head: number;
-  readonly revision: string;
-  /** The kept-creative manifest, or null when only durable work travels. */
-  readonly manifest: CreativeProjectManifest | null;
-  /** The exact blob bodies the kept manifest claims, deduplicated by hash. */
-  readonly blobs: Readonly<Record<BlobHash, Uint8Array>>;
-  /** The portable durable-work envelope, or null when the project holds none. */
-  readonly work: PortableCreativeWork | null;
-  /** The exact blob bodies the work registry declares, deduplicated by hash. */
-  readonly workBlobs: Readonly<Record<BlobHash, Uint8Array>>;
-}
 
 /**
  * Only current game resources and interpreter identification travel publicly.

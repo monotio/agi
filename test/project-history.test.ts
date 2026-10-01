@@ -170,7 +170,7 @@ test("History codec reads a frozen fixture and refuses unknown versions, corrupt
   assert.equal(state.commits[0]!.label, "Initial");
   assert.deepEqual(writeProjectHistory(state, sha256Hex), fixture);
   assert.throws(
-    () => readProjectHistory({ format: PROJECT_HISTORY_FORMAT, version: 2 }, sha256Hex),
+    () => readProjectHistory({ format: PROJECT_HISTORY_FORMAT, version: 3 }, sha256Hex),
     /Unsupported.*version/,
   );
   const { history } = start();
