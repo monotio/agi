@@ -22,6 +22,14 @@ export interface KeyTarget {
   focusInput(): void;
 }
 
+/**
+ * Page controls keep every key: nothing typed on the timeline, a menu, a
+ * button or the shell's own regions reaches the game. Only the game's input,
+ * or in Play the page itself, passes keys to the interpreter.
+ */
+export const PAGE_CONTROLS =
+  "button, input, textarea, select, a, audio, summary, dialog, [data-shell-keys]";
+
 export function useGameKeys(deps: {
   engine: EngineApi;
   playArea: () => KeyTarget | null | undefined;
@@ -74,15 +82,14 @@ export function useGameKeys(deps: {
     // typed there may reach the game's parser.
     const target = ev.target;
     if (
-      (target instanceof Element &&
-        target !== area()?.inputEl &&
-        target.closest(
-          "button, input, textarea, select, a, audio, summary, dialog, [data-shell-keys]",
-        )) ||
+      (target instanceof Element && target !== area()?.inputEl && target.closest(PAGE_CONTROLS)) ||
       (ev.key === "Tab" && ev.shiftKey)
     ) {
       return;
     }
+    // Tab belongs to the game while it has the keyboard (Sierra games open the
+    // inventory with it); Shift+Tab, above, is the documented way out.
+    if (ev.key === "Tab" && target === area()?.inputEl) ev.preventDefault();
     if (
       state.walkthrough.active &&
       (state.walkthrough.status === "playing" ||
