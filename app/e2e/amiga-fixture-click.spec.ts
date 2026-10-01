@@ -52,7 +52,7 @@ async function settleOpening(page: Page): Promise<void> {
 for (const fixture of fixtures) {
   const missing = fixtureSkip(fixture.alias, [fixture.executable]);
   for (const target of fixture.targets) {
-    test(`${fixture.alias}: original opening room settles at ${target.name} canvas click`, async ({
+    test(`${fixture.alias}: original opening room settles at ${target.name} canvas click @webkit-desktop`, async ({
       page,
     }) => {
       test.skip(Boolean(missing), missing || "");
