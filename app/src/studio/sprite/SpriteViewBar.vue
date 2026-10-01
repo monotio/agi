@@ -163,7 +163,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
           :aria-pressed="baseline"
           @click="baseline = !baseline"
         >
-          Baseline
+          Feet
         </button>
         <UiExplain v-bind="explain('feet')" />
       </span>
@@ -188,7 +188,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
           :aria-checked="baseline"
           @click="baseline = !baseline"
         >
-          <UiIcon name="check" :size="16" class="sprite-more__check" />Baseline
+          <UiIcon name="check" :size="16" class="sprite-more__check" />Feet
         </button>
       </template>
       <button type="button" role="menuitemcheckbox" :aria-checked="sheet" @click="sheet = !sheet">

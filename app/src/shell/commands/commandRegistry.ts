@@ -46,6 +46,7 @@ export function createCommandRegistry(
 ) {
   const commands = shallowRef<readonly Command[]>([]);
   let mounted = false;
+  let chord: { command: Command; binding: KeyBinding; next: string; until: number } | undefined;
 
   function register(command: Command): () => void {
     if (commands.value.some((entry) => entry.id === command.id))
@@ -71,18 +72,36 @@ export function createCommandRegistry(
   function dispatch(event: KeyboardEvent): boolean {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return false;
     const ctx = context();
+    const eligible = (command: Command, binding: KeyBinding): boolean =>
+      !!command.run &&
+      (command.when?.(ctx) ?? true) &&
+      (!ctx.textInputFocus || binding.textInput === true) &&
+      (!ctx.gameFocus || binding.game === true);
+    if (chord) {
+      const pending = chord;
+      chord = undefined;
+      if (
+        Date.now() <= pending.until &&
+        commands.value.includes(pending.command) &&
+        eligible(pending.command, pending.binding) &&
+        matches(event, pending.next, apple)
+      ) {
+        event.preventDefault();
+        if (!event.repeat) pending.command.run!();
+        return true;
+      }
+    }
     for (const command of commands.value) {
-      if (!command.run || !(command.when?.(ctx) ?? true)) continue;
-      const binding = command.keys?.find(
-        (candidate) =>
-          matches(event, candidate.key, apple) &&
-          (!ctx.textInputFocus || candidate.textInput) &&
-          (!ctx.gameFocus || candidate.game),
-      );
-      if (!binding) continue;
-      event.preventDefault();
-      if (!event.repeat) command.run();
-      return true;
+      for (const binding of command.keys ?? []) {
+        const [first, second] = binding.key.split(" ");
+        if (!first || !eligible(command, binding) || !matches(event, first, apple)) continue;
+        event.preventDefault();
+        if (!event.repeat) {
+          if (second) chord = { command, binding, next: second, until: Date.now() + 1500 };
+          else command.run!();
+        }
+        return true;
+      }
     }
     return false;
   }
@@ -101,6 +120,7 @@ export function createCommandRegistry(
       disposed = true;
       target.removeEventListener("keydown", onKey, true);
       mounted = false;
+      chord = undefined;
     };
   }
 

@@ -35,3 +35,17 @@ test("focus zones cycle in workspace order, skip unavailable zones and announce 
   focus.dispose();
   assert.equal(focus.active.value, undefined);
 });
+
+test("a game nested inside a picture editor owns its focused keys", () => {
+  const game = { contains: (target: unknown) => target === input };
+  const editor = { contains: (target: unknown) => target === input || target === game };
+  const input = {};
+  const zones = useFocusZones(
+    () =>
+      new Map([
+        ["editor", editor],
+        ["game", game],
+      ]) as unknown as ReadonlyMap<FocusZone, HTMLElement>,
+  );
+  assert.equal(zones.zoneFor(input as Node), "game");
+});

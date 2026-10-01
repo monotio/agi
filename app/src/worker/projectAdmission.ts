@@ -20,9 +20,12 @@ import { PROFILES, type ProfileId } from "../../../src/runtime/profile.ts";
 import { validateCompleteImage } from "../../../src/runtime/projectImageValidation.ts";
 import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
 import { installProjectRestart } from "./projectRestart.ts";
-import { mintPreviewRunToken, newProjectAdmissionState } from "./projectAdmissionState.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
-import type { ProjectAdmissionState } from "./projectAdmissionState.ts";
+import {
+  newProjectAdmissionState,
+  mintPreviewRunToken,
+  type ProjectAdmissionState,
+} from "./projectAdmissionState.ts";
 import {
   readProjectWorkspace,
   writeProjectWorkspace,
@@ -836,4 +839,37 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
   }
 
   return { onPreviewUpdate, onPreviewStatus };
+}
+
+/** Explicit Create on an existing ordinary MAIN run; frozen test runs retain their denial. */
+export function enterProjectCreate(ctx: WorkerContext, msg: Inbound<"projectCreate">): void {
+  if (!ctx.engine || ctx.replay.replay || !ctx.boot.createAllowed) {
+    ctx.ports.control({
+      type: "projectCreated",
+      id: msg.id,
+      reason: "Open an editable game in Create.",
+    });
+    return;
+  }
+  try {
+    if (!ctx.projectAdmission) {
+      const lane = newProjectAdmissionState(mintPreviewRunToken(), ctx.engine);
+      initializeProjectAdmission(ctx, lane, msg.documents, msg.history);
+      ctx.projectAdmission = lane;
+    }
+    ctx.ports.control({
+      type: "projectCreated",
+      id: msg.id,
+      grant: {
+        runToken: ctx.projectAdmission.runToken,
+        identity: projectAdmissionIdentity(ctx, ctx.projectAdmission)!,
+      },
+    });
+  } catch (cause) {
+    ctx.ports.control({
+      type: "projectCreated",
+      id: msg.id,
+      reason: String(cause instanceof Error ? cause.message : cause),
+    });
+  }
 }

@@ -33,15 +33,14 @@ export interface ShellBridge {
    * it scrolls to and focuses (registered by GameHeader).
    */
   openHelp(section?: string, topic?: string): void;
+  /** Open Settings from a workspace control (registered by GameHeader). */
+  openSettings(trigger: HTMLElement): void;
   /**
-   * Open Logic Studio on a stored project (registered by App.vue). The
-   * workspace is independent of any running game: it boots no engine and
-   * needs no provider or key.
+   * Open the stored project in Create on its LOGIC editor.
    */
   openLogicProject(projectId: ProjectId): void;
   /**
-   * Open Sound Studio on a stored project (registered by App.vue) — the same
-   * stored-project mount as Logic Studio: no engine, no provider, no key.
+   * Open the stored project in Create on its SOUND editor.
    */
   openSoundProject(projectId: ProjectId): void;
 }
@@ -60,6 +59,7 @@ export function createShellBridge(): ShellBridge {
     assistantInputEl: () => null,
     focusGameInput: () => {},
     openHelp: () => {},
+    openSettings: () => {},
     openLogicProject: () => {},
     openSoundProject: () => {},
   };

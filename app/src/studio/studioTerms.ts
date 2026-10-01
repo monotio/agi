@@ -134,7 +134,7 @@ export const STUDIO_TERMS = {
   },
   follows: {
     name: "Follows",
-    says: "Drag the door's round handle onto an item, and the door moves with it.",
+    says: "Drag the door's round handle onto an item. The door moves with it.",
     help: topic("studio-walk"),
   },
   "ask-scope": {
@@ -151,7 +151,7 @@ export const STUDIO_TERMS = {
   },
   rebuilt: {
     name: "Rebuilt",
-    says: "These steps were rebuilt from the game's bytes. Editing saves them as source.",
+    says: "These steps come from the game's bytes. Your first edit saves their source.",
     help: topic("studio-source"),
   },
   issues: {
@@ -161,7 +161,7 @@ export const STUDIO_TERMS = {
   },
   "view-only": {
     name: "View only",
-    says: "Editing pauses while changes are saved. Reload the game if saving stops.",
+    says: "Reload the game to edit this part.",
     help: topic("studio-keep"),
   },
   keep: {

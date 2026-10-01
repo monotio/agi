@@ -14,6 +14,7 @@ import { useStudioLeave } from "./useStudioLeave.ts";
 import type { StudioNotice } from "./useStudioNotice.ts";
 
 export interface StudioExitOptions {
+  readonly embedded?: boolean;
   /** The unkept draft: the picture and its room's logic, or the view. */
   readonly draft: { readonly dirty: { readonly value: boolean }; discard(): void };
   readonly keeper: {
@@ -41,7 +42,7 @@ export function useStudioExit(options: StudioExitOptions) {
     discard: () => draft.discard(),
   });
   const center = useOptionalCreateCenter();
-  if (center) onScopeDispose(center.guardStudio(leave));
+  if (center && !options.embedded) onScopeDispose(center.guardStudio(leave));
   // The line the centre opened Studio with (the game was just reloaded from storage).
   watch(
     () => center?.studio.value?.notice,
@@ -50,7 +51,7 @@ export function useStudioExit(options: StudioExitOptions) {
   );
 
   async function requestClose(): Promise<void> {
-    if (await leave.confirm()) options.close();
+    if (options.embedded || (await leave.confirm())) options.close();
   }
   function discardChanges(): void {
     leave.discarding.value = false;

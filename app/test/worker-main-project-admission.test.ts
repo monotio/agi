@@ -96,3 +96,39 @@ test("admitted timeline documents own the wire payload", async () => {
   (workspace.documents[0]!.content as { text: string }).text = "tampered";
   assert.equal(readProjectWorkspace(ctx.boot.project!.documents)["logic:0"], documents["logic:0"]);
 });
+
+test("entering Create grants the existing MAIN engine without booting or loading the debugger", async () => {
+  const messages: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (m) => messages.push(m),
+    presentation: () => {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  const build = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  onWorkerMessage(ctx, { type: "boot", files: Object.fromEntries(build.files()), words: [] });
+  ctx.fns.stopTimers();
+  const engine = ctx.engine;
+  onWorkerMessage(ctx, {
+    type: "projectCreate",
+    id: 3,
+    documents: writeProjectWorkspace(build.documents()),
+  });
+  await ctx.projectLoader.loading;
+  const reply = messages.find((m) => m.type === "projectCreated");
+  assert.ok(reply?.type === "projectCreated" && reply.grant);
+  assert.equal(ctx.engine, engine);
+  assert.equal(ctx.debuggerLoader.installed, false);
+  onWorkerMessage(ctx, {
+    type: "projectCreate",
+    id: 4,
+    documents: writeProjectWorkspace(build.documents()),
+  });
+  const again = messages.at(-1);
+  assert.ok(again?.type === "projectCreated" && again.grant);
+  assert.equal(again.grant.runToken, reply.grant.runToken);
+});

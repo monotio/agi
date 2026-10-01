@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
+import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
 import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
@@ -172,7 +172,7 @@ watch(scroller, (el) => {
               :shortcut="TOOL_SHORTCUTS.probe"
               :pressed="probeActive"
               :disabled="!probeAvailable"
-              :title="probeAvailable ? VOCABULARY.standIn.help : PROBE_NEEDS_VIEWS"
+              :title="probeAvailable ? `Stand-in · ${TOOL_SHORTCUTS.probe}` : PROBE_NEEDS_VIEWS"
               data-testid="studio-probe-toggle"
               @click="emit('probe')"
             />

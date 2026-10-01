@@ -46,7 +46,7 @@ interface DebugLogExpressionSegment {
   readonly source: string;
 }
 
-export type DebugLogSegment = DebugLogLiteralSegment | DebugLogExpressionSegment;
+type DebugLogSegment = DebugLogLiteralSegment | DebugLogExpressionSegment;
 
 interface DebugLogpoint {
   readonly segments: readonly DebugLogSegment[];

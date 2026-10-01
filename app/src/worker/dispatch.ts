@@ -207,13 +207,19 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
   const loader = ctx.projectLoader;
   if (
     loader.loading !== null ||
-    (msg.type === "boot" && msg.projectMode === "create" && !loader.installed)
+    (((msg.type === "boot" && msg.projectMode === "create") || msg.type === "projectCreate") &&
+      !loader.installed)
   ) {
     loader.queue.push(msg);
     if (loader.loading === null) {
       loader.loading = import("./projectAdmission.ts")
         .then(
-          ({ createProjectAdmission, initializeProjectAdmission, projectAdmissionIdentity }) => {
+          ({
+            createProjectAdmission,
+            initializeProjectAdmission,
+            projectAdmissionIdentity,
+            enterProjectCreate,
+          }) => {
             Object.assign(
               ctx.fns,
               createProjectAdmission(ctx, { lane: () => ctx.projectAdmission }),
@@ -228,6 +234,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
                 );
             };
             loader.identity = () => projectAdmissionIdentity(ctx, ctx.projectAdmission);
+            loader.enterCreate = (request) => enterProjectCreate(ctx, request);
             loader.installed = true;
           },
         )
@@ -245,6 +252,10 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
           for (const held of pending) onWorkerMessage(ctx, held);
         });
     }
+    return;
+  }
+  if (msg.type === "projectCreate") {
+    loader.enterCreate!(msg);
     return;
   }
   if (debugLoadGate(ctx, msg)) return;
@@ -525,6 +536,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       // transition through the real engine and a missing one reports the
       // engine's deterministic outcome — no generation request, no fallback.
       ctx.boot.authorRooms = frozen === undefined && boot.authorRooms === true;
+      ctx.boot.createAllowed = frozen === undefined;
       ctx.boot.selectedSoundDevice = boot.soundDevice === 0 ? 0 : 1;
       ctx.boot.profile = boot.profile ?? null;
       ctx.engine = new Engine(

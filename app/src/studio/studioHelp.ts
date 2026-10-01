@@ -1,4 +1,4 @@
-import { VOCABULARY, VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
+import { VOCABULARY_ACTIONS } from "../../../src/vocabulary.ts";
 /**
  * The Studios' keyboard help, kept off the canvas: a tool's name and one
  * short line for the status bar, and the full key list the `?` sheet shows
@@ -67,7 +67,7 @@ export const SPRITE_TOOL_NAMES: Record<SpriteTool, string> = {
 
 export const SPRITE_TOOL_HINTS: Record<SpriteTool, string> = {
   pencil: "Drag to paint · Space: pen down at the cursor",
-  eraser: VOCABULARY.transparentColour.help,
+  eraser: "Drag to paint the transparent colour",
   fill: "Click to flood the area under the cursor",
   line: "Drag a line, or Space at each end",
   rect: "Drag a rectangle, or Space at each corner",

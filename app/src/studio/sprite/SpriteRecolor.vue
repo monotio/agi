@@ -168,13 +168,13 @@ const tabStop = (chosen: number | null | undefined): number =>
           @keydown="onSwatchKey($event, row, value)"
         >
           <span :style="{ color: swatchInk(value) }">{{
-            value === transparent ? "∅" : value
+            value === transparent ? "T" : value
           }}</span>
         </button>
       </div>
     </div>
     <p class="recolor__hint">
-      ∅ {{ transparent }} is transparent: the eraser (E) makes pixels transparent.
+      Colour {{ transparent }} is transparent: the eraser (E) makes pixels transparent.
     </p>
     <UiSegmented v-model="scope" label="Recolour where" size="sm" :options="SCOPES" />
     <p class="recolor__count" aria-live="polite" data-testid="sprite-recolor-count">

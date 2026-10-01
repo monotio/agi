@@ -176,6 +176,11 @@ export interface AutosaveControllerContext {
   };
   readonly getBootedGame: () => BootedGame | null;
   readonly getWorker: () => Worker | null;
+  /** The project's write owner makes its live image durable before a checkpoint. */
+  readonly prepareCheckpoint?: (
+    game: BootedGame,
+    files: Record<string, Uint8Array> | undefined,
+  ) => Promise<"owned" | "legacy" | "refused">;
   readonly onAutosaveStored?: (cycle: number) => void;
   readonly onAutosaveRestored?: (room: number, egoX: number, egoY: number) => void;
   /** An autosave found a newer save in storage and wrote nothing; called once per game. */
@@ -749,7 +754,16 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
   }): void {
     const game = ctx.getBootedGame();
     autosaveWrite = autosaveWrite
-      .then(() => (ctx.getBootedGame() === game ? storeAutosave(msg) : false))
+      .then(async () => {
+        if (game === null || ctx.getBootedGame() !== game) return false;
+        const ownership = (await ctx.prepareCheckpoint?.(game, msg.files)) ?? "legacy";
+        if (ownership === "refused" || ctx.getBootedGame() !== game) return false;
+        if (ownership === "owned") {
+          const { files: _files, ...checkpoint } = msg;
+          return storeAutosave(checkpoint);
+        }
+        return storeAutosave(msg);
+      })
       .catch(() => false);
   }
 

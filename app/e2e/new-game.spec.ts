@@ -18,9 +18,9 @@ for (const kind of ["starter", "boilerplate", "blank"] as const) {
     await page.getByRole("button", { name: "Start building", exact: true }).click();
     await expect(page).toHaveURL(/#create\/local-/);
     if (kind === "blank") {
-      await expect(page.getByText("Nothing to play yet. Add a LOGIC 0 to start.")).toBeVisible();
+      await expect(page.getByText("Nothing to play yet.")).toBeVisible();
     } else {
-      await expect(page.getByTestId("create-dock-left")).toBeVisible();
+      await expect(page.getByTestId("parts-list")).toBeVisible();
       if (kind === "boilerplate") {
         await expect.poll(async () => (await textHook(page)).modal).toBe("print");
         await page.locator(".screen").click();
@@ -47,7 +47,7 @@ for (const kind of ["starter", "boilerplate", "blank"] as const) {
     expect(stored.keys.includes("view:0")).toBe(kind === "starter");
     if (kind === "blank") {
       await page.reload();
-      await expect(page.getByText("Nothing to play yet. Add a LOGIC 0 to start.")).toBeVisible();
+      await expect(page.getByText("Nothing to play yet.")).toBeVisible();
     }
   });
 }
@@ -82,7 +82,7 @@ test("AI choice reveals full editable sources and creates with the stub provider
     .fill("Lantern adventure");
   await configureAi(page, { provider: "stub" });
   await page.getByTestId("boot-game").click();
-  await expect(page.getByTestId("create-dock-left")).toBeVisible();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect(page).toHaveURL(/#create\//);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 });

@@ -102,17 +102,17 @@ Fan games span many genres and audiences.
 **Create an adventure** on the home screen offers two ways in. **Create
 game** builds a playable project in your browser: **Starter**
 opens in a sunny clearing you can walk through, with an animated hero and
-the shared menu, death and save code, all editable; **Blank** is the
-smallest game that still runs, one room showing an empty picture. Both open
-in Create as ordinary AGI games you can edit in the Studios, and a
+the shared menu, death and save code, all editable; **Blank** opens an empty workspace; **Add a room** creates its first playable
+room and **Use Boilerplate** supplies the editable starting game. Both open
+in Create as ordinary AGI games you can edit, and a
 connected provider can pick them up later like any other project.
 
-To edit a saved game's code, open its library card's **Game actions → Edit**.
-**Logic Studio** gives you source tabs, code completion, hover help, definition
-navigation and a Problems panel. Edit the logic and vocabulary,
-choose which changes to build, inspect the diff, then **Save** them in the library.
-Unfinished work stays in a separate draft and is offered for recovery when you
-reopen. Games from the shared catalog need a personal copy before editing.
+To edit a saved game, open its library card’s **Game actions → Create**.
+The workspace keeps the game running beside its editors. LOGIC has code completion,
+hover documentation, definition navigation and a Problems panel. Typing saves
+as you go; a source error keeps the game on its last working build. **Undo** and
+**Redo** step across edits to every part, and **Saved** opens **History**.
+Games from the shared catalog need a personal copy before editing.
 
 **Build with AI** keeps the themed briefs. Pick a template or describe your
 own hero, setting and trouble, connect an OpenAI or Anthropic API key, and
@@ -173,11 +173,12 @@ sharing the game, especially with children. [Security](SECURITY.md) covers stora
 ## Edit every room by hand
 
 A running game has two modes, switched in the top bar. **Play** is the game as
-its players see it. **Create** docks the tools around it: the world map and its
-rooms on the left, the assistant on the right. From a room in the World panel,
-its picture opens in **Room Studio** and its views in **VIEW editor**. Room
-Studio, VIEW editor and Logic Studio are designed for a larger screen than a
-phone; games play on phones too.
+its players see it, with the rewind timeline. **Create** shows the parts list on
+the left and the same running game beside its editors. Open a PICTURE to draw
+with Room Studio’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
+loops and cels. WORDS and OBJECTS have table editors; SOUND offers playback and
+presets. **Focus** gives an editor the workspace while the game keeps running.
+Create works best on a larger screen; games play on phones too.
 
 Some Create edits need a fresh room or game start. **Re-enter room** runs the
 room's entry LOGIC with your changes; that LOGIC can reposition actors or change
@@ -190,7 +191,8 @@ In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
 commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**
 shows Play full size (use Ctrl in place of ⌘ elsewhere). **F6** and **Shift+F6**
 move between visible focus zones; **Ctrl+backtick** focuses the game. The game takes
-keys while its zone has focus. **Escape** closes the chooser and returns focus.
+keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
+**Escape** twice to return. Focus is remembered for each editor type.
 **Help → Keyboard shortcuts** lists the registered commands and keys; actions
 awaiting an editor or debugger implementation appear as **Unavailable**.
 
@@ -207,50 +209,35 @@ waving robot._
 
 - **Room Studio** shows a room's picture under three lenses: Art for what the
   player sees, Depth for what stands in front, and Walk for the lines that steer
-  the hero. A scrubber replays the draw order command by command, the
-  scene list names what the picture draws, and clicking a pixel shows the
-  command that put it there.
+  the hero. The items list names what the picture draws. A stroke previews
+  over the running game until the gesture finishes.
 - **Editing** works on items: click one to select it, or drag a box to select
   the items wholly inside it; drag the selection, or its points with the Point
   tool, nudge it with the arrow keys (a move stops at the picture's edge),
-  change its colour, Depth or draw order, duplicate or delete it.
+  change its colour, depth or draw order, duplicate or delete it.
   Alt+click, or Alt+Enter from the keyboard, adds a point to a selected line.
   A box, Shift+click, a group row or Shift+Alt+arrows select several
   items, which then move, copy and delete together as one step, so an imported
   bush's outline and fill stay together; Group (⌘G) names neighbours as one
   item without changing a byte, and Ungroup (⇧⌘G) splits it again.
   The tool rail draws lines, rectangles, polygons, fills and brush strokes at
-  the slider's point in the draw order, and a stand-in shows whether a
+  the selected point in the draw order, and a stand-in shows whether a
   character would stand in front of the scene or behind it.
-- **Save** saves the picture into the game. Each lens locks painting on the
-  other planes until you unlock them, while a whole item moves with all its
-  planes; every change can be undone, even after saving, and leaving with
-  unkept changes asks first.
-- **Test walks and doors** live in the Walk lens. A test walk runs the real game
-  in a throwaway copy and reports Reached, Blocked at whatever was in the way,
-  the room it went to, or the message that stopped it. A goal on a door box or
-  an edge walks through it (to the edge, then one step across), and a door a
-  walk went through is marked tested. Door boxes and edge exits
-  lead to other rooms; a door can follow its doorway art, so moving the art
-  moves the door in the same save. Exits written in the room's own logic stay
-  read-only. Right-click any spot and **Play here** jumps into the game there.
-- **Agent** has your connected AI change only the selected items: "make this
-  bridge walkable and preserve the art". Attach reference art (a file, a
-  drop or a saved image) and the AI can look at it while it works. Its changes
-  show on the canvas, Before or After, with the changed cells outlined. The
-  app's own checks hold it to the selection and the lens's locks, and Approve
-  makes it one undo step.
-- **VIEW editor** edits a view's loops and cels. Open it from a room's views,
-  the Resources tab or a staged character sheet, draw with the pixel tools, and
-  reorder, duplicate and flip cels on a loops × cels timeline. The previews play
-  the loop at the game's speed and stand it in a room at its real depth. Editing
-  a loop that mirrors another makes it a separate copy, so fixing one facing
-  leaves the other as it is unless you edit both. The agent works here too, on the selected
-  cel or its whole loop, with every other loop protected.
-- **Explainers** sit beside the Studios' terms: each ⓘ says in one sentence
-  what the control does and links to its Help topic. Each Studio shows a
-  three-step tour the first time it opens, and **Tour** in its `?` key list
-  plays it again.
+- Completed gestures save through the workspace and update the running game.
+  Each lens locks painting on the other planes until you unlock them, while
+  a whole item moves with all its planes. **Undo** steps back across parts.
+- **LOGIC** uses code intelligence, completion and diagnostics. Typing saves
+  the source; errors leave the last working build running. **+ Add** guides
+  room creation, hero placement, responses, doors and sounds.
+- **Agent** opens from the top bar or **⌘I**. Tell it what to change across
+  the game, then use the workspace's shared History and Undo.
+- **VIEW editor** edits a view's loops and cels beside the running game.
+  Draw with the pixel tools, and reorder, duplicate and flip cels on the
+  timeline. The previews play each loop. Edit both keeps mirrored loops
+  together; editing one gives it its own cels.
+- **Explainers** sit beside resource headings and editor terms. Hover, focus
+  or click a **?** for its help line; Escape closes it. Editor explainers
+  also link to their Help topic.
 
 ## Save and share
 

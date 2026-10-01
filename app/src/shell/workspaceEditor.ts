@@ -1,0 +1,126 @@
+/** Presentation shared by the Create host, top bar and keyboard adapter. */
+import { computed, inject, provide, ref, shallowRef, type InjectionKey } from "vue";
+import type { EngineApi } from "../engine/engineContext.ts";
+import type { ChooserItem } from "./commands/chooserItems.ts";
+
+export function createWorkspaceEditor(engine: EngineApi) {
+  const flush = shallowRef<() => Promise<void>>();
+  const retry = shallowRef<() => Promise<void>>();
+  const pictureLive = ref(false);
+  const gameHost = shallowRef<HTMLElement | null>(null);
+  const selected = ref<string>();
+  const tabs = ref<string[]>([]);
+  const retained = ref<string[]>([]);
+  const focus = ref(false);
+  const panel = ref(false);
+  const history = ref(false);
+  const parts = shallowRef<readonly ChooserItem[]>([]);
+  const save = ref("Saved");
+  const canUndo = ref(false);
+  const canRedo = ref(false);
+  const busy = ref(false);
+  const error = ref("");
+  const split = ref(50);
+  try {
+    const stored = Number(localStorage.getItem("monotio_agi.workspaceSplit"));
+    if (stored >= 25 && stored <= 75) split.value = stored;
+  } catch {
+    /* Use the default split. */
+  }
+  const kind = computed(() => selected.value?.split(":")[0] ?? "");
+  function open(key: string): void {
+    selected.value = key;
+    if (!tabs.value.includes(key)) tabs.value.push(key);
+    if (!retained.value.includes(key)) retained.value.push(key);
+    try {
+      const pref = localStorage.getItem(`monotio_agi.workspaceFocus.${kind.value}`);
+      focus.value = pref === null ? window.innerWidth < 1280 : pref === "on";
+    } catch {
+      focus.value = window.innerWidth < 1280;
+    }
+    if (focus.value) panel.value = history.value = false;
+  }
+
+  function close(key: string): void {
+    const index = tabs.value.indexOf(key);
+    tabs.value = tabs.value.filter((tab) => tab !== key);
+    if (selected.value === key)
+      selected.value = tabs.value[Math.min(index, tabs.value.length - 1)] ?? undefined;
+  }
+  function toggleFocus(): void {
+    if (selected.value === undefined) return;
+    focus.value = !focus.value;
+    if (focus.value) panel.value = history.value = false;
+    try {
+      localStorage.setItem(`monotio_agi.workspaceFocus.${kind.value}`, focus.value ? "on" : "off");
+    } catch {
+      /* Remember for this page. */
+    }
+  }
+  function resize(value: number): void {
+    split.value = Math.min(75, Math.max(25, value));
+    try {
+      localStorage.setItem("monotio_agi.workspaceSplit", String(split.value));
+    } catch {
+      /* Remember for this page. */
+    }
+  }
+  async function step(direction: "undo" | "redo"): Promise<void> {
+    const session = engine.getProjectSession();
+    if (!session || busy.value) return;
+    busy.value = true;
+    error.value = "";
+    try {
+      const outcome = await session[direction]();
+      if (outcome && !["committed", "diagnostics", "unchanged"].includes(outcome.status))
+        error.value = "This change needs a fresh room. Return to the room and retry.";
+    } catch (cause) {
+      error.value = String(cause instanceof Error ? cause.message : cause);
+    } finally {
+      busy.value = false;
+    }
+  }
+  function reset(): void {
+    selected.value = undefined;
+    tabs.value = [];
+    retained.value = [];
+    focus.value = false;
+    panel.value = history.value = false;
+    parts.value = [];
+  }
+  return {
+    flush,
+    retry,
+    pictureLive,
+    gameHost,
+    selected,
+    tabs,
+    retained,
+    focus,
+    panel,
+    history,
+    parts,
+    save,
+    canUndo,
+    canRedo,
+    busy,
+    error,
+    split,
+    kind,
+    open,
+    close,
+    toggleFocus,
+    resize,
+    step,
+    reset,
+  };
+}
+const key: InjectionKey<ReturnType<typeof createWorkspaceEditor>> = Symbol("workspace-editor");
+export function provideWorkspaceEditor(editor: ReturnType<typeof createWorkspaceEditor>): void {
+  provide(key, editor);
+}
+export function useWorkspaceEditor() {
+  const editor = inject(key);
+  if (!editor) throw new Error("The workspace editor is unavailable.");
+  return editor;
+}

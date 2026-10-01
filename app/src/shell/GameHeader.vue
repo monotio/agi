@@ -9,6 +9,7 @@
  */
 import HelpGuide from "./HelpGuide.vue";
 import BrandMark from "../ui/BrandMark.vue";
+import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import PlayBar from "./PlayBar.vue";
 import SettingsSheet from "./SettingsSheet.vue";
 import UiButton from "../ui/UiButton.vue";
@@ -80,6 +81,7 @@ const {
 const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
+const workspaceEditor = useWorkspaceEditor();
 const workspace = useCreateWorkspace();
 const { onStartOver: startGameOver } = useGameLibrary();
 
@@ -91,6 +93,7 @@ const settingsOpen = computed(() => settingsSheet.value?.open ?? false);
 function toggleSettings(trigger: HTMLElement): void {
   settingsSheet.value?.toggle(trigger);
 }
+bridge.openSettings = toggleSettings;
 
 /** The Help guide's "Show me" actions this screen can perform right now. */
 const studios = useStudioLauncher();
@@ -220,9 +223,8 @@ async function onEjectGame(
   ejectRefusal.value = "";
   historyExit.value = false;
   closeNavMenus();
-  // Room Studio's unkept changes are kept or thrown away before the game is left.
-  if (!(await workspace.confirmStudioLeave())) return;
   try {
+    await workspaceEditor.flush.value?.();
     await ejectGame(
       leave === "abandonUnsaved"
         ? { abandonUnsaved: true }

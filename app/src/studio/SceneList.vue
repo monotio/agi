@@ -224,9 +224,9 @@ function onFilterKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <UiPanel title="Scene" flush class="scene-list">
+  <UiPanel title="Items" flush class="scene-list">
     <template #actions>
-      <span class="scene-list__meta">Order <UiExplain v-bind="explain('order')" /></span>
+      <span class="scene-list__meta">Draw order <UiExplain v-bind="explain('order')" /></span>
       <UiButton
         v-if="folds.length > 0 && matches === null"
         variant="ghost"

@@ -144,6 +144,9 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // Candidate room-entry checks share Engine's private idle/cache state and
   // remain synchronous: 167.3 kB gzip, 140.3 kB brotli. Complete restart
   // validation and project admission still load only for Create.
+  // Entering Create grants authority on the existing MAIN run without a reboot.
+  // The message gate and frozen-run denial bring this closure to 166.9 kB gzip,
+  // 140.0 kB brotli; the admission controller still loads on demand.
   workers: { gzip: 167_500, brotli: 140_500 },
 };
 

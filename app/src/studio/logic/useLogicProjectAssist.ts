@@ -86,9 +86,6 @@ export interface AssistApplied {
   readonly handle: ProjectAssistProposal;
 }
 
-/** Most bytes of selected text a request's attached context may carry. */
-export const MAX_ASSIST_SELECTION_CHARS = 4000;
-
 const EMPTY_STATE: ProjectAssistState = {
   closed: false,
   connected: false,
@@ -503,5 +500,3 @@ export function useLogicProjectAssist(options: LogicAssistOptions) {
     onWorkspaceSwapped,
   };
 }
-
-export type LogicProjectAssist = ReturnType<typeof useLogicProjectAssist>;

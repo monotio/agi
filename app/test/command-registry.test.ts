@@ -229,3 +229,29 @@ test("workspace undo and redo serve canvas zones while text inputs retain native
   assert.equal(registry.dispatch(key("z", { ctrlKey: true }).event), false);
   assert.deepEqual(calls, ["undo", "redo", "undo"]);
 });
+
+test("Focus chords consume the prefix, require an eligible second key and cancel on context changes", () => {
+  const ctx = context();
+  const registry = createCommandRegistry(() => ctx, true);
+  let calls = 0;
+  registry.register({
+    id: "focus",
+    title: "Focus",
+    keys: [{ key: "Mod+K Z", textInput: true }],
+    when: (c) => !c.dialogOpen,
+    run() {
+      calls++;
+    },
+  });
+  assert.equal(registry.dispatch(key("k", { metaKey: true }).event), true);
+  assert.equal(calls, 0);
+  assert.equal(registry.dispatch(key("z").event), true);
+  assert.equal(calls, 1);
+  registry.dispatch(key("k", { metaKey: true }).event);
+  assert.equal(registry.dispatch(key("x").event), false);
+  assert.equal(registry.dispatch(key("z").event), false);
+  registry.dispatch(key("k", { metaKey: true }).event);
+  ctx.dialogOpen = true;
+  assert.equal(registry.dispatch(key("z").event), false);
+  assert.equal(calls, 1);
+});

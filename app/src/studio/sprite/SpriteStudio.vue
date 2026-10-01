@@ -13,6 +13,7 @@ import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.
 import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
 import { aiSettingsKey } from "../../settings/useAiSettings.ts";
+import PaletteStrip from "../workspace/PaletteStrip.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
@@ -78,7 +79,7 @@ export type SpriteKeepFn = (
 ) => Promise<ResourceCommitResult>;
 
 /**
- * Sprite Studio: one VIEW's loops and cels, edited as a draft
+ * VIEW editor: one VIEW's loops and cels, edited as a draft
  * (useSpriteDraft) through the sprite kernel and kept through the resource
  * transaction (useStudioKeep). It takes the VIEW bytes and the revision they
  * were read at. Copy-on-write is the default: editing a loop that shares its
@@ -109,7 +110,11 @@ const {
   priorityBase = undefined,
   stagedReference = undefined,
   creativeLaunch = undefined,
+  embedded = false,
+  workspaceFocus = false,
 } = defineProps<{
+  embedded?: boolean;
+  workspaceFocus?: boolean;
   viewNumber: number;
   bytes: Uint8Array;
   profile: AgiProfile;
@@ -139,11 +144,23 @@ const {
   creativeLaunch?: (() => void) | undefined;
 }>();
 /** `reopen` asks for Studio again; `fromStorage` reloads the game from storage first. */
-const emit = defineEmits<{ close: []; reopen: [fromStorage: boolean] }>();
+const emit = defineEmits<{
+  close: [];
+  edit: [bytes: Uint8Array];
+  reopen: [fromStorage: boolean];
+}>();
 
 const draft = useSpriteDraft({
   base: () => ({ bytes, revision: baseRevision }),
   profile: () => profile,
+});
+watch([draft.bytes, draft.gesturing], ([next, gesturing]) => {
+  if (
+    embedded &&
+    !gesturing &&
+    (next.length !== bytes.length || !next.every((value, index) => bytes[index] === value))
+  )
+    emit("edit", next.slice());
 });
 /** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
 const lesson = useStudioLesson();
@@ -507,6 +524,7 @@ const keepTitle = computed(() =>
 
 const { leave, dialog, requestClose, discardChanges, keepChanges, recover, reopen } = useStudioExit(
   {
+    embedded,
     draft,
     keeper,
     say,
@@ -607,6 +625,7 @@ const status = computed(() => {
   <div
     ref="root"
     class="sprite-studio"
+    :class="{ 'is-embedded': embedded, 'is-workspace-focus': workspaceFocus }"
     data-testid="sprite-studio"
     tabindex="-1"
     role="region"
@@ -617,6 +636,7 @@ const status = computed(() => {
     @click="keepFocus"
   >
     <SpriteTopBar
+      v-if="!embedded"
       class="sprite-studio__top"
       :view-number="viewNumber"
       :description
@@ -662,7 +682,7 @@ const status = computed(() => {
         <span
           v-else-if="tools.tool.value === 'eraser'"
           class="sprite-options__note sprite-options__erase"
-          >Paints ∅ transparent <UiExplain v-bind="explain('transparent')"
+          >Paints the transparent colour <UiExplain v-bind="explain('transparent')"
         /></span>
         <span
           v-if="tools.tool.value !== 'recolor' && optionsFold.level.value < 2"
@@ -750,6 +770,13 @@ const status = computed(() => {
       />
     </main>
 
+    <PaletteStrip
+      v-if="embedded && workspaceFocus"
+      :value="color"
+      @choose="color = $event"
+      class="sprite-workspace-palette"
+      data-testid="sprite-palette"
+    />
     <SpriteTimeline
       class="sprite-studio__timeline"
       :document="shown"
@@ -813,7 +840,7 @@ const status = computed(() => {
         :priority-base="priorityBase"
       />
       <StudioAssistPanel
-        v-if="assistHost"
+        v-if="assistHost && !embedded"
         ref="assistPanel"
         :assist
         :chips="assistChips"
@@ -873,7 +900,7 @@ const status = computed(() => {
       />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
-    <StudioTour :tour :stage name="VIEW editor" />
+    <StudioTour v-if="!embedded" :tour :stage name="VIEW editor" />
 
     <StudioKeySheet
       v-model:open="calm.sheetOpen.value"
@@ -882,6 +909,7 @@ const status = computed(() => {
       @tour="tour.start()"
     />
     <StudioKeepDialog
+      v-if="!embedded"
       v-model:ask="dialog"
       :subject="`VIEW ${viewNumber}`"
       noun="view"
@@ -890,7 +918,7 @@ const status = computed(() => {
       @keep="leave.answer('keep')"
       @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
     />
-    <StudioSmallScreen name="VIEW editor" :draft :keeper @close="emit('close')" />
+    <StudioSmallScreen v-if="!embedded" name="VIEW editor" :draft :keeper @close="emit('close')" />
   </div>
 </template>
 
@@ -1046,6 +1074,31 @@ const status = computed(() => {
   margin: -1px;
   overflow: hidden;
   clip-path: inset(50%);
+  white-space: nowrap;
+}
+.sprite-studio.is-embedded {
+  grid-template-columns: 44px minmax(0, 1fr) 180px;
+  grid-template-rows: 0 40px minmax(0, 1fr) 120px 28px;
+}
+.sprite-studio.is-workspace-focus {
+  grid-template-columns: 44px minmax(0, 1fr) 0;
+  grid-template-rows: 0 40px minmax(0, 1fr) 52px 120px 28px;
+}
+.sprite-studio.is-workspace-focus .sprite-studio__panel {
+  display: none;
+}
+.sprite-workspace-palette {
+  grid-column: 2;
+  grid-row: 4;
+}
+.sprite-studio.is-workspace-focus .sprite-studio__timeline {
+  grid-row: 5;
+}
+.sprite-studio.is-workspace-focus .sprite-studio__status {
+  grid-row: 6;
+}
+.sprite-studio.is-embedded .sprite-studio__status {
+  overflow: hidden;
   white-space: nowrap;
 }
 </style>
