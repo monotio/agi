@@ -377,25 +377,25 @@ describe("spriteRecolor", () => {
   }
 
   it("counts one loop's pixels and splits it from its mirror, as the kernel does", () => {
-    // Loop 0's four cels hold 39, 33, 39 and 33 cyan pixels (decoded and counted by hand).
+    // Loop 0's four cels hold 31, 32, 31 and 32 cyan pixels (decoded and counted by hand).
     const edit = recolorEdit("loop", { loop: 0, cel: 2 }, CYAN, BLUE, false);
     assert.deepEqual(edit, { type: "recolor", from: CYAN, to: BLUE, scope: "loop", loop: 0 });
     const targets = recolorTargets(document, edit);
     assert.deepEqual(targets, [0]);
     assert.deepEqual(recolorCount(document, edit), {
-      pixels: 144,
+      pixels: 126,
       cels: 4,
       clash: null,
       copies: [0],
     });
-    assert.deepEqual(kernel(edit, targets), { ok: true, loops: [0], pixels: 144, isolated: [0] });
+    assert.deepEqual(kernel(edit, targets), { ok: true, loops: [0], pixels: 126, isolated: [0] });
   });
 
   it("reaches the linked group when edits propagate, and every loop over the view", () => {
     const linked = recolorEdit("loop", { loop: 1, cel: 0 }, CYAN, BLUE, true);
     assert.deepEqual(recolorTargets(document, linked), [0, 1]);
     assert.deepEqual(recolorCount(document, linked), {
-      pixels: 288,
+      pixels: 252,
       cels: 8,
       clash: null,
       copies: [],
@@ -403,15 +403,15 @@ describe("spriteRecolor", () => {
     assert.deepEqual(kernel(linked, [0, 1]), {
       ok: true,
       loops: [0, 1],
-      pixels: 288,
+      pixels: 252,
       isolated: [],
     });
-    // Loops 2 and 3 add 54 in each of their cels.
+    // Loops 2 and 3 add 40 in each of their cels.
     const view = recolorEdit("view", { loop: 3, cel: 1 }, CYAN, BLUE, false);
     assert.deepEqual(recolorTargets(document, view), [0, 1, 2, 3]);
-    assert.equal(recolorCount(document, view).pixels, 720);
+    assert.equal(recolorCount(document, view).pixels, 572);
     assert.deepEqual(recolorCount(document, view).copies, []);
-    assert.equal(kernel(view, [0, 1, 2, 3]).pixels, 720);
+    assert.equal(kernel(view, [0, 1, 2, 3]).pixels, 572);
     // Without the right targets the loop check refuses what the kernel did.
     assert.equal(kernel(view, [3]).ok, false);
   });
@@ -420,8 +420,8 @@ describe("spriteRecolor", () => {
     const cel = recolorEdit("cel", { loop: 2, cel: 2 }, CYAN, BLUE, false);
     assert.deepEqual(cel.scope, [{ loop: 2, cel: 2 }]);
     assert.deepEqual(recolorTargets(document, cel), [2]);
-    assert.equal(recolorCount(document, cel).pixels, 54);
-    assert.equal(kernel(cel, [2]).pixels, 54);
+    assert.equal(recolorCount(document, cel).pixels, 40);
+    assert.equal(kernel(cel, [2]).pixels, 40);
     // Transparent pixels are never a colour to change.
     assert.equal(
       recolorCount(document, recolorEdit("loop", { loop: 2, cel: 0 }, 13, 1, false)).pixels,

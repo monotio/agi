@@ -292,7 +292,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a",
+    "af63c29c289a521f34cb9784f9e0dd301a2d41b7f959a60cf19c95e841c1f62d",
     "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
   );
 });
