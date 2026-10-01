@@ -136,9 +136,10 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native
   // preview staging. Debugging and source compilation load on demand.
-  // Their complete static closures measure 162.4 kB gzip, 136.4 kB brotli;
-  // these ceilings retain about 1.6% gzip and 1.2% brotli headroom.
-  workers: { gzip: 165_000, brotli: 138_000 },
+  // Complete document admission retains encoder exports alongside the runtime
+  // decoders in shared worker modules: 164.7 kB gzip, 138.3 kB brotli.
+  // Admission and its compiler remain outside the startup closure.
+  workers: { gzip: 165_000, brotli: 139_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {
@@ -175,7 +176,7 @@ const STUDIO_WORKERS = [/(^|\/)route\.worker-[^/]*\.js$/];
  * startup worker that statically reaches any of them fails the check.
  */
 const DEBUGGER_MODULES = [
-  /^app\/src\/worker\/debugController\.ts$/,
+  /^app\/src\/worker\/(debugController|previewAdmission|projectAdmission)\.ts$/,
   /^src\/runtime\/(debugExpression|debugBreakpoints|debugStep|debugWatchpoints)\.ts$/,
 ];
 

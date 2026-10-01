@@ -1,3 +1,4 @@
+import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 /**
  * The engine-worker message protocol, shared by both threads.
  *
@@ -161,6 +162,8 @@ export type SourceBindingKind = BindingKind | "string";
  * resource revision and the lane-local update serial.
  */
 export interface PreviewLaneIdentity {
+  /** Complete project document identity; legacy isolated previews omit it. */
+  documentId?: string;
   epoch: number;
   buildId: string;
   revision: string;
@@ -181,6 +184,9 @@ export interface PreviewUpdateOutcome {
 
 /** The complete immutable candidate a previewUpdate ships. */
 export interface PreviewUpdateCandidateMessage {
+  /** Complete ProjectImage documents and exact identity, required by project admission. */
+  documents?: PortableProjectWorkspace;
+  documentId?: string;
   /** Complete detached container image: directories, volumes, aux files. */
   files: Record<string, Uint8Array>;
   /** Issuer-declared profile; when present it must equal the running one. */
