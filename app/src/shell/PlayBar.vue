@@ -18,7 +18,6 @@ import { useEngineApi } from "../engine/engineContext.ts";
 import { gameShortcuts } from "../play/gameControls.ts";
 import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
-import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 
 const { settingsOpen } = defineProps<{ settingsOpen: boolean }>();
 const emit = defineEmits<{
@@ -34,13 +33,10 @@ const emit = defineEmits<{
 const { state, currentGame, roomMap } = useEngineApi();
 const shell = useShell();
 const commands = useOptionalCommands();
-const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
 
-/** Play opens the world-map window; Create shows its docked World panel. */
 function showMap(): void {
-  if (shell.mode.value === "create") workspace.showPanel("world");
-  else roomMap.openMap({ experience: "play" });
+  roomMap.openMap({ experience: shell.mode.value });
 }
 
 const game = computed(() => {
@@ -136,13 +132,7 @@ const shortcutsBlocked = computed(
             >Agent</UiButton
           >
         </template>
-        <UiIconButton
-          v-if="mode === 'play'"
-          icon="map"
-          label="World map"
-          data-testid="btn-world-map"
-          @click="showMap"
-        />
+        <UiIconButton icon="map" label="World map" data-testid="btn-world-map" @click="showMap" />
         <ActionMenu v-if="mode === 'play'" label="Save or restore" icon-only icon="save">
           <button
             v-for="shortcut in saveShortcuts"

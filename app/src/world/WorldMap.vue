@@ -18,6 +18,8 @@ import { computed, ref, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
+import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
+import { useShell } from "../shell/useShell.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import WorldGraph from "./WorldGraph.vue";
 import WorldRoomDetail from "./WorldRoomDetail.vue";
@@ -28,6 +30,8 @@ import type { MapExperience } from "../../../src/agent/roomMap.ts";
 const engine = useEngineApi();
 const { state } = engine;
 const map = engine.roomMap;
+const editor = useWorkspaceEditor();
+const shell = useShell();
 // Top-level refs unwrap in the template; .value stays in the script.
 const { unsaved, storageError } = map;
 
@@ -78,6 +82,17 @@ const { selectedNode, pickFromList, showAllRooms, onDetailKeydown } = useRoomDri
   detail: detailView,
   pick: pickRoom,
 });
+
+function openRoomPicture(room: number): void {
+  if (shell.mode.value !== "create") return;
+  const resources = map.resources.value;
+  const picture = resources.scans
+    .get(room)
+    ?.pictures.find((number) => resources.picture.has(number));
+  if (picture === undefined) return;
+  editor.open(`picture:${picture}`);
+  shown.value = false;
+}
 
 /** A bare room in the plan — no connection yet; the detail pane names it. */
 function addStandaloneRoom(): void {
@@ -166,7 +181,7 @@ function addStandaloneRoom(): void {
           <WorldRoomDetail ref="detailView" :node="selectedNode" @keydown="onDetailKeydown" />
         </template>
       </section>
-      <WorldGraph ref="graphView" />
+      <WorldGraph ref="graphView" @pick="openRoomPicture" />
     </div>
   </UiDialog>
 </template>

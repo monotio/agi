@@ -1,6 +1,4 @@
-import { nextTick } from "vue";
 import type { EngineApi } from "../../engine/engineContext.ts";
-import type { ShellBridge } from "../../shell/shellBridge.ts";
 import type { LlmConfig } from "../../agent/llmClient.ts";
 import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
 
@@ -53,7 +51,7 @@ export async function openWordsTask(input: {
   task: WordsTask;
   documents: Readonly<Record<string, ProjectContent>>;
   engine: EngineApi;
-  bridge: ShellBridge;
+  compose(text: string): void;
   configured: boolean;
   config: LlmConfig;
   setup(): void;
@@ -64,10 +62,5 @@ export async function openWordsTask(input: {
   }
   if (!input.engine.state.powerUp.open) await input.engine.openPowerUp(input.config);
   input.engine.state.powerUp.mode = input.task.kind === "review" ? "remix" : "ask";
-  await nextTick();
-  const field = input.bridge.assistantInputEl();
-  if (!(field instanceof HTMLTextAreaElement)) return;
-  field.value = wordsTaskPrompt(input.task, input.documents);
-  field.dispatchEvent(new Event("input", { bubbles: true }));
-  field.focus();
+  input.compose(wordsTaskPrompt(input.task, input.documents));
 }

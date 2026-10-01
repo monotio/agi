@@ -6,6 +6,7 @@ import { buildWordsTok } from "../../../../src/logic/words.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
 import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
 import type { PlayerSentence } from "../../project/playerSentences.ts";
+import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
@@ -28,6 +29,7 @@ const emit = defineEmits<{
   task: [task: WordsTask];
 }>();
 const engine = useEngineApi();
+const editor = useWorkspaceEditor();
 const entries = computed<WordRows>(() => {
   try {
     return JSON.parse(props.source) as WordRows;
@@ -63,7 +65,7 @@ const predictionRows = computed(() =>
         ? `“${unknown}” is a new word`
         : answered
           ? conditional
-            ? "Depends on the game's state"
+            ? "Answers when the game's state allows it"
             : `LOGIC ${outcomes[0]!.logic} answers`
           : VOCABULARY.noResponse.label,
     };
@@ -71,7 +73,16 @@ const predictionRows = computed(() =>
 );
 const pendingTask = ref<{ task: WordsTask; start: number; source: string; room: number }>();
 const groups = computed(() => {
-  const rows = wordGroups(entries.value);
+  const rows = wordGroups(entries.value).map((group) => {
+    const head =
+      uses.value[String(group.id)]
+        ?.flatMap((use) => use.words)
+        .find((word) => group.words.includes(word)) ?? group.words[0];
+    return {
+      ...group,
+      words: head ? [head, ...group.words.filter((word) => word !== head)] : group.words,
+    };
+  });
   for (const id of [0, ...empty.value])
     if (!rows.some((row) => row.id === id)) rows.push({ id, words: [] });
   return rows.sort(
@@ -191,14 +202,14 @@ function acceptSame(): void {
 function task(value: WordsTask): void {
   pendingTask.value = {
     task: value,
-    start: engine.state.powerUp.messages.length,
+    start: editor.agentMessages.value.length,
     source: props.source,
     room: props.room,
   };
   emit("task", value);
 }
 watch(
-  () => engine.state.powerUp.messages,
+  () => editor.agentMessages.value,
   (messages) => {
     const pending = pendingTask.value;
     if (!pending || pending.source !== props.source || pending.room !== props.room) return;
@@ -348,14 +359,8 @@ function dismissGhosts(event: KeyboardEvent): void {
                   LOGIC {{ outcome.logic }} · line {{ outcome.line }}
                 </button>
                 <p>
-                  {{
-                    outcome.conditional
-                      ? outcome.condition
-                        ? `Answers when ${outcome.condition}`
-                        : "Depends on the game's state"
-                      : "The game answers"
-                  }}
-                  <q v-if="outcome.message">{{ outcome.message }}</q>
+                  Answers<span v-if="outcome.message"> “{{ outcome.message }}”</span
+                  ><span v-if="outcome.conditional"> when the game's state allows it</span>
                 </p>
               </div>
             </template>
@@ -516,7 +521,9 @@ function dismissGhosts(event: KeyboardEvent): void {
           </div>
           <div class="meaning-uses">
             <template v-if="uses[String(group.id)]?.length"
-              ><small>{{ uses[String(group.id)]!.length }} uses</small
+              ><small
+                >{{ uses[String(group.id)]!.length }}
+                {{ uses[String(group.id)]!.length === 1 ? "use" : "uses" }}</small
               ><button
                 v-for="use in uses[String(group.id)]"
                 :key="`${use.logic}:${use.line}`"
@@ -696,8 +703,14 @@ p {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--hairline);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.meaning-row:hover {
+  border-color: var(--hairline-strong);
 }
 .meaning-chips,
 .meaning-uses,
@@ -717,6 +730,7 @@ p {
   min-width: var(--space-6);
 }
 .word-chip {
+  font-family: var(--font-mono);
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -724,12 +738,13 @@ p {
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
   font-size: var(--text-sm);
-  background: var(--surface-2);
+  background: var(--surface-3);
   color: var(--ink-2);
 }
 .word-chip.head {
-  color: var(--ink);
-  background: var(--surface-3);
+  color: var(--action);
+  background: var(--action-soft);
+  border-color: var(--action-line);
   font-weight: 600;
 }
 .word-suggestion {
@@ -745,6 +760,22 @@ p {
   cursor: pointer;
   padding: 0 var(--space-1);
   font: inherit;
+}
+.word-chip .chip-remove,
+.word-chip .chip-move {
+  opacity: 0;
+}
+.word-chip:hover .chip-remove,
+.word-chip:hover .chip-move,
+.word-chip:focus-within .chip-remove,
+.word-chip:focus-within .chip-move {
+  opacity: 1;
+}
+@media (hover: none) {
+  .word-chip .chip-remove,
+  .word-chip .chip-move {
+    opacity: 1;
+  }
 }
 .words-link {
   border: 0;

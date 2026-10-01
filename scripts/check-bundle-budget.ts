@@ -130,8 +130,10 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   entry: { gzip: 500_000, brotli: 405_000 },
   // The entry and HOME_START chunks with their static imports: measured
   // 556.5 kB gzip, 458.7 kB brotli (the entry's closure alone was 536.7 kB,
-  // 441.8 kB).
-  js: { gzip: 575_000, brotli: 472_000 },
+  // 441.8 kB). The shared shell's map access and editor context handoff bring
+  // startup to 576.1 kB gzip, 474.9 kB brotli; editor families and the agent
+  // panel still load on first use.
+  js: { gzip: 578_000, brotli: 476_000 },
   // The stylesheets of those chunks: 16.4 kB gzip, 14.3 kB brotli.
   css: { gzip: 16_500, brotli: 14_500 },
   // The 1.2 engine and catalog workers share Engine's synchronous native

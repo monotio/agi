@@ -60,7 +60,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         title: "The map",
         body: [
           "The map draws the rooms you have visited and the exits between them, and adds the rooms the game's own logic mentions as you explore. Pin a note to any room to remember what you found there.",
-          "The map button in Play's top bar opens it; Esc closes it.",
+          "The map button in the top bar opens it in Play and Create; Esc closes it. Choose a room in Create to open its PICTURE.",
         ],
         action: { kind: "map", label: "Open the map" },
       },

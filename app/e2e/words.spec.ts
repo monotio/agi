@@ -1,5 +1,6 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook } from "./engineProbe.ts";
+import { isolateStorage, textHook, configureAi } from "./engineProbe.ts";
 
 for (const width of [1440, 1280])
   test(`Words sentence, local playtest miss and Same as at ${width}`, async ({ page }) => {
@@ -45,6 +46,24 @@ for (const width of [1440, 1280])
     await expect(page.getByTestId("sentence-parse")).toContainText("· 100");
     await expect(page.getByTestId("sentence-outcome")).toContainText("LOGIC 1");
     await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+    await expect(page.getByTestId("sentence-outcome")).toContainText("Answers “You stand");
+    const meaning = editor.locator('[data-word-group="100"]');
+    await expect(meaning.locator(".head")).toHaveText(/look/);
+    const singleUse = editor.locator('[data-word-group="101"] .meaning-uses');
+    await expect(singleUse).toContainText("1 use");
+    await expect(singleUse).not.toContainText("1 uses");
+    await expect(page.getByTestId("sentence-outcome")).toContainText(
+      "when the game's state allows it",
+    );
+    await sentence.focus();
+    await page.mouse.move(0, 0);
+    const move = meaning.getByRole("button", { name: "Move to… inspect", exact: true });
+    await expect(move).toHaveCSS("opacity", "0");
+    await move.focus();
+    await expect(move).toHaveCSS("opacity", "1");
+    await meaning.locator(".word-chip").filter({ hasText: "inspect" }).hover();
+    await expect(move).toHaveCSS("opacity", "1");
+    await sentence.focus();
     await editor.getByRole("button", { name: "Type it in the game ↵", exact: true }).click();
     await expect
       .poll(async () => (await textHook(page)).rows.join("\n"))
@@ -56,6 +75,7 @@ for (const width of [1440, 1280])
     await page.screenshot({ path: test.info().outputPath(`chromium-${width}-words.png`) });
     await page.getByTestId("workspace-focus").click();
     await editor.getByRole("button", { name: "Move to… inspect", exact: true }).click();
+    await editor.getByRole("combobox", { name: "Destination meaning", exact: true }).focus();
     await page.keyboard.press("Escape");
     await expect(editor.getByRole("form", { name: "Move to…" })).toHaveCount(0);
     await sentence.focus();
@@ -64,3 +84,60 @@ for (const width of [1440, 1280])
     await page.keyboard.press("Escape");
     await expect(page.locator(".play-area")).toBeVisible();
   });
+
+test("WORDS Suggest and Predict prefill the Create agent composer", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await isolateStorage(page);
+  await page.goto("/");
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
+  let requests = 0;
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    requests++;
+    await route.fulfill(
+      providerReply("openai", {
+        id: `words-${requests}`,
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "output_text",
+                text: requests === 1 ? '{"synonyms":["inspect"]}' : '{"commands":["look tree"]}',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await page.getByTestId("part-words").click();
+  const words = page.getByTestId("workspace-words-editor");
+  await words
+    .locator('[data-word-group="100"]')
+    .getByRole("button", { name: "✦ Suggest", exact: true })
+    .click();
+  const panel = page.getByTestId("workspace-agent-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId("agent-message")).toHaveValue(
+    /^Suggest synonyms for WORDS.TOK meaning 100:/,
+  );
+  await expect(panel.getByTestId("agent-message")).toBeFocused();
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(words.locator('[data-word-group="100"] .word-suggestion')).toHaveText("inspect");
+  expect(requests).toBe(1);
+  await words.getByRole("button", { name: "✦ Predict commands", exact: true }).click();
+  await expect(panel.getByTestId("agent-message")).toHaveValue(
+    /^Predict commands players will likely try in ROOM 1/,
+  );
+  await expect(panel.getByTestId("agent-message")).toBeFocused();
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(words.getByRole("region", { name: "Predicted commands" })).toContainText(
+    "look tree",
+  );
+  expect(requests).toBe(2);
+});

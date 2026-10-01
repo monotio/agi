@@ -112,3 +112,18 @@ test("native LOGIC uses and responses participate in coordinated vocabulary move
   assert.equal(typeof rewritten, "string");
   assert.ok((rewritten as string).includes('said("look")'));
 });
+
+test("meaning uses retain said source spellings for the head chip", () => {
+  assert.deepEqual(
+    meaningUses(words, {
+      "logic:1": 'if (said("examine", "oak")) { return; }',
+    })["100"]?.[0]?.words,
+    ["examine"],
+  );
+  assert.deepEqual(
+    meaningUses(words, {
+      "logic:1": "if (said(100)) { return; }",
+    })["100"]?.[0]?.words,
+    [],
+  );
+});

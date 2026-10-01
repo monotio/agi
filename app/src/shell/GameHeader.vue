@@ -155,8 +155,7 @@ function onHelpAction(request: HelpRequest): void {
       controlsOpen.value = true;
       return;
     case "map":
-      if (shell.mode.value === "create") workspace.showPanel("world");
-      else roomMap.openMap({ experience: "play" });
+      roomMap.openMap({ experience: shell.mode.value });
       return;
     case "hint":
       if (!state.powerUp.open) bridge.togglePowerUp("ask");

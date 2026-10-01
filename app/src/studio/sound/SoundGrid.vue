@@ -56,10 +56,11 @@ const steps = computed(() =>
     ) + 4,
   ),
 );
+const ROW_HEIGHT = 20;
 const pageStart = ref(0);
 const width = computed(() => 64 + 32 * 26),
-  height = computed(() => 24 + rows.value * 14);
-const toneHeight = computed(() => 24 + pitchRows.value * 14);
+  height = computed(() => 24 + rows.value * ROW_HEIGHT);
+const toneHeight = computed(() => 24 + pitchRows.value * ROW_HEIGHT);
 const drumHeight = computed(() => height.value - toneHeight.value);
 const cursor = ref({ step: 0, row: 8 });
 const cursorTick = ref<number>();
@@ -144,15 +145,16 @@ function drawSurface(element: HTMLCanvasElement, offset: number, surfaceHeight: 
   c.fillRect(0, 0, width.value, height.value);
   c.font = `${token("--text-2xs")} ${token("--font-mono")}`;
   for (let row = 0; row < rows.value; row++) {
-    const y = 24 + row * 14,
+    const y = 24 + row * ROW_HEIGHT,
       pitch = high.value - row,
       black = row < pitchRows.value && [1, 3, 6, 8, 10].includes(pitch % 12);
     c.fillStyle = token(black ? "--surface-0" : "--surface-1");
-    c.fillRect(64, y, width.value - 64, 13);
+    c.fillRect(64, y, width.value - 64, ROW_HEIGHT - 1);
     c.fillStyle = token(black ? "--surface-3" : "--hairline-strong");
-    c.fillRect(0, y, 60, 13);
+    c.fillRect(0, y, 60, ROW_HEIGHT - 1);
     c.fillStyle = token("--ink-2");
-    if (row >= pitchRows.value || pitch % 12 === 0) c.fillText(rowLabel(row), 4, y + 11, 56);
+    if (row >= pitchRows.value || pitch % 12 === 0)
+      c.fillText(rowLabel(row), 4, y + ROW_HEIGHT / 2 + 4, 56);
   }
   for (let localStep = 0; localStep <= 32; localStep++) {
     const step = pageStart.value + localStep;
@@ -169,28 +171,35 @@ function drawSurface(element: HTMLCanvasElement, offset: number, surfaceHeight: 
   c.clip();
   for (const note of notes.value) {
     if (note.event.data.kind === "rest") continue;
-    const y = 24 + noteRow(note) * 14,
+    const y = 24 + noteRow(note) * ROW_HEIGHT,
       x = tickX(note.start),
       length = Math.max(2, tickX(note.end) - x);
     c.globalAlpha =
       "attenuation" in note.event.data ? 0.3 + (0.7 * (15 - note.event.data.attenuation)) / 15 : 1;
     c.fillStyle = colours[note.event.lane]!;
-    c.fillRect(x + 1, y + 1, Math.max(1, length - 2), 12);
+    c.beginPath();
+    c.roundRect(x + 1, y + 2, Math.max(1, length - 2), ROW_HEIGHT - 4, 3);
+    c.fill();
     c.globalAlpha = 1;
     if (note.event.id === props.selected) {
       c.strokeStyle = token("--ink");
-      c.strokeRect(x + 1, y + 1, Math.max(1, length - 2), 12);
+      c.stroke();
     }
   }
   c.strokeStyle = token("--focus");
-  c.strokeRect(65 + (cursor.value.step - pageStart.value) * 26, 25 + cursor.value.row * 14, 24, 12);
+  c.strokeRect(
+    65 + (cursor.value.step - pageStart.value) * 26,
+    25 + cursor.value.row * ROW_HEIGHT,
+    24,
+    ROW_HEIGHT - 2,
+  );
   if (drag?.moving) {
     c.strokeStyle = colours[drag.lane]!;
     c.strokeRect(
       tickX(drag.start) + 1,
-      25 + drag.row * 14,
+      25 + drag.row * ROW_HEIGHT,
       Math.max(2, tickX(drag.end) - tickX(drag.start) - 2),
-      12,
+      ROW_HEIGHT - 2,
     );
   }
   if (props.position > 0) {
@@ -213,7 +222,7 @@ function pointerCell(
   if (x < 64 || y < 24 || y >= height.value) return;
   return {
     step: pageStart.value + Math.max(0, Math.min(31, Math.floor((x - 64) / 26))),
-    row: Math.floor((y - 24) / 14),
+    row: Math.floor((y - 24) / ROW_HEIGHT),
     x,
     tick: (((x - 64) / 26 + pageStart.value) * 14400) / props.tempo / props.division,
   };
@@ -374,7 +383,10 @@ function keyEdit(event: KeyboardEvent): void {
       0,
       64 + (cursor.value.step - pageStart.value) * 26 - canvas.value.parentElement.clientWidth + 64,
     ),
-    top: Math.max(0, 24 + cursor.value.row * 14 - canvas.value.parentElement.clientHeight + 28),
+    top: Math.max(
+      0,
+      24 + cursor.value.row * ROW_HEIGHT - canvas.value.parentElement.clientHeight + 28,
+    ),
   });
 }
 watch(

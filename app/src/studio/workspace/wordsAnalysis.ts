@@ -15,6 +15,9 @@ interface Use {
   logic: number;
   line: number;
 }
+interface MeaningUse extends Use {
+  words: string[];
+}
 export interface SentenceOutcome extends Use {
   message: string;
   conditional: boolean;
@@ -77,8 +80,8 @@ export function meaningUses(
   words: WordRows,
   documents: Readonly<Record<string, ProjectContent>>,
   profile: AgiProfile = DEFAULT_V2_PROFILE,
-): Record<string, Use[]> {
-  const uses: Record<string, Use[]> = {};
+): Record<string, MeaningUse[]> {
+  const uses: Record<string, MeaningUse[]> = {};
   const dictionary = new Map(words);
   for (const [key, content] of Object.entries(documents)) {
     if (!key.startsWith("logic:")) continue;
@@ -91,6 +94,11 @@ export function meaningUses(
             (uses[String(id)] ??= []).push({
               logic: Number(key.split(":")[1]),
               line: cond.tok.line - syntax.lines,
+              words: cond.args.flatMap((arg) =>
+                arg.kind === "str" && dictionary.get(arg.text.toLowerCase()) === id
+                  ? [arg.text.toLowerCase()]
+                  : [],
+              ),
             });
         }
       });
