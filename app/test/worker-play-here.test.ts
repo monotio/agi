@@ -11,6 +11,7 @@ import { buildView } from "../../src/view/view.ts";
 import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerPorts } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
+import { createPlayHere } from "../src/worker/playHere.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 
@@ -37,7 +38,7 @@ function game() {
   );
 }
 
-function harness() {
+function harness(eager = true) {
   const control: WorkerControl[] = [];
   let now = 0;
   const ports: WorkerPorts = {
@@ -50,6 +51,7 @@ function harness() {
   };
   const ctx = createWorkerContext(ports);
   ctx.host = createEngineHost(ctx);
+  if (eager) Object.assign(ctx.fns, createPlayHere(ctx));
   let acked = 0;
   const send = (msg: WorkerInbound): void => {
     onWorkerMessage(ctx, msg);
@@ -187,4 +189,26 @@ test("a room without logic, or a malformed spot, changes nothing", () => {
   }
   assert.equal(segments(control).length, 1, "the recording goes on uninterrupted");
   assert.equal(segments(control)[0]!.end, undefined);
+});
+
+test("Play here loads on demand and refuses a command whose game was replaced during loading", async (t) => {
+  const h = harness(false);
+  t.after(() => h.ctx.fns.stopTimers());
+  h.send({ type: "playHere", id: 901, room: 2, x: 60, y: 150 });
+  assert.equal(
+    h.control.some((message) => message.type === "playedHere"),
+    false,
+  );
+  h.send({ type: "boot", files: Object.fromEntries(game().files), words: [] });
+  for (
+    let turn = 0;
+    turn < 400 && !h.control.some((message) => message.type === "playedHere");
+    turn++
+  ) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const reply = h.control.find((message) => message.type === "playedHere");
+  assert.ok(reply?.type === "playedHere");
+  assert.equal(reply.id, 901);
+  assert.equal(reply.ok, false);
 });

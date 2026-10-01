@@ -6,6 +6,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createPlayHere } from "../src/worker/playHere.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { requireResourceRevision } from "../../src/gameIdentity.ts";
@@ -182,6 +183,7 @@ function bootedContext(profile: ProfileId) {
   };
   const ctx = createWorkerContext(ports);
   ctx.host = createEngineHost(ctx);
+  Object.assign(ctx.fns, createPlayHere(ctx));
   const files = Object.fromEntries(combinedGameFiles([0x00, 0x00, 0x00]));
   const msg: WorkerInbound = { type: "boot", profile, files, words: [] };
   onWorkerMessage(ctx, msg);

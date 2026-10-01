@@ -14,6 +14,7 @@ import {
 } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
 import { createDebugController } from "../src/worker/debugController.ts";
+import { createPlayHere } from "../src/worker/playHere.ts";
 import { installDebugController } from "../src/worker/debugLoader.ts";
 import {
   openHistoryDrive,
@@ -55,6 +56,7 @@ export function workerHarness(container: GameContainer): WorkerHarness {
   const ctx = createWorkerContext(ports);
   // Fake-port tests stay synchronous: the lazy controller installs up front.
   installDebugController(ctx, createDebugController(ctx));
+  Object.assign(ctx.fns, createPlayHere(ctx));
   ctx.host = createEngineHost(ctx);
   ctx.engine = new Engine(container, ctx.host, new Map());
   ctx.engine.flags[9] = 1;
