@@ -12,7 +12,7 @@ import { requireProjectId } from "../../src/gameIdentity.ts";
 interface Case {
   name: string;
   projectAgent?: {
-    documents: Record<string, string>;
+    documents: Record<string, string | number[]>;
     request: string;
     turns: LlmTurnResult[];
     expectedKeys: string[];
@@ -24,9 +24,15 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
   const content = stored.projectAgent;
   if (!content) continue;
   test(`replays project agent bad case: ${stored.name}`, async () => {
+    const documents = Object.fromEntries(
+      Object.entries(content.documents).map(([key, value]) => [
+        key,
+        typeof value === "string" ? value : Uint8Array.from(value),
+      ]),
+    );
     const compiled = compileProjectDocuments({
       files: Object.fromEntries(createContainer().files),
-      documents: content.documents,
+      documents,
       profileId: "2.936",
     });
     const session = openProjectSession({
@@ -36,7 +42,7 @@ for (const file of readdirSync(directory).filter((file) => file.endsWith(".json"
         authoredAt: "",
         files: Object.fromEntries(compiled.files()),
         words: [],
-        workspace: writeProjectWorkspace(content.documents),
+        workspace: writeProjectWorkspace(documents),
       },
       lifetime: "replay",
       admission: {

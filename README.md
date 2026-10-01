@@ -186,6 +186,13 @@ grid, tracker, presets and playback, and imports MIDI and VGM. **Focus** gives a
 workspace while the game keeps running.
 Create works best on a larger screen; games play on phones too.
 
+**Trace an image** puts a dropped, pasted or chosen image under a PICTURE at
+adjustable opacity. **Make cels from an image** marks frames on a sheet, maps
+them to VIEW loops and previews them on the running hero before adding them.
+**Generate** uses your OpenAI key and shows the model, quality, size and estimated
+cost before sending. These images autosave with History and travel in private
+project downloads. Public game exports carry the resulting AGI resources.
+
 Some Create edits need a fresh room or game start. **Re-enter room** runs the
 room's entry LOGIC with your changes; that LOGIC can reposition actors or change
 room state. **Restart with your changes** starts the game from the beginning,

@@ -85,6 +85,8 @@
   min-width: 0;
 }
 .workspace-editor__surface {
+  display: flex;
+  flex-direction: column;
   position: relative;
   z-index: 0;
   flex: 1;
@@ -93,7 +95,8 @@
 }
 .workspace-editor__surface > .studio,
 .workspace-editor__surface > .sprite-studio {
-  height: 100%;
+  flex: 1;
+  height: 0;
   width: 100%;
   min-height: 0;
   box-sizing: border-box;

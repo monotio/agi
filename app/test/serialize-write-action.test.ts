@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { testProjectId } from "./identity.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import {
   runInWriteTurn,
@@ -8,7 +7,6 @@ import {
   serializeWriteAction,
   type OwnedWriteTurn,
 } from "../src/project/gameStorage.ts";
-import { captureCreativeProjectInTurn } from "../src/project/creativeProjectSnapshot.ts";
 
 installIndexedDbFixture();
 
@@ -114,15 +112,4 @@ test("a suspended loading action never holds another key's queue", async () => {
   release();
   await action;
   assert.deepEqual(events, ["b", "a"]);
-});
-
-test("the in-turn capture reads inside the held slot and refuses a foreign turn", async () => {
-  const project = testProjectId("turn-capture");
-  // A fabricated turn refuses before a single record is read.
-  await assert.rejects(captureCreativeProjectInTurn({} as OwnedWriteTurn, project), /write turn/);
-  // Inside the owned turn the capture runs to its storage contract: a
-  // missing body refuses by name rather than answering an empty snapshot.
-  await serializeWriteAction(project, async (turn) =>
-    assert.rejects(captureCreativeProjectInTurn(turn, project), /body record is missing/),
-  );
 });

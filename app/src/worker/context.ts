@@ -583,6 +583,10 @@ export interface WorkerFns {
 }
 
 export interface WorkerContext {
+  imagePreviewEngine?: Engine | undefined;
+  imageHeroPreview?:
+    ((frame: ReturnType<Engine["getPresentation"]>, cycle: number) => void) | undefined;
+  imagePreviewSerial?: number;
   ports: WorkerPorts;
   engine: Engine | null;
   /** The engine's host facade; assigned right after creation (it closes over ctx). */

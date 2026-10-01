@@ -5,7 +5,8 @@ import type { GameContainer } from "../../../src/types.ts";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
 import { renderPicture } from "../../../src/picture/renderer.ts";
-import { pictureOverviewPng } from "../../../src/agent/studioAssistPreview.ts";
+import { encodePngRgba } from "../../../src/creative/composite.ts";
+import { imageReviewTargets, pictureReviewPixels } from "./workspaceImageReview.ts";
 import { viewFeedback } from "../../../src/agent/viewFeedback.ts";
 import { renderSoundPreview } from "../../../src/sound/preview.ts";
 import { readInventoryObjects } from "../../../src/authoring/inventory.ts";
@@ -13,6 +14,8 @@ import { parseWordsTok } from "../../../src/logic/words.ts";
 const props = defineProps<{
   documentKey: string;
   before: ProjectContent | undefined;
+  beforeDocuments: Readonly<Record<string, ProjectContent>>;
+  afterDocuments: Readonly<Record<string, ProjectContent>>;
   after: ProjectContent | null;
   beforeImage: GameContainer;
   afterImage: GameContainer;
@@ -25,18 +28,33 @@ function dataUrl(bytes: Uint8Array, mime: string): string {
   return `data:${mime};base64,${btoa(data)}`;
 }
 const images = computed(() => {
-  const [kind, num] = props.documentKey.split(":");
-  if (kind !== "picture" && kind !== "view") return [];
-  return [props.beforeImage, props.afterImage].map((image, index) => {
-    const bytes = image.getResource(kind, Number(num));
-    if (!bytes) return { label: index ? "After" : "Before", url: "" };
-    const surface = createPictureSurface();
-    if (kind === "picture") renderPicture(bytes, surface, { profile: props.profile });
-    const png =
-      kind === "picture"
-        ? pictureOverviewPng(surface.visual, new Uint8Array(160 * 168))
-        : viewFeedback(bytes, props.profile, Number(num)).png;
-    return { label: index ? "After" : "Before", url: dataUrl(png, "image/png") };
+  const targets =
+    props.documentKey === "images"
+      ? imageReviewTargets(props.beforeDocuments, props.afterDocuments)
+      : [props.documentKey];
+  return targets.flatMap((target) => {
+    const [kind, num] = target.split(":");
+    if (kind !== "picture" && kind !== "view") return [];
+    return [props.beforeImage, props.afterImage].map((image, index) => {
+      const label = `${target.replace(":", " ").toUpperCase()} ${index ? "After" : "Before"}`;
+      const bytes = image.getResource(kind, Number(num));
+      if (!bytes && kind === "view") return { label, url: "" };
+      const surface = createPictureSurface();
+      if (kind === "picture" && bytes) renderPicture(bytes, surface, { profile: props.profile });
+      const png =
+        kind === "picture"
+          ? encodePngRgba(
+              320,
+              168,
+              pictureReviewPixels(
+                surface.visual,
+                index ? props.afterDocuments : props.beforeDocuments,
+                target,
+              ),
+            )
+          : viewFeedback(bytes!, props.profile, Number(num)).png;
+      return { label, url: dataUrl(png, "image/png") };
+    });
   });
 });
 const sounds = computed(() => {

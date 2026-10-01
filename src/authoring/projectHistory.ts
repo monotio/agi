@@ -75,9 +75,14 @@ export class ProjectHistory {
     const entries = Object.entries(documents);
     if (entries.length > PROJECT_HISTORY_LIMITS.maxDocuments)
       throw new Error("Project History document count exceeds its limit.");
-    for (const [, content] of entries) {
+    for (const [key, content] of entries) {
       const size = typeof content === "string" ? content.length * 2 : content.length;
-      if (size > PROJECT_HISTORY_LIMITS.maxBlobBytes)
+      if (
+        size >
+        (key.startsWith("attachment:")
+          ? PROJECT_HISTORY_LIMITS.maxImageBlobBytes
+          : PROJECT_HISTORY_LIMITS.maxBlobBytes)
+      )
         throw new Error("Project History blob exceeds its limit.");
     }
     const owned = copyProjectDocuments(documents);

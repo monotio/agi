@@ -30,17 +30,10 @@ import {
 import { PROFILES, type ProfileId } from "../runtime/profile.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
-/**
- * Current recording contract — what this build's writer stamps. Version 3
- * adds complete admitted project images and documents. Version 2
- * adds the "debugger" end reason: a segment sealed when the debugger took
- * over records the hiatus honestly, rather than a quit or rollover it never
- * had. Reading is not a migration: a stored version keeps its own stamp and
- * the rules it was written under.
- */
-export const HISTORY_FORMAT_VERSION = 3;
-/** Every recording version this build's readers accept, unchanged. */
-export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, 2, HISTORY_FORMAT_VERSION];
+/** Current recording contract adds debugger boundaries and complete project admission events. */
+export const HISTORY_FORMAT_VERSION = 2;
+/** Released recordings remain unchanged on read; the next append upgrades the header. */
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -92,7 +85,6 @@ export type HistoryEndReason =
 const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
   1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
   2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
-  3: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
 };
 
 export type HistoryEventCause =
@@ -787,7 +779,7 @@ function eventCause(
       return out;
     }
     case "projectImage": {
-      if (version < 3) fail("project images require recording version 3.");
+      if (version < 2) fail("project images require recording version 2.");
       const files = value["files"];
       if (!isObj(files) || Object.keys(files).length > 1024)
         fail("project files must be a bounded map.");
@@ -1079,8 +1071,8 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
     ...(value["dropped"] !== undefined ? { dropped: int(value["dropped"], "dropped") } : {}),
     segments: segments.map((s): HistorySegment => {
       if (!isObj(s)) fail("segment must be an object.");
-      if (version < 3 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
-        fail("project documents require recording version 3.");
+      if (version < 2 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
+        fail("project documents require recording version 2.");
       const segment: HistorySegment = {
         id: text(s["id"], "segment id", 64),
         boot: validateHistoryBoot(s["boot"]),

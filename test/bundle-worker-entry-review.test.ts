@@ -34,6 +34,10 @@ function runGate(startup: boolean, unsafe: boolean) {
       join(app, "bundle-graph.config.ts"),
       readFileSync(new URL("../app/bundle-graph.config.ts", import.meta.url)),
     );
+    writeFileSync(
+      join(app, "devKeys.config.ts"),
+      readFileSync(new URL("../app/devKeys.config.ts", import.meta.url)),
+    );
     const main = { ...chunk("assets/index.js", [], [home]), isEntry: true };
     const starter = { ...chunk(home), modules: ["games/adventure-department/game.ts"] };
     const graph = {

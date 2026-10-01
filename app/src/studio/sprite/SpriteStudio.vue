@@ -15,7 +15,6 @@ import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
 import { aiSettingsKey } from "../../settings/useAiSettings.ts";
 import PaletteStrip from "../workspace/PaletteStrip.vue";
 import UiExplain from "../../ui/UiExplain.vue";
-import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import LessonCard from "../../lessons/LessonCard.vue";
@@ -109,7 +108,6 @@ const {
   cyclers = [],
   priorityBase = undefined,
   stagedReference = undefined,
-  creativeLaunch = undefined,
   embedded = false,
   workspaceFocus = false,
 } = defineProps<{
@@ -137,11 +135,6 @@ const {
   priorityBase?: number | undefined;
   /** The staged character-sheet candidate these bytes are: its Keep spends the offer. */
   stagedReference?: string | undefined;
-  /**
-   * Opens the project's creative workspace (import, prepare, board) docked
-   * beside this studio. Undefined where no project authority serves it.
-   */
-  creativeLaunch?: (() => void) | undefined;
 }>();
 /** `reopen` asks for Studio again; `fromStorage` reloads the game from storage first. */
 const emit = defineEmits<{
@@ -714,14 +707,6 @@ const status = computed(() => {
         >
       </div>
       <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
-      <UiButton
-        v-if="creativeLaunch"
-        size="sm"
-        variant="ghost"
-        data-testid="creative-entry"
-        @click="creativeLaunch()"
-        >Import image…</UiButton
-      >
       <span class="sprite-studio__spacer"></span>
       <SpriteViewBar
         v-model:sheet="sheet"

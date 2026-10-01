@@ -1,4 +1,5 @@
 import { readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
+import { hydrateImageAttachments } from "./projectImageArchive.ts";
 import {
   readProjectHistory,
   writeProjectHistory,
@@ -24,14 +25,6 @@ import {
   readSoundDocumentSource,
 } from "../../../src/sound/source.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
-import {
-  creativeProjectBlobHashes,
-  readCreativeProjectManifest,
-  type CreativeProjectAssets,
-} from "../../../src/creative/project.ts";
-import { readCreativeWork, type PortableCreativeWork } from "../../../src/creative/workArchive.ts";
-import { checkCompositeSourceBytes } from "../../../src/creative/composite.ts";
-import type { BlobHash } from "../../../src/creative/catalog.ts";
 import { sha256Hex as sha256HexSync } from "../../../src/crypto.ts";
 import type { CachedGameData } from "../project/gameTypes.ts";
 import {
@@ -46,13 +39,11 @@ import {
   gameEntries,
   PROJECT_SESSION_ID_PATTERN,
   validateTranscript,
-  type CreativeSnapshotOffer,
 } from "./projectArchiveShared.ts";
 import type { BackupReport } from "./historyBackup.ts";
 
 export { validateTranscript } from "./projectArchiveShared.ts";
 export { continuationTranscript } from "./projectConversation.ts";
-export type { CreativeSnapshotOffer } from "./projectArchiveShared.ts";
 
 export interface ProjectContext {
   chats?: AgentChats | undefined;
@@ -66,19 +57,6 @@ export interface ProjectContext {
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
   references?: StoredReference[] | undefined;
-  /**
-   * Kept creative assets carried by a private project archive: the portable
-   * manifest and its verified blob bodies. A public Game ZIP never carries
-   * them, and import never restamps the body's storage marker from one.
-   */
-  creative?: CreativeProjectAssets | undefined;
-  /**
-   * Durable creative work carried by a private project archive: the portable
-   * envelope and the verified blob bodies its registry declares — every
-   * recovery workspace and retained-undo inventory, authority-free. A
-   * public Game ZIP never carries it.
-   */
-  creativeWork?: { work: PortableCreativeWork; blobs: Record<BlobHash, Uint8Array> } | undefined;
 }
 
 /**
@@ -111,29 +89,17 @@ export async function buildProjectZip(
   map?: RoomMapSidecar,
   history?: ProjectHistory,
   backup?: BackupReport,
-  creative?: CreativeSnapshotOffer,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  return finishArchive(
-    await collectProjectArchiveEntries(offered, progress, map, history, backup, creative),
-  );
+  return finishArchive(await collectProjectArchiveEntries(offered, progress, map, history, backup));
 }
 
-/**
- * The complete archive entry list a project download writes, validated but
- * not yet packed. The same construction `buildProjectZip` finishes: callers
- * that must know the prospective stored size — admission before a durable
- * creative publication — measure these exact entries through
- * `measureStoredArchive` instead of estimating from source sizes or
- * allocating the ZIP. The preparation itself (`projectArchiveWriter.ts`)
- * loads on the action that needs it — Home and Play never fetch it.
- */
+/** Validate private project entries on the first download action. */
 export async function collectProjectArchiveEntries(
   offered: CachedGameData,
   progress?: GameProgress,
   map?: RoomMapSidecar,
   history?: ProjectHistory,
   backup?: BackupReport,
-  creative?: CreativeSnapshotOffer,
 ): Promise<ZipFileInput[]> {
   // The offer is captured before the module import suspends: the caller
   // keeps the original objects and may mutate them meanwhile, and a
@@ -149,7 +115,6 @@ export async function collectProjectArchiveEntries(
   const capturedMap = map === undefined ? undefined : structuredClone(map);
   const capturedHistory = history === undefined ? undefined : structuredClone(history);
   const capturedBackup = backup === undefined ? undefined : structuredClone(backup);
-  const capturedCreative = creative === undefined ? undefined : structuredClone(creative);
   return import("./projectArchiveWriter.ts").then((writer) =>
     writer.collectProjectArchiveEntries(
       captured,
@@ -157,7 +122,6 @@ export async function collectProjectArchiveEntries(
       capturedMap,
       capturedHistory,
       capturedBackup,
-      capturedCreative,
     ),
   );
 }
@@ -169,7 +133,7 @@ export async function collectProjectArchiveEntries(
  * `buildZip` output obeys). Throws the writer's own refusals when a bound
  * is exceeded, so an admission check fails exactly as a download would.
  */
-export function measureStoredArchive(entries: readonly ZipFileInput[]): {
+function measureStoredArchive(entries: readonly ZipFileInput[]): {
   entries: number;
   expanded: number;
   packed: number;
@@ -209,83 +173,7 @@ const MAX_PROJECT_NODES = 25_000;
 const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
 
 /**
- * Read a version-2 `creative` manifest and reattach its declared blob
- * bodies. Entry paths are derived from the manifest's own validated
- * lowercase-hashes — `CREATIVE/<sha256>.BIN` under the archive root — so no
- * stored string can steer the lookup outside it; a declared entry that is
- * absent or fails its byte-length/hash check refuses the whole context.
- */
-function readArchivedCreative(
-  value: unknown,
-  entries: Map<string, Uint8Array>,
-  root: string,
-): CreativeProjectAssets {
-  const manifest = readCreativeProjectManifest(value);
-  const blobs: Record<BlobHash, Uint8Array> = {};
-  for (const hash of creativeProjectBlobHashes(manifest)) {
-    const bytes = entries.get(`${root}CREATIVE/${hash}.BIN`.toUpperCase());
-    const descriptor = manifest.blobs[hash]!;
-    if (
-      bytes === undefined ||
-      bytes.length !== descriptor.byteLength ||
-      sha256HexSync(bytes) !== hash
-    )
-      throw new Error("A kept creative blob is missing or does not match its manifest descriptor.");
-    blobs[hash] = new Uint8Array(bytes);
-  }
-  // Byte-available semantic admission: every declared composite recomputes
-  // byte-exact from its two carried parents — a hash-correct record whose
-  // pixels were not produced by the transform refuses by name.
-  try {
-    checkCompositeSourceBytes(manifest.sources, (hash) => blobs[hash], "a kept creative archive");
-  } catch (error) {
-    throw new Error(error instanceof Error ? error.message : String(error), { cause: error });
-  }
-  return { manifest, blobs };
-}
-
-/**
- * Read a version-2 `creativeWork` envelope and reattach the blob bodies its
- * registry declares. The entries share the kept set's content-addressed
- * `CREATIVE/<sha256>.BIN` namespace — a hash both sides claim is one entry,
- * and the descriptors must agree — so a declared entry absent or
- * mismatching refuses the whole context by name.
- */
-function readArchivedCreativeWork(
-  value: unknown,
-  entries: Map<string, Uint8Array>,
-  root: string,
-): { work: PortableCreativeWork; blobs: Record<BlobHash, Uint8Array> } {
-  const work = readCreativeWork(value);
-  const blobs: Record<BlobHash, Uint8Array> = {};
-  for (const hash of Object.keys(work.blobs)) {
-    const bytes = entries.get(`${root}CREATIVE/${hash}.BIN`.toUpperCase());
-    const descriptor = work.blobs[hash]!;
-    if (
-      bytes === undefined ||
-      bytes.length !== descriptor.byteLength ||
-      sha256HexSync(bytes) !== hash
-    )
-      throw new Error("A creative work blob is missing or does not match its descriptor.");
-    blobs[hash] = new Uint8Array(bytes);
-  }
-  // The same strict recompute over every carried draft/undo recovery: a
-  // composite in a durable recovery still proves its transform from the
-  // exact carried parent bytes.
-  try {
-    for (const entry of [...work.drafts, ...work.undos])
-      checkCompositeSourceBytes(
-        entry.recovery.sources,
-        (hash) => blobs[hash],
-        "a creative work archive",
-      );
-  } catch (error) {
-    throw new Error(error instanceof Error ? error.message : String(error), { cause: error });
-  }
-  return { work, blobs };
-}
-/**
- * A version-2 archive may carry `agi.sound-document` sources whose `payload`
+ * A project archive may carry `agi.sound-document` sources whose `payload`
  * is one bounded byte array — the envelope codec's own 65,535-byte resource
  * bound per claim. Declared total for all claimed payloads: the sources list
  * already caps at 256 entries, so sound bytes together can never exceed
@@ -305,15 +193,12 @@ export function readProjectContext(
     typeof envelope !== "object" ||
     Array.isArray(envelope) ||
     envelope.format !== "monotio.agi.project" ||
-    ![1, 2, 3, 4].includes(envelope.version)
+    envelope.version !== 1
   )
     throw new Error("This project version is not supported.");
   // The released version-1 envelope never carried creative data; a claim in
   // one refuses rather than silently dropping kept art or unfinished work.
-  if (
-    envelope.version === 1 &&
-    (envelope.creative !== undefined || envelope.creativeWork !== undefined)
-  )
+  if (envelope.creative !== undefined || envelope.creativeWork !== undefined)
     throw new Error("This project version cannot carry creative data.");
   function knownFields(value: unknown, names: readonly string[]): void {
     if (
@@ -324,38 +209,32 @@ export function readProjectContext(
     )
       throw new Error("Invalid or unknown project field.");
   }
-  const hasAssistant = envelope.version === 1 || envelope.assistant !== undefined;
-  if (envelope.version >= 2) {
-    knownFields(envelope, [
-      "format",
-      "version",
-      "assistant",
-      "authoringState",
-      "creative",
-      "creativeWork",
-      "references",
-      "recoveryDraft",
-      "workspace",
-      ...(envelope.version >= 3 ? ["projectHistory"] : []),
-      ...(envelope.version >= 4 ? ["chats"] : []),
-    ]);
-    if (hasAssistant)
-      knownFields(envelope.assistant, [
-        "provider",
-        "model",
-        "sessionId",
-        "conversation",
-        "conversationHistory",
-      ]);
-  }
-  const raw =
-    envelope.version === 1
-      ? envelope
-      : {
-          authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
-          references: envelope.references,
-          ...(hasAssistant ? envelope.assistant : {}),
-        };
+  knownFields(envelope, [
+    "format",
+    "version",
+    "provider",
+    "model",
+    "sessionId",
+    "conversation",
+    "conversationHistory",
+    "authoringState",
+    "references",
+    "recoveryDraft",
+    "workspace",
+    "projectHistory",
+    "chats",
+  ]);
+  const hasAssistant = [
+    "provider",
+    "model",
+    "sessionId",
+    "conversation",
+    "conversationHistory",
+  ].some((key) => envelope[key] !== undefined);
+  const raw = {
+    ...envelope,
+    authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
+  };
   if (hasAssistant && raw.conversation?.formatVersion !== 1)
     throw new Error("This project conversation version is not supported.");
   if (
@@ -363,18 +242,16 @@ export function readProjectContext(
     (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
   )
     throw new Error("Invalid project model metadata.");
-  if (envelope.version >= 2) {
-    if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
-    if (raw.references !== undefined && !Array.isArray(raw.references))
-      throw new Error("Invalid project reference field.");
-    if (
-      raw.sessionId !== undefined &&
-      (typeof raw.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(raw.sessionId))
-    )
-      throw new Error("Invalid project session field.");
-  }
-  if (envelope.version < 3 && envelope.projectHistory !== undefined)
-    throw new Error("This project version cannot carry edit History.");
+  if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
+  if (raw.references !== undefined && !Array.isArray(raw.references))
+    throw new Error("Invalid project reference field.");
+  if (
+    raw.sessionId !== undefined &&
+    (typeof raw.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(raw.sessionId))
+  )
+    throw new Error("Invalid project session field.");
+  envelope.workspace = hydrateImageAttachments(envelope.workspace, entries, root);
+  envelope.projectHistory = hydrateImageAttachments(envelope.projectHistory, entries, root);
   const projectHistory =
     envelope.projectHistory === undefined
       ? undefined
@@ -383,32 +260,13 @@ export function readProjectContext(
           sha256HexSync,
         );
   const workspace =
-    envelope.version >= 2 && envelope.workspace !== undefined
+    envelope.workspace !== undefined
       ? writeProjectWorkspace(readProjectWorkspace(envelope.workspace))
       : undefined;
   const recovered =
-    envelope.version >= 2 && envelope.recoveryDraft !== undefined
-      ? readProjectRecovery(envelope.recoveryDraft)
-      : undefined;
+    envelope.recoveryDraft !== undefined ? readProjectRecovery(envelope.recoveryDraft) : undefined;
   const recoveryDraft =
     recovered === undefined ? undefined : writeProjectRecovery(recovered.base, recovered.recovery);
-  // Kept creative assets: the manifest is checked by its strict codec and
-  // every declared blob by length and hash against the rooted
-  // CREATIVE/<hash>.BIN entry. Declared-but-missing or mismatching bytes
-  // refuse; undeclared CREATIVE entries carry no authority and are ignored.
-  const creative =
-    envelope.version >= 2 && envelope.creative !== undefined
-      ? readArchivedCreative(envelope.creative, entries, root)
-      : undefined;
-  // Durable work: the envelope is checked by its strict codec and every
-  // declared blob by length and hash against the shared rooted
-  // CREATIVE/<hash>.BIN namespace — a hash the kept manifest also declares
-  // resolves to the same verified entry.
-  const creativeWork =
-    envelope.version >= 2 && envelope.creativeWork !== undefined
-      ? readArchivedCreativeWork(envelope.creativeWork, entries, root)
-      : undefined;
-
   // The `payload` of a claimed sound document source is one bounded byte
   // field, not fan-out: it is accounted by length against the declared
   // sound-source byte budget rather than inflating the generic node count
@@ -417,7 +275,7 @@ export function readProjectContext(
   // the sources pass below, and only arrays actually sitting in a claimed
   // `payload` position get this accounting.
   const soundPayloads = new Set<unknown>();
-  if (envelope.version >= 2) {
+  {
     const offeredState: unknown = raw.authoringState;
     const offeredSources =
       offeredState !== null && typeof offeredState === "object" && !Array.isArray(offeredState)
@@ -578,14 +436,8 @@ export function readProjectContext(
         else if (kind === "sounds") {
           const body: unknown = entry[1];
           if (isSoundDocumentEnvelopeClaim(body)) {
-            // A tagged `agi.sound-document` claim is admitted only by the
-            // unreleased version-2 archive — the released version 1 format
-            // never carried one — and only beside the game that can verify
-            // it: the resolved profile, and the stored native SOUND bytes
-            // the claim must reproduce exactly. The stored body becomes the
-            // adapter's owned serialized envelope.
-            if (envelope.version < 2)
-              throw new Error("A sound document source needs a version 2 project archive.");
+            // Tagged SOUND sources carry an optional editing envelope beside
+            // native bytes; the archived game's profile verifies the claim.
             if ((soundEntryNums?.get(entry[0]) ?? 0) > 1)
               throw new Error(`Duplicate sound document source for SOUND ${String(entry[0])}.`);
             if (soundContext === undefined)
@@ -657,7 +509,5 @@ export function readProjectContext(
     ...(workspace !== undefined ? { workspace } : {}),
     ...(projectHistory !== undefined ? { projectHistory } : {}),
     ...(references !== undefined ? { references: normalizeReferences(references) } : {}),
-    ...(creative !== undefined ? { creative } : {}),
-    ...(creativeWork !== undefined ? { creativeWork } : {}),
   };
 }

@@ -52,8 +52,8 @@ test("private archives preserve chats and notes while public games carry playabl
 });
 test("notes and checkpoints declare versions and readers reject unknown chat fields", () => {
   const workspace = writeProjectWorkspace({ notes: "Friendly" });
-  assert.equal(workspace.version, 2);
-  assert.throws(() => readProjectWorkspace({ ...workspace, version: 1 }), /version/i);
+  assert.equal(workspace.version, 1);
+  assert.throws(() => readProjectWorkspace({ ...workspace, version: 2 }), /version/i);
   assert.throws(
     () => readAgentChats({ format: "monotio.agi.chats", version: 2, active: null, chats: [] }),
     /version/i,

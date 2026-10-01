@@ -258,6 +258,38 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
     loader.enterCreate!(msg);
     return;
   }
+  if (msg.type === "imageHeroPreview") {
+    const lane = ctx.projectAdmission;
+    if (lane === null || lane.engine !== ctx.engine || lane.runToken !== msg.runToken) return;
+    const serial = (ctx.imagePreviewSerial ?? 0) + 1;
+    ctx.imagePreviewSerial = serial;
+    ctx.imageHeroPreview = undefined;
+    ctx.imagePreviewEngine = undefined;
+    if (msg.bytes === null) {
+      ctx.fns.postFrame();
+      return;
+    }
+    void import("./imageHeroPreview.ts")
+      .then(({ createImageHeroPreview }) => {
+        if (
+          ctx.projectAdmission !== lane ||
+          ctx.engine !== lane.engine ||
+          ctx.imagePreviewSerial !== serial
+        )
+          return;
+        ctx.imagePreviewEngine = lane.engine;
+        ctx.imageHeroPreview = createImageHeroPreview(
+          lane.engine,
+          msg.bytes!,
+          ctx.cycle.cycleCount,
+        );
+        ctx.fns.postFrame();
+      })
+      .catch(() => {
+        /* Invalid previews leave the game presentation intact. */
+      });
+    return;
+  }
   if (debugLoadGate(ctx, msg)) return;
   const control = ctx.ports.control;
   try {

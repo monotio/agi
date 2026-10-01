@@ -632,7 +632,10 @@ export function captureAgentWorkspace(input: {
           key === "world" ||
           key === "tests" ||
           key === "references" ||
-          key === "music"
+          key === "music" ||
+          key === "notes" ||
+          key === "images" ||
+          key.startsWith("attachment:")
         )
           continue;
         const base = documents[key];

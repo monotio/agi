@@ -1,0 +1,20 @@
+{
+  "format": "monotio.agi.project",
+  "version": 1,
+  "authoringState": {
+    "sources": { "logics": [[0, "return;"]] }
+  },
+  "recoveryDraft": {
+    "format": "monotio.agi.recovery-draft",
+    "version": 1,
+    "base": {
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "authoring": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "profileId": "2.936"
+    },
+    "documents": [
+      { "key": "logic:0", "version": 2, "content": { "type": "text", "text": "if (" } }
+    ],
+    "operations": []
+  }
+}

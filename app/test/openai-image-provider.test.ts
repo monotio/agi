@@ -944,3 +944,10 @@ test("image quality and pixel count extend the whole-job timeout", async (t) => 
     assert.match(error.message, new RegExp(`${timeout / 1000} seconds`));
   }
 });
+
+test("paid request estimates use the documented image output calculator", async () => {
+  const { estimateImageOutputCost } = await import("../src/studio/creative/openaiImageProvider.ts");
+  assert.equal(estimateImageOutputCost("gpt-image-2.5-sunburst", "low", "1024x1024"), 0.00588);
+  assert.equal(estimateImageOutputCost("gpt-image-2.5-flare", "high", "1024x1024"), 0.05268);
+  assert.equal(estimateImageOutputCost("unknown", "low", "1024x1024"), null);
+});

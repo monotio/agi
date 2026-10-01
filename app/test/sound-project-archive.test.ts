@@ -198,16 +198,16 @@ test("the project writer refuses sound document claims its reader cannot admit",
 });
 
 test("a project import refuses sound document claims it cannot verify", async () => {
-  const v2 = { format: "monotio.agi.project", version: 2 };
+  const project = { format: "monotio.agi.project", version: 1 };
   await assert.rejects(
     readGameZip(
-      archiveWithProject({ ...v2, ...soundsOnly([[5, { ...CUE_ENVELOPE, version: 2 }]]) }),
+      archiveWithProject({ ...project, ...soundsOnly([[5, { ...CUE_ENVELOPE, version: 2 }]]) }),
     ),
     /version 2/,
   );
   await assert.rejects(
     readGameZip(
-      archiveWithProject({ ...v2, ...soundsOnly([[5, { ...CUE_ENVELOPE, extra: true }]]) }),
+      archiveWithProject({ ...project, ...soundsOnly([[5, { ...CUE_ENVELOPE, extra: true }]]) }),
     ),
     /exactly the fields/,
   );
@@ -215,7 +215,10 @@ test("a project import refuses sound document claims it cannot verify", async ()
   // container files resolve 2.936, and a 2.089 pin refuses.
   await assert.rejects(
     readGameZip(
-      archiveWithProject({ ...v2, ...soundsOnly([[5, { ...CUE_ENVELOPE, profileId: "2.089" }]]) }),
+      archiveWithProject({
+        ...project,
+        ...soundsOnly([[5, { ...CUE_ENVELOPE, profileId: "2.089" }]]),
+      }),
     ),
     /pinned to profile '2\.089'.*selects '2\.936'/,
   );
@@ -223,7 +226,7 @@ test("a project import refuses sound document claims it cannot verify", async ()
   // detection result refuses under a game that chooses 2.089.
   await assert.rejects(
     readGameZip(
-      archiveWithProject({ ...v2, ...soundsOnly([[5, CUE_ENVELOPE]]) }, [
+      archiveWithProject({ ...project, ...soundsOnly([[5, CUE_ENVELOPE]]) }, [
         {
           name: "GAME.JSON",
           data: JSON.stringify({ format: "monotio.agi", version: 1, profile: "2.089" }),
@@ -234,18 +237,20 @@ test("a project import refuses sound document claims it cannot verify", async ()
   );
   // Byte-source claims never override an absent or different native SOUND.
   await assert.rejects(
-    readGameZip(archiveWithProject({ ...v2, ...soundsOnly([[9, CUE_ENVELOPE]]) })),
+    readGameZip(archiveWithProject({ ...project, ...soundsOnly([[9, CUE_ENVELOPE]]) })),
     /missing native SOUND/,
   );
   await assert.rejects(
-    readGameZip(archiveWithProject({ ...v2, ...soundsOnly([[5, DIFFERENT_CUE]]) })),
+    readGameZip(archiveWithProject({ ...project, ...soundsOnly([[5, DIFFERENT_CUE]]) })),
     /does not reproduce the native SOUND bytes/,
   );
   // A caller without the game's sound context cannot admit a claim at all.
   assert.throws(
     () =>
       readProjectContext(
-        new TextEncoder().encode(JSON.stringify({ ...v2, ...soundsOnly([[5, CUE_ENVELOPE]]) })),
+        new TextEncoder().encode(
+          JSON.stringify({ ...project, ...soundsOnly([[5, CUE_ENVELOPE]]) }),
+        ),
         new Map(),
         "",
       ),
@@ -253,7 +258,7 @@ test("a project import refuses sound document claims it cannot verify", async ()
   );
 });
 
-test("released project version 1 refuses sound document claims; the 1.0 fixture still reads", async () => {
+test("project version 1 admits verified sound editing envelopes and the released 1.0 fixture", async () => {
   const v1 = {
     format: "monotio.agi.project",
     version: 1,
@@ -262,7 +267,8 @@ test("released project version 1 refuses sound document claims; the 1.0 fixture 
     conversation: { formatVersion: 1, messages: [] },
     ...soundsOnly([[5, CUE_ENVELOPE]]),
   };
-  await assert.rejects(readGameZip(archiveWithProject(v1)), /version 2 project archive/);
+  const extended = await readGameZip(archiveWithProject(v1));
+  assert.deepEqual(soundsOf(extended.project?.authoringState), [[5, CUE_ENVELOPE]]);
   const fixture = new Uint8Array(
     readFileSync(new URL("./formats/project-v1.zip", import.meta.url)),
   );
@@ -326,11 +332,11 @@ test("duplicate sound document resource numbers refuse at write and read", async
     ),
     /duplicate/i,
   );
-  const v2 = { format: "monotio.agi.project", version: 2 };
+  const project = { format: "monotio.agi.project", version: 1 };
   await assert.rejects(
     readGameZip(
       archiveWithProject({
-        ...v2,
+        ...project,
         ...soundsOnly([
           [5, TRACKS],
           [5, CUE_ENVELOPE],
@@ -342,7 +348,7 @@ test("duplicate sound document resource numbers refuse at write and read", async
   await assert.rejects(
     readGameZip(
       archiveWithProject({
-        ...v2,
+        ...project,
         ...soundsOnly([
           [5, CUE_ENVELOPE],
           [5, CUE_ENVELOPE],
@@ -393,24 +399,24 @@ test("a maximum-size opaque sound document survives the project archive", async 
 });
 
 test("payload accounting stays bounded: over-bound and malformed payloads still refuse", async () => {
-  const v2 = { format: "monotio.agi.project", version: 2 };
+  const project = { format: "monotio.agi.project", version: 1 };
   // One element over the envelope codec's 65,535-byte resource bound.
   const overBound = { ...OPAQUE_ENVELOPE, payload: new Array(65_536).fill(0) };
   await assert.rejects(
-    readGameZip(archiveWithProject({ ...v2, ...soundsOnly([[8, overBound]]) })),
+    readGameZip(archiveWithProject({ ...project, ...soundsOnly([[8, overBound]]) })),
     /65,535|budget/,
   );
   // A payload element that is not a byte is refused by the strict reader.
   const notBytes = { ...OPAQUE_ENVELOPE, payload: ["loud", 0, 0] };
   await assert.rejects(
-    readGameZip(archiveWithProject({ ...v2, ...soundsOnly([[8, notBytes]]) })),
+    readGameZip(archiveWithProject({ ...project, ...soundsOnly([[8, notBytes]]) })),
     /integer in 0\.\.255/,
   );
   // The exemption is positional: a giant array anywhere else still spends
   // the generic node budget.
   const fanned = { ...CUE_ENVELOPE, extra: new Array(30_000).fill(0) };
   await assert.rejects(
-    readGameZip(archiveWithProject({ ...v2, ...soundsOnly([[5, fanned]]) })),
+    readGameZip(archiveWithProject({ ...project, ...soundsOnly([[5, fanned]]) })),
     /node count/,
   );
 });

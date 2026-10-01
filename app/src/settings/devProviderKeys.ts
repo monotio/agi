@@ -7,9 +7,10 @@
  * "development", so builds and the Playwright test server never contain or
  * call it (`npm run check:bundle` fails a build that names the path).
  */
+import { DEV_KEYS_PATH } from "../../devKeys.config.ts";
 import { copyAiSettings, type AiSettings, type AiSettingsProvider } from "./aiSettings.ts";
 
-export const DEV_KEYS_PATH = "/__agi/dev-keys";
+export { DEV_KEYS_PATH };
 
 type DevKeys = Partial<Record<Exclude<AiSettingsProvider, "stub">, string>>;
 

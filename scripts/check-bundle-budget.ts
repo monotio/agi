@@ -15,7 +15,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { BUNDLE_GRAPH_PATH } from "../app/bundle-graph.config.ts";
-import { DEV_KEYS_PATH } from "../app/src/settings/devProviderKeys.ts";
+import { DEV_KEYS_PATH } from "../app/devKeys.config.ts";
 
 export interface GraphChunk {
   readonly file: string;

@@ -18,6 +18,9 @@ import { referenceManifest } from "../../../src/agent/referenceTools.ts";
 import { captureAgentWorkspace } from "../../../src/authoring/projectAgentCandidate.ts";
 import { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
 import { validateToolArguments } from "../../../src/agent/schemaValidate.ts";
+import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
+import type { ImageFrame } from "../../../src/creative/imageOperations.ts";
+import { PROFILES } from "../../../src/runtime/profile.ts";
 import type { ProjectProposal } from "../../../src/authoring/projectModel.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
@@ -300,6 +303,7 @@ export function createWorkspaceAgent(options: Options) {
     });
     let staged: ReturnType<typeof workspace.openToolState> | undefined;
     let notes: string | undefined;
+    const prepared = new Map<string, ProjectChange>();
     function projectDriver() {
       const captured = workspace;
       return createProjectAssistDriver({
@@ -329,10 +333,9 @@ export function createWorkspaceAgent(options: Options) {
       const offered = driver.pending();
       const native = staged?.finish(chatTitle(instruction), offered?.changes() ?? []);
       const combined = new Map(
-        [...(native?.changes() ?? []), ...(offered?.changes() ?? [])].map((change) => [
-          change.key,
-          change,
-        ]),
+        [...prepared.values(), ...(native?.changes() ?? []), ...(offered?.changes() ?? [])].map(
+          (change) => [change.key, change],
+        ),
       );
       if (notes !== undefined) combined.set("notes", { key: "notes", content: notes });
       const changes = [...combined.values()];
@@ -367,6 +370,7 @@ export function createWorkspaceAgent(options: Options) {
         driver = projectDriver();
         staged = undefined;
         notes = undefined;
+        prepared.clear();
       }
       return true;
     }
@@ -448,6 +452,63 @@ export function createWorkspaceAgent(options: Options) {
                   success: true,
                   message: "Game notes staged. Include them with the changes.",
                 };
+              } else if (
+                call.name === "trace_an_image" ||
+                call.name === "make_cels_from_an_image"
+              ) {
+                const operations = await import("../../../src/creative/imageOperations.ts");
+                const offered = driver.pending();
+                const native = staged?.finish(chatTitle(instruction), offered?.changes() ?? []);
+                const combined = new Map(
+                  [
+                    ...prepared.values(),
+                    ...(native?.changes() ?? []),
+                    ...(offered?.changes() ?? []),
+                  ].map((change) => [change.key, change]),
+                );
+                const documents = { ...base.documents() };
+                for (const { key, content } of combined.values()) {
+                  if (content === null) delete documents[key];
+                  else documents[key] = content;
+                }
+                const image = operations.readProjectImage(documents, String(call.input["image"]));
+                const target = String(call.input["target"]);
+                const changes =
+                  call.name === "trace_an_image"
+                    ? operations.traceImageChanges(
+                        documents,
+                        target,
+                        image,
+                        Number(call.input["opacity"]),
+                      )
+                    : operations.makeCelsChanges(
+                        documents,
+                        target,
+                        image,
+                        call.input["frames"] === null
+                          ? operations.suggestImageFrames(image)
+                          : (call.input["frames"] as ImageFrame[]),
+                        PROFILES[options.profileId]!,
+                      );
+                for (const change of changes) combined.set(change.key, change);
+                // Validate before publishing any staged state. Later tools read
+                // the complete overlaid project, including these image changes.
+                const checked = session.model.propose(base, chatTitle(instruction), [
+                  ...combined.values(),
+                ]);
+                workspace.propose(checked.label, checked.changes());
+                const next = captureAgentWorkspace({
+                  draft: new ProjectDraft(checked.documents()),
+                  files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+                  profileId: options.profileId,
+                  allowMissingRooms: session.allowMissingRooms,
+                });
+                prepared.clear();
+                for (const change of checked.changes()) prepared.set(change.key, change);
+                workspace = next;
+                staged = undefined;
+                driver = projectDriver();
+                result = { success: true, message: "Image changes staged for review." };
               } else if (PROJECT_ASSIST_TOOLS.some((tool) => tool.name === call.name))
                 result = driver.execute(call.name, call.input);
               else {
@@ -461,10 +522,22 @@ export function createWorkspaceAgent(options: Options) {
               }
               if (
                 call.name === "withdraw_changes" &&
-                (result.success || staged || notes !== undefined || review?.chatId === chat.id)
+                (result.success ||
+                  staged ||
+                  prepared.size ||
+                  notes !== undefined ||
+                  review?.chatId === chat.id)
               ) {
                 staged = undefined;
                 notes = undefined;
+                prepared.clear();
+                workspace = captureAgentWorkspace({
+                  draft: new ProjectDraft(base.documents()),
+                  files: Object.fromEntries(base.lastAdmissibleBuild!.files()),
+                  profileId: options.profileId,
+                  allowMissingRooms: session.allowMissingRooms,
+                });
+                driver = projectDriver();
                 reviews.delete(chat.id);
                 if (review?.chatId === chat.id) review = null;
                 result = { success: true, message: "Discarded the task's pending changes." };

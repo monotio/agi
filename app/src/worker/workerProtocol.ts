@@ -339,6 +339,12 @@ export type WorkerInbound =
       files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
     }
   | { type: "state"; id: number }
+  | {
+      type: "imageHeroPreview";
+      runToken: string;
+      bytes: Uint8Array | null;
+      loops?: readonly number[];
+    }
   | { type: "objects"; id: number }
   | { type: "frames"; id: number; count?: number; stride?: number; since?: number | null }
   | { type: "checkpoint"; id: number }

@@ -35,6 +35,15 @@ import type { WorkspaceAction } from "./workspaceGuided.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
 const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
+const ImageReferencePanel = defineAsyncComponent(
+  () => import("../creative/ImageReferencePanel.vue"),
+);
+const imagePanel = ref<string>();
+const imageGenerate = ref(false);
+const traceUnderlays = shallowRef<Record<string, { pixels: Uint8Array; opacity: number } | null>>(
+  {},
+);
+let imageRefresh = 0;
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
 const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"));
 const GuidedAdd = defineAsyncComponent(() => import("./GuidedAdd.vue"));
@@ -110,6 +119,18 @@ function refresh(): void {
   if (!session) return;
   const capture = session.capture();
   snapshot.value = capture.snapshot;
+  const ticket = ++imageRefresh;
+  if (capture.snapshot.keys.includes("images")) {
+    void import("../../../../src/creative/imageOperations.ts").then(({ imageTraceUnderlay }) => {
+      if (ticket !== imageRefresh || retired) return;
+      const documents = capture.snapshot.documents();
+      traceUnderlays.value = Object.fromEntries(
+        capture.snapshot.keys
+          .filter((key) => key.startsWith("picture:"))
+          .map((key) => [key, imageTraceUnderlay(documents, key)]),
+      );
+    });
+  } else traceUnderlays.value = {};
   historyState.value = capture.history;
   editor.pendingAdmission.value = capture.pendingAdmission;
   editor.save.value =
@@ -205,10 +226,11 @@ const groups = computed(() => {
   return workspaceParts({ keys, rooms, names, currentRoom: engine.roomMap.currentRoom.value });
 });
 watch(
-  [editor.selected, groups, engine.roomMap.currentRoom],
+  [editor.selected, groups, engine.roomMap.currentRoom, traceUnderlays],
   ([selected, rows, room]) => {
     editor.pictureLive.value =
       !!selected?.startsWith("picture:") &&
+      !traceUnderlays.value[selected] &&
       rows.some((group) => group.entries.some((row) => row.key === selected && row.room === room));
   },
   { immediate: true },
@@ -267,10 +289,10 @@ const viewThumbnails = computed(() =>
 const gameHosts = new Map<string, HTMLElement>();
 function gameHost(key: string, host: HTMLElement): void {
   gameHosts.set(key, host);
-  if (editor.selected.value === key) editor.gameHost.value = host;
+  if (editor.selected.value === key && !traceUnderlays.value[key]) editor.gameHost.value = host;
 }
-watch(editor.selected, (key) => {
-  editor.gameHost.value = key ? (gameHosts.get(key) ?? null) : null;
+watch([editor.selected, traceUnderlays], ([key]) => {
+  editor.gameHost.value = key && !traceUnderlays.value[key] ? (gameHosts.get(key) ?? null) : null;
 });
 function native(key: string): Uint8Array | undefined {
   const [kind, num] = key.split(":");
@@ -673,6 +695,30 @@ onBeforeUnmount(() => {
         @pin="editor.pin"
         @close="editor.close"
       />
+      <template v-if="editor.kind.value === 'picture' || editor.kind.value === 'view'">
+        <UiButton
+          size="sm"
+          variant="ghost"
+          @click="
+            imagePanel = editor.selected.value;
+            imageGenerate = false;
+          "
+          >{{
+            editor.kind.value === "picture"
+              ? VOCABULARY.traceImage.label
+              : VOCABULARY.makeCels.label
+          }}</UiButton
+        >
+        <UiButton
+          size="sm"
+          variant="ghost"
+          @click="
+            imagePanel = editor.selected.value;
+            imageGenerate = true;
+          "
+          >Generate</UiButton
+        >
+      </template>
       <UiButton
         v-if="editor.kind.value === 'logic' && !debug?.state.epoch"
         size="sm"
@@ -720,19 +766,34 @@ onBeforeUnmount(() => {
       v-show="key === editor.selected.value"
       class="workspace-editor__surface"
     >
+      <ImageReferencePanel
+        v-if="
+          imagePanel === key && session && (key.startsWith('picture:') || key.startsWith('view:'))
+        "
+        :session="session"
+        :target="key"
+        :profile="profile"
+        :generate="imageGenerate"
+        :active="key === editor.selected.value"
+        :image-revision="snapshot?.version('images') ?? 0"
+        @close="imagePanel = undefined"
+        @changed="refresh"
+      />
       <RoomStudio
         v-if="key.startsWith('picture:') && native(key) && profile"
         :live-game="
           creating &&
           key === editor.selected.value &&
           editor.pictureLive.value &&
-          !editor.focus.value
+          !editor.focus.value &&
+          !traceUnderlays[key]
         "
-        :workspace-focus="editor.focus.value"
+        :workspace-focus="editor.focus.value || !!traceUnderlays[key]"
         embedded
         @game-host="gameHost(key, $event)"
         @agent-context="editor.setAgentContext(key, $event)"
         @agent-ask="openAgent"
+        :underlay="traceUnderlays[key] ?? null"
         :picture-number="Number(key.split(':')[1])"
         :bytes="native(key)!"
         :authored-source="

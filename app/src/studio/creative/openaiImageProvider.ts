@@ -323,8 +323,7 @@ interface OpenAiImageUsage {
 
 /**
  * One generated original, ready for the same canonical intake an upload
- * takes. An offer cannot Keep or install itself: it carries detached bytes
- * and evidence, and a later staging step decides.
+ * takes. It carries detached bytes and request evidence for image intake.
  */
 export interface OpenAiImageOffer {
   /** The request actually sent — the same detached summary. */
@@ -949,6 +948,8 @@ function parseOffer(
 }
 
 function defaultBaseUrl(): string {
+  if ((import.meta as ImportMeta & { env?: { MODE?: string } }).env?.MODE === "test")
+    return `${globalThis.location.origin}/api/test-images`;
   // Version-free API root; endpoints below carry the /v1 prefix. Dev
   // convention shared with llmClient: the Vite server proxies /api/openai
   // to api.openai.com so local development exercises the same path.
@@ -1180,4 +1181,30 @@ export function createOpenAiImageProvider(
       }
     },
   };
+}
+
+/** Estimated output charge from OpenAI's image generation cost calculator.
+ * https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
+ * Prompt and image input charges are additional.
+ */
+export function estimateImageOutputCost(
+  model: string,
+  quality: OpenAiImageQuality,
+  size: string,
+): number | null {
+  const grid: Record<string, number> = model.startsWith("gpt-image-2.5-")
+    ? { low: 16, medium: 24, high: 48, xhigh: 64, max: 96 }
+    : model === "gpt-image-2"
+      ? { low: 16, medium: 48, high: 96 }
+      : {};
+  const edge = grid[quality];
+  const dimensions = /^(\d+)x(\d+)$/.exec(size);
+  if (edge === undefined || !dimensions) return null;
+  const width = Number(dimensions[1]),
+    height = Number(dimensions[2]);
+  const short = (edge * Math.min(width, height)) / Math.max(width, height);
+  const whole = Math.floor(short);
+  const rounded = short - whole === 0.5 ? whole + (whole % 2) : Math.round(short);
+  const tokens = Math.ceil((edge * rounded * (2_000_000 + width * height)) / 4_000_000);
+  return (tokens * (model === "gpt-image-2" ? 15 : 30)) / 1_000_000;
 }

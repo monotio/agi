@@ -10,9 +10,7 @@ import { importGameHistory } from "../history/historyStorage.ts";
 import { bindSavedProgressTarget } from "../project/progressBinding.ts";
 import {
   loadAuthoredGame,
-  reconcileGameIndex,
   saveAuthoredGame,
-  serializeWriteAction,
   listCachedGames,
   type ProjectId,
 } from "../project/gameStorage.ts";
@@ -143,21 +141,7 @@ export async function addLibraryGame(
     words: game.words,
     imported: true,
   };
-  if (game.project?.creative !== undefined || game.project?.creativeWork !== undefined) {
-    // Creative assets are required transactionally with the native body:
-    // the portable manifest, the durable-work envelope and their blob bytes
-    // publish into a fresh catalog bound to this project — storage markers
-    // and hold authority are derived at admission, never transplanted from
-    // the archive's context.
-    const { publishProjectWithCreative } = await import("../project/creativeProjectPublication.ts");
-    const { warnings } = await publishProjectWithCreative({
-      projectId: targetProjectId,
-      data,
-      creative: game.project.creative,
-      work: game.project.creativeWork,
-    });
-    if (warnings.includes("indexRepairPending")) await reconcileGameIndex().catch(() => {});
-  } else if (!(await saveAuthoredGame(targetProjectId, data)))
+  if (!(await saveAuthoredGame(targetProjectId, data)))
     throw new Error(
       "Your browser could not save this game. Free some storage space and try again.",
     );
@@ -200,21 +184,7 @@ export async function addLibraryGame(
 
 /** Copies keep provenance but have independent resources, history and save slots. */
 export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> {
-  // A project with kept creative data is copied from one coherent capture:
-  // the body and its assets come from the same snapshot, so the copy never
-  // mixes a pre-Keep body with post-Keep blobs. A marker whose catalog is
-  // missing or corrupt refuses here instead of copying a pin without data.
-  // The capture claims this project's queue slot before the module import
-  // suspends — a delete launched meanwhile serializes behind it — and the
-  // capture's own per-project reads run inside the held turn it is handed,
-  // never behind the action that owns it.
-  const snapshot = await serializeWriteAction(projectId, async (turn) =>
-    (await import("../project/creativeProjectSnapshot.ts")).captureCreativeProjectInTurn(
-      turn,
-      projectId,
-    ),
-  );
-  const original = snapshot?.data ?? (await loadAuthoredGame(projectId));
+  const original = await loadAuthoredGame(projectId);
   if (!original) throw new Error("This game is missing from your library. Import it again.");
   let id: ProjectId;
   do id = requireProjectId(`remix-${crypto.randomUUID()}`);
@@ -226,7 +196,6 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
     projectId: _originalId,
     authoredAt: _authoredAt,
     generation: _generation,
-    creative: _marker,
     ...rest
   } = original;
   const data = {
@@ -252,24 +221,7 @@ export async function copyLibraryGame(projectId: ProjectId): Promise<ProjectId> 
       },
     },
   };
-  if (snapshot === null) {
-    if (!(await saveAuthoredGame(id, data)))
-      throw new Error(
-        "Your browser could not save the copy. Free some storage space and try again.",
-      );
-  } else {
-    const { publishProjectWithCreative } = await import("../project/creativeProjectPublication.ts");
-    const { warnings } = await publishProjectWithCreative({
-      projectId: id,
-      data,
-      ...(snapshot.manifest === null
-        ? {}
-        : { creative: { manifest: snapshot.manifest, blobs: snapshot.blobs } }),
-      ...(snapshot.work === null
-        ? {}
-        : { work: { work: snapshot.work, blobs: snapshot.workBlobs } }),
-    });
-    if (warnings.includes("indexRepairPending")) await reconcileGameIndex().catch(() => {});
-  }
+  if (!(await saveAuthoredGame(id, data)))
+    throw new Error("Your browser could not save the copy. Free some storage space and try again.");
   return id;
 }

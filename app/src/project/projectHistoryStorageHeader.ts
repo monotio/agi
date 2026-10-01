@@ -9,7 +9,7 @@ export function projectHistoryBlobKey(id: string, hash: string): string {
 }
 export function historyBlobKeys(id: string, history: StoredProjectHistory | undefined): string[] {
   if (history === undefined) return [];
-  if (history.format !== "monotio.agi.project-history" || ![1, 2].includes(history.version))
+  if (history.format !== "monotio.agi.project-history" || history.version !== 1)
     throw new Error("This project history version is not supported by this app.");
   if (
     !Array.isArray(history.blobs) ||
