@@ -11,8 +11,11 @@ async function restart(): Promise<void> {
   busy.value = true;
   error.value = "";
   try {
-    const result = await engine.restartWithChanges();
-    if (result?.status === "diagnostics") error.value = "Fix the source errors, then restart.";
+    const result =
+      engine.pendingProjectRestart.value?.action === "reenter"
+        ? await engine.reenterRoom()
+        : await engine.restartWithChanges();
+    if (result?.status === "diagnostics") error.value = "Fix the source errors, then try again.";
     else if (result?.status === "refused")
       error.value = result.reason ?? "Check your changes, then retry.";
   } catch (cause) {
@@ -29,9 +32,16 @@ async function restart(): Promise<void> {
     tone="warn"
     data-testid="project-restart-notice"
   >
-    <span>This change needs the game to restart.</span>
+    <span v-if="engine.pendingProjectRestart.value.action === 'reenter'"
+      >This change needs a fresh start of the room.</span
+    >
+    <span v-else>This change needs the game to restart.</span>
     <span>{{ engine.pendingProjectRestart.value.reason }}</span>
-    <UiButton size="sm" :disabled="busy" @click="restart">Restart with your changes</UiButton>
+    <UiButton size="sm" :disabled="busy" @click="restart">{{
+      engine.pendingProjectRestart.value.action === "reenter"
+        ? "Re-enter room"
+        : "Restart with your changes"
+    }}</UiButton>
     <span v-if="error">{{ error }}</span>
   </UiToast>
 </template>

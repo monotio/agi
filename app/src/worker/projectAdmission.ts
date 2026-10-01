@@ -216,8 +216,7 @@ interface ValidatedCandidate {
 
 /**
  * The wire-level candidate contract, checked before any deeper work: a
- * complete files record of real bytes, the declared profile equal to the
- * running one, string sources, a well-formed complete binding map, claimed
+ * complete files record of real bytes, a known declared profile, string sources, a well-formed complete binding map, claimed
  * identities and document-origin versions. Returns the refusal reason or
  * the detached, byte-copied candidate.
  */
@@ -466,7 +465,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     }
     const candidate = validated.candidate;
     const profile = PROFILES[candidate.profile ?? engine.profile.id]!;
-    if (msg.mode !== undefined && msg.mode !== "restart") {
+    if (msg.mode !== undefined && msg.mode !== "restart" && msg.mode !== "reenter") {
       settleRefused("Unknown project admission action.");
       return;
     }
@@ -711,7 +710,13 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       settleRefused("the lane's identity moved while the candidate was staged");
       return;
     }
-    const result = engine.commitPreviewUpdate(plan, { sourceAuthorityChanged });
+    const result =
+      msg.mode === "reenter"
+        ? engine.commitRoomReentry(plan, () => {
+            ctx.fns.historyEnd("resume");
+            ctx.fns.markReenter();
+          })
+        : engine.commitPreviewUpdate(plan, { sourceAuthorityChanged });
 
     if (result.status === "deferred") {
       // A busy boundary is a terminal, honest answer: nothing is queued,
@@ -732,6 +737,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         current: projectAdmissionIdentity(ctx, liveLane()),
         patchGeneration: result.patchGeneration,
         ...(result.reason !== undefined ? { reason: result.reason } : {}),
+        ...(result.roomReentry === true ? { roomReentry: true } : {}),
       });
       return;
     }
@@ -745,7 +751,7 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
     if (installed) {
       if (ctx.projectAdmission === lane)
         ctx.boot.project = { documents: admittedDocuments!, documentId: documentId! };
-      if (ctx.projectAdmission === lane)
+      if (ctx.projectAdmission === lane && msg.mode !== "reenter")
         ctx.fns.historyRecord({
           kind: "projectImage",
           files: Object.fromEntries(
@@ -765,6 +771,9 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       // Every external image consumer re-points at the admitted bytes: the
       // engine's own staged container is the truth these mirrors follow.
       ctx.boot.currentBootFiles = new Map(engine.containerFiles);
+      // The session owns this complete image's body write. Progress autosave
+      // can carry the old run while a later edit waits for restart.
+      if (ctx.projectAdmission === lane) ctx.autosave.lastPatchGeneration = engine.patchGeneration;
       if (committedDictionary !== null && wordsFile !== undefined) {
         // The commit rebinds the engine's parser dictionary to the staged
         // map — liveDictionary keeps the boot-time content mirror (and
@@ -776,6 +785,11 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
         ctx.boot.currentDictionary = ctx.boot.liveDictionary;
         ctx.boot.authoredWords = wordsFile.slice();
       }
+    }
+    if (installed && msg.mode === "reenter") {
+      ctx.fns.noteTransition();
+      ctx.fns.historyResume();
+      ctx.fns.postFrame(true);
     }
     settle({
       status: installed ? "committed" : "unchanged",

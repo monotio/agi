@@ -184,6 +184,7 @@ export interface PreviewUpdateOutcome {
   reason?: string;
   /** A deliberate replacement acknowledges the new physical Engine authority. */
   replacementRunToken?: string;
+  roomReentry?: true;
 }
 
 /** The complete immutable candidate a previewUpdate ships. */
@@ -193,7 +194,7 @@ export interface PreviewUpdateCandidateMessage {
   documentId?: string;
   /** Complete detached container image: directories, volumes, aux files. */
   files: Record<string, Uint8Array>;
-  /** Issuer-declared profile; when present it must equal the running one. */
+  /** Known target profile; a change from the running profile needs a full restart. */
   profile?: ProfileId;
   /** Authored source per LOGIC number (string keys). */
   sources: Record<string, string>;
@@ -544,9 +545,9 @@ export type WorkerInbound =
    */
   | { type: "authoring"; snapshot: Record<string, unknown> }
   /**
-   * Same-Engine preview admission: one complete immutable candidate pinned
-   * to the lane identity it was assembled against. Only a boot granted
-   * `frozenTest.lane: "play-preview"` serves this; every settled request is
+   * Project admission pins one complete candidate to the running identity.
+   * Create boots and isolated play-preview boots grant it; deliberate
+   * restart and room-entry actions require Create authority. Every settled request is
    * answered by exactly one `previewUpdateResult`. `id` is a strictly
    * increasing run-local transaction id; the exact request digest dedupes
    * retransmission, so a duplicate replays its settled outcome and an id
@@ -558,7 +559,7 @@ export type WorkerInbound =
       runToken: string;
       expected: PreviewLaneIdentity;
       candidate: PreviewUpdateCandidateMessage;
-      mode?: "restart";
+      mode?: "restart" | "reenter";
     }
   /**
    * Read-only reconciliation: reports the lane's actual current identity —

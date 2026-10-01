@@ -136,6 +136,17 @@ be tested in their target client before claiming compatibility.
 The engine in `src/` has no runtime dependencies and runs unchanged in the
 browser, a Web Worker and Node; platform access is injected through adapters.
 
+The running Create project's `ProjectSession` owns the model, edit History and
+autosave. A validated edit that needs a new execution boundary remains saved in
+the model and History while MAIN runs the previous image. `pendingRestart` names
+the reason and action; `restartWithChanges()` validates the complete current
+image before replacing the Engine, and `reenterRoom()` admits it at the same
+strict idle boundary as live edits before running real room-entry semantics.
+Both publish the running identity only after worker acknowledgement. Re-entry
+preserves global state through `new.room`; room LOGIC controls subsequent actor
+placement and side effects. Each action opens a rewind segment with the admitted
+image, retaining the preceding run and its queued recording batches.
+
 Inside `app/src/`, `main.ts` mounts `App.vue`, the shell's root component, and
 each folder holds one responsibility:
 

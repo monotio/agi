@@ -179,6 +179,12 @@ its picture opens in **Room Studio** and its views in **Sprite Studio**. Room
 Studio, Sprite Studio and Logic Studio are designed for a larger screen than a
 phone; games play on phones too.
 
+Some Create edits need a fresh room or game start. **Re-enter room** runs the
+room's entry LOGIC with your changes; that LOGIC can reposition actors or change
+room state. **Restart with your changes** starts the game from the beginning,
+including its updated OBJECT list. The edit is saved while the current game
+continues, and earlier play stays on the rewind timeline.
+
 In Create, **⌘P** (Ctrl+P) opens the game’s parts and **⇧⌘P**
 (Ctrl+Shift+P) opens the command palette. Type **>** in quick open to find
 commands. **⌘B** toggles the parts list, **⌘I** opens the agent, and **⌘Enter**

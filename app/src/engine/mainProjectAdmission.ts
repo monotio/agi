@@ -24,7 +24,7 @@ export function createMainProjectAdmission(input: {
   async function admit(
     compiled: ProjectDocumentsCompile,
     origins: { key: string; version: number }[],
-    mode?: "restart",
+    mode?: "restart" | "reenter",
   ): Promise<PreviewUpdateOutcome> {
     if (!current()) throw new Error("Project run was replaced.");
     const documents = compiled.documents();
@@ -94,6 +94,9 @@ export function createMainProjectAdmission(input: {
     admit,
     restart(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
       return admit(compiled, origins, "restart");
+    },
+    reenter(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
+      return admit(compiled, origins, "reenter");
     },
     dispose() {
       disposed = true;

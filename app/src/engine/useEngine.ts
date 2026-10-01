@@ -681,6 +681,9 @@ export function useEngine(
     restartWithChanges() {
       return projectSession?.restartWithChanges();
     },
+    reenterRoom() {
+      return projectSession?.reenterRoom();
+    },
     submitProjectEdit(
       edit: { changes: readonly ProjectChange[] } & Omit<ProjectCommitMetadata, "time">,
     ) {
