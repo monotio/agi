@@ -779,7 +779,7 @@ watch(
                 :class="{ 'ask-button--away': state.powerUp.open }"
                 data-testid="menu-assistant"
                 :aria-expanded="state.powerUp.open"
-                :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask about this game'"
+                :title="VOCABULARY.agent.help"
                 :disabled="
                   (state.powerUp.mode === 'room' && state.powerUp.open) ||
                   state.recording.active ||
@@ -787,7 +787,7 @@ watch(
                 "
                 @click="shell.toggleAsk()"
               >
-                Ask
+                {{ VOCABULARY.agent.label }}
               </UiButton>
             </template>
           </PlayArea>

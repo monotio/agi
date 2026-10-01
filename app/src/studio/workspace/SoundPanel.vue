@@ -18,6 +18,7 @@ import {
   retimeSound,
 } from "../sound/soundEdits.ts";
 import UiButton from "../../ui/UiButton.vue";
+import UiExplain from "../../ui/UiExplain.vue";
 import SoundGrid from "../sound/SoundGrid.vue";
 import SoundTracker from "../sound/SoundTracker.vue";
 import SoundImport from "../sound/SoundImport.vue";
@@ -229,17 +230,25 @@ onBeforeUnmount(() => {
     <header class="sound-heading">
       <div>
         <h2>SOUND {{ documentKey.split(":")[1] }}</h2>
-        <p>{{ VOCABULARY.sound.help }}</p>
+        <UiExplain
+          question
+          term="sound-editor"
+          :name="VOCABULARY.sound.label"
+          :says="VOCABULARY.sound.help"
+        />
       </div>
       <div class="sound-transport">
-        <UiButton
-          size="sm"
+        <button
+          type="button"
+          class="sound-play"
           data-testid="sound-play"
+          :aria-label="status === 'playing' ? 'Stop' : 'Play'"
           title="Play or stop (Space)"
           :aria-pressed="status === 'playing'"
           @click="transport"
-          >{{ status === "playing" ? "Stop" : "Play" }}</UiButton
         >
+          <span aria-hidden="true">{{ status === "playing" ? "■" : "▶" }}</span>
+        </button>
         <UiButton
           size="sm"
           variant="ghost"
@@ -247,9 +256,6 @@ onBeforeUnmount(() => {
           @click="midiDownload"
           >{{ VOCABULARY.exportMidi.label }}</UiButton
         >
-        <span role="status" data-testid="sound-status">{{
-          status === "playing" ? "Playing" : status === "complete" ? "Finished" : "Ready"
-        }}</span>
       </div>
     </header>
     <div class="sound-toolbar">
@@ -342,6 +348,7 @@ onBeforeUnmount(() => {
           :class="`voice-${lane}`"
           :aria-pressed="voice === lane"
           @click="voice = lane"
+          ><i class="sound-voice-swatch" aria-hidden="true"></i
           >{{
             lane === 3 ? VOCABULARY.drums.label : `${VOCABULARY.voice.label} ${lane + 1}`
           }}</UiButton
@@ -553,9 +560,43 @@ p {
   align-items: center;
   gap: var(--space-2);
 }
-.sound-transport span {
-  font-size: var(--text-xs);
-  color: var(--ink-2);
+.sound-heading > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.sound-play {
+  width: var(--control-h);
+  height: var(--control-h);
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--action);
+  color: var(--action-ink);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.sound-play[aria-pressed="true"] {
+  background: var(--warn);
+}
+.sound-play:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.sound-voices .ui-btn {
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-pill);
+}
+.sound-voice-swatch {
+  display: inline-block;
+  margin-right: var(--space-2);
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--voice-colour);
 }
 .sound-tempo {
   display: flex;
@@ -607,16 +648,16 @@ p {
   width: 6em;
 }
 .sound-voices .voice-0 {
-  color: var(--action);
+  --voice-colour: var(--action);
 }
 .sound-voices .voice-1 {
-  color: var(--warn);
+  --voice-colour: var(--warn);
 }
 .sound-voices .voice-2 {
-  color: var(--danger);
+  --voice-colour: var(--danger);
 }
 .sound-voices .voice-3 {
-  color: var(--ink-2);
+  --voice-colour: var(--ink-2);
 }
 .sound-voices [aria-pressed="true"],
 .sound-lenses [aria-pressed="true"] {

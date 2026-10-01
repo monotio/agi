@@ -18,7 +18,6 @@ import { useEngineApi } from "../../engine/engineContext.ts";
 import { useCreateWorkspace } from "../../shell/useCreateWorkspace.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { openExplainer } from "../../ui/explain.ts";
-import { useShellBridge } from "../../shell/shellBridge.ts";
 import { useAiSettings } from "../../settings/useAiSettings.ts";
 import type { WordsTask } from "./wordsAgent.ts";
 import UiButton from "../../ui/UiButton.vue";
@@ -410,7 +409,6 @@ function wordResponse(room: number, command: string): void {
   guidedCommand.value = command;
   guidedKind.value = "response";
 }
-const bridge = useShellBridge();
 const ai = useAiSettings();
 async function wordsTask(task: WordsTask): Promise<void> {
   editor.focus.value = false;
@@ -423,7 +421,10 @@ async function wordsTask(task: WordsTask): Promise<void> {
     task: scoped,
     documents: snapshot.value?.documents() ?? {},
     engine,
-    bridge,
+    compose: (text) => {
+      workspace.showPanel("assistant");
+      editor.agentPrefill.value = { text, readOnly: task.kind !== "review" };
+    },
     configured: ai.aiConfigured.value,
     config: ai.llmConfig(),
     setup: () => ai.openAiSettings(null, "assistant"),

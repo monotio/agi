@@ -69,12 +69,12 @@ test("SOUND edits autosave, audition privately and play in MAIN on listen @webki
     };
   });
   await panel.getByTestId("sound-play").click();
-  await expect(panel.getByTestId("sound-status")).toHaveText("Playing");
+  await expect(panel.getByTestId("sound-play")).toHaveAttribute("aria-label", "Stop");
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await expect.poll(() => page.evaluate(() => window.__AGI_AUDIO__?.isPlaying)).toBe(false);
   await reviewShot(page, "sound-playing");
   await panel.getByTestId("sound-play").press("Space");
-  await expect(panel.getByTestId("sound-status")).toHaveText("Ready");
+  await expect(panel.getByTestId("sound-play")).toHaveAttribute("aria-label", "Play");
   await page.keyboard.press("Control+`");
   await page.keyboard.type("listen");
   await page.keyboard.press("Enter");

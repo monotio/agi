@@ -35,15 +35,18 @@
 }
 .agent-panel__mode {
   font-size: var(--text-xs);
-  flex-wrap: wrap;
-}
-.agent-panel__mode label {
-  margin-left: auto;
-  display: flex;
   gap: var(--space-2);
-  align-items: center;
+}
+.agent-panel__mode .ui-seg {
+  flex: none;
+  white-space: nowrap;
 }
 .agent-panel__model {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
 }
 .agent-panel__feed {
@@ -67,8 +70,9 @@
   margin: var(--space-2) 0;
 }
 .agent-panel__message--user {
-  background: var(--surface-2);
-  border-radius: var(--radius);
+  margin-left: var(--space-6);
+  background: var(--surface-3);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
 }
 .agent-panel__message strong {
   font-size: var(--text-xs);
@@ -147,7 +151,7 @@
 .agent-panel__context > span,
 .agent-panel__context button {
   padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
 }
 .agent-panel__error {

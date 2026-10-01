@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, useTemplateRef, ref, shallowRef, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  useTemplateRef,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import { borrowWorkspaceAgent } from "./workspaceAgent.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
@@ -11,6 +20,8 @@ import { compileProjectDocuments } from "../../../src/authoring/projectDocuments
 import { openContainer } from "../../../src/container/container.ts";
 import AgentResourceReview from "./AgentResourceReview.vue";
 import UiButton from "../ui/UiButton.vue";
+import UiSegmented from "../ui/UiSegmented.vue";
+import UiExplain from "../ui/UiExplain.vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import "./agentPanel.css";
 const engine = useEngineApi();
@@ -19,8 +30,21 @@ const settings = useAiSettings();
 const agent = shallowRef<ReturnType<typeof borrowWorkspaceAgent>>();
 const tick = ref(0);
 const input = ref("");
+const readOnly = ref(false);
 const composer = useTemplateRef("composer");
 onMounted(() => composer.value?.focus());
+watch(
+  editor.agentPrefill,
+  async (prefill) => {
+    if (!prefill) return;
+    input.value = prefill.text;
+    readOnly.value = prefill.readOnly;
+    editor.agentPrefill.value = null;
+    await nextTick();
+    composer.value?.focus();
+  },
+  { immediate: true },
+);
 const error = ref("");
 const chatList = ref(false);
 const addContext = ref(false);
@@ -67,6 +91,13 @@ const current = computed(() => {
   void tick.value;
   return agent.value?.current();
 });
+watch(
+  current,
+  (chat) => {
+    editor.agentMessages.value = chat?.messages.slice() ?? [];
+  },
+  { immediate: true, deep: true },
+);
 const visibleMessages = computed(() => (review.value ? [] : current.value?.messages));
 const chats = computed(() => {
   void tick.value;
@@ -93,6 +124,29 @@ const autoApprove = computed({
     if (agent.value) agent.value.autoApprove = value;
   },
 });
+const approvalMode = computed({
+  get: () => (autoApprove.value ? "auto" : "review"),
+  set: (value: string) => {
+    autoApprove.value = value === "auto";
+  },
+});
+const approvalModes = [
+  { value: "review", label: VOCABULARY.review.label, testid: "agent-review-mode" },
+  { value: "auto", label: VOCABULARY.autoApprove.label, testid: "agent-auto-approve" },
+];
+const roomName = computed(() => {
+  const room = engine.roomMap.currentRoom.value ?? 0;
+  return (
+    engine.roomMap.graph.value.nodes.find((node) => node.room === room)?.title ||
+    editor.parts.value.find((part) => part.id === `logic:${room}`)?.title.split(" · ROOM ")[0] ||
+    `ROOM ${room}`
+  );
+});
+function contextName(key: string): string {
+  const name = editor.parts.value.find((part) => part.id === key)?.title;
+  if (name && !name.includes(" · ROOM ") && !name.startsWith("ROOM ")) return name;
+  return key === "inventory" ? "OBJECT" : key.replace(":", " ").toUpperCase();
+}
 const profile = computed(() => PROFILES[engine.roomMap.resources.value.profile?.id ?? "2.936"]!);
 const images = computed(() => {
   const proposal = review.value?.proposal;
@@ -126,25 +180,26 @@ async function action(work: () => unknown) {
 async function send() {
   if (!input.value.trim() || busy.value) return;
   const request = input.value;
+  const inspect = readOnly.value;
+  readOnly.value = false;
   input.value = "";
   await action(async () => {
     await editor.flush.value?.();
-    await agent.value?.send(
-      request,
-      [
-        `Current room ${engine.roomMap.currentRoom.value ?? 0}`,
-        ...contexts.value,
-        ...(editor.agentContext.value
-          ? [`Selection: ${editor.agentContext.value.label}\n${editor.agentContext.value.text}`]
-          : []),
-        ...(contexts.value.includes("Current problems")
-          ? (engine
-              .getProjectSession()
-              ?.capture()
-              .diagnostics.map((entry) => `${entry.document ?? "Project"}: ${entry.message}`) ?? [])
-          : []),
-      ].join("\n"),
-    );
+    const context = [
+      `Current room ${engine.roomMap.currentRoom.value ?? 0}`,
+      ...contexts.value,
+      ...(editor.agentContext.value
+        ? [`Selection: ${editor.agentContext.value.label}\n${editor.agentContext.value.text}`]
+        : []),
+      ...(contexts.value.includes("Current problems")
+        ? (engine
+            .getProjectSession()
+            ?.capture()
+            .diagnostics.map((entry) => `${entry.document ?? "Project"}: ${entry.message}`) ?? [])
+        : []),
+    ].join("\n");
+    if (inspect) await agent.value?.ask(request, context);
+    else await agent.value?.send(request, context);
   });
 }
 async function approve() {
@@ -210,14 +265,23 @@ onBeforeUnmount(() => {
       >
     </header>
     <div class="agent-panel__mode">
-      <span :title="VOCABULARY.review.help">{{ autoApprove ? "Auto-approve" : "Review" }}</span
-      ><label :title="VOCABULARY.autoApprove.help"
-        ><input
-          type="checkbox"
-          v-model="autoApprove"
-          data-testid="agent-auto-approve"
-        />Auto-approve</label
-      ><button @click="settings.openAiSettings($event, 'assistant')" class="agent-panel__model">
+      <UiSegmented
+        v-model="approvalMode"
+        size="sm"
+        label="Agent changes"
+        :options="approvalModes"
+      />
+      <UiExplain
+        question
+        term="agent-auto-approve"
+        :name="VOCABULARY.autoApprove.label"
+        :says="VOCABULARY.autoApprove.help"
+      />
+      <button
+        @click="settings.openAiSettings($event, 'assistant')"
+        class="agent-panel__model"
+        :title="settings.aiModelLabel.value"
+      >
         {{ settings.aiModelLabel.value }}
       </button>
     </div>
@@ -300,6 +364,7 @@ onBeforeUnmount(() => {
           <UiButton
             size="sm"
             :disabled="busy || review.stale() || !selected.length"
+            variant="primary"
             data-testid="agent-approve"
             @click="approve"
             >Approve <kbd>⌘↵</kbd></UiButton
@@ -334,7 +399,7 @@ onBeforeUnmount(() => {
     />
     <form class="agent-panel__composer" @submit.prevent="send">
       <div class="agent-panel__context">
-        <span>Room {{ engine.roomMap.currentRoom.value ?? 0 }}</span
+        <span>{{ roomName }}</span
         ><span v-if="editor.agentContext.value">{{ editor.agentContext.value.label }}</span
         ><button
           v-for="context in contexts"
@@ -342,7 +407,7 @@ onBeforeUnmount(() => {
           type="button"
           @click="contexts = contexts.filter((entry) => entry !== context)"
         >
-          {{ context }} ×</button
+          {{ contextName(context) }} ×</button
         ><button type="button" @click="addContext = !addContext">+ Add context</button>
       </div>
       <select
@@ -371,6 +436,7 @@ onBeforeUnmount(() => {
         <UiButton
           type="submit"
           size="sm"
+          variant="primary"
           :disabled="busy || !input.trim() || !agent || !settings.aiConfigured.value"
           >Send</UiButton
         ><span>⌘↵</span>

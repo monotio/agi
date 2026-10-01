@@ -17,15 +17,42 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
   const panel = page.getByTestId("workspace-sound").filter({ visible: true });
   const grid = panel.getByTestId("sound-grid");
   await expect(grid).toBeVisible();
+  await expect(panel.getByTestId("sound-play")).toHaveCSS("border-radius", "50%");
+  await expect(panel.getByTestId("sound-play")).toHaveAttribute("title", /Space/);
+  await expect(panel.locator(".sound-voice-swatch")).toHaveCount(4);
+  await expect(panel.locator(".sound-voice-swatch").first()).toHaveCSS("width", "10px");
+  await expect(panel.locator(".sound-voice-swatch").first()).toBeVisible();
+  await expect(panel).not.toContainText("Ready");
+  await expect(panel.locator(".sound-heading")).not.toContainText("Music and sound effects");
   await panel.getByLabel("Snap", { exact: true }).selectOption("8");
   // C5 row 12, step 8 at 120 BPM = tick 120. Drag to step 11 = 60 ticks.
   const box = await grid.boundingBox();
   expect(box).not.toBeNull();
-  await page.mouse.move(box!.x + 64 + 8 * 26 + 4, box!.y + 24 + 12 * 14 + 7);
+  await page.mouse.move(box!.x + 64 + 8 * 26 + 4, box!.y + 24 + 12 * 20 + 10);
   await page.mouse.down();
-  await page.mouse.move(box!.x + 64 + 11 * 26 + 12, box!.y + 24 + 12 * 14 + 7, { steps: 8 });
+  await page.mouse.move(box!.x + 64 + 11 * 26 + 12, box!.y + 24 + 12 * 20 + 10, { steps: 8 });
   await page.mouse.up();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  // Move off the note so the pixel probe measures its fill, without the selection outline.
+  await grid.press("ArrowDown");
+  const readNotePixels = () =>
+    grid.evaluate((element) => {
+      const canvas = element as HTMLCanvasElement;
+      const context = canvas.getContext("2d")!;
+      const ratio = canvas.width / parseFloat(canvas.style.width);
+      const pixel = (x: number, y: number) => [
+        ...context.getImageData(x * ratio, y * ratio, 1, 1).data,
+      ];
+      // C5 is row 12; this note starts at step 8 and ends at step 12.
+      return {
+        corner: pixel(64 + 8 * 26 + 1, 24 + 12 * 20 + 2),
+        center: pixel(64 + 8 * 26 + 12, 24 + 12 * 20 + 10),
+      };
+    });
+  const loudPixels = await readNotePixels();
+  expect(loudPixels.corner.slice(0, 3).reduce((sum, channel) => sum + channel, 0)).toBeLessThan(
+    loudPixels.center.slice(0, 3).reduce((sum, channel) => sum + channel, 0),
+  );
   await panel.getByRole("button", { name: "Tracker", exact: true }).click();
   await expect(panel.getByLabel("Voice 1, tick 120, note", { exact: true })).toHaveValue("C5");
   await expect(panel.getByLabel("Voice 1, tick 120, length in ticks", { exact: true })).toHaveValue(
@@ -34,14 +61,19 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
   await panel.getByLabel("Voice 1, tick 120, volume in hex", { exact: true }).fill("A");
   await panel.getByLabel("Voice 1, tick 120, volume in hex", { exact: true }).press("Enter");
   await panel.getByRole("button", { name: "Grid", exact: true }).click();
+  await grid.press("ArrowDown");
+  const quietPixels = await readNotePixels();
+  expect(quietPixels.center.slice(0, 3).reduce((sum, channel) => sum + channel, 0)).toBeLessThan(
+    loudPixels.center.slice(0, 3).reduce((sum, channel) => sum + channel, 0),
+  );
   const cycle = (await textHook(page)).cycle;
   await panel.getByTestId("sound-play").click();
-  await expect(panel.getByTestId("sound-status")).toHaveText("Playing");
+  await expect(panel.getByTestId("sound-play")).toHaveAttribute("aria-label", "Stop");
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await expect.poll(() => page.evaluate(() => window.__AGI_AUDIO__?.isPlaying)).toBe(false);
   await grid.focus();
   await grid.press("Space");
-  await expect(panel.getByTestId("sound-status")).toHaveText("Ready");
+  await expect(panel.getByTestId("sound-play")).toHaveAttribute("aria-label", "Play");
   // Keyboard draws a second voice and lengthens it in one native edit.
   await panel.getByRole("button", { name: "Voice 2", exact: true }).click();
   await grid.focus();
@@ -50,7 +82,7 @@ test("draw, audition, track and import MIDI beside the game @webkit-desktop", as
   await grid.press("Enter");
   await grid.press("Shift+ArrowRight");
   await panel.getByRole("button", { name: "Drums", exact: true }).click();
-  await panel.getByTestId("sound-drums").click({ position: { x: 64 + 4 * 26 + 4, y: 7 } });
+  await panel.getByTestId("sound-drums").click({ position: { x: 64 + 4 * 26 + 4, y: 10 } });
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   for (const size of [
     { width: 1440, height: 900 },

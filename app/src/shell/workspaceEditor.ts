@@ -15,6 +15,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
   const selected = ref<string>();
+  const agentPrefill = shallowRef<{ text: string; readOnly: boolean } | null>(null);
+  const agentMessages = shallowRef<readonly { role: string; text: string }[]>([]);
   const agentContext = shallowRef<{ label: string; text: string } | null>(null);
   const agentContexts: Record<string, { label: string; text: string } | null> = {};
   function setAgentContext(key: string, context: { label: string; text: string } | null): void {
@@ -116,6 +118,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   function reset(): void {
     selected.value = undefined;
     agentContext.value = null;
+    agentPrefill.value = null;
+    agentMessages.value = [];
     for (const key of Object.keys(agentContexts)) delete agentContexts[key];
     tabs.value = [];
     preview.value = undefined;
@@ -135,6 +139,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     gameHost,
     selected,
     agentContext,
+    agentPrefill,
+    agentMessages,
     setAgentContext,
     tabs,
     preview,

@@ -2,6 +2,7 @@
 /** The existing Create shell's adapter; commands and choosers stay host-independent. */
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { nextTick, onMounted, onScopeDispose, shallowRef, ref, watch } from "vue";
+import { useEngineApi } from "../../engine/engineContext.ts";
 import { useCreateWorkspace } from "../useCreateWorkspace.ts";
 import { useShell } from "../useShell.ts";
 import { useShellBridge } from "../shellBridge.ts";
@@ -20,6 +21,7 @@ const workspace = useCreateWorkspace();
 const shell = useShell();
 const editor = useWorkspaceEditor();
 const bridge = useShellBridge();
+const engine = useEngineApi();
 const palette = ref(false);
 const quickOpen = ref(false);
 const origin = shallowRef<CommandContext>(emptyCommandContext());
@@ -111,6 +113,13 @@ const offDefaults = registerDefaultCommands(props.registry, {
   nextZone: () => zones.cycle(),
   previousZone: () => zones.cycle(-1),
 });
+const offMap = props.registry.register({
+  id: "map.open",
+  title: "Open map",
+  category: "Game",
+  when: (c) => !c.dialogOpen,
+  run: () => engine.roomMap.openMap({ experience: "create" }),
+});
 const offHelp = props.registry.register({
   id: "help.shortcuts",
   title: "Keyboard shortcuts",
@@ -149,7 +158,14 @@ const offFocus = props.registry.register({
   when: (c) => !c.dialogOpen && editor.selected.value !== undefined,
   run: editor.toggleFocus,
 });
-const provideParts = () => editor.parts.value;
+const provideParts = () => [
+  ...editor.parts.value,
+  {
+    id: "map.open",
+    title: "Open map",
+    run: () => props.registry.execute("map.open"),
+  },
+];
 let offDispatcher: (() => void) | undefined;
 const onFocus = (event: FocusEvent): void =>
   zones.track(event.target instanceof Node ? event.target : null);
@@ -163,6 +179,7 @@ onScopeDispose(() => {
   document.removeEventListener("focusin", onFocus);
   offDefaults();
   offHelp();
+  offMap();
   offFocus();
   offClose();
   offEscape();

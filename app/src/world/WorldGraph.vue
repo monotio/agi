@@ -31,6 +31,7 @@ import { useNodeDrag } from "./useNodeDrag.ts";
 
 const { compact = false } = defineProps<{ compact?: boolean }>();
 
+const emit = defineEmits<{ pick: [room: number] }>();
 const map = useEngineApi().roomMap;
 const { selected } = map;
 const graph = computed(() => map.graph.value);
@@ -171,6 +172,7 @@ function centerNode(room: number, instant = false): void {
 function selectRoom(room: number, center = false): void {
   followLive = false;
   map.select(room);
+  emit("pick", room);
   if (center) void nextTick(() => centerNode(room));
 }
 
