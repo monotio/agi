@@ -1040,6 +1040,7 @@ const status = computed(() => {
   border-left: 1px solid var(--hairline);
 }
 .sprite-studio__status {
+  grid-row: 5;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
