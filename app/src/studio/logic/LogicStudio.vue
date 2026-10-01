@@ -559,13 +559,25 @@ async function restoreEntry(entry: LogicRecoveryEntry): Promise<void> {
 }
 
 async function discardEntry(entry: LogicRecoveryEntry): Promise<void> {
-  const open = workspace.value?.projectId;
-  if (entry.kind !== "stored" || open === undefined) return;
+  const ws = workspace.value;
+  // A portable draft gets a destructive action only when its payload is
+  // readable — the dialog emits discard for such entries only.
+  if (ws === undefined || (entry.kind === "portable" && entry.recovery === undefined)) return;
   const epoch = openEpoch;
   recoveryBusy.value = true;
   recoveryError.value = undefined;
   try {
-    await discardProjectDraft(open, entry.workspaceId, entry.receipt);
+    if (entry.kind === "stored") {
+      await discardProjectDraft(ws.projectId, entry.workspaceId, entry.receipt);
+    } else {
+      // The service removes exactly the reviewed payload from the stored
+      // body and advances this workspace to the committed baseline — a
+      // moved record refuses and keeps every byte.
+      await ws.discardPortableRecovery(entry.recovery);
+    }
+    // A close, switch or newer mount that resolved meanwhile owns the
+    // state; nothing from this finished action may land on it.
+    if (epoch !== openEpoch || workspace.value !== ws) return;
     await refreshRecovery();
   } catch (error) {
     if (epoch === openEpoch) recoveryError.value = reason(error);
@@ -664,6 +676,7 @@ async function openProject(next: ProjectId): Promise<void> {
   openError.value = "";
   persistError.value = undefined;
   recoveryError.value = undefined;
+  recoveryBusy.value = false;
   review.value = undefined;
   leaveAsk.value = false;
   problems.value = [];

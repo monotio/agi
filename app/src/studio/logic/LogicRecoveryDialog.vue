@@ -70,7 +70,7 @@ function describe(entry: LogicRecoveryEntry): string {
             Download
           </UiButton>
           <UiButton
-            v-if="entry.kind === 'stored'"
+            v-if="entry.kind === 'stored' || entry.recovery !== undefined"
             variant="danger"
             size="sm"
             :disabled="busy"
