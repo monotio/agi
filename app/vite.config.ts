@@ -15,6 +15,11 @@ import { preferCatalogedEdition } from "./src/project/gameTypes.ts";
 import type { GameIdentity } from "../src/gameIdentity.ts";
 import type { ProfileId } from "../src/runtime/profile.ts";
 import { BUNDLE_GRAPH_PATH } from "./bundle-graph.config.ts";
+import {
+  DEV_KEYS_PATH,
+  devKeysFromEnv,
+  isLoopbackRequest,
+} from "./src/settings/devProviderKeys.ts";
 
 export interface InstalledFixtureDescriptor {
   readonly folder: string;
@@ -359,6 +364,38 @@ const local = (id: string): string => relative(repository, id.split("?")[0]!).re
 /** Worker-bundle graphs keyed by each worker's emitted entry file. */
 const workerGraphs = new Map<string, GraphChunk[]>();
 
+/**
+ * Opt-in development keys (src/settings/devProviderKeys.ts): with
+ * AGI_DEV_KEYS=1, `vite serve` in development mode hands this machine the
+ * provider keys from its environment. Absent from builds and test mode.
+ */
+function devProviderKeys(): Plugin {
+  let enabled = false;
+  return {
+    name: "agi-dev-provider-keys",
+    apply: "serve",
+    configResolved(config) {
+      enabled = config.mode === "development" && process.env["AGI_DEV_KEYS"] === "1";
+    },
+    configureServer(server) {
+      if (!enabled) return;
+      server.middlewares.use(DEV_KEYS_PATH, (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        if (
+          req.method !== "GET" ||
+          !isLoopbackRequest(req.socket.remoteAddress, req.headers.host)
+        ) {
+          res.statusCode = 403;
+          res.end();
+          return;
+        }
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(devKeysFromEnv(process.env)));
+      });
+    },
+  };
+}
+
 function workerBundleGraph(): Plugin {
   return {
     name: "agi-worker-bundle-graph",
@@ -443,7 +480,7 @@ function buildIdentity(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [vue(), fixtureServer(), bundleGraph(), buildIdentity()],
+  plugins: [vue(), fixtureServer(), devProviderKeys(), bundleGraph(), buildIdentity()],
   // Discover the lazy editor's dependencies before a browser connects. Finding
   // them on first Studio open otherwise makes Vite reload the authoring page.
   // This prebundles dependencies on the server; Play still loads no editor code.

@@ -10,11 +10,12 @@
 //
 //   npm run build && npm run check:bundle
 //   npm run check:bundle -- --warn    report only; `npm run build` uses this
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { BUNDLE_GRAPH_PATH } from "../app/bundle-graph.config.ts";
+import { DEV_KEYS_PATH } from "../app/src/settings/devProviderKeys.ts";
 
 export interface GraphChunk {
   readonly file: string;
@@ -256,6 +257,12 @@ function main(): void {
     }
     staticClosure([chunk.file], boot);
   }
+  // Development keys never ship: no emitted file may name their endpoint.
+  for (const file of readdirSync(join(dist, "assets")))
+    if (readFileSync(join(dist, "assets", file), "latin1").includes(DEV_KEYS_PATH)) {
+      console.error(`${file} names ${DEV_KEYS_PATH}; development keys must stay out of builds.`);
+      process.exit(1);
+    }
   const css = [...new Set(boot.flatMap((chunk) => chunk.css))];
   const bootCode = boot.map((chunk) => readFileSync(join(dist, chunk.file), "latin1"));
   // A worker is an emitted asset that a startup chunk names by URL.

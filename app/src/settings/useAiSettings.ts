@@ -113,6 +113,13 @@ export function createAiSettings(engine: EngineApi, deps: AiSettingsDeps) {
     }
   }
 
+  // Development only: fill missing keys from the dev server's environment
+  // (devProviderKeys.ts). Builds and test mode drop this branch entirely.
+  if (import.meta.env.MODE === "development")
+    void import("./devProviderKeys.ts")
+      .then(({ settingsWithDevKeys }) => settingsWithDevKeys(aiSettings.value))
+      .then((next) => next && applyAiSettings(next, taskBudget.value));
+
   function onAiSettingsClosed(): void {
     if (aiSettingsOwnedPause) {
       aiSettingsOwnedPause = false;
