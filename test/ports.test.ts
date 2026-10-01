@@ -97,9 +97,9 @@ function loadPort(folder: string): {
 }
 
 for (const port of PORTS) {
-  // The mh2-amiga directory indexes picture 106 in a VOL.15 the release
-  // never shipped (UNSHIPPED_VOLUMES in fixtures.ts); "shipped" exempts it.
-  const skip = fixtureSkip(port.folder, [], { checkVolumes: "shipped" });
+  // The selected profile's absence rule decides which volumes are required.
+  // MH2 PIC106 is absent; every volume a real entry names must be present.
+  const skip = fixtureSkip(port.folder);
 
   test(`${port.folder}: resolves to its own catalog pair and indexes its logics`, { skip }, () => {
     const fixture = findFixture(port.folder);

@@ -60,7 +60,9 @@ describe("compact music authoring tools", () => {
     assert.equal(sound.channels[2]!.notes[0]!.attenuation, 10);
     assert.deepEqual(result?.details?.["writtenResources"], [{ kind: "sound", num: 5 }]);
     assert.equal(typeof result?.details?.["revision"], "string");
-    assert.equal(state.sources.sounds.get(5)?.length, 4);
+    const writtenSource = state.sources.sounds.get(5);
+    assert.ok(Array.isArray(writtenSource));
+    assert.equal(writtenSource.length, 4);
   });
 
   it("maps all named noise modes to exact authentic control bits", () => {

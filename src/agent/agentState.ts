@@ -11,7 +11,7 @@ export { buildObjectFile } from "../authoring/inventory.ts";
 import { parseWordsTok } from "../logic/words.ts";
 import { sourceCompilesTo } from "../picture/source.ts";
 import { createAuthoringState, type AuthoringState } from "./authoringState.ts";
-import type { SoundTrackInput } from "./soundBuilder.ts";
+import type { SoundSourceBody } from "../sound/source.ts";
 import type { BuildViewInput } from "../view/view.ts";
 import type { GameContainer } from "../types.ts";
 import { createContainer } from "../container/container.ts";
@@ -55,7 +55,13 @@ export interface AgentSourceStore {
   views: Map<number, BuildViewInput>;
   words: Map<string, number>;
   objects?: { name: string; startingRoom: number }[] | undefined;
-  sounds: Map<number, SoundTrackInput[]>;
+  /**
+   * Authored sound source keyed by resource number: the legacy
+   * SoundTrackInput[] body or a tagged `agi.sound-document` v1 envelope
+   * (src/sound/source.ts). Entries serialize and hydrate as the same
+   * `[num, body]` JSON pairs either way.
+   */
+  sounds: Map<number, SoundSourceBody>;
 }
 
 export interface AgentSessionState {

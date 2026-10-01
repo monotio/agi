@@ -20,6 +20,7 @@
 
 import { PICTURE_SOURCE_DOC } from "../picture/source.ts";
 import type { AgentToolResult } from "./agentState.ts";
+import type { StarterProject } from "../authoring/starterProject.ts";
 
 export const AGI_SYSTEM_PROMPT = `You are the Game Master and Author for an authentic Sierra AGI (Adventure Game Interpreter) engine running live in the player's browser.
 
@@ -70,19 +71,58 @@ Every tool's own description states what it does, what it returns and how it fai
 `;
 
 /**
+ * The seed inventory line a Genesis prompt carries: every resource the
+ * installed Starter ships, named by its bindings, plus the dictionary and
+ * inventory counts. Generated from the seed itself so it can never drift
+ * from what the session actually holds.
+ */
+function describeSeedInventory(seed: StarterProject): string {
+  const bindingNames = (kind: string, num: number) =>
+    Object.entries(seed.bindings)
+      .filter(([, binding]) => binding.kind === kind && binding.num === num)
+      .map(([name]) => name);
+  const resource = (kind: string, num: number) => {
+    const names = bindingNames(kind, num);
+    return `${kind} ${num}${names.length ? ` (${names.join(", ")})` : ""}`;
+  };
+  const table = (kind: string, entries: ReadonlyMap<number, unknown>) =>
+    [...entries.keys()]
+      .sort((a, b) => a - b)
+      .map((num) => resource(kind, num))
+      .join(", ");
+  const resources = [
+    `logics ${table("logic", seed.sources.logics)}`,
+    `picture ${table("picture", seed.sources.pictures)}`,
+    `view ${table("view", seed.sources.views)}`,
+    `sounds ${table("sound", seed.sources.sounds)}`,
+  ].join("; ");
+  const stateBindings = Object.entries(seed.bindings)
+    .filter(([, binding]) => binding.kind === "flag" || binding.kind === "variable")
+    .map(([name, binding]) => `${name} (${binding.kind === "flag" ? "f" : "v"}${binding.num})`)
+    .join(", ");
+  const objects =
+    seed.sources.objects.length === 0
+      ? "OBJECT is empty"
+      : `OBJECT holds ${seed.sources.objects.length} item${seed.sources.objects.length === 1 ? "" : "s"}`;
+  return `${resources}; WORDS.TOK knows ${seed.sources.words.size} words and ${objects}. Its named state conventions: ${stateBindings}`;
+}
+
+/**
  * The Genesis prompt: one turn that plans the world and builds the opening.
  * The agent records the whole plan through update_world first — the world
  * map shows it as it lands and the player edits it there while later rooms
- * build just-in-time — then authors the opening room's resources.
+ * build just-in-time — then makes the opening room its own. `seed` is the
+ * complete Starter already installed in the session: the prompt describes
+ * exactly what was installed, so the wording can never claim a missing room.
  */
-export function createGenesisPrompt(templateText: string): string {
+export function createGenesisPrompt(templateText: string, seed: StarterProject): string {
   return `### GENESIS: Plan the world, then build its opening room
 
 First design a small connected world (3 to 6 rooms) and record the whole plan through update_world: each room's number, a short title, a one-line brief of what happens there, and its named exits to other room numbers. Room 1 is the opening room unless the brief says otherwise. Record the facts and quests the brief implies too — the plan tells every later room-authoring turn what to build. The player sees this plan on the world map as it lands and can edit it; keep the planned room numbers, titles and exits unless the map says otherwise. inspect_world_bible shows what is already recorded; read_authoring_guide has reference material if you need it.
 
-Then author ONLY the opening room (picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
+Then author ONLY the opening room: adapt or replace the seeded room 1 (picture 1 and logic 1 unless the brief specifies an intro/cutscene) and its required views, actors and vocabulary. DO NOT author Room 2 or subsequent rooms during Genesis. When the player walks through an exit into an unbuilt room, the engine pauses gameplay and prompts you to author that specific room just-in-time.
 
-The supplied base template is a recommended starting point, not a requirement: use it when it fits, or extend or replace any of it to serve the brief. Its ordinary logic 0 builds the menu bar, binds the classic keys, dispatches call.v(v0) to the current room each cycle and answers unhandled input. Logic 255 and sound 255 supply a death sequence reached with call(255). Read their sources before changing them and coordinate affected room calls, state and keys. If you keep the parser fallback, set f4 after your own reply to a parsed line without a said() match.
+The session already holds the complete '${seed.seed.templateId}' seed (revision ${seed.seed.templateRevision}) — the same playable ${seed.profileId} project a key-free new Starter produces: ${describeSeedInventory(seed)}. It boots, walks and answers commands before you write anything; treat it as a recommended starting point, not a finished game — extend or replace any of it to serve the brief. Its logic 0 builds the menu bar, binds the classic keys, dispatches call.v(v0) to the current room each cycle and answers unhandled input; logic 255 and sound 255 supply a death sequence reached with call(255). Read the seeded sources with the read_* tools before changing them and coordinate affected room calls, state and keys. If you keep the parser fallback, set f4 after your own reply to a parsed line without a said() match.
 
 The brief decides the shape. A plain start in room 1 is one shape; a title card, a text-screen intro paced by counters and skippable with have.key, an opening cutscene, a cursor-driven screen or something the brief invents are others. Consult read_authoring_guide only if you need reference patterns for cutscenes or interfaces.
 

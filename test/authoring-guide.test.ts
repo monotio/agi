@@ -4,6 +4,7 @@ import { AUTHORING_GUIDE, readAuthoringGuide } from "../src/agent/authoringGuide
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { ASK_TOOLS, AGENT_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
 import { AGI_SYSTEM_PROMPT, createGenesisPrompt } from "../src/agent/prompt.ts";
+import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 
 /**
@@ -58,11 +59,18 @@ test("the tool is catalogued for Ask turns and validates its topic argument", ()
   const rejected = executeAgentTool(state, "read_authoring_guide", { topic: "jokes" });
   assert.equal(rejected.success, false);
   assert.ok(AGI_SYSTEM_PROMPT.includes("read_authoring_guide"));
-  assert.ok(createGenesisPrompt("A brief").includes("read_authoring_guide"));
+  assert.ok(
+    createGenesisPrompt("A brief", createStarterProject("starter")).includes(
+      "read_authoring_guide",
+    ),
+  );
 });
 
 test("the genesis prompt names the template boot without prescribing the opening's shape", () => {
-  const prompt = createGenesisPrompt("# Night Train\nA sleeper car mystery.");
+  const prompt = createGenesisPrompt(
+    "# Night Train\nA sleeper car mystery.",
+    createStarterProject("starter"),
+  );
   assert.ok(prompt.startsWith("### GENESIS:"));
   assert.match(prompt, /recommended starting point/);
   assert.match(prompt, /call\(255\)/);

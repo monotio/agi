@@ -25,6 +25,7 @@ import {
   type AgentSessionState,
 } from "../src/agent/agentState.ts";
 import { ASK_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
+import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { createContainer, openContainer } from "../src/container/container.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
@@ -884,7 +885,7 @@ test("the speedrun runner imports the shared step vocabulary", () => {
 });
 
 test("genesis and orientation prompts require a stored test per puzzle", () => {
-  const genesis = createGenesisPrompt("A quiet courtyard.");
+  const genesis = createGenesisPrompt("A quiet courtyard.", createStarterProject("starter"));
   assert.match(genesis, /write_game_tests/);
   assert.match(genesis, /run_game_tests/);
   assert.match(genesis, /each puzzle|every puzzle/);

@@ -23,8 +23,16 @@ import type { EngineMenuState } from "../runtime/engine.ts";
 import { PROFILES, type ProfileId } from "../runtime/profile.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
-/** Current recording contract: game identity, original 16-bit RNG and reseed events. */
-export const HISTORY_FORMAT_VERSION = 1;
+/**
+ * Current recording contract — what this build's writer stamps. Version 2
+ * adds the "debugger" end reason: a segment sealed when the debugger took
+ * over records the hiatus honestly, rather than a quit or rollover it never
+ * had. Reading is not a migration: a stored version keeps its own stamp and
+ * the rules it was written under.
+ */
+export const HISTORY_FORMAT_VERSION = 2;
+/** Every recording version this build's readers accept, unchanged. */
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -57,16 +65,26 @@ export interface HistoryCommittedPatch {
   tests?: string;
 }
 
-export type HistoryEndReason = "boot" | "walkthrough" | "resume" | "quit" | "budget" | "eject";
+export type HistoryEndReason =
+  | "boot"
+  | "walkthrough"
+  | "resume"
+  | "quit"
+  | "budget"
+  | "eject"
+  /** The debugger took over mid-session; the tape resumes in a later segment. */
+  | "debugger";
 
-const END_REASONS: ReadonlySet<HistoryEndReason> = new Set([
-  "boot",
-  "walkthrough",
-  "resume",
-  "quit",
-  "budget",
-  "eject",
-]);
+/**
+ * The end reasons each recording version may carry. Version 1 is the
+ * released contract — a version-1 record never admits "debugger", so the
+ * released reader could not have silently carried a reason it cannot name.
+ * Version 2 admits every released reason plus "debugger".
+ */
+const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
+  1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
+  2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
+};
 
 export type HistoryEventCause =
   | { kind: "key"; code: number }
@@ -706,7 +724,7 @@ function committedPatch(value: unknown): HistoryCommittedPatch {
   return out;
 }
 
-function eventCause(value: unknown): HistoryEventCause {
+function eventCause(value: unknown, endReasons: ReadonlySet<HistoryEndReason>): HistoryEventCause {
   if (!isObj(value)) fail("event cause must be an object.");
   switch (value["kind"]) {
     case "key":
@@ -794,7 +812,7 @@ function eventCause(value: unknown): HistoryEventCause {
       return { kind: "reseed", value: int(value["value"], "reseed value", 0xffff) };
     case "end": {
       const reason = text(value["reason"], "end reason", 64);
-      if (!END_REASONS.has(reason as HistoryEndReason)) fail("end reason is invalid.");
+      if (!endReasons.has(reason as HistoryEndReason)) fail("end reason is invalid.");
       return { kind: "end", reason: reason as HistoryEndReason };
     }
     default:
@@ -802,7 +820,7 @@ function eventCause(value: unknown): HistoryEventCause {
   }
 }
 
-function events(value: unknown): HistoryEvent[] {
+function events(value: unknown, endReasons: ReadonlySet<HistoryEndReason>): HistoryEvent[] {
   if (!Array.isArray(value) || value.length > MAX_HISTORY_EVENTS)
     fail("events must be a bounded list.");
   return value.map((e) => {
@@ -811,7 +829,7 @@ function events(value: unknown): HistoryEvent[] {
       seq: int(e["seq"], "event seq"),
       tick: int(e["tick"], "event tick"),
       cycle: int(e["cycle"], "event cycle"),
-      cause: eventCause(e["cause"]),
+      cause: eventCause(e["cause"], endReasons),
     };
   });
 }
@@ -966,8 +984,10 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
 /** Validate untrusted history data (a project archive's HISTORY.JSON). */
 export function validateHistoryRecording(value: unknown): HistoryRecording {
   if (!isObj(value)) fail("recording must be an object.");
-  if (value["version"] !== HISTORY_FORMAT_VERSION)
-    fail(`unsupported version ${String(value["version"])}.`);
+  const version = value["version"];
+  if (typeof version !== "number" || HISTORY_END_REASONS[version] === undefined)
+    fail(`unsupported version ${String(version)}.`);
+  const endReasons = HISTORY_END_REASONS[version]!;
   const segments = value["segments"];
   if (!Array.isArray(segments) || segments.length > 4096) fail("segments must be a bounded list.");
   const rawIdentity = value["identity"];
@@ -982,7 +1002,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
   );
   if (identity === null) fail("recording identity is invalid.");
   return {
-    version: HISTORY_FORMAT_VERSION,
+    version,
     identity,
     profile: profileId(value["profile"], "recording profile"),
     resourceSet: text(value["resourceSet"], "resourceSet", MAX_HISTORY_STRING),
@@ -996,7 +1016,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
         anchors: Array.isArray(s["anchors"])
           ? s["anchors"].map(anchor)
           : fail("anchors must be a list."),
-        events: events(s["events"]),
+        events: events(s["events"], endReasons),
         marks: roomMarks(s["marks"]),
         sync: syncMarks(s["sync"]),
         ...(s["clock"] !== undefined ? { clock: clockRuns(s["clock"]) } : {}),
@@ -1005,7 +1025,7 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
         const e = s["end"];
         if (!isObj(e)) fail("segment end must be an object.");
         const reason = e["reason"];
-        if (!END_REASONS.has(reason as HistoryEndReason)) fail("end reason is invalid.");
+        if (!endReasons.has(reason as HistoryEndReason)) fail("end reason is invalid.");
         segment.end = {
           seq: int(e["seq"], "end seq"),
           tick: int(e["tick"], "end tick"),
