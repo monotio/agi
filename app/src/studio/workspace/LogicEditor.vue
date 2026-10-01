@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, useTemplateRef, watch } from "vue";
+import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
@@ -11,8 +12,15 @@ const props = defineProps<{
   snapshot: ProjectSnapshot;
   profileId: ProfileId;
   active: boolean;
+  breakpoints?: readonly number[] | undefined;
+  stoppedLine?: number | undefined;
+  runningSource?: string | undefined;
 }>();
-const emit = defineEmits<{ edit: [source: string] }>();
+const emit = defineEmits<{ edit: [source: string]; breakpoint: [line: number] }>();
+const showRunning = ref(false);
+const differs = computed(
+  () => props.runningSource !== undefined && props.runningSource !== props.source,
+);
 const root = useTemplateRef("root");
 const client = new LogicAnalysisClient();
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
@@ -21,9 +29,52 @@ let language: ReturnType<typeof registerLogicModel> | undefined;
 let observer: ResizeObserver | undefined;
 let syncing = false;
 let layoutFrame = 0;
+let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
+let editView: monaco.editor.ICodeEditorViewState | null = null;
+function decorate(): void {
+  if (!editor || !model) return;
+  const exact = props.runningSource === undefined || model.getValue() === props.runningSource;
+  const rows: monaco.editor.IModelDeltaDecoration[] = exact
+    ? (props.breakpoints ?? []).map((line) => ({
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          glyphMarginClassName: "workspace-breakpoint",
+          glyphMarginHoverMessage: { value: VOCABULARY.breakpoint.help },
+        },
+      }))
+    : [];
+  if (exact && props.stoppedLine)
+    rows.push({
+      range: new monaco.Range(props.stoppedLine, 1, props.stoppedLine, 1),
+      options: {
+        isWholeLine: true,
+        className: "workspace-stopped-line",
+        glyphMarginClassName: "workspace-stop-arrow",
+      },
+    });
+  decorations?.set(rows);
+}
+function navigate(line: number): void {
+  editor?.setPosition({ lineNumber: line, column: 1 });
+  editor?.revealLineInCenterIfOutsideViewport(line);
+}
+function syncSource(source: string): void {
+  if (!model || model.getValue() === source) {
+    decorate();
+    return;
+  }
+  syncing = true;
+  model.pushEditOperations([], [{ range: model.getFullModelRange(), text: source }], () => null);
+  syncing = false;
+  decorate();
+}
 function layout(): void {
   cancelAnimationFrame(layoutFrame);
-  layoutFrame = requestAnimationFrame(() => editor?.layout());
+  layoutFrame = requestAnimationFrame(() => {
+    editor?.layout();
+    if (props.active && props.stoppedLine && model?.getValue() === props.runningSource)
+      editor?.revealLineInCenterIfOutsideViewport(props.stoppedLine);
+  });
 }
 function analysis(): void {
   if (!model) return;
@@ -70,31 +121,54 @@ onMounted(() => {
     minimap: { enabled: false },
     fontSize: 13,
     lineNumbers: "on",
+    glyphMargin: true,
     scrollBeyondLastLine: false,
     wordWrap: "on",
     tabSize: 2,
     padding: { top: 16, bottom: 16 },
   });
+  decorations = editor.createDecorationsCollection();
+  editor.onMouseDown((event) => {
+    if (
+      event.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+      event.target.position
+    )
+      emit("breakpoint", event.target.position.lineNumber);
+  });
   model.onDidChangeContent(() => {
     if (!syncing && model) {
       emit("edit", model.getValue());
       analysis();
+      decorate();
     }
   });
   observer = new ResizeObserver(layout);
   observer.observe(root.value!);
   analysis();
+  decorate();
 });
 watch(
   () => props.source,
   (source) => {
-    if (!model || model.getValue() === source) return;
+    if (showRunning.value) return;
     const state = editor?.saveViewState();
-    syncing = true;
-    model.pushEditOperations([], [{ range: model.getFullModelRange(), text: source }], () => null);
-    syncing = false;
+    syncSource(source);
     if (state) editor?.restoreViewState(state);
     analysis();
+  },
+);
+watch(showRunning, (show) => {
+  if (show) editView = editor?.saveViewState() ?? null;
+  editor?.updateOptions({ readOnly: show, domReadOnly: show });
+  syncSource(show ? (props.runningSource ?? props.source) : props.source);
+  if (show && props.stoppedLine) navigate(props.stoppedLine);
+  else if (editView) editor?.restoreViewState(editView);
+});
+watch(
+  () => [props.breakpoints, props.stoppedLine, props.runningSource],
+  () => {
+    if (showRunning.value) syncSource(props.runningSource ?? props.source);
+    decorate();
   },
 );
 watch(() => props.snapshot, analysis);
@@ -112,13 +186,59 @@ onBeforeUnmount(() => {
   model?.dispose();
   client.dispose();
 });
-defineExpose({ cursor: () => editor?.getPosition(), focus: () => editor?.focus() });
+defineExpose({
+  cursor: () => editor?.getSelection()?.getStartPosition() ?? editor?.getPosition(),
+  displayedSource: () => model?.getValue(),
+  focus: () => editor?.focus(),
+  navigate,
+});
 </script>
 <template>
-  <div ref="root" class="workspace-monaco" data-testid="workspace-logic-editor"></div>
+  <div class="workspace-logic-surface">
+    <div v-if="differs || showRunning" class="workspace-running-source">
+      <span>{{ showRunning ? "Running source" : "The game is running an earlier build." }}</span>
+      <button v-if="!showRunning" @click="showRunning = true">Show running source</button>
+      <button v-else @click="showRunning = false">Return to editing</button>
+    </div>
+    <div ref="root" class="workspace-monaco" data-testid="workspace-logic-editor"></div>
+  </div>
 </template>
 <style scoped>
+.workspace-logic-surface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.workspace-running-source {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--surface-1);
+  font-size: var(--text-sm);
+}
+.workspace-running-source button {
+  font: inherit;
+  color: var(--action);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+:deep(.workspace-breakpoint) {
+  background: var(--danger);
+  border-radius: 50%;
+  transform: scale(0.55);
+}
+:deep(.workspace-stopped-line) {
+  background: color-mix(in srgb, var(--action) 20%, transparent);
+}
+:deep(.workspace-stop-arrow)::after {
+  content: "➜";
+  color: var(--action);
+}
 .workspace-monaco {
+  flex: 1;
   width: 100%;
   height: 100%;
   min-height: 0;

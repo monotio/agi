@@ -183,6 +183,10 @@ Three boundaries carry every feature. The Vue shell on the main thread owns the
 page; the engine worker owns the interpreter and its clock; the engine in
 `src/` is plain TypeScript with no platform access. The AI authoring stack
 loads on demand: `authoringLoader.ts` imports it on the first AI action.
+The workspace debugger also loads on first use and attaches to MAIN. Its stop
+holds project admission through steps; Continue releases queued edits at the
+next safe boundary and rebinds the source maps and breakpoints. Isolated test
+sessions remain helpers for offline tests.
 
 ```mermaid
 flowchart LR

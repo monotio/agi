@@ -193,8 +193,12 @@ shows Play full size (use Ctrl in place of ⌘ elsewhere). **F6** and **Shift+F6
 move between visible focus zones; **Ctrl+backtick** focuses the game. The game takes
 keys while its zone has focus. **Escape** closes the chooser and returns focus. **⌘K Z** toggles Focus; press
 **Escape** twice to return. Focus is remembered for each editor type.
-**Help → Keyboard shortcuts** lists the registered commands and keys; actions
-awaiting an editor or debugger implementation appear as **Unavailable**.
+**⌘J** toggles the bottom panel: Problems, Variables, Watch, Call stack and
+Breakpoints. **F5** or **Debug** attaches to the running game and continues a
+stopped run. **F9** or a LOGIC gutter click toggles a breakpoint; **F10**, **F11**
+and **Shift+F11** step over, into and out. **Shift+F5** stops debugging and leaves
+the game running. Stopped runs show their exact running source; live edits wait
+until Continue. **Help → Keyboard shortcuts** lists the registered commands and keys.
 
 <p align="center">
   <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>

@@ -746,7 +746,13 @@ watch(
               >
                 {{ playHereFromStudio.note.value }}
               </UiToast>
-              <UiChip v-if="creating" tone="ok" dot data-testid="workspace-live">LIVE</UiChip>
+              <UiChip
+                v-if="creating && workspaceEditor.debugStatus.value"
+                tone="warn"
+                data-testid="workspace-debug-status"
+                >{{ workspaceEditor.debugStatus.value }}</UiChip
+              >
+              <UiChip v-else-if="creating" tone="ok" dot data-testid="workspace-live">LIVE</UiChip>
               <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
               <StaleTabNote />
             </template>
