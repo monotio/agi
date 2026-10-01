@@ -74,6 +74,7 @@ import type { RecordedEvent } from "../authoring/gameRecording.ts";
 import type { LlmRequest } from "../agent/hostRequests.ts";
 import type { ReplayObservation } from "../walkthrough/replay.ts";
 import type { RingFrame } from "./frameRing.ts";
+import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import type { HistoryBatch, HistoryBoot, HistoryRecording } from "../../../src/agent/history.ts";
 import type { ProfileDetectionKind, ProfileId } from "../../../src/runtime/profile.ts";
 import type { PreviewUpdateStatus } from "../../../src/runtime/previewAdmission.ts";
@@ -282,6 +283,10 @@ export interface BootMessage {
    * LOGIC 0 of the shipped build, never a parked continuation.
    */
   frozenTest?: FrozenTestBoot;
+  /** Explicit live authoring authority for the MAIN run. */
+  projectMode?: "create";
+  projectDocuments?: PortableProjectWorkspace;
+  projectHistory?: PortableProjectHistory;
 }
 
 /** A container resource the `patch` message replaces. */
@@ -630,7 +635,12 @@ export type WorkerControl =
       egoY?: number;
       message?: string;
     }
-  | { type: "booted"; profile: string; kind: ProfileDetectionKind }
+  | {
+      type: "booted";
+      profile: string;
+      kind: ProfileDetectionKind;
+      projectAdmission?: { runToken: string; identity: PreviewLaneIdentity };
+    }
   /**
    * One posted history batch: the always-on recording's transport unit.
    * Batches are committed with the anchor they carry, then acknowledged with

@@ -239,6 +239,7 @@ export interface RoomMap {
    * `bytes` stands in for a view not in the game yet (a staged candidate).
    */
   spriteSource(view: number, bytes?: Uint8Array): (StudioSpriteSource & StudioBase) | null;
+  projectImageAdmitted(generation: number): void;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
@@ -436,6 +437,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const thumbs = new Map<number, MapThumbnail>();
   /** Pending thumbnail binds: "patchGeneration:cycle" → room (last wins). */
   const pendingThumbs = new Map<string, number>();
+  let admittedThumb: { room: number; generation: number } | undefined;
   /** Rendered picture thumbs by room; cleared when the scan revision moves. */
   const staticThumbs = new Map<number, MapThumbnail>();
   /** Auto-assigned positions (in-memory only; manual moves persist). */
@@ -967,9 +969,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   function observeFrame(frame: Frame): void {
     if (frame.patchGeneration === undefined || frame.cycle === undefined) return;
     const key = `${frame.patchGeneration}:${frame.cycle}`;
-    const room = pendingThumbs.get(key);
+    const room =
+      pendingThumbs.get(key) ??
+      (admittedThumb?.generation === frame.patchGeneration ? admittedThumb.room : undefined);
     if (room === undefined) return;
     pendingThumbs.delete(key);
+    if (admittedThumb?.generation === frame.patchGeneration) admittedThumb = undefined;
     thumbs.delete(room);
     thumbs.set(room, {
       pixels: frame.visual.slice(),
@@ -1463,6 +1468,14 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       if (!game || scanned.files !== game.files) return null;
       const source = studioSpriteSource(scanned, view, currentRoom.value ?? undefined, bytes);
       return source && { ...source, ...studioBase(game) };
+    },
+    projectImageAdmitted(generation) {
+      thumbs.clear();
+      staticThumbs.clear();
+      const room = currentRoom.value;
+      admittedThumb = room === null ? undefined : { room, generation };
+      thumbVersion.value++;
+      prepareStaticThumbs();
     },
     observeFrame,
     exportSidecar,

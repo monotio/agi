@@ -44,6 +44,7 @@ watch(
 // The boot resolves while the game is still loading; the shell holds the
 // Create switch until this project is the running one.
 async function onLocalCreated(projectId: ProjectId, kind: StarterKind): Promise<void> {
+  engine.setProjectMode("create");
   refreshLibrary(projectId);
   if (kind === "blank") {
     await openEmptyProject(projectId);

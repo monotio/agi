@@ -189,6 +189,7 @@ const shell = createShell({
   createGuard: { unkept: workspace.studioUnkept, confirm: workspace.confirmStudioLeave },
 });
 provideShell(shell);
+engine.setProjectMode(shell.mode.value);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
 const createKeyboard = useTemplateRef("createKeyboard");
 const commands = createCommandRegistry(
@@ -297,6 +298,7 @@ const assistantShown = computed(() =>
 );
 
 watch(shell.mode, (mode) => {
+  engine.setProjectMode(mode);
   releaseMovement();
   // The switch keeps focus otherwise, and a focused control swallows game keys.
   if (mode === "play" && !state.powerUp.open && !touchControls.value)

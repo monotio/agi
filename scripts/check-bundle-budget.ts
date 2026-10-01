@@ -138,8 +138,10 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
   // preview staging. Debugging and source compilation load on demand.
   // Complete document admission retains encoder exports alongside the runtime
   // decoders in shared worker modules: 164.7 kB gzip, 138.3 kB brotli.
-  // Admission and its compiler remain outside the startup closure.
-  workers: { gzip: 165_000, brotli: 139_000 },
+  // Version 3 timeline readers synchronously verify document hashes and bounded
+  // workspaces before replay: 166.6 kB gzip, 139.9 kB brotli. Admission and its
+  // compiler remain outside the startup closure.
+  workers: { gzip: 167_000, brotli: 140_000 },
 };
 
 const GROUP_LABELS: Record<Group, string> = {

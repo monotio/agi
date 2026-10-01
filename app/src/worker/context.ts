@@ -18,6 +18,7 @@ import type {
   StampedTrace,
   WorkerControl,
   WorkerInbound,
+  PreviewLaneIdentity,
   WorkerPresentation,
 } from "./workerProtocol.ts";
 import { createInput } from "./input.ts";
@@ -27,6 +28,8 @@ import { createCycle } from "./cycle.ts";
 import { createAutosave } from "./autosave.ts";
 import { createPresentation } from "./presentation.ts";
 import { createDebug } from "./debug.ts";
+import type { ProjectAdmissionState } from "./projectAdmissionState.ts";
+import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import type { EdgeSide, RoomTransitionCause } from "../../../src/agent/roomMap.ts";
 import { createJournal } from "./journal.ts";
 import { createHistory } from "./history.ts";
@@ -82,6 +85,7 @@ export interface WorkerPorts {
 
 /** Settings the boot message owns; a replay reset keeps them. */
 interface BootState {
+  project: HistoryProjectDocuments | undefined;
   authorRooms: boolean;
   selectedSoundDevice: number;
   liveDictionary: Map<string, number>;
@@ -593,6 +597,14 @@ export interface WorkerContext {
   journal: JournalState;
   recording: RecordingState;
   /** The execution-controller session (debugController.ts). */
+  projectAdmission: ProjectAdmissionState | null;
+  projectLoader: {
+    loading: Promise<void> | null;
+    installed: boolean;
+    queue: WorkerInbound[];
+    initialize?: (boot: BootMessage) => void;
+    identity?: () => PreviewLaneIdentity | null;
+  };
   debugger: DebuggerState;
   /** The controller's lazy loader (debugLoader.ts) — the inert seam's record. */
   debuggerLoader: DebuggerLoaderState;
@@ -615,6 +627,7 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
     engine: null,
     host: undefined as unknown as EngineHost,
     boot: {
+      project: undefined,
       authorRooms: false,
       selectedSoundDevice: 1,
       liveDictionary: new Map(),
@@ -743,6 +756,8 @@ export function createWorkerContext(ports: WorkerPorts): WorkerContext {
       pending: [],
     },
     recording: { recording: null },
+    projectAdmission: null,
+    projectLoader: { loading: null, installed: false, queue: [] },
     debugger: newDebuggerState(),
     debuggerLoader: newDebuggerLoaderState(),
     fns: {} as WorkerFns,

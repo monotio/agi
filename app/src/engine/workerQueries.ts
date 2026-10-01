@@ -1,5 +1,13 @@
 import type { PatchKind, WorkerControl } from "../worker/workerProtocol.ts";
 
+export class WorkerQueryTimeoutError extends Error {
+  readonly id: number;
+  constructor(id: number, type: string) {
+    super(`worker query ${type} timed out`);
+    this.id = id;
+  }
+}
+
 export interface WorkerQueries {
   readonly query: <T>(
     getWorker: () => Worker | null,
@@ -48,7 +56,7 @@ export function createWorkerQueries(): WorkerQueries {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new Error(`worker query ${type} timed out`));
+        reject(new WorkerQueryTimeoutError(id, type));
       }, timeoutMs);
       pending.set(id, {
         resolve: resolve as (value: unknown) => void,

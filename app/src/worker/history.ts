@@ -539,6 +539,7 @@ export function createHistory(ctx: WorkerContext) {
     if (ctx.replay.replay) return; // a seeded boot is a scratch replay session
     const boot = stampBoot({
       files: bootFiles(),
+      ...(ctx.boot.project !== undefined ? { project: ctx.boot.project } : {}),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
@@ -597,6 +598,7 @@ export function createHistory(ctx: WorkerContext) {
     const h = ctx.history;
     const boot = stampBoot({
       files: bootFiles(),
+      ...(ctx.boot.project !== undefined ? { project: ctx.boot.project } : {}),
       dictionary: [...ctx.boot.liveDictionary.entries()],
       authorRooms: ctx.boot.authorRooms,
       ...(ctx.boot.profile ? { profile: ctx.boot.profile } : {}),

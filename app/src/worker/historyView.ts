@@ -336,6 +336,7 @@ export function createHistoryView(
     ctx.fns.historyEnd("resume");
     ctx.boot.liveDictionary = dictionary;
     ctx.boot.currentBootFiles = files;
+    ctx.boot.project = boot.project;
     ctx.boot.currentDictionary = dictionary;
     ctx.boot.authorRooms = boot.authorRooms;
     ctx.boot.profile = boot.profile ?? null;
@@ -437,6 +438,7 @@ export function createHistoryView(
     // segment it opens verifies the same resume point on replay.
     const boot = stampBoot({
       files: Object.fromEntries([...files].map(([name, data]) => [name, bytesToBase64(data)])),
+      ...(scratch.boot.project !== undefined ? { project: scratch.boot.project } : {}),
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
       ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),

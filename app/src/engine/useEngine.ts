@@ -1,3 +1,7 @@
+import { parseWordsTok } from "../../../src/logic/words.ts";
+import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
+import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
+import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import { getCurrentScope, onScopeDispose, reactive, shallowReactive } from "vue";
@@ -78,6 +82,9 @@ export function useEngine(
   onFrame: (frame: Frame) => void,
   engineOptions?: { onPromptType?: (text: string) => void },
 ) {
+  let projectMode: "create" | "play" = "play";
+  let projectSession: ProjectSession | null = null;
+  let projectOpenEpoch = 0;
   const audio = new AgiAudio();
 
   const state = reactive<EngineState>({
@@ -242,6 +249,11 @@ export function useEngine(
     (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
     (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
     window.__AGI_FRAME__ = link.getLatestFrame;
+    (window as unknown as { __AGI_PROJECT__: unknown }).__AGI_PROJECT__ = {
+      getSession: () => projectSession,
+      getWorker: link.getWorker,
+      query: link.query,
+    };
   }
 
   /**
@@ -250,6 +262,7 @@ export function useEngine(
    * refused turn does, and the stage's note says it while it is closed.
    */
   function tellBehindStorage(): void {
+    projectSession?.stopWrites();
     autosaveController.handleRecoveryError(STALE_SAVE_MESSAGE);
     logAgent("error", STALE_SAVE_MESSAGE);
     state.powerUp.error = STALE_SAVE_MESSAGE;
@@ -265,6 +278,7 @@ export function useEngine(
    * no longer store is not owed: its retry banner goes.
    */
   function tellRemoved(): void {
+    projectSession?.stopWrites();
     autosaveController.handleRecoveryError(PROJECT_REMOVED_MESSAGE);
     logAgent("error", PROJECT_REMOVED_MESSAGE);
     state.powerUp.error = PROJECT_REMOVED_MESSAGE;
@@ -302,6 +316,70 @@ export function useEngine(
     // checkpoint and pointer stay exactly as they were.
     retireFailedRecovery: (game, message) => lifecycle.retireFailedRecovery(game, message),
   });
+
+  link.deps.projectClosed = () => {
+    projectOpenEpoch++;
+    projectSession?.dispose();
+    projectSession = null;
+  };
+  link.deps.projectBooted = (msg) => {
+    const grant = msg.projectAdmission;
+    const game = lifecycle.getBootedGame();
+    const worker = link.getWorker();
+    const epoch = ++projectOpenEpoch;
+    if (
+      grant === undefined ||
+      game?.authoredGame === undefined ||
+      game.projectId === undefined ||
+      game.historyLifetime == null
+    )
+      return;
+    const current = () =>
+      projectOpenEpoch === epoch &&
+      lifecycle.getBootedGame() === game &&
+      link.getWorker() === worker &&
+      !game.removed &&
+      !game.behindStorage;
+    void Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
+      .then(([{ openProjectSession }, { createMainProjectAdmission }]) => {
+        if (!current()) return;
+        const admission = createMainProjectAdmission({ ...grant, query: link.query, current });
+        projectSession = openProjectSession({
+          data: game.authoredGame!,
+          lifetime: game.historyLifetime!,
+          admission,
+          current,
+          publish(snapshot, data, outcome) {
+            if (!current()) return;
+            game.files = structuredClone(data.files);
+            game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
+            game.words =
+              data.files["WORDS.TOK"] === undefined
+                ? data.words
+                : parseWordsTok(data.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
+            game.authoredGame = {
+              ...data,
+              projectId: game.projectId!,
+              authoredAt: game.authoredGame!.authoredAt,
+            };
+            audio.useGameFiles(game.files);
+            state.patchTick++;
+            state.worldTick++;
+            if (outcome?.status === "committed") {
+              roomMap.projectImageAdmitted(outcome.patchGeneration);
+              const frame = link.getLatestFrame();
+              if (frame !== null) roomMap.observeFrame(frame);
+            }
+          },
+          changed() {
+            if (current()) state.status = projectSession?.saveStatus().message ?? "";
+          },
+        });
+      })
+      .catch((error: unknown) => {
+        if (current()) state.status = String(error instanceof Error ? error.message : error);
+      });
+  };
 
   // Another tab committing a newer revision of the running project marks it
   // behind at once, not at its next refused write; removing it stops every
@@ -391,6 +469,13 @@ export function useEngine(
       startOverNote.hide();
     },
     stopHistoryWriter: historyController.stopWriterRenewal,
+    flushProject: async () => {
+      const session = projectSession;
+      if (session === null) return;
+      await session.flush();
+      if (session.saveStatus().state !== "saved") throw new Error(session.saveStatus().message);
+    },
+    getProjectMode: () => projectMode,
     getSessionId: () => activeWalkthroughSession,
     nextSessionId: () => ++activeWalkthroughSession,
     getActiveReplaySeed: () => activeReplaySeed,
@@ -577,6 +662,23 @@ export function useEngine(
   link.deps.handleHistoryView = historyView.applyReport;
 
   return {
+    setProjectMode(mode: "create" | "play") {
+      projectMode = mode;
+    },
+    getProjectSession: () => projectSession,
+    submitProjectEdit(
+      edit: { changes: readonly ProjectChange[] } & Omit<ProjectCommitMetadata, "time">,
+    ) {
+      const session = projectSession;
+      if (session === null) throw new Error("Open this game in Create to edit it.");
+      const proposal = session.model.propose(session.model.capture(), edit.label, edit.changes);
+      return session.submit({
+        proposal,
+        origin: edit.origin,
+        label: edit.label,
+        author: edit.author,
+      });
+    },
     runStudioAssist: authoringController.runStudioAssist,
     stopAgent: () => authoringController.getSession()?.task.stop(),
     continueAgent: (requestLimit?: number) =>
@@ -696,7 +798,10 @@ export function useEngine(
     dismissStartOverNote: startOverNote.hide,
     /** Boot the running project again from storage under its own AI settings. */
     reloadFromStorage: () => autosaveController.reloadFromStorage(activeLlmConfig),
-    flushAutosave: autosaveController.flushAutosave,
+    flushAutosave: async (timeoutMs?: number) => {
+      await projectSession?.flush();
+      return autosaveController.flushAutosave(timeoutMs);
+    },
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
     setDebugConsumer: debug.setDebugConsumer,

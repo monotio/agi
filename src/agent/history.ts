@@ -20,19 +20,27 @@
  */
 import { validateEngineReplayState, type EngineReplayState } from "../runtime/replayState.ts";
 import type { EngineMenuState } from "../runtime/engine.ts";
+import { sha256Hex } from "../crypto.ts";
+import { projectDocumentId } from "../authoring/projectContent.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../authoring/projectWorkspace.ts";
 import { PROFILES, type ProfileId } from "../runtime/profile.ts";
 import { gameIdentity, type GameIdentity } from "../gameIdentity.ts";
 
 /**
- * Current recording contract — what this build's writer stamps. Version 2
+ * Current recording contract — what this build's writer stamps. Version 3
+ * adds complete admitted project images and documents. Version 2
  * adds the "debugger" end reason: a segment sealed when the debugger took
  * over records the hiatus honestly, rather than a quit or rollover it never
  * had. Reading is not a migration: a stored version keeps its own stamp and
  * the rules it was written under.
  */
-export const HISTORY_FORMAT_VERSION = 2;
+export const HISTORY_FORMAT_VERSION = 3;
 /** Every recording version this build's readers accept, unchanged. */
-export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, HISTORY_FORMAT_VERSION];
+export const HISTORY_FORMAT_READ_VERSIONS: readonly number[] = [1, 2, HISTORY_FORMAT_VERSION];
 
 /** Worker in-memory ring bounds: records and bytes pending the host's ack. */
 export const HISTORY_EVENT_LIMIT = 250_000;
@@ -84,6 +92,7 @@ export type HistoryEndReason =
 const HISTORY_END_REASONS: Record<number, ReadonlySet<HistoryEndReason>> = {
   1: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject"]),
   2: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
+  3: new Set(["boot", "walkthrough", "resume", "quit", "budget", "eject", "debugger"]),
 };
 
 export type HistoryEventCause =
@@ -104,6 +113,13 @@ export type HistoryEventCause =
       room?: number;
       prepared?: boolean;
       patch?: HistoryCommittedPatch;
+    }
+  | {
+      kind: "projectImage";
+      files: Record<string, string>;
+      documents: PortableProjectWorkspace;
+      documentId: string;
+      nativeChanged: boolean;
     }
   | { kind: "patch"; resource: HistoryPatchKind; num: number; data: string }
   | { kind: "patchMeta"; words?: string; object?: string; tests?: string }
@@ -257,7 +273,14 @@ export interface HistoryAnchor {
  * dictionary at segment start, plus the resume point when the segment
  * continues mid-play (autosave resume, replay takeover, budget rollover).
  */
+export interface HistoryProjectDocuments {
+  readonly documents: PortableProjectWorkspace;
+  readonly documentId: string;
+}
+
 export interface HistoryBoot {
+  /** The admitted source/native documents when a segment continues an edited run. */
+  project?: HistoryProjectDocuments;
   /** base64 per file name — the exact resources the segment replays onto. */
   files: Record<string, string>;
   /** liveDictionary entries at segment start. */
@@ -436,6 +459,7 @@ export interface HistoryFingerprint {
  *   in-flight interaction, not resumable state.
  */
 export interface HistorySemanticState {
+  documentId?: string;
   authorRooms?: boolean;
   dictionary?: [string, number][];
   image?: string;
@@ -489,6 +513,7 @@ export function historyBootSemantic(boot: Omit<HistoryBoot, "fingerprint">): His
     soundDevice: boot.soundDevice,
     resourceSet: boot.resourceSet,
   };
+  if (boot.project !== undefined) out.documentId = boot.project.documentId;
   if (boot.image !== undefined) out.image = boot.image;
   if (boot.replay !== undefined) out.replay = boot.replay;
   if (boot.menus !== undefined) out.menus = boot.menus;
@@ -724,7 +749,11 @@ function committedPatch(value: unknown): HistoryCommittedPatch {
   return out;
 }
 
-function eventCause(value: unknown, endReasons: ReadonlySet<HistoryEndReason>): HistoryEventCause {
+function eventCause(
+  value: unknown,
+  endReasons: ReadonlySet<HistoryEndReason>,
+  version: number,
+): HistoryEventCause {
   if (!isObj(value)) fail("event cause must be an object.");
   switch (value["kind"]) {
     case "key":
@@ -756,6 +785,32 @@ function eventCause(value: unknown, endReasons: ReadonlySet<HistoryEndReason>): 
       if (value["prepared"] !== undefined) out.prepared = value["prepared"] === true;
       if (value["patch"] !== undefined) out.patch = committedPatch(value["patch"]);
       return out;
+    }
+    case "projectImage": {
+      if (version < 3) fail("project images require recording version 3.");
+      const files = value["files"];
+      if (!isObj(files) || Object.keys(files).length > 1024)
+        fail("project files must be a bounded map.");
+      const documentId = value["documentId"];
+      if (typeof documentId !== "string" || !/^[a-f0-9]{64}$/.test(documentId))
+        fail("project document identity is invalid.");
+      if (typeof value["nativeChanged"] !== "boolean")
+        fail("project image native change is invalid.");
+      const documents = readProjectWorkspace(value["documents"]);
+      if (projectDocumentId(documents, sha256Hex) !== documentId)
+        fail("project document identity differs from its documents.");
+      return {
+        kind: "projectImage",
+        documentId,
+        nativeChanged: value["nativeChanged"],
+        documents: writeProjectWorkspace(documents),
+        files: Object.fromEntries(
+          Object.entries(files).map(([name, data]) => {
+            if (!/^[A-Z0-9._-]+$/i.test(name)) fail("project file name is invalid.");
+            return [name, b64(data, `project file ${name}`)];
+          }),
+        ),
+      };
     }
     case "patch":
       if (!["logic", "picture", "view", "sound"].includes(String(value["resource"])))
@@ -820,7 +875,11 @@ function eventCause(value: unknown, endReasons: ReadonlySet<HistoryEndReason>): 
   }
 }
 
-function events(value: unknown, endReasons: ReadonlySet<HistoryEndReason>): HistoryEvent[] {
+function events(
+  value: unknown,
+  endReasons: ReadonlySet<HistoryEndReason>,
+  version: number,
+): HistoryEvent[] {
   if (!Array.isArray(value) || value.length > MAX_HISTORY_EVENTS)
     fail("events must be a bounded list.");
   return value.map((e) => {
@@ -829,7 +888,7 @@ function events(value: unknown, endReasons: ReadonlySet<HistoryEndReason>): Hist
       seq: int(e["seq"], "event seq"),
       tick: int(e["tick"], "event tick"),
       cycle: int(e["cycle"], "event cycle"),
-      cause: eventCause(e["cause"], endReasons),
+      cause: eventCause(e["cause"], endReasons, version),
     };
   });
 }
@@ -922,6 +981,15 @@ function profileId(value: unknown, label = "boot profile"): ProfileId {
   return value as ProfileId;
 }
 
+function projectDocuments(value: unknown): HistoryProjectDocuments {
+  if (!isObj(value)) fail("project documents must be an object.");
+  const documents = readProjectWorkspace(value["documents"]);
+  const documentId = value["documentId"];
+  if (typeof documentId !== "string" || projectDocumentId(documents, sha256Hex) !== documentId)
+    fail("project document identity differs from its documents.");
+  return { documents: writeProjectWorkspace(documents), documentId };
+}
+
 /** Validate a standalone boot record (a retained original carried over messages). */
 export function validateHistoryBoot(value: unknown): HistoryBoot {
   if (!isObj(value)) fail("boot must be an object.");
@@ -955,6 +1023,7 @@ export function validateHistoryBoot(value: unknown): HistoryBoot {
     resourceSet: text(value["resourceSet"], "boot resourceSet", MAX_HISTORY_STRING),
     requestSerial: int(value["requestSerial"], "boot requestSerial"),
   };
+  if (value["project"] !== undefined) out.project = projectDocuments(value["project"]);
   if (value["image"] !== undefined) out.image = b64(value["image"], "boot image");
   if (value["replay"] !== undefined) {
     try {
@@ -1010,13 +1079,15 @@ export function validateHistoryRecording(value: unknown): HistoryRecording {
     ...(value["dropped"] !== undefined ? { dropped: int(value["dropped"], "dropped") } : {}),
     segments: segments.map((s): HistorySegment => {
       if (!isObj(s)) fail("segment must be an object.");
+      if (version < 3 && isObj(s["boot"]) && s["boot"]["project"] !== undefined)
+        fail("project documents require recording version 3.");
       const segment: HistorySegment = {
         id: text(s["id"], "segment id", 64),
         boot: validateHistoryBoot(s["boot"]),
         anchors: Array.isArray(s["anchors"])
           ? s["anchors"].map(anchor)
           : fail("anchors must be a list."),
-        events: events(s["events"], endReasons),
+        events: events(s["events"], endReasons, version),
         marks: roomMarks(s["marks"]),
         sync: syncMarks(s["sync"]),
         ...(s["clock"] !== undefined ? { clock: clockRuns(s["clock"]) } : {}),
