@@ -48,7 +48,9 @@ import {
 } from "../walkthrough/walkthrough.ts";
 import type { AgentSession } from "../agent/agentSession.ts";
 import type { AuthoringState } from "../../../src/agent/authoringState.ts";
-import { gameStorageKey, type BootedGame, type Frame } from "../project/gameTypes.ts";
+import type { BootedGame, Frame } from "../project/gameTypes.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
+import type { ProgressTarget } from "../project/progressTarget.ts";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import { openDraft } from "../project/projectTransaction.ts";
@@ -568,15 +570,22 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     persist();
   }
 
-  /** Serialize the current in-memory map; storage may still refuse it. */
+  /** Capture detached map data for storage and project downloads. */
   function exportSidecar(): RoomMapSidecar {
     return {
-      journal: [...journal],
+      journal: journal.map((entry) => ({
+        ...entry,
+        gained: [...entry.gained],
+        lost: [...entry.lost],
+        ...(entry.history ? { history: { ...entry.history } } : {}),
+      })),
       discovered: {
         rooms: Object.fromEntries(discovered.rooms),
-        edges: [...discovered.edges.values()],
+        edges: [...discovered.edges.values()].map((edge) => ({ ...edge })),
       },
-      layout: { ...layout },
+      layout: Object.fromEntries(
+        Object.entries(layout).map(([room, position]) => [room, { ...position }]),
+      ),
       notes: { ...notes },
       edgeNotes: { ...edgeNotes },
     };
@@ -589,9 +598,22 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   let unsavedRetries = 0;
   let unsavedTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /**
+   * The physical map target a booted game resolves to: an installed instance
+   * binds its exact folder's digest, a saved project its captured body epoch.
+   * Null names no durable record — an unbound game has no write authority.
+   */
+  function mapTarget(game: BootedGame | null): ProgressTarget | null {
+    return game ? resolveProgressTarget(game) : null;
+  }
+
   function persist(): void {
-    // A removed project stores nothing; its map lives on in memory only.
+    // A removed or unbound project stores nothing; its map lives on in memory only.
     if (!loadedKey || !storage || loadedGame?.removed) return;
+    // A queued write lands only while the slot's live game still resolves to
+    // the target this map was loaded for — after a swap the handoff flush owns
+    // the old address and nothing follows the incoming game under it.
+    if (mapTarget(deps.getBootedGame())?.locator !== loadedKey) return;
     if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
       unsaved.value = false;
       unsavedRetries = 0;
@@ -601,8 +623,22 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     scheduleSaveRetry();
   }
 
+  /**
+   * The handoff write: the outgoing map's last state lands under the target
+   * it was loaded for even as the slot moves on — its own captured address,
+   * never the incoming game's.
+   */
+  function flushLoaded(): void {
+    if (!loadedKey || !storage || loadedGame?.removed) return;
+    if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
+      unsaved.value = false;
+      unsavedRetries = 0;
+    }
+  }
+
   function retrySave(): void {
-    if (!loadedKey || !storage) return;
+    if (!loadedKey || !storage || loadedGame?.removed) return;
+    if (mapTarget(deps.getBootedGame())?.locator !== loadedKey) return;
     if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
       unsaved.value = false;
       unsavedRetries = 0;
@@ -621,6 +657,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   function storedSidecar(target: string): RoomMapSidecar {
+    // The live map answers only its exact loaded physical locator; every
+    // other spelling — a released legacy key included — reads its own record.
     if (target === loadedKey) return exportSidecar();
     if (!storage) return emptyMapSidecar();
     try {
@@ -632,8 +670,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   /** Load (or reset) the map for the game now in the slot. */
   function loadFor(game: BootedGame | null): void {
-    const key = game ? gameStorageKey(game) : "";
-    if (key === loadedKey) {
+    const target = mapTarget(game);
+    const key = target?.locator ?? "";
+    // A bound target compares by locator; an unbound game ("") only continues
+    // the map while the same game object still owns the slot — a different
+    // unbound game never inherits another session's map.
+    if (key === loadedKey && (key !== "" || game === loadedGame)) {
       // Same game rebooting: drain the old session's last notices, then keep
       // discovery and start a new session — a stale frame can never bind.
       drainJournal();
@@ -645,7 +687,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       return;
     }
     drainJournal();
-    if (loadedKey) persist();
+    if (loadedKey) flushLoaded();
     loadedKey = key;
     loadedGame = game;
     resetMapMemory();
@@ -708,7 +750,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   /** The game left the slot: persist, then release the in-memory map. */
   function unload(): void {
     drainJournal();
-    if (loadedKey) persist();
+    if (loadedKey) flushLoaded();
     loadedKey = "";
     loadedGame = null;
     state.roomJournal.splice(0, state.roomJournal.length);

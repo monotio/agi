@@ -294,16 +294,16 @@ export function useStudioWalk(options: StudioWalkOptions) {
     done: string,
     onRefusal?: (error: string) => void,
   ): boolean {
-    if (options.frozen()) return refuse("This room is view only: its doors can't be changed.");
+    if (options.frozen()) return refuse("This room's doors are read-only.");
     if (options.paused?.()) return refuse("Accept or reject the AI's proposal first.");
     if (!logic.editable.value)
       return refuse(
-        "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant.",
+        "These exits use a different script structure. Edit them as text or ask the assistant.",
       );
     const outcome = logic.apply(op, label);
     if (!outcome.ok) {
       onRefusal?.(outcome.error);
-      return refuse("The door can't be changed that way.", outcome.error);
+      return refuse("Door edit rejected. Open Details for the reason.", outcome.error);
     }
     options.say({ tone: "ok", text: done });
     return true;
@@ -766,7 +766,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
           ? "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant."
           : logicBlocked.value !== null
             ? "Fix the room's rule annotations as text first; door editing is off until then."
-            : "This room is view only: its doors can't be changed.",
+            : "This room's doors are read-only.",
       );
       return true;
     }

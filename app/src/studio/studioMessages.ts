@@ -33,12 +33,12 @@ const PLAIN: readonly (readonly [
     /is locked; unlock it first|belongs to locked item/,
     () => "This object is locked. Unlock it first.",
   ],
-  [/raw bytes/, () => "This part of the picture is stored as raw data and can't be changed here."],
+  [/raw bytes/, () => "This part of the picture is read-only raw data."],
   [
     /\bcop(y|ies)\b/,
-    () => "Another part of the picture repeats this object's lines, so it can't be changed here.",
+    () => "This object's lines are shared by another part of the picture and are read-only here.",
   ],
-  [/self-intersects/, () => "A polygon's edges can't cross. Remove the last point or start again."],
+  [/self-intersects/, () => "These edges cross. Remove the last point or start again."],
   [/draws on neither plane/, () => "Choose an art colour or a depth value to draw with."],
   [/is inside item/, () => "Move the step marker out of this item, then draw."],
   [/continues the command on line/, () => "This would split a drawing command in two."],
@@ -48,7 +48,7 @@ const PLAIN: readonly (readonly [
     () => "Group takes neighbours in the draw order. Include the items between them.",
   ],
   [/needs at least two items/, () => "Select two items or more to group."],
-  [/is one drawing element/, () => "This item is one drawing element: it has no parts to ungroup."],
+  [/is one drawing element/, () => "Ungroup needs an item with several drawing elements."],
 ];
 
 /** The creator's sentence for kernel refusal `error` of `op`. */
@@ -57,7 +57,7 @@ export function plainKernelRefusal(op: EditOperation, error: string): string {
     const match = error.match(pattern);
     if (match) return say(match, op);
   }
-  return "The picture can't be changed that way.";
+  return "Picture edit rejected. Open Details for the reason.";
 }
 
 /**

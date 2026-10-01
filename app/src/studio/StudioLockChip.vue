@@ -72,7 +72,7 @@ function toggle(which: keyof LensUnlocks, close: () => void): void {
                 ? "Unlock art"
                 : "Lock art"
               : planeLocked
-                ? "Unlock for now"
+                ? "Unlock"
                 : "Lock again"
           }}
         </UiButton>

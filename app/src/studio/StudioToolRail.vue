@@ -82,9 +82,9 @@ const WALK_GROUP: readonly RailTool[] = [
 ];
 const groups = computed(() => (lens === "walk" ? [...GROUPS, WALK_GROUP] : GROUPS));
 /** Why a tool is off, on its tooltip; its name and key while it is on. */
-const PAUSED = "Drawing waits while the picture is view only or an AI proposal is open";
-const NEEDS_LOGIC = "This room's script holds its exits: edit them as text";
-const PROBE_NEEDS_VIEWS = "Ghost · G (this game has no characters)";
+const PAUSED = "Drawing pauses while the picture is read-only or an AI proposal is open";
+const NEEDS_LOGIC = "Edit this room's scripted exits in Logic Studio or ask the assistant";
+const PROBE_NEEDS_VIEWS = "Ghost · G · needs a character in the game";
 function toolTitle(entry: RailTool): string {
   if ((entry.draws || entry.doors) && frozen) return PAUSED;
   if (entry.doors && !doorsEditable) return NEEDS_LOGIC;

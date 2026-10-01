@@ -91,7 +91,7 @@ const resizeWarning = computed(() => {
   }
 });
 /** Why the cel's edits are off, on their tooltips. */
-const PAUSED = "Editing waits while the view is view only or an AI proposal is open";
+const PAUSED = "Editing pauses while the sprite is read-only or an AI proposal is open";
 const resizeBlocked = computed(() => {
   if (frozen) return PAUSED;
   if (!validSize.value)

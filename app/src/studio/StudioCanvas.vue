@@ -47,6 +47,7 @@ const {
   flash = null,
   changed = null,
   spilled = null,
+  underlay = null,
   movable = false,
   marquee = null,
 } = defineProps<{
@@ -70,6 +71,11 @@ const {
   changed?: MaskPaths | null;
   /** The proposal's side effects: cells of other items it changes, outside the selection. */
   spilled?: MaskPaths | null;
+  /**
+   * A prepared reference underlay (160x168 RGBA) blended over the art as a
+   * tracing guide — a display overlay only, never part of the picture data.
+   */
+  underlay?: { pixels: Uint8Array; opacity: number } | null;
   /** The pointer is over the selection, which a drag moves: the move cursor. */
   movable?: boolean;
   /** A selection box being drawn, in logical cells (inclusive). */
@@ -126,6 +132,7 @@ const readableLabels = computed(() => {
 
 let image: ImageData | undefined;
 let scratch: HTMLCanvasElement | undefined;
+let underlayScratch: HTMLCanvasElement | undefined;
 
 watchEffect(
   () => {
@@ -143,6 +150,19 @@ watchEffect(
     const context = target.getContext("2d")!;
     context.imageSmoothingEnabled = false;
     context.drawImage(scratch, 0, 0, target.width, target.height);
+    // The reference underlay sits over the art at its own opacity — a tracing
+    // guide on the canvas only, never part of the picture bytes.
+    if (underlay !== null && underlay.opacity > 0) {
+      underlayScratch ??= document.createElement("canvas");
+      underlayScratch.width = SCREEN_WIDTH;
+      underlayScratch.height = SCREEN_HEIGHT;
+      const pixels = new ImageData(SCREEN_WIDTH, SCREEN_HEIGHT);
+      pixels.data.set(underlay.pixels);
+      underlayScratch.getContext("2d")!.putImageData(pixels, 0, 0);
+      context.globalAlpha = underlay.opacity;
+      context.drawImage(underlayScratch, 0, 0, target.width, target.height);
+      context.globalAlpha = 1;
+    }
   },
   { flush: "post" },
 );

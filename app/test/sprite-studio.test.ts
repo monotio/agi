@@ -665,7 +665,10 @@ describe("sprite view helpers", () => {
       plainSpriteRefusal("loop 3's cels are not exact mirror images of loop 1's; pass force"),
       "Loop 3 differs from loop 1 flipped. Replace it to mirror.",
     );
-    assert.equal(plainSpriteRefusal("something new"), "The view can't be changed that way.");
+    assert.equal(
+      plainSpriteRefusal("something new"),
+      "Sprite edit rejected. Open Details for the reason.",
+    );
   });
 });
 

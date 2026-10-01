@@ -124,7 +124,7 @@ test("Room Studio: the lock chip's Learn more opens Help at Locks @webkit-deskto
     .getByTestId("explain-lens-lock-depth");
   await trigger.click();
   const pop = page.getByTestId("explain-pop");
-  await expect(pop.getByTestId("studio-unlock")).toHaveText("Unlock for now");
+  await expect(pop.getByTestId("studio-unlock")).toHaveText("Unlock");
   await reviewShot(page, "room-lock-explainer");
   await pop.getByTestId("explain-more").click();
   const guide = page.getByTestId("help-guide");

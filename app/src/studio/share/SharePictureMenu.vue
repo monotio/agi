@@ -140,7 +140,7 @@ onBeforeUnmount(close);
         role="menuitem"
         data-testid="studio-share-clip"
         :disabled="!type"
-        :title="type ? undefined : 'This browser can\'t record video'"
+        :title="type ? undefined : 'Video recording is unavailable in this browser'"
         @click="clip"
       >
         <UiIcon name="film" :size="18" />
@@ -148,7 +148,7 @@ onBeforeUnmount(close);
           >Clip<small>{{
             type
               ? "The picture painting itself, in draw order, as video"
-              : "This browser can't record video. The still works."
+              : "Video recording is unavailable. Choose Still to share an image."
           }}</small></span
         >
       </button>

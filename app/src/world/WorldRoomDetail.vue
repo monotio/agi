@@ -198,7 +198,7 @@ const facts = computed(() => {
   if (node.picture) out.push("its picture is in the game");
   if (node.variableExit) out.push("one exit is worked out while the game runs");
   if (node.unknownCalls)
-    out.push("its logic calls another the map cannot read, so exits may be missing");
+    out.push("its logic calls an unreadable resource, so the map may be missing exits");
   if (node.unknownSource) out.push("shared logic sends players here, so where from is unknown");
   return out;
 });

@@ -14,6 +14,7 @@ import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
 import { aiSettingsKey } from "../../settings/useAiSettings.ts";
 import UiExplain from "../../ui/UiExplain.vue";
+import UiButton from "../../ui/UiButton.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
 import LessonCard from "../../lessons/LessonCard.vue";
@@ -107,6 +108,7 @@ const {
   cyclers = [],
   priorityBase = undefined,
   stagedReference = undefined,
+  creativeLaunch = undefined,
 } = defineProps<{
   viewNumber: number;
   bytes: Uint8Array;
@@ -130,6 +132,11 @@ const {
   priorityBase?: number | undefined;
   /** The staged character-sheet candidate these bytes are: its Keep spends the offer. */
   stagedReference?: string | undefined;
+  /**
+   * Opens the project's creative workspace (import, prepare, board) docked
+   * beside this studio. Undefined where no project authority serves it.
+   */
+  creativeLaunch?: (() => void) | undefined;
 }>();
 /** `reopen` asks for Studio again; `fromStorage` reloads the game from storage first. */
 const emit = defineEmits<{ close: []; reopen: [fromStorage: boolean] }>();
@@ -359,7 +366,7 @@ function edit(
   feetFrom?: typeof currentCel.value,
 ): void {
   if (frozen()) {
-    say({ tone: "warn", text: "This view is view only: nothing can be changed." });
+    say({ tone: "warn", text: "This sprite is read-only." });
     return;
   }
   if (assist.holds.value) {
@@ -518,6 +525,16 @@ function history(which: "undo" | "redo"): void {
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 const calm = useStudioCalm();
+/**
+ * The status bar's Keys button. Safari leaves a clicked button unfocused, so
+ * activation takes its focus first: the sheet (and a tour its Tour button
+ * relaunches) returns focus to what had it when the sheet opened.
+ */
+function openKeySheet(event: MouseEvent): void {
+  if (event.currentTarget instanceof HTMLElement)
+    event.currentTarget.focus({ preventScroll: true });
+  calm.sheetOpen.value = true;
+}
 /** The first-run tour: once per viewer, silent while a lesson's card is open. */
 const tour = useStudioTour("sprite", { lesson: () => lesson.session.value !== null });
 onMounted(() => void tour.offer());
@@ -654,6 +671,14 @@ const status = computed(() => {
         >
       </div>
       <StudioAssistCompare v-if="proposal" v-model="compare" :stale="assist.stale.value" />
+      <UiButton
+        v-if="creativeLaunch"
+        size="sm"
+        variant="ghost"
+        data-testid="creative-entry"
+        @click="creativeLaunch()"
+        >Import image…</UiButton
+      >
       <span class="sprite-studio__spacer"></span>
       <SpriteViewBar
         v-model:sheet="sheet"
@@ -844,7 +869,7 @@ const status = computed(() => {
         aria-keyshortcuts="?"
         aria-haspopup="dialog"
         data-testid="studio-keys-button"
-        @click="calm.sheetOpen.value = true"
+        @click="openKeySheet"
       />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>

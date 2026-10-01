@@ -117,7 +117,7 @@ export const STUDIO_TERMS = {
   },
   "door-script": {
     name: "In script",
-    says: "This exit is written in the room's script; edit it as text or ask the AI.",
+    says: "This exit is written in the room's script. Change it in Logic Studio or ask the assistant.",
     help: topic("studio-walk"),
   },
   follows: {
@@ -147,7 +147,7 @@ export const STUDIO_TERMS = {
   },
   "view-only": {
     name: "View only",
-    says: "Edits wait right now: a Keep is running, or the game needs a reload first.",
+    says: "Editing pauses while Keep runs or until you reload the game.",
     help: topic("studio-keep"),
   },
   keep: {

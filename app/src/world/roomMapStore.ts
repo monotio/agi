@@ -59,18 +59,22 @@ export function readMapSidecar(storage: Pick<Storage, "getItem">, target: string
 }
 
 /**
- * Write the sidecar. Storage refusal and quota errors are reported, not
- * hidden: the caller keeps the map in memory and offers retry or export.
- * Nothing is reported saved before the write commits.
+ * Write the sidecar. A record already stored under the target must first
+ * read through the released schema: unknown, corrupt or oversize data — or
+ * a failed read — refuses the write and keeps the stored bytes exactly;
+ * removeMapSidecar is the explicit reset. Storage refusal and quota errors
+ * are reported, not hidden: the caller keeps the map in memory and offers
+ * retry or export. Nothing is reported saved before the write commits.
  */
 export function writeMapSidecar(
-  storage: Pick<Storage, "setItem">,
+  storage: Pick<Storage, "getItem" | "setItem">,
   target: string,
   sidecar: RoomMapSidecar,
 ): boolean {
   try {
     const raw = JSON.stringify(serializeMapSidecar(sidecar));
     if (raw.length > MAX_MAP_BYTES) return false;
+    readMapSidecar(storage, target);
     storage.setItem(mapKey(target), raw);
     return true;
   } catch {

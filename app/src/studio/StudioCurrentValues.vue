@@ -127,7 +127,7 @@ function pick(patch: Partial<CurrentValues>): void {
       <p class="values__title">{{ open === "visual" ? "Art" : "Depth" }} for new shapes</p>
       <template v-if="locked.includes(open)">
         <p class="values__note">{{ lockNote(open) }}</p>
-        <UiButton size="sm" @click="unlock(open)">Unlock for now</UiButton>
+        <UiButton size="sm" @click="unlock(open)">Unlock</UiButton>
       </template>
       <template v-else-if="open === 'visual'">
         <StudioValuePicker

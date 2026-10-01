@@ -146,7 +146,7 @@ export function useSpriteTools(options: SpriteToolsOptions) {
 
   function blocked(): boolean {
     if (options.frozen()) {
-      options.say({ tone: "warn", text: "This view is view only: nothing can be drawn." });
+      options.say({ tone: "warn", text: "This sprite is read-only." });
       return true;
     }
     if (!options.paused?.()) return false;

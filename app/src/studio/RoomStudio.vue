@@ -67,6 +67,7 @@ import StudioViewBar from "./StudioViewBar.vue";
 import StudioWalkOverlay from "./StudioWalkOverlay.vue";
 import StudioWalkPanel from "./StudioWalkPanel.vue";
 import StudioZoom from "./StudioZoom.vue";
+import UiButton from "../ui/UiButton.vue";
 import UiExplain from "../ui/UiExplain.vue";
 import UiIconButton from "../ui/UiIconButton.vue";
 import { fillFix, fillNotice } from "./fillAdvice.ts";
@@ -152,6 +153,8 @@ const {
   keep: keepFn = undefined,
   files = undefined,
   walk = undefined,
+  underlay = null,
+  creativeLaunch = undefined,
 } = defineProps<{
   pictureNumber: number;
   bytes: Uint8Array;
@@ -169,6 +172,16 @@ const {
   files?: ReadonlyMap<string, Uint8Array> | undefined;
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
   walk?: StudioRoomSource | null | undefined;
+  /**
+   * A prepared reference underlay (160x168 RGBA) from the creative workspace,
+   * blended over the art pane as a tracing guide — never a runtime bitmap.
+   */
+  underlay?: { pixels: Uint8Array; opacity: number } | null;
+  /**
+   * Opens the project's creative workspace (import, prepare, board) docked
+   * beside this studio. Undefined where no project authority serves it.
+   */
+  creativeLaunch?: (() => void) | undefined;
 }>();
 /**
  * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
@@ -426,7 +439,7 @@ const editing = useStudioEditing({
     const rules = check.violations.map((violation) => violation.rule);
     const [plane] = lockedPlanes(lens.value, unlocks.value);
     if (rules.includes("locked-plane") && plane)
-      return { label: "Unlock for now", run: () => unlockNow({ [plane]: true }) };
+      return { label: "Unlock", run: () => unlockNow({ [plane]: true }) };
     if (rules.includes("walk-depth"))
       return { label: "Allow depth", run: () => unlockNow({ depthInWalk: true }) };
     return undefined;
@@ -436,7 +449,7 @@ const editing = useStudioEditing({
 function unlockNow(patch: Partial<LensUnlocks>): void {
   if (assist.holds.value) return;
   unlocks.value = { ...unlocks.value, ...patch };
-  editing.say({ tone: "ok", text: "Unlocked for now. Try it again." });
+  editing.say({ tone: "ok", text: "Unlocked until you close Studio. Try it again." });
   keepFocus();
 }
 /** The selected items the creator may edit now, when there are several. */
@@ -960,7 +973,7 @@ const logicTextOpen = computed({
   },
 });
 
-const RELOAD_FIRST = "Reload game first: the running game isn't the one you saved.";
+const RELOAD_FIRST = "Reload the game to play your saved version.";
 /**
  * Play here: settle unkept changes, then the shell plays from the spot, in
  * this room or, from a walk that went through a door, the room it ended in.
@@ -1092,6 +1105,16 @@ function toggleFocus(): void {
   calm.toggleFocus();
   input.spoken.value = calm.focus.value ? "Side panels hidden" : "Side panels shown";
 }
+/**
+ * The status bar's Keys button. Safari leaves a clicked button unfocused, so
+ * activation takes its focus first: the sheet (and a tour its Tour button
+ * relaunches) returns focus to what had it when the sheet opened.
+ */
+function openKeySheet(event: MouseEvent): void {
+  if (event.currentTarget instanceof HTMLElement)
+    event.currentTarget.focus({ preventScroll: true });
+  calm.sheetOpen.value = true;
+}
 const keySheet = computed(() => roomKeySheet(tools.tool.value));
 /** The status bar's line for the active tool (the editing keys while an item is selected). */
 const toolHint = computed(() => {
@@ -1215,6 +1238,13 @@ function onKeyup(event: KeyboardEvent): void {
       @discard="leave.discarding.value = true"
     >
       <template #share
+        ><UiButton
+          v-if="creativeLaunch"
+          size="sm"
+          variant="ghost"
+          data-testid="creative-entry"
+          @click="creativeLaunch()"
+          >Import image…</UiButton
         ><SharePictureMenu
           :picture="model.compiled"
           :timeline="model.timeline"
@@ -1346,6 +1376,7 @@ function onKeyup(event: KeyboardEvent): void {
             :spilled="spilledPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
+            :underlay="layer === 'art' ? underlay : null"
             @hover="input.pointer.hover"
             @press="input.pointer.press"
             @drag="input.pointer.drag"
@@ -1539,7 +1570,7 @@ function onKeyup(event: KeyboardEvent): void {
         aria-keyshortcuts="?"
         aria-haspopup="dialog"
         data-testid="studio-keys-button"
-        @click="calm.sheetOpen.value = true"
+        @click="openKeySheet"
       />
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>

@@ -263,7 +263,7 @@ defineExpose({ focus });
         v-else-if="blocked === 'frozen' && phase !== 'running'"
         class="assist__note assist__frozen"
       >
-        This {{ thing }} is view only right now. <UiExplain v-bind="explain('view-only')" />
+        This {{ thing }} is read-only. <UiExplain v-bind="explain('view-only')" />
       </p>
 
       <ol v-if="assist.thread.value.length" class="assist__thread" aria-label="Conversation">

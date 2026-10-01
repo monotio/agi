@@ -77,7 +77,7 @@ function make(): void {
         role="alert"
         data-testid="combine-gap"
       >
-        Drawing that belongs to no item sits between them, so they can't be grouped.
+        Loose drawing steps sit between these items. Group neighbouring items in the draw order.
       </p>
     </form>
     <template #footer>

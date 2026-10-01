@@ -23,7 +23,7 @@ const PLAIN: readonly (readonly [RegExp, (match: RegExpMatchArray) => string])[]
   ],
   [/already shares loop (\d+)'s data block/, (m) => `This loop already mirrors loop ${m[1]}.`],
   [/does not share its data block/, () => "This loop has its own cels."],
-  [/a loop cannot mirror itself/, () => "A loop cannot mirror itself."],
+  [/a loop cannot mirror itself/, () => "Choose another loop to mirror."],
   [
     /no stored orientation can display|shares loop \d+'s data block but its cels differ/,
     () => "Mirrored loops stay exact flips of each other.",
@@ -38,7 +38,7 @@ export function plainSpriteRefusal(error: string): string {
     const match = error.match(pattern);
     if (match) return say(match);
   }
-  return "The view can't be changed that way.";
+  return "Sprite edit rejected. Open Details for the reason.";
 }
 
 const list = (loops: readonly number[]): string =>

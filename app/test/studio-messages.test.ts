@@ -70,7 +70,7 @@ describe("plainKernelRefusal", () => {
   it("falls back to a general sentence for anything else", () => {
     assert.equal(
       refusal({ type: "reorderItem", itemId: "edge", toIndex: 9 })[1],
-      "The picture can't be changed that way.",
+      "Picture edit rejected. Open Details for the reason.",
     );
   });
 });
@@ -123,10 +123,10 @@ describe("plainKernelRefusal of Group and Ungroup", () => {
       '"Edge" and "Held" are not next to each other in the draw order: "Step" is drawn between them',
     );
   });
-  it("says an item of one drawing element has no parts", () => {
+  it("explains what Ungroup needs", () => {
     assert.equal(
       refusal({ type: "ungroupItem", itemId: "edge" })[1],
-      "This item is one drawing element: it has no parts to ungroup.",
+      "Ungroup needs an item with several drawing elements.",
     );
   });
 });

@@ -213,7 +213,7 @@ export function useStudioEditing(options: {
   /** Move the item back (-1, drawn earlier) or forward (+1, drawn later) in draw order. */
   function reorder(step: 1 | -1): boolean {
     if (several.value) {
-      say({ tone: "warn", text: "Draw order changes one item at a time: select just one." });
+      say({ tone: "warn", text: "Select one item to change its draw order." });
       return false;
     }
     return run(

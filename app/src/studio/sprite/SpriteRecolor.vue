@@ -84,7 +84,7 @@ const ready = computed(
 /** Why Recolour is off: an open proposal or a view-only view, else what the count says. */
 const blocked = computed(() =>
   frozen
-    ? "Editing waits while the view is view only or an AI proposal is open"
+    ? "Editing pauses while the sprite is read-only or an AI proposal is open"
     : (clash.value ?? summary.value),
 );
 
