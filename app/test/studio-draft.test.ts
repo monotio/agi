@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { effectScope, ref, shallowRef } from "vue";
+import { effectScope, nextTick, ref, shallowRef } from "vue";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
@@ -357,6 +357,33 @@ describe("useStudioDraft", () => {
     assert.ok(ended.ok);
     assert.equal(ended.sideEffects?.cells, 26019);
     assert.equal(draft.history.value.past.length, 1);
+  });
+
+  it("clears an edit notice when project Undo restores the source", async () => {
+    const scope = effectScope();
+    const { draft, base, editing } = scope.run(() => {
+      const state = setup("art");
+      return {
+        ...state,
+        editing: useStudioEditing({
+          draft: state.draft,
+          selectedId: ref("box"),
+          frozen: () => false,
+          lens: () => "art",
+        }),
+      };
+    })!;
+    assert.equal(editing.nudge(20, 0), true);
+    const notice = editing.notice.value;
+    assert.ok(notice);
+    base.value = { source: draft.source.value, revision: testRevision("saved") };
+    await nextTick();
+    assert.equal(editing.notice.value, notice, "autosave retains the edit's notice");
+    base.value = { source: SOURCE, revision: testRevision("restored") };
+    await nextTick();
+    assert.equal(draft.source.value, SOURCE);
+    assert.equal(editing.notice.value, null);
+    scope.stop();
   });
 
   it("says in the status line what else changed, with the undo key, and clears it after", () => {
