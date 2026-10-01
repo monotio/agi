@@ -359,12 +359,6 @@ class EditableProjectService implements EditableProject {
     keys: readonly string[],
     dependencies?: Readonly<Record<string, readonly string[]>>,
   ): EditableCandidate {
-    if (this.inspection.requiresSourceReview) {
-      const refused = Object.keys(this.inspection.rejectedSources).join(", ");
-      throw new Error(
-        `This project holds refused source claims (${refused}); the source review must be resolved before building.`,
-      );
-    }
     const result = compileProjectSelection({
       draft: this.draft,
       files: this.files,

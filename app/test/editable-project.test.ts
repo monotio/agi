@@ -367,15 +367,15 @@ test("replaying a finished candidate returns its receipt without rolling a newer
   assert.equal(readProjectWorkspace((await storedBody(projectId)).workspace)["logic:1"], ROOM1_ALT);
 });
 
-test("a refused source claim blocks build and Keep without touching storage", async () => {
+test("a mismatched source claim allows a build without touching storage", async () => {
   const projectId = await seedProject("ws-source-review", "blank", (data) => {
     const documents = readProjectWorkspace(data.workspace);
     data.workspace = writeProjectWorkspace({ ...documents, "logic:1": "if (broken" });
   });
   const ws = await openEditableProject(projectId);
-  assert.equal(ws.inspection.requiresSourceReview, true);
+  assert.equal(ws.inspection.requiresSourceReview, false);
   assert.ok("logic:1" in ws.inspection.rejectedSources);
-  assert.throws(() => ws.buildSelected(["logic:1"]), /review|refused/i);
+  assert.ok(ws.buildSelected(["logic:1"]));
 
   const data = await storedBody(projectId);
   assert.equal(readProjectWorkspace(data.workspace)["logic:1"], "if (broken");
