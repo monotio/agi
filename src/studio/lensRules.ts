@@ -37,7 +37,7 @@ export const WHOLE_ITEM_OPERATIONS: readonly string[] = [
   "moveItem",
   "duplicateItem",
   "deleteItem",
-  "standItemUp",
+  "addDepth",
 ];
 
 /**

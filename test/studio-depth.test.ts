@@ -71,7 +71,7 @@ function probe(document: PictureDocument, x: number, baselineY: number, height =
 }
 
 it("stands a filled bush up with exact pixels, bounded bytes and ghost occlusion", () => {
-  const stood = edit(bush, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(bush, { type: "addDepth", itemId: "bush" });
   assert.equal(stood.items[0]!.depth?.baseY, 60);
   // y60 is band6; y59 is band5. The outline and all 15 interior cells share band6.
   rectanglePriority(stood, 10, 54, 6);
@@ -86,7 +86,7 @@ it("stands a filled bush up with exact pixels, bounded bytes and ghost occlusion
 });
 
 it("moves, duplicates, deletes and batches derived depth in one history step each", () => {
-  const stood = edit(bush, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(bush, { type: "addDepth", itemId: "bush" });
   const down = edit(stood, { type: "moveItem", itemId: "bush", dx: 0, dy: 12 });
   rectanglePriority(down, 10, 66, 7);
   assert.equal(down.items[0]!.depth?.baseY, 72);
@@ -141,7 +141,7 @@ it("keeps hand-painted depth, clears derived markers on manual depth edits and c
   const moved = edit(painted, { type: "moveItem", itemId: "bush", dx: 0, dy: 12 });
   rectanglePriority(moved, 10, 66, 11);
   assert.equal(moved.items[0]!.depth, undefined);
-  const stood = edit(painted, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(painted, { type: "addDepth", itemId: "bush" });
   rectanglePriority(stood, 10, 54, 6);
   const manual = edit(stood, {
     type: "setItemColor",
@@ -160,16 +160,12 @@ it("keeps hand-painted depth, clears derived markers on manual depth edits and c
     y: 54,
   });
   assert.equal(pointEdit.items[0]!.depth, undefined);
-  rectanglePriority(edit(manual, { type: "standItemUp", itemId: "bush" }), 10, 54, 6);
+  rectanglePriority(edit(manual, { type: "addDepth", itemId: "bush" }), 10, 54, 6);
 });
 
 it("regenerates reshaped lines and pen pixels, retains chosen baseline offsets and priority base", () => {
   const line = doc('# @item bush "Bush" art\nvis 2\nline 10,58 14,59\n# @end');
-  const stood = edit(
-    line,
-    { type: "standItemUp", itemId: "bush", baseY: 60 },
-    { priorityBase: 60 },
-  );
+  const stood = edit(line, { type: "addDepth", itemId: "bush", baseY: 60 }, { priorityBase: 60 });
   assert.equal(compileDocument(stood, profile).priority[at(14, 59)], 5);
   const shaped = edit(stood, { type: "setPoint", line: 4, pointIndex: 1, x: 14, y: 82 });
   assert.equal(shaped.items[0]!.depth?.baseY, 83);
@@ -185,7 +181,7 @@ it("regenerates reshaped lines and pen pixels, retains chosen baseline offsets a
   });
   assert.equal(compileDocument(inserted, profile).priority[at(14, 82)], 7);
   const pen = doc('# @item bush "Bush" art\nvis 2\npen 1\nplot 20,71\n# @end');
-  const penDepth = edit(pen, { type: "standItemUp", itemId: "bush" });
+  const penDepth = edit(pen, { type: "addDepth", itemId: "bush" });
   assert.equal(penDepth.items[0]!.depth?.baseY, 72);
   const rendered = compileDocument(penDepth, profile);
   // v2 radius1: doubled x=39, start x=19; three row words e000
@@ -197,7 +193,7 @@ it("regenerates reshaped lines and pen pixels, retains chosen baseline offsets a
   );
   const stub = edit(
     bush,
-    { type: "standItemUp", itemId: "bush" },
+    { type: "addDepth", itemId: "bush" },
     { profile: PROFILES["amiga-2.310"], priorityBase: 60 },
   );
   rectanglePriority(stub, 10, 54, 6);
@@ -207,7 +203,7 @@ it("captures item pixels before later art covers them and preserves surrounding 
   const covered = doc(
     serializePictureDocument(bush).replace("vis 6", "vis 6\nrect 10,54 14,60\nfill 12,56"),
   );
-  const stood = edit(covered, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(covered, { type: "addDepth", itemId: "bush" });
   rectanglePriority(stood, 10, 54, 6);
   assert.deepEqual(
     compileDocument(stood, profile).visual,
@@ -217,25 +213,25 @@ it("captures item pixels before later art covers them and preserves surrounding 
 
 it("stands Starter Meadow cottage and tree up with probe-visible occlusion", () => {
   const meadow = doc(createStarterProject("starter").sources.pictures.get(1)!);
-  const cottage = edit(meadow, { type: "standItemUp", itemId: "cottage" });
+  const cottage = edit(meadow, { type: "addDepth", itemId: "cottage" });
   assert.equal(cottage.items.find((i) => i.id === "cottage")!.depth?.baseY, 132);
   assert.equal(probe(cottage, 22, 95).hiddenMask[at(22, 90)], 1);
   assert.equal(probe(cottage, 22, 133, 50).hiddenMask[at(22, 90)], 0);
-  const tree = edit(cottage, { type: "standItemUp", itemId: "tree" });
+  const tree = edit(cottage, { type: "addDepth", itemId: "tree" });
   assert.equal(tree.items.find((i) => i.id === "tree")!.depth?.baseY, 107);
   assert.equal(probe(tree, 135, 95).hiddenMask[at(135, 90)], 1);
   assert.equal(probe(tree, 135, 108, 25).hiddenMask[at(135, 90)], 0);
   assert.deepEqual(compileDocument(tree, profile).visual, compileDocument(meadow, profile).visual);
 });
 
-it("treats Stand it up and derived art reshaping as intentional depth changes under lens locks", async () => {
+it("treats Add depth and derived art reshaping as intentional depth changes under lens locks", async () => {
   const { editOperationUnlocks, NO_UNLOCKS, lockedPlanes } =
     await import("../src/studio/lensRules.ts");
-  const stood = edit(bush, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(bush, { type: "addDepth", itemId: "bush" });
   assert.deepEqual(
     lockedPlanes(
       "art",
-      editOperationUnlocks(bush, [{ type: "standItemUp", itemId: "bush" }], NO_UNLOCKS),
+      editOperationUnlocks(bush, [{ type: "addDepth", itemId: "bush" }], NO_UNLOCKS),
     ),
     [],
   );
@@ -291,25 +287,22 @@ it("round-trips depth comments, rejects malformed blocks, and refuses invalid or
     assert.ok(parsePictureDocument(`# @item a "A" art\n${body}\n# @end`).diagnostics.length > 0);
   }
   for (const [input, op] of [
-    [bush, { type: "standItemUp", itemId: "bush", baseY: 168 }],
-    [bush, { type: "standItemUp", itemId: "missing" }],
-    [
-      doc('# @item a "A" art locked\nvis 2\nline 10,60\n# @end'),
-      { type: "standItemUp", itemId: "a" },
-    ],
+    [bush, { type: "addDepth", itemId: "bush", baseY: 168 }],
+    [bush, { type: "addDepth", itemId: "missing" }],
+    [doc('# @item a "A" art locked\nvis 2\nline 10,60\n# @end'), { type: "addDepth", itemId: "a" }],
     [
       doc('# @item a "A" depth\nvis off\npri 8\nline 10,60\n# @end'),
-      { type: "standItemUp", itemId: "a" },
+      { type: "addDepth", itemId: "a" },
     ],
-    [doc('# @item a "A" art\nvis 2\nraw 246 10 60\n# @end'), { type: "standItemUp", itemId: "a" }],
+    [doc('# @item a "A" art\nvis 2\nraw 246 10 60\n# @end'), { type: "addDepth", itemId: "a" }],
   ] as const) {
     assert.ok("error" in applyEdit(input, op));
   }
-  const stood = edit(bush, { type: "standItemUp", itemId: "bush", baseY: 166 });
+  const stood = edit(bush, { type: "addDepth", itemId: "bush", baseY: 166 });
   const bytes = compileDocument(stood, profile).bytes;
   assert.ok("error" in applyEdit(stood, { type: "moveItem", itemId: "bush", dx: 0, dy: 12 }));
   assert.deepEqual(compileDocument(stood, profile).bytes, bytes);
-  const again = edit(stood, { type: "standItemUp", itemId: "bush", baseY: 166 });
+  const again = edit(stood, { type: "addDepth", itemId: "bush", baseY: 166 });
   assert.equal(serializePictureDocument(again), serializePictureDocument(stood));
 });
 
@@ -317,7 +310,7 @@ it("preserves inherited visual and priority state and replaces priority-only str
   const painted = doc(
     'vis 2\npri 11\n# @item bush "Bush" mixed\nrect 10,54 14,60\nfill 12,56\nvis off\nline 8,61 16,61\n# @end\nline 30,70 32,70',
   );
-  const stood = edit(painted, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(painted, { type: "addDepth", itemId: "bush" });
   rectanglePriority(stood, 10, 54, 6);
   const compiled = compileDocument(stood, profile);
   for (let x = 8; x <= 16; x++) assert.equal(compiled.priority[at(x, 61)], 4);
@@ -336,7 +329,7 @@ it("preserves inherited visual and priority state and replaces priority-only str
 
 it("stands fill-only and stippled items up pixel-exactly", () => {
   const filled = doc('vis 0\nrect 10,54 14,60\n# @item bush "Bush" art\nvis 2\nfill 12,56\n# @end');
-  const stood = edit(filled, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(filled, { type: "addDepth", itemId: "bush" });
   const picture = compileDocument(stood, profile);
   assert.equal(stood.items[0]!.depth?.baseY, 59);
   for (let y = 54; y <= 60; y++)
@@ -344,7 +337,7 @@ it("stands fill-only and stippled items up pixel-exactly", () => {
       assert.equal(picture.priority[at(x, y)], x > 10 && x < 14 && y > 54 && y < 60 ? 5 : 4);
     }
   const stipple = doc('# @item bush "Bush" art\nvis 2\npen 1 stipple\nplot 4 20,71\n# @end');
-  const depth = edit(stipple, { type: "standItemUp", itemId: "bush" });
+  const depth = edit(stipple, { type: "addDepth", itemId: "bush" });
   // Seed4 starts state5: ba(draw),5d,96(draw),4b,9d,f6(draw).
   const expected = [at(19, 70), at(19, 71), at(20, 72)];
   const rendered = compileDocument(depth, profile);
@@ -356,7 +349,7 @@ it("stands fill-only and stippled items up pixel-exactly", () => {
 });
 
 it("lets derived art turn off and back on within the existing recolor operation", () => {
-  const stood = edit(bush, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(bush, { type: "addDepth", itemId: "bush" });
   const off = edit(stood, { type: "setItemColor", itemId: "bush", plane: "visual", value: null });
   assert.equal(off.items[0]!.depth?.baseY, 60);
   rectanglePriority(off, 10, 54, 4);
@@ -365,7 +358,7 @@ it("lets derived art turn off and back on within the existing recolor operation"
 });
 
 it("groups derived items as painted commands until the combined item is stood up", () => {
-  const stood = edit(bush, { type: "standItemUp", itemId: "bush" });
+  const stood = edit(bush, { type: "addDepth", itemId: "bush" });
   const pair = edit(stood, {
     type: "duplicateItem",
     itemId: "bush",
@@ -383,7 +376,7 @@ it("groups derived items as painted commands until the combined item is stood up
   assert.deepEqual(compileDocument(grouped, profile).bytes, compileDocument(pair, profile).bytes);
   const split = edit(grouped, { type: "ungroupItem", itemId: "group" });
   assert.ok(split.items.every((item) => item.depth === undefined));
-  const combined = edit(grouped, { type: "standItemUp", itemId: "group" });
+  const combined = edit(grouped, { type: "addDepth", itemId: "group" });
   assert.equal(combined.items[0]!.depth?.baseY, 72);
   const separated = edit(combined, { type: "ungroupItem", itemId: "group" });
   assert.deepEqual(

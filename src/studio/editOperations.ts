@@ -41,7 +41,7 @@ import {
   type PictureItemKind,
 } from "./pictureDocument.ts";
 import { itemVisualFootprint, type PicturePlane } from "./pictureQuery.ts";
-import { clearItemDepth, standItemUp } from "./pictureDepth.ts";
+import { clearItemDepth, addDepth } from "./pictureDepth.ts";
 import { shapeSource, validateSimplePolygon, type Point, type SceneShape } from "./shapes.ts";
 import { commandHead, registerLine, registersRead } from "./editState.ts";
 import {
@@ -81,7 +81,7 @@ import {
 export type EditOperation =
   | {
       /** Derive priority from the item's visual pixels and chosen baseline. */
-      readonly type: "standItemUp";
+      readonly type: "addDepth";
       readonly itemId: string;
       /** Defaults to the lowest drawn visual row. */
       readonly baseY?: number;
@@ -710,8 +710,8 @@ function setItemMeta(
 
 function dispatch(ctx: Context, op: EditOperation, options?: EditOptions): EditResult {
   switch (op.type) {
-    case "standItemUp":
-      return standItemUp(
+    case "addDepth":
+      return addDepth(
         ctx,
         op.itemId,
         op.baseY,
@@ -793,7 +793,7 @@ function maintainDepth(
             ? op.dy
             : 0;
       const regenerated = withContext(result.document, options, (next) =>
-        standItemUp(next, target, depth.baseY + delta, options?.priorityBase ?? depth.priorityBase),
+        addDepth(next, target, depth.baseY + delta, options?.priorityBase ?? depth.priorityBase),
       );
       if ("error" in regenerated) return regenerated;
       result = regenerated;

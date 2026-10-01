@@ -13,7 +13,7 @@
  * Removing the two markers makes those commands hand-painted. Older readers
  * treat these annotations as comments and compile the same bytes. Group and
  * Ungroup keep the drawing bytes and convert derived depth to painted depth;
- * Stand it up derives one base for the resulting item.
+ * Add depth derives one base for the resulting item.
  *
  * Items are flat and cover consecutive source lines; lines outside items are
  * loose. A malformed directive is reported and otherwise read as a plain

@@ -32,7 +32,7 @@ export function clearItemDepth(ctx: Context, item: PictureItem): EditSuccess {
  * Horizontal runs cost at most five bytes each (three for a single pixel).
  * Lines overwrite existing priority, so other items' depth cannot stop a fill.
  */
-export function standItemUp(
+export function addDepth(
   ctx: Context,
   itemId: string,
   baseY?: number,
