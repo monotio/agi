@@ -172,6 +172,7 @@ test("the Depth lesson opens the archive and a mid-order edit preserves the barr
   await probe.click();
   await expect(handle).toHaveCount(0);
 
+  await page.getByTestId("workspace-focus").click();
   const shipped = parsePictureDocument(TUTORIAL_PICTURES[3]!).document;
   const counter = shipped.items.find(({ id }) => id === "counter-depth")!;
   const drawn = compileEditDocument(shipped, DEFAULT_V2_PROFILE).spans.filter(

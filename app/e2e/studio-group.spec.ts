@@ -197,7 +197,7 @@ test("an outline and its fill, selected together, move as one and keep exactly t
     await page.keyboard.press(key);
   await workspaceSaved(page);
   await expect(studio.getByTestId("studio-notice")).toHaveCount(0);
-  await page.screenshot({ path: "test-results/group-move-selection.png" });
+  await page.screenshot({ path: test.info().outputPath("group-move-selection.png") });
 
   await workspaceSaved(page);
   const kept = await storedPicture(page);

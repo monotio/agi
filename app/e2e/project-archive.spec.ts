@@ -120,7 +120,7 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(restored.index.transcript).toBeUndefined();
     expect(await other.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
     expect(calls).toBe(0);
-    await other.screenshot({ path: "test-results/project-ready.png" });
+    await other.screenshot({ path: test.info().outputPath("project-ready.png") });
     await other.getByTestId("btn-resume-cached").click();
     // Keep interception enabled while the worker imports its modules. The
     // specific mock below overrides the API-blocking fallback without a gap.

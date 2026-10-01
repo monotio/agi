@@ -269,7 +269,7 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   await page.keyboard.down("Alt");
   await page.mouse.move(...cell(80, 89));
   await expect(ghost).toHaveAttribute("data-point", "80,90");
-  await page.screenshot({ path: "test-results/studio-insert-point-hover.png" });
+  await page.screenshot({ path: test.info().outputPath("studio-insert-point-hover.png") });
 
   // Alt+press adds it; the same drag carries it 6 rows up. One step.
   await page.mouse.down();
@@ -287,7 +287,7 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(
     polygon("40,90 80,84 119,90 126,98 119,105 40,105"),
   );
-  await page.screenshot({ path: "test-results/studio-insert-point-result.png" });
+  await page.screenshot({ path: test.info().outputPath("studio-insert-point-result.png") });
   await page.keyboard.press("ControlOrMeta+z");
   await workspaceSaved(page);
   expect(await draftBytes(page)).toEqual(PIC_5);

@@ -69,7 +69,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
       .toContain("generated room 2");
     expect(providerCalls).toBe(0);
     expect(await friend.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
-    await friend.screenshot({ path: "test-results/shared-zip-playing.png" });
+    await friend.screenshot({ path: test.info().outputPath("shared-zip-playing.png") });
     await friend.getByTestId("btn-exit").click();
     const before = await friend.evaluate(() =>
       Object.keys(localStorage).filter((key) => key.startsWith("monotio_agi.authored.imported-")),
@@ -164,7 +164,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     await enterCreateMode(friend);
     await openWorkspaceAgent(friend);
     await expect(friend.getByTestId("connect-assistant-ai")).toBeVisible();
-    await friend.screenshot({ path: "test-results/power-up-connect.png" });
+    await friend.screenshot({ path: test.info().outputPath("power-up-connect.png") });
     await configureAi(friend, { provider: "openai", key: "test-placeholder" });
     await expect(friend.getByTestId("agent-bubble-input")).toBeEnabled();
     await friend.getByTestId("agent-bubble-input").fill("remix the room description");
@@ -174,7 +174,7 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("Remixed room one.");
     expect(remixRequests).toHaveLength(2);
-    await friend.screenshot({ path: "test-results/shared-zip-remixed.png" });
+    await friend.screenshot({ path: test.info().outputPath("shared-zip-remixed.png") });
   } finally {
     await context.close();
   }
@@ -277,7 +277,7 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
     await expect
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("A remixed v3 adventure.");
-    await friend.screenshot({ path: "test-results/shared-v3-zip-remixed.png" });
+    await friend.screenshot({ path: test.info().outputPath("shared-v3-zip-remixed.png") });
   } finally {
     await fresh.close();
   }
@@ -329,7 +329,7 @@ test("rename preserves a saved game and travels with its ZIP", async ({ page, br
   await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeDisabled();
   await name.fill("  The Midnight Appointment  ");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: "test-results/rename-game-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("rename-game-mobile.png") });
   await name.press("Enter");
   const renamedCard = savedGameCard(page, "The Midnight Appointment");
   await expect(renamedCard.getByTestId("saved-game-title")).toHaveText("The Midnight Appointment");
