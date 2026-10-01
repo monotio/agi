@@ -160,6 +160,9 @@ code, comments or documentation.
 - UI copy says plainly what a thing is or does. Headings and labels name it in one
   or two calm words; body text is brief and positive. The `plain-copy-*` ast-grep
   rules flag definitions by negation and dash asides.
+  Describe capabilities directly; omit unnecessary reassurance about engines,
+  keys or excluded alternatives. Error notices name the cause and next action.
+  Keep actual constraints and irreversible consequences explicit.
 
 ## Method
 

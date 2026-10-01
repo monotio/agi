@@ -6,12 +6,48 @@ snapshots:
       style: primary
       start: 15
       end: 54
+  const hint = "Build a game without an API key";:
+    labels:
+    - source: Build a game without an API key
+      style: primary
+      start: 14
+      end: 45
+  const hint = "Connect AI. Editing works either way.";:
+    labels:
+    - source: Connect AI. Editing works either way.
+      style: primary
+      start: 14
+      end: 51
+  const hint = "Create with or without AI";:
+    labels:
+    - source: Create with or without AI
+      style: primary
+      start: 14
+      end: 39
+  const hint = "Drawing and imports stay available without one.";:
+    labels:
+    - source: Drawing and imports stay available without one.
+      style: primary
+      start: 14
+      end: 61
+  const hint = "Nothing is written until you approve.";:
+    labels:
+    - source: Nothing is written until you approve.
+      style: primary
+      start: 14
+      end: 51
   const hint = "Play here needs a live game, not a replay.";:
     labels:
     - source: Play here needs a live game, not a replay.
       style: primary
       start: 14
       end: 56
+  const hint = "Simply click Create to start";:
+    labels:
+    - source: Simply click Create to start
+      style: primary
+      start: 14
+      end: 42
   const hint = "The backdrop is never saved.";:
     labels:
     - source: The backdrop is never saved.
@@ -42,3 +78,9 @@ snapshots:
       style: primary
       start: 15
       end: 66
+  const title = "Open in Logic Studio; no engine needed";:
+    labels:
+    - source: Open in Logic Studio; no engine needed
+      style: primary
+      start: 15
+      end: 53
