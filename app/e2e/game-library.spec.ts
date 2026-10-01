@@ -324,8 +324,8 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await isolateStorage(page);
   await page.goto("/");
   const card = page.getByTestId("catalog-adventure-department");
-  await expect(card.getByRole("button", { name: "Play now" })).toBeEnabled();
-  await card.getByRole("button", { name: "Play now" }).click();
+  await expect(card.getByRole("button", { name: "Play", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   const before = await page.evaluate(async () => {
     const storage = await import("/src/project/gameStorage.ts");

@@ -437,7 +437,7 @@ test("the tutorial is one card that carries its progress, ahead of equal-height 
   const height = (await original.boundingBox())!.height;
   expect((await remix.boundingBox())!.height).toBe(height);
   const details = await openSavedGameDetails(original);
-  await expect(details).toContainText("Learn pictures, sprites and priority");
+  await expect(details).toContainText("Learn pictures, views and depth");
   await page.keyboard.press("Escape");
   expect((await original.boundingBox())!.height).toBe(height);
   expect((await remix.boundingBox())!.height).toBe(height);

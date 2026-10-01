@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
 test("the start page uses concise tutorial copy and readable primary actions", async ({ page }) => {
   await expect(
     page.getByText(
-      "Play Sierra-style adventures. Create your own with picture, sprite, sound and code editors",
+      "Play Sierra-style adventures. Build your own with the game running beside you,",
       {
         exact: false,
       },
@@ -26,7 +26,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     page
       // First visit: the Continue card introduces the tutorial; shelf cards keep one meta line.
       .getByTestId("home-continue")
-      .getByText("Learn pictures, sprites and priority in a three-room tutorial."),
+      .getByText("Learn pictures, views and depth in a three-room tutorial."),
   ).toBeVisible();
 
   await expect(page.getByTestId("create-adventure-disclosure")).not.toHaveAttribute("open");

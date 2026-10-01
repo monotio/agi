@@ -262,8 +262,8 @@ function onPrimary(): void {
         <BootCard class="hero-boot" /><span class="hero-title__text">AGI IS HERE.</span>
       </h1>
       <p class="hero-line">
-        Play Sierra-style adventures. Create your own with picture, sprite, sound and code editors
-        in the authentic
+        Play Sierra-style adventures. Build your own with the game running beside you, in the
+        authentic
         <a
           href="https://en.wikipedia.org/wiki/Adventure_Game_Interpreter"
           target="_blank"

@@ -123,7 +123,7 @@ const badge = computed(() => {
   return source === "remix" ? "Remix" : !source || source === "authored" ? "Yours" : undefined;
 });
 
-const playLabel = computed(() => (autosave.value ? "Resume" : featured ? "Play now" : "Play"));
+const playLabel = computed(() => (autosave.value ? "Resume" : "Play"));
 
 /** Initials stand in for a screen that cannot be shown. */
 const monogram = computed(

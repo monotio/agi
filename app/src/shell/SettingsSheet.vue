@@ -194,7 +194,7 @@ defineExpose({ toggle, close, open });
           :model-value="crtEnabled"
           @update:model-value="emit('update:crtEnabled', $event)"
         >
-          Display<small>CRT scanlines, glow and curved glass</small>
+          CRT screen<small>Scanlines, glow and curved glass in Play</small>
         </UiSwitch>
         <UiSwitch
           class="settings-row"

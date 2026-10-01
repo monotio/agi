@@ -721,7 +721,7 @@ export function buildTutorial(): TutorialGame {
     title: "Adventure Department",
     roomGeneration: false,
     metadata: {
-      description: "Learn pictures, sprites and priority in a three-room tutorial.",
+      description: "Learn pictures, views and depth in a three-room tutorial.",
       author: "Monotio",
       license: "MIT",
     },

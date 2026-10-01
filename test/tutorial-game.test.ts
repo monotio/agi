@@ -230,7 +230,7 @@ test("Adventure Department is a self-contained, editable AGI 2.936 game", async 
   assert.equal(game.title, "Adventure Department");
   assert.equal(game.roomGeneration, false);
   assert.deepEqual(game.metadata, {
-    description: "Learn pictures, sprites and priority in a three-room tutorial.",
+    description: "Learn pictures, views and depth in a three-room tutorial.",
     author: "Monotio",
     license: "MIT",
   });

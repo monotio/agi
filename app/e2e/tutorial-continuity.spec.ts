@@ -34,7 +34,7 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
   const gallery = page.getByTestId("saved-game-gallery");
   const tutorial = page.getByTestId("catalog-adventure-department");
   await expect(tutorial).toBeVisible();
-  await expect(tutorial.getByTestId("catalog-play-adventure-department")).toHaveText("Play now");
+  await expect(tutorial.getByTestId("catalog-play-adventure-department")).toHaveText("Play");
 
   // The 1.0 copy is an ordinary saved-game card named for its release; the
   // remix keeps its own card.

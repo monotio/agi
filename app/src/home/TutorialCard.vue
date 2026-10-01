@@ -126,7 +126,7 @@ async function focusPlay(): Promise<void> {
         :disabled="busy"
         @click="onPlay"
       >
-        {{ catalogBusy[entry.id] ? "Checking opening…" : "Play now" }}
+        {{ catalogBusy[entry.id] ? "Checking opening…" : "Play" }}
       </UiButton>
       <ActionMenu
         label="Game actions"
