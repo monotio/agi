@@ -77,22 +77,79 @@ async function playFromLibrary(page: Page, title: string): Promise<void> {
   await waitForCycles(page, 2);
 }
 
+/** The dev/e2e handle App.vue installs: open a project, read the caret. */
+interface LogicHook {
+  open(projectId: string): void;
+  cursor(): { line: number; column: number } | undefined;
+}
+
 /** The shell entry the library's Edit uses, over the running game. */
 async function openLogicStudio(page: Page, projectId: string): Promise<void> {
   await page.evaluate((id) => {
-    (window as unknown as { __AGI_LOGIC__: { open(projectId: string): void } }).__AGI_LOGIC__.open(
-      id,
-    );
+    const hook = (window as unknown as { __AGI_LOGIC__?: LogicHook }).__AGI_LOGIC__;
+    if (!hook) throw new Error("Logic Studio dev hook is not installed");
+    hook.open(id);
   }, projectId);
   await expect(page.getByTestId("logic-studio")).toBeVisible();
   await page.getByTestId("logic-explorer").getByTestId("logic-doc-logic:1").click();
 }
 
+/** A read-only snapshot of the open LOGIC 1 model. */
+interface LogicModelSnapshot {
+  readonly value: string;
+  readonly eol: string;
+  readonly end: { line: number; column: number };
+}
+
+/**
+ * The live LOGIC 1 model's text, its line ending and its document-end
+ * position. Polled until the explorer's click has attached the model.
+ */
+async function logicModelSnapshot(page: Page): Promise<LogicModelSnapshot> {
+  let snapshot: LogicModelSnapshot | undefined;
+  await expect
+    .poll(async () => {
+      snapshot = await page.evaluate(async () => {
+        const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+        const model = monaco.editor
+          .getModels()
+          .find((candidate) =>
+            candidate.uri.toString().endsWith(`/${encodeURIComponent("logic:1")}`),
+          );
+        if (!model) return undefined;
+        const last = model.getLineCount();
+        return {
+          value: model.getValue(),
+          eol: model.getEOL(),
+          end: { line: last, column: model.getLineMaxColumn(last) },
+        };
+      });
+      return snapshot !== undefined;
+    })
+    .toBe(true);
+  if (!snapshot) throw new Error("the LOGIC 1 model never attached to the editor");
+  return snapshot;
+}
+
+/**
+ * Monaco selects its document-end shortcut from the browser user agent.
+ * Verify the caret and exact appended source before testing the Keep.
+ */
 async function appendComment(page: Page, text: string): Promise<void> {
+  const before = await logicModelSnapshot(page);
+  const documentEndKey = (await page.evaluate(() => navigator.userAgent)).includes("Macintosh")
+    ? "Meta+ArrowDown"
+    : "Control+End";
   await page.getByTestId("logic-editor").locator(".view-lines").click();
-  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press(documentEndKey);
+  const cursor = await page.evaluate(() =>
+    (window as unknown as { __AGI_LOGIC__?: LogicHook }).__AGI_LOGIC__?.cursor(),
+  );
+  expect(cursor).toEqual(before.end);
   await page.keyboard.press("Enter");
   await page.keyboard.type(text);
+  const after = await logicModelSnapshot(page);
+  expect(after.value).toBe(before.value + before.eol + text);
 }
 
 /** Build the draft and confirm the Keep in its review dialog. */
@@ -196,6 +253,11 @@ test("a Room Studio Keep keeps the workspace agreeing so Logic Studio still buil
   });
   await page.goto("/");
   const projectId = await seedLocal(page, "Workspace coherence", "blank");
+  // Finish the opening preview's worker imports before the initial reload.
+  await expect(
+    page.getByTestId("catalog-adventure-department").getByTestId("library-thumbnail"),
+  ).toBeVisible();
+  await expect(page.getByTestId("thumbnail-placeholder")).toHaveCount(0);
   await page.reload();
 
   // Reverse order first: a Logic Studio Keep lands on the stored project
