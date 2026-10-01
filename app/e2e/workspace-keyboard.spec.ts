@@ -169,7 +169,9 @@ test("focus zones isolate game input and Help lists registered shortcuts @webkit
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Help", exact: true })).toBeHidden();
   await page.getByTestId("help-menu").focus();
+  await expect(page.getByTestId("help-menu")).toBeFocused();
   await page.keyboard.press("Enter");
+  await expect(page.getByRole("menu", { name: "Help", exact: true })).toBeVisible();
   await page.getByTestId("btn-keyboard-shortcuts").focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("region", { name: "Keyboard shortcuts" })).toBeVisible();
