@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  onWatcherCleanup,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
+import { PAGE_CONTROLS } from "./useGameKeys.ts";
 import DebugDock from "../inspector/DebugDock.vue";
 import InspectorOverlay from "../inspector/InspectorOverlay.vue";
 import TouchControls from "./TouchControls.vue";
@@ -43,8 +53,37 @@ const bridge = useShellBridge();
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
-/** Keys go to the game while its input has focus; the stage shows it. */
+/**
+ * Whether keys reach the game: its input has focus, or in Play the page
+ * itself does (useGameKeys). Every page control keeps its own keys. The
+ * stage and the strip show the answer.
+ */
 const gameFocused = ref(false);
+function readKeyboard(): void {
+  const active = document.activeElement;
+  gameFocused.value =
+    document.hasFocus() &&
+    (active === inputEl.value ||
+      (!props.inspectorDocked && !(active instanceof Element && active.closest(PAGE_CONTROLS))));
+}
+/** Focus moves out of one element before it lands on the next; read after both. */
+function onFocusMove(): void {
+  setTimeout(readKeyboard, 0);
+}
+onMounted(() => {
+  document.addEventListener("focusin", onFocusMove);
+  document.addEventListener("focusout", onFocusMove);
+  window.addEventListener("focus", onFocusMove);
+  window.addEventListener("blur", onFocusMove);
+  readKeyboard();
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("focusin", onFocusMove);
+  document.removeEventListener("focusout", onFocusMove);
+  window.removeEventListener("focus", onFocusMove);
+  window.removeEventListener("blur", onFocusMove);
+});
+watch(() => props.inspectorDocked, readKeyboard);
 watch(
   [gameFocused, () => props.inspectorDocked, () => props.touchControls, () => state.phase],
   ([focused, creating, touch, phase]) =>
@@ -621,8 +660,6 @@ defineExpose({
             enterkeyhint="send"
             spellcheck="false"
             @input="onInputEdit"
-            @focus="gameFocused = true"
-            @blur="gameFocused = false"
             @compositionstart="composing = true"
             @compositionend="onCompositionEnd"
           />
@@ -736,7 +773,8 @@ defineExpose({
           <template v-else
             >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
               · <kbd>Esc</kbd> game menu</template
-            ></template
+            >
+            · <kbd>Shift</kbd>+<kbd>Tab</kbd> leaves the game</template
           >
         </p>
         <!-- Shell actions docked in the strip (Play's Ask), clear of the stage. -->

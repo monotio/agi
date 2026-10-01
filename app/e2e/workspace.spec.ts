@@ -562,6 +562,16 @@ test("adding a room opens its PICTURE beside the current game @webkit-desktop", 
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
 });
 
+test("Tab opens the Starter's inventory and keeps the keyboard in the game", async ({ page }) => {
+  await starter(page);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  const command = page.locator("#game-command");
+  await command.focus();
+  await page.keyboard.press("Tab");
+  await expect(command).toBeFocused();
+  await expect.poll(async () => (await textHook(page)).modal).toBe("inventory");
+});
+
 test("Home Continue resumes the Starter in its room", async ({ page }) => {
   await starter(page);
   await page.getByRole("radio", { name: "Play", exact: true }).click();
