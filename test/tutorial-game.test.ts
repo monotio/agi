@@ -292,7 +292,7 @@ test("every tutorial picture fill seed lands on a white interior", () => {
 test("tutorial resources are pinned to the released catalog version", async () => {
   assert.equal(
     await gameRevision(buildTutorial().files),
-    "af63c29c289a521f34cb9784f9e0dd301a2d41b7f959a60cf19c95e841c1f62d",
+    "f57a70aba797f21c5caa9ac44d0ce0a725b817fdab0dfad1281c0b5a2993991b",
     "tutorial resources changed: re-pin this revision (the version stays 1.1.0 until the release; bump it in app/src/library/gameCatalog.ts only for a published release)",
   );
 });
@@ -663,6 +663,43 @@ test("movement and sprite animation use readable pacing and ego rests on an idle
   assert.equal(engine.readObjects()[1]!.cel, firstDanceCel, "the dance does not flicker");
   for (let cycle = 0; cycle < 3; cycle++) engine.tick();
   assert.notEqual(engine.readObjects()[1]!.cel, firstDanceCel, "the dance visibly advances");
+});
+
+test("ego rests on his standing cel 0 whenever he stops, in every room", () => {
+  const { engine, host } = startTutorial();
+  const RIGHT = 0x4d00;
+  const ego = () => engine.readObjects()[0]!;
+  const idle = (label: string) => {
+    for (let cycle = 0; cycle < 60; cycle++) {
+      engine.tick();
+      assert.equal(ego().cel, 0, `${label}: idle cycle ${cycle} shows cel ${ego().cel}`);
+    }
+  };
+  for (const room of [1, 2, 3]) {
+    if (room > 1) enter(engine, host, "east");
+    assert.equal(engine.vars[0], room);
+    // Walk until a stride cel shows, then press the same arrow again to stop.
+    host.keys.push(RIGHT);
+    for (let cycle = 0; cycle < 60 && ego().cel === 0; cycle++) engine.tick();
+    assert.notEqual(ego().cel, 0, `room ${room}: walking shows a stride`);
+    host.keys.push(RIGHT);
+    engine.tick();
+    assert.equal(ego().direction, 0);
+    idle(`room ${room} after stopping`);
+  }
+  // Walking into a barrier stops him too: the globe closes the archive's east side.
+  host.keys.push(RIGHT);
+  // Normal pacing moves on some cycles only, so four still cycles in a row mean blocked.
+  let still = 0;
+  for (let cycle = 0; cycle < 300 && still < 4; cycle++) {
+    const x = ego().x;
+    engine.tick();
+    still = ego().x === x ? still + 1 : 0;
+  }
+  assert.equal(still, 4, "the walk reaches the east barrier");
+  assert.equal(engine.vars[0], 3);
+  assert.notEqual(ego().direction, 0, "the arrow key still pushes him into the barrier");
+  idle("held against the east barrier");
 });
 
 test("the lab lever sweeps around a fixed pivot and retains its repaired position", () => {
