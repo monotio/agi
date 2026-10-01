@@ -1,4 +1,3 @@
-import { mkdir } from "node:fs/promises";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 
@@ -54,8 +53,7 @@ for (const width of [1440, 1280])
     await editor.getByRole("textbox", { name: "Find a word", exact: true }).fill("100");
     await expect(editor.locator(".meaning-row")).toHaveCount(1);
     await editor.getByRole("textbox", { name: "Find a word", exact: true }).fill("");
-    await mkdir("../logs/words-shots", { recursive: true });
-    await page.screenshot({ path: `../logs/words-shots/chromium-${width}-words.png` });
+    await page.screenshot({ path: test.info().outputPath(`chromium-${width}-words.png`) });
     await page.getByTestId("workspace-focus").click();
     await editor.getByRole("button", { name: "Move to… inspect", exact: true }).click();
     await page.keyboard.press("Escape");
