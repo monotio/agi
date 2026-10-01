@@ -88,9 +88,7 @@ providePresentation(presentation);
 const { gpuBackend, debugOpen } = presentation;
 const playArea = useTemplateRef("playArea");
 
-watch(crtEnabled, (on) => {
-  localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
-});
+watch(crtEnabled, (on) => localStorage.setItem("monotio_agi.crt", on ? "on" : "off"));
 
 function onMenuHashChange(): void {
   if (location.hash === "#create-adventure") shellBridge.openCreateSection(false);
@@ -187,7 +185,9 @@ const shell = createShell({
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
-watch([crtEnabled, creating], ([on, create]) => presentation.setCrt(on && !create));
+/** CRT is a Play presentation; editing always shows the crisp frame. */
+const crtShown = computed(() => crtEnabled.value && !creating.value);
+watch(crtShown, (on) => presentation.setCrt(on));
 const createKeyboard = useTemplateRef("createKeyboard");
 const commands = createCommandRegistry(
   () => createKeyboard.value?.context() ?? emptyCommandContext(),
@@ -733,7 +733,7 @@ watch(
             v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
             ref="playArea"
             :touch-controls="touchControls"
-            :crt-enabled="crtEnabled && !creating"
+            :crt-enabled="crtShown"
             :original-aspect="originalAspect"
             :inspector-docked="creating"
           >
