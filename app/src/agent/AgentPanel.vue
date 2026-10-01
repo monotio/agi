@@ -98,14 +98,18 @@ const images = computed(() => {
   const proposal = review.value?.proposal;
   if (!proposal) return null;
   const files = Object.fromEntries(proposal.base.lastAdmissibleBuild!.files());
+  const beforeDocuments = proposal.base.documents();
+  const afterDocuments = proposal.documents();
   try {
     return {
+      beforeDocuments,
+      afterDocuments,
       before: openContainer(new Map(Object.entries(files)), { profile: profile.value }),
       after: openContainer(
         compileProjectDocuments({
           files,
           profileId: profile.value.id,
-          documents: proposal.documents(),
+          documents: afterDocuments,
         }).files(),
         { profile: profile.value },
       ),
@@ -290,6 +294,8 @@ onBeforeUnmount(() => {
           ><AgentResourceReview
             :document-key="change.key"
             :before="review.proposal.base.read(change.key)?.content"
+            :before-documents="images.beforeDocuments"
+            :after-documents="images.afterDocuments"
             :after="change.content"
             :before-image="images.before"
             :after-image="images.after"
