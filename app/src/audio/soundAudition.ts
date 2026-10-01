@@ -186,6 +186,7 @@ export class SoundAudition {
   private completed = false;
   /** Interpreter ticks the playback/renderer pair have executed together. */
   private ticksRun = 0;
+  private stream = 0;
 
   private timer: unknown = null;
   /** Scheduler time at which the next tick is due. */
@@ -597,7 +598,12 @@ export class SoundAudition {
     try {
       while (ran < Math.min(1 + overdue, MAX_WAKE_TICKS) && !this.completed) {
         const result = playback.tick(true, this.target!.adjustment);
-        for (const output of result.outputs) this.audio.output(output);
+        this.audio.outputTick({
+          stream: `audition:${this.stream}`,
+          tick: this.ticksRun,
+          outputs: result.outputs,
+          complete: result.complete,
+        });
         // A lifecycle call reentering through the audio adapter (stop, close,
         // retarget) supersedes this wake; abandon before counting the tick.
         if (this.epoch !== e || this.playback !== playback || this.status !== "playing") return;
@@ -664,7 +670,12 @@ export class SoundAudition {
     this.reconGated = true;
     this.applyLaneAudibility();
     try {
-      if (this.playback === null || this.ticksRun > goal || this.completed) {
+      if (
+        this.playback === null ||
+        this.ticksRun > goal ||
+        this.completed ||
+        this.status === "seeking"
+      ) {
         this.audio.stop();
         // The renderer reset is an outward seam too.
         if (this.epoch !== e) return false;
@@ -750,6 +761,7 @@ export class SoundAudition {
   }
 
   private newPlayback(): SoundPlayback | null {
+    this.stream++;
     if (!this.profile || !this.payload || !this.target) return null;
     try {
       return new SoundPlayback(this.profile, this.payload, this.target.device, (warning) =>

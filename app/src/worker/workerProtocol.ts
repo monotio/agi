@@ -68,6 +68,7 @@ import type {
 import type { DebugValue } from "../../../src/runtime/debugExpression.ts";
 import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import type { SoundOutput } from "../../../src/sound/sound.ts";
+import type { SoundTick } from "../audio/soundTiming.ts";
 import type { RecordedOperation } from "../../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "../authoring/gameRecording.ts";
 import type { LlmRequest } from "../agent/hostRequests.ts";
@@ -924,6 +925,7 @@ export type WorkerPresentation =
   | { type: "soundPaused"; paused: boolean }
   | { type: "sound"; soundNum: number }
   | { type: "soundOutput"; output: SoundOutput }
+  | ({ type: "soundTick" } & SoundTick)
   | { type: "stopSound" }
   | { type: "quit" }
   | { type: "log"; text: string };

@@ -62,7 +62,9 @@ describe("iigs envelopes", () => {
 function fakeContext() {
   const param = () => ({
     value: 0,
-    setValueAtTime(value: number) {
+    writes: [] as [number, number][],
+    setValueAtTime(value: number, at: number) {
+      this.writes.push([value, at]);
       this.value = value;
     },
     exponentialRampToValueAtTime(value: number) {
@@ -76,6 +78,8 @@ function fakeContext() {
     loop: boolean;
     playbackRate: ReturnType<typeof param>;
     stopped: boolean;
+    starts: number[];
+    stops: number[];
   }[] = [];
   const ctx = {
     currentTime: 0,
@@ -90,8 +94,13 @@ function fakeContext() {
         buffer: null,
         loop: false,
         playbackRate: param(),
-        start() {},
-        stop() {
+        starts: [] as number[],
+        stops: [] as number[],
+        start(at: number) {
+          this.starts.push(at);
+        },
+        stop(at: number) {
+          this.stops.push(at);
           this.stopped = true;
         },
       };
@@ -114,7 +123,7 @@ function synth() {
     doc,
     bank,
   });
-  return { instance, sources };
+  return { instance, sources, ctx };
 }
 
 describe("iigs synth voices", () => {
@@ -182,4 +191,48 @@ describe("iigs synth voices", () => {
     instance.output({ kind: "iigs", event: "all-off" });
     assert.equal(sources[1]!.stopped, true);
   });
+});
+
+it("IIgs bank voices start, release and change volume at their supplied tick time", () => {
+  const { instance, sources } = synth();
+  instance.output(
+    { kind: "iigs", event: "note-on", voice: 0, channel: 0, note: 69, volume: 127, program: 0 },
+    10,
+  );
+  instance.output(
+    { kind: "iigs", event: "note-on", voice: 1, channel: 1, note: 72, volume: 127, program: 0 },
+    10,
+  );
+  assert.deepEqual(
+    sources.map((source) => source.starts),
+    [[10], [10]],
+  );
+  assert.equal(sources[0]!.playbackRate.writes[0]![1], 10);
+  instance.output({ kind: "iigs", event: "note-off", voice: 0 }, 10 + 1 / 60);
+  // One attack update has raised the level to 1; release takes two updates.
+  assert.ok(Math.abs(sources[0]!.stops.at(-1)! - (10 + 3 / 60 + 0.01)) < 1e-10);
+});
+
+it("an immediate reset cancels IIgs voices whose scheduled all-off has not sounded yet", () => {
+  const { instance, sources } = synth();
+  instance.output(
+    { kind: "iigs", event: "note-on", voice: 0, channel: 0, note: 69, volume: 127, program: 0 },
+    10,
+  );
+  instance.output({ kind: "iigs", event: "all-off" }, 11);
+  assert.equal(sources[0]!.stops.at(-1), 11);
+  instance.stop();
+  assert.equal(sources[0]!.stops.at(-1), 0);
+});
+
+it("a scheduled IIgs all-off also cuts off notes already in their release", () => {
+  const { instance, sources } = synth();
+  instance.output(
+    { kind: "iigs", event: "note-on", voice: 0, channel: 0, note: 69, volume: 127, program: 0 },
+    10,
+  );
+  instance.output({ kind: "iigs", event: "note-off", voice: 0 }, 11);
+  assert.ok(sources[0]!.stops.at(-1)! > 11.1);
+  instance.output({ kind: "iigs", event: "all-off" }, 11.1);
+  assert.equal(sources[0]!.stops.at(-1), 11.1);
 });

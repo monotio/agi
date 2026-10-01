@@ -13,6 +13,7 @@
 import { reactive } from "vue";
 import type { SoundOutput } from "../../../../../src/sound/sound.ts";
 import type { GameControlBinding } from "../../../../../src/runtime/engine.ts";
+import type { SoundTick } from "../../../audio/soundTiming.ts";
 import type { WorkerOutbound } from "../../../worker/workerProtocol.ts";
 
 /** The frame presentation message — what the composited canvas consumes. */
@@ -21,6 +22,7 @@ export type DebugFrameMessage = Extract<WorkerOutbound, { type: "frame" }>;
 /** The narrow audio surface the bridge needs — AgiAudio satisfies it. */
 export interface DebugAudioPort {
   output(event: SoundOutput): void;
+  outputTick(tick: SoundTick): void;
   stop(): void;
   setPauseOwner(owner: string, paused: boolean): void;
   setMuted?(muted: boolean): void;
@@ -133,7 +135,7 @@ export function createDebugPresentation(options: DebugPresentationOptions): Debu
   let audio: DebugAudioPort | null = null;
   let audioPending = false;
   /** Output that arrived while audio was still being created. */
-  let queuedOutput: SoundOutput | null = null;
+  const queuedOutputs: Extract<WorkerOutbound, { type: "soundOutput" | "soundTick" }>[] = [];
   const audioHolds = new Set<string>();
   /** The epoch that raised the debugger hold — only it may release. */
   let debugAudioEpoch: number | null = null;
@@ -159,6 +161,17 @@ export function createDebugPresentation(options: DebugPresentationOptions): Debu
     view.modal = modal;
   }
 
+  function flushOutput(): void {
+    const current = audio;
+    const gen = generation;
+    if (!current) return;
+    while (queuedOutputs.length > 0 && !disposed && gen === generation && audio === current) {
+      const packet = queuedOutputs.shift()!;
+      if (packet.type === "soundTick") current.outputTick(packet);
+      else current.output(packet.output);
+    }
+  }
+
   function ensureAudio(): void {
     if (audio || audioPending || !options.createAudio || disposed) return;
     audioPending = true;
@@ -174,11 +187,7 @@ export function createDebugPresentation(options: DebugPresentationOptions): Debu
         }
         audio = created;
         for (const owner of audioHolds) audio.setPauseOwner(owner, true);
-        if (queuedOutput) {
-          const out = queuedOutput;
-          queuedOutput = null;
-          audio.output(out);
-        }
+        flushOutput();
         syncView();
       },
       () => {
@@ -196,7 +205,7 @@ export function createDebugPresentation(options: DebugPresentationOptions): Debu
   function resetAudio(): void {
     audioHolds.clear();
     debugAudioEpoch = null;
-    queuedOutput = null;
+    queuedOutputs.length = 0;
     if (audio) {
       for (const owner of ["debugger", "worker"]) audio.setPauseOwner(owner, false);
       audio.stop();
@@ -239,19 +248,16 @@ export function createDebugPresentation(options: DebugPresentationOptions): Debu
             options.present(message);
             break;
           case "soundOutput":
-            queuedOutput = message.output;
+          case "soundTick":
+            queuedOutputs.push(message);
             ensureAudio();
-            if (audio) {
-              const out = queuedOutput;
-              queuedOutput = null;
-              audio.output(out);
-            }
+            flushOutput();
             break;
           case "soundPaused":
             setHold("worker", message.paused);
             break;
           case "stopSound":
-            queuedOutput = null;
+            queuedOutputs.length = 0;
             audio?.stop();
             break;
           case "soundEnabled":

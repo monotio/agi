@@ -89,10 +89,10 @@ test("audition plays a native cue on its own context and preserves the game's ho
     // executed tick count, and each output stamps the context clock.
     const wakeTimes: number[] = [];
     const contextTimes: number[] = [];
-    const original = previewAudio.output.bind(previewAudio);
-    previewAudio.output = (event) => {
-      contextTimes.push(previewContext.currentTime);
-      original(event);
+    const original = previewAudio.outputTick.bind(previewAudio);
+    previewAudio.outputTick = (packet) => {
+      contextTimes.push(...packet.outputs.map(() => previewContext.currentTime));
+      original(packet);
     };
     audition.subscribe((snapshot) => {
       if (snapshot.status === "playing") wakeTimes.push(performance.now());

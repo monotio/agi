@@ -673,10 +673,8 @@ test("a take mid-envelope adopts the v3 table and crosses its hold", () => {
   send({ type: "pause", paused: false });
   tick(12);
   const attenuations = h.presentation
-    .filter(
-      (m): m is Extract<WorkerPresentation, { type: "soundOutput" }> => m.type === "soundOutput",
-    )
-    .map((m) => m.output)
+    .filter((m): m is Extract<WorkerPresentation, { type: "soundTick" }> => m.type === "soundTick")
+    .flatMap((m) => m.outputs)
     .filter((o): o is { kind: "psg"; bytes: number[] } => o.kind === "psg")
     .map((o) => o.bytes.at(-1)!)
     .filter((b) => (b & 0xf0) === 0x90);
