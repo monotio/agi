@@ -1,26 +1,26 @@
-import { expect, test, reviewShot } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import {
-  isolateStorage,
-  openWorldRoom,
-  waitForCycles,
-  waitForRoom,
-  textHook,
-} from "./engineProbe.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
-import { buildView, type BuildViewInput } from "../../src/view/view.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
+import { buildView, type BuildViewInput } from "../../src/view/view.ts";
+import {
+  closeWorkspaceEditor,
+  isolateStorage,
+  openWorkspacePicture,
+  openWorkspaceView,
+  textHook,
+  waitForRoom,
+  workspaceSaved,
+} from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
+import {
+  focusWorkspaceLogic,
+  openStoredWorkspace,
+  openWorkspaceLogic,
+  workspaceDocumentEnd,
+} from "./workspaceShared.ts";
 
-/**
- * Cross-editor coherence in the real app: a local project holds its native
- * files and its workspace envelope together. An ordinary Room or Sprite
- * Studio Keep — the live commit path over the running game — must leave
- * the envelope verifying against the files it describes, so the next Logic
- * Studio build and Keep is not refused by a stale claim the other editor
- * left behind. The Logic Keep is also exercised first, so both orders of
- * the same two editors are covered.
- */
+/** PICTURE, VIEW and LOGIC edits keep stored source and compiled bytes coherent. */
 test.use({ viewport: { width: 1440, height: 900 } });
 
 /** Create a local project through the same dialog a player uses; returns its id. */
@@ -63,69 +63,15 @@ async function seedLocal(
 
 /** Open a stored project's Logic Studio from its library card's Edit item. */
 async function editFromLibrary(page: Page, title: string): Promise<void> {
-  const card = page
-    .getByTestId("saved-game-gallery")
-    .locator("[data-project-id]")
-    .filter({ has: page.getByTestId("saved-game-title").filter({ hasText: title }) });
-  const trigger = card.getByRole("button", { name: "Game actions", exact: true });
-  if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
-  await page
-    .getByRole("menu", { name: "Game actions", exact: true })
-    .getByTestId("edit-library-game")
-    .click();
-  await expect(page.getByTestId("logic-studio")).toBeVisible();
-  await page.getByTestId("logic-explorer").getByTestId("logic-doc-logic:1").click();
-}
-
-/** Boot a stored project from its library card into room 1, in Create. */
-async function playFromLibrary(page: Page, title: string): Promise<void> {
-  const card = page
-    .getByTestId("saved-game-gallery")
-    .locator("[data-project-id]")
-    .filter({ has: page.getByTestId("saved-game-title").filter({ hasText: title }) });
-  await card.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  if ((await textHook(page)).modal === "print") {
-    await page.locator(".screen").click();
-    await page.keyboard.press("Enter");
-    await expect.poll(async () => (await textHook(page)).modal).toBe(null);
-  }
-  await waitForRoom(page, 1, { coldBoot: true });
-  const create = page.getByRole("radio", { name: "Create", exact: true });
-  if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
-  await expect(page).toHaveURL(/#create\//);
-  await waitForCycles(page, 2);
-}
-
-/** The shell entry the library's Edit uses, over the running game. */
-async function openLogicStudio(page: Page, projectId: string): Promise<void> {
-  await page.evaluate((id) => {
-    (window as unknown as { __AGI_LOGIC__: { open(projectId: string): void } }).__AGI_LOGIC__.open(
-      id,
-    );
-  }, projectId);
-  await expect(page.getByTestId("logic-studio")).toBeVisible();
-  await page.getByTestId("logic-explorer").getByTestId("logic-doc-logic:1").click();
+  await openStoredWorkspace(page, title);
+  await openWorkspaceLogic(page);
 }
 
 async function appendComment(page: Page, text: string): Promise<void> {
-  await page.getByTestId("logic-editor").locator(".view-lines").click();
-  await page.keyboard.press("ControlOrMeta+End");
+  await focusWorkspaceLogic(page);
+  await workspaceDocumentEnd(page);
   await page.keyboard.press("Enter");
   await page.keyboard.type(text);
-}
-
-/** Build the draft and confirm the Keep in its review dialog. */
-async function buildAndKeep(page: Page): Promise<void> {
-  await page.getByTestId("logic-review-build").click();
-  await expect(page.getByTestId("logic-review-dialog")).toBeVisible();
-  await page.getByTestId("logic-keep-confirm").click();
-  await expect(page.getByTestId("logic-studio-status")).toContainText("No changes");
-}
-
-async function closeLogicStudio(page: Page): Promise<void> {
-  await page.getByTestId("logic-close").click();
-  await expect(page.getByTestId("logic-studio")).toBeHidden();
 }
 
 /** What the stored record now holds for one resource and its workspace claim. */
@@ -200,7 +146,7 @@ async function drawRect(page: Page, studio: Locator): Promise<void> {
   await page.keyboard.press("Space");
 }
 
-test("a Room Studio Keep keeps the workspace agreeing so Logic Studio still builds and keeps @webkit-desktop", async ({
+test("PICTURE autosave preserves workspace claims for the next LOGIC edit @webkit-desktop", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -218,33 +164,31 @@ test("a Room Studio Keep keeps the workspace agreeing so Logic Studio still buil
   const projectId = await seedLocal(page, "Workspace coherence", "boilerplate");
   await page.reload();
 
-  // Reverse order first: a Logic Studio Keep lands on the stored project
-  // before the game boots and before the resource Keep.
+  // A source-only LOGIC edit saves before the resource gesture.
   await editFromLibrary(page, "Workspace coherence");
   await appendComment(page, "// kept before the room edit");
-  await expect(page.getByTestId("logic-studio-status")).toContainText("1 change");
-  await buildAndKeep(page);
-  await closeLogicStudio(page);
-  await playFromLibrary(page, "Workspace coherence");
+  await workspaceSaved(page);
+  await closeWorkspaceEditor(page);
+  if ((await textHook(page)).modal === "print") {
+    await page.locator(".screen").click();
+    await page.keyboard.press("Enter");
+  }
 
   // The running game's Room Studio draws and keeps a real picture change.
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   await drawRect(page, studio);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   const draft = Uint8Array.from(await page.evaluate(() => [...window.__AGI_STUDIO__!.bytes()]));
   await reviewShot(page, "resource-workspace-room-draft");
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
+  await workspaceSaved(page);
   await reviewShot(page, "resource-workspace-room-kept");
-  await studio.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
 
   // The same conditional write left files and envelope agreeing: the kept
   // bytes are stored, the picture's claim is its new source, the Logic
-  // Keep's commented text survives, and re-verification finds nothing stale.
+  // The saved commented text survives, and re-verification finds nothing stale.
   const stored = await storedClaim(page, projectId, "picture", 1);
   expect(stored.bytes).toEqual([...draft]);
   expect(typeof stored.claim).toBe("string");
@@ -255,23 +199,23 @@ test("a Room Studio Keep keeps the workspace agreeing so Logic Studio still buil
   expect(stored.rejected).toEqual([]);
 
   // Reopening builds and keeps a further LOGIC edit without review refusal.
-  await openLogicStudio(page, projectId);
-  await expect(page.getByTestId("logic-editor").locator(".view-lines")).toContainText(
-    "kept before the room edit",
-  );
+  await openWorkspaceLogic(page);
+  await expect(
+    page.getByTestId("workspace-logic-editor").filter({ visible: true }).locator(".view-lines"),
+  ).toContainText("kept before the room edit");
   await appendComment(page, "// kept after the room edit");
-  await buildAndKeep(page);
+  await workspaceSaved(page);
   await reviewShot(page, "resource-workspace-logic-rekept");
   const again = await storedClaim(page, projectId, "picture", 1);
   expect(again.logicOne).toContain("// kept after the room edit");
   expect(again.claim).toBe(stored.claim);
-  await closeLogicStudio(page);
+  await closeWorkspaceEditor(page);
 
   expect(providerCalls).toBe(0);
   expect(pageErrors).toEqual([]);
 });
 
-test("a Sprite Studio Keep keeps the workspace agreeing so Logic Studio still builds and keeps @webkit-desktop", async ({
+test("VIEW autosave preserves workspace claims for the next LOGIC edit @webkit-desktop", async ({
   page,
 }) => {
   await isolateStorage(page);
@@ -289,9 +233,7 @@ test("a Sprite Studio Keep keeps the workspace agreeing so Logic Studio still bu
   const projectId = await createLocal(page, "Sprite coherence", "starter");
 
   // Sprite Studio repaints a pixel of the ego's VIEW 0 and keeps it.
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
+  await openWorkspaceView(page, 0);
   const studio = page.getByTestId("sprite-studio");
   await expect(studio).toBeVisible();
   await studio.locator('[data-colour="4"]').click();
@@ -300,12 +242,11 @@ test("a Sprite Studio Keep keeps the workspace agreeing so Logic Studio still bu
   await page.keyboard.press("b");
   await page.keyboard.press("Space");
   await page.keyboard.press("Space");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   await reviewShot(page, "resource-workspace-sprite-draft");
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
+  await workspaceSaved(page);
   await reviewShot(page, "resource-workspace-sprite-kept");
-  await studio.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
 
   const stored = await storedClaim(page, projectId, "view", 0);
   if (typeof stored.claim === "string") {
@@ -319,13 +260,13 @@ test("a Sprite Studio Keep keeps the workspace agreeing so Logic Studio still bu
   expect(stored.sourceReview).toBe(false);
   expect(stored.rejected).toEqual([]);
 
-  await openLogicStudio(page, projectId);
+  await openWorkspaceLogic(page);
   await appendComment(page, "// kept after the sprite edit");
-  await buildAndKeep(page);
+  await workspaceSaved(page);
   const again = await storedClaim(page, projectId, "view", 0);
   expect(again.logicOne).toContain("// kept after the sprite edit");
   expect(again.claim).toEqual(stored.claim);
-  await closeLogicStudio(page);
+  await closeWorkspaceEditor(page);
 
   expect(providerCalls).toBe(0);
   expect(pageErrors).toEqual([]);

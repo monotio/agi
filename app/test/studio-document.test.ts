@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { nextTick, ref } from "vue";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE as profile } from "../../src/runtime/profile.ts";
 import { itemMask } from "../../src/studio/pictureQuery.ts";
@@ -336,6 +337,23 @@ test("the playhead shows the picture drawn up to it and the pixel owners at that
   assert.deepEqual(Uint8Array.from(doc.surface.value.priority), new Uint8Array(160 * 168).fill(4));
   assert.equal(doc.pixelInfo(1, 1).priority.rowId, undefined);
   assert.equal(doc.pixelInfo(1, 0).visual.entry, 1);
+});
+
+test("source trust updates preserve the playhead while changed drawing commands reset it", async () => {
+  const source = ref(SMALL);
+  const trusted = ref(false);
+  const doc = useStudioDocument(() => ({ source: source.value, trusted: trusted.value, profile }));
+  doc.playhead.value = 2;
+  const before = Uint8Array.from(doc.surface.value.visual);
+  trusted.value = true;
+  await nextTick();
+  assert.equal(doc.model.value.trusted, true);
+  assert.equal(doc.playhead.value, 2);
+  assert.deepEqual(Uint8Array.from(doc.surface.value.visual), before);
+  source.value = SMALL.replace(/end\n$/, "vis 1\nline 0,3 3,3\nend\n");
+  await nextTick();
+  assert.equal(doc.total.value, 9);
+  assert.equal(doc.playhead.value, 9);
 });
 
 test("row masks: Unassigned uses the loose lines' pixels", () => {

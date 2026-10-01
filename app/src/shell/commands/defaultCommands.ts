@@ -34,14 +34,16 @@ const DEFAULTS = {
     title: "Undo",
     key: "Mod+Z",
     game: true,
-    when: (c) => !c.textInputFocus,
+    textInput: true,
+    when: (c) => c.editorFocus || !c.textInputFocus,
   },
   redo: {
     id: "edit.redo",
     title: "Redo",
     key: "Mod+Shift+Z",
     game: true,
-    when: (c) => !c.textInputFocus,
+    textInput: true,
+    when: (c) => c.editorFocus || !c.textInputFocus,
   },
   play: {
     id: "game.play",

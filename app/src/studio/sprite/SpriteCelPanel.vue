@@ -149,7 +149,7 @@ function chooseTransparent(): void {
   if (!root) return;
   disclosure.value?.show();
   void nextTick(() => {
-    const select = root.querySelector<HTMLElement>("[data-testid='actor-transparent-colour']");
+    const select = root.querySelector<HTMLElement>("[data-testid='sprite-transparent-colour']");
     select?.scrollIntoView({ block: "nearest" });
     select?.focus();
   });

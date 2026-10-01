@@ -1,6 +1,6 @@
-import { expect, reviewShot, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, openWorldRoom, textHook } from "./engineProbe.ts";
+import { enterCreateMode, openWorkspacePicture, textHook, workspaceSaved } from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
 /**
  * Selecting and moving in Room Studio's Select tool are separate gestures,
@@ -20,11 +20,9 @@ const FRAME = ["frame", "canvas", "sketch", "picture-light", "plaque"];
 async function openGallery(page: Page): Promise<Locator> {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   await expect(studio.locator('[data-row="frame"]')).toHaveCount(1);
   return studio;
@@ -77,15 +75,15 @@ test("a plain drag off the selection draws a box that replaces it with the items
   await expect(studio.locator('[data-role="marquee"]')).toHaveCount(0);
   // The box replaces the selection: the walls and the band it started on are out.
   expect(await selectedRows(studio)).toEqual(FRAME);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
-  expect(await source(page)).toBe(original);
+  await workspaceSaved(page);
+  await expect.poll(() => source(page)).toBe(original);
   // A box that catches nothing clears the selection and says so.
   await drag(page, await cell(page, 150, 60), await cell(page, 155, 65));
   expect(await selectedRows(studio)).toEqual([]);
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     "No item lies wholly inside the box.",
   );
-  expect(await source(page)).toBe(original);
+  await expect.poll(() => source(page)).toBe(original);
 });
 
 test("dragging the selection moves it as one step, and the cursor says which drag moves @webkit-desktop", async ({
@@ -100,14 +98,14 @@ test("dragging the selection moves it as one step, and the cursor says which dra
   expect(await cursorAt(page, 150, 60)).toBe("default");
   // From the canvas, 3 right: every selected item moves.
   await drag(page, await cell(page, 80, 50), await cell(page, 83, 50));
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   const moved = await source(page);
   expect(moved).toContain("rect 50,24 115,79");
   expect(moved).toContain("rect 75,81 90,84");
   expect(await selectedRows(studio)).toEqual(FRAME);
   await reviewShot(page, "select-move-moved");
-  await studio.getByTestId("studio-undo").click();
-  expect(await source(page)).toBe(original);
+  await page.getByTestId("workspace-undo").click();
+  await expect.poll(() => source(page)).toBe(original);
   // The drawing tools keep the crosshair.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("l");
@@ -125,7 +123,7 @@ test("at 200% a drag on the small plaque in Select moves the whole item, not a p
   await expect(studio.locator("[data-handle]")).toHaveCount(0);
   // From 76,82, beside the plaque's point 74,82: 3 right moves every line of it.
   await drag(page, await cell(page, 76, 82), await cell(page, 79, 82));
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   const moved = await source(page);
   expect(moved).toContain("rect 75,81 90,84");
   expect(moved).toContain("line 77,82 81,82");
@@ -140,7 +138,7 @@ test("a drag toward the edge stops at it and is kept; one past the edge says whi
   expect(await selectedRows(studio)).toEqual(FRAME);
   // 100 rows up: the picture light's top row, 19, stops the selection after 19.
   await drag(page, await cell(page, 80, 50), await cell(page, 80, -50));
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   expect(await source(page)).toContain("rect 47,5 112,60");
   expect(await source(page)).toContain("rect 63,0 96,2");
   // At the edge, a drag further up goes nowhere and names the item there.
@@ -148,7 +146,7 @@ test("a drag toward the edge stops at it and is kept; one past the edge says whi
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     "Picture light is at the picture's top edge.",
   );
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   expect(await source(page)).toContain("rect 63,0 96,2");
 });
 
@@ -171,5 +169,5 @@ test("the margin around the picture is empty canvas: a click clears, a drag draw
   await drag(page, [box.x + box.width + 12, y85], await cell(page, 111, 118));
   await page.keyboard.up("Shift");
   expect((await selectedRows(studio)).sort()).toEqual([...FRAME, "cart"].sort());
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  await workspaceSaved(page);
 });

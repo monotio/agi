@@ -1,24 +1,25 @@
-import { expect, test } from "./test.ts";
-import { testProjectId } from "../test/identity.ts";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/archive/zip.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { buildProjectZip } from "../src/archive/projectArchive.ts";
+import { buildZip } from "../src/archive/zip.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   configureAi,
+  enterCreateMode,
   isolateStorage,
   openLibraryActions,
+  openWorkspaceAgent,
   savedGameCard,
   storedAutosave,
   textHook,
   waitForCycles,
-  enterCreateMode,
 } from "./engineProbe.ts";
-import { providerReply } from "../../test/provider-stream.ts";
-import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
+import { expect, test } from "./test.ts";
 
 function tinyGame(message = "A library adventure."): {
   files: { name: string; data: Uint8Array }[];
@@ -370,7 +371,7 @@ test("the first catalog edit forks a remix and preserves the original", async ({
     );
   });
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("agent-bubble-input").fill("Rename the picture gallery");
   await page.getByTestId("agent-bubble-send").click();

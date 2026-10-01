@@ -1,8 +1,8 @@
-import { expect, reviewShot, test } from "./test.ts";
 import { openLibraryActions, savedGameCard } from "./engineProbe.ts";
 import { blockProviders, createProjectViaUi, prepareIsolatedPage } from "./logicDebugShared.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
-test("gallery Edit opens the project overview and its resource workspace @webkit-desktop", async ({
+test("gallery Edit opens the running workspace and its resource parts @webkit-desktop", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -21,13 +21,13 @@ test("gallery Edit opens the project overview and its resource workspace @webkit
     .getByRole("menu", { name: "Game actions", exact: true })
     .getByTestId("edit-library-game")
     .click();
-  const overview = page.getByTestId("project-studio-overview");
+  const overview = page.getByTestId("parts-list");
   await expect(overview).toBeVisible();
-  await expect(overview).toContainText(title);
-  const explorer = page.getByTestId("project-studio-explorer");
+  await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+  const explorer = page.getByTestId("parts-list");
   await expect(explorer).toBeVisible();
-  for (const family of ["Logic", "Pictures", "Views", "Sounds", "Words", "Inventory"]) {
-    await expect(explorer.getByText(family, { exact: true })).toBeVisible();
+  for (const family of ["SHARED LOGIC", "PICTURES", "VIEWS", "SOUNDS", "WORDS", "OBJECTS"]) {
+    await expect(explorer.getByRole("heading", { name: family, exact: true })).toBeVisible();
   }
   await reviewShot(page, "studio-project-overview");
   expect(providers.count()).toBe(0);

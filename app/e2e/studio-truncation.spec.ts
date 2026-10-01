@@ -1,12 +1,19 @@
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, textHook, openWorldRoom } from "./engineProbe.ts";
+import {
+  closeWorkspaceEditor,
+  enterCreateMode,
+  isolateStorage,
+  openWorkspacePicture,
+  openWorkspaceView,
+  textHook,
+} from "./engineProbe.ts";
 import { clipped } from "./studioFit.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Studio's meaning-bearing lines are read whole: the tool's hint, the
- * status readout, a notice, a test walk's result, the fill's Why, the
- * scrubber's command and the sprite's subtitle either fit their box or wrap.
+ * status readout, a notice, the fill's Why and the sprite's hint
+ * either fit their box or wrap.
  * None is cut off with an ellipsis, at 1440 with the side panels open,
  * 1280 and 1024.
  */
@@ -34,9 +41,7 @@ for (const [width, height] of [
   test(`at ${width}×${height} Studio's lines of meaning are never cut short`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await playTutorial(page);
-    const panel = page.getByTestId("world-panel");
-    await openWorldRoom(panel, 2);
-    await panel.getByTestId("world-open-studio").click();
+    await openWorkspacePicture(page, 2);
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
     const seen: string[] = [];
@@ -45,13 +50,12 @@ for (const [width, height] of [
       seen.push(...(await clipped(target)).map((line) => `${name}: ${line}`));
     };
 
-    // The status readout of a pixel, the scrubber's command, the Select tool's hint.
+    // The status readout of a pixel and the Select tool's hint.
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
     await page.mouse.move(...(await cell(page, 80, 120)));
     await expect(studio.getByTestId("studio-status")).toContainText("x 80");
     await look("status", studio.getByTestId("studio-status"));
     await look("hint", studio.getByTestId("studio-hint"));
-    await look("scrubber", studio.getByTestId("scrubber-command"));
 
     // A fill on coloured ground: its Why, and a notice.
     await studio.getByRole("group", { name: /^Canvas/ }).focus();
@@ -72,24 +76,12 @@ for (const [width, height] of [
     await expect(studio.getByTestId("studio-notice")).toHaveCount(0);
     await expect(studio.getByTestId("studio-hint")).toBeVisible();
 
-    // A test walk's result.
-    await page.keyboard.press("3");
-    await page.keyboard.press("t");
-    await studio.locator('[data-role="door"][data-destination="1"] polygon').click();
-    await page.mouse.click(...(await cell(page, 30, 140)));
-    await expect(studio.getByTestId("walk-result-title")).toHaveText("Reached", {
-      timeout: 30_000,
-    });
-    await look("walk", studio.getByTestId("walk-result"));
-    await studio.getByTestId("studio-close").click();
+    await closeWorkspaceEditor(page);
     await expect(studio).toBeHidden();
 
     // The sprite's subtitle.
-    await openWorldRoom(panel, 1);
-    await panel.getByTestId("world-open-sprite-0").click();
+    await openWorkspaceView(page, 0, false);
     const sprite = page.getByTestId("sprite-studio");
-    await look("sprite subtitle", sprite.getByTestId("sprite-subtitle"));
-    await look("sprite usage", sprite.getByTestId("sprite-usage"));
     await look("sprite hint", sprite.getByTestId("sprite-hint"));
     expect(seen).toEqual([]);
   });

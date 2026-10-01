@@ -17,7 +17,7 @@ export async function keepDetectedProfile(page: Page): Promise<void> {
  * The Studios' first-run tour (app/src/studio/useStudioTour.ts) marks the
  * Studios toured, so it stays out of specs that open a Studio for other
  * reasons; `isolateStorage` keeps the record through its clear.
- * e2e/studio-tour.spec.ts uses `studioTour: "fresh"` to meet it.
+ * The standalone editor harness can use `studioTour: "fresh"` to meet it.
  */
 export const STUDIO_TOUR_KEY = "monotio_agi.studioTour";
 export async function seeStudioTours(page: Page): Promise<void> {

@@ -11,7 +11,7 @@
  * followedItem).
  */
 
-import { computed, onScopeDispose, shallowRef, type Ref } from "vue";
+import { computed, onScopeDispose, shallowRef, watch, type Ref } from "vue";
 import { limitMove, type EditOperation } from "../../../src/studio/editOperations.ts";
 import {
   groupPart,
@@ -62,6 +62,7 @@ export function useStudioEditing(options: {
 }) {
   const { draft, selectedId } = options;
   const { notice, say, dismiss } = useStudioNotice();
+  watch(draft.source, () => say(null), { flush: "sync" });
   const flash = shallowRef<Uint8Array | null>(null);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   onScopeDispose(() => clearTimeout(flashTimer));

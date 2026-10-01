@@ -1,9 +1,16 @@
 import type { Page } from "@playwright/test";
-import { expect, test, reviewShot } from "./test.ts";
-import { openLibraryActions, savedGameCard, screenText, textHook } from "./engineProbe.ts";
-import { blockProviders, prepareIsolatedPage } from "./logicDebugShared.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
+import {
+  openLibraryActions,
+  savedGameCard,
+  screenText,
+  textHook,
+  workspaceSaved,
+} from "./engineProbe.ts";
+import { blockProviders, prepareIsolatedPage } from "./logicDebugShared.ts";
+import { expect, reviewShot, test } from "./test.ts";
+import { replaceWorkspaceDocument as replaceDocument } from "./workspaceShared.ts";
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -30,57 +37,6 @@ async function storedProject(page: Page, title: string) {
       ),
     };
   }, title);
-}
-
-/** Select with the keyboard and paste through the editor's DOM input. */
-async function replaceDocument(page: Page, key: string, text: string): Promise<void> {
-  await page.getByTestId("logic-explorer").getByTestId(`logic-doc-${key}`).click();
-  await page.getByTestId("logic-editor").locator(".view-lines").click();
-  const modifier = await page.evaluate(() =>
-    navigator.userAgent.includes("Macintosh") ? "Meta" : "Control",
-  );
-  await page.keyboard.press(`${modifier}+a`);
-  const selection = await page.evaluate(async () => {
-    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-    const editor = monaco.editor
-      .getEditors()
-      .find((item) => item.getDomNode()?.closest("[data-testid='logic-editor']"));
-    const model = editor?.getModel();
-    const selected = editor?.getSelection();
-    return {
-      userAgent: navigator.userAgent,
-      value: model?.getValue(),
-      selected: model && selected ? model.getValueInRange(selected) : null,
-    };
-  });
-  await test.info().attach(`selection-${key}`, {
-    body: JSON.stringify(selection),
-    contentType: "application/json",
-  });
-  expect(selection.selected).toBe(selection.value);
-  await page
-    .getByTestId("logic-editor")
-    .locator(".native-edit-context, textarea.inputarea")
-    .first()
-    .evaluate((surface, source) => {
-      const data = new DataTransfer();
-      data.setData("text/plain", source);
-      surface.dispatchEvent(
-        new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
-      );
-    }, text);
-  await page.keyboard.press("Escape");
-  await expect
-    .poll(() =>
-      page.evaluate(async (wanted) => {
-        const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-        return monaco.editor
-          .getModels()
-          .find((model) => model.uri.toString().endsWith(`/${encodeURIComponent(wanted)}`))
-          ?.getValue();
-      }, key),
-    )
-    .toBe(text);
 }
 
 async function command(page: Page, text: string, reply: string): Promise<void> {
@@ -138,7 +94,7 @@ return;
     const card = savedGameCard(page, title);
     await openLibraryActions(page, card);
     await page.getByTestId("edit-library-game").click();
-    await expect(page.getByTestId("logic-studio")).toBeVisible();
+    await expect(page.getByTestId("parts-list")).toBeVisible();
     await replaceDocument(page, "words", JSON.stringify(words, null, 2));
     await replaceDocument(
       page,
@@ -146,15 +102,8 @@ return;
       JSON.stringify([{ name: "bronze relic", startingRoom: 1 }], null, 2),
     );
     await replaceDocument(page, "logic:1", source);
-    await expect(page.getByTestId("logic-studio-status")).toContainText("3 changes");
-    await page.getByTestId("logic-review-build").click();
-    await reviewShot(page, `manual-inventory-${kind}-review`);
-    await expect(
-      page.getByTestId("logic-keep-confirm"),
-      (await page.getByTestId("logic-review-error").allTextContents()).join("\n"),
-    ).toBeEnabled();
-    await page.getByTestId("logic-keep-confirm").click();
-    await expect(page.getByTestId("logic-studio-status")).toContainText("No changes");
+    await workspaceSaved(page);
+    await reviewShot(page, `manual-inventory-${kind}-saved`);
     const kept = await storedProject(page, title);
     expect(kept.documents["logic:1"]).toBe(source);
     expect(JSON.parse(kept.documents["inventory"]!)).toEqual([
@@ -168,8 +117,8 @@ return;
     const compiledWords = parseWordsTok(container.files.get("WORDS.TOK")!);
     expect(compiledWords.some((entry) => entry.word === "relic")).toBe(true);
     expect(kept.files["OBJECT"]).not.toEqual(before.files["OBJECT"]);
-    await page.getByTestId("logic-close").click();
-    await expect(page.getByTestId("logic-studio")).toBeHidden();
+    await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("parts-list")).toBeHidden();
     // Playtest the newly kept bytes from the opening; earlier progress remains separate.
     await openLibraryActions(page, savedGameCard(page, title));
     await page.getByTestId("start-library-game-over").click();

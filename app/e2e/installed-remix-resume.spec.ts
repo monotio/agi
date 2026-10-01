@@ -1,13 +1,20 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { configureAi, openGameOptions, savedGameCard, enterCreateMode } from "./engineProbe.ts";
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { gameRevision } from "../src/project/gameMetadata.ts";
-import { readFile } from "node:fs/promises";
-import { textHook, isolateStorage } from "./engineProbe.ts";
+import {
+  configureAi,
+  enterCreateMode,
+  isolateStorage,
+  openGameOptions,
+  openWorkspaceAgent,
+  savedGameCard,
+  textHook,
+} from "./engineProbe.ts";
 
 test("an installed-game remix survives immediate Menu, Resume, reload and project export", async ({
   page,
@@ -77,7 +84,7 @@ test("an installed-game remix survives immediate Menu, Resume, reload and projec
   await page.getByTestId("boot-sample").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("Add an alligator");
   await page.getByTestId("agent-bubble-send").click();

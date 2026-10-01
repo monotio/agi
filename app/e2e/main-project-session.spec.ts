@@ -1,11 +1,11 @@
-import { test, expect, reviewShot } from "./test.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
-import { requireProjectId } from "../../src/gameIdentity.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
-import { createContainer } from "../../src/container/container.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
-import type { WorkerQueryFn, WorkerInbound } from "../src/worker/workerProtocol.ts";
+import type { WorkerInbound, WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
 interface ProjectProbe {
   getSession(): ProjectSession | null;
@@ -96,21 +96,12 @@ test("MAIN Create edits, Undo and invalid source autosave survive reopen", async
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("New room");
   await expect
     .poll(() =>
-      page.evaluate(async () => {
-        const url = document.querySelector(".node-thumb")?.getAttribute("href");
-        if (url === null || url === undefined) return [];
-        const image = new Image();
-        image.src = url;
-        await image.decode();
-        const canvas = document.createElement("canvas");
-        canvas.width = image.width;
-        canvas.height = image.height;
-        const context = canvas.getContext("2d")!;
-        context.drawImage(image, 0, 0);
-        return Array.from(context.getImageData(1, 1, 1, 1).data).slice(0, 3);
+      page.evaluate(() => {
+        const frame = window.__AGI_FRAME__?.();
+        return frame?.visual[161];
       }),
     )
-    .toEqual([170, 0, 0]);
+    .toBe(4);
   await reviewShot(page, "main-project-live-message");
   await page.evaluate(() => {
     const probe = (window as unknown as { __AGI_PROJECT__: ProjectProbe }).__AGI_PROJECT__;
