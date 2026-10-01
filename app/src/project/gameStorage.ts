@@ -1301,6 +1301,114 @@ export function updateAuthoredReferences(
   });
 }
 
+/**
+ * Remove exactly the carried recovery draft the user reviewed from the
+ * stored body — and nothing else. The reviewed payload is detached and
+ * canonicalized before any wait, and every check runs inside the final
+ * read-write transaction: the record must still be a readable project at
+ * the same generation and history lifetime, holding the same playable
+ * revision, authoring content and the same recovery bytes. A moved, removed
+ * or unreadable record refuses with every byte and sidecar record intact;
+ * an unreadable reviewed payload never reaches storage at all. Only
+ * `recoveryDraft` leaves the raw body and the generation advances one step,
+ * like any project write. Resolves the committed body so the caller can
+ * adopt the new baseline; a failed disposable-index write after the commit
+ * reports `indexRepairPending` instead of uncommitting durable state.
+ */
+export function discardPortableRecovery(
+  projectId: ProjectId,
+  expected: {
+    readonly generation: number;
+    readonly lifetime: string;
+    readonly revision: ResourceRevision;
+    readonly authoring: AuthoringFingerprint;
+    readonly recovery: unknown;
+  },
+): Promise<{
+  data: CachedGameData;
+  /** The committed generation — always numeric, since the write assigned it. */
+  generation: number;
+  warnings: readonly "indexRepairPending"[];
+}> {
+  const decoded = readProjectRecovery(expected.recovery);
+  const reviewed = canonicalJson(writeProjectRecovery(decoded.base, decoded.recovery));
+  const generation = expected.generation;
+  const lifetime = expected.lifetime;
+  const revision = expected.revision;
+  const authoring = expected.authoring;
+  if (!Number.isSafeInteger(generation) || generation < 0 || lifetime.length === 0)
+    throw new Error("Invalid recovery discard base.");
+  const nextGeneration = generation + 1;
+  if (!Number.isSafeInteger(nextGeneration)) throw new Error("Project generation limit reached.");
+  return serializeWrite(projectId, async () => {
+    readableIndex(projectId);
+    let previousLifetime: HistoryLifetime | undefined;
+    const committed = await updateBodyRecords(
+      projectId,
+      (raw) => {
+        const stored = raw as StoredGameBody | undefined;
+        if (stored === undefined)
+          throw new ProjectDeletedError(`Project "${projectId}" was removed by another window.`);
+        if (stored.format !== "monotio.agi.stored-project" || ![1, 2].includes(stored.version))
+          throw new Error(UNREADABLE_PROJECT_MESSAGE);
+        // A record this release cannot fully read — including its carried
+        // draft — is preserved rather than rewritten past unknown bytes.
+        const data = readStoredBody(stored, projectId);
+        data.library = readLibrary(data);
+        if (!lifetimeHolds(lifetime, liveLifetime(previousLifetime)))
+          throw new ProjectDeletedError(
+            `Project "${projectId}" was removed or replaced by another window.`,
+          );
+        if (generationOf(stored) !== generation)
+          throw new ConcurrencyConflictError(
+            `Project "${projectId}" was modified by another window (expected generation ${generation}, found ${generationOf(stored)}).`,
+            stored,
+          );
+        if (
+          data.library?.revision !== revision ||
+          authoringFingerprint(data.authoringState, data.workspace) !== authoring
+        )
+          throw new ConcurrencyConflictError(
+            `Project "${projectId}" was modified by another window.`,
+            stored,
+          );
+        if (data.recoveryDraft === undefined || canonicalJson(data.recoveryDraft) !== reviewed)
+          throw new ConcurrencyConflictError(
+            `The carried draft in project "${projectId}" changed while it was being reviewed.`,
+            stored,
+          );
+        // The put rebuilds the raw record minus the draft, so unknown
+        // extension fields and native bytes carry through untouched.
+        const { recoveryDraft: _discarded, ...kept } = stored;
+        const committedData: CachedGameData = { ...data, generation: nextGeneration };
+        delete committedData.recoveryDraft;
+        return {
+          result: committedData,
+          puts: [{ ...kept, generation: nextGeneration }],
+        };
+      },
+      {
+        key: `lifetime/${projectId}`,
+        check: (raw) => {
+          previousLifetime = raw as HistoryLifetime | undefined;
+        },
+      },
+    );
+    const warnings: "indexRepairPending"[] = [];
+    try {
+      // The disposable index follows the committed body; reconcile repairs
+      // a failed write here, the committed body is never rewritten for it.
+      localStorage.setItem(getStorageKey(projectId), JSON.stringify(storedIndex(committed)));
+    } catch {
+      warnings.push("indexRepairPending");
+    }
+    // The authoring content did not change, so the notice carries no
+    // fingerprint — same shape as a write that left it alone.
+    announceProjectWrite({ projectId, generation: nextGeneration, revision });
+    return { data: committed, generation: nextGeneration, warnings };
+  });
+}
+
 /** The stored transcript moves to the history when the provider or model changes. */
 function applyConversation(
   data: CachedGameData,

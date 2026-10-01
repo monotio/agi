@@ -28,7 +28,9 @@ import { captureProjectBuild } from "../../../src/authoring/projectBuild.ts";
 import { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
 import { readBindingsDocument } from "../../../src/authoring/projectDocuments.ts";
 import {
+  readProjectRecovery,
   restoreProjectRecovery,
+  writeProjectRecovery,
   type RecoveryBase,
 } from "../../../src/authoring/projectRecovery.ts";
 import { compileProjectSelection } from "../../../src/authoring/projectSelection.ts";
@@ -39,6 +41,7 @@ import { detectProfile, type ProfileId } from "../../../src/runtime/profile.ts";
 import {
   authoringFingerprint,
   commitProject,
+  discardPortableRecovery,
   generationOf,
   loadAuthoredGameWithHistoryLifetime,
   type AuthoringFingerprint,
@@ -131,6 +134,16 @@ export interface EditableProject {
    * receipt acknowledges only the admitted selection.
    */
   keepCandidate(candidate: EditableCandidate): Promise<EditableKeepResult>;
+  /**
+   * Discard the carried recovery draft the user reviewed — the exact payload
+   * — serialized behind this workspace's own commits like Keep. The draft,
+   * file image, inspection and outstanding candidates keep their authority;
+   * the saved baseline simply advances to the committed generation. Throws
+   * when the stored record moved or the reviewed payload is unreadable.
+   */
+  discardPortableRecovery(
+    reviewed: unknown,
+  ): Promise<{ readonly warnings: readonly "indexRepairPending"[] }>;
 }
 
 type Selection = ReturnType<ProjectDraft["select"]>;
@@ -523,6 +536,41 @@ class EditableProjectService implements EditableProject {
       saved,
       warnings: Object.freeze([...result.warnings]),
     });
+  }
+
+  /**
+   * The reviewed payload is detached and this saved identity captured before
+   * queueing on the commit tail: a caller mutating the offer, or a Keep
+   * admitted ahead of this discard, can never retarget or rebase the
+   * removal. On durable success only the stored copy's recoveryDraft leaves
+   * and the saved generation advances to the committed one — the draft, kept
+   * file image and undo history are untouched, and the baseline moves before
+   * the caller resolves so a later UI step cannot misreport it.
+   */
+  discardPortableRecovery(
+    reviewed: unknown,
+  ): Promise<{ readonly warnings: readonly "indexRepairPending"[] }> {
+    const decoded = readProjectRecovery(reviewed);
+    const recovery = writeProjectRecovery(decoded.base, decoded.recovery);
+    const expected = this.saved;
+    const pending = this.tail.then(async () => {
+      const committed = await discardPortableRecovery(this.projectId, {
+        generation: expected.generation,
+        lifetime: expected.lifetime,
+        revision: expected.revision,
+        authoring: expected.authoring,
+        recovery,
+      });
+      delete this.stored.recoveryDraft;
+      this.stored.generation = committed.generation;
+      this.saved = Object.freeze({ ...expected, generation: committed.generation });
+      return { warnings: committed.warnings };
+    });
+    this.tail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
   }
 
   /**
