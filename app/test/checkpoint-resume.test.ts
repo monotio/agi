@@ -724,11 +724,14 @@ test("a posted resume whose acknowledgement never arrives times out truthfully",
   values.set(autosaveKey(target.locator), raw);
   values.set(RESUME_POINTER_KEY, target.locator);
 
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const pending = h.controller.resumeFromRecord(record, STUB, target.locator);
-  await until(
-    () => h.workers.length === 1 && h.workers[0]!.out.some((m) => m.type === "restored"),
-    "the posted boot's restore acknowledgement",
-  );
+  // Let native hashing and preparation finish before advancing the deadline.
+  for (let turn = 0; turn < 400 && !h.workers[0]?.out.some((m) => m.type === "restored"); turn++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.ok(h.workers[0]?.out.some((m) => m.type === "restored"));
+  t.mock.timers.tick(40);
   const port = h.workers[0]!;
   // The acknowledgement is produced but deliberately never delivered.
   assert.equal(await pending, false, "the ack timeout settles the resume");
