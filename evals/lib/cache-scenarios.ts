@@ -299,21 +299,25 @@ export function scenarioSession(
 
 /**
  * Play a scenario against the scripted model behind the real provider client
- * and return the request bodies it built.
+ * and return request bodies grouped by conversation. Background rooms start
+ * separate conversations; foreground turns continue their task.
  */
 export async function probeScenario(
   scenario: Scenario,
   provider: ScriptProvider,
   model: string,
-): Promise<CapturedRequest[]> {
+): Promise<CapturedRequest[][]> {
   const scripted = installScriptedProvider(provider);
   try {
     const session = scenarioSession({ provider, apiKey: "cache-probe-offline", model });
+    const tasks: CapturedRequest[][] = [];
     for (const turn of scenario.turns) {
+      const start = scripted.requests.length;
       scripted.use(turn.stub ? turn.stub() : queueScript(turn.script));
       await turn.run(session);
+      tasks.push(scripted.requests.slice(start));
     }
-    return scripted.requests;
+    return scenario.id === "room-build" ? tasks : [tasks.flat()];
   } finally {
     scripted.restore();
   }

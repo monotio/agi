@@ -1,3 +1,4 @@
+import type { AgentChats } from "../../../src/agent/chats.ts";
 import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 import type { PortableProjectRecovery } from "../../../src/authoring/projectRecovery.ts";
@@ -48,6 +49,7 @@ export interface CachedGameData extends CachedGameMeta {
   projectHistory?: PortableProjectHistory | undefined;
   files: Record<string, Uint8Array>;
   words: [string, number][];
+  chats?: AgentChats | undefined;
   transcript?: unknown[] | undefined;
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;

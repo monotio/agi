@@ -26,6 +26,7 @@ export function createMainProjectAdmission(input: {
     compiled: ProjectDocumentsCompile,
     origins: { key: string; version: number }[],
     mode?: "restart" | "reenter",
+    preparedRoom = false,
   ): Promise<PreviewUpdateOutcome> {
     const continuation = input.waitForContinue?.();
     if (continuation) await continuation;
@@ -51,12 +52,33 @@ export function createMainProjectAdmission(input: {
       origins,
     };
     const expectedRun = runToken;
+    let expectedIdentity = identity;
+    if (preparedRoom) {
+      // A room answer installs native resources to resume new.room. Adopt only
+      // that exact compiled image on the same run, before publishing documents.
+      const status = await input.query("previewUpdateStatus");
+      const landed = status.current;
+      if (
+        !current() ||
+        status.runToken !== expectedRun ||
+        landed === null ||
+        landed.epoch !== identity.epoch ||
+        landed.buildId !== identity.buildId ||
+        landed.updateSerial !== identity.updateSerial ||
+        landed.documentId !== identity.documentId ||
+        landed.revision !== candidate.revision
+      )
+        throw new Error(
+          "The authored room image changed before its project commit. Reload the game.",
+        );
+      expectedIdentity = landed;
+    }
     let outcome: PreviewUpdateOutcome;
     try {
       const reply = await input.query("previewUpdate", {
         runToken: expectedRun,
         ...(mode === undefined ? {} : { mode }),
-        expected: identity,
+        expected: expectedIdentity,
         candidate,
       });
       if (reply.runToken !== expectedRun)
@@ -95,6 +117,12 @@ export function createMainProjectAdmission(input: {
       return runToken;
     },
     admit,
+    admitPreparedRoom(
+      compiled: ProjectDocumentsCompile,
+      origins: { key: string; version: number }[],
+    ) {
+      return admit(compiled, origins, undefined, true);
+    },
     restart(compiled: ProjectDocumentsCompile, origins: { key: string; version: number }[]) {
       return admit(compiled, origins, "restart");
     },

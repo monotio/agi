@@ -18,6 +18,8 @@ export interface ProjectCommitMetadata {
   readonly origin: ProjectEditOrigin;
   readonly author: "creator" | "agent";
   readonly time: number;
+  readonly chatId?: string;
+  readonly messageId?: string;
 }
 export interface ProjectHistoryCommit extends ProjectCommitMetadata {
   readonly id: string;
@@ -50,6 +52,7 @@ export function projectCommitId(
       commit.origin,
       commit.author,
       commit.time,
+      ...(commit.chatId === undefined ? [] : [commit.chatId, commit.messageId]),
     ]),
     digest,
   );

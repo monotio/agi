@@ -43,7 +43,14 @@ const DEFAULTS = {
     game: true,
     when: (c) => !c.textInputFocus,
   },
-  play: { id: "game.play", title: "Play full size", key: "Mod+Enter", textInput: true, game: true },
+  play: {
+    id: "game.play",
+    title: "Play full size",
+    key: "Mod+Enter",
+    textInput: true,
+    game: true,
+    when: (c) => !c.agentFocus,
+  },
   run: { id: "debug.run", title: "Run or continue", key: "F5", textInput: true, game: true },
   stop: {
     id: "debug.stop",

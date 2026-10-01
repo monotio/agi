@@ -17,7 +17,11 @@ const props = defineProps<{
   runningSource?: string | undefined;
   location?: { line: number; serial: number } | undefined;
 }>();
-const emit = defineEmits<{ edit: [source: string]; breakpoint: [line: number] }>();
+const emit = defineEmits<{
+  edit: [source: string];
+  breakpoint: [line: number];
+  selection: [context: { label: string; text: string } | null];
+}>();
 const showRunning = ref(false);
 const differs = computed(
   () => props.runningSource !== undefined && props.runningSource !== props.source,
@@ -135,6 +139,17 @@ onMounted(() => {
       event.target.position
     )
       emit("breakpoint", event.target.position.lineNumber);
+  });
+  editor.onDidChangeCursorSelection(({ selection }) => {
+    emit(
+      "selection",
+      selection.isEmpty()
+        ? null
+        : {
+            label: `${props.documentKey.replace(":", " ").toUpperCase()} lines ${selection.startLineNumber}–${selection.endLineNumber}`,
+            text: model!.getValueInRange(selection),
+          },
+    );
   });
   model.onDidChangeContent(() => {
     if (!syncing && model) {

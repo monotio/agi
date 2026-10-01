@@ -7,7 +7,9 @@
 export function checkProjectDocumentKey(key: string): void {
   if (
     !/^(?:logic|picture|view|sound):(0|[1-9]\d{0,2})$/.test(key) &&
-    !["words", "inventory", "bindings", "world", "tests", "references", "music"].includes(key)
+    !["words", "inventory", "bindings", "world", "tests", "references", "music", "notes"].includes(
+      key,
+    )
   )
     throw new Error(`Invalid project document: ${key}`);
   const colon = key.indexOf(":");

@@ -35,6 +35,7 @@ import { createWorkspaceWrites } from "./workspaceWrites.ts";
 import type { WorkspaceAction } from "./workspaceGuided.ts";
 import { useWorkspaceDebug, type LogicEditorHandle } from "./useWorkspaceDebug.ts";
 const props = defineProps<{ creating: boolean }>();
+const NotesEditor = defineAsyncComponent(() => import("./NotesEditor.vue"));
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
 const GuidedAdd = defineAsyncComponent(() => import("./GuidedAdd.vue"));
 const WordsEditor = defineAsyncComponent(() => import("./WordsEditor.vue"));
@@ -47,6 +48,10 @@ const DebugControls = defineAsyncComponent(() => import("./WorkspaceDebugControl
 const engine = useEngineApi();
 const workspace = useCreateWorkspace();
 const editor = useWorkspaceEditor();
+function openAgent(): void {
+  engine.state.powerUp.mode = "remix";
+  engine.state.powerUp.open = true;
+}
 const snapshot = shallowRef<ProjectSnapshot>();
 const {
   debug,
@@ -202,7 +207,9 @@ const tabRows = computed(() =>
         ? "WORDS"
         : key === "inventory"
           ? "OBJECTS"
-          : key.replace(":", " ").toUpperCase(),
+          : key === "notes"
+            ? "Notes"
+            : key.replace(":", " ").toUpperCase(),
     dirty: false,
     preview: key === editor.preview.value,
     missing: !snapshot.value?.keys.includes(key),
@@ -250,7 +257,9 @@ const writes = createWorkspaceWrites({
     if (retired || session === null || session !== engine.getProjectSession())
       throw new Error("Open this project again to retry the change.");
     const writingSession = session;
-    const origin = (key.split(":")[0] ?? "logic") as ProjectEditOrigin;
+    const origin = (
+      key === "notes" ? "logic" : (key.split(":")[0] ?? "logic")
+    ) as ProjectEditOrigin;
     const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
     let changes: readonly ProjectChange[] = [{ key, content: value }];
     if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
@@ -682,6 +691,8 @@ onBeforeUnmount(() => {
         :workspace-focus="editor.focus.value"
         embedded
         @game-host="gameHost(key, $event)"
+        @agent-context="editor.setAgentContext(key, $event)"
+        @agent-ask="openAgent"
         :picture-number="Number(key.split(':')[1])"
         :bytes="native(key)!"
         :authored-source="
@@ -700,6 +711,8 @@ onBeforeUnmount(() => {
         :workspace-focus="editor.focus.value"
         embedded
         :view-number="Number(key.split(':')[1])"
+        @agent-context="editor.setAgentContext(key, $event)"
+        @agent-ask="openAgent"
         :bytes="native(key)!"
         :profile="profile"
         :base-revision="revision"
@@ -733,6 +746,7 @@ onBeforeUnmount(() => {
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="edit(key, $event)"
+        @selection="editor.setAgentContext(key, $event)"
       />
       <WordsEditor
         v-else-if="key === 'words' && text(key) !== undefined && snapshot"
@@ -762,6 +776,11 @@ onBeforeUnmount(() => {
         :profile-id="profile.id"
         :active="creating && key === editor.selected.value"
         @edit="(bytes, tempo) => editSound(key, bytes, tempo)"
+      />
+      <NotesEditor
+        v-else-if="key === 'notes'"
+        :source="text(key) ?? ''"
+        @edit="edit(key, $event)"
       />
       <p v-else class="workspace-error">Open an authored part to edit it.</p>
     </div>

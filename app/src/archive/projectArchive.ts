@@ -1,3 +1,4 @@
+import { readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import {
   readProjectHistory,
   writeProjectHistory,
@@ -54,6 +55,7 @@ export { continuationTranscript } from "./projectConversation.ts";
 export type { CreativeSnapshotOffer } from "./projectArchiveShared.ts";
 
 export interface ProjectContext {
+  chats?: AgentChats | undefined;
   provider?: string | undefined;
   model?: string | undefined;
   sessionId?: string | undefined;
@@ -303,7 +305,7 @@ export function readProjectContext(
     typeof envelope !== "object" ||
     Array.isArray(envelope) ||
     envelope.format !== "monotio.agi.project" ||
-    ![1, 2, 3].includes(envelope.version)
+    ![1, 2, 3, 4].includes(envelope.version)
   )
     throw new Error("This project version is not supported.");
   // The released version-1 envelope never carried creative data; a claim in
@@ -334,7 +336,8 @@ export function readProjectContext(
       "references",
       "recoveryDraft",
       "workspace",
-      ...(envelope.version === 3 ? ["projectHistory"] : []),
+      ...(envelope.version >= 3 ? ["projectHistory"] : []),
+      ...(envelope.version >= 4 ? ["chats"] : []),
     ]);
     if (hasAssistant)
       knownFields(envelope.assistant, [
@@ -500,6 +503,7 @@ export function readProjectContext(
     scanRaw(raw.conversationHistory);
   }
   if (raw.references !== undefined) scanRaw(raw.references);
+  if (envelope.chats !== undefined) scanRaw(envelope.chats);
 
   const attachmentCache = new Map<string, unknown>();
 
@@ -599,6 +603,7 @@ export function readProjectContext(
         } else if (typeof entry[1] !== "string") throw new Error("Invalid project text source.");
       }
     }
+  const chats = envelope.chats === undefined ? undefined : readAgentChats(restore(envelope.chats));
   const history = restore(raw.conversationHistory ?? []);
   if (!Array.isArray(history) || history.length > 100)
     throw new Error("Invalid project conversation archive.");
@@ -648,6 +653,7 @@ export function readProjectContext(
       : {}),
     authoringState: authoringState as Record<string, unknown>,
     ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
+    ...(chats !== undefined ? { chats } : {}),
     ...(workspace !== undefined ? { workspace } : {}),
     ...(projectHistory !== undefined ? { projectHistory } : {}),
     ...(references !== undefined ? { references: normalizeReferences(references) } : {}),

@@ -132,7 +132,11 @@ while the agent writes it. Along the way you can:
 - plan on the world map in Create's World panel: rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
 - use **Ask** in Play for hints and questions that leave the game untouched,
-  or **Remix** in Create to change it, including any game you imported;
+  or open **Agent** (⌘I) beside any Create editor to change resources together;
+- review each changed resource and approve a coordinated change as one History
+  commit, or turn on Auto-approve for the current game session;
+- start task chats, resume earlier chats, and edit the game's Notes to give every
+  chat its style and rules; private project backups keep the chats;
 - attach reference images for rooms and actors: the agent gets a
   thumbnail of each and looks closer at the parts it needs;
 - preview the game's sounds as WAV clips.

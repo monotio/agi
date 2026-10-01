@@ -1,4 +1,5 @@
 /** One editable model and immutable History for an opened project's lifetime. */
+import { migrateAgentChats, readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import {
   ProjectModel,
@@ -92,6 +93,10 @@ function createSession(input: {
       compiled: ProjectDocumentsCompile,
       versions: { key: string; version: number }[],
     ): Promise<PreviewUpdateOutcome>;
+    admitPreparedRoom?(
+      compiled: ProjectDocumentsCompile,
+      versions: { key: string; version: number }[],
+    ): Promise<PreviewUpdateOutcome>;
     restart?(
       compiled: ProjectDocumentsCompile,
       versions: { key: string; version: number }[],
@@ -112,6 +117,7 @@ function createSession(input: {
   readonly changed?: () => void;
 }) {
   const data = structuredClone(input.data);
+  data.chats = migrateAgentChats(data);
   const inspection = inspectEditableProject(data);
   const history = new ProjectHistory(
     sha256Hex,
@@ -133,13 +139,17 @@ function createSession(input: {
     profileId: inspection.profileId,
   });
   const model = new ProjectModel({ documents, build, digest: sha256Hex });
-  if (history.capture().cursor === null)
+  if (history.capture().cursor === null) {
+    const genesis = data.chats.chats.find((chat) => chat.title === `Created ${data.title}`);
+    const result = genesis?.messages.findLast((message) => message.role === "assistant");
     history.record(documents, {
-      label: "Opened",
+      label: genesis ? `AI: ${genesis.title}` : "Opened",
       origin: "template",
-      author: "creator",
+      author: genesis ? "agent" : "creator",
       time: Date.now(),
+      ...(genesis && result ? { chatId: genesis.id, messageId: result.id } : {}),
     });
+  }
   let pendingRestart: PendingProjectRestart | null = null;
   let pendingImage: ProjectDocumentsCompile | undefined;
   let retrying = false;
@@ -219,6 +229,7 @@ function createSession(input: {
     proposal: ProjectProposal,
     metadata: ProjectCommitMetadata,
     action?: ProjectHistoryAction,
+    preparedRoom = false,
   ) {
     if (!current() || autosave.status().state === "conflict")
       throw new Error("Project session is closed for writes.");
@@ -245,7 +256,10 @@ function createSession(input: {
         if (action === undefined)
           new ProjectHistory(sha256Hex, history.capture()).record(proposal.documents(), metadata);
       },
-      admit: (compiled, documents) => input.admission.admit(compiled, documents),
+      admit: (compiled, documents) =>
+        preparedRoom && input.admission.admitPreparedRoom
+          ? input.admission.admitPreparedRoom(compiled, documents)
+          : input.admission.admit(compiled, documents),
     });
     if (
       outcome !== undefined &&
@@ -365,6 +379,22 @@ function createSession(input: {
   const session = {
     model,
     history,
+    get closed() {
+      return !current();
+    },
+    get allowMissingRooms() {
+      return data.roomGeneration === true;
+    },
+    chats() {
+      return readAgentChats(data.chats);
+    },
+    saveChats(chats: AgentChats) {
+      return schedule(async () => {
+        if (!current()) throw new Error("Project session was closed.");
+        data.chats = readAgentChats(chats);
+        captureSave(model.capture());
+      });
+    },
     lifetime: input.lifetime,
     get runToken() {
       return input.admission.runToken;
@@ -385,8 +415,13 @@ function createSession(input: {
           origin: edit.origin,
           author: edit.author,
           time: Date.now(),
+          ...(edit.chatId === undefined ? {} : { chatId: edit.chatId, messageId: edit.messageId! }),
         }),
       );
+    },
+    submitPreparedRoom(edit: { proposal: ProjectProposal } & Omit<ProjectCommitMetadata, "time">) {
+      const { proposal, ...metadata } = edit;
+      return schedule(() => apply(proposal, { ...metadata, time: Date.now() }, undefined, true));
     },
     undo() {
       return schedule(async () => {
@@ -456,6 +491,13 @@ function createSession(input: {
       disposed = true;
       epoch++;
       autosave.dispose();
+      for (const observer of observers) {
+        try {
+          observer();
+        } catch {
+          /* Closing retires every observer. */
+        }
+      }
       observers.clear();
       if (owners.get(data.projectId) === session) owners.delete(data.projectId);
     },

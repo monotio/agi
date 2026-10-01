@@ -1,3 +1,4 @@
+import type { AgentChat } from "../../../src/agent/chats.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { AgentRun } from "./agentRun.ts";
 /**
@@ -300,7 +301,8 @@ export class AgentSession implements AgentHandler {
   private profileOverride: ProfileId | undefined;
   private readonly config: LlmConfig;
   private readonly onEvent: AgentEventSink;
-  private readonly conversation: UnifiedConversation | null;
+  private conversation: UnifiedConversation | null;
+  private backgroundChats: AgentChat[] = [];
   private readonly stubFallback: StubAgent | null;
   /** Conversation data retained while a non-stub provider has no connected key. */
   private readonly retainedTranscript: unknown[];
@@ -920,6 +922,10 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
   }
 
+  getBackgroundChats(): AgentChat[] {
+    return structuredClone(this.backgroundChats);
+  }
+
   getTranscript(): unknown[] {
     return this.conversation?.getTranscript() ?? structuredClone(this.retainedTranscript);
   }
@@ -1103,6 +1109,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       sameProtocol ? this.getSessionId() : undefined,
     );
     replacement.messages = this.getMessages();
+    replacement.backgroundChats = this.getBackgroundChats();
     replacement.runtime = this.runtime;
     // A mid-swap credential change must not unlock authoring against bytes
     // the session has not adopted — the hold belongs to the shared state.
@@ -1307,7 +1314,33 @@ Answer the player's question using evidence from inspection when needed. For hin
     beforeAdopt?: () => Promise<void>,
     attachments?: TurnReferences,
   ): Promise<string> {
-    return this.task.run(() => this.prepareRoom(req, beforeAdopt, attachments));
+    return this.task.run(async () => {
+      const previous = this.conversation;
+      const previousMessages = this.messages;
+      this.messages = [];
+      if (this.config.provider === "openai" && this.config.apiKey.trim())
+        this.conversation = createOpenAiConversation(this.config, [], undefined, this.task);
+      else if (this.config.provider === "anthropic" && this.config.apiKey.trim())
+        this.conversation = createAnthropicConversation(this.config, [], this.task);
+      try {
+        return await this.prepareRoom(req, beforeAdopt, attachments);
+      } finally {
+        const id = `room-task-${Date.now()}-${this.backgroundChats.length}`;
+        this.backgroundChats.push({
+          id,
+          title: `Built room ${Number(req.context["room"])}`,
+          ...this.getProviderContext(),
+          transcript: this.conversation?.getTranscript() ?? [
+            { role: "user", text: `Build room ${Number(req.context["room"])}` },
+            ...this.messages,
+          ],
+          messages: this.messages.map((message, index) => ({ ...message, id: `${id}-${index}` })),
+          background: true,
+        });
+        this.conversation = previous;
+        this.messages = previousMessages;
+      }
+    });
   }
   private async prepareRoom(
     req: LlmRequest,
@@ -1393,6 +1426,9 @@ Answer the player's question using evidence from inspection when needed. For hin
         this.conversation.sendUserMessage(
           art.text +
             createRuntimeRoomPrompt(room, from, playerNotes, plannedExit) +
+            (typeof req.context["gameNotes"] === "string"
+              ? `\nGame notes:\n${req.context["gameNotes"]}`
+              : "") +
             `\nResources: ${resources.message ?? ""}\nInventory (preserve this order): ${JSON.stringify(staged.sources.objects)}\nPrevious room logic:\n${previous.message ?? ""}`,
           art.images,
         ),

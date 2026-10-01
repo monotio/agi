@@ -534,7 +534,7 @@ test("a superseded creation's finish saves and boots nothing", async (t) => {
   t.after(() => clearCachedGame(id));
   const { lifecycle, workers } = bootHarness();
   const files = { "WORDS.TOK": Uint8Array.of(9) };
-  const session = { getAuthoringState: () => ({}) };
+  const session = { getAuthoringState: () => ({}), getMessages: () => [] };
   const resources = { files, words: [] as [string, number][], transcript: [], sessionId: "s1" };
   const boot = { projectId: id, title: "Late world", config: STUB_CONFIG };
   // Epoch 0 was this run's when it armed; a newer action has taken the slot

@@ -147,6 +147,8 @@ const {
 const emit = defineEmits<{
   close: [];
   edit: [bytes: Uint8Array];
+  "agent-context": [context: { label: string; text: string }];
+  "agent-ask": [];
   reopen: [fromStorage: boolean];
 }>();
 
@@ -219,6 +221,24 @@ const askCels = computed(() => {
     return cels[cel.value] ? [{ loop: loop.value, cel: cel.value }] : [];
   return cels.map((_, index) => ({ loop: loop.value, cel: index }));
 });
+watch(
+  [loop, cel],
+  ([selectedLoop, selectedCel]) => {
+    if (embedded)
+      emit("agent-context", {
+        label: `VIEW ${viewNumber} · Loop ${selectedLoop}, cel ${selectedCel}`,
+        text: `Selected VIEW ${viewNumber}, loop ${selectedLoop}, cel ${selectedCel}.`,
+      });
+  },
+  { immediate: true },
+);
+function askAgent(): boolean {
+  if (embedded) {
+    emit("agent-ask");
+    return true;
+  }
+  return assistPanel.value?.focus() ?? false;
+}
 /** Every loop the request leaves alone: pixels and metadata. */
 const askProtected = computed(() =>
   draft.document.value.loops.flatMap((_, index) => (index === loop.value ? [] : [index])),
@@ -594,7 +614,7 @@ const keys: SpriteKeyActions = {
     else if (next) tools.setTool(next);
     return next !== undefined;
   },
-  ask: () => assistPanel.value?.focus() ?? false,
+  ask: askAgent,
   keySheet: () => (calm.sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */

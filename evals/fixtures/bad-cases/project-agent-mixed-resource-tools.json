@@ -1,0 +1,33 @@
+{
+  "name": "project-agent-mixed-resource-tools",
+  "description": "A task staged PICTURE through write_picture and LOGIC through propose_changes. Final review discarded the PICTURE when the document proposal took precedence over the native candidate. Every staged resource must join the complete validated change set.",
+  "projectAgent": {
+    "documents": { "logic:0": "return;", "picture:1": "vis 1\nfill 0,0\nend\n", "words": "[]" },
+    "request": "Add a welcome sign and change the background",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "picture",
+            "name": "write_picture",
+            "input": { "room": 1, "source": "vis 4\nfill 0,0\nend\n" }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "logic",
+            "name": "propose_changes",
+            "input": {
+              "label": "Welcome sign",
+              "changes": [{ "key": "logic:0", "content": "print(\"Welcome\"); return;" }]
+            }
+          }
+        ]
+      },
+      { "text": "Added a welcome sign.", "toolCalls": [] }
+    ],
+    "expectedKeys": ["logic:0", "picture:1"]
+  }
+}

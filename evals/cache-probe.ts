@@ -292,10 +292,13 @@ async function dryRun(args: Args): Promise<void> {
   for (const id of args.scenarios) {
     const scenario = SCENARIOS.find((candidate) => candidate.id === id)!;
     for (const shape of args.shapes) {
-      const requests = await probeScenario(scenario, shape, DEFAULT_MODELS[shape]);
-      const bodies = requests.map((request) => request.body);
-      reports.push(analyseRequests(scenario.id, shape, bodies));
-      captured[`${scenario.id}/${shape}`] = bodies;
+      const conversations = await probeScenario(scenario, shape, DEFAULT_MODELS[shape]);
+      for (const [index, requests] of conversations.entries()) {
+        const task = conversations.length === 1 ? scenario.id : `${scenario.id}/${index + 1}`;
+        const bodies = requests.map((request) => request.body);
+        reports.push(analyseRequests(task, shape, bodies));
+        captured[`${task}/${shape}`] = bodies;
+      }
     }
   }
   const markdown = renderReports(reports);

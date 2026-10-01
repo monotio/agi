@@ -15,6 +15,12 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
   const selected = ref<string>();
+  const agentContext = shallowRef<{ label: string; text: string } | null>(null);
+  const agentContexts: Record<string, { label: string; text: string } | null> = {};
+  function setAgentContext(key: string, context: { label: string; text: string } | null): void {
+    agentContexts[key] = context;
+    if (selected.value === key) agentContext.value = context;
+  }
   const tabs = ref<string[]>([]);
   const preview = ref<string>();
   const pendingAdmission = ref(false);
@@ -44,6 +50,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
   function open(key: string, pinned = false): void {
     selected.value = key;
+    agentContext.value = agentContexts[key] ?? null;
     if (!tabs.value.includes(key)) {
       if (!pinned && preview.value !== undefined) {
         const index = tabs.value.indexOf(preview.value);
@@ -104,6 +111,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
   }
   function reset(): void {
     selected.value = undefined;
+    agentContext.value = null;
+    for (const key of Object.keys(agentContexts)) delete agentContexts[key];
     tabs.value = [];
     preview.value = undefined;
     pendingAdmission.value = false;
@@ -121,6 +130,8 @@ export function createWorkspaceEditor(engine: EngineApi) {
     pictureLive,
     gameHost,
     selected,
+    agentContext,
+    setAgentContext,
     tabs,
     preview,
     pin,

@@ -255,3 +255,12 @@ test("Focus chords consume the prefix, require an eligible second key and cancel
   assert.equal(registry.dispatch(key("z").event), false);
   assert.equal(calls, 1);
 });
+
+test("the agent owns approval keys while its composer has focus", () => {
+  const ctx = { ...context(), agentFocus: true };
+  const registry = createCommandRegistry(() => ctx, true);
+  let played = 0;
+  registerDefaultCommands(registry, { play: () => played++ });
+  assert.equal(registry.dispatch(key("Enter", { metaKey: true }).event), false);
+  assert.equal(played, 0);
+});

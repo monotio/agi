@@ -170,7 +170,7 @@ test("History codec reads a frozen fixture and refuses unknown versions, corrupt
   assert.equal(state.commits[0]!.label, "Initial");
   assert.deepEqual(writeProjectHistory(state, sha256Hex), fixture);
   assert.throws(
-    () => readProjectHistory({ format: PROJECT_HISTORY_FORMAT, version: 2 }, sha256Hex),
+    () => readProjectHistory({ format: PROJECT_HISTORY_FORMAT, version: 3 }, sha256Hex),
     /Unsupported.*version/,
   );
   const { history } = start();
@@ -333,5 +333,38 @@ test("the codec checks byte, total, manifest, tag, graph and field bounds", () =
         sha256Hex,
       ),
     /limit/,
+  );
+});
+
+test("game Notes require version 2 History and remain readable with chat checkpoints", () => {
+  const { model, history } = start();
+  history.record(
+    { ...model.capture().documents(), notes: "Friendly tone." },
+    {
+      label: "AI: Notes",
+      origin: "agent",
+      author: "agent",
+      time: 1,
+      chatId: "task",
+      messageId: "reply",
+    },
+  );
+  const stored = writeProjectHistory(history.capture(), sha256Hex);
+  assert.equal(stored.version, 2);
+  assert.equal(readProjectHistory(stored, sha256Hex).commits.at(-1)!.messageId, "reply");
+  const plain = writeProjectHistory(new ProjectHistory(sha256Hex).capture(), sha256Hex);
+  assert.equal(plain.version, 1);
+  const { history: withoutCheckpoint } = start();
+  withoutCheckpoint.record(
+    { ...model.capture().documents(), notes: "Friendly tone." },
+    { label: "Notes", origin: "logic", author: "creator", time: 1 },
+  );
+  assert.throws(
+    () =>
+      readProjectHistory(
+        { ...writeProjectHistory(withoutCheckpoint.capture(), sha256Hex), version: 1 },
+        sha256Hex,
+      ),
+    /notes.*version/i,
   );
 });

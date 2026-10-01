@@ -102,7 +102,7 @@ export interface AgentWorkspace {
 /** An isolated whole-game tool session plus its read-back into a proposal. */
 interface AgentToolCandidate {
   readonly state: AgentSessionState;
-  finish(label: string): AgentWorkspaceProposal;
+  finish(label: string, coordinated?: readonly AgentDocumentChange[]): AgentWorkspaceProposal;
 }
 
 const RESOURCE_KEY = /^(logic|picture|view|sound):(0|[1-9]\d{0,2})$/;
@@ -508,7 +508,10 @@ export function captureAgentWorkspace(input: {
       ]);
     }
 
-    const finish = (label: string): AgentWorkspaceProposal => {
+    const finish = (
+      label: string,
+      coordinated: readonly AgentDocumentChange[] = [],
+    ): AgentWorkspaceProposal => {
       const problems: AgentCandidateDiagnostic[] = [];
       if (state.profile.id !== profileId)
         problems.push(
@@ -734,6 +737,14 @@ export function captureAgentWorkspace(input: {
           problems,
         );
 
+      // Document proposals may coordinate references with staged native tools.
+      const coordinatedKeys = new Set<string>();
+      for (const { key, content } of coordinated) {
+        checkProjectDocumentKey(key);
+        if (coordinatedKeys.has(key)) throw new Error(`Duplicate project document: ${key}`);
+        coordinatedKeys.add(key);
+        changeMap.set(key, content);
+      }
       const changes = [...changeMap.keys()].sort().map((key) => ({
         key,
         content: changeMap.get(key)!,

@@ -681,6 +681,13 @@ export const VOCABULARY = {
 } as const satisfies Record<string, VocabularyTerm>;
 
 export const VOCABULARY_ACTIONS = {
+  write_notes: {
+    id: "write_notes",
+    label: "Write notes",
+    tool: "write_notes",
+    help: "Keep the game’s style, tone and rules in its notes.",
+    technical: "Private project document.",
+  },
   read_room: { ...VOCABULARY.room, id: "read_room", label: "Read room", tool: "read_room" },
   read_logic: { ...VOCABULARY.logic, id: "read_logic", label: "Read logic", tool: "read_logic" },
   write_logic: {
