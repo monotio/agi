@@ -122,6 +122,16 @@ const stageStyle = computed(() => {
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
+// v-model preserves the native IME draft across renders. Keep its buffer
+// separate from the engine line so onInputEdit can compare the previous text.
+const nativeInput = ref("");
+watch(
+  [inputLine, promptLine, () => state.prompt],
+  () => {
+    nativeInput.value = state.prompt ? promptLine.value : inputLine.value;
+  },
+  { flush: "sync" },
+);
 
 function bindCanvas(el: unknown): void {
   presentation.canvasEl.value = el instanceof HTMLCanvasElement ? el : undefined;
@@ -410,6 +420,7 @@ function onInputEdit(event: Event): void {
           : next.slice(start, newEnd);
       for (const char of entered) sendKey(char.charCodeAt(0));
       // Raw-key answers do not edit the parser command that preceded them.
+      nativeInput.value = previous;
       input.value = previous;
       return;
     }
@@ -420,6 +431,7 @@ function onInputEdit(event: Event): void {
       else inserted += char;
     }
     inputLine.value = next.slice(0, start) + inserted + next.slice(newEnd);
+    nativeInput.value = inputLine.value;
     if (input.value !== inputLine.value) input.value = inputLine.value;
     sendEdit(inputLine.value);
   }
@@ -662,7 +674,7 @@ defineExpose({
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
-            :value="state.prompt ? promptLine : inputLine"
+            v-model="nativeInput"
             :inputmode="state.prompt?.kind === 'getnum' ? 'numeric' : 'text'"
             data-testid="input-line"
             autocomplete="off"
@@ -775,10 +787,16 @@ defineExpose({
           data-testid="game-keys"
           @click="focusInput"
         >
-          <span class="led" aria-hidden="true"></span
-          >{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}
+          <span class="led" aria-hidden="true"></span>
+          <span class="keys-led-label">
+            <span>{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}</span>
+          </span>
         </button>
-        <p v-show="gameFocused || touchControls" id="game-input-help" class="input-help">
+        <p
+          id="game-input-help"
+          class="input-help"
+          :class="{ 'input-help--hidden': !gameFocused && !touchControls }"
+        >
           <template v-if="touchControls">Type for the keyboard · Keys for F1–F10</template>
           <template v-else
             >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
@@ -1006,6 +1024,9 @@ defineExpose({
   margin: 0;
   animation: hint-settle 1.2s ease-in 60s forwards;
 }
+.input-help--hidden {
+  visibility: hidden;
+}
 .input-help kbd {
   padding: 0 var(--space-1);
   border: 1px solid var(--hairline-strong);
@@ -1082,6 +1103,18 @@ defineExpose({
   font: inherit;
   white-space: nowrap;
   cursor: pointer;
+}
+/* Reserve the widest label so focus cannot reflow the strip during a click. */
+.keys-led-label {
+  display: grid;
+}
+.keys-led-label > span,
+.keys-led-label::after {
+  grid-area: 1 / 1;
+}
+.keys-led-label::after {
+  content: "Click the game to play";
+  visibility: hidden;
 }
 .keys-led:hover {
   color: var(--ink);

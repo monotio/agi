@@ -122,3 +122,31 @@ test("an external conflict fences an in-flight write and preserves the unsaved s
   assert.equal(saved, 0);
   saver.dispose();
 });
+
+test("flush includes a capture queued as the active write finishes", async () => {
+  const written: number[] = [];
+  let queued = false;
+  let finalFlush: Promise<void> | undefined;
+  const saver = createProjectAutosave<number, number>({
+    current: () => true,
+    write: async (value) => {
+      written.push(value);
+      return value;
+    },
+    saved: () => {},
+    conflict: () => false,
+    changed: () => {
+      if (!queued && saver.status().state === "saved") {
+        queued = true;
+        saver.enqueue(2);
+        finalFlush = saver.flush();
+      }
+    },
+  });
+  saver.enqueue(1);
+  await saver.flush();
+  await finalFlush;
+  assert.deepEqual(written, [1, 2]);
+  assert.equal(saver.status().state, "saved");
+  saver.dispose();
+});

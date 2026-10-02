@@ -91,6 +91,8 @@ async function bootMapGame(page: Page): Promise<void> {
   });
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
+  await expect(page.getByRole("heading", { name: MAP_GAME.title, level: 1 })).toBeVisible();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 

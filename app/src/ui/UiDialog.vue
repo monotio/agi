@@ -42,7 +42,7 @@ watch(
       returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       element.showModal();
     } else if (!value && element.open) {
-      element.close();
+      closeDialog(element);
     }
   },
   { immediate: true },
@@ -53,9 +53,16 @@ watch(
 onBeforeUnmount(() => {
   const element = dialog.value;
   if (!element?.open) return;
+  closeDialog(element);
+});
+
+function closeDialog(element: HTMLDialogElement): void {
   element.close();
   if (restoreFocus) returnFocus?.focus({ preventScroll: true });
-});
+  // The native close event is queued. Restore now so that event cannot
+  // take focus from a control selected after the dialog has disappeared.
+  returnFocus = null;
+}
 
 function onClose(): void {
   open.value = false;

@@ -212,6 +212,7 @@ function pick(patch: Partial<CurrentValues>): void {
   display: grid;
   gap: var(--space-1);
   justify-items: center;
+  max-width: 100%;
 }
 .values__swatch {
   display: grid;
@@ -228,11 +229,15 @@ function pick(patch: Partial<CurrentValues>): void {
   cursor: pointer;
 }
 .values__name {
-  max-width: 44px;
+  max-width: min(44px, 100%);
   text-align: center;
   margin-bottom: var(--space-1);
   color: var(--ink-3);
   font-size: var(--text-2xs);
+}
+.values__name :deep(.ui-explain--label) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 /* A very short window keeps the rail's room for its tools: the swatches name themselves on hover. */
 @media (max-height: 540px) {

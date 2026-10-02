@@ -603,6 +603,14 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     if (state.powerUp.busy)
       throw new Error("Wait for the current agent task to finish before changing AI settings.");
 
+    // Opening the Assistant can still be saving its first catalog chat.
+    // Settle that owned fork before capturing the game a new session loads.
+    const project = options.getProjectSession?.();
+    if (project) {
+      await project.flush();
+      if (options.getProjectSession?.() !== project || project.closed)
+        throw new Error("The game changed while applying AI settings. Try again.");
+    }
     const current = session;
     let replacement: AgentSession;
     if (current) {
@@ -1124,6 +1132,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
                 true,
               );
               postSessionSnapshot(completed);
+              // A parked entry window may not advance another cycle. Capture
+              // again after publication so its image names the saved revision.
+              if (getBootedGame() === owner) await flushAutosave();
             };
             return result;
           }

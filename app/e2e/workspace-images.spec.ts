@@ -15,6 +15,8 @@ async function start(page: Page) {
     .fill("Image proof");
   await page.getByTestId("local-create-kind-starter").click();
   await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect
     .poll(() =>

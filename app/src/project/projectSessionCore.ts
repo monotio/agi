@@ -144,6 +144,7 @@ function createSession(
   storage: SessionStorage,
 ) {
   const data = structuredClone(input.data);
+  const openedProjectId = data.projectId;
   const openedAt = input.openedAt ?? Date.now();
   data.chats = migrateAgentChats(data);
   const inspection = inspectEditableProject(data);
@@ -188,6 +189,7 @@ function createSession(
   let serial = 0;
   let forkId: CachedGameData["projectId"] | undefined;
   let tail = Promise.resolve();
+  let documentTail = tail;
   let queued = 0;
   let diagnostics: PreparedProjectEdit["diagnostics"] = prepareProjectEdit({
     model,
@@ -446,10 +448,12 @@ function createSession(
       current: () =>
         current() &&
         epoch === fence.sessionEpoch &&
-        data.projectId === fence.projectId &&
         input.lifetime === fence.lifetime &&
         input.admission.runToken === fence.workerRunToken &&
-        expected.generation >= fence.generation,
+        // The first save may finish this session's catalog fork while an
+        // admitted edit waits. Its new body has its own generation counter.
+        ((data.projectId === fence.projectId && expected.generation >= fence.generation) ||
+          (fence.projectId === openedProjectId && data.projectId === forkId)),
       preflight() {
         beforeCommit?.();
         if (action === undefined)
@@ -505,17 +509,18 @@ function createSession(
       diagnostics: prepared.diagnostics,
     };
   }
-  function schedule<T>(operation: () => Promise<T>): Promise<T> {
-    queued++;
+  function schedule<T>(operation: () => Promise<T>, savesDocuments = true): Promise<T> {
+    if (savesDocuments) queued++;
     notify();
     const result = tail.then(operation).finally(() => {
-      queued--;
+      if (savesDocuments) queued--;
       notify();
     });
     tail = result.then(
       () => {},
       () => {},
     );
+    if (savesDocuments) documentTail = tail;
     return result;
   }
   async function retryAdmission(): Promise<void> {
@@ -542,7 +547,7 @@ function createSession(
           if (outcome.status === "committed" || outcome.status === "unchanged")
             captureSave(before, outcome);
           notify();
-        });
+        }, false);
       }
     } catch (cause) {
       if (current()) {
@@ -709,8 +714,12 @@ function createSession(
       });
     },
     async flush() {
-      await tail;
-      await autosave.flush();
+      let scheduled: Promise<unknown>;
+      do {
+        scheduled = documentTail;
+        await scheduled;
+        await autosave.flush();
+      } while (scheduled !== documentTail);
     },
     retry: autosave.retry,
     capture() {

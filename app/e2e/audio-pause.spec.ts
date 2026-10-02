@@ -27,6 +27,9 @@ test("pause freezes scheduled playback; release continues it from that point @we
     };
     try {
       audio.output({ kind: "speaker", divisor: 2712 });
+      await context.resume();
+      const startAt = context.currentTime;
+      // Start the sample and ramp after context startup has completed.
       // A one-shot sample and an envelope ramp scheduled against context time.
       const shot = context.createBuffer(
         1,
@@ -40,13 +43,11 @@ test("pause freezes scheduled playback; release continues it from that point @we
         ended = true;
       };
       const envelope = context.createGain();
-      envelope.gain.setValueAtTime(1, context.currentTime);
-      envelope.gain.linearRampToValueAtTime(0, context.currentTime + 0.3);
+      envelope.gain.setValueAtTime(1, startAt);
+      envelope.gain.linearRampToValueAtTime(0, startAt + 0.3);
       envelope.connect(context.destination);
       source.connect(context.destination);
-      source.start();
-      await context.resume();
-      const startAt = context.currentTime;
+      source.start(startAt);
       await elapse(80);
       const playingAt = context.currentTime;
       audio.setPaused(true);

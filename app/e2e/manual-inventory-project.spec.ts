@@ -64,8 +64,12 @@ for (const kind of ["boilerplate", "starter"] as const) {
     await page.getByTestId("local-create-title").fill(title);
     await page.getByTestId(`local-create-kind-${kind}`).click();
     await page.getByTestId("local-create-submit").click();
+    await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
+    await expect(page.getByTestId("input-line")).toBeEnabled();
+    await workspaceSaved(page);
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
     const before = await storedProject(page, title);
     const room = before.documents["logic:1"];
     const vocabulary = before.documents["words"];

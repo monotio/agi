@@ -527,10 +527,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
       return;
     }
     if (msg.type === "playHere") {
-      // A jump abandons the parked pass the same way a walkthrough does.
-      ctx.fns.debugBeforeReplace();
       ctx.fns.onPlayHere(msg);
-      ctx.fns.debugSessionReplaced();
       return;
     }
     if (msg.type === "boot") {

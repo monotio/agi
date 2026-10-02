@@ -53,11 +53,14 @@ export function createProjectAutosave<Capture, Receipt>(input: {
   }
   function flush(): Promise<void> {
     if (!current() || stopped) return Promise.resolve();
-    if (active !== null) return active;
-    active = drain().finally(() => {
+    active ??= drain().finally(() => {
       active = null;
     });
-    return active;
+    return active.then(() => {
+      // A new capture can arrive after drain's last check but before its
+      // promise settles. A flush still owns that pending capture.
+      if (pending !== undefined && failed === undefined) return flush();
+    });
   }
   function enqueue(capture: Capture) {
     if (!current() || stopped) return;

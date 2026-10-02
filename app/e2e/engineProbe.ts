@@ -542,18 +542,20 @@ export async function closeWorkspaceEditor(page: Page): Promise<void> {
 /** Observe completed gesture publication and durable autosave. */
 export async function workspaceSaved(page: Page): Promise<void> {
   await expect
-    .poll(async () =>
-      page.evaluate(() => {
-        const probe = window as unknown as {
-          __AGI_PROJECT__: {
-            getSession(): { saveStatus(): { state: string; message: string } } | undefined;
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const probe = window as unknown as {
+            __AGI_PROJECT__: {
+              getSession(): { saveStatus(): { state: string; message: string } } | undefined;
+            };
           };
-        };
-        const status = probe.__AGI_PROJECT__.getSession()?.saveStatus();
-        return status?.state === "failed" || status?.state === "conflict"
-          ? status.message
-          : status?.state;
-      }),
+          const status = probe.__AGI_PROJECT__.getSession()?.saveStatus();
+          return status?.state === "failed" || status?.state === "conflict"
+            ? status.message
+            : status?.state;
+        }),
+      { intervals: [100] },
     )
     .toBe("saved");
   await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");

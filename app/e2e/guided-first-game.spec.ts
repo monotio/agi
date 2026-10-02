@@ -1,5 +1,6 @@
 import { storedDocument } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { readFile } from "node:fs/promises";
 import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
@@ -25,7 +26,30 @@ import {
 } from "./workspaceShared.ts";
 
 /** The first guided game uses real editors, coordinated Add operations, native play and export. */
-test.use({ viewport: { width: 1440, height: 900 } });
+// Observe the authoring workflow with static focus styling between gestures.
+test.use({ viewport: { width: 1280, height: 720 }, reducedMotion: "reduce" });
+
+// Vite transforms editor and guided-action modules on first request. Warm that
+// server work in a separate context before the complete author/play/export journey.
+test.beforeAll(async ({ browser }) => {
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 720 },
+    reducedMotion: "reduce",
+  });
+  try {
+    await isolateStorage(page);
+    await createStarter(page, "Editor setup");
+    await openWorkspacePicture(page, 1);
+    await closeWorkspaceEditor(page);
+    await openWorkspaceView(page, 0);
+    await closeWorkspaceEditor(page);
+    await openWorkspaceLogic(page, 1);
+    await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "40", Y: "140" }, "logic:1");
+    await addWorkspaceAction(page, "Add a room", { "Room name": "Setup room" }, "world");
+  } finally {
+    await page.close();
+  }
+});
 
 let providerCalls = 0;
 test.beforeEach(async ({ page }) => {
@@ -47,7 +71,7 @@ async function createStarter(page: Page, title: string): Promise<string> {
   await form.getByRole("radio", { name: /starter/i }).check();
   await form.getByRole("button", { name: "Start building", exact: true }).click();
   await expect(page).toHaveURL(/#create\/local-/);
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { intervals: [100] }).toBe(1);
   const projectId = await page.evaluate(async () => {
     const storage = await import("/src/project/gameStorage.ts");
     const entry = (await storage.listStoredProjects()).find((game) =>
@@ -104,42 +128,73 @@ async function hostTrace(page: Page): Promise<unknown> {
   });
 }
 
+async function engineState(page: Page) {
+  const state = await page.evaluate(() =>
+    (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } }).__AGI_PROJECT__.query(
+      "state",
+    ),
+  );
+  if (!state) throw new Error("Walking requires a running game");
+  return state;
+}
+
 /** Walk ego along an axis until the room changes — the authored doorway. */
-async function walkToRoom(page: Page, key: string, room: number): Promise<void> {
+async function walkToRoom(
+  page: Page,
+  key: "ArrowRight" | "ArrowLeft",
+  room: number,
+): Promise<void> {
   // Arrows are movement only outside the command line; blur it first.
   await page.getByTestId("input-line").evaluate((el: HTMLElement) => el.blur());
   let lastHook: unknown = null;
-  // A modal window acks with one Enter per NEW instance — keyed on its kind
-  // plus drawn text so a fresh window gets its own ack, and a stray repeat
-  // can never fall through to a later prompt or selector.
-  let ackedModal: string | null = null;
-  // One held keydown sends a single direction message; a press landing while
-  // the interpreter is parked (modal ack, input wait) can be consumed as the
-  // wait's answer instead. Re-pressing keeps walking like a player would.
+  let ackedModal: number | null = null;
   let held = false;
+  const direction = key === "ArrowRight" ? 3 : 7;
   try {
     await expect
       .poll(
         async () => {
-          const hook = await textHook(page);
-          lastHook = hook;
-          if (hook.modal === null) {
+          const state = await engineState(page);
+          lastHook = {
+            room: state.room,
+            egoX: state.egoX,
+            egoY: state.egoY,
+            egoDirection: state.egoDirection,
+            modal: state.modalKind,
+          };
+          if (state.room === room) {
+            // A tap-mode game keeps walking after keyup and across new.room.
+            // Stop its incoming heading before screenshots and native saves.
+            if (held) await page.keyboard.up(key);
+            held = false;
+            if (state.egoDirection === direction) await page.keyboard.press(key);
+            return state.room;
+          }
+          if (state.modalKind === null) {
             ackedModal = null;
           } else {
-            const instance = `${hook.modal}:${hook.rows.join("\n")}`;
-            if (instance !== ackedModal) {
-              ackedModal = instance;
+            if (state.modalSerial !== ackedModal) {
+              ackedModal = state.modalSerial;
               await page.keyboard.press("Enter");
+              held = false;
             }
+            return state.room;
           }
-          if (held) await page.keyboard.up(key);
-          await page.keyboard.down(key);
-          held = true;
-          return hook.room;
+          // Read the live heading: the periodic heartbeat can still show an
+          // old position while ego walks, and a repeated direction toggles it.
+          if (state.egoDirection !== direction) {
+            await page.keyboard.up(key);
+            await page.keyboard.down(key);
+            held = true;
+          }
+          return state.room;
         },
-        { timeout: 30_000, intervals: [500] },
+        { timeout: 30_000, intervals: [100] },
       )
       .toBe(room);
+    await expect
+      .poll(async () => (await engineState(page)).egoDirection, { intervals: [100] })
+      .toBe(0);
   } catch (error) {
     const [trace, screen] = await Promise.all([hostTrace(page), screenText(page)]);
     throw new Error(
@@ -176,13 +231,14 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await closeWorkspaceEditor(page);
 
   await openWorkspaceLogic(page, 1);
-  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "40", Y: "140" }, "logic:1");
-  expect(await workspaceDocument(page, "logic:1")).toContain("position(o0, 40, 140)");
+  // Keep each starting point outside its doorway, with a short walk to the trigger.
+  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "90", Y: "140" }, "logic:1");
+  expect(await workspaceDocument(page, "logic:1")).toContain("position(o0, 90, 140)");
   await addWorkspaceAction(page, "Add a room", { "Room name": "Moonlit grove" }, "world");
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await openWorkspaceLogic(page, 2);
   expect(await workspaceDocument(page, "logic:2")).toContain("Moonlit grove");
-  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "80", Y: "120" }, "logic:2");
+  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "60", Y: "120" }, "logic:2");
   await addWorkspaceAction(
     page,
     "Door",
@@ -191,7 +247,9 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   );
   await openWorkspaceLogic(page, 1);
   await addWorkspaceResponse(page, "sing", "The clearing hums back.");
-  await expect.poll(() => workspaceDocument(page, "logic:1")).toContain('said("sing")');
+  await expect
+    .poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] })
+    .toContain('said("sing")');
   await addWorkspaceAction(
     page,
     "Door",
@@ -203,9 +261,9 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   const withCue = await workspaceDocument(page, "logic:1");
   expect(withCue).toContain("sound(");
   await page.getByTestId("workspace-undo").click();
-  await expect.poll(() => workspaceDocument(page, "logic:1")).toBe(beforeCue);
+  await expect.poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] }).toBe(beforeCue);
   await page.getByTestId("workspace-redo").click();
-  await expect.poll(() => workspaceDocument(page, "logic:1")).toBe(withCue);
+  await expect.poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] }).toBe(withCue);
   await workspaceSaved(page);
   await reviewShot(page, "guided-workspace-saved");
 
@@ -214,35 +272,48 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   const card = savedGameCard(page, "Guided grove");
   await openLibraryActions(page, card);
   await page.getByTestId("start-library-game-over").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { intervals: [100] }).toBe(1);
   const input = page.getByTestId("input-line");
   await expect(input).toBeEnabled();
   await input.fill("sing");
   await input.press("Enter");
   // The reply uses the game's native modal print window.
   await expect
-    .poll(async () => (await screenText(page)).replace(/#/g, " ").replace(/\s+/g, " "))
+    .poll(async () => (await screenText(page)).replace(/#/g, " ").replace(/\s+/g, " "), {
+      intervals: [100],
+    })
     .toContain("The clearing hums back.");
   await input.press("Enter");
+  // Use the game's native speed setting for the three doorway walks.
+  // Their contract is room entry, save and restore rather than walking cadence.
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBe("menu");
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Fastest");
+  for (let item = 0; item < 3; item++) await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBeNull();
   await walkToRoom(page, "ArrowRight", 2);
   await reviewShot(page, "guided-play-grove");
 
   // The editable Starter's real native menu saves this authored second room.
   await page.keyboard.press("Escape");
-  await expect.poll(async () => (await textHook(page)).modal).toBe("menu");
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBe("menu");
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Save Game");
   const menuText = await screenText(page);
   for (const label of ["File", "Speed", "Sound", "Help", "Save Game", "Restore Game"])
     expect(menuText).toContain(label);
   await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).modal).toBe("save");
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBe("save");
   await page.keyboard.press("Enter");
   await expect(page.getByTestId("prompt-hint")).toBeVisible();
   await input.fill("Moonlit checkpoint");
   await input.press("Enter");
-  await expect.poll(() => screenText(page)).toContain("Save in slot 1?");
+  await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Save in slot 1?");
   await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
-  await expect.poll(() => storedSlot(page, projectId, 1)).not.toBeNull();
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBeNull();
+  await expect.poll(() => storedSlot(page, projectId, 1), { intervals: [100] }).not.toBeNull();
   const checkpoint = (await storedSlot(page, projectId, 1))!;
 
   await walkToRoom(page, "ArrowLeft", 1);
@@ -250,16 +321,16 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   // Death and Restore use the actual edited project and its saved room state.
   await input.fill("die");
   await input.press("Enter");
-  await expect.poll(async () => (await textHook(page)).modal).toBe("print");
-  await expect.poll(() => screenText(page)).toContain("The ground gives way");
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBe("print");
+  await expect.poll(() => screenText(page), { intervals: [100] }).toContain("The ground gives way");
   await page.keyboard.press("Enter");
-  await expect.poll(() => screenText(page)).toContain("You have died.");
+  await expect.poll(() => screenText(page), { intervals: [100] }).toContain("You have died.");
   await page.keyboard.press("1");
-  await expect.poll(async () => (await textHook(page)).modal).toBe("restore");
-  await expect.poll(() => screenText(page)).toContain("Moonlit checkpoint");
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBe("restore");
+  await expect.poll(() => screenText(page), { intervals: [100] }).toContain("Moonlit checkpoint");
   await page.keyboard.press("Enter");
-  await expect.poll(async () => (await textHook(page)).room).toBe(2);
-  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await expect.poll(async () => (await textHook(page)).room, { intervals: [100] }).toBe(2);
+  await expect.poll(async () => (await textHook(page)).modal, { intervals: [100] }).toBeNull();
   await expect(input).toBeEnabled();
   await reviewShot(page, "guided-restored-grove");
   await walkToRoom(page, "ArrowLeft", 1);
@@ -298,7 +369,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   expect(room1).toContain('said("sing")');
   expect(room1).toContain("new.room(2)");
   expect(room1).toContain("sound(");
-  expect(room1).toContain("position(o0, 40, 140)");
+  expect(room1).toContain("position(o0, 90, 140)");
   const room2 = await storedDocument(page, importedId, "logic:2");
   expect(room2).toContain("Moonlit grove");
   expect(room2).toContain("new.room(1)");
@@ -329,7 +400,9 @@ test("custom code stays precise: a rewritten entry block refuses Custom code, gu
   expect(await workspaceDocument(page, "logic:1")).toBe(custom);
   await reviewShot(page, "guided-custom-code");
   await addWorkspaceResponse(page, "hum", "A low hum answers.");
-  await expect.poll(() => workspaceDocument(page, "logic:1")).toContain('said("hum")');
+  await expect
+    .poll(() => workspaceDocument(page, "logic:1"), { intervals: [100] })
+    .toContain('said("hum")');
   const saved = await storedDocument(page, projectId, "logic:1");
   expect(saved).toContain('said("hum")');
   expect(saved).toContain("position.v(o0, v200, v201);");

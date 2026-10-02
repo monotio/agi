@@ -77,6 +77,22 @@ function compareTagNames(a: string, b: string): number {
 }
 
 export function readProjectHistory(value: unknown, digest: ProjectDigest): ProjectHistoryState {
+  return checkedHistory(value, digest, false);
+}
+
+/** Validate owned typed blobs without expanding them into portable number arrays. */
+export function checkProjectHistoryState(
+  state: ProjectHistoryState,
+  digest: ProjectDigest,
+): ProjectHistoryState {
+  return checkedHistory({ format: PROJECT_HISTORY_FORMAT, version: 1, ...state }, digest, true);
+}
+
+function checkedHistory(
+  value: unknown,
+  digest: ProjectDigest,
+  typed: boolean,
+): ProjectHistoryState {
   const envelope = record(value);
   if (envelope["format"] !== PROJECT_HISTORY_FORMAT)
     throw new Error("Unsupported project history format.");
@@ -109,24 +125,30 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
     invalid("blob count exceeds the limit.");
   let total = 0;
   // Bound every payload before allocating any owned byte payload.
-  const checked: { key: string; content: string | readonly number[] }[] = [];
+  const checked: { key: string; content: string | readonly number[] | Uint8Array }[] = [];
   for (const [key, value] of Object.entries(storedBlobs)) {
     hash(key);
-    const blob = record(value);
-    let content: string | readonly number[];
+    const blob = typed
+      ? typeof value === "string"
+        ? { type: "text", text: value }
+        : { type: "bytes", bytes: value }
+      : record(value);
+    let content: string | readonly number[] | Uint8Array;
     if (blob["type"] === "text") {
       fields(blob, ["type", "text"]);
       content = text(blob["text"], PROJECT_HISTORY_LIMITS.maxBlobBytes / 2);
     } else if (blob["type"] === "bytes") {
       fields(blob, ["type", "bytes"]);
       const bytes = blob["bytes"];
+      if (typed ? !(bytes instanceof Uint8Array) : !Array.isArray(bytes))
+        invalid("blob content must be bytes.");
+      const payload = bytes as readonly number[] | Uint8Array;
       if (
-        !Array.isArray(bytes) ||
-        bytes.length >
-          (images ? PROJECT_HISTORY_LIMITS.maxImageBlobBytes : PROJECT_HISTORY_LIMITS.maxBlobBytes)
+        payload.length >
+        (images ? PROJECT_HISTORY_LIMITS.maxImageBlobBytes : PROJECT_HISTORY_LIMITS.maxBlobBytes)
       )
         invalid("byte payload exceeds the limit.");
-      content = bytes;
+      content = payload;
     } else invalid("unknown blob type.");
     total += typeof content === "string" ? content.length * 2 : content.length;
     if (
@@ -140,6 +162,7 @@ export function readProjectHistory(value: unknown, digest: ProjectDigest): Proje
   for (const { key, content } of checked) {
     let owned: ProjectContent;
     if (typeof content === "string") owned = content;
+    else if (content instanceof Uint8Array) owned = content.slice();
     else {
       for (let i = 0; i < content.length; i++) {
         const byte = content[i];
@@ -293,6 +316,7 @@ export function writeProjectHistory(
   state: ProjectHistoryState,
   digest: ProjectDigest,
 ): PortableProjectHistory {
+  const checked = checkProjectHistoryState(state, digest);
   const entries = Object.entries(record(state.blobs));
   if (entries.length > PROJECT_HISTORY_LIMITS.maxBlobs) invalid("blob count exceeds the limit.");
   const images = state.commits.some((commit) =>
@@ -336,7 +360,6 @@ export function writeProjectHistory(
     future: state.future,
     tags: state.tags,
   };
-  const checked = readProjectHistory(portable, digest);
   return Object.freeze({
     ...portable,
     blobs: Object.freeze(portable.blobs),

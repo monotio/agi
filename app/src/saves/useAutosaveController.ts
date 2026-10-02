@@ -180,6 +180,7 @@ export interface AutosaveControllerContext {
   readonly prepareCheckpoint?: (
     game: BootedGame,
     files: Record<string, Uint8Array> | undefined,
+    revision: ResourceRevision | undefined,
   ) => Promise<"owned" | "legacy" | "refused">;
   readonly onAutosaveStored?: (cycle: number) => void;
   readonly onAutosaveRestored?: (room: number, egoX: number, egoY: number) => void;
@@ -354,6 +355,7 @@ export interface AutosaveController {
   flushAutosaveDetailed(timeoutMs?: number): Promise<AutosaveFlushResult>;
   handleAutosave(msg: {
     image: string;
+    revision?: ResourceRevision;
     preview?: unknown;
     menus?: EngineMenuState;
     cycle: number;
@@ -637,6 +639,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   async function storeAutosave(msg: {
     image: string;
+    revision?: ResourceRevision;
     preview?: unknown;
     menus?: EngineMenuState;
     cycle: number;
@@ -660,6 +663,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       // A removed project stores nothing: a checkpoint would bring its key
       // back, and Home would offer a game that no longer exists.
       if (await projectRemoved(game, expectedEpoch)) return false;
+      if (msg.files === undefined && msg.revision !== undefined && game.revision !== msg.revision)
+        return false;
       if (target === null) {
         ctx.logAgent("log", "autosave skipped: the game has no resolvable progress target");
         return false;
@@ -746,6 +751,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   function handleAutosave(msg: {
     image: string;
+    revision?: ResourceRevision;
     preview?: unknown;
     menus?: EngineMenuState;
     cycle: number;
@@ -753,14 +759,17 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     files?: Record<string, Uint8Array>;
   }): void {
     const game = ctx.getBootedGame();
+    const revision = msg.revision ?? game?.revision;
     autosaveWrite = autosaveWrite
       .then(async () => {
         if (game === null || ctx.getBootedGame() !== game) return false;
-        const ownership = (await ctx.prepareCheckpoint?.(game, msg.files)) ?? "legacy";
+        const ownership =
+          (await ctx.prepareCheckpoint?.(game, msg.files, msg.revision)) ?? "legacy";
         if (ownership === "refused" || ctx.getBootedGame() !== game) return false;
         if (ownership === "owned") {
+          if (game.revision !== revision) return false;
           const { files: _files, ...checkpoint } = msg;
-          return storeAutosave(checkpoint);
+          return storeAutosave({ ...checkpoint, revision: revision! });
         }
         return storeAutosave(msg);
       })

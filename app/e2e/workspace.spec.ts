@@ -387,6 +387,8 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await page.keyboard.press("Enter");
   await tabTo(page, page.getByRole("button", { name: "Start building", exact: true }));
   await page.keyboard.press("Enter");
+  await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await keyboardOpen(page, "PICTURE 1");
@@ -772,6 +774,49 @@ test("parts show keyboard focus and align the VIEW thumbnail with other rows", a
   await page.keyboard.press("Shift+Tab");
   await expect(part).toBeFocused();
   await expect(part).toHaveCSS("outline-style", "solid");
+});
+
+test("VIEW thumbnails animate only in visible parts and follow reduced motion @webkit-desktop", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => {
+    const timers = new Set<number>();
+    const browser = window as Window;
+    const start = browser.setInterval.bind(browser);
+    const clear = browser.clearInterval.bind(browser);
+    Object.assign(window, { __viewTimers: timers });
+    browser.setInterval = (...args: Parameters<Window["setInterval"]>) => {
+      const timer = start(...args);
+      if (args[1] === 180) timers.add(timer);
+      return timer;
+    };
+    browser.clearInterval = (timer) => {
+      timers.delete(timer!);
+      clear(timer);
+    };
+  });
+  const active = () =>
+    page.evaluate(() => (window as unknown as { __viewTimers: Set<number> }).__viewTimers.size);
+  await starter(page);
+  const part = page.getByTestId("part-view:0");
+  await part.scrollIntoViewIfNeeded();
+  await expect.poll(active).toBe(1);
+  await page.getByRole("radio", { name: "Play", exact: true }).click();
+  await expect.poll(active).toBe(0);
+  await page.getByRole("radio", { name: "Create", exact: true }).click();
+  await expect.poll(active).toBe(1);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect.poll(active).toBe(0);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect.poll(active).toBe(1);
+  await page.getByTestId("parts-list").evaluate((list) => {
+    list.style.height = "200px";
+    list.scrollTop = 0;
+  });
+  await expect.poll(active).toBe(0);
+  await part.scrollIntoViewIfNeeded();
+  await expect.poll(active).toBe(1);
 });
 
 test("Create renders crisp while Play retains the CRT preference", async ({ page }) => {

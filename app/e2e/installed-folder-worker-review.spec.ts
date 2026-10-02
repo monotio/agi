@@ -60,14 +60,16 @@ test("an exact folder choice boots its own complete files @webkit-desktop", asyn
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("boot-chamber").click();
+  // Verify delivery before execution: loading the selected installation and
+  // starting its interpreter are separate asynchronous transport boundaries.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => Reflect.get(window, "__installedBootFiles") as Record<string, number[]>[],
+      ),
+    )
+    .toEqual([
+      Object.fromEntries(Object.entries(original).map(([name, bytes]) => [name, [...bytes]])),
+    ]);
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  const captured = await page.evaluate(
-    () => Reflect.get(window, "__installedBootFiles") as Record<string, number[]>[],
-  );
-  expect(
-    captured,
-    "the physical game worker receives the selected folder's exact file set",
-  ).toEqual([
-    Object.fromEntries(Object.entries(original).map(([name, bytes]) => [name, [...bytes]])),
-  ]);
 });

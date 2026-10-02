@@ -14,11 +14,7 @@ import {
   type ProjectHistoryCommit,
   type ProjectHistoryState,
 } from "./projectHistoryData.ts";
-import {
-  readProjectHistory,
-  writeProjectHistory,
-  PROJECT_HISTORY_LIMITS,
-} from "./projectHistoryCodec.ts";
+import { checkProjectHistoryState, PROJECT_HISTORY_LIMITS } from "./projectHistoryCodec.ts";
 import type { ProjectModel, ProjectProposal } from "./projectModel.ts";
 
 export interface ProjectHistoryAction {
@@ -51,7 +47,7 @@ export class ProjectHistory {
             future: Object.freeze([]),
             tags: Object.freeze({}),
           })
-        : readProjectHistory(writeProjectHistory(state, digest), digest);
+        : checkProjectHistoryState(state, digest);
   }
 
   capture(): ProjectHistoryState {
@@ -126,20 +122,17 @@ export class ProjectHistory {
     };
     const commit = Object.freeze({ ...body, id: projectCommitId(body, this.digest) });
     // Bounds, parent/diff and hashes are checked before changing live History.
-    this.state = readProjectHistory(
-      writeProjectHistory(
-        {
-          ...(this.state.prunedParents !== undefined
-            ? { prunedParents: this.state.prunedParents }
-            : {}),
-          blobs,
-          commits: [...this.state.commits, commit],
-          cursor: commit.id,
-          future: [],
-          tags: this.state.tags,
-        },
-        this.digest,
-      ),
+    this.state = checkProjectHistoryState(
+      {
+        ...(this.state.prunedParents !== undefined
+          ? { prunedParents: this.state.prunedParents }
+          : {}),
+        blobs,
+        commits: [...this.state.commits, commit],
+        cursor: commit.id,
+        future: [],
+        tags: this.state.tags,
+      },
       this.digest,
     );
     return this.commit(commit.id);
@@ -149,8 +142,8 @@ export class ProjectHistory {
     this.commit(id);
     if (Object.hasOwn(this.state.tags, name) && this.state.tags[name] !== id)
       throw new Error("Project version name already exists.");
-    this.state = readProjectHistory(
-      writeProjectHistory({ ...this.state, tags: { ...this.state.tags, [name]: id } }, this.digest),
+    this.state = checkProjectHistoryState(
+      { ...this.state, tags: { ...this.state.tags, [name]: id } },
       this.digest,
     );
   }
@@ -163,10 +156,7 @@ export class ProjectHistory {
     const id = tags[name]!;
     delete tags[name];
     const renamed = next === null ? tags : { ...tags, [next]: id };
-    this.state = readProjectHistory(
-      writeProjectHistory({ ...this.state, tags: renamed }, this.digest),
-      this.digest,
-    );
+    this.state = checkProjectHistoryState({ ...this.state, tags: renamed }, this.digest);
   }
 
   undo(model: ProjectModel): ProjectHistoryAction | undefined {
@@ -201,7 +191,7 @@ export class ProjectHistory {
     };
     const commit = { ...body, id: projectCommitId(body, this.digest) };
     // Validate the Restore and its bounds before issuing an editable proposal.
-    writeProjectHistory(
+    checkProjectHistoryState(
       { ...this.state, commits: [...this.state.commits, commit], cursor: commit.id, future: [] },
       this.digest,
     );

@@ -547,6 +547,109 @@ test("catalog edits save to a remix and later writes keep that owner", async () 
   session.dispose();
 });
 
+test("a catalog save can create its remix while the next edit awaits admission", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const original = requireProjectId("catalog-overlap");
+  let releaseSave!: () => void;
+  let saving!: () => void;
+  let releaseAdmission!: () => void;
+  let admitting!: () => void;
+  const saveEntered = new Promise<void>((resolve) => {
+    saving = resolve;
+  });
+  const saveGate = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const admissionEntered = new Promise<void>((resolve) => {
+    admitting = resolve;
+  });
+  const admissionGate = new Promise<void>((resolve) => {
+    releaseAdmission = resolve;
+  });
+  let admissions = 0;
+  const savedOwners: string[] = [];
+  const session = openProjectSession({
+    data: {
+      projectId: original,
+      title: "Catalog",
+      authoredAt: "",
+      generation: 7,
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+      library: {
+        version: 1,
+        source: "catalog",
+        revision: compiled.build.identity.revision,
+        catalog: { id: "proof", version: "1" },
+        validation: { status: "ready", message: "Ready" },
+      },
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "overlap-run",
+      async admit() {
+        if (++admissions === 2) {
+          admitting();
+          await admissionGate;
+        }
+        return { status: "committed", expected: null, current: null, patchGeneration: admissions };
+      },
+    },
+    async write(request) {
+      savedOwners.push(request.projectId);
+      if (savedOwners.length === 1) {
+        saving();
+        await saveGate;
+      }
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          projectId: request.projectId,
+          lifetime: "remix-owner",
+          generation: savedOwners.length,
+          revision: compiled.build.identity.revision,
+          authoring: authoringFingerprint(undefined, request.data.workspace),
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  const edit = (content: string) =>
+    session.submit({
+      proposal: session.model.propose(session.model.capture(), "Edit", [
+        { key: "logic:0", content },
+      ]),
+      origin: "logic",
+      label: "Edit",
+      author: "creator",
+    });
+  await edit("// first\nreturn;");
+  const flushing = session.flush();
+  await saveEntered;
+  const second = edit("// second\nreturn;");
+  await admissionEntered;
+  releaseSave();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(session.lifetime, "remix-owner");
+  releaseAdmission();
+  assert.equal((await second).status, "committed");
+  await flushing;
+  assert.equal(session.model.capture().read("logic:0")!.content, "// second\nreturn;");
+  assert.equal(savedOwners.length, 2);
+  assert.notEqual(savedOwners[0], original);
+  assert.equal(savedOwners[1], savedOwners[0]);
+  session.dispose();
+});
+
 test("owned saves carry the admitted world into legacy room continuation", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),
@@ -600,5 +703,155 @@ test("owned saves carry the admitted world into legacy room continuation", async
     );
   } finally {
     session.dispose();
+  }
+});
+
+test("flush follows an edit queued while its storage write is in flight", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let releaseWrite!: () => void;
+  let releaseAdmission!: () => void;
+  let admissions = 0;
+  const writes: string[] = [];
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("flush-queued-edit"),
+      title: "Flush",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace({ "logic:0": "return;" }),
+    },
+    lifetime: "flush-queued",
+    admission: {
+      runToken: "flush-run",
+      admit: async () => {
+        if (++admissions === 2)
+          await new Promise<void>((resolve) => {
+            releaseAdmission = resolve;
+          });
+        return { status: "committed", expected: null, current: null, patchGeneration: admissions };
+      },
+    },
+    write: async (request) => {
+      writes.push(request.commitId);
+      if (writes.length === 1)
+        await new Promise<void>((resolve) => {
+          releaseWrite = resolve;
+        });
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          ...request.expected!,
+          generation: request.expected!.generation + 1,
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  const edit = (content: string) =>
+    session.submit({
+      proposal: session.model.propose(session.model.capture(), "Edit", [
+        { key: "logic:0", content },
+      ]),
+      label: "Edit",
+      origin: "logic",
+      author: "creator",
+    });
+  await edit('print("First"); return;');
+  let flushed = false;
+  const flushing = session.flush().then(() => {
+    flushed = true;
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const second = edit('print("Second"); return;');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  releaseWrite();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(flushed, false, "the admitted edit is still waiting to publish its capture");
+  releaseAdmission();
+  await second;
+  await flushing;
+  assert.equal(writes.length, 2);
+  assert.equal(session.saveStatus().state, "saved");
+  session.dispose();
+});
+
+test("saved source stays saved while a deferred preview admission awaits the worker", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let releaseBoundary!: () => void;
+  let releaseAdmission!: () => void;
+  let entered!: () => void;
+  const admissionEntered = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let admissions = 0;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("saved-preview"),
+      title: "Saved preview",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace({ "logic:0": "return;" }),
+    },
+    lifetime: "saved-preview",
+    admission: {
+      runToken: "preview-run",
+      admit: async () => {
+        if (++admissions === 1)
+          return { status: "deferred", expected: null, current: null, patchGeneration: 0 };
+        entered();
+        await new Promise<void>((resolve) => {
+          releaseAdmission = resolve;
+        });
+        return { status: "committed", expected: null, current: null, patchGeneration: 1 };
+      },
+    },
+    boundary: () =>
+      new Promise<void>((resolve) => {
+        releaseBoundary = resolve;
+      }),
+    write: async (request) => ({
+      commitId: request.commitId,
+      workspaceId: request.workspaceId,
+      candidateHash: "a",
+      documents: request.documents,
+      saved: {
+        ...request.expected!,
+        generation: request.expected!.generation + 1,
+        buildId: request.buildId,
+      },
+    }),
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Edit", [
+        { key: "logic:0", content: 'print("Saved"); return;' },
+      ]),
+      label: "Edit",
+      origin: "logic",
+      author: "creator",
+    });
+    await session.flush();
+    releaseBoundary();
+    await admissionEntered;
+    assert.equal(session.capture().pendingAdmission, true);
+    assert.equal(session.saveStatus().state, "saved");
+    // Saving documents does not wait for a player to close the parked window.
+    await session.flush();
+  } finally {
+    session.dispose();
+    releaseAdmission();
   }
 });

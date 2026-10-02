@@ -346,12 +346,13 @@ export function useEngine(
     state,
     getBootedGame: () => lifecycle.getBootedGame(),
     getWorker: link.getWorker,
-    async prepareCheckpoint(game, files) {
+    async prepareCheckpoint(game, files, checkpointRevision) {
       const session = projectSession;
       if (session === null) return "legacy";
-      const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
-      if (files !== undefined && computeResourceRevision(files) !== revision) return "refused";
       await session.flush();
+      const revision = session.model.capture().lastAdmissibleBuild!.identity.revision;
+      if (checkpointRevision !== undefined && checkpointRevision !== revision) return "refused";
+      if (files !== undefined && computeResourceRevision(files) !== revision) return "refused";
       return session === projectSession &&
         lifecycle.getBootedGame() === game &&
         session.saveStatus().state === "saved" &&

@@ -9,14 +9,16 @@ import { openSprite } from "../../src/view/spriteDocument.ts";
 import {
   closeWorkspaceEditor,
   isolateStorage,
-  openLibraryActions,
   openWorkspacePicture,
   openWorkspaceView,
-  savedGameCard,
   workspaceSaved,
 } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
-import { replaceWorkspaceDocument, workspaceDocument } from "./workspaceShared.ts";
+import {
+  openStoredWorkspace,
+  replaceWorkspaceDocument,
+  workspaceDocument,
+} from "./workspaceShared.ts";
 
 /** Exact resource edits autosave into one project and survive a cold library reopen. */
 test.use({ viewport: { width: 1440, height: 900 } });
@@ -61,18 +63,6 @@ const visual = (bytes: Uint8Array): Uint8Array => {
 };
 const at = (plane: Uint8Array, x: number, y: number): number => plane[y * 160 + x]!;
 
-/** The library's Edit verb: Logic Studio on the stored project, no engine. */
-async function openLogicStudio(page: Page, title: string) {
-  const card = savedGameCard(page, title);
-  await openLibraryActions(page, card);
-  await page
-    .getByRole("menu", { name: "Game actions", exact: true })
-    .getByTestId("edit-library-game")
-    .click();
-  await expect(page.getByTestId("parts-list")).toBeVisible();
-  return page.getByTestId("workspace-editor");
-}
-
 test("a starter PICTURE autosaves exact pixels and source and reopens cold @webkit-desktop", async ({
   page,
 }) => {
@@ -85,7 +75,7 @@ test("a starter PICTURE autosaves exact pixels and source and reopens cold @webk
   await page.goto("/");
   const projectId = await seedLocalProject(page, "Drawn clearing");
   await page.reload();
-  await openLogicStudio(page, "Drawn clearing");
+  await openStoredWorkspace(page, "Drawn clearing");
   const room = await openWorkspacePicture(page, 1);
   const before = Uint8Array.from(await page.evaluate(() => [...window.__AGI_STUDIO__!.bytes()]));
   const beforeSource = await page.evaluate(() => window.__AGI_STUDIO__!.source());
@@ -116,7 +106,7 @@ test("a starter PICTURE autosaves exact pixels and source and reopens cold @webk
   await reviewShot(page, "project-resource-after-keep");
 
   await page.getByTestId("btn-exit").click();
-  await openLogicStudio(page, "Drawn clearing");
+  await openStoredWorkspace(page, "Drawn clearing");
   await openWorkspacePicture(page, 1);
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(drawnSource);
   expect(await page.evaluate(() => [...window.__AGI_STUDIO__!.bytes()])).toEqual([...drawn]);
@@ -135,7 +125,7 @@ test("a VIEW recolour autosaves exact bytes and retains an unrelated LOGIC edit 
   await page.goto("/");
   const projectId = await seedLocalProject(page, "Recoloured ego");
   await page.reload();
-  await openLogicStudio(page, "Recoloured ego");
+  await openStoredWorkspace(page, "Recoloured ego");
   const originalBytes = openContainer(await storedFiles(page, projectId)).getResource("view", 0)!;
   const original = openSprite(originalBytes, DEFAULT_V2_PROFILE);
   // The starter ego walks right in loop 0; loop 1 mirrors it.
@@ -200,7 +190,7 @@ test("a VIEW recolour autosaves exact bytes and retains an unrelated LOGIC edit 
   await reviewShot(page, "project-resource-sprite-kept");
 
   await page.getByTestId("btn-exit").click();
-  await openLogicStudio(page, "Recoloured ego");
+  await openStoredWorkspace(page, "Recoloured ego");
   await openWorkspaceView(page, 0);
   expect(await page.evaluate(() => [...window.__AGI_SPRITE__!.bytes()])).toEqual([...recoloured]);
   expect(await workspaceDocument(page, "logic:1")).toBe(editedSource);
