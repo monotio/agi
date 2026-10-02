@@ -4,6 +4,7 @@ import {
   enterCreateMode,
   isolateStorage,
   savedGameCard,
+  settled,
   textHook,
 } from "./engineProbe.ts";
 
@@ -49,7 +50,7 @@ test("Starter stands still for 60 cycles, walks and returns to its standing pose
   await page.keyboard.press("ArrowRight");
   const stoppedAt = (await textHook(page)).cycle;
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(stoppedAt + 2);
-  const standing = await canvasPicHash(page);
+  const standing = (await settled(page)).picHash;
   hashes.clear();
   const stopped = (await textHook(page)).cycle;
   await expect
