@@ -11,6 +11,8 @@ runs:
       with:
         node-version: 22
     - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
       with:
         path: |
           node_modules
@@ -34,11 +36,15 @@ runs:
     - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       if: inputs.browser != ''
       id: browser
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
       with:
         path: ~/.cache/ms-playwright
         key: browsers-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
     - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       if: inputs.browser != ''
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
       with:
         path: /tmp/agi-apt/*.deb
         key: apt-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
@@ -49,9 +55,9 @@ runs:
         BROWSER: ${{ inputs.browser }}
       run: |
         mkdir -p /tmp/agi-apt/partial
-        printf 'Dir::Cache::archives "/tmp/agi-apt";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-cache > /dev/null
+        printf 'Dir::Cache::archives "/tmp/agi-apt";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nAcquire::Retries "2";\nDPkg::Lock::Timeout "60";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-cache > /dev/null
         cd app
-        npx playwright install-deps "$BROWSER"
+        timeout 120s npx playwright install-deps "$BROWSER"
     - name: Browser binary
       if: inputs.browser != '' && steps.browser.outputs.cache-hit != 'true'
       shell: bash

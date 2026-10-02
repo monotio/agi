@@ -14,7 +14,7 @@ jobs:
   e2e:
     name: Playwright (${{ matrix.label }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: ${{ inputs.repeat > 1 && 45 || 15 }}
     strategy:
       fail-fast: false
       matrix:
