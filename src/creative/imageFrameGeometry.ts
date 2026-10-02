@@ -169,7 +169,18 @@ export function toggleFrameLink(boxes: readonly FrameBox[], id: string, sheet: S
   });
 }
 export function orderFrameBoxes(boxes: readonly FrameBox[]): FrameBox[] {
-  return [...boxes].sort((a, b) => a.region.y - b.region.y || a.region.x - b.region.x);
+  const rows: FrameBox[][] = [];
+  let row: FrameBox[] = [];
+  let bottom = 0;
+  for (const frame of [...boxes].sort((a, b) => a.region.y - b.region.y)) {
+    if (!row.length || frame.region.y >= bottom) {
+      row = [];
+      rows.push(row);
+      bottom = frame.region.y + frame.region.height;
+    } else bottom = Math.min(bottom, frame.region.y + frame.region.height);
+    row.push(frame);
+  }
+  return rows.flatMap((frames) => frames.sort((a, b) => a.region.x - b.region.x));
 }
 export function reorderFrameBoxes(
   boxes: readonly FrameBox[],

@@ -326,7 +326,11 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="image-reference"
-    :class="{ 'image-reference--cels': !isPicture, 'image-reference--picture': isPicture }"
+    :class="{
+      'image-reference--cels': !isPicture,
+      'image-reference--picture': isPicture,
+      'image-reference--active': active,
+    }"
     data-testid="image-reference"
     @dragover.prevent
     @drop="drop"
@@ -621,7 +625,7 @@ onBeforeUnmount(() => {
   overflow: auto;
 }
 :global(
-  .workspace-editor:has(.image-reference--cels)
+  .workspace-editor:has(.image-reference--cels.image-reference--active)
     > .workspace-editor__header
     > button:not([data-testid])
 ) {

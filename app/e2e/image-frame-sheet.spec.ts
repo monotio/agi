@@ -346,4 +346,6 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   await expect(page.getByTestId("frame-sheet")).toBeVisible();
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 4 · 16 × 48 at 221, 24");
   expect((await projectView(page)).commits).toBe(after.commits);
+  await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByRole("button", { name: "Trace an image", exact: true })).toBeVisible();
 });

@@ -120,3 +120,19 @@ test("finding frames keeps edited boxes and replaces only untouched suggestions"
     ["new"],
   );
 });
+
+test("figures with uneven tops keep left-to-right order within each row", () => {
+  const boxes = [box("c", 20, 2), box("a", 0, 5), box("b", 10, 3), box("d", 0, 18)];
+  assert.deepEqual(
+    orderFrameBoxes(boxes).map((f) => f.id),
+    ["a", "b", "c", "d"],
+  );
+  assert.deepEqual(
+    mergeFrameSuggestions([], boxes, true).map((f) => f.id),
+    ["a", "b", "c", "d"],
+  );
+  assert.deepEqual(
+    boxes.map((f) => f.id),
+    ["c", "a", "b", "d"],
+  );
+});
