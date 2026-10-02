@@ -137,8 +137,8 @@ runtime checks.
 
 ### Local LOGIC language server
 
-[Editor setup](docs/editor-setup.md) covers the stdio server, its capabilities,
-`.lgc` files, startup profile and WORDS dictionary, and Neovim and Helix recipes.
+See [LOGIC editor setup](docs/editor-setup.md) for installation, project inputs,
+capabilities and editor recipes.
 The [LOGIC language reference](docs/logic-language.md) describes source syntax
 and how to extend commands, diagnostics and completion.
 

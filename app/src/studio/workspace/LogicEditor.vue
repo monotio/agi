@@ -2,9 +2,15 @@
 import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
 import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
+import { readInventoryObjects } from "../../../../src/authoring/inventory.ts";
+import { PROFILES } from "../../../../src/runtime/profile.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
 import type { ProjectSnapshot } from "../../../../src/authoring/projectModel.ts";
+import { offsetAt } from "../../../../src/logic/lspTypes.ts";
+import type { WorkspaceEdit } from "../../../../src/logic/lspTypes.ts";
+import { useEngineApi } from "../../engine/engineContext.ts";
+import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { LogicAnalysisClient } from "../logic/analysisClient.ts";
 import { monaco, LOGIC_LANGUAGE_ID, registerLogicModel } from "../logic/monacoLanguage.ts";
 const props = defineProps<{
@@ -29,6 +35,8 @@ const differs = computed(
 );
 const root = useTemplateRef("root");
 const client = new LogicAnalysisClient();
+const engine = useEngineApi();
+const workspace = useWorkspaceEditor();
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
 let model: monaco.editor.ITextModel | undefined;
 let language: ReturnType<typeof registerLogicModel> | undefined;
@@ -91,12 +99,18 @@ function analysis(): void {
       documents[key] = { version: doc.version, source: doc.content };
   }
   documents[props.documentKey] = { version: model.getVersionId(), source: model.getValue() };
+  let objects: string[] = [];
   let words: [string, number][] = [];
   let bindings: Record<string, { num: number }> = {};
   try {
     const text = props.snapshot.read("words")?.content;
     if (typeof text === "string") words = JSON.parse(text) as [string, number][];
     else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
+    const inventory = props.snapshot.read("inventory")?.content;
+    if (typeof inventory === "string")
+      objects = (JSON.parse(inventory) as { name: string }[]).map((item) => item.name);
+    else if (inventory instanceof Uint8Array)
+      objects = readInventoryObjects(inventory, PROFILES[props.profileId]).map((item) => item.name);
     const names = props.snapshot.read("bindings")?.content;
     if (typeof names === "string") bindings = readBindingsDocument(names);
   } catch {
@@ -107,10 +121,59 @@ function analysis(): void {
     revision: props.snapshot.revision,
     profileId: props.profileId,
     words,
+    objects,
     bindings,
+    bindingDocument: {
+      uri: "agi-project:///bindings.json",
+      source: (props.snapshot.read("bindings")?.content as string | undefined) ?? "{}",
+    },
     documents,
   });
   void language?.refreshDiagnostics();
+}
+async function applyProjectEdit(edit: WorkspaceEdit, label: string): Promise<void> {
+  const revision = props.snapshot.revision;
+  await workspace.flush.value?.();
+  const session = engine.getProjectSession();
+  const base = session?.model.capture();
+  if (!session || !base || base.revision !== revision)
+    throw new Error("The project changed. Retry the rename.");
+  const changes = edit.documentChanges.map((change) => {
+    const key =
+      change.textDocument.uri === "agi-project:///bindings.json"
+        ? "bindings"
+        : base.keys.find(
+            (key) => key.startsWith("logic:") && client.uri(key) === change.textDocument.uri,
+          );
+    const source = key ? base.read(key)?.content : undefined;
+    if (!key || typeof source !== "string")
+      throw new Error("The source changed. Retry the rename.");
+    if (key === props.documentKey && source !== model?.getValue())
+      throw new Error("The source changed. Retry the rename.");
+    const edits = change.edits
+      .map((entry) => ({
+        start: offsetAt(source, entry.range.start),
+        end: offsetAt(source, entry.range.end),
+        text: entry.newText,
+      }))
+      .sort((a, b) => b.start - a.start);
+    let content = source;
+    for (const entry of edits)
+      content = content.slice(0, entry.start) + entry.text + content.slice(entry.end);
+    return { key, content };
+  });
+  const outcome = await session.submit({
+    proposal: session.model.propose(base, label, changes),
+    label,
+    origin: "logic",
+    author: "creator",
+  });
+  if (
+    !["committed", "unchanged", "diagnostics", "restartRequired", "deferred"].includes(
+      outcome.status,
+    )
+  )
+    throw new Error("The project could not apply this rename. Retry at a safe game boundary.");
 }
 onMounted(() => {
   model = monaco.editor.createModel(
@@ -118,10 +181,15 @@ onMounted(() => {
     LOGIC_LANGUAGE_ID,
     monaco.Uri.parse(`agi-workspace://${crypto.randomUUID()}/${props.documentKey}`),
   );
-  language = registerLogicModel(model, { client, documentKey: props.documentKey });
+  language = registerLogicModel(model, {
+    client,
+    documentKey: props.documentKey,
+    applyProjectEdit,
+  });
   editor = monaco.editor.create(root.value!, {
     model,
     theme: "vs-dark",
+    "semanticHighlighting.enabled": true,
     automaticLayout: false,
     editContext: false,
     autoIndent: "none",

@@ -1,30 +1,34 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LogicAnalysisClient } from "../src/studio/logic/analysisClient.ts";
-import { createLogicAnalysisService } from "../src/studio/logic/analysisService.ts";
-import type {
-  LogicAnalysisProject,
-  LogicAnalysisReply,
-  LogicAnalysisRequest,
-} from "../src/studio/logic/analysisProtocol.ts";
+import { attachLogicLanguageServer } from "../src/studio/logic/analysisService.ts";
+import type { LogicAnalysisProject } from "../src/studio/logic/analysisClient.ts";
+import type { LspMessage, LspResponse, LspNotification } from "../../src/logic/lspTypes.ts";
 
 class FakeWorker {
-  onmessage: ((event: MessageEvent<LogicAnalysisReply>) => void) | null = null;
+  onmessage: ((event: MessageEvent<LspResponse | LspNotification>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
-  requests: LogicAnalysisRequest[] = [];
+  requests: LspMessage[] = [];
   terminated = false;
-  analyze = createLogicAnalysisService();
-  postMessage(request: LogicAnalysisRequest) {
-    this.requests.push(structuredClone(request));
+  port = {
+    onmessage: null as ((event: { data: LspMessage }) => void) | null,
+    postMessage: (data: LspResponse | LspNotification) =>
+      this.onmessage?.({ data } as MessageEvent<LspResponse | LspNotification>),
+  };
+  constructor() {
+    attachLogicLanguageServer(this.port);
+  }
+  postMessage(request: LspMessage) {
+    if (request.id === undefined || request.id === 0)
+      this.port.onmessage!({ data: structuredClone(request) });
+    else this.requests.push(structuredClone(request));
   }
   terminate() {
     this.terminated = true;
   }
   reply(index = 0) {
-    this.onmessage?.({
-      data: this.analyze(this.requests[index]!),
-    } as MessageEvent<LogicAnalysisReply>);
+    this.port.onmessage!({ data: this.requests[index]! });
   }
 }
 function project(source = "set(door); return;", revision = 1): LogicAnalysisProject {
@@ -41,15 +45,20 @@ test("analysis worker uses actual shared project semantics and proposes rename w
   const worker = new FakeWorker();
   const client = new LogicAnalysisClient(() => worker);
   client.setProject(project());
-  const definition = client.request("logic:1", { method: "definitionAt", offset: 4 });
+  const definition = client.request("logic:1", "textDocument/definition", {
+    position: { line: 0, character: 4 },
+  });
   worker.reply();
-  assert.deepEqual(await definition, { kind: "binding", name: "door", document: "bindings" });
-  const rename = client.request("logic:1", { method: "renameAt", offset: 4, name: "gate" });
+  assert.equal((await definition)?.uri, "agi-project:///bindings.json");
+  const rename = client.request("logic:1", "textDocument/rename", {
+    position: { line: 0, character: 4 },
+    newName: "gate",
+  });
   worker.reply(1);
-  await assert.rejects(rename, /coordinated project rename/);
-  const diagnostics = client.request("logic:1", { method: "diagnostics" });
+  assert.equal((await rename)?.documentChanges.length, 2);
+  const diagnostics = client.request("logic:1", "textDocument/diagnostic");
   worker.reply(2);
-  assert.deepEqual(await diagnostics, { diagnostics: [], generatedDiagnostics: [] });
+  assert.deepEqual((await diagnostics).items, []);
   client.dispose();
 });
 
@@ -57,15 +66,19 @@ test("a new project snapshot rejects old requests even when text and version ret
   const worker = new FakeWorker();
   const client = new LogicAnalysisClient(() => worker);
   client.setProject(project());
-  const before = client.request("logic:1", { method: "hoverAt", offset: 4 });
+  const before = client.request("logic:1", "textDocument/hover", {
+    position: { line: 0, character: 4 },
+  });
   const rejected = assert.rejects(before, /superseded/);
   client.setProject(project("set(f1); return;", 2));
   await rejected;
   client.setProject(project());
-  const current = client.request("logic:1", { method: "hoverAt", offset: 4 });
+  const current = client.request("logic:1", "textDocument/hover", {
+    position: { line: 0, character: 4 },
+  });
   worker.reply(0);
   worker.reply(1);
-  assert.equal((await current)?.text, "#define door 50");
+  assert.match((await current)?.contents.value ?? "", /#define door 50/);
   client.dispose();
 });
 
@@ -78,21 +91,21 @@ test("cancellation, disposal and a dead worker settle promises and allow clean r
   }, 20);
   client.setProject(project());
   const controller = new AbortController();
-  const cancelled = client.request("logic:1", { method: "diagnostics" }, controller.signal);
+  const cancelled = client.request("logic:1", "textDocument/diagnostic", {}, controller.signal);
   const cancelledCheck = assert.rejects(cancelled, /cancelled/);
   controller.abort();
   await cancelledCheck;
-  const stalled = client.request("logic:1", { method: "diagnostics" });
+  const stalled = client.request("logic:1", "textDocument/diagnostic");
   await assert.rejects(stalled, /timed out/);
   assert.equal(workers[0]!.terminated, true);
-  const restarted = client.request("logic:1", { method: "diagnostics" });
+  const restarted = client.request("logic:1", "textDocument/diagnostic");
   workers[1]!.reply();
-  assert.deepEqual(await restarted, { diagnostics: [], generatedDiagnostics: [] });
-  const pending = client.request("logic:1", { method: "diagnostics" });
+  assert.deepEqual((await restarted).items, []);
+  const pending = client.request("logic:1", "textDocument/diagnostic");
   const disposal = assert.rejects(pending, /closed/);
   client.dispose();
   await disposal;
-  await assert.rejects(client.request("logic:1", { method: "diagnostics" }), /closed/);
+  await assert.rejects(client.request("logic:1", "textDocument/diagnostic"), /closed/);
 });
 
 test("project snapshots own mutable inputs and worker failures never become successful results", async () => {
@@ -101,10 +114,12 @@ test("project snapshots own mutable inputs and worker failures never become succ
   const bindings = { door: { num: 50 } };
   client.setProject({ ...project(), bindings });
   bindings.door.num = 99;
-  const hover = client.request("logic:1", { method: "hoverAt", offset: 4 });
+  const hover = client.request("logic:1", "textDocument/hover", {
+    position: { line: 0, character: 4 },
+  });
   worker.reply();
-  assert.equal((await hover)?.text, "#define door 50");
-  const pending = client.request("logic:1", { method: "diagnostics" });
+  assert.match((await hover)?.contents.value ?? "", /#define door 50/);
+  const pending = client.request("logic:1", "textDocument/diagnostic");
   const failed = assert.rejects(pending, /worker failed/);
   worker.onerror?.({} as ErrorEvent);
   await failed;
@@ -121,7 +136,7 @@ test("opening a project stays lazy and invalid document keys cannot reach the wo
   client.setProject(project());
   assert.equal(created, 0);
   await assert.rejects(
-    client.request("toString", { method: "diagnostics" }),
+    client.request("toString", "textDocument/diagnostic"),
     /No authored logic document/,
   );
   assert.equal(created, 0);

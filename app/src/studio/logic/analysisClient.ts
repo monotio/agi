@@ -1,21 +1,30 @@
+import type { LogicLanguageProject } from "../../../../src/logic/lspServer.ts";
 import type {
-  LogicAnalysisOperations,
-  LogicAnalysisProject,
-  LogicAnalysisQuery,
-  LogicAnalysisReply,
-  LogicAnalysisRequest,
-} from "./analysisProtocol.ts";
+  LspMessage,
+  LspOperations,
+  LspResponse,
+  LspNotification,
+} from "../../../../src/logic/lspTypes.ts";
 
+export interface LogicAnalysisProject extends LogicLanguageProject {
+  readonly revision: number;
+  readonly documents: Readonly<
+    Record<string, { readonly version: number; readonly source: string; readonly uri?: string }>
+  >;
+}
 interface AnalysisWorker {
-  postMessage(request: LogicAnalysisRequest): void;
+  postMessage(request: LspMessage): void;
   terminate(): void;
-  onmessage: ((event: MessageEvent<LogicAnalysisReply>) => void) | null;
+  onmessage: ((event: MessageEvent<LspResponse | LspNotification>) => void) | null;
   onerror: ((event: ErrorEvent) => void) | null;
   onmessageerror: ((event: MessageEvent) => void) | null;
 }
 interface Pending {
-  readonly request: LogicAnalysisRequest;
-  readonly accept: (result: LogicAnalysisOperations[keyof LogicAnalysisOperations]) => void;
+  readonly epoch: number;
+  readonly revision: number;
+  readonly version: number;
+  readonly key: string;
+  readonly accept: (result: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly cleanup: () => void;
 }
@@ -33,6 +42,7 @@ export class LogicAnalysisClient {
   private worker: AnalysisWorker | undefined;
   private pending = new Map<number, Pending>();
   private closed = false;
+  private readonly uris = new Map<string, string>();
   private readonly createWorker: () => AnalysisWorker;
   private readonly timeoutMs: number;
 
@@ -61,20 +71,29 @@ export class LogicAnalysisClient {
           typeof document.source !== "string"
         )
           throw new Error("Invalid analysis document.");
-        return [key, { ...document }];
+        return [
+          key,
+          {
+            ...document,
+            uri: this.uris.get(key) ?? document.uri ?? `agi-project:///logic.${key.slice(6)}.lgc`,
+          },
+        ];
       }),
     );
     this.project = {
       revision: project.revision,
       profileId: project.profileId,
+      objects: [...(project.objects ?? [])],
       words: project.words.map(([word, group]) => [word, group] as const),
       bindings: Object.fromEntries(
-        Object.entries(project.bindings).map(([name, binding]) => [name, { num: binding.num }]),
+        Object.entries(project.bindings).map(([name, binding]) => [name, { ...binding }]),
       ),
       documents,
+      ...(project.bindingDocument ? { bindingDocument: { ...project.bindingDocument } } : {}),
     };
     this.epoch++;
     this.rejectAll(new Error("Logic analysis was superseded by a newer workspace snapshot."));
+    if (this.worker) this.sendProject(this.worker);
   }
 
   /**
@@ -89,39 +108,71 @@ export class LogicAnalysisClient {
     this.rejectAll(new Error(message || "The logic analysis context is invalid."));
   }
 
-  async request<Q extends LogicAnalysisQuery>(
+  uri(key: string): string {
+    return (
+      this.uris.get(key) ??
+      this.project?.documents[key]?.uri ??
+      `agi-project:///logic.${key.slice(6)}.lgc`
+    );
+  }
+
+  /** Text for a client-side location preview, detached by setProject. */
+  documentSource(uri: string): string | undefined {
+    const project = this.project;
+    if (!project) return undefined;
+    const bindings = project.bindingDocument ?? {
+      uri: "agi-project:///bindings.json",
+      source: JSON.stringify(project.bindings, null, 2),
+    };
+    if (bindings.uri === uri) return bindings.source;
+    return Object.values(project.documents).find((document) => document.uri === uri)?.source;
+  }
+
+  setDocumentUri(key: string, uri: string): void {
+    if (this.uris.get(key) === uri) return;
+    this.uris.set(key, uri);
+    if (this.project) this.setProject(this.project);
+  }
+
+  async request<K extends keyof LspOperations>(
     key: string,
-    query: Q,
+    method: K,
+    params: Record<string, unknown> = {},
     signal?: AbortSignal,
-  ): Promise<LogicAnalysisOperations[Q["method"]]> {
+  ): Promise<LspOperations[K]> {
     if (this.closed) throw new Error("Logic analysis workspace is closed.");
     if (signal?.aborted) throw new Error("Logic analysis was cancelled.");
     const project = this.project;
     const document = project?.documents[key];
     if (!project || !document || !Object.hasOwn(project.documents, key))
       throw new Error("No authored logic document is open for analysis.");
-    const request: LogicAnalysisRequest = {
-      id: this.nextId++,
-      epoch: this.epoch,
-      revision: project.revision,
-      key,
-      version: document.version,
-      source: document.source,
-      profileId: project.profileId,
-      words: project.words,
-      bindings: project.bindings,
-      query: { ...query },
+    const id = this.nextId++;
+    const request: LspMessage = {
+      jsonrpc: "2.0",
+      id,
+      method,
+      params: { ...params, textDocument: { uri: this.uri(key) } },
     };
     return new Promise((resolve, reject) => {
-      const cancel = () => this.rejectOne(request.id, new Error("Logic analysis was cancelled."));
+      const cancel = () => {
+        this.worker?.postMessage({
+          jsonrpc: "2.0",
+          method: "$/cancelRequest",
+          params: { id },
+        } satisfies LspMessage);
+        this.rejectOne(id, new Error("Logic analysis was cancelled."));
+      };
       const timer = setTimeout(
         () =>
           this.failWorker(new Error("Logic analysis timed out. Try again to restart the worker.")),
         this.timeoutMs,
       );
-      this.pending.set(request.id, {
-        request,
-        accept: (result) => resolve(result as LogicAnalysisOperations[Q["method"]]),
+      this.pending.set(id, {
+        epoch: this.epoch,
+        revision: project.revision,
+        version: document.version,
+        key,
+        accept: (result) => resolve(result as LspOperations[K]),
         reject,
         cleanup: () => {
           clearTimeout(timer);
@@ -137,6 +188,14 @@ export class LogicAnalysisClient {
     });
   }
 
+  private sendProject(worker: AnalysisWorker): void {
+    worker.postMessage({
+      jsonrpc: "2.0",
+      method: "workspace/didChangeConfiguration",
+      params: { settings: { agiLogic: { project: this.project } } },
+    } satisfies LspMessage);
+  }
+
   dispose(): void {
     this.closed = true;
     this.project = undefined;
@@ -149,29 +208,41 @@ export class LogicAnalysisClient {
     this.worker = worker;
     worker.onmessage = ({ data }) => {
       if (this.worker !== worker) return;
+      if (!("id" in data) || typeof data.id !== "number") return;
       const pending = this.pending.get(data.id);
       if (!pending) return;
-      const request = pending.request;
       if (
-        data.epoch !== request.epoch ||
-        data.epoch !== this.epoch ||
-        data.revision !== request.revision ||
-        data.key !== request.key ||
-        data.version !== request.version ||
-        (data.ok && data.method !== request.query.method)
+        pending.epoch !== this.epoch ||
+        pending.revision !== this.project?.revision ||
+        pending.version !== this.project?.documents[pending.key]?.version
       ) {
-        this.failWorker(new Error("Logic analysis response did not match its requested snapshot."));
+        this.rejectOne(
+          data.id,
+          new Error("Logic analysis was superseded by a newer workspace snapshot."),
+        );
         return;
       }
       this.pending.delete(data.id);
       pending.cleanup();
-      if (data.ok) pending.accept(data.result);
-      else pending.reject(new Error(data.error));
+      if (data.error) pending.reject(new Error(data.error.message));
+      else pending.accept(data.result);
     };
     worker.onerror = worker.onmessageerror = () => {
       if (this.worker === worker)
         this.failWorker(new Error("Logic analysis worker failed. Try again to restart it."));
     };
+    worker.postMessage({
+      jsonrpc: "2.0",
+      id: 0,
+      method: "initialize",
+      params: {
+        capabilities: {
+          textDocument: { documentSymbol: { hierarchicalDocumentSymbolSupport: true } },
+        },
+      },
+    } satisfies LspMessage);
+    worker.postMessage({ jsonrpc: "2.0", method: "initialized", params: {} } satisfies LspMessage);
+    this.sendProject(worker);
     return worker;
   }
 

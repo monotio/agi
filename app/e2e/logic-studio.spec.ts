@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import {
   enterCreateMode,
   isolateStorage,
@@ -52,6 +53,78 @@ async function storedDocument(page: Page, projectId: string, key: string) {
     { projectId, key },
   );
 }
+
+test("workspace binding rename updates closed LOGIC and names in one History edit", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await seedLocalProject(page, "Rename game", "starter");
+  await page.reload();
+  await openStoredWorkspace(page, "Rename game");
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: {
+          getSession(): ProjectSession;
+        };
+      }
+    ).__AGI_PROJECT__.getSession();
+    const base = session.model.capture();
+    const names = JSON.parse(base.read("bindings")!.content as string);
+    names.shared_gate = { kind: "flag", num: 90 };
+    await session.submit({
+      proposal: session.model.propose(base, "Add shared name", [
+        { key: "bindings", content: JSON.stringify(names) },
+        ...[0, 1].map((num) => ({
+          key: `logic:${num}`,
+          content: `set(shared_gate);\n${base.read(`logic:${num}`)!.content as string}`,
+        })),
+      ]),
+      label: "Add shared name",
+      origin: "logic",
+      author: "creator",
+    });
+  });
+  await openWorkspaceLogic(page, 1);
+  const before0 = await workspaceDocument(page, "logic:0");
+  await page.evaluate(async () => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    const editor = monaco.editor
+      .getEditors()
+      .find((editor) => editor.getDomNode()?.closest('[data-testid="workspace-logic-editor"]'))!;
+    editor.setPosition({ lineNumber: 1, column: 6 });
+    editor.focus();
+    editor.trigger("spec", "editor.action.rename", {});
+  });
+  const input = page.locator(".rename-box input");
+  await expect(input).toBeVisible();
+  await input.fill("shared_door");
+  await input.press("Enter");
+  await expect.poll(() => workspaceDocument(page, "logic:0")).toContain("set(shared_door)");
+  expect(await workspaceDocument(page, "logic:1")).toContain("set(shared_door)");
+  expect(JSON.parse(await workspaceDocument(page, "bindings")).shared_door).toEqual({
+    kind: "flag",
+    num: 90,
+  });
+  await page.evaluate(async () => {
+    await (
+      window as unknown as {
+        __AGI_PROJECT__: {
+          getSession(): ProjectSession;
+        };
+      }
+    ).__AGI_PROJECT__
+      .getSession()
+      .undo();
+  });
+  expect(await workspaceDocument(page, "logic:0")).toBe(before0);
+  expect(await workspaceDocument(page, "logic:1")).toContain("set(shared_gate)");
+  expect(JSON.parse(await workspaceDocument(page, "bindings")).shared_gate).toEqual({
+    kind: "flag",
+    num: 90,
+  });
+});
 
 test("library Edit opens LOGIC: completion, hover, definition, diagnostics and autosave reopen", async ({
   page,

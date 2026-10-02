@@ -1,95 +1,249 @@
-# Editor setup
+# LOGIC editors
 
-Use the local language server to edit LOGIC source in your editor. Install
-Node.js 22.22 or newer and run `npm ci` at the repository root, then launch:
+The AGI LOGIC language server gives local editors the same compiler and code
+intelligence as the browser LOGIC editor. It uses stdio, UTF-16 positions, the
+`.lgc` extension and language id `agi-logic`.
 
-```bash
-npm run --silent language-server -- --stdio --profile 2.936 --words path/to/WORDS.TOK
+## Install
+
+Use Node 22.22 or newer. From a clone of this repository:
+
+```sh
+npm ci
+npx --no-install agi-language-server --help
+npx --no-install agi-language-server --stdio
 ```
 
-`--stdio` is required. `--profile` defaults to `2.936`; `--help` lists profile
-IDs. `--words` is optional and supplies vocabulary for `said()` completion and
-compilation. Restart the server after changing either input. Keep `--silent`
-when launching through npm: stdout carries only protocol messages.
+`--help` writes to stderr. Stdout carries protocol messages. An editor can launch
+Node directly, which avoids npm startup and works from any working directory:
 
-Use `.lgc` for LOGIC source files and map that extension to language id
-`agi-logic`. This is an editor convention; the compiler accepts source text and
-the server selects documents by language id. Positions use UTF-16 and documents
-sync in full. The server returns edits for the client to apply.
+```sh
+node --experimental-strip-types /path/to/agi/scripts/agi-language-server.ts --stdio
+```
 
-| Capability     | Scope                                                             |
-| -------------- | ----------------------------------------------------------------- |
-| Completion     | Commands, operands, local names and the supplied WORDS dictionary |
-| Signature help | Command parameters at `(` and `,`                                 |
-| Hover          | Command and local symbol documentation                            |
-| Definition     | Names declared in the same document                               |
-| References     | Uses in the same document                                         |
-| Rename         | Prepared, versioned edits in the same document                    |
-| Diagnostics    | Compiler and language checks pushed after source changes          |
+Use absolute paths in editor configurations. The executable reports the version
+from the clone's `package.json`. The clone includes the server; 1.2 has no dedicated
+AGI editor marketplace extension.
 
-The browser's LOGIC editor also loads project bindings. The local server reads
-only the document and the startup dictionary, so a room, actor or inventory name
-supplied by the project needs a local `#define` before it can resolve. Export or
-write those definitions in the source you edit. Navigation and rename cover one
-document at a time. Syntax colouring requires an editor grammar; the browser's
-Monaco tokenizer is separate. Formatting, semantic tokens and code actions are
-outside the current server's capabilities.
+## Project files
+
+Pass the app's downloaded project ZIP or an AGI v2/v3 game directory:
+
+```sh
+npx --no-install agi-language-server --stdio --project /path/to/game.zip
+npx --no-install agi-language-server --stdio --project /path/to/game
+```
+
+The loader uses the app's archive validation and interpreter-profile detection.
+It reads authored sources, shared project names, WORDS and OBJECT. Native LOGIC
+resources provide disassembled sources where authored source is unavailable.
+Room, VIEW and SOUND names use the same bindings as the browser. Local `#define`
+names and labels keep their document scope. The compiler's existing directives
+are `#define` and `#message`; shared names come from `bindings.json`.
+
+Extract an editor folder from a project into a **new directory**:
+
+```sh
+npx --no-install agi-language-server --project /path/to/game.zip --extract-sources /path/to/sources
+npx --no-install agi-language-server --stdio --project /path/to/game.zip --sources /path/to/sources
+```
+
+The command refuses an existing destination. It writes:
+
+```text
+sources/
+  logic.0.lgc
+  logic.1.lgc
+  bindings.json
+  WORDS.TOK
+  OBJECT
+```
+
+`logic.<number>.lgc`, with numbers 0 through 255 and no leading zeroes, maps to the
+app's LOGIC resource number. This keeps the resource IDs already stored in an
+export. A separate header is unnecessary. Files in `--sources` override archived
+sources and inputs. Without that option, the source folder is the game directory
+or the ZIP's parent directory. Every project LOGIC participates in references and
+rename, including closed files. Extract sources first to give an external editor
+real files for navigation and edits; archived sources alone have virtual URIs.
+
+`bindings.json` uses the project's existing representation:
+
+```json
+{
+  "door_open": { "kind": "flag", "num": 40 },
+  "hall": { "kind": "room", "num": 1 }
+}
+```
+
+WORDS and inventory names supply completions; OBJECT completions insert native
+`o<number>` operands. Extracted WORDS and OBJECT are language-context copies.
+Source extraction and LSP edits update editor files. Building a playable project
+still uses the app's validated project compiler and export workflow.
+
+Clients supporting dynamic file watchers receive a registration for project
+inputs. Other clients can send `workspace/didChangeWatchedFiles` after changing
+the archive, resource files, `.lgc` files, `bindings.json`, WORDS.TOK or OBJECT.
+Reloading inputs also republishes open-document diagnostics. An invalid reload
+keeps the previous valid project and reports the cause in the client log.
+
+Without `--project`, open documents use the standalone profile `2.936` and local
+definitions. Optional `--profile ID` and `--words /path/to/WORDS.TOK` select the
+standalone context. `--help` lists the supported profiles.
+
+## Capabilities
+
+| Feature                   | Behavior                                                                            |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| Diagnostics               | Compiler errors and warnings; push and pull, incremental document sync              |
+| Completion                | Commands, registers, local and shared names, WORDS and OBJECT                       |
+| Hover and signature help  | Shared command documentation and operand information                                |
+| Definition and references | Local names and labels; project bindings across all LOGIC sources                   |
+| Rename                    | Local names or coordinated project binding and source edits; byte-preserving checks |
+| Symbols                   | Document labels, defines, messages and `said()` blocks; workspace search            |
+| Highlight                 | Occurrences of the selected name in the document                                    |
+| Semantic tokens           | Full and range colouring from the compiler lexer                                    |
+| Folding                   | Multiline brace blocks                                                              |
+| Quick fixes               | Define an unknown name as `0`; add a missing semicolon when analysis confirms it    |
+| Cancellation              | Standard `$/cancelRequest`; stale browser replies lose authority                    |
+
+Review the value introduced by a define quick fix before compiling. Rename
+returns proposed versioned edits for the client to apply. Project renames also
+edit `bindings.json` and reject conflicting names or changes to compiled bytes.
+The browser applies coordinated renames through project History, so Undo restores
+the affected documents together. Project declarations and closed-file references
+open in read-only source previews. Formatting is omitted: the project has no
+canonical LOGIC formatter, and preserving authored message text matters.
 
 ## Neovim
 
-Add this to `init.lua`, replacing `/path/to/agi` with your checkout:
+For Neovim 0.11 or newer, add this to `init.lua`. Replace the paths:
 
 ```lua
 vim.filetype.add({ extension = { lgc = 'agi-logic' } })
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = 'agi-logic',
-  callback = function()
-    vim.lsp.start({
-      name = 'agi-logic',
-      cmd = { 'node', '--experimental-strip-types',
-        '/path/to/agi/scripts/agi-language-server.ts', '--stdio',
-        '--profile', '2.936' },
-      root_dir = '/path/to/agi',
-    })
-  end,
+vim.lsp.config('agi_logic', {
+  cmd = {
+    'node', '--experimental-strip-types',
+    '/path/to/agi/scripts/agi-language-server.ts', '--stdio',
+    '--project', '/path/to/game.zip', '--sources', '/path/to/sources',
+  },
+  filetypes = { 'agi-logic' },
+  root_markers = { 'bindings.json' },
+  workspace_required = false,
 })
+vim.lsp.enable('agi_logic')
 ```
 
-Add `'--words', '/path/to/game/WORDS.TOK'` to `cmd` for that game's vocabulary.
-Use Neovim's LSP mappings for hover, navigation, references and rename.
-See the [Neovim LSP documentation](https://neovim.io/doc/user/lsp/).
+Use `:checkhealth vim.lsp` to inspect attachment. The configuration follows
+[Neovim's LSP setup API](https://neovim.io/doc/user/lsp.html).
 
 ## Helix
 
-Add to `languages.toml` in your Helix configuration directory:
+Put this in your project's `.helix/languages.toml`:
 
 ```toml
-[language-server.agi-logic]
-command = "node"
-args = ["--experimental-strip-types", "/path/to/agi/scripts/agi-language-server.ts", "--stdio", "--profile", "2.936"]
-
 [[language]]
 name = "agi-logic"
-scope = "source.agi-logic"
 language-id = "agi-logic"
+scope = "source.agi-logic"
 file-types = ["lgc"]
-roots = ["package.json"]
-comment-tokens = "//"
+roots = ["bindings.json"]
+comment-tokens = ["//"]
+indent = { tab-width = 2, unit = "  " }
 language-servers = ["agi-logic"]
+
+[language-server.agi-logic]
+command = "node"
+args = ["--experimental-strip-types", "/path/to/agi/scripts/agi-language-server.ts", "--stdio", "--project", "/path/to/game.zip", "--sources", "/path/to/sources"]
 ```
 
-Append `"--words", "/path/to/game/WORDS.TOK"` to `args` when needed. Open a
-`.lgc` file and use the editor's LSP commands. See the
-[Helix language configuration reference](https://docs.helix-editor.com/languages.html).
+Run `hx --health agi-logic` to check the command. Helix's available LSP features
+depend on its version; this repository ships semantic tokens rather than a
+Tree-sitter grammar. See the [Helix language configuration](https://docs.helix-editor.com/languages.html).
+
+## Zed
+
+Zed registers new language servers through extensions. For an AGI-only project,
+a local configuration can use its existing C server slot. Put this in
+`.zed/settings.json` and replace the paths:
+
+```json
+{
+  "file_types": { "C": ["lgc"] },
+  "languages": {
+    "C": {
+      "language_servers": ["clangd"],
+      "format_on_save": "off",
+      "semantic_tokens": "full"
+    }
+  },
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "path": "/path/to/node",
+        "arguments": [
+          "--experimental-strip-types",
+          "/path/to/agi/scripts/agi-language-server.ts",
+          "--stdio",
+          "--project",
+          "/path/to/game.zip",
+          "--sources",
+          "/path/to/sources"
+        ]
+      }
+    }
+  }
+}
+```
+
+This replaces the C server for that workspace. The AGI server recognizes `.lgc`
+URIs even when a generic client sends another language id. Use a separate AGI
+workspace when editing C files too. See [Zed language settings](https://zed.dev/docs/configuring-languages)
+and [language extensions](https://zed.dev/docs/extensions/languages).
 
 ## VS Code
 
-VS Code needs an extension to launch an arbitrary language server and register
-`agi-logic`. A generic LSP client extension works: configure the Node command
-and arguments above, register `.lgc` as `agi-logic`, and use stdio. The repository
-ships the server and browser tokenizer; an editor extension supplies the file
-association and any syntax grammar. Zed likewise needs an extension and grammar.
+Install a generic stdio LSP client, such as
+[Generic LSP Client (`llllvvuu.llllvvuu-glspc`)](https://github.com/llllvvuu/vscode-glspc).
+For that extension, use `.vscode/settings.json`:
 
-The [LOGIC reference](logic-language.md) describes accepted source. The wire
-checks in [test/logic-lsp.test.ts](../test/logic-lsp.test.ts) exercise the actual
-CLI; verify editor configuration in your installed client.
+```json
+{
+  "files.associations": { "*.lgc": "plaintext" },
+  "glspc.languageId": "plaintext",
+  "glspc.serverCommand": "node",
+  "glspc.serverCommandArguments": [
+    "--experimental-strip-types",
+    "/path/to/agi/scripts/agi-language-server.ts",
+    "--stdio",
+    "--project",
+    "/path/to/game.zip",
+    "--sources",
+    "/path/to/sources"
+  ]
+}
+```
+
+The generic client's host language is plain text; `.lgc` recognition still
+attaches AGI analysis. Consult that extension's settings when using another
+generic client.
+
+## Troubleshooting
+
+| Symptom                                  | Next step                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------- |
+| Server exits immediately                 | Run the same command with `--help`; check Node and absolute paths.                      |
+| Project names are unknown                | Check `--project`, `--sources` and the client's server log for input validation errors. |
+| `said()` reports unknown words           | Check the project's WORDS.TOK or standalone `--words` input.                            |
+| Closed-file navigation cannot open a URI | Extract sources and use `--sources`; confirm the `logic.<number>.lgc` names.            |
+| Input changes stay stale                 | Check dynamic watcher support or send `workspace/didChangeWatchedFiles`.                |
+| Rename is refused                        | Fix source errors, choose an unused identifier and review the referenced binding.       |
+| Colouring stays plain                    | Check the client's semantic-token support and theme settings.                           |
+
+The automated suite launches the real CLI with the official LSP protocol client,
+compares its answers with the browser worker, and checks tutorial compilation
+against the app and shipped bytes. Browser tests exercise rename, outline,
+folding, colouring and quick fixes. Neovim and Helix were unavailable for local
+headless recipe checks; the Zed and VS Code recipes were also not run in their
+target editors. Treat those editor-specific configurations as setup recipes,
+with protocol behavior covered separately.

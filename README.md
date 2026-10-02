@@ -371,8 +371,10 @@ repository checks the work of both.
   game it made.
 
 [How it fits together](CONTRIBUTING.md#how-it-fits-together) maps the code.
-The [local language server](docs/editor-setup.md) brings LOGIC completion, hover,
-navigation, rename and diagnostics to a stdio LSP client.
+The [LOGIC language server](docs/editor-setup.md) is the same one the LOGIC
+editor uses. Point it at a downloaded project or an AGI game folder and any LSP
+editor gets diagnostics, completion, navigation and rename across the whole game,
+colouring and quick fixes.
 
 ## Run it yourself
 
