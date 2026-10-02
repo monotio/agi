@@ -21,7 +21,7 @@ import {
 import { resolveGameHash } from "../../../src/games/knownGames.ts";
 import { clearGameSaves } from "../saves/gameSaves.ts";
 import { emptyMapSidecar, readMapSidecar, removeMapSidecar } from "../world/roomMapStore.ts";
-import { clearPlayerSentences } from "../project/playerSentences.ts";
+import { clearPlayerSentences } from "../project/playerSentenceKey.ts";
 import { findInstalledFolder, gameStorageKey } from "../project/gameTypes.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { AiSettingsApi } from "../settings/useAiSettings.ts";
