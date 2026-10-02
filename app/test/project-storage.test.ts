@@ -28,6 +28,10 @@ test("future stored projects remain discoverable and download their untouched re
   const body = records.get(id) as Record<string, unknown>;
   body["version"] = 999;
   body["future"] = { bytes: new Uint8Array([0, 128, 255]), optional: undefined, zero: -0 };
+  const blobKey = `project-history/${id}/blobs/future-content`;
+  const blob = { projectId: blobKey, version: 999, content: new Uint8Array([7, 0, 255]) };
+  records.set(blobKey, blob);
+  records.set(`project-history/${id}-other/blobs/unrelated`, { content: "Another project" });
   const before = structuredClone(body);
   const index = cache.get(storage.getStorageKey(id));
   assert.ok(
@@ -38,9 +42,11 @@ test("future stored projects remain discoverable and download their untouched re
   await assert.rejects(storage.loadAuthoredGame(id), /version is not supported/);
   const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
   assert.deepEqual(decodeJournalValue(downloaded.record), before);
+  assert.deepEqual(decodeJournalValue(downloaded.records), [{ key: blobKey, value: blob }]);
   assert.equal(downloaded.index, index);
   await storage.reconcileGameIndex();
   assert.deepEqual(records.get(id), before);
+  assert.deepEqual(records.get(blobKey), blob);
   assert.equal(cache.get(storage.getStorageKey(id)), index);
   assert.equal(await storage.saveAuthoredGame(id, manual()), false);
   assert.deepEqual(records.get(id), before);

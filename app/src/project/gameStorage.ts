@@ -2322,13 +2322,31 @@ export async function listUnsupportedStoredProjects(): Promise<UnsupportedStored
 
 /** Recovery download: retain the raw envelope, additive fields and every resource byte. */
 export async function downloadUnsupportedStoredProject(id: ProjectId): Promise<string> {
-  const raw = await bodyTransaction<unknown>("readonly", (store) => store.get(id));
+  const db = await openDatabase();
+  const { raw, records } = await new Promise<{ raw: unknown; records: CapturedRecord[] }>(
+    (resolve, reject) => {
+      const transaction = db.transaction("projects", "readonly");
+      const store = transaction.objectStore("projects");
+      const body = store.get(id);
+      const records: CapturedRecord[] = [];
+      // History's content lives beside the body. Capture every sibling layout,
+      // including future versions, in the same snapshot without interpreting it.
+      queuePrefixScan(store, `project-history/${id}/`, (key, cursor) => {
+        records.push({ key, value: cursor.value });
+      });
+      transaction.oncomplete = () => resolve({ raw: body.result, records });
+      transaction.onerror = () => reject(transaction.error ?? body.error);
+      transaction.onabort = () =>
+        reject(transaction.error ?? new Error("Project download was aborted."));
+    },
+  );
   if (!unsupportedStoredProject(id, raw))
     throw new Error("The saved project changed. Refresh the library before downloading it.");
   return JSON.stringify({
     format: "monotio.agi.stored-project-recovery",
     version: 1,
     record: encodeJournalValue(raw),
+    records: encodeJournalValue(records),
     index: localStorage.getItem(getStorageKey(id)),
   });
 }
