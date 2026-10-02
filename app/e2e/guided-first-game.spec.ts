@@ -1,5 +1,6 @@
 import { storedDocument } from "./workspaceShared.ts";
 import type { Page } from "@playwright/test";
+import type { WorkerQueryFn } from "../src/worker/workerProtocol.ts";
 import { readFile } from "node:fs/promises";
 import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
@@ -123,57 +124,72 @@ async function hostTrace(page: Page): Promise<unknown> {
   });
 }
 
+async function engineState(page: Page) {
+  return page.evaluate(() =>
+    (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } }).__AGI_PROJECT__.query(
+      "state",
+    ),
+  );
+}
+
 /** Walk ego along an axis until the room changes — the authored doorway. */
-async function walkToRoom(page: Page, key: string, room: number): Promise<void> {
+async function walkToRoom(
+  page: Page,
+  key: "ArrowRight" | "ArrowLeft",
+  room: number,
+): Promise<void> {
   // Arrows are movement only outside the command line; blur it first.
   await page.getByTestId("input-line").evaluate((el: HTMLElement) => el.blur());
   let lastHook: unknown = null;
-  // A modal window acks with one Enter per NEW instance — keyed on its kind
-  // plus drawn text so a fresh window gets its own ack, and a stray repeat
-  // can never fall through to a later prompt or selector.
-  let ackedModal: string | null = null;
-  // One held keydown sends a single direction message; a press landing while
-  // the interpreter is parked (modal ack, input wait) can be consumed as the
-  // wait's answer instead. Re-press only when movement has stopped.
+  let ackedModal: number | null = null;
   let held = false;
-  let position: string | null = null;
-  let positionCycle = 0;
+  const direction = key === "ArrowRight" ? 3 : 7;
   try {
     await expect
       .poll(
         async () => {
-          const hook = await textHook(page);
-          lastHook = hook;
-          if (hook.room === room) return hook.room;
-          if (hook.modal === null) {
+          const state = await engineState(page);
+          if (!state) throw new Error("Walking requires a running game");
+          lastHook = {
+            room: state.room,
+            egoX: state.egoX,
+            egoY: state.egoY,
+            egoDirection: state.egoDirection,
+            modal: state.modalKind,
+          };
+          if (state.room === room) {
+            // A tap-mode game keeps walking after keyup and across new.room.
+            // Stop its incoming heading before screenshots and native saves.
+            if (held) await page.keyboard.up(key);
+            held = false;
+            if (state.egoDirection === direction) await page.keyboard.press(key);
+            return state.room;
+          }
+          if (state.modalKind === null) {
             ackedModal = null;
           } else {
-            const instance = `${hook.modal}:${hook.rows.join("\n")}`;
-            if (instance !== ackedModal) {
-              ackedModal = instance;
+            if (state.modalSerial !== ackedModal) {
+              ackedModal = state.modalSerial;
               await page.keyboard.press("Enter");
               held = false;
             }
-            return hook.room;
+            return state.room;
           }
-          const nextPosition = `${hook.room}:${hook.egoX}:${hook.egoY}`;
-          if (position !== nextPosition) {
-            position = nextPosition;
-            positionCycle = hook.cycle;
-          }
-          // AGI direction presses toggle walking. Keep a moving ego walking;
-          // send another press only after a modal or several idle cycles.
-          if (!held || hook.cycle - positionCycle >= 4) {
+          // Read the live heading: the periodic heartbeat can still show an
+          // old position while ego walks, and a repeated direction toggles it.
+          if (state.egoDirection !== direction) {
             await page.keyboard.up(key);
             await page.keyboard.down(key);
             held = true;
-            positionCycle = hook.cycle;
           }
-          return hook.room;
+          return state.room;
         },
         { timeout: 30_000, intervals: [100] },
       )
       .toBe(room);
+    await expect
+      .poll(async () => (await engineState(page))?.egoDirection, { intervals: [100] })
+      .toBe(0);
   } catch (error) {
     const [trace, screen] = await Promise.all([hostTrace(page), screenText(page)]);
     throw new Error(
