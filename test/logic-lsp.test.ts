@@ -6,7 +6,15 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -313,6 +321,47 @@ test("numbered operands navigate across a two-LOGIC v2 project without becoming 
   } finally {
     await shutdown(server);
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a project reached through a symlink keeps one identity per LOGIC file", async () => {
+  const { createContainer } = await import("../src/container/container.ts");
+  const { assembleLogic } = await import("../src/logic/assembler.ts");
+  const { PROFILES } = await import("../src/runtime/profile.ts");
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), "agi-lsp-link-")));
+  const dir = join(parent, "game");
+  const link = join(parent, "linked");
+  const container = createContainer();
+  const sources = ["draw.pic(v0);\nreturn;", "load.pic(v0);\nreturn;"];
+  mkdirSync(dir);
+  for (const num of [0, 1]) {
+    const payload = assembleLogic("return;", { profile: PROFILES["2.936"], dictionary: new Map() });
+    container.putResource("logic", num, payload.payload);
+    writeFileSync(join(dir, `logic.${num}.lgc`), sources[num]!);
+  }
+  for (const [name, bytes] of container.files) writeFileSync(join(dir, name), bytes);
+  writeFileSync(join(dir, "AGIDATA.OVL"), "Version 2.936");
+  writeFileSync(join(dir, "WORDS.TOK"), buildWordsTok([{ word: "look", id: 100 }]));
+  symlinkSync(dir, link, "dir");
+  // Editors report the resolved path of the file they open.
+  const server = start(["--project", link, "--sources", link]);
+  const uri = pathToFileURL(join(dir, "logic.0.lgc")).href;
+  try {
+    await initialize(server);
+    await open(server, uri, sources[0]!, 1);
+    const refs = (await server.connection.sendRequest(ReferencesRequest.type, {
+      textDocument: { uri },
+      position: positionAt(sources[0]!, sources[0]!.indexOf("v0")),
+      context: { includeDeclaration: false },
+    })) as Location[];
+    assert.deepEqual(
+      refs.map((r) => r.uri).sort(),
+      // The open file keeps the editor's spelling; others keep the configured folder.
+      [uri, pathToFileURL(join(link, "logic.1.lgc")).href].sort(),
+    );
+  } finally {
+    await shutdown(server);
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 

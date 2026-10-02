@@ -9,7 +9,7 @@ import {
   existsSync,
   writeFileSync,
 } from "node:fs";
-import { resolve, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import type { InitializeResult } from "vscode-languageserver/node";
@@ -109,11 +109,16 @@ async function readProject(path: string) {
 
 async function loadProject(options: CliOptions) {
   if (!options.project) return undefined;
-  const path = resolve(options.project);
+  // Editors send resolved file paths, so project URIs use them too.
+  const path = realpathSync(resolve(options.project));
   const folder = statSync(path).isDirectory();
   const game = await readProject(path);
   const input = readProjectLanguageInput(game);
-  const root = resolve(options.sources ?? (folder ? path : dirname(path)));
+  const root = options.sources
+    ? realpathSync(resolve(options.sources))
+    : folder
+      ? path
+      : dirname(path);
   const wordsPath = join(root, "WORDS.TOK");
   if (statExists(wordsPath)) {
     input.dictionary.clear();
@@ -183,6 +188,12 @@ function serve(
     bindings: {},
     documents: {},
   });
+  const uris = createUriSpelling();
+  if (options.project) {
+    const project = resolve(options.project);
+    uris.folder(statSync(project).isDirectory() ? project : dirname(project));
+  }
+  if (options.sources) uris.folder(resolve(options.sources));
   const core = createLogicLspServer({
     version,
     project: initial ?? {
@@ -192,15 +203,19 @@ function serve(
       documents: {},
     },
     publish: (message) => {
-      void connection.sendNotification(message.method, message.params);
+      void connection.sendNotification(message.method, uris.outgoing(message.params));
     },
   });
   let dynamicWatches = false;
   connection.onInitialize((params) => {
     dynamicWatches =
       params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
-    return core.handle({ jsonrpc: "2.0", id: 0, method: "initialize", params })!
-      .result as InitializeResult;
+    return core.handle({
+      jsonrpc: "2.0",
+      id: 0,
+      method: "initialize",
+      params: uris.incoming(params),
+    })!.result as InitializeResult;
   });
   connection.onInitialized(() => {
     const paths = [options.project, options.words, options.sources].filter(
@@ -210,7 +225,7 @@ function serve(
     const roots = [
       ...new Set(
         paths.map((path) =>
-          statSync(path).isDirectory() ? resolve(path) : dirname(resolve(path)),
+          statSync(path).isDirectory() ? realpathSync(path) : dirname(realpathSync(path)),
         ),
       ),
     ];
@@ -226,12 +241,12 @@ function serve(
     const id = 1;
     if (token.isCancellationRequested)
       core.handle({ jsonrpc: "2.0", method: "$/cancelRequest", params: { id } });
-    const response = core.handle({ jsonrpc: "2.0", id, method, params });
+    const response = core.handle({ jsonrpc: "2.0", id, method, params: uris.incoming(params) });
     if (response?.error) throw new ResponseError(response.error.code, response.error.message);
-    return response?.result;
+    return uris.outgoing(response?.result);
   });
   connection.onNotification((method, params) => {
-    core.handle({ jsonrpc: "2.0", method, params });
+    core.handle({ jsonrpc: "2.0", method, params: uris.incoming(params) });
   });
   connection.onDidChangeWatchedFiles(async () => {
     try {
@@ -241,6 +256,55 @@ function serve(
     }
   });
   connection.listen();
+}
+
+/** Editors may name a file through a symlink; the core sees one resolved URI per file. */
+function createUriSpelling() {
+  const spelled = new Map<string, string>();
+  const resolveUri = (uri: string): string => {
+    if (!uri.startsWith("file:")) return uri;
+    try {
+      const path = fileURLToPath(uri);
+      const real = pathToFileURL(join(realpathSync(dirname(path)), basename(path))).href;
+      spelled.set(real, uri);
+      return real;
+    } catch {
+      return uri;
+    }
+  };
+  const map = (value: unknown, rename: (uri: string) => string): unknown => {
+    if (Array.isArray(value)) return value.map((item) => map(item, rename));
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        (key === "uri" || key === "targetUri") && typeof item === "string"
+          ? rename(item)
+          : key === "changes" && item !== null && typeof item === "object"
+            ? Object.fromEntries(
+                Object.entries(item).map(([uri, edits]) => [rename(uri), map(edits, rename)]),
+              )
+            : map(item, rename),
+      ]),
+    );
+  };
+  // Files the editor has not opened keep the folder spelling given on the command line.
+  const folders: [string, string][] = [];
+  const outgoing = (uri: string): string => {
+    const known = spelled.get(uri);
+    if (known) return known;
+    const folder = folders.find(([real]) => uri.startsWith(real));
+    return folder ? folder[1] + uri.slice(folder[0].length) : uri;
+  };
+  return {
+    folder(given: string) {
+      const real = `${pathToFileURL(realpathSync(given)).href}/`;
+      const spelling = `${pathToFileURL(given).href}/`;
+      if (real !== spelling) folders.push([real, spelling]);
+    },
+    incoming: <T>(value: T) => map(value, resolveUri) as T,
+    outgoing: <T>(value: T) => map(value, outgoing) as T,
+  };
 }
 
 async function cli(args: string[]): Promise<void> {
