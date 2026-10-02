@@ -129,11 +129,13 @@ async function hostTrace(page: Page): Promise<unknown> {
 }
 
 async function engineState(page: Page) {
-  return page.evaluate(() =>
+  const state = await page.evaluate(() =>
     (window as unknown as { __AGI_PROJECT__: { query: WorkerQueryFn } }).__AGI_PROJECT__.query(
       "state",
     ),
   );
+  if (!state) throw new Error("Walking requires a running game");
+  return state;
 }
 
 /** Walk ego along an axis until the room changes — the authored doorway. */
@@ -153,7 +155,6 @@ async function walkToRoom(
       .poll(
         async () => {
           const state = await engineState(page);
-          if (!state) throw new Error("Walking requires a running game");
           lastHook = {
             room: state.room,
             egoX: state.egoX,
@@ -192,7 +193,7 @@ async function walkToRoom(
       )
       .toBe(room);
     await expect
-      .poll(async () => (await engineState(page))?.egoDirection, { intervals: [100] })
+      .poll(async () => (await engineState(page)).egoDirection, { intervals: [100] })
       .toBe(0);
   } catch (error) {
     const [trace, screen] = await Promise.all([hostTrace(page), screenText(page)]);
