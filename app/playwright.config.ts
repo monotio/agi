@@ -9,7 +9,7 @@ export default defineConfig({
   outputDir: `./test-results/${PORT}`,
   timeout: 60_000,
   retries: 0,
-  ...(process.env["CI"] ? { workers: Number(process.env["PLAYWRIGHT_WORKERS"] ?? 4) } : {}),
+  ...(process.env["CI"] ? { workers: Number(process.env["PLAYWRIGHT_WORKERS"] ?? 2) } : {}),
   use: {
     baseURL: `http://localhost:${PORT}`,
     headless: true,

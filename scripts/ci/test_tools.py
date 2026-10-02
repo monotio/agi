@@ -5,8 +5,9 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 import unittest
+from types import SimpleNamespace
 
-from tools import classify, partition, intermittent, file_filter, discover, split_discovery
+from tools import classify, partition, intermittent, file_filter, discover, split_discovery, issue
 
 
 class Changes(unittest.TestCase):
@@ -72,6 +73,18 @@ class Shards(unittest.TestCase):
 
 
 class Flakes(unittest.TestCase):
+    def test_group_ten_merges_with_other_chromium_groups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for index, status in [(1, 'passed'), (10, 'failed')]:
+                report = {'suites': [{'specs': [{'file': 'a.spec.ts', 'title': 'mixed',
+                          'tests': [{'results': [{'status': status}]}]}]}]}
+                Path(directory, f'chromium-{index}.json').write_text(json.dumps(report))
+            body = Path(directory, 'issue.md')
+            with patch('builtins.print'):
+                issue(SimpleNamespace(directory=directory, body=str(body),
+                                      url='https://example.test/run', dry_run=True))
+            self.assertIn('chromium · a.spec.ts · mixed', body.read_text())
+
     def test_reports_only_mixed_results_across_repetitions(self):
         def spec(title, statuses, expected='passed'):
             return {'file': 'e2e/a.spec.ts', 'title': title,

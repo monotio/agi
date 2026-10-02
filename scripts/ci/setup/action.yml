@@ -24,7 +24,7 @@ runs:
       run: |
         nproc
         free -h
-        echo "PLAYWRIGHT_WORKERS=$(nproc)" >> "$GITHUB_ENV"
+        echo "PLAYWRIGHT_WORKERS=2" >> "$GITHUB_ENV"
     - name: Browser version
       if: inputs.browser != ''
       id: version

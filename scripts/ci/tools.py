@@ -165,7 +165,7 @@ def issue(args):
     paths = sorted(Path(args.directory).rglob('*.json'))
     if not paths:
         raise RuntimeError('No repeat-run reports downloaded')
-    reports = [{**json.loads(path.read_text()), '_ci_suite': re.sub(r'-[1-6]$', '', path.stem)}
+    reports = [{**json.loads(path.read_text()), '_ci_suite': re.sub(r'-\d+$', '', path.stem)}
                for path in paths]
     flakes = intermittent(reports)
     marker = '<!-- browser-repeat-flakes -->'
@@ -200,7 +200,7 @@ def main():
     balance = commands.add_parser('shard')
     balance.add_argument('--index', type=int, required=True)
     balance.add_argument('--suite', choices=['chromium', 'webkit'], default='chromium')
-    balance.add_argument('--count', type=int, default=6)
+    balance.add_argument('--count', type=int, default=10)
     balance.add_argument('--repeat', type=int, default=1)
     balance.add_argument('--report', required=True)
     quiet = commands.add_parser('isolated')

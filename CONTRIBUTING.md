@@ -132,15 +132,15 @@ local browser results establish behavior on your local platform. CI runs on
 leaves the full run to that pull request. New pushes cancel older runs for the
 same ref.
 
-| CI job                       | Coverage                                                                                                                                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                             |
-| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                      |
-| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                      |
-| Playwright                   | Six Chromium shards and two tagged WebKit desktop shards balanced by measured spec durations, WebKit phone, and isolated one-worker timing budgets and storage benchmark |
-| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                               |
-| PR burn-in                   | Each added or changed spec repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                                |
-| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                 |
+| CI job                       | Coverage                                                                                                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                       |
+| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                |
+| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                |
+| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, WebKit phone, and separate jobs for timing budgets and the storage benchmark, each with one worker |
+| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                         |
+| PR burn-in                   | Each added or changed spec repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                                                          |
+| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                           |
 
 The required contexts stay `Typecheck, lint, unit tests, build`,
 `Playwright (play, remix and export)` and the repository-managed `CodeQL`.
