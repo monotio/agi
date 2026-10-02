@@ -73,10 +73,10 @@ const {
   /** The proposal's side effects: cells of other items it changes, outside the selection. */
   spilled?: MaskPaths | null;
   /**
-   * A prepared reference underlay (160x168 RGBA) below the picture marks.
+   * A prepared reference (160x168 RGBA) blended above art, or behind its marks.
    * It changes the drawing surface only; the PICTURE retains its native data.
    */
-  underlay?: { pixels: Uint8Array; opacity: number } | null;
+  underlay?: { pixels: Uint8Array; opacity: number; behindArt?: boolean } | null;
   /** The pointer is over the selection, which a drag moves: the move cursor. */
   movable?: boolean;
   /** A selection box being drawn, in logical cells (inclusive). */
@@ -152,7 +152,7 @@ watchEffect(
     context.imageSmoothingEnabled = false;
     context.fillStyle = `rgb(${EGA_PALETTE[15]!.join(" ")})`;
     context.fillRect(0, 0, target.width, target.height);
-    // White is the PICTURE paper. The reference sits below its coloured marks.
+    if (!underlay?.behindArt) context.drawImage(scratch, 0, 0, target.width, target.height);
     if (underlay !== null && underlay.opacity > 0) {
       underlayScratch ??= document.createElement("canvas");
       underlayScratch.width = SCREEN_WIDTH;
@@ -163,10 +163,13 @@ watchEffect(
       context.globalAlpha = underlay.opacity;
       context.drawImage(underlayScratch, 0, 0, target.width, target.height);
       context.globalAlpha = 1;
-      for (let i = 0; i < visual.length; i++) if (visual[i] === 15) image.data[i * 4 + 3] = 0;
-      scratch.getContext("2d")!.putImageData(image, 0, 0);
+      if (underlay.behindArt) {
+        // White is the PICTURE paper; coloured marks cover a reference placed behind art.
+        for (let i = 0; i < visual.length; i++) if (visual[i] === 15) image.data[i * 4 + 3] = 0;
+        scratch.getContext("2d")!.putImageData(image, 0, 0);
+      }
     }
-    context.drawImage(scratch, 0, 0, target.width, target.height);
+    if (underlay?.behindArt) context.drawImage(scratch, 0, 0, target.width, target.height);
   },
   { flush: "post" },
 );

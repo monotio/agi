@@ -40,9 +40,9 @@ const ImageReferencePanel = defineAsyncComponent(
 );
 const imagePanel = ref<string>();
 const imageGenerate = ref(false);
-const traceUnderlays = shallowRef<Record<string, { pixels: Uint8Array; opacity: number } | null>>(
-  {},
-);
+const traceUnderlays = shallowRef<
+  Record<string, { pixels: Uint8Array; opacity: number; behindArt: boolean } | null>
+>({});
 let imageRefresh = 0;
 const SoundPanel = defineAsyncComponent(() => import("./SoundPanel.vue"));
 const SoundImport = defineAsyncComponent(() => import("../sound/SoundImport.vue"));
@@ -226,11 +226,10 @@ const groups = computed(() => {
   return workspaceParts({ keys, rooms, names, currentRoom: engine.roomMap.currentRoom.value });
 });
 watch(
-  [editor.selected, groups, engine.roomMap.currentRoom, traceUnderlays],
+  [editor.selected, groups, engine.roomMap.currentRoom],
   ([selected, rows, room]) => {
     editor.pictureLive.value =
       !!selected?.startsWith("picture:") &&
-      !traceUnderlays.value[selected] &&
       rows.some((group) => group.entries.some((row) => row.key === selected && row.room === room));
   },
   { immediate: true },
@@ -289,10 +288,10 @@ const viewThumbnails = computed(() =>
 const gameHosts = new Map<string, HTMLElement>();
 function gameHost(key: string, host: HTMLElement): void {
   gameHosts.set(key, host);
-  if (editor.selected.value === key && !traceUnderlays.value[key]) editor.gameHost.value = host;
+  if (editor.selected.value === key) editor.gameHost.value = host;
 }
-watch([editor.selected, traceUnderlays], ([key]) => {
-  editor.gameHost.value = key && !traceUnderlays.value[key] ? (gameHosts.get(key) ?? null) : null;
+watch(editor.selected, (key) => {
+  editor.gameHost.value = key ? (gameHosts.get(key) ?? null) : null;
 });
 function native(key: string): Uint8Array | undefined {
   const [kind, num] = key.split(":");
@@ -747,6 +746,18 @@ onBeforeUnmount(() => {
         @click="editor.toggleFocus"
         >Focus</UiButton
       >
+      <ImageReferencePanel
+        v-if="imagePanel === editor.selected.value && imagePanel?.startsWith('picture:') && session"
+        :key="imagePanel"
+        :session="session"
+        :target="imagePanel"
+        :profile="profile"
+        :generate="imageGenerate"
+        active
+        :image-revision="snapshot?.version('images') ?? 0"
+        @close="imagePanel = undefined"
+        @changed="refresh"
+      />
     </header>
     <p
       v-if="
@@ -767,9 +778,7 @@ onBeforeUnmount(() => {
       class="workspace-editor__surface"
     >
       <ImageReferencePanel
-        v-if="
-          imagePanel === key && session && (key.startsWith('picture:') || key.startsWith('view:'))
-        "
+        v-if="imagePanel === key && session && key.startsWith('view:')"
         :session="session"
         :target="key"
         :profile="profile"
@@ -785,10 +794,9 @@ onBeforeUnmount(() => {
           creating &&
           key === editor.selected.value &&
           editor.pictureLive.value &&
-          !editor.focus.value &&
-          !traceUnderlays[key]
+          !editor.focus.value
         "
-        :workspace-focus="editor.focus.value || !!traceUnderlays[key]"
+        :workspace-focus="editor.focus.value"
         embedded
         @game-host="gameHost(key, $event)"
         @agent-context="editor.setAgentContext(key, $event)"

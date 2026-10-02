@@ -262,6 +262,8 @@ flowchart LR
 and tools: `traceImageChanges` attaches immutable originals and normalized
 pixels, and `makeCelsChanges` appends prepared native VIEW cels. Submit the whole
 proposal through `ProjectSession` to share autosave, Undo, Redo and History.
+PICTURE tracing blends above art by default; its optional `behindArt` field and
+opacity persist with the reference. The editor keeps its normal canvas layout.
 Attachments use SHA-256 document keys and History's blob store. Private archive
 version 1 writes each image blob once in `ATTACHMENTS/`, shared by the workspace
 and History; public exports contain playable resources. Workspace and History

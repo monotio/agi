@@ -183,7 +183,7 @@ const {
    * A prepared reference underlay (160x168 RGBA) from its project attachment,
    * blended over the art pane as a tracing guide — never a runtime bitmap.
    */
-  underlay?: { pixels: Uint8Array; opacity: number } | null;
+  underlay?: { pixels: Uint8Array; opacity: number; behindArt?: boolean } | null;
 }>();
 /**
  * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
@@ -1250,6 +1250,7 @@ function onKeyup(event: KeyboardEvent): void {
       'is-focus': calm.focus.value,
       'is-embedded': embedded,
       'is-live-game': liveGame,
+      'has-reference': !!underlay,
       'is-workspace-focus': workspaceFocus,
       'is-art-idle': lens === 'art' && !draft.gesturing.value,
     }"
@@ -1925,7 +1926,7 @@ function onKeyup(event: KeyboardEvent): void {
   padding: 0;
   transform: translateY(calc(-8px * var(--picture-zoom)));
 }
-.studio.is-live-game.is-art-idle :deep(.studio-pane canvas) {
+.studio.is-live-game.is-art-idle:not(.has-reference) :deep(.studio-pane canvas) {
   opacity: 0;
 }
 .studio.is-live-game .studio__frame {

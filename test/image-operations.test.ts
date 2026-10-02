@@ -88,6 +88,29 @@ test("saved image references restore detached pixels and refuse unknown metadata
   );
 });
 
+test("trace placement is optional for older references and validates Behind art", () => {
+  const changes = traceImageChanges({}, "picture:1", image, 0.5, true);
+  const documents = Object.fromEntries(changes.map((c) => [c.key, c.content!]));
+  assert.equal(imageTraceUnderlay(documents, "picture:1")!.behindArt, true);
+  const metadata = JSON.parse(documents["images"] as string);
+  delete metadata.traces["picture:1"].behindArt;
+  assert.equal(
+    imageTraceUnderlay({ ...documents, images: JSON.stringify(metadata) }, "picture:1")!.behindArt,
+    false,
+  );
+  metadata.traces["picture:1"].behindArt = "yes";
+  assert.throws(
+    () => readImageReferences({ ...documents, images: JSON.stringify(metadata) }),
+    /placement/i,
+  );
+  metadata.traces["picture:1"].behindArt = false;
+  metadata.traces["picture:1"].future = true;
+  assert.throws(
+    () => readImageReferences({ ...documents, images: JSON.stringify(metadata) }),
+    /fields/,
+  );
+});
+
 test("large decoded attachments use image bounds while native documents retain their bounds", () => {
   const pixels = new Uint8Array(1536 * 1536 * 4);
   const documents = { [`attachment:${sha256Hex(pixels)}`]: pixels };

@@ -46,17 +46,21 @@ function attach(documents: Documents, image: ProjectImageInput) {
   });
   return { changes, references: next, encoded };
 }
-/** Attach an image and set its tracing opacity in one History commit. */
+/** Attach an image and set its tracing opacity and placement in one History commit. */
 export function traceImageChanges(
   documents: Documents,
   target: string,
   image: ProjectImageInput,
   opacity = 0.4,
+  behindArt = false,
 ): readonly ProjectChange[] {
   const attached = attach(documents, image);
   const references = {
     ...attached.references,
-    traces: { ...attached.references.traces, [target]: { image: attached.encoded, opacity } },
+    traces: {
+      ...attached.references.traces,
+      [target]: { image: attached.encoded, opacity, behindArt },
+    },
   };
   const changes = [...attached.changes, { key: "images", content: JSON.stringify(references) }];
   readImageReferences({
@@ -202,7 +206,7 @@ export function makeCelsChanges(
 export function imageTraceUnderlay(
   documents: Documents,
   target: string,
-): { pixels: Uint8Array; opacity: number } | null {
+): { pixels: Uint8Array; opacity: number; behindArt: boolean } | null {
   const references = readImageReferences(documents),
     trace = references.traces[target];
   if (!trace) return null;
@@ -245,5 +249,5 @@ export function imageTraceUnderlay(
       destination: { kind: "picture", resourceId: Number(target.slice(8)) },
     },
   );
-  return { pixels: underlay.rgba, opacity: trace.opacity };
+  return { pixels: underlay.rgba, opacity: trace.opacity, behindArt: trace.behindArt ?? false };
 }
