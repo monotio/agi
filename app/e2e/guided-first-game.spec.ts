@@ -26,12 +26,12 @@ import {
 } from "./workspaceShared.ts";
 
 /** The first guided game uses real editors, coordinated Add operations, native play and export. */
-test.use({ viewport: { width: 1440, height: 900 } });
+test.use({ viewport: { width: 1280, height: 720 } });
 
 // Vite transforms editor and guided-action modules on first request. Warm that
 // server work in a separate context before the complete author/play/export journey.
 test.beforeAll(async ({ browser }) => {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   try {
     await isolateStorage(page);
     await createStarter(page, "Editor setup");
