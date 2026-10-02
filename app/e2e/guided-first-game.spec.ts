@@ -27,6 +27,23 @@ import {
 /** The first guided game uses real editors, coordinated Add operations, native play and export. */
 test.use({ viewport: { width: 1440, height: 900 } });
 
+// Vite transforms each editor family on first request. Warm that server work
+// in a separate context before timing the complete author/play/export journey.
+test.beforeAll(async ({ browser }) => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await isolateStorage(page);
+    await createStarter(page, "Editor setup");
+    await openWorkspacePicture(page, 1);
+    await closeWorkspaceEditor(page);
+    await openWorkspaceView(page, 0);
+    await closeWorkspaceEditor(page);
+    await openWorkspaceLogic(page, 1);
+  } finally {
+    await page.close();
+  }
+});
+
 let providerCalls = 0;
 test.beforeEach(async ({ page }) => {
   providerCalls = 0;
@@ -152,7 +169,7 @@ async function walkToRoom(page: Page, key: string, room: number): Promise<void> 
           }
           return hook.room;
         },
-        { timeout: 30_000, intervals: [500] },
+        { timeout: 30_000, intervals: [100] },
       )
       .toBe(room);
   } catch (error) {
@@ -191,13 +208,14 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   await closeWorkspaceEditor(page);
 
   await openWorkspaceLogic(page, 1);
-  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "40", Y: "140" }, "logic:1");
-  expect(await workspaceDocument(page, "logic:1")).toContain("position(o0, 40, 140)");
+  // Keep each starting point outside its doorway, with a short walk to the trigger.
+  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "90", Y: "140" }, "logic:1");
+  expect(await workspaceDocument(page, "logic:1")).toContain("position(o0, 90, 140)");
   await addWorkspaceAction(page, "Add a room", { "Room name": "Moonlit grove" }, "world");
   await expect(page.getByTestId("part-room:2:picture:2")).toBeVisible();
   await openWorkspaceLogic(page, 2);
   expect(await workspaceDocument(page, "logic:2")).toContain("Moonlit grove");
-  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "80", Y: "120" }, "logic:2");
+  await addWorkspaceAction(page, "Place hero", { VIEW: "0", X: "60", Y: "120" }, "logic:2");
   await addWorkspaceAction(
     page,
     "Door",
@@ -324,7 +342,7 @@ test("the first guided game: starter, editors, five actions, play both ways and 
   expect(room1).toContain('said("sing")');
   expect(room1).toContain("new.room(2)");
   expect(room1).toContain("sound(");
-  expect(room1).toContain("position(o0, 40, 140)");
+  expect(room1).toContain("position(o0, 90, 140)");
   const room2 = await storedDocument(page, importedId, "logic:2");
   expect(room2).toContain("Moonlit grove");
   expect(room2).toContain("new.room(1)");
