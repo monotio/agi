@@ -155,6 +155,20 @@ export class ProjectHistory {
     );
   }
 
+  renameTag(name: string, next: string | null): void {
+    if (!Object.hasOwn(this.state.tags, name)) throw new Error("Project version name is missing.");
+    if (next !== null && next !== name && Object.hasOwn(this.state.tags, next))
+      throw new Error("Project version name already exists.");
+    const tags = { ...this.state.tags };
+    const id = tags[name]!;
+    delete tags[name];
+    const renamed = next === null ? tags : { ...tags, [next]: id };
+    this.state = readProjectHistory(
+      writeProjectHistory({ ...this.state, tags: renamed }, this.digest),
+      this.digest,
+    );
+  }
+
   undo(model: ProjectModel): ProjectHistoryAction | undefined {
     const current = this.state.cursor;
     const parent = current === null ? null : this.commit(current).parent;

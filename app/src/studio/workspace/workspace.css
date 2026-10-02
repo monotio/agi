@@ -208,6 +208,24 @@
   border-bottom: 1px solid var(--hairline);
   font-size: var(--text-sm);
 }
+.workspace-history__labels {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-history__name {
+  display: block;
+  font-weight: var(--weight-semibold);
+}
+.workspace-history__label.is-secondary {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+.workspace-history__actions {
+  display: flex;
+  gap: var(--space-1);
+  margin: var(--space-1) 0;
+}
 .workspace-sound {
   padding: var(--space-5);
 }

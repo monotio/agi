@@ -35,6 +35,29 @@ function change(model: ProjectModel, history: ProjectHistory, text: string, time
   });
 }
 
+test("version names rename and clear atomically while commit identities stay fixed", () => {
+  const { model, history, initial } = start();
+  const second = change(model, history, "return;\n", 1)!;
+  history.tag("Opening", initial.id);
+  history.tag("Later", second.id);
+  const commits = history.capture().commits;
+  assert.throws(() => history.renameTag("Opening", "Later"), /already exists/i);
+  assert.deepEqual(history.capture().tags, { Opening: initial.id, Later: second.id });
+  history.renameTag("Opening", "First room");
+  assert.deepEqual(history.capture().tags, { "First room": initial.id, Later: second.id });
+  history.renameTag("First room", null);
+  assert.deepEqual(history.capture().tags, { Later: second.id });
+  assert.deepEqual(history.capture().commits, commits);
+  assert.throws(() => history.renameTag("Missing", "New"), /name/i);
+  assert.throws(() => history.renameTag("Later", ""), /name/i);
+  assert.deepEqual(history.capture().tags, { Later: second.id });
+  history.renameTag("Later", "__proto__");
+  assert.equal(Object.hasOwn(history.capture().tags, "__proto__"), true);
+  assert.equal(history.capture().tags["__proto__"], second.id);
+  history.renameTag("__proto__", null);
+  assert.deepEqual(history.capture().tags, {});
+});
+
 test("History commits, reverses, redoes, tags and restores by creating a new commit", () => {
   const { model, history, initial } = start();
   const second = change(model, history, "if (unfinished\ud800", 1)!;

@@ -32,6 +32,7 @@ import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
+import UiSwitch from "../../ui/UiSwitch.vue";
 const props = defineProps<{
   session: ProjectSession;
   target: string;
@@ -61,6 +62,7 @@ const loopHeights = shallowRef<readonly number[]>([]);
 const background = shallowRef<readonly [number, number, number] | null>(null);
 const replaceOpen = ref(false);
 const colourOpen = ref(false);
+const backgroundTransparent = ref(true);
 const colourNames = [
   "Black",
   "Blue",
@@ -190,6 +192,7 @@ async function useImage(value: ProjectImageInput) {
     );
   else {
     background.value = detectImageBackground(value);
+    backgroundTransparent.value = true;
     frames.value = [...suggestImageFrames(value)];
   }
   generateOpen.value = false;
@@ -255,7 +258,13 @@ async function changeTrace(label: string) {
 const prepared = computed(() => {
   if (!image.value || isPicture.value) return null;
   try {
-    return prepareImageCels(image.value, frames.value, props.profile, background.value);
+    return prepareImageCels(
+      image.value,
+      frames.value,
+      props.profile,
+      background.value,
+      backgroundTransparent.value,
+    );
   } catch {
     return null;
   }
@@ -274,6 +283,7 @@ async function addCels() {
         frames.value,
         props.profile,
         background.value,
+        backgroundTransparent.value,
       ),
       "Make cels from an image",
     );
@@ -381,13 +391,16 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="image-source__colour">
+        <UiSwitch v-model="backgroundTransparent" size="sm">Background is see-through</UiSwitch>
         <UiButton
           size="sm"
           variant="ghost"
           :aria-expanded="colourOpen"
+          :disabled="!backgroundTransparent"
+          aria-label="See-through colour"
+          :title="backgroundName"
           @click="colourOpen = !colourOpen"
-          >{{ backgroundName
-          }}<i
+          >Colour<i
             class="image-source__swatch"
             :style="{ background: background ? `rgb(${background.join(' ')})` : 'transparent' }"
           ></i
@@ -460,6 +473,7 @@ onBeforeUnmount(() => {
         :loop-heights="loopHeights"
         :name="name"
         :background="background"
+        :background-transparent="backgroundTransparent"
       >
         <template #preview>
           <UiButton
@@ -590,6 +604,9 @@ onBeforeUnmount(() => {
 }
 .image-source__colour {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 /* A round colour dot: a square one reads as an empty checkbox when the colour is white. */
 .image-source__swatch {

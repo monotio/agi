@@ -6,6 +6,7 @@ import { sha256Hex } from "../src/crypto.ts";
 import {
   traceImageChanges,
   makeCelsChanges,
+  prepareImageCels,
   suggestImageFrames,
   readImageReferences,
   readProjectImage,
@@ -34,6 +35,36 @@ test("trace stores immutable hash-addressed originals and pixels with an editabl
   assert.equal(references.traces["picture:1"]?.opacity, 0.4);
   assert.throws(() => traceImageChanges({}, "picture:1", image, 2), /opacity/i);
 });
+test("cel background transparency can be switched off for alpha and colour keys", () => {
+  const source = {
+    ...image,
+    width: 3,
+    height: 1,
+    rgba: Uint8Array.of(0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 255),
+  };
+  const frames = [{ region: { x: 0, y: 0, width: 3, height: 1 }, width: 3, height: 1, loop: 0 }];
+  const transparent = prepareImageCels(source, frames, PROFILES["2.936"], [255, 255, 255]).input
+    .loops[0]!.cels![0]!;
+  assert.deepEqual([...transparent.pixels], [15, 15, 4]);
+  const opaque = prepareImageCels(source, frames, PROFILES["2.936"], [255, 255, 255], false).input
+    .loops[0]!.cels![0]!;
+  assert.deepEqual([...opaque.pixels], [0, 15, 4]);
+  assert.equal(opaque.transparentColor, 1);
+  const changes = makeCelsChanges(
+    {},
+    "view:0",
+    source,
+    frames,
+    PROFILES["2.936"],
+    [255, 255, 255],
+    false,
+  );
+  const content = changes.find((change) => change.key === "view:0")!.content!;
+  const parsed = parseView(content as Uint8Array).loops[0]!.cels[0]!;
+  assert.deepEqual([...parsed.pixels], [0, 15, 4]);
+  assert.equal(parsed.transparentColor, 1);
+});
+
 test("four suggested frames become four appended cels in one detached operation", () => {
   const existing = buildView({
     loops: [{ cels: [{ width: 1, height: 1, pixels: [2], transparentColor: 15 }] }],
