@@ -387,6 +387,8 @@ test("keyboard authors all three parts, undoes across them and reloads @webkit-d
   await page.keyboard.press("Enter");
   await tabTo(page, page.getByRole("button", { name: "Start building", exact: true }));
   await page.keyboard.press("Enter");
+  await expect(page.getByTestId("create-adventure-disclosure")).toBeHidden();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await keyboardOpen(page, "PICTURE 1");
