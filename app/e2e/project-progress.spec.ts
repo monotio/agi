@@ -271,6 +271,8 @@ test("a reload resumes into the checkpoint's parked window", async ({ page }) =>
  * Enter to finish the interrupted pass.
  */
 test("a reload resumes the parked window in an agent-authored room", async ({ page }) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
   await isolateStorage(page);
   await page.goto("/");
   await openDeveloperActivity(page);
@@ -294,14 +296,29 @@ test("a reload resumes the parked window in an agent-authored room", async ({ pa
     .poll(async () => (await textHook(page)).autosave, { timeout: 30_000 })
     .toBeGreaterThanOrEqual(parked.cycle);
 
+  // Hold the lazy game surface while the worker restores its parked window.
+  // The probe can report the window before that surface handles keyboard input.
+  let release!: () => void;
+  const surface = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/play/PlayArea.vue", async (route) => {
+    await surface;
+    await route.continue();
+  });
   await page.reload();
 
   // The authored bytes persisted beside the image, so the continuation is
   // still keyed on identical logic: the same window is back up.
-  await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
-  expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
-
-  await page.keyboard.press("Enter");
+  try {
+    await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
+    expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
+    expect(await input.count()).toBe(0);
+  } finally {
+    release();
+  }
+  await expect(input).toBeVisible();
+  await input.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);
