@@ -288,7 +288,9 @@ function createSession(input: {
     metadata: ProjectCommitMetadata,
     action?: ProjectHistoryAction,
     preparedRoom = false,
+    beforeCommit?: () => void,
   ) {
+    beforeCommit?.();
     if (!current() || autosave.status().state === "conflict")
       throw new Error("Project session is closed for writes.");
     const fence = {
@@ -311,14 +313,18 @@ function createSession(input: {
         input.admission.runToken === fence.workerRunToken &&
         expected.generation >= fence.generation,
       preflight() {
+        beforeCommit?.();
         if (action === undefined)
           new ProjectHistory(sha256Hex, history.capture()).record(proposal.documents(), metadata);
       },
-      admit: (compiled, documents) =>
-        preparedRoom && input.admission.admitPreparedRoom
+      admit: (compiled, documents) => {
+        beforeCommit?.();
+        return preparedRoom && input.admission.admitPreparedRoom
           ? input.admission.admitPreparedRoom(compiled, documents)
-          : input.admission.admit(compiled, documents),
+          : input.admission.admit(compiled, documents);
+      },
     });
+    beforeCommit?.();
     if (
       outcome !== undefined &&
       outcome.status !== "committed" &&
@@ -472,15 +478,28 @@ function createSession(input: {
     reenterRoom() {
       return schedule(() => activate("reenter"));
     },
-    submit(edit: { proposal: ProjectProposal } & Omit<ProjectCommitMetadata, "time">) {
+    submit(
+      edit: { proposal: ProjectProposal; beforeCommit?: () => void } & Omit<
+        ProjectCommitMetadata,
+        "time"
+      >,
+    ) {
       return schedule(() =>
-        apply(edit.proposal, {
-          label: edit.label,
-          origin: edit.origin,
-          author: edit.author,
-          time: Date.now(),
-          ...(edit.chatId === undefined ? {} : { chatId: edit.chatId, messageId: edit.messageId! }),
-        }),
+        apply(
+          edit.proposal,
+          {
+            label: edit.label,
+            origin: edit.origin,
+            author: edit.author,
+            time: Date.now(),
+            ...(edit.chatId === undefined
+              ? {}
+              : { chatId: edit.chatId, messageId: edit.messageId! }),
+          },
+          undefined,
+          false,
+          edit.beforeCommit,
+        ),
       );
     },
     submitPreparedRoom(edit: { proposal: ProjectProposal } & Omit<ProjectCommitMetadata, "time">) {

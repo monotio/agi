@@ -139,6 +139,9 @@ export class AgentRun {
     this.state.reason = "Stopped. Your work is kept in this tab.";
     this.controller?.abort();
   }
+  assertActive(): void {
+    if (this.cancelled) throw new Error("Agent task cancelled. Unapplied changes were discarded.");
+  }
   cancel(): void {
     this.cancelled = true;
     this.controller?.abort();

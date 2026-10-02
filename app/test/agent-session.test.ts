@@ -934,3 +934,163 @@ test("Ask's first-turn brief withholds the room's plan entry, as read_room does 
   for (const secret of ["Vault antechamber", "lever behind the tapestry", "north"])
     assert.doesNotMatch(bodies[0]!, new RegExp(secret), `Ask withholds ${secret}`);
 });
+
+for (const provider of ["openai", "anthropic"] as const) {
+  for (const boundary of ["notification", "commit"] as const) {
+    test(`${provider} legacy remix fences cancellation at ${boundary}`, async (t) => {
+      const state = createAgentSessionState();
+      const before = [...state.getFiles()].map(([key, bytes]) => [key, [...bytes]]);
+      let successfulTools = 0;
+      t.mock.method(
+        globalThis,
+        "fetch",
+        async () =>
+          new Response(
+            providerSse(
+              provider,
+              provider === "openai"
+                ? {
+                    id: "r",
+                    output:
+                      boundary === "notification"
+                        ? [
+                            {
+                              type: "function_call",
+                              call_id: "w",
+                              name: "write_words",
+                              arguments: '{"words":["lamp"],"groups":null}',
+                            },
+                          ]
+                        : [
+                            {
+                              type: "message",
+                              role: "assistant",
+                              content: [{ type: "output_text", text: "Ready" }],
+                            },
+                          ],
+                  }
+                : {
+                    id: "r",
+                    type: "message",
+                    role: "assistant",
+                    content:
+                      boundary === "notification"
+                        ? [
+                            {
+                              type: "tool_use",
+                              id: "w",
+                              name: "write_words",
+                              input: { words: ["lamp"], groups: null },
+                            },
+                          ]
+                        : [{ type: "text", text: "Ready" }],
+                  },
+            ),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const session = new AgentSession(
+        {
+          provider,
+          model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+          apiKey: "offline",
+        },
+        (kind, message, detail) => {
+          if (
+            boundary === "notification" &&
+            kind === "request" &&
+            message === "[Remix] write_words"
+          )
+            session.task.cancel();
+          if (
+            kind === "response" &&
+            (
+              (detail as Record<string, unknown> | undefined)?.["result"] as
+                { success?: boolean } | undefined
+            )?.success
+          )
+            successfulTools++;
+        },
+        state,
+      );
+      await assert.rejects(
+        session.runPowerUp("Inspect", 1, undefined, async () => {
+          if (boundary === "commit") session.task.cancel();
+        }),
+        /cancel/i,
+      );
+      assert.equal(successfulTools, 0);
+      assert.deepEqual(
+        [...state.getFiles()].map(([key, bytes]) => [key, [...bytes]]),
+        before,
+      );
+    });
+  }
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} cancellation in the initial request also prevents orientation tools`, async () => {
+    let tools = 0;
+    const session = new AgentSession(
+      {
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      },
+      (kind, message) => {
+        if (kind === "request" && message === "[Ask] Inspect") session.task.cancel();
+      },
+    );
+    session.setOrientation({ game: "Test", profile: "2.936" });
+    session.setRuntime({
+      roomNotes: () => {
+        tools++;
+        return [];
+      },
+    });
+    await assert.rejects(session.runAsk("Inspect", 1), /cancel/i);
+    assert.equal(tools, 0);
+  });
+}
+test("offline Genesis cancellation prevents the plan and resource commit", async () => {
+  const state = createAgentSessionState();
+  let before: [string, Uint8Array][] = [];
+  const session = new AgentSession(
+    { provider: "stub", model: "stub", apiKey: "" },
+    (kind, message) => {
+      if (kind === "request" && message === "Starting Genesis using offline StubAgent") {
+        before = [...state.getFiles()].map(([key, bytes]) => [key, bytes.slice()]);
+        session.task.cancel();
+      }
+    },
+    state,
+  );
+  await assert.rejects(session.startGenesis("Test"), /cancel/i);
+  assert.equal(state.genesisComplete, false);
+  assert.deepEqual([...state.getFiles()], before);
+});
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} cancellation inside orientation inspection prevents its next tool and event`, async () => {
+    let orientation = 0;
+    const session = new AgentSession(
+      {
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      },
+      (kind, message) => {
+        if (kind === "request" && message.startsWith("[Orientation]")) orientation++;
+      },
+    );
+    session.setOrientation({ game: "Test", profile: "2.936" });
+    session.setRuntime({
+      roomNotes: () => {
+        session.task.cancel();
+        return [];
+      },
+    });
+    await assert.rejects(session.runAsk("Inspect", 1), /cancel/i);
+    assert.equal(orientation, 0);
+  });
+}

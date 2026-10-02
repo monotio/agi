@@ -204,7 +204,7 @@ test("an unpriced task consumes exactly the user's request allowance", async () 
   assert.match(state.reason, /Spend unknown/);
 });
 
-test("a final Anthropic refusal pauses the active task with its cause", async (t) => {
+test("a final Anthropic refusal ends the active task with a distinct cause", async (t) => {
   t.mock.method(
     globalThis,
     "fetch",
@@ -228,13 +228,15 @@ test("a final Anthropic refusal pauses the active task with its cause", async (t
     undefined,
     run,
   );
-  const work = run.run(() => conversation.sendUserMessage("Inspect the room.")).catch(() => {});
-  await settle();
-  const state = run.snapshot();
-  run.cancel();
-  await work;
-  assert.equal(state.status, "paused");
-  assert.match(state.reason, /declined this request \(cyber\)/);
+  await assert.rejects(
+    run.run(() => conversation.sendUserMessage("Inspect the room.")),
+    (error: unknown) => {
+      assert.equal((error as { outcome: string }).outcome, "refused");
+      assert.match(String(error), /declined this request \(cyber\)/);
+      return true;
+    },
+  );
+  assert.equal(run.snapshot().status, "idle");
 });
 
 test("fallback usage is charged at the serving model's verified price", async (t) => {

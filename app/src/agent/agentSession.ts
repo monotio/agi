@@ -18,7 +18,7 @@ import {
   ASK_TOOLS,
   buildSound,
   type SoundTrackInput,
-  executeAgentTool,
+  type executeAgentTool,
   executeAgentToolAsync,
   GENESIS_TOOLS,
   REMIX_TOOLS,
@@ -341,6 +341,8 @@ export class AgentSession implements AgentHandler {
         this.config,
         this.retainedTranscript,
         this.task,
+        undefined,
+        sessionId,
       );
       this.stubFallback = null;
     } else if (config.provider === "openai" && config.apiKey.trim()) {
@@ -382,7 +384,7 @@ export class AgentSession implements AgentHandler {
     this.onEvent("request", `[Ask] ${question}`, { instruction: question, room });
     const context = await this.orientationContext(room, ASK_TOOLS, true);
     if (!this.conversation) {
-      const result = await executeAgentToolAsync(
+      const result = await this.executeTool(
         this.state,
         "read_room",
         {
@@ -421,11 +423,13 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const call of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Ask] ${call.name}`, { tool: call.name });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           const result = watch.record(
             call.name,
             call.input,
-            await executeAgentToolAsync(inspected, call.name, call.input, {
+            await this.executeTool(inspected, call.name, call.input, {
               ...this.runtime,
               readOnly: true,
               allowedTools: tools,
@@ -462,6 +466,14 @@ Answer the player's question using evidence from inspection when needed. For hin
     }
   }
 
+  private executeTool(
+    ...args: Parameters<typeof executeAgentToolAsync>
+  ): ReturnType<typeof executeAgentToolAsync> {
+    this.task.assertActive();
+    this.assertAdoptable();
+    return executeAgentToolAsync(...args);
+  }
+
   /** Register local context; opening or connecting the panel never calls the provider. */
   setOrientation(input: Pick<OrientationInput, "game" | "profile">): void {
     if (!this.oriented) this.orientation = input;
@@ -484,13 +496,13 @@ Answer the player's question using evidence from inspection when needed. For hin
     // read_room, read_picture — so the brief and the
     // on-demand deep dive can never disagree about what the session holds.
     const [roomContext, picture] = [
-      await executeAgentToolAsync(
+      await this.executeTool(
         this.state,
         "read_room",
         { room, state: null, frames: null },
         { ...this.runtime, allowedTools, readOnly },
       ),
-      executeAgentTool(this.state, "read_picture", { num: room }),
+      await this.executeTool(this.state, "read_picture", { num: room }, { allowedTools, readOnly }),
     ];
     const objects =
       roomContext.success && Array.isArray(roomContext.details?.["liveObjects"])
@@ -548,7 +560,7 @@ Answer the player's question using evidence from inspection when needed. For hin
       // The stub looks at the running game before it patches, exactly as the
       // model path does. That keeps the offline e2e a proof of the whole
       // perception chain: worker frame ring -> transfer -> composited PNG.
-      const frames = await executeAgentToolAsync(
+      const frames = await this.executeTool(
         this.state,
         "read_room",
         {
@@ -563,10 +575,13 @@ Answer the player's question using evidence from inspection when needed. For hin
         `[Remix] read_room -> ${frames.success ? (frames.message ?? "").split("\n")[0] : frames.error}`,
         { images: frames.images?.map((i) => i.caption) },
       );
+      this.task.assertActive();
       const result = await this.stubFallback.powerUp(instruction, room);
       // The commit gate runs before anything staged lands: a refusal leaves
       // the session's resources as the turn found them.
       await beforeAdopt?.();
+      this.task.assertActive();
+      this.assertAdoptable();
       this.messages.push({ role: "assistant", text: result.text });
       for (const resource of result.patched)
         this.state.container.putResource(resource.kind, resource.num, resource.payload);
@@ -624,6 +639,8 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Remix] ${tc.name}`, { tool: tc.name, args: tc.input });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let res: AgentToolResult;
@@ -639,7 +656,7 @@ Answer the player's question using evidence from inspection when needed. For hin
             res = watch.record(
               tc.name,
               tc.input,
-              await executeAgentToolAsync(candidate, tc.name, tc.input, {
+              await this.executeTool(candidate, tc.name, tc.input, {
                 ...this.runtime,
                 allowedTools: tools,
                 references: art.references,
@@ -686,6 +703,8 @@ Answer the player's question using evidence from inspection when needed. For hin
       // The host's commit gate: a refusal throws into the turn's failure
       // path, which discards the staged candidate untouched.
       await beforeAdopt?.();
+      this.task.assertActive();
+      this.assertAdoptable();
       const patched = changedResources(this.state, staged);
       const files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>> = {};
       for (const name of ["WORDS.TOK", "OBJECT", "TESTS.JSON"] as const) {
@@ -772,11 +791,13 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const call of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Studio] ${call.name}`, { tool: call.name, args: call.input });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           const result = watch.record(
             call.name,
             call.input,
-            await executeAgentToolAsync(inspected, call.name, call.input, deps),
+            await this.executeTool(inspected, call.name, call.input, deps),
           );
           this.pendingToolMs += performance.now() - toolStart;
           this.onEvent(
@@ -1192,6 +1213,7 @@ Answer the player's question using evidence from inspection when needed. For hin
   }
 
   private async buildTurn(templateMarkdown: string): Promise<BootResources> {
+    this.task.assertActive();
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating a game.");
@@ -1206,6 +1228,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     this.conversation?.setAvailableTools(genesisTools);
     if (this.stubFallback) {
       this.onEvent("request", "Starting Genesis using offline StubAgent");
+      this.task.assertActive();
       // The stub records its world plan through the same update_plan tool —
       // the map's planned nodes land in the same turn the room does.
       this.stubFallback.plan(this.state);
@@ -1249,6 +1272,8 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Genesis] ${tc.name}`, { tool: tc.name, args: tc.input });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           // Terminal barrier: a successful finish ends the batch; later
           // calls get an explicit rejection result, never a silent drop.
@@ -1258,7 +1283,7 @@ Answer the player's question using evidence from inspection when needed. For hin
                 error:
                   "Not executed: this turn ended at a successful finish. Use an Ask or Remix request for further changes.",
               }
-            : await executeAgentToolAsync(this.state, tc.name, tc.input, {
+            : await this.executeTool(this.state, tc.name, tc.input, {
                 allowedTools: genesisTools,
               });
           this.pendingToolMs += performance.now() - toolStart;
@@ -1347,6 +1372,7 @@ Answer the player's question using evidence from inspection when needed. For hin
     beforeAdopt?: () => Promise<void>,
     attachments?: TurnReferences,
   ): Promise<string> {
+    this.task.assertActive();
     this.assertAdoptable();
     if (!this.conversation && !this.stubFallback)
       throw new Error("Connect an API key in AI settings before creating the next room.");
@@ -1356,6 +1382,8 @@ Answer the player's question using evidence from inspection when needed. For hin
         // Same commit gate as a remix turn: refuse before the staged room
         // lands in the session's container.
         await beforeAdopt?.();
+        this.task.assertActive();
+        this.assertAdoptable();
         const patch = prepareRoomPatch(
           openContainer(this.state.getFiles(), { profile: this.state.profile }),
           Number(req.context["room"]),
@@ -1400,14 +1428,13 @@ Answer the player's question using evidence from inspection when needed. For hin
       roomNotes: this.runtime.roomNotes,
     };
     this.onEvent("request", `[Runtime room] authoring room ${room} from room ${from}`);
-    const resources = executeAgentTool(staged, "read_plan", {
-      filter: "slots",
-      section: null,
-      name: null,
-      offset: null,
-      kind: null,
-    });
-    const previous = executeAgentTool(staged, "read_logic", { num: from });
+    const resources = await this.executeTool(
+      staged,
+      "read_plan",
+      { filter: "slots", section: null, name: null, offset: null, kind: null },
+      snapshot,
+    );
+    const previous = await this.executeTool(staged, "read_logic", { num: from }, snapshot);
     // Player intent pinned on the map for this room — provenance the host
     // attached to the request; every supplied string travels in the prompt.
     const rawNotes = req.context["playerNotes"];
@@ -1463,6 +1490,8 @@ Answer the player's question using evidence from inspection when needed. For hin
         for (const tc of turn.toolCalls) {
           await this.task.checkpoint(false);
           this.onEvent("request", `[Room tool] ${tc.name}`, { tool: tc.name, args: tc.input });
+          this.task.assertActive();
+          this.assertAdoptable();
           const toolStart = performance.now();
           const candidate = forkAgentState(staged);
           let result: AgentToolResult;
@@ -1480,7 +1509,7 @@ Answer the player's question using evidence from inspection when needed. For hin
               ) {
                 // The room's structural gate first, then the shared host
                 // validation (stored game tests) against the staged candidate.
-                result = await executeAgentToolAsync(candidate, "finish", tc.input, snapshot);
+                result = await this.executeTool(candidate, "finish", tc.input, snapshot);
                 if (result.success) {
                   staged = candidate;
                   completed = true;
@@ -1495,7 +1524,7 @@ Answer the player's question using evidence from inspection when needed. For hin
               result = watch.record(
                 tc.name,
                 tc.input,
-                await executeAgentToolAsync(candidate, tc.name, tc.input, snapshot),
+                await this.executeTool(candidate, tc.name, tc.input, snapshot),
               );
               if (result.success) {
                 validateRoomCandidate(this.state, staged, candidate);
@@ -1539,6 +1568,8 @@ Answer the player's question using evidence from inspection when needed. For hin
       // The host's commit gate: a refusal discards the staged room through
       // the turn's failure path.
       await beforeAdopt?.();
+      this.task.assertActive();
+      this.assertAdoptable();
       const changed = changedResources(this.state, staged).map(({ kind, num, payload }) => ({
         kind,
         num,

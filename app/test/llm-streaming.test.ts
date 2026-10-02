@@ -381,3 +381,112 @@ test("Opus 5.5 and Sonnet 5.5 show their thinking between tool calls instead of 
     }
   }
 });
+
+test("Responses keeps assistant identities and phases separate, and bounds commentary continuation", async (t) => {
+  let requests = 0;
+  let commentaryOnly = false;
+  t.mock.method(globalThis, "fetch", async () => {
+    requests++;
+    const output =
+      commentaryOnly || requests === 1
+        ? [
+            {
+              type: "message",
+              id: `c${requests}`,
+              role: "assistant",
+              phase: "commentary",
+              status: "completed",
+              content: [{ type: "output_text", text: "Checking." }],
+            },
+          ]
+        : [
+            {
+              type: "message",
+              id: "final",
+              role: "assistant",
+              phase: "final_answer",
+              status: "completed",
+              content: [{ type: "output_text", text: "Done." }],
+            },
+          ];
+    return new Response(
+      providerSse("openai", {
+        id: `r${requests}`,
+        output,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  const conversation = createOpenAiConversation({
+    provider: "openai",
+    model: "gpt-6-sol",
+    apiKey: "offline",
+  });
+  const result = await conversation.sendUserMessage("Build");
+  assert.equal(requests, 2);
+  assert.equal(result.text, "Done.");
+  assert.deepEqual(result.assistantMessages, [
+    { id: "c1", phase: "commentary", status: "completed", text: "Checking." },
+    { id: "final", phase: "final_answer", status: "completed", text: "Done." },
+  ]);
+  commentaryOnly = true;
+  const before = requests;
+  await assert.rejects(conversation.sendUserMessage("Continue"), /commentary|final answer/i);
+  assert.equal(requests - before, 4);
+});
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} refusal is distinct and preserves the provider explanation without retrying`, async (t) => {
+    let requests = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      requests++;
+      return new Response(
+        providerSse(
+          provider,
+          provider === "openai"
+            ? {
+                id: "r",
+                output: [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [{ type: "refusal", refusal: "I cannot provide that content." }],
+                  },
+                ],
+                usage: { input_tokens: 4, output_tokens: 2 },
+              }
+            : {
+                id: "r",
+                role: "assistant",
+                type: "message",
+                stop_reason: "refusal",
+                content: [{ type: "text", text: "I cannot provide that content." }],
+                usage: { input_tokens: 4, output_tokens: 2 },
+              },
+        ),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const run = new AgentRun(provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5", (state) => {
+      if (state.status === "paused") run.cancel();
+    });
+    const config = {
+      provider,
+      model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+      apiKey: "offline",
+    };
+    const conversation =
+      provider === "openai"
+        ? createOpenAiConversation(config, [], undefined, run)
+        : createAnthropicConversation(config, [], run);
+    await assert.rejects(
+      run.run(() => conversation.sendUserMessage("Build")),
+      (error: unknown) => {
+        assert.equal((error as { outcome: string }).outcome, "refused");
+        assert.match(String(error), /I cannot provide that content/);
+        return true;
+      },
+    );
+    assert.equal(requests, 1);
+  });
+}
