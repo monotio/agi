@@ -823,33 +823,48 @@ test("VIEW thumbnails animate only in visible parts and follow reduced motion @w
   await expect.poll(active).toBe(1);
 });
 
+/** The GPU canvas as the player sees it, sampled at the same game pixel. */
+async function renderedColourOf(page: Page): Promise<number[]> {
+  const bytes = [...(await page.getByTestId("gpu-canvas").screenshot())];
+  return page.evaluate(async (png) => {
+    const bitmap = await createImageBitmap(new Blob([new Uint8Array(png)], { type: "image/png" }));
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return [
+      ...context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height * 0.8), 1, 1)
+        .data,
+    ].slice(0, 3);
+  }, bytes);
+}
+
+async function sourceColourOf(page: Page): Promise<number[]> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="game-canvas"]')!;
+    return [...canvas.getContext("2d")!.getImageData(160, 160, 1, 1).data].slice(0, 3);
+  });
+}
+
 test("Create renders crisp while Play retains the CRT preference", async ({ page }) => {
+  // Hold the GPU stage until Create runs, so it also arrives after the game starts.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/src/three/AgiStage.ts", async (route) => {
+    await gate;
+    await route.continue();
+  });
   await isolateStorage(page);
   await page.addInitScript(() => localStorage.setItem("monotio_agi.crt", "on"));
   await page.setViewportSize({ width: 1440, height: 900 });
   await starter(page);
-  const sourceColour = await page.evaluate(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="game-canvas"]')!;
-    return [...canvas.getContext("2d")!.getImageData(160, 160, 1, 1).data].slice(0, 3);
-  });
-  const renderedColour = async () => {
-    const bytes = [...(await page.getByTestId("gpu-canvas").screenshot())];
-    return page.evaluate(async (png) => {
-      const bitmap = await createImageBitmap(
-        new Blob([new Uint8Array(png)], { type: "image/png" }),
-      );
-      const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      const context = canvas.getContext("2d")!;
-      context.drawImage(bitmap, 0, 0);
-      bitmap.close();
-      return [
-        ...context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height * 0.8), 1, 1)
-          .data,
-      ].slice(0, 3);
-    }, bytes);
-  };
+  release();
+  // Compare with the game's own picture once it has painted.
+  await expect.poll(() => sourceColourOf(page)).not.toEqual([0, 0, 0]);
+  const sourceColour = await sourceColourOf(page);
+  const renderedColour = () => renderedColourOf(page);
   await expect.poll(renderedColour).toEqual(sourceColour);
   await page.getByTestId("part-room:1:picture:1").click();
   await expect.poll(renderedColour).toEqual(sourceColour);
