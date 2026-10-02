@@ -63,7 +63,9 @@ async function everyExplainer(
           }
         : STUDIO_TERMS[term];
     expect(entry, `${term} is a registry term`).toBeDefined();
-    await expect(trigger).toHaveAccessibleName(`What is ${entry.name}?`);
+    // A heading that explains itself is named by its own text; an icon asks the question.
+    const labelled = await trigger.evaluate((el) => el.classList.contains("ui-explain--label"));
+    await expect(trigger).toHaveAccessibleName(labelled ? entry.name : `What is ${entry.name}?`);
     await trigger.click();
     const pop = page.getByTestId("explain-pop");
     await expect(pop).toHaveAttribute("data-term", term);

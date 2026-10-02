@@ -96,6 +96,9 @@ export async function replaceWorkspaceDocument(
           .click();
         await expect(group).toBeVisible();
       }
+      // The add field opens from the row's + chip, shown on hover.
+      await group.hover();
+      await group.getByRole("button", { name: VOCABULARY.addWord.label, exact: true }).click();
       const input = group.locator("input.add-word");
       await input.fill(word);
       await input.press("Enter");
