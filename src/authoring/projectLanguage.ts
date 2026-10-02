@@ -1,6 +1,7 @@
 /** Project-aware language operations retain authored ranges and binding ownership. */
 import { createLogicLanguageSnapshot } from "../logic/language.ts";
 import { analyzeLogicSyntax } from "../logic/syntax.ts";
+import type { NumberedOperand } from "../logic/languageOperands.ts";
 import { expandProjectLogic } from "./projectLogic.ts";
 
 export function createProjectLogicLanguageSnapshot(
@@ -72,6 +73,28 @@ export function createProjectLogicLanguageSnapshot(
     return hover ? authoredRange(hover) : null;
   }
 
+  const operands: readonly (NumberedOperand & { readonly bindingName?: string })[] =
+    language.operands
+      .filter((entry) => entry.start >= base)
+      .map((entry) => {
+        const { definitionStart, ...range } = entry;
+        return {
+          ...authoredRange(range),
+          ...(definitionStart === undefined
+            ? {}
+            : definitionStart < base
+              ? entry.name
+                ? { bindingName: entry.name }
+                : {}
+              : { definitionStart: definitionStart - base }),
+        };
+      });
+
+  function operandAt(offset: number) {
+    expandedOffset(offset);
+    return operands.find((entry) => entry.start <= offset && entry.end > offset);
+  }
+
   function definitionAt(offset: number) {
     const definition = language.definitionAt(expandedOffset(offset));
     if (!definition) return null;
@@ -88,6 +111,10 @@ export function createProjectLogicLanguageSnapshot(
   }
 
   function renameAt(offset: number, name: string) {
+    if (operandAt(offset) && !operandAt(offset)?.name)
+      throw new Error(
+        "Numbered operands have fixed identities. Rename a named binding or #define instead.",
+      );
     if (definitionAt(offset)?.kind === "binding")
       throw new Error("A binding needs a coordinated project rename across all of its documents.");
     return language.renameAt(expandedOffset(offset), name).map(authoredRange);
@@ -129,6 +156,8 @@ export function createProjectLogicLanguageSnapshot(
 
   return {
     source,
+    operands,
+    operandAt,
     diagnostics: Object.freeze(diagnostics),
     generatedDiagnostics: Object.freeze(generatedDiagnostics),
     completeAt,

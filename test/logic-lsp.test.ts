@@ -174,6 +174,148 @@ const positionAt = (text: string, offset: number) => {
 const diagnosticMessage = (entry: Diagnostic): string =>
   typeof entry.message === "string" ? entry.message : entry.message.value;
 
+test("numbered operands navigate across a two-LOGIC v2 project without becoming rename targets", async () => {
+  const { createContainer } = await import("../src/container/container.ts");
+  const { assembleLogic } = await import("../src/logic/assembler.ts");
+  const { PROFILES } = await import("../src/runtime/profile.ts");
+  const dir = mkdtempSync(join(tmpdir(), "agi-lsp-operands-"));
+  const container = createContainer();
+  const sources = [
+    '#define local 0\n#message 12 "First"\ndraw.pic(v0); increment(local); increment(room_pic);\nset(f5); draw(o3); get(i7); set.string(s2, m12);\nif (said(w100) && controller(c4)) { print(m12); }\nset.key(0, 0, 4); assignn(v1, 0); new.room(0);\nprint("v0 f5"); // v0\nreturn;',
+    '#define other 0\n#message 12 "Second"\nload.pic(v0); increment(other);\nreset(f5); erase(o3); drop(7); set.string(2, m12);\nif (said(100) && controller(4)) { print(m12); }\nreturn;',
+  ];
+  for (const num of [0, 1]) {
+    container.putResource(
+      "logic",
+      num,
+      assembleLogic("return;", {
+        profile: PROFILES["2.936"],
+        dictionary: new Map(),
+      }).payload,
+    );
+    writeFileSync(join(dir, `logic.${num}.lgc`), sources[num]!);
+  }
+  for (const [name, bytes] of container.files) writeFileSync(join(dir, name), bytes);
+  writeFileSync(join(dir, "AGIDATA.OVL"), "Version 2.936");
+  writeFileSync(join(dir, "WORDS.TOK"), buildWordsTok([{ word: "look", id: 100 }]));
+  writeFileSync(
+    join(dir, "bindings.json"),
+    JSON.stringify({ room_pic: { kind: "variable", num: 0 } }),
+  );
+  const server = start(["--project", dir]);
+  const uri = pathToFileURL(join(dir, "logic.0.lgc")).href;
+  const second = pathToFileURL(join(dir, "logic.1.lgc")).href;
+  const source = sources[0]!;
+  const at = (text: string) => ({
+    textDocument: { uri },
+    position: positionAt(source, source.indexOf(text)),
+  });
+  const refs = async (text: string, includeDeclaration = false) =>
+    (await server.connection.sendRequest(ReferencesRequest.type, {
+      ...at(text),
+      context: { includeDeclaration },
+    })) as Location[];
+  try {
+    await initialize(server);
+    await open(server, uri, source, 1);
+    const variables = await refs("v0");
+    assert.equal(variables.length, 5);
+    assert.deepEqual(new Set(variables.map((r) => r.uri)), new Set([uri, second]));
+    assert.deepEqual(await refs("local);"), variables);
+    assert.deepEqual(await refs("room_pic);"), variables);
+    assert.equal((await refs("v0", true)).length, 8);
+    for (const [operand, count] of [
+      ["f5", 2],
+      ["o3", 2],
+      ["i7", 2],
+      ["s2", 2],
+      ["w100", 2],
+      ["c4", 3],
+    ] as const)
+      assert.equal((await refs(operand)).length, count, operand);
+    const messages = await refs("m12", true);
+    assert.equal(messages.length, 3);
+    assert.ok(messages.every((r) => r.uri === uri));
+    const declaration = await server.connection.sendRequest(DefinitionRequest.type, at("m12"));
+    assert.deepEqual(declaration, {
+      uri,
+      range: { start: { line: 1, character: 9 }, end: { line: 1, character: 11 } },
+    });
+    assert.deepEqual(await refs('12 "First"', true), messages);
+    const binding = await server.connection.sendRequest(DefinitionRequest.type, at("v0"));
+    assert.equal((binding as Location).uri, pathToFileURL(join(dir, "bindings.json")).href);
+    assert.equal(await server.connection.sendRequest(DefinitionRequest.type, at("f5")), null);
+    assert.deepEqual(await refs("0);\nprint"), []);
+    const highlights = (await server.connection.sendRequest(
+      "textDocument/documentHighlight",
+      at("v0"),
+    )) as { range: Range }[];
+    assert.equal(highlights.length, 4);
+    const hover = await server.connection.sendRequest(HoverRequest.type, at("v0"));
+    assert.match(JSON.stringify(hover), /Variable 0/);
+    assert.match(JSON.stringify(hover), /room_pic/);
+    assert.match(JSON.stringify(hover), /local/);
+    assert.match(JSON.stringify(hover), /5 uses/);
+    await assert.rejects(
+      server.connection.sendRequest(PrepareRenameRequest.type, at("v0")),
+      /Numbered operands.*named binding/,
+    );
+    await assert.rejects(
+      server.connection.sendRequest(RenameRequest.type, { ...at("v0"), newName: "picture" }),
+      /Numbered operands/,
+    );
+    const renamed = await server.connection.sendRequest(RenameRequest.type, {
+      ...at("local);"),
+      newName: "scratch",
+    });
+    assert.equal(renamed?.documentChanges?.length, 1);
+    assert.equal((renamed?.documentChanges?.[0] as { edits: unknown[] }).edits.length, 2);
+    const shared = await server.connection.sendRequest(RenameRequest.type, {
+      ...at("room_pic);"),
+      newName: "picture",
+    });
+    assert.equal(shared?.documentChanges?.length, 2);
+    const diagnostics = (await server.connection.sendRequest("textDocument/diagnostic", {
+      textDocument: { uri },
+    })) as { items: unknown[] };
+    assert.deepEqual(diagnostics.items, []);
+    await change(server, uri, source.replace("draw.pic(v0)", "draw.pic(v2)"), 2);
+    assert.equal((await refs("room_pic);")).length, 4);
+    await close(server, uri);
+    assert.equal((await refs("room_pic);")).length, 5);
+    // Browser snapshots can carry numeric bindings with their typed JSON document.
+    const bindingUri = pathToFileURL(join(dir, "bindings.json")).href;
+    await server.connection.sendNotification("workspace/didChangeConfiguration", {
+      settings: {
+        agiLogic: {
+          project: {
+            profileId: "2.936",
+            words: [],
+            bindings: { room_pic: { num: 0 }, unused: { num: 1 } },
+            documents: { "logic:0": { uri, source } },
+            bindingDocument: {
+              uri: bindingUri,
+              source: JSON.stringify({
+                room_pic: { kind: "variable", num: 0 },
+                unused: { kind: "variable", num: 1 },
+              }),
+            },
+          },
+        },
+      },
+    });
+    const unused = await server.connection.sendRequest(DefinitionRequest.type, at("v1"));
+    assert.equal((unused as Location | null)?.uri, bindingUri);
+    assert.match(
+      JSON.stringify(await server.connection.sendRequest(HoverRequest.type, at("v1"))),
+      /unused/,
+    );
+  } finally {
+    await shutdown(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("CLI reports usage on stderr for --help and rejects unknown profiles", () => {
   const help = spawnSync(process.execPath, ["--experimental-strip-types", SERVER, "--help"], {
     encoding: "utf8",

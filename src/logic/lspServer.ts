@@ -5,6 +5,7 @@ import { PROFILES } from "../runtime/profile.ts";
 import type { ProfileId } from "../runtime/profile.ts";
 import { analyzeLogicSyntax, scanLogicTokens } from "./syntax.ts";
 import { createLogicLanguageStructure } from "./languageStructure.ts";
+import { OPERAND_NAMES, type NumberedOperand } from "./languageOperands.ts";
 import { offsetAt, positionAt, rangeAt, SEMANTIC_LEGEND } from "./lspTypes.ts";
 import type {
   LspMessage,
@@ -20,7 +21,7 @@ export interface LogicLanguageProject {
   readonly profileId: ProfileId;
   readonly words: readonly (readonly [string, number])[];
   readonly objects?: readonly string[];
-  readonly bindings: Readonly<Record<string, { readonly num: number }>>;
+  readonly bindings: Readonly<Record<string, { readonly num: number; readonly kind?: string }>>;
   readonly documents: Readonly<
     Record<string, { readonly source: string; readonly version?: number; readonly uri?: string }>
   >;
@@ -68,6 +69,7 @@ export function createLogicLspServer(
   const cache = new Map<string, ReturnType<typeof createProjectLogicLanguageSnapshot>>();
   const cancelled = new Set<string | number>();
   let bindingDocument = { uri: "agi-project:///bindings.json", source: "{}" };
+  let bindingDeclarations: Record<string, unknown> = {};
 
   function setProject(input: LogicLanguageProject) {
     project = {
@@ -93,6 +95,16 @@ export function createLogicLspServer(
       uri: "agi-project:///bindings.json",
       source: JSON.stringify(project.bindings, null, 2),
     };
+    try {
+      const parsed: unknown = JSON.parse(bindingDocument.source);
+      bindingDeclarations =
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : {};
+    } catch {
+      // Numeric project inputs still support navigation when a declaration preview is invalid.
+      bindingDeclarations = {};
+    }
     revision++;
     cache.clear();
     for (const doc of open.values()) publish(doc);
@@ -150,6 +162,36 @@ export function createLogicLspServer(
       : null;
   }
   function references(doc: Document, offset: number, includeDeclaration = true): Location[] {
+    const operand = language(doc).operandAt(offset);
+    if (operand) {
+      const identities = language(doc).operands.filter((entry) => entry.start === operand.start);
+      const result: Location[] = [];
+      const candidates = identities.every((entry) => entry.kind === "m") ? [doc] : allDocuments();
+      if (includeDeclaration)
+        for (const name of new Set(identities.flatMap(operandBindings))) {
+          const declaration = bindingLocation(name);
+          if (declaration) result.push(declaration);
+        }
+      for (const candidate of candidates) {
+        const seen = new Set<number>();
+        for (const entry of language(candidate).operands) {
+          if (
+            (includeDeclaration || !entry.declaration) &&
+            identities.some(
+              (identity) =>
+                entry.kind === identity.kind &&
+                entry.num === identity.num &&
+                (identity.kind !== "m" || candidate.uri === doc.uri),
+            ) &&
+            !seen.has(entry.start)
+          ) {
+            result.push(location(candidate, entry.start, entry.end));
+            seen.add(entry.start);
+          }
+        }
+      }
+      return result;
+    }
     const definition = language(doc).definitionAt(offset);
     if (!definition) return [];
     if (definition.kind !== "binding")
@@ -177,8 +219,42 @@ export function createLogicLspServer(
     }
     return result;
   }
+
+  function operandBindings(operand: NumberedOperand): string[] {
+    if (operand.kind === "m") return [];
+    return Object.entries(project.bindings)
+      .filter(([name, binding]) => {
+        if (binding.num !== operand.num) return false;
+        const kind = OPERAND_NAMES[operand.kind].toLowerCase();
+        const declaration = bindingDeclarations[name];
+        if (
+          binding.kind === kind ||
+          (declaration &&
+            typeof declaration === "object" &&
+            "num" in declaration &&
+            declaration.num === binding.num &&
+            "kind" in declaration &&
+            declaration.kind === kind)
+        )
+          return true;
+        return allDocuments().some((candidate) =>
+          language(candidate).operands.some(
+            (entry) =>
+              entry.bindingName === name &&
+              entry.kind === operand.kind &&
+              entry.num === operand.num,
+          ),
+        );
+      })
+      .map(([name]) => name);
+  }
   function rename(doc: Document, offset: number, name: string): WorkspaceEdit {
     const snapshot = language(doc);
+    const operand = snapshot.operandAt(offset);
+    if (operand && !operand.name)
+      throw new Error(
+        "Numbered operands have fixed identities. Rename a named binding or #define instead.",
+      );
     const definition = snapshot.definitionAt(offset);
     if (definition?.kind !== "binding")
       return {
@@ -197,7 +273,7 @@ export function createLogicLspServer(
       tokens.length !== 2 ||
       tokens[0]?.type !== "ident" ||
       tokens[0].text !== name ||
-      /^[vfoms]\d{1,3}$/.test(name)
+      /^[vfomsiwc]\d+$/.test(name)
     )
       throw new Error("The new name is not a safe source identifier.");
     if (
@@ -208,7 +284,21 @@ export function createLogicLspServer(
         ))
     )
       throw new Error(`The name '${name}' already has a definition.`);
-    const targets = references(doc, offset);
+    // Rename follows the selected name's ownership, not its numbered identity.
+    const targets: Location[] = [];
+    const declaration = bindingLocation(definition.name);
+    if (declaration) targets.push(declaration);
+    for (const candidate of allDocuments()) {
+      const snapshot = language(candidate);
+      for (const token of analyzeLogicSyntax(candidate.source).tokens) {
+        if (
+          token.type === "ident" &&
+          token.text === definition.name &&
+          snapshot.definitionAt(token.start)?.kind === "binding"
+        )
+          targets.push(location(candidate, token.start, token.end));
+      }
+    }
     if (!targets.some((target) => target.uri === bindingDocument.uri))
       throw new Error("The binding definition cannot be edited.");
     const bindings = { ...project.bindings };
@@ -331,7 +421,30 @@ export function createLogicLspServer(
         };
       }
       case "textDocument/hover": {
-        const hover = snapshot.hoverAt(offset);
+        const operand = snapshot.operandAt(offset);
+        const count = operand ? references(doc, offset, false).length : 0;
+        const names = operand
+          ? [
+              ...new Set([
+                ...operandBindings(operand),
+                ...(operand.kind === "m" ? [doc] : allDocuments()).flatMap((candidate) =>
+                  language(candidate).operands.flatMap((entry) =>
+                    entry.kind === operand.kind && entry.num === operand.num && entry.name
+                      ? [entry.name]
+                      : [],
+                  ),
+                ),
+              ]),
+            ].sort()
+          : [];
+        const hover =
+          operand && !operand.name
+            ? {
+                start: operand.start,
+                end: operand.end,
+                text: `${OPERAND_NAMES[operand.kind]} ${operand.num}${names.length ? ` (${names.join(", ")})` : ""}\n\n${count} ${count === 1 ? "use" : "uses"} ${operand.kind === "m" ? "in this LOGIC" : "across the game"}.`,
+              }
+            : snapshot.hoverAt(offset);
         if (!hover) return null;
         const [head, ...rest] = hover.text.split("\n\n");
         return {
@@ -343,6 +456,11 @@ export function createLogicLspServer(
         };
       }
       case "textDocument/definition": {
+        const operand = snapshot.operandAt(offset);
+        if (operand && !operand.name && operand.kind !== "m") {
+          const name = operandBindings(operand)[0];
+          return name ? bindingLocation(name) : null;
+        }
         const definition = snapshot.definitionAt(offset);
         return !definition
           ? null
@@ -353,6 +471,11 @@ export function createLogicLspServer(
       case "textDocument/references":
         return references(doc, offset, params.context?.includeDeclaration !== false);
       case "textDocument/prepareRename": {
+        const operand = snapshot.operandAt(offset);
+        if (operand && !operand.name)
+          throw new Error(
+            "Numbered operands have fixed identities. Rename a named binding or #define instead.",
+          );
         const at = analyzeLogicSyntax(doc.source).tokens.find(
           (token) => token.start <= offset && token.end > offset,
         );

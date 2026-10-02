@@ -98,10 +98,10 @@ standalone context. `--help` lists the supported profiles.
 | Diagnostics               | Compiler errors and warnings; push and pull, incremental document sync              |
 | Completion                | Commands, registers, local and shared names, WORDS and OBJECT                       |
 | Hover and signature help  | Shared command documentation and operand information                                |
-| Definition and references | Local names and labels; project bindings across all LOGIC sources                   |
+| Definition and references | Names and numbered operands across LOGIC sources; messages stay within their LOGIC  |
 | Rename                    | Local names or coordinated project binding and source edits; byte-preserving checks |
 | Symbols                   | Document labels, defines, messages and `said()` blocks; workspace search            |
-| Highlight                 | Occurrences of the selected name in the document                                    |
+| Highlight                 | Occurrences of the selected name or numbered operand in the document                |
 | Semantic tokens           | Full and range colouring from the compiler lexer                                    |
 | Folding                   | Multiline brace blocks                                                              |
 | Quick fixes               | Define an unknown name as `0`; add a missing semicolon when analysis confirms it    |
@@ -115,9 +115,21 @@ the affected documents together. Project declarations and closed-file references
 open in read-only source previews. Formatting is omitted: the project has no
 canonical LOGIC formatter, and preserving authored message text matters.
 
+Numbered operands identify variables (`vN`), flags (`fN`), screen objects (`oN`),
+inventory items (`iN`), strings (`sN`), words (`wN`) and controllers (`cN`) across
+the game. Names used for the same kind and number share those references.
+Messages (`mN`) include their `#message N` declaration within the current LOGIC.
+Argument types distinguish numbered symbols from literal values. Hover shows
+the operand kind, number, bound names and use count. Definition opens a message
+declaration or a project binding. Rename applies to names; numbered identities
+stay fixed.
+
 ## Neovim
 
 For Neovim 0.11 or newer, add this to `init.lua`. Replace the paths:
+
+This recipe was tested headless with Neovim 0.12.5 against a v2 game directory,
+with sources extracted using `--extract-sources`.
 
 ```lua
 vim.filetype.add({ extension = { lgc = 'agi-logic' } })
@@ -125,7 +137,7 @@ vim.lsp.config('agi_logic', {
   cmd = {
     'node', '--experimental-strip-types',
     '/path/to/agi/scripts/agi-language-server.ts', '--stdio',
-    '--project', '/path/to/game.zip', '--sources', '/path/to/sources',
+    '--project', '/path/to/game', '--sources', '/path/to/sources',
   },
   filetypes = { 'agi-logic' },
   root_markers = { 'bindings.json' },
@@ -134,10 +146,19 @@ vim.lsp.config('agi_logic', {
 vim.lsp.enable('agi_logic')
 ```
 
-Use `:checkhealth vim.lsp` to inspect attachment. The configuration follows
+Check it works with the cursor on an operand such as `v0`:
+
+```vim
+:checkhealth vim.lsp
+:lua vim.lsp.buf.references()
+```
+
+The configuration follows
 [Neovim's LSP setup API](https://neovim.io/doc/user/lsp.html).
 
 ## Helix
+
+Untested in Helix.
 
 Put this in your project's `.helix/languages.toml`:
 
@@ -162,6 +183,8 @@ depend on its version; this repository ships semantic tokens rather than a
 Tree-sitter grammar. See the [Helix language configuration](https://docs.helix-editor.com/languages.html).
 
 ## Zed
+
+Untested in Zed.
 
 Zed registers new language servers through extensions. For an AGI-only project,
 a local configuration can use its existing C server slot. Put this in
@@ -203,6 +226,8 @@ and [language extensions](https://zed.dev/docs/extensions/languages).
 
 ## VS Code
 
+Untested in VS Code.
+
 Install a generic stdio LSP client, such as
 [Generic LSP Client (`llllvvuu.llllvvuu-glspc`)](https://github.com/llllvvuu/vscode-glspc).
 For that extension, use `.vscode/settings.json`:
@@ -243,7 +268,6 @@ generic client.
 The automated suite launches the real CLI with the official LSP protocol client,
 compares its answers with the browser worker, and checks tutorial compilation
 against the app and shipped bytes. Browser tests exercise rename, outline,
-folding, colouring and quick fixes. Neovim and Helix were unavailable for local
-headless recipe checks; the Zed and VS Code recipes were also not run in their
-target editors. Treat those editor-specific configurations as setup recipes,
-with protocol behavior covered separately.
+folding, colouring, numbered-operand references and quick fixes. The Neovim
+recipe was tested headless with Neovim 0.12.5 against a v2 game directory.
+The Helix, Zed and VS Code configurations remain untested in their target editors.
