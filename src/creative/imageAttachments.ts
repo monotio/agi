@@ -21,7 +21,12 @@ export interface ImageReferences {
   readonly format: "agi.image-references";
   readonly version: 1;
   readonly images: Readonly<Record<string, ProjectImageReference>>;
-  readonly traces: Readonly<Record<string, { readonly image: string; readonly opacity: number }>>;
+  readonly traces: Readonly<
+    Record<
+      string,
+      { readonly image: string; readonly opacity: number; readonly behindArt?: boolean }
+    >
+  >;
 }
 type Documents = Readonly<Record<string, ProjectContent>>;
 function exactFields(value: unknown, fields: readonly string[]): void {
@@ -85,7 +90,13 @@ export function readImageReferences(documents: Documents): ImageReferences {
       throw new Error("Image attachment raster has the wrong length.");
   }
   for (const [key, trace] of Object.entries(value.traces)) {
-    exactFields(trace, ["image", "opacity"]);
+    exactFields(trace, [
+      "image",
+      "opacity",
+      ...(Object.hasOwn(trace, "behindArt") ? ["behindArt"] : []),
+    ]);
+    if (trace.behindArt !== undefined && typeof trace.behindArt !== "boolean")
+      throw new Error("Invalid image trace placement.");
     if (
       !/^picture:(0|[1-9]\d{0,2})$/.test(key) ||
       Number(key.slice(8)) > 255 ||

@@ -239,8 +239,8 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
 test("generation reviews a request and sends only through the mocked provider", async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await start(page);
-  await blankRoom(page);
   await page.evaluate(() =>
     localStorage.setItem(
       "monotio_agi.aiSettings",
@@ -270,6 +270,9 @@ test("generation reviews a request and sends only through the mocked provider", 
     });
   });
   await page.getByTestId("part-room:1:picture:1").click();
+  await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
+  const normalCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
+  const normalEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
   await page.getByRole("button", { name: "Generate", exact: true }).click({ timeout: 8000 });
   await page.getByTestId("generate-prompt").fill("A tree reference");
   await page.getByTestId("generate-review").click();
@@ -302,7 +305,13 @@ test("generation reviews a request and sends only through the mocked provider", 
       .flush(),
   );
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
-  await expect(page.getByTestId("room-studio")).not.toHaveClass(/is-live-game/);
+  await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
+  const generatedCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
+  const generatedEditor = (await page.getByTestId("workspace-editor").boundingBox())!;
+  expect(generatedCanvas.width).toBe(normalCanvas.width);
+  expect(generatedCanvas.height).toBe(normalCanvas.height);
+  expect(generatedEditor.width).toBe(normalEditor.width);
+  expect(generatedEditor.x).toBe(normalEditor.x);
   expect(requests).toBe(1);
   await imageShot(page, "generated-trace");
 });

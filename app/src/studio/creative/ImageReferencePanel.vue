@@ -43,6 +43,7 @@ const bridge = useShellBridge();
 const image = shallowRef<ProjectImageInput>();
 const frames = ref<ImageFrame[]>([]);
 const opacity = ref(0.4);
+const behindArt = ref(false);
 const error = ref("");
 const status = ref("");
 const previewing = ref(false);
@@ -72,6 +73,7 @@ watch(
     const trace = readImageReferences(documents).traces[props.target];
     image.value = trace ? readProjectImage(documents, trace.image) : undefined;
     opacity.value = trace?.opacity ?? 0.4;
+    behindArt.value = trace?.behindArt ?? false;
   },
   { immediate: true },
 );
@@ -128,6 +130,7 @@ async function useImage(value: ProjectImageInput) {
         props.target,
         value,
         opacity.value,
+        behindArt.value,
       ),
       "Trace an image",
     );
@@ -175,7 +178,7 @@ function paste(event: ClipboardEvent) {
     void intake(selected, "Pasted image");
   }
 }
-async function changeOpacity() {
+async function changeTrace(label: string) {
   if (!image.value) return;
   try {
     await commit(
@@ -184,8 +187,9 @@ async function changeOpacity() {
         props.target,
         image.value,
         opacity.value,
+        behindArt.value,
       ),
-      "Trace opacity",
+      label,
     );
   } catch (cause) {
     error.value = String(cause);
@@ -264,7 +268,7 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="image-reference"
-    :class="{ 'image-reference--cels': !isPicture }"
+    :class="{ 'image-reference--cels': !isPicture, 'image-reference--picture': isPicture }"
     data-testid="image-reference"
     @dragover.prevent
     @drop="drop"
@@ -292,6 +296,7 @@ onBeforeUnmount(() => {
       v-if="generateOpen && generation"
       :controller="generation"
       :role="isPicture ? 'room' : 'character'"
+      :class="{ 'image-reference__generation': isPicture }"
     />
     <label v-if="image && isPicture"
       >Opacity
@@ -302,8 +307,12 @@ onBeforeUnmount(() => {
         max="1"
         step="0.05"
         data-testid="trace-opacity"
-        @change="changeOpacity"
+        @change="changeTrace('Trace opacity')"
     /></label>
+    <label v-if="image && isPicture">
+      <input v-model="behindArt" type="checkbox" @change="changeTrace('Trace placement')" />
+      Behind art
+    </label>
     <template v-if="image && !isPicture">
       <ImageFrameSheet v-model="frames" :image="image" :profile="profile" :mirrors="mirrors" />
       <div class="image-reference__actions">
@@ -348,6 +357,32 @@ onBeforeUnmount(() => {
 .image-reference header {
   justify-content: space-between;
   margin-bottom: var(--space-2);
+}
+.image-reference--picture {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  max-height: none;
+  overflow: visible;
+  flex: 1 0 100%;
+  box-sizing: border-box;
+}
+.image-reference--picture header {
+  margin: 0;
+  gap: var(--space-3);
+}
+.image-reference--picture :deep(.image-reference__generation) {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: min(440px, 100%);
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-pop);
+  background: var(--surface-1);
 }
 .image-reference p,
 .image-reference span,

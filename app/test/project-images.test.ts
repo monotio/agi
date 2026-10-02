@@ -11,6 +11,7 @@ import {
   traceImageChanges,
   makeCelsChanges,
   suggestImageFrames,
+  imageTraceUnderlay,
 } from "../../src/creative/imageOperations.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
@@ -94,7 +95,7 @@ test("attachments autosave in History, undo/redo and private archives; public ex
       author: "creator",
     });
   await submit(
-    traceImageChanges(session.model.capture().documents(), "picture:1", image),
+    traceImageChanges(session.model.capture().documents(), "picture:1", image, 0.6, true),
     "Trace an image",
     "picture",
   );
@@ -112,8 +113,14 @@ test("attachments autosave in History, undo/redo and private archives; public ex
   assert.equal(matching.length, 1);
   await session.undo();
   assert.equal(session.model.capture().read("images"), undefined);
+  assert.equal(imageTraceUnderlay(session.model.capture().documents(), "picture:1"), null);
   await session.redo();
   assert.ok(session.model.capture().read(`attachment:${encoded}`));
+  assert.equal(
+    imageTraceUnderlay(session.model.capture().documents(), "picture:1")!.behindArt,
+    true,
+  );
+  assert.equal(imageTraceUnderlay(session.model.capture().documents(), "picture:1")!.opacity, 0.6);
   await submit(
     makeCelsChanges(
       session.model.capture().documents(),
@@ -147,6 +154,12 @@ test("attachments autosave in History, undo/redo and private archives; public ex
   );
   await assert.rejects(readGameZip(buildZip(corrupt)), /attachment/);
   const opened = await readGameZip(await buildProjectZip(saved));
+  const restoredTrace = imageTraceUnderlay(
+    readProjectWorkspace(opened.project!.workspace!),
+    "picture:1",
+  )!;
+  assert.equal(restoredTrace.behindArt, true);
+  assert.equal(restoredTrace.opacity, 0.6);
   assert.deepEqual(
     readProjectWorkspace(opened.project!.workspace!)[`attachment:${encoded}`],
     image.encoded,
