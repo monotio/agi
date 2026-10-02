@@ -8,6 +8,9 @@ on:
       head:
         type: string
         default: HEAD
+      burn_base:
+        type: string
+        default: ""
     outputs:
       browsers:
         value: ${{ jobs.prepare.outputs.browsers }}
@@ -50,7 +53,8 @@ jobs:
         env:
           BASE: ${{ inputs.base }}
           HEAD: ${{ inputs.head }}
-        run: python3 scripts/ci/tools.py changes --base "$BASE" --head "$HEAD"
+          BURN_BASE: ${{ inputs.burn_base }}
+        run: python3 scripts/ci/tools.py changes --base "$BASE" --head "$HEAD" --burn-base "$BURN_BASE"
       - name: CI helper tests
         env:
           PYTHONDONTWRITEBYTECODE: "1"

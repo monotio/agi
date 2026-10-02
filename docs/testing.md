@@ -266,7 +266,11 @@ with both production browser jobs. Playwright browser caches use the browser,
 version and runner OS; apt archives are cached too, while system dependencies
 are installed on each fresh runner.
 
-Pull requests repeat added or changed specs five times. Chromium covers their
+Pull requests repeat added or changed specs five times: on a PR's first run
+the specs it changes, and on each later push the specs that push changes. A
+change touching more than 12 specs, such as a release candidate, skips the
+burn-in, since every suite already runs and the nightly repeats find flakes.
+Chromium covers their
 ordinary tests and, in an isolated run, their timing tests. WebKit covers their
 `@webkit-desktop` tests. Changed production specs run in both engines. Reproduce
 with `npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=5` or

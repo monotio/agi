@@ -7,7 +7,7 @@ from unittest.mock import patch
 import unittest
 from types import SimpleNamespace
 
-from tools import classify, partition, intermittent, file_filter, discover, split_discovery, issue
+from tools import classify, burn_selection, partition, intermittent, file_filter, discover, split_discovery, issue
 
 
 class Changes(unittest.TestCase):
@@ -25,6 +25,16 @@ class Changes(unittest.TestCase):
                            'app/e2e/helper.ts', 'app/e2e/deleted.spec.ts'],
                           exists=lambda path: 'deleted' not in str(path))
         self.assertEqual(result['specs'], ['app/e2e/new.spec.ts', 'app/production/ship.spec.ts'])
+
+
+class BurnIn(unittest.TestCase):
+    def test_a_small_change_burns_its_specs(self):
+        specs = [f'app/e2e/{n}.spec.ts' for n in range(3)]
+        self.assertEqual(burn_selection(specs, limit=12), specs)
+
+    def test_a_release_sized_change_leaves_repetition_to_full_suites_and_nightly(self):
+        specs = [f'app/e2e/{n}.spec.ts' for n in range(13)]
+        self.assertEqual(burn_selection(specs, limit=12), [])
 
 
 class Shards(unittest.TestCase):

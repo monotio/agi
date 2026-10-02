@@ -15,6 +15,8 @@ jobs:
     with:
       base: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
       head: ${{ github.sha }}
+      # Burn in what this push changed; a PR's first run compares with its base.
+      burn_base: ${{ github.event.action == 'synchronize' && github.event.before || '' }}
 
   quality:
     name: Static checks and unit tests

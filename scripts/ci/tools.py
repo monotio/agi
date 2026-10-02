@@ -70,10 +70,21 @@ def changed_files(base, head):
         ['git', 'diff', '--name-only', '-z', base, head]).decode().strip('\0').split('\0')
 
 
+def burn_selection(specs, limit):
+    # A release-sized change already runs every suite; nightly repeats catch its flakes.
+    return specs if len(specs) <= limit else []
+
+
 def changes(args):
-    files = changed_files(args.base, args.head) if args.base and set(args.base) != {'0'} else []
-    result = classify([file for file in files if file])
-    output = f"browsers={str(result['browsers']).lower()}\nspecs={json.dumps(result['specs'])}\n"
+    def diff(base):
+        files = changed_files(base, args.head) if base and set(base) != {'0'} else []
+        return classify([file for file in files if file])
+    result = diff(args.base)
+    specs = diff(args.burn_base)['specs'] if args.burn_base else result['specs']
+    burn = burn_selection(specs, args.burn_limit)
+    if specs and not burn:
+        print(f'Burn-in skipped: {len(specs)} changed specs exceed {args.burn_limit}', file=sys.stderr)
+    output = f"browsers={str(result['browsers']).lower()}\nspecs={json.dumps(burn)}\n"
     print(output, end='')
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as file:
@@ -197,6 +208,8 @@ def main():
     change = commands.add_parser('changes')
     change.add_argument('--base', default='')
     change.add_argument('--head', default='HEAD')
+    change.add_argument('--burn-base', default='')
+    change.add_argument('--burn-limit', type=int, default=12)
     balance = commands.add_parser('shard')
     balance.add_argument('--index', type=int, required=True)
     balance.add_argument('--suite', choices=['chromium', 'webkit'], default='chromium')

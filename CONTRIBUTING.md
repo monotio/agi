@@ -139,7 +139,7 @@ same ref.
 | Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                |
 | Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, WebKit phone, and separate jobs for timing budgets and the storage benchmark, each with one worker |
 | Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                         |
-| PR burn-in                   | Each added or changed spec repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                                                          |
+| PR burn-in                   | Up to 12 specs added or changed by the PR or its latest push, repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                       |
 | Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                           |
 
 The required contexts stay `Typecheck, lint, unit tests, build`,
