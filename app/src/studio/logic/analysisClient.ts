@@ -56,7 +56,7 @@ export class LogicAnalysisClient {
     this.timeoutMs = timeoutMs;
   }
 
-  setProject(project: LogicAnalysisProject): void {
+  setProject(project: LogicAnalysisProject): boolean {
     if (this.closed) throw new Error("Logic analysis workspace is closed.");
     if (!Number.isSafeInteger(project.revision) || project.revision < 0)
       throw new Error("Invalid analysis project revision.");
@@ -80,7 +80,7 @@ export class LogicAnalysisClient {
         ];
       }),
     );
-    this.project = {
+    const next: LogicAnalysisProject = {
       revision: project.revision,
       profileId: project.profileId,
       objects: [...(project.objects ?? [])],
@@ -91,9 +91,14 @@ export class LogicAnalysisClient {
       documents,
       ...(project.bindingDocument ? { bindingDocument: { ...project.bindingDocument } } : {}),
     };
+    // Save-status notifications can repeat the exact consulted snapshot while
+    // a language request is in flight. Only a changed snapshot supersedes it.
+    if (JSON.stringify(next) === JSON.stringify(this.project)) return false;
+    this.project = next;
     this.epoch++;
     this.rejectAll(new Error("Logic analysis was superseded by a newer workspace snapshot."));
     if (this.worker) this.sendProject(this.worker);
+    return true;
   }
 
   /**

@@ -195,32 +195,21 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
   await page.keyboard.type("goto marker;");
   await page.keyboard.press("Escape");
   await expect(editor.locator(".view-lines")).toContainText("goto marker;");
+  await workspaceSaved(page);
   await editor.locator(".view-lines").getByText("marker").last().click();
   await page.keyboard.press("F12");
   await expect
-    .poll(async () => {
-      const position = await page.evaluate(async () => {
+    .poll(() =>
+      page.evaluate(async () => {
         const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-        return monaco.editor
+        const editor = monaco.editor
           .getEditors()
-          .find((editor) => editor.getDomNode()?.closest('[data-testid="workspace-logic-editor"]'))
-          ?.getPosition();
-      });
-      return position?.lineNumber;
-    })
-    .toBe(
-      await page.evaluate(async () => {
-        const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
-        const model = monaco.editor.getModels().find((m) => m.getValue().includes("marker:"));
-        if (!model) return undefined;
-        return (
-          model
-            .getValue()
-            .split("\n")
-            .findIndex((line) => line.startsWith("marker:")) + 1
-        );
+          .find((editor) => editor.getDomNode()?.closest('[data-testid="workspace-logic-editor"]'));
+        const position = editor?.getPosition();
+        return position && editor?.getModel()?.getLineContent(position.lineNumber);
       }),
-    );
+    )
+    .toBe("marker: return;");
 
   // A broken line lands in Problems; Problems stays openable from the chip.
   await workspaceDocumentEnd(page);

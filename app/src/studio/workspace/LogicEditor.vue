@@ -117,7 +117,7 @@ function analysis(): void {
     client.invalidateContext("Fix the WORDS or names document to restore code intelligence.");
     return;
   }
-  client.setProject({
+  const changed = client.setProject({
     revision: props.snapshot.revision,
     profileId: props.profileId,
     words,
@@ -129,7 +129,7 @@ function analysis(): void {
     },
     documents,
   });
-  void language?.refreshDiagnostics();
+  if (changed) void language?.refreshDiagnostics();
 }
 async function applyProjectEdit(edit: WorkspaceEdit, label: string): Promise<void> {
   const revision = props.snapshot.revision;
