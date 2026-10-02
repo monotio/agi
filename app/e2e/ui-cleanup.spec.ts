@@ -72,7 +72,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
         height: element.getBoundingClientRect().height,
       };
     });
-    expect(type.family).toContain("system-ui");
+    expect(type.family).toContain("AGI Geist");
     expect(type.size).toBeGreaterThanOrEqual(14);
     expect(type.weight).toBeGreaterThanOrEqual(700);
     // --control-h (40px) on fine pointers; UiButton grows to 44px under pointer: coarse.
