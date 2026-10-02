@@ -42,7 +42,7 @@ export default class PictureProvider {
   async callApi(_prompt: string, context: { vars: { entry: string } }) {
     const mod = (await import(RUNNER)) as typeof PictureRunner;
     if (!this.runner) {
-      this.runner = mod.createProvider(this.vendor, this.model, undefined, "medium");
+      this.runner = mod.createProvider(this.vendor, this.model, undefined);
       if (this.vendor !== "fake" && Number.isFinite(BUDGET_USD)) this.runner.budgetUsd = BUDGET_USD;
     }
     if (this.vendor !== "fake" && this.runner.spentUsd >= BUDGET_USD)

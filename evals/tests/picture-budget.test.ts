@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createProvider } from "../picture-fidelity.ts";
+import { providerSse } from "../../test/provider-stream.ts";
 
 /**
  * gpt-6-sol is priced at $2 input and $10 output per million tokens, so
@@ -16,29 +17,32 @@ import { createProvider } from "../picture-fidelity.ts";
 const BILL = { input_tokens: 100_000, output_tokens: 20_000 };
 
 function scriptedResponse(n: number): Response {
-  return Response.json({
-    id: `resp_${n}`,
-    object: "response",
-    created_at: 0,
-    status: "completed",
-    model: "gpt-6-sol",
-    output: [
-      {
-        type: "function_call",
-        id: `fc_${n}`,
-        call_id: `call_${n}`,
-        name: "write_picture",
-        arguments: JSON.stringify({ room: 1, source: "vis 1\nend\n" }),
-        status: "completed",
+  return new Response(
+    providerSse("openai", {
+      id: `resp_${n}`,
+      object: "response",
+      created_at: 0,
+      status: "completed",
+      model: "gpt-6-sol",
+      output: [
+        {
+          type: "function_call",
+          id: `fc_${n}`,
+          call_id: `call_${n}`,
+          name: "write_picture",
+          arguments: JSON.stringify({ room: 1, source: "vis 1\nend\n" }),
+          status: "completed",
+        },
+      ],
+      usage: {
+        ...BILL,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens_details: { reasoning_tokens: 0 },
+        total_tokens: BILL.input_tokens + BILL.output_tokens,
       },
-    ],
-    usage: {
-      ...BILL,
-      input_tokens_details: { cached_tokens: 0 },
-      output_tokens_details: { reasoning_tokens: 0 },
-      total_tokens: BILL.input_tokens + BILL.output_tokens,
-    },
-  });
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
 }
 
 test("a paid picture run sends no request once its spending reaches the budget", async (t) => {
@@ -61,7 +65,7 @@ test("a paid picture run sends no request once its spending reaches the budget",
       "user",
       () => {
         rounds++;
-        return { text: "Compiled.", images: [] };
+        return { success: true };
       },
       6,
     ),

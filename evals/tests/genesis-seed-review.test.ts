@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateGenesisToolCalls } from "../lib/asserts.ts";
+import { providerSse } from "../../test/provider-stream.ts";
 
 const readOpeningRoom = {
   type: "function_call",
@@ -28,9 +29,9 @@ test(
       for await (const bytes of req) chunks.push(bytes);
       requests.push(JSON.parse(Buffer.concat(chunks).toString()));
       if (requests.length === 1) {
-        res.writeHead(200, { "content-type": "application/json" });
+        res.writeHead(200, { "content-type": "text/event-stream" });
         res.end(
-          JSON.stringify({
+          providerSse("openai", {
             id: "seed-review",
             status: "completed",
             usage: { input_tokens: 1, output_tokens: 1 },

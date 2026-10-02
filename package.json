@@ -61,7 +61,6 @@
     }
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
     "@ast-grep/cli": "0.45.3",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
@@ -72,7 +71,6 @@
     "globals": "^17.12.0",
     "knip": "^6.39.0",
     "npm-run-all2": "^9.0.3",
-    "openai": "^7.25.0",
     "prettier": "^3.9.9",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.0",
