@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   computed,
+  defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -10,8 +11,7 @@ import {
   watch,
 } from "vue";
 import { PAGE_CONTROLS } from "./useGameKeys.ts";
-import DebugDock from "../inspector/DebugDock.vue";
-import InspectorOverlay from "../inspector/InspectorOverlay.vue";
+
 import TouchControls from "./TouchControls.vue";
 import TransportBar from "../history/TransportBar.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -32,6 +32,9 @@ const props = defineProps<{
   /** Create's Inspect tab hosts the inspector's controls: no floating dock. */
   inspectorDocked?: boolean;
 }>();
+
+const DebugDock = defineAsyncComponent(() => import("../inspector/DebugDock.vue"));
+const InspectorOverlay = defineAsyncComponent(() => import("../inspector/InspectorOverlay.vue"));
 
 const engine = useEngineApi();
 const {
@@ -567,6 +570,7 @@ function onSplitUp(): void {
 
 onMounted(() => {
   void presentation.initStage(props.crtEnabled);
+  if (!props.touchControls) nextTick(focusInput);
   // Callers close whatever held the keyboard first (the assistant, a sheet);
   // the input re-enables on the next render, so focus lands after it.
   bridge.focusGameInput = () => void nextTick(focusInput);

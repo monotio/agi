@@ -243,7 +243,9 @@ function continueEnded(): void {
   }
 }
 
-const tutorialScreen = computed(() => catalogOpenings.value[featuredCatalog.id]?.preview);
+const tutorialScreen = computed(
+  () => catalogOpenings.value[featuredCatalog.id]?.preview ?? featuredCatalog.preview,
+);
 
 function onPrimary(): void {
   const record = last.value?.record;

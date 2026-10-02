@@ -9,7 +9,7 @@ import { continuationTranscript } from "../archive/projectConversation.ts";
 import { detectKnownGame, gameRevision } from "../project/gameMetadata.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { AgentSession, BootResources } from "../agent/agentSession.ts";
-import { loadAuthoringStack, type AuthoringLoader } from "../agent/authoringLoader.ts";
+import type { AuthoringLoader } from "../agent/authoringLoader.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import type { AgiAudio } from "../audio/AgiAudio.ts";
 import {
@@ -69,11 +69,13 @@ export class HistoryUnsavedError extends Error {
 export interface GameLifecycleOptions {
   readonly state: EngineState;
   readonly hook: TextHook;
-  readonly audio: AgiAudio;
+  readonly audio: AgiAudio | null;
   readonly logAgent: LogAgentFn;
   readonly link: WorkerLink;
   readonly autosave: ReturnType<typeof useAutosaveController>;
-  readonly authoring: ReturnType<typeof useAuthoringController>;
+  readonly authoring: ReturnType<typeof useAuthoringController> | null;
+  readonly ensureAuthoring?: () => Promise<ReturnType<typeof useAuthoringController>>;
+  readonly prepareRun?: () => Promise<void>;
   readonly testRecorder: ReturnType<typeof useTestRecorder>;
   readonly promptCancel: () => void;
   readonly releaseAgentAudioPreviews: () => void;
@@ -115,7 +117,7 @@ interface PreparedInstalledGame {
 }
 
 export function useGameLifecycle(options: GameLifecycleOptions) {
-  const { state, hook, audio, logAgent, link, autosave, authoring, testRecorder } = options;
+  const { state, hook, logAgent, link, autosave, testRecorder } = options;
 
   /** The game currently in the slot, or null when nothing is booted. */
   let booted: BootedGame | null = null;
@@ -138,13 +140,15 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     retireGenesisStarter();
     link.terminateWorker();
     link.drainPendingQueries(new Error("engine worker stopped"));
-    audio.stop();
+    options.audio?.stop();
     booted = null;
     state.phase = "error";
     state.error = message;
   }
 
-  const loadAuthoring = options.loadAuthoring ?? loadAuthoringStack;
+  const loadAuthoring: AuthoringLoader =
+    options.loadAuthoring ??
+    (async () => (await import("../agent/authoringLoader.ts")).loadAuthoringStack());
   // The recovery controller and the seed compiler behind it stay off the
   // cold Home-Play path: the module loads with the first provider-dependent
   // Create that arms one. `lifecycleEpoch` is the synchronous supersession
@@ -180,7 +184,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     state.powerUp.busy = false;
     testRecorder.reset();
     state.walkthrough.error = "";
-    audio.setPaused(false);
+    options.audio?.setPaused(false);
     state.paused = false;
     state.profile = null;
     hook.profile = null;
@@ -221,9 +225,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     retireGenesisStarter();
     options.stopHistoryWriter();
     link.terminateWorker();
-    audio.stop();
+    options.audio?.stop();
     options.releaseAgentAudioPreviews();
-    authoring.resetSession();
+    options.authoring?.resetSession();
     link.drainPendingQueries();
     autosave.drainFlushWaiters();
     state.debugObjects = [];
@@ -358,6 +362,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         return;
       }
 
+      await options.prepareRun?.();
       const openingAdmission = await admitQualifiedOpening(
         opening,
         game,
@@ -382,9 +387,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       )
         return;
       const w = link.spawnWorker();
-      authoring.resetSession();
+      options.authoring?.resetSession();
       booted = game;
-      audio.useGameFiles(game.files);
+      options.audio?.useGameFiles(game.files);
       w.postMessage({
         type: "boot",
         ...(options.getProjectMode?.() === "create"
@@ -468,6 +473,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     // the previous world, its worker, phase and error state exactly as they
     // were. The catch covers only failures after the slot starts moving.
     await options.flushProject?.();
+    await options.prepareRun?.();
+    if (bootEpoch !== lifecycleEpoch) return { status: "superseded" };
     if (!admission.admitted({ kind: "installed", locator: landed.locator, folder: landed.folder }))
       return { status: "superseded" };
     admission.commit();
@@ -475,9 +482,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       retireGenesisStarter();
       const activeReplaySeed = options.getActiveReplaySeed();
       const w = link.spawnWorker();
-      authoring.resetSession();
+      options.authoring?.resetSession();
       booted = prepared.game;
-      audio.useGameFiles(prepared.game.files);
+      options.audio?.useGameFiles(prepared.game.files);
       w.postMessage({
         type: "boot",
         ...(options.getProjectMode?.() === "create"
@@ -557,7 +564,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       }
       options.pauseEngine("eject");
       const game = booted;
-      const session = authoring.getSession();
+      const session = options.authoring?.getSession() ?? null;
       // Behind storage (another tab committed a newer revision) this game's
       // files, conversation and checkpoint describe bytes storage no longer
       // holds; after another tab's authoring edit, its session describes
@@ -568,14 +575,14 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
         session &&
         !storageMovedPast(game) &&
         !needsReload(game) &&
-        (!game.installed || authoring.isRemixNeedsSave())
+        (!game.installed || options.authoring?.isRemixNeedsSave())
       ) {
         const files = await link.query("exportFiles");
         if (!files)
           throw new Error(
             "The current game could not be saved. Try Settings → This game → Download game… before leaving.",
           );
-        await authoring.persistRemix(game, session, files).catch((error: unknown) => {
+        await options.authoring!.persistRemix(game, session, files).catch((error: unknown) => {
           if (!(error instanceof ResourceCommitError && error.code === "stale")) throw error;
         });
       }
@@ -620,8 +627,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     autosave.reset();
     options.stopHistoryWriter();
     link.terminateWorker();
-    audio.stop();
-    authoring.resetSession();
+    options.audio?.stop();
+    options.authoring?.resetSession();
     booted = null;
     state.paused = false;
     state.powerUp = {
@@ -755,6 +762,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
     await options.flushProject?.();
     if (epoch !== undefined && epoch !== lifecycleEpoch) return;
+    await options.prepareRun?.();
+    if (epoch !== undefined && epoch !== lifecycleEpoch) return;
     const w = link.spawnWorker();
     const game: BootedGame = {
       installed: false,
@@ -773,10 +782,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     booted = game;
     // The world's first record is this tab's own authoring content.
     advanceAuthoring(game, authoringState);
+    const authoring = options.authoring ?? (await options.ensureAuthoring!());
     authoring.attachSessionRuntime(session, game);
 
     const activeReplaySeed = options.getActiveReplaySeed();
-    audio.useGameFiles(files);
+    options.audio?.useGameFiles(files);
     w.postMessage({
       type: "boot",
       projectMode: "create",
@@ -850,7 +860,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
 
       if (bootOptions?.useCached) {
         // Start the authoring stack's download while storage reads the world.
-        if (getCachedGameMeta(projectId)?.roomGeneration) void loadAuthoringStack().catch(() => {});
+        if (getCachedGameMeta(projectId)?.roomGeneration) void loadAuthoring().catch(() => {});
         const loaded = await loadAuthoredGameWithHistoryLifetime(projectId);
         // Superseded while storage answered: the newer flow owns the slot,
         // the session and the worker this boot would still spawn.
@@ -871,7 +881,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           // still plays and its first new room retries.
           const stack =
             canAuthor && isConfigured
-              ? await loadAuthoringStack().catch((error: unknown) => {
+              ? await loadAuthoring().catch((error: unknown) => {
                   logAgent("error", String(error));
                   return null;
                 })
@@ -930,6 +940,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             state.error = resumeAdmission.message ?? "The saved checkpoint could not be resumed.";
             return;
           }
+          await options.prepareRun?.();
           const openingAdmission = await admitQualifiedOpening(
             opening,
             game,
@@ -944,7 +955,11 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           }
           if (resumeCarrier !== undefined && !resumeCarrier.isCurrent()) return;
           options.setActiveLlmConfig(cachedConfig);
-          authoring.setSession(cachedSession);
+          if (cachedSession && !options.authoring) {
+            await options.ensureAuthoring!();
+            if (bootEpoch !== lifecycleEpoch) return;
+          }
+          options.authoring?.setSession(cachedSession);
           await options.flushProject?.();
           if (
             bootEpoch !== lifecycleEpoch ||
@@ -957,10 +972,10 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
           hydrateAuthoring(game, cached.authoringState);
           booted = game;
           if (cachedSession) {
-            authoring.attachSessionRuntime(cachedSession, game);
+            options.authoring!.attachSessionRuntime(cachedSession, game);
           }
           const activeReplaySeed = options.getActiveReplaySeed();
-          audio.useGameFiles(cached.files);
+          options.audio?.useGameFiles(cached.files);
           w.postMessage({
             type: "boot",
             ...(options.getProjectMode?.() === "create"
@@ -994,7 +1009,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : {}),
           } satisfies WorkerInbound);
           // Same baseline as a fresh boot — posted after the segment opens.
-          if (cachedSession) authoring.postSessionSnapshot(cachedSession);
+          if (cachedSession) options.authoring!.postSessionSnapshot(cachedSession);
           return;
         }
         throw new Error(
@@ -1018,6 +1033,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // its session can replace the newer flow's.
       if (bootEpoch !== lifecycleEpoch) return;
       const genesisSession = new stack.AgentSession(config, logAgent);
+      const authoring = options.authoring ?? (await options.ensureAuthoring!());
+      if (bootEpoch !== lifecycleEpoch) return;
       authoring.setSession(genesisSession);
       // A provider-dependent run keeps the canonical Starter prepared beside
       // it — armed before the first request — so a refusal or cancel can
@@ -1114,7 +1131,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     }
     // The failed run's session never built this project; the explicit
     // selection discards it now.
-    authoring.resetSession();
+    options.authoring?.resetSession();
     await bootAuthoredGame("", options.getActiveLlmConfig(), {
       projectId,
       title: offer.title,
@@ -1186,7 +1203,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const game = booted;
     if (!game) throw new Error("No game is running.");
     const progressTarget = game.progressTarget;
-    const session = authoring.getSession();
+    const session = options.authoring?.getSession() ?? null;
     const data: CachedGameData | null = game.installed
       ? {
           // The bound target's logical id — the folder spelling when it is
@@ -1231,6 +1248,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const words = files["WORDS.TOK"]
       ? parseWordsTok(files["WORDS.TOK"]).map(({ word, id }) => [word, id] as [string, number])
       : game.words;
+    const authoring = options.authoring ?? (await options.ensureAuthoring!());
     const assembled = authoring.assembleExportData(data, { ...game, words }, session, files);
     const progressKey = progressTarget?.locator ?? gameStorageKey(game);
     return { data: assembled, progressKey, progressTarget };

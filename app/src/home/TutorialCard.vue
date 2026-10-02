@@ -47,7 +47,7 @@ const installedCopies = computed(() =>
   localGames.value.filter((game) => isInstalledCatalogCopy(game, entry)),
 );
 const image = computed(() => {
-  const src = catalogOpenings.value[entry.id]?.preview;
+  const src = catalogOpenings.value[entry.id]?.preview ?? entry.preview;
   return src ? { src, alt: `${entry.title} opening scene`, kind: "opening" as const } : undefined;
 });
 const busy = computed(() => catalogBusy.value[entry.id] === true || libraryActionBusy.value);
@@ -89,7 +89,7 @@ async function focusPlay(): Promise<void> {
     :title="entry.title"
     monogram="AGI"
     :image
-    :pending="!catalogErrors[entry.id]"
+    :pending="busy"
     badge="Tutorial"
     :meta="TUTORIAL_META"
     :play-label="isUnreadable(storedAs) || catalogErrors[entry.id] ? undefined : 'Play'"

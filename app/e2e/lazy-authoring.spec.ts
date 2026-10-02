@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BUNDLE_GRAPH_PATH } from "../bundle-graph.config.ts";
 import { expect, test } from "./test.ts";
-import { isolateStorage, waitForRoom } from "./engineProbe.ts";
+import { configureAi, isolateStorage, waitForRoom } from "./engineProbe.ts";
 
 /**
  * The AI authoring stack (app/src/agent/authoringLoader.ts) and the Studios
- * load on demand. A cold visit from Home to the tutorial's first room, with
- * Play's own idle warm-up, requests none of these source modules: the agent
+ * load on demand. A cold visit from Home to the tutorial's first room
+ * requests none of these source modules: the agent
  * tool registry, playtest, the lazy authoring entry, the provider SDKs, and
  * any Studio code. scripts/check-bundle-budget.ts holds the production chunk
  * graph to the same line.
@@ -77,15 +77,15 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   await page.goto("/");
   await expect(page.getByTestId("catalog-adventure-department").getByRole("img")).toHaveAttribute(
     "src",
-    /^data:image\/png;base64,/,
+    /catalog\/adventure-department\.png$/,
   );
-  // Home's catalog thumbnail builds the tutorial: its module loads here.
-  expect(modules).toContain("games/adventure-department/game.ts");
+  // Home displays the cached opening without starting an interpreter.
+  expect(modules).not.toContain("games/adventure-department/game.ts");
+  expect(modules.filter((module) => /(?:engine|preview)\.worker/.test(module))).toEqual([]);
+  expect(deferred(), "deferred modules requested by Home").toEqual([]);
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
-  // Play's own idle-time warm-up (the map panel) has run: nothing further
-  // is on its way without the player asking for it.
-  await expect.poll(() => modules).toContain("app/src/world/WorldPanel.vue");
+  expect(modules).not.toContain("app/src/world/WorldPanel.vue");
   expect(deferred(), "deferred modules requested from Home to a cold Play").toEqual([]);
 
   // No model is connected (the stored default is OpenAI without a key), so
@@ -97,5 +97,24 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
   await expect
     .poll(() => modules, { timeout: 10_000 })
     .toContain("app/src/agent/authoringStack.ts");
+  await expect
+    .poll(() => modules.some((module) => /^app\/node_modules\/openai\//.test(module)))
+    .toBe(true);
+  expect(modules.some((module) => /^app\/node_modules\/@anthropic-ai\/sdk\//.test(module))).toBe(
+    false,
+  );
   expect(offOrigin, "provider or cross-origin requests").toEqual([]);
+});
+
+test("the first agent drawer focuses its input and Escape returns to Play", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  await configureAi(page, { provider: "stub" });
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("agent-bubble-input")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("agent-bubble")).toHaveCount(0);
+  await expect(page.locator("#game-command")).toBeFocused();
 });

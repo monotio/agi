@@ -5,12 +5,53 @@ import {
   workerStaticClosure,
   type GraphChunk,
   isStudioModule,
+  isHomeDeferredModule,
 } from "../scripts/check-bundle-budget.ts";
 
 test("editor code under the studio folders counts as lazy Studio code", () => {
   assert.equal(isStudioModule("src/vocabulary.ts"), false);
   assert.equal(isStudioModule("src/studio/editOperations.ts"), true);
   assert.equal(isStudioModule("app/src/studio/studioTerms.ts"), true);
+});
+
+test("Home excludes agent, debugger, editor, words analysis and sound preview code", () => {
+  for (const module of [
+    "app/src/authoring/AgentBubble.vue",
+    "app/src/authoring/AgentLogPanel.vue",
+    "app/src/authoring/AgentTaskControls.vue",
+    "app/src/agent/agentRun.ts",
+    "app/src/agent/agentLog.ts",
+    "app/src/agent/authoringLoader.ts",
+    "src/agent/agentState.ts",
+    "src/agent/history.ts",
+    "src/agent/roomPictures.ts",
+    "src/agent/viewUsage.ts",
+    "src/agent/worldPlan.ts",
+    "src/agent/toolTransport.ts",
+    "src/agent/gameTestFormat.ts",
+    "app/src/engine/executionDebugLink.ts",
+    "app/src/engine/useEngineDebug.ts",
+    "app/src/project/playerSentences.ts",
+    "app/src/authoring/SoundPreview.vue",
+    "src/sound/preview.ts",
+    "src/sound/sound.ts",
+    "app/src/audio/AgiAudio.ts",
+    "src/sound/document.ts",
+    "app/src/settings/AiSettings.vue",
+    "app/src/inspector/InspectPanel.vue",
+    "src/studio/editOperations.ts",
+    "app/src/studio/workspace/WordsEditor.vue",
+    "src/runtime/engine.ts",
+    "app/src/worker/engine.worker.ts",
+  ])
+    assert.equal(isHomeDeferredModule(module), true, module);
+  for (const module of [
+    "app/src/home/LibraryPanel.vue",
+    "app/src/engine/engineContext.ts",
+    "src/logic/words.ts",
+    "src/runtime/profile.ts",
+  ])
+    assert.equal(isHomeDeferredModule(module), false, module);
 });
 
 /**

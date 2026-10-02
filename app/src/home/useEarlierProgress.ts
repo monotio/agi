@@ -525,10 +525,12 @@ export function useEarlierProgressPresence(
     presence.value = "checking";
     presenceError.value = "";
     try {
-      const api = await resolveAdapters(options?.hooks);
+      const listEarlierProgress =
+        options?.hooks?.listEarlierProgress ??
+        (await import("../project/earlierProgress.ts")).listEarlierProgress;
       let cursor: string | undefined;
       for (let page = 0; page < PRESENCE_PAGE_BOUND; page++) {
-        const result = await api.listEarlierProgress({
+        const result = await listEarlierProgress({
           includeAll: true,
           limit: 1,
           ...(cursor === undefined ? {} : { cursor }),

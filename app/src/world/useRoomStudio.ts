@@ -5,13 +5,15 @@
  * scan) and reads the same picture again when a refused Keep reopens it.
  */
 import { roomPictureUse } from "../../../src/agent/roomPictures.ts";
-import { useEngineApi } from "../engine/engineContext.ts";
+import { type EngineApi, useEngineApi } from "../engine/engineContext.ts";
 import type { PictureStudioRequest } from "../shell/useCreateWorkspace.ts";
+
+import { studioPictureSource, studioRoomSource } from "./studioSource.ts";
+import { openDraft } from "../project/projectTransaction.ts";
 
 const RELOADED = "Loaded the latest saved version of this game.";
 
-export function useRoomStudio() {
-  const engine = useEngineApi();
+export function useRoomStudio(engine: EngineApi = useEngineApi()) {
   const map = engine.roomMap;
 
   /** Room Studio's request for one room's picture, read from the running game each time it is asked. */
@@ -21,14 +23,37 @@ export function useRoomStudio() {
     picture: number,
     notice?: string,
   ): PictureStudioRequest | null {
-    const source = map.studioSource(picture);
+    const game = engine.getBootedGame();
+    const scanned = map.resources.value;
+    if (!game || scanned.files !== game.files) return null;
+    const session = engine.getAuthoringSession()?.state;
+    const source = studioPictureSource(
+      scanned,
+      picture,
+      session,
+      game.authoredGame?.authoringState,
+    );
     if (!source) return null;
     return {
       kind: "picture",
       room,
       pictureNumber: picture,
       ...source,
-      walk: room > 0 ? map.studioRoom(room) : null,
+      baseRevision: game.revision,
+      baseAuthoring: openDraft(game),
+      walk:
+        room > 0
+          ? studioRoomSource(
+              scanned,
+              room,
+              map.graph.value.nodes
+                .filter((node) => node.room > 0)
+                .map((node) => ({ room: node.room, title: node.title ?? "" }))
+                .sort((a, b) => a.room - b.room),
+              session,
+              game.authoredGame?.authoringState,
+            )
+          : null,
       // A picture can serve several rooms: an untitled room is named by what Studio edits.
       title: title || `PIC ${picture}`,
       subtitle: `Room ${room} · PIC ${picture}`,

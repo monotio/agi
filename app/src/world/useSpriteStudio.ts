@@ -6,11 +6,14 @@
  * base, and reads the same view again when a refused Keep reopens it.
  */
 import { base64ToBytes } from "../project/bytes.ts";
-import { useEngineApi } from "../engine/engineContext.ts";
+import { type EngineApi, useEngineApi } from "../engine/engineContext.ts";
 import type { StoredReference } from "../references/referenceArt.ts";
 import { useCreateWorkspace, type SpriteStudioRequest } from "../shell/useCreateWorkspace.ts";
 import type { EngineStateReport, ScreenObjectState } from "../../../src/runtime/engine.ts";
 import { parseView } from "../../../src/view/view.ts";
+
+import { studioSpriteSource } from "./studioSource.ts";
+import { openDraft } from "../project/projectTransaction.ts";
 
 const RELOADED = "Loaded the latest saved version of this game.";
 
@@ -28,9 +31,10 @@ interface Staged {
   readonly bytes: Uint8Array;
 }
 
-export function useSpriteStudio() {
-  const engine = useEngineApi();
-  const workspace = useCreateWorkspace();
+export function useSpriteStudio(
+  engine: EngineApi = useEngineApi(),
+  workspace = useCreateWorkspace(),
+) {
   const map = engine.roomMap;
 
   const readState = async (): Promise<LiveState> => {
@@ -48,7 +52,15 @@ export function useSpriteStudio() {
     { state, objects }: LiveState,
     notice?: string,
   ): SpriteStudioRequest | null {
-    const source = map.spriteSource(view, staged?.bytes);
+    const game = engine.getBootedGame();
+    const scanned = map.resources.value;
+    if (!game || scanned.files !== game.files) return null;
+    const source = studioSpriteSource(
+      scanned,
+      view,
+      map.currentRoom.value ?? undefined,
+      staged?.bytes,
+    );
     if (!source) return null;
     let title = staged ? "Staged character sheet" : `VIEW ${view}`;
     try {
@@ -60,6 +72,8 @@ export function useSpriteStudio() {
       kind: "sprite",
       viewNumber: view,
       ...source,
+      baseRevision: game.revision,
+      baseAuthoring: openDraft(game),
       title,
       speed: state?.vars[SPEED_VAR] ?? 1,
       // The loop preview borrows the cycle time of an object showing the view.

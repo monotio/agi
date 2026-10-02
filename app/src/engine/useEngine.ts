@@ -1,11 +1,6 @@
-import { createExecutionDebugLink } from "./executionDebugLink.ts";
-import {
-  readPlayerSentences,
-  savePlayerSentences,
-  recordPlayerSentence,
-  resolvePlayerSentence,
-  type PlayerSentence,
-} from "../project/playerSentences.ts";
+import type { createExecutionDebugLink } from "./executionDebugLink.ts";
+import type * as PlayerSentenceTools from "../project/playerSentences.ts";
+import type { PlayerSentence } from "../project/playerSentences.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
@@ -13,8 +8,15 @@ import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistor
 import type { ProjectSession, PendingProjectRestart } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
-import { getCurrentScope, onScopeDispose, reactive, shallowReactive, shallowRef } from "vue";
-import { createAgentLogger } from "../agent/agentLog.ts";
+import {
+  effectScope,
+  getCurrentScope,
+  onScopeDispose,
+  reactive,
+  shallowReactive,
+  shallowRef,
+} from "vue";
+import type { createAgentLogger } from "../agent/agentLog.ts";
 import type { ReplayObservation } from "../walkthrough/replay.ts";
 import { createReplayDriver } from "../walkthrough/useReplayDriver.ts";
 import {
@@ -23,10 +25,9 @@ import {
 } from "../walkthrough/useWalkthroughController.ts";
 import { useInputController } from "../play/useInputController.ts";
 import { useTestRecorder } from "../authoring/useTestRecorder.ts";
-import { STALE_SAVE_MESSAGE, useAuthoringController } from "../authoring/useAuthoringController.ts";
+import type { useAuthoringController } from "../authoring/useAuthoringController.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
-import { AgiAudio } from "../audio/AgiAudio.ts";
-import { useAudioController } from "../audio/useAudioController.ts";
+import type { AgiAudio, AudioMode } from "../audio/AgiAudio.ts";
 import {
   autosaveKey,
   clearAutosave,
@@ -37,7 +38,11 @@ import {
 } from "../saves/useAutosaveController.ts";
 import { clearCachedGame } from "../project/gameStorage.ts";
 import { resolveProgressTarget } from "../project/progressBinding.ts";
-import { PROJECT_REMOVED_MESSAGE, watchProjectWrites } from "../project/projectTransaction.ts";
+import {
+  STALE_SAVE_MESSAGE,
+  PROJECT_REMOVED_MESSAGE,
+  watchProjectWrites,
+} from "../project/projectTransaction.ts";
 import { clearGameSaves } from "../saves/gameSaves.ts";
 import { writeResumePointer } from "../saves/resumePointer.ts";
 import { removeMapSidecar } from "../world/roomMapStore.ts";
@@ -48,17 +53,17 @@ import { usePromptController } from "../play/usePromptController.ts";
 import { useSaveSlotController } from "../saves/useSaveSlotController.ts";
 import { discoverInstalledGames } from "../library/gameDiscovery.ts";
 import { useWorkerLink } from "./useWorkerLink.ts";
-import { useHistoryController } from "../history/useHistoryController.ts";
-import { useHistoryView, freshHistoryView } from "../history/useHistoryView.ts";
+import type { useHistoryController } from "../history/useHistoryController.ts";
+import type { useHistoryView } from "../history/useHistoryView.ts";
+import { freshHistoryView } from "./useEngineTypes.ts";
 import { useStartOverNote } from "../history/useStartOverNote.ts";
-import { loadTapeOutline } from "../history/historyStorage.ts";
 import type { TransportModel } from "../history/useTransport.ts";
 import { useGameLifecycle } from "./useGameLifecycle.ts";
 import { createPauseHolds } from "./pauseHolds.ts";
 import { createRuntimePauseLeaseAcquire } from "./runtimePauseLease.ts";
 import { createStartOver } from "./startOver.ts";
-import { useEngineDebug } from "./useEngineDebug.ts";
-import { useRoomMap } from "../world/useRoomMap.ts";
+import type { useEngineDebug } from "./useEngineDebug.ts";
+import type { useRoomMap } from "../world/useRoomMap.ts";
 import type { WorkerInbound, WorkerQueryPayload, WorkerControl } from "../worker/workerProtocol.ts";
 import type { PlayHereTarget } from "../../../src/runtime/playHere.ts";
 import type { HistoryBatch } from "../../../src/agent/history.ts";
@@ -95,7 +100,8 @@ export function useEngine(
   let projectSession: ProjectSession | null = null;
   const pendingProjectRestart = shallowRef<PendingProjectRestart | null>(null);
   let projectOpenEpoch = 0;
-  const audio = new AgiAudio();
+  let audio: AgiAudio | null = null;
+  let audioLoading: Promise<AgiAudio> | undefined;
 
   const state = reactive<EngineState>({
     agentTask: null,
@@ -122,8 +128,8 @@ export function useEngine(
     shake: false,
     prompt: null,
     soundPlaying: false,
-    soundMuted: audio.isMuted,
-    soundMode: audio.currentMode,
+    soundMuted: false,
+    soundMode: "tandy",
     paused: false,
     powerUp: {
       mode: "remix",
@@ -177,7 +183,24 @@ export function useEngine(
     urlReplaySeed !== null && Number.isInteger(urlReplaySeed) ? urlReplaySeed : null;
   const observationListeners = new Set<(obs: ReplayObservation) => void>();
 
-  const { logAgent, clearAgentLog, releaseAgentAudioPreviews } = createAgentLogger(state);
+  let logger: ReturnType<typeof createAgentLogger> | undefined;
+  let loggerLoading: Promise<void> | undefined;
+  const pendingLog: Parameters<ReturnType<typeof createAgentLogger>["logAgent"]>[] = [];
+  const logAgent: ReturnType<typeof createAgentLogger>["logAgent"] = (...entry) => {
+    if (logger) return logger.logAgent(...entry);
+    pendingLog.push(entry);
+    loggerLoading ??= import("../agent/agentLog.ts").then(({ createAgentLogger }) => {
+      logger = createAgentLogger(state);
+      for (const entry of pendingLog.splice(0)) logger.logAgent(...entry);
+    });
+  };
+  function clearAgentLog(): void {
+    pendingLog.length = 0;
+    logger?.clearAgentLog();
+  }
+  function releaseAgentAudioPreviews(): void {
+    logger?.releaseAgentAudioPreviews();
+  }
   const promptController = usePromptController({ state, logAgent });
   const saveSlotController = useSaveSlotController({
     getBootedGame: () => lifecycle.getBootedGame(),
@@ -208,7 +231,9 @@ export function useEngine(
   const link = useWorkerLink({
     state,
     hook,
-    audio,
+    get audio() {
+      return audio;
+    },
     onFrame,
     logAgent,
     getBootedGame: () => lifecycle.getBootedGame(),
@@ -219,7 +244,7 @@ export function useEngine(
   const { pauseEngine, resumeEngine, resetPauseOwners } = createPauseHolds({
     post: (paused) =>
       link.getWorker()?.postMessage({ type: "pause", paused } satisfies WorkerInbound),
-    audio,
+    audio: { setPaused: (paused) => audio?.setPaused(paused) },
     state,
   });
   const acquireRuntimePauseLease = createRuntimePauseLeaseAcquire({
@@ -239,9 +264,26 @@ export function useEngine(
   const { sendInput, sendEdit, sendDirection, sendKey, sendClick } = input;
   const startOverNote = useStartOverNote(state);
 
-  const executionDebug = createExecutionDebugLink(link.query);
-  link.deps.handleDebugEvent = executionDebug.handle;
-  const debug = useEngineDebug({ state, link });
+  let executionDebug: ReturnType<typeof createExecutionDebugLink> | undefined;
+  let executionDebugLoading: Promise<ReturnType<typeof createExecutionDebugLink>> | undefined;
+  function loadExecutionDebug(): Promise<ReturnType<typeof createExecutionDebugLink>> {
+    executionDebugLoading ??= import("./executionDebugLink.ts").then(
+      ({ createExecutionDebugLink }) => {
+        executionDebug = createExecutionDebugLink(link.query);
+        link.deps.handleDebugEvent = executionDebug.handle;
+        return executionDebug;
+      },
+    );
+    return executionDebugLoading;
+  }
+  let debug: ReturnType<typeof useEngineDebug> | undefined;
+  async function loadEngineDebug(): Promise<ReturnType<typeof useEngineDebug>> {
+    if (!debug) {
+      const { useEngineDebug } = await import("./useEngineDebug.ts");
+      debug ??= useEngineDebug({ state, link });
+    }
+    return debug;
+  }
 
   const replayDriver = createReplayDriver({
     query: link.query,
@@ -259,7 +301,6 @@ export function useEngine(
   if (import.meta.env?.DEV) {
     window.__AGI_REPLAY__ = replayDriver;
     (window as unknown as { __AGI_STATE__: EngineState }).__AGI_STATE__ = state;
-    (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
     window.__AGI_FRAME__ = link.getLatestFrame;
     (window as unknown as { __AGI_PROJECT__: unknown }).__AGI_PROJECT__ = {
       getSession: () => projectSession,
@@ -297,7 +338,7 @@ export function useEngine(
     state.powerUp.offerReload = false;
     state.staleTab = false;
     state.projectRemoved = true;
-    historyController.forgetRemovedGame();
+    historyController?.forgetRemovedGame();
   }
 
   const autosaveController = useAutosaveController({
@@ -343,7 +384,7 @@ export function useEngine(
   });
 
   link.deps.projectClosed = () => {
-    executionDebug.reset();
+    executionDebug?.reset();
     projectOpenEpoch++;
     projectSession?.dispose();
     projectSession = null;
@@ -383,7 +424,7 @@ export function useEngine(
           ...grant,
           query: link.query,
           current,
-          waitForContinue: executionDebug.waitForContinue,
+          waitForContinue: () => executionDebug?.waitForContinue(),
         });
         projectSession = openProjectSession({
           data: game.authoredGame!,
@@ -409,13 +450,13 @@ export function useEngine(
               projectId: game.projectId!,
               authoredAt: game.authoredGame!.authoredAt,
             };
-            if (running) audio.useGameFiles(game.files);
+            if (running) audio?.useGameFiles(game.files);
             state.patchTick++;
             state.worldTick++;
             if (outcome?.status === "committed") {
-              roomMap.projectImageAdmitted(outcome.patchGeneration);
+              roomMap.value?.projectImageAdmitted(outcome.patchGeneration);
               const frame = link.getLatestFrame();
-              if (frame !== null) roomMap.observeFrame(frame);
+              if (frame !== null) roomMap.value?.observeFrame(frame);
             }
           },
           changed() {
@@ -435,21 +476,39 @@ export function useEngine(
       });
   }
   const playerSentences = shallowRef<readonly PlayerSentence[]>([]);
+  let sentenceTools: typeof PlayerSentenceTools | undefined;
   let triedProject = "";
+  const pendingSentences: Omit<PlayerSentence, "count">[] = [];
   function loadTried(): void {
+    if (!sentenceTools) return;
     const project = lifecycle.getBootedGame()?.projectId ?? "";
     if (project === triedProject) return;
     triedProject = project;
-    playerSentences.value = project ? readPlayerSentences(project) : [];
+    playerSentences.value = project ? sentenceTools.readPlayerSentences(project) : [];
+  }
+  async function loadPlayerSentences(): Promise<void> {
+    sentenceTools ??= await import("../project/playerSentences.ts");
+    loadTried();
+    for (const entry of pendingSentences.splice(0))
+      playerSentences.value = sentenceTools.recordPlayerSentence(playerSentences.value, entry);
+    if (triedProject) sentenceTools.savePlayerSentences(triedProject, playerSentences.value);
   }
   link.deps.missedSentence = (msg) => {
     if (projectMode !== "create") return;
+    if (!sentenceTools) {
+      pendingSentences.push({ text: msg.text, room: msg.room, unknown: msg.unknown });
+      void loadPlayerSentences();
+      return;
+    }
     loadTried();
-    playerSentences.value = recordPlayerSentence(playerSentences.value, msg);
-    if (triedProject) savePlayerSentences(triedProject, playerSentences.value);
+    playerSentences.value = sentenceTools.recordPlayerSentence(playerSentences.value, msg);
+    if (triedProject) sentenceTools.savePlayerSentences(triedProject, playerSentences.value);
   };
   link.deps.projectBooted = (msg) => {
     openSession(msg.projectAdmission);
+    playerSentences.value = [];
+    pendingSentences.length = 0;
+    triedProject = "";
     loadTried();
     link.getWorker()?.postMessage({
       type: "observeSentences",
@@ -467,54 +526,53 @@ export function useEngine(
   });
   if (getCurrentScope()) onScopeDispose(stopWatchingWrites);
 
-  const historyController = useHistoryController({
-    state,
-    getBootedGame: () => lifecycle.getBootedGame(),
-    getProfile: () => state.profile,
-    scheduleRenewal: (callback, delay) => {
-      const timer = setTimeout(callback, delay);
-      return () => clearTimeout(timer);
-    },
-    logAgent,
-    retryWorker: () =>
-      link.getWorker()?.postMessage({ type: "historyRetry" } satisfies WorkerInbound),
-  });
+  let historyController: ReturnType<typeof useHistoryController> | undefined;
 
-  const authoringController = useAuthoringController({
-    state,
-    getProjectSession: () => projectSession,
-    getWorker: link.getWorker,
-    query: link.query,
-    awaitPatched: link.awaitPatched,
-    logAgent,
-    readFrames: debug.readFrames,
-    pauseEngine,
-    resumeEngine,
-    getBootedGame: () => lifecycle.getBootedGame(),
-    setBootedGame: (game) => lifecycle.setBootedGame(game),
-    flushAutosave: () => autosaveController.flushAutosave(),
-    getAutosaveWrite: () => autosaveController.getAutosaveWrite(),
-    clearAutosave,
-    onRemixCreated: (remixProjectId) => {
-      // The remix boot already installed and bound the saved body's physical
-      // target; the resume pointer names that exact locator — but only while
-      // the slot still holds the project this callback reports. A completion
-      // for a world that was replaced since writes nothing and resets nothing.
-      const booted = lifecycle.getBootedGame();
-      const target =
-        booted !== null && !booted.installed && booted.projectId === remixProjectId
-          ? resolveProgressTarget(booted)
-          : null;
-      if (target?.kind !== "project" || target.project !== remixProjectId) return;
-      writeResumePointer(localStorage, target.locator);
-      autosaveController.reset();
-      hook.autosave = -1;
-    },
-    configForGame: (projectId, config) => lifecycle.configForGame(projectId, config),
-    getLlmConfig: () => activeLlmConfig,
-    getRoomNotes: (room) => roomMap.noteIntentFor(room),
-    onBehindStorage: tellBehindStorage,
-  });
+  let authoringController: ReturnType<typeof useAuthoringController> | null = null;
+  let authoringLoading: Promise<ReturnType<typeof useAuthoringController>> | undefined;
+  function loadAuthoringController(): Promise<ReturnType<typeof useAuthoringController>> {
+    authoringLoading ??= import("../authoring/useAuthoringController.ts").then(
+      ({ useAuthoringController }) => {
+        authoringController = useAuthoringController({
+          state,
+          getProjectSession: () => projectSession,
+          getWorker: link.getWorker,
+          query: link.query,
+          awaitPatched: link.awaitPatched,
+          logAgent,
+          readFrames: async (req) => (await loadEngineDebug()).readFrames(req),
+          pauseEngine,
+          resumeEngine,
+          getBootedGame: () => lifecycle.getBootedGame(),
+          setBootedGame: (game) => lifecycle.setBootedGame(game),
+          flushAutosave: () => autosaveController.flushAutosave(),
+          getAutosaveWrite: () => autosaveController.getAutosaveWrite(),
+          clearAutosave,
+          onRemixCreated: (remixProjectId) => {
+            // The remix boot already installed and bound the saved body's physical
+            // target; the resume pointer names that exact locator — but only while
+            // the slot still holds the project this callback reports. A completion
+            // for a world that was replaced since writes nothing and resets nothing.
+            const booted = lifecycle.getBootedGame();
+            const target =
+              booted !== null && !booted.installed && booted.projectId === remixProjectId
+                ? resolveProgressTarget(booted)
+                : null;
+            if (target?.kind !== "project" || target.project !== remixProjectId) return;
+            writeResumePointer(localStorage, target.locator);
+            autosaveController.reset();
+            hook.autosave = -1;
+          },
+          configForGame: (projectId, config) => lifecycle.configForGame(projectId, config),
+          getLlmConfig: () => activeLlmConfig,
+          getRoomNotes: (room) => roomMap.value?.noteIntentFor(room) ?? [],
+          onBehindStorage: tellBehindStorage,
+        });
+        return authoringController;
+      },
+    );
+    return authoringLoading;
+  }
 
   const testRecorder = useTestRecorder({
     state,
@@ -522,19 +580,26 @@ export function useEngine(
     query: link.query,
     logAgent,
     getBootedGame: () => lifecycle.getBootedGame(),
-    getOrCreateSession: authoringController.getOrCreateSession,
-    commitTestsFile: authoringController.commitTestsFile,
+    getOrCreateSession: async (...args) =>
+      (await loadAuthoringController()).getOrCreateSession(...args),
+    commitTestsFile: async (...args) => (await loadAuthoringController()).commitTestsFile(...args),
     flushAutosave: () => autosaveController.flushAutosave(),
   });
 
   const lifecycle = useGameLifecycle({
     state,
     hook,
-    audio,
+    get audio() {
+      return audio;
+    },
     logAgent,
     link,
     autosave: autosaveController,
-    authoring: authoringController,
+    get authoring() {
+      return authoringController;
+    },
+    ensureAuthoring: loadAuthoringController,
+    prepareRun,
     testRecorder,
     promptCancel: cancelPendingPrompts,
     releaseAgentAudioPreviews,
@@ -542,10 +607,10 @@ export function useEngine(
     resumeEngine,
     resetPauseOwners,
     resetHistoryView: () => {
-      historyView.resetHistoryView();
+      historyView?.resetHistoryView();
       startOverNote.hide();
     },
-    stopHistoryWriter: historyController.stopWriterRenewal,
+    stopHistoryWriter: () => historyController?.stopWriterRenewal(),
     flushProject: async () => {
       const session = projectSession;
       if (session === null) return;
@@ -564,7 +629,9 @@ export function useEngine(
     },
     getActiveLlmConfig: () => activeLlmConfig,
     abortWalkthrough: () => walkthroughAbort(),
-    drainHistoryCommits: historyController.drainHistoryCommits,
+    drainHistoryCommits: async () => {
+      await historyController?.drainHistoryCommits();
+    },
   });
 
   // The wire dispatches to controllers that did not exist when the link was
@@ -576,8 +643,8 @@ export function useEngine(
     // The transport's live axis tracks every posted batch — the timeline's
     // LIVE endpoint moves with play whether or not the commit has landed.
     handleHistoryBatch: (msg: { epoch: number; batch: HistoryBatch; profile?: ProfileId }) => {
-      historyView.observeBatch(msg.batch);
-      return historyController.handleHistoryBatch(msg);
+      historyView!.observeBatch(msg.batch);
+      return historyController!.handleHistoryBatch(msg);
     },
     handleFlushed: autosaveController.handleFlushed,
     handleRestored: autosaveController.handleRestored,
@@ -585,14 +652,16 @@ export function useEngine(
     handleSaveSlotRequest: saveSlotController.handleSaveSlotRequest,
     handlePromptRequest: promptController.handlePromptRequest,
     handleRoomAuthoring: (req: LlmRequest, agent: AgentHandler) =>
-      authoringController.handleRoomAuthoring(req, agent, (dir) => sendDirection(dir)),
+      loadAuthoringController().then((controller) =>
+        controller.handleRoomAuthoring(req, agent, (dir) => sendDirection(dir)),
+      ),
     // The room answer's authoring checkpoint posts after the hostAnswer —
     // the tape records the state after the cause that produced it — and
     // the saved room's install confirmation reads the game back after it.
     hostAnswered: (req: LlmRequest) => {
-      if (req.op === "room") authoringController.roomAnswered();
+      if (req.op === "room") authoringController?.roomAnswered();
     },
-    getAgentSession: () => authoringController.getSession(),
+    getAgentSession: () => authoringController?.getSession() ?? null,
     getReplayDriver: () => replayDriver,
     gameQuit: () => void lifecycle.gameQuit(),
     observeCycle: startOverNote.observeCycle,
@@ -628,7 +697,15 @@ export function useEngine(
     }
   }
 
-  const { openPowerUp, closePowerUp, submitPowerUp } = authoringController;
+  const openPowerUp: ReturnType<typeof useAuthoringController>["openPowerUp"] = async (...args) =>
+    (await loadAuthoringController()).openPowerUp(...args);
+  function closePowerUp(): void {
+    state.powerUp.open = false;
+    authoringController?.closePowerUp();
+  }
+  const submitPowerUp: ReturnType<typeof useAuthoringController>["submitPowerUp"] = async (
+    ...args
+  ) => (await loadAuthoringController()).submitPowerUp(...args);
 
   const startOver = createStartOver({
     state,
@@ -639,16 +716,19 @@ export function useEngine(
     // the game and target spell out the same.
     getSessionId: () => activeWalkthroughSession,
     sealHistory: lifecycle.sealHistory,
-    drainHistoryCommits: historyController.drainHistoryCommits,
+    drainHistoryCommits: async () => {
+      await historyController?.drainHistoryCommits();
+    },
     pauseEngine,
     resumeEngine,
     selectTarget: (targetKey, booted) => autosaveController.selectProgressTarget(targetKey, booted),
     hasEarlierSession: (targetLocator) =>
-      loadTapeOutline(targetLocator)
+      import("../history/historyStorage.ts")
+        .then(({ loadTapeOutline }) => loadTapeOutline(targetLocator))
         .then((outline) => outline?.segments.some((segment) => segment.extent > 0) ?? false)
         .catch(() => false),
     // historyView is built below; the closure reads it once it exists.
-    expectStartOver: (expected) => historyView.expectStartOver(expected),
+    expectStartOver: (expected) => historyView!.expectStartOver(expected),
     bootFresh: (targetKey, config, admission) =>
       autosaveController.startOver(targetKey, config, admission),
     showNote: startOverNote.show,
@@ -657,24 +737,57 @@ export function useEngine(
   /** Undo start over: back to where the earlier session ended. */
   async function undoStartOver(): Promise<boolean> {
     startOverNote.hide();
-    return historyView.undoStartOver();
+    return historyView!.undoStartOver();
   }
 
   async function updateAiConfig(config: LlmConfig): Promise<void> {
     activeLlmConfig = config;
-    await authoringController.updateAiConfig(config);
+    if (authoringController) await authoringController.updateAiConfig(config);
   }
 
   const { startTestRecording, stopTestRecording, cancelTestRecording, saveRecordedTest } =
     testRecorder;
 
-  const { toggleMute, setAudioMode, resumeAudio } = useAudioController(audio, state, (msg) =>
-    link.getWorker()?.postMessage(msg),
-  );
+  function loadAudio(): Promise<AgiAudio> {
+    audioLoading ??= import("../audio/AgiAudio.ts")
+      .then(({ AgiAudio }) => {
+        audio = new AgiAudio({ mode: state.soundMode, muted: state.soundMuted });
+        audio.setPaused(state.paused);
+        if (import.meta.env?.DEV)
+          (window as unknown as { __AGI_AUDIO__: AgiAudio }).__AGI_AUDIO__ = audio;
+        return audio;
+      })
+      .catch((error: unknown) => {
+        audioLoading = undefined;
+        throw error;
+      });
+    return audioLoading;
+  }
+  function toggleMute(): boolean {
+    state.soundMuted = !state.soundMuted;
+    audio?.setMuted(state.soundMuted);
+    link
+      .getWorker()
+      ?.postMessage({ type: "soundEnabled", enabled: !state.soundMuted } satisfies WorkerInbound);
+    return state.soundMuted;
+  }
+  function setAudioMode(mode: AudioMode): void {
+    state.soundMode = mode;
+    audio?.setMode(mode);
+    link.getWorker()?.postMessage({
+      type: "soundDevice",
+      device: mode === "pc-speaker" ? 0 : 1,
+    } satisfies WorkerInbound);
+  }
+  async function resumeAudio(): Promise<void> {
+    await (await loadAudio()).resume();
+  }
 
   const walkthrough = useWalkthroughController({
     state,
-    audio,
+    get audio() {
+      return audio;
+    },
     replayDriver,
     getWorker: link.getWorker,
     getWorkerProfile: () => state.profile,
@@ -708,41 +821,78 @@ export function useEngine(
   });
   walkthroughAbort = walkthrough.abort;
 
-  const roomMap = useRoomMap({
-    state,
-    hook,
-    getBootedGame: () => lifecycle.getBootedGame(),
-    getSession: () => authoringController.getSession(),
-    pauseEngine,
-    resumeEngine,
-    pauseWalkthrough: walkthrough.pauseWalkthrough,
-    resumeWalkthrough: walkthrough.resumeWalkthrough,
-    onWorldEdited: () => authoringController.persistSessionState(),
-    buildRoomFromMap: (room, from, notes, exitName) =>
-      authoringController.buildRoomFromMap(room, from, notes, exitName),
-  });
-
-  const historyView = useHistoryView({
-    state,
-    getWorker: link.getWorker,
-    query: link.query,
-    getBootedGame: () => lifecycle.getBootedGame(),
-    pauseEngine,
-    resumeEngine,
-    drainHistoryCommits: historyController.drainHistoryCommits,
-    highlightRoom: (room) => roomMap.select(room),
-    getSession: () => authoringController.getSession(),
-    adoptSession: (game, boot, snapshot) =>
-      authoringController.adoptSessionState(game, boot, snapshot),
-    logAgent,
-  });
-  link.deps.handleHistoryView = historyView.applyReport;
+  const roomMap = shallowRef<ReturnType<typeof useRoomMap> | null>(null);
+  const mapScope = effectScope();
+  let historyView: ReturnType<typeof useHistoryView> | undefined;
+  let mapLoading: Promise<void> | undefined;
+  function prepareRun(): Promise<void> {
+    mapLoading ??= Promise.all([
+      import("../world/useRoomMap.ts"),
+      import("../history/useHistoryController.ts"),
+      import("../history/useHistoryView.ts"),
+      loadAudio(),
+    ]).then(([{ useRoomMap }, { useHistoryController }, { useHistoryView }]) => {
+      historyController = useHistoryController({
+        state,
+        getBootedGame: () => lifecycle.getBootedGame(),
+        getProfile: () => state.profile,
+        scheduleRenewal: (callback, delay) => {
+          const timer = setTimeout(callback, delay);
+          return () => clearTimeout(timer);
+        },
+        logAgent,
+        retryWorker: () =>
+          link.getWorker()?.postMessage({ type: "historyRetry" } satisfies WorkerInbound),
+      });
+      historyView = useHistoryView({
+        state,
+        getWorker: link.getWorker,
+        query: link.query,
+        getBootedGame: () => lifecycle.getBootedGame(),
+        pauseEngine,
+        resumeEngine,
+        drainHistoryCommits: async () => {
+          await historyController?.drainHistoryCommits();
+        },
+        highlightRoom: (room) => roomMap.value?.select(room),
+        getSession: () => authoringController?.getSession() ?? null,
+        adoptSession: (game, boot, snapshot) =>
+          loadAuthoringController().then((controller) =>
+            controller.adoptSessionState(game, boot, snapshot),
+          ),
+        logAgent,
+      });
+      link.deps.handleHistoryView = historyView.applyReport;
+      roomMap.value =
+        mapScope.run(() =>
+          useRoomMap({
+            state,
+            hook,
+            getBootedGame: () => lifecycle.getBootedGame(),
+            getSession: () => authoringController?.getSession() ?? null,
+            pauseEngine,
+            resumeEngine,
+            pauseWalkthrough: walkthrough.pauseWalkthrough,
+            resumeWalkthrough: walkthrough.resumeWalkthrough,
+            onWorldEdited: () =>
+              loadAuthoringController().then((controller) => controller.persistSessionState()),
+            buildRoomFromMap: (room, from, notes, exitName) =>
+              loadAuthoringController().then((controller) =>
+                controller.buildRoomFromMap(room, from, notes, exitName),
+              ),
+          }),
+        ) ?? null;
+    });
+    return mapLoading;
+  }
 
   return {
     playerSentences,
+    loadPlayerSentences,
     resolvePlayerSentence(entry: PlayerSentence) {
-      playerSentences.value = resolvePlayerSentence(playerSentences.value, entry);
-      if (triedProject) savePlayerSentences(triedProject, playerSentences.value);
+      if (!sentenceTools) return;
+      playerSentences.value = sentenceTools.resolvePlayerSentence(playerSentences.value, entry);
+      if (triedProject) sentenceTools.savePlayerSentences(triedProject, playerSentences.value);
     },
     setProjectMode(mode: "create" | "play") {
       projectMode = mode;
@@ -813,13 +963,17 @@ export function useEngine(
         author: edit.author,
       });
     },
-    runStudioAssist: authoringController.runStudioAssist,
-    stopAgent: () => authoringController.getSession()?.task.stop(),
+    runStudioAssist: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["runStudioAssist"]>
+    ) => (await loadAuthoringController()).runStudioAssist(...args),
+    stopAgent: () => authoringController?.getSession()?.task.stop(),
     continueAgent: (requestLimit?: number) =>
-      authoringController.getSession()?.task.resume(requestLimit),
-    discardAgent: () => authoringController.getSession()?.task.cancel(),
+      authoringController?.getSession()?.task.resume(requestLimit),
+    discardAgent: () => authoringController?.getSession()?.task.cancel(),
     state,
-    audio,
+    get audio() {
+      return audio!;
+    },
     toggleMute,
     setAudioMode,
     resumeAudio,
@@ -873,8 +1027,12 @@ export function useEngine(
      * captured worker is still current. Resolves a no-op lease with no run.
      */
     acquireRuntimePauseLease,
-    roomMap,
-    historyView,
+    get roomMap() {
+      return roomMap.value!;
+    },
+    get historyView() {
+      return historyView!;
+    },
     /**
      * The transport bar's model — the walkthrough artifact's while one plays,
      * else the live recording's: always on from boot, LIVE-pinned, recording
@@ -883,19 +1041,25 @@ export function useEngine(
     get transport(): TransportModel | null {
       if (state.phase !== "running") return null;
       if (state.walkthrough.active) return walkthrough.transport;
-      return historyView.transport;
+      return historyView!.transport;
     },
     /** The "history not saved" banner's Try now: resend, then Saved or the reason. */
-    retryHistorySave: historyController.retrySave,
+    retryHistorySave: async () => historyController?.retrySave(),
     /** Beside a stored tape this version cannot extend, start a new one (player-confirmed). */
-    startNewTimeline: historyController.startNewTimeline,
+    startNewTimeline: async () => historyController?.startNewTimeline(),
     /** That old tape's stored records, verbatim as JSON, for its own reader. */
-    readOldTimeline: historyController.readOldTimeline,
+    readOldTimeline: async () => (await historyController?.readOldTimeline()) ?? null,
     /** Export waits out in-flight history commits before reading the tape. */
-    drainHistoryCommits: historyController.drainHistoryCommits,
-    observeMapFrame: roomMap.observeFrame,
-    readFrames: debug.readFrames,
-    getAgentRuntime: authoringController.getAgentRuntime,
+    drainHistoryCommits: async () => {
+      await historyController?.drainHistoryCommits();
+    },
+    observeMapFrame: (frame: Frame) => roomMap.value?.observeFrame(frame),
+    readFrames: async (req: Parameters<ReturnType<typeof useEngineDebug>["readFrames"]>[0]) =>
+      (await loadEngineDebug()).readFrames(req),
+    getAuthoringSession: () => authoringController?.getSession() ?? null,
+    getAgentRuntime: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["getAgentRuntime"]>
+    ) => (await loadAuthoringController()).getAgentRuntime(...args),
     updateAiConfig,
     openPowerUp(config: LlmConfig) {
       if (projectMode !== "create") return openPowerUp(config);
@@ -906,15 +1070,33 @@ export function useEngine(
     },
     closePowerUp,
     submitPowerUp,
-    listReferences: authoringController.listReferences,
-    attachRoomReference: authoringController.attachRoomReference,
-    attachCharacterReference: authoringController.attachCharacterReference,
-    attachStudioReference: authoringController.attachStudioReference,
-    detachReference: authoringController.detachReference,
-    keepStagedView: authoringController.keepStagedView,
-    commitPictureEdit: authoringController.commitPictureEdit,
-    commitRoomEdit: authoringController.commitRoomEdit,
-    commitViewEdit: authoringController.commitViewEdit,
+    listReferences: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["listReferences"]>
+    ) => (await loadAuthoringController()).listReferences(...args),
+    attachRoomReference: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["attachRoomReference"]>
+    ) => (await loadAuthoringController()).attachRoomReference(...args),
+    attachCharacterReference: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["attachCharacterReference"]>
+    ) => (await loadAuthoringController()).attachCharacterReference(...args),
+    attachStudioReference: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["attachStudioReference"]>
+    ) => (await loadAuthoringController()).attachStudioReference(...args),
+    detachReference: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["detachReference"]>
+    ) => (await loadAuthoringController()).detachReference(...args),
+    keepStagedView: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["keepStagedView"]>
+    ) => (await loadAuthoringController()).keepStagedView(...args),
+    commitPictureEdit: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["commitPictureEdit"]>
+    ) => (await loadAuthoringController()).commitPictureEdit(...args),
+    commitRoomEdit: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["commitRoomEdit"]>
+    ) => (await loadAuthoringController()).commitRoomEdit(...args),
+    commitViewEdit: async (
+      ...args: Parameters<ReturnType<typeof useAuthoringController>["commitViewEdit"]>
+    ) => (await loadAuthoringController()).commitViewEdit(...args),
     isInstalledGame: lifecycle.isInstalledGame,
     currentGame: lifecycle.currentGame,
     getBootedGame: lifecycle.getBootedGame,
@@ -945,15 +1127,27 @@ export function useEngine(
     },
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,
-    executionDebug,
-    setDebugConsumer: debug.setDebugConsumer,
-    debugWrite: debug.debugWrite,
+    loadExecutionDebug,
+    get executionDebug() {
+      return executionDebug!;
+    },
+    setDebugConsumer: async (
+      ...args: Parameters<ReturnType<typeof useEngineDebug>["setDebugConsumer"]>
+    ) => (await loadEngineDebug()).setDebugConsumer(...args),
+    debugWrite: async (...args: Parameters<ReturnType<typeof useEngineDebug>["debugWrite"]>) =>
+      (await loadEngineDebug()).debugWrite(...args),
     playHere,
     /** The live screen objects (ego first when animated): Room Studio's walkable estimate. */
     readObjects: () => link.query("objects"),
-    debugEventsSince: debug.debugEventsSince,
-    debugTraceSince: debug.debugTraceSince,
-    readEngineState: debug.readEngineState,
+    debugEventsSince: async (
+      ...args: Parameters<ReturnType<typeof useEngineDebug>["debugEventsSince"]>
+    ) => (await loadEngineDebug()).debugEventsSince(...args),
+    debugTraceSince: async (
+      ...args: Parameters<ReturnType<typeof useEngineDebug>["debugTraceSince"]>
+    ) => (await loadEngineDebug()).debugTraceSince(...args),
+    readEngineState: async (
+      ...args: Parameters<ReturnType<typeof useEngineDebug>["readEngineState"]>
+    ) => (await loadEngineDebug()).readEngineState(...args),
     shutdownEngine: lifecycle.shutdownEngine,
   };
 }

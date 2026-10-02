@@ -277,7 +277,7 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
   await page.goto("/");
   await expect(page.getByTestId("catalog-adventure-department").getByRole("img")).toHaveAttribute(
     "src",
-    /^data:image\/png;base64,/,
+    /catalog\/adventure-department\.png$/,
   );
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
@@ -317,9 +317,15 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
   // replacement worker admits a clean new run.
   const heldRoutes: Route[] = [];
   const heldUrls: string[] = [];
+  let importHeld!: () => void;
+  const held = new Promise<void>((resolve) => {
+    importHeld = resolve;
+  });
+  await page.exposeFunction("waitForDebuggerImport", () => held);
   await page.route("**/*debugController*", async (route) => {
     heldRoutes.push(route);
     heldUrls.push(route.request().url());
+    importHeld();
     // Held deliberately — released after the worker dies.
   });
   const cancelledAttached = await page.evaluate(
@@ -351,9 +357,10 @@ test("the execution debugger loads on first use: Play never fetches it, an isola
           bindings: game.bindings,
         },
       });
-      // Terminate mid-import: where the fetch is held, the controller
-      // module is still in flight when the worker dies.
-      await new Promise((r) => setTimeout(r, 250));
+      // Terminate after the actual import request is held in flight.
+      await (
+        window as unknown as { waitForDebuggerImport(): Promise<void> }
+      ).waitForDebuggerImport();
       const attached = out.some((m) => m.type === "debugAttached");
       w.terminate();
       return attached;

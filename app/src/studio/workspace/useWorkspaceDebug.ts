@@ -30,9 +30,9 @@ export function useWorkspaceDebug(input: {
     logicEditors.get(key)?.navigate(line);
   }
   function load(): Promise<WorkspaceDebug> {
-    loading ??= import("./workspaceDebug.ts").then(({ createWorkspaceDebug }) => {
+    loading ??= import("./workspaceDebug.ts").then(async ({ createWorkspaceDebug }) => {
       const controller = createWorkspaceDebug({
-        link: engine.executionDebug,
+        link: await engine.loadExecutionDebug(),
         snapshot: () => snapshot.value,
         profile: input.profile,
         current: () => !retired && input.creating(),

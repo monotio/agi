@@ -17,7 +17,6 @@ import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
-import { prefetchAuthoringStack } from "../agent/authoringLoader.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useShell } from "../shell/useShell.ts";
 import type { StarterKind } from "../../../src/authoring/starterProject.ts";
@@ -38,12 +37,6 @@ const {
 const shell = useShell();
 const engine = useEngineApi();
 const bridge = useShellBridge();
-// Warm the optional assistant when a player selects an AI brief.
-watch(
-  [open, selectedTemplateId],
-  ([shown, template]) => shown && template && prefetchAuthoringStack(),
-);
-
 // The boot resolves while the game is still loading; the shell holds the
 // Create switch until this project is the running one.
 async function onLocalCreated(projectId: ProjectId, kind: StarterKind): Promise<void> {

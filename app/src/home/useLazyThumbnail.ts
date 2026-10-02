@@ -1,15 +1,9 @@
 /**
- * A shelf card's opening-screen thumbnail when it has no stored picture:
- * rendered by the preview worker only once the card comes near the viewport,
+ * A supplied shelf image loads once its card comes near the viewport,
  * through one session-wide queue that runs at most two renders at a time and
  * remembers every result in memory. Nothing here is persisted.
  */
 import { onScopeDispose, ref, watch, type Ref } from "vue";
-import { loadAuthoredGame, type CachedGameMeta } from "../project/gameStorage.ts";
-import { fetchFixtureFiles } from "../library/gameDiscovery.ts";
-import { previewGame } from "../library/gamePreview.ts";
-import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
-import { parseWordsTok } from "../../../src/logic/words.ts";
 import { createThumbnailQueue } from "./thumbnailQueue.ts";
 
 export interface ThumbnailSource {
@@ -88,33 +82,4 @@ export function useLazyThumbnail(
   onScopeDispose(release);
 
   return { src, status };
-}
-
-/** A saved project's opening, run from its stored resources under its chosen interpreter. */
-export function projectThumbnail(game: CachedGameMeta): ThumbnailSource {
-  return {
-    key: `project:${game.projectId}:${game.generation ?? 0}:${game.library?.revision ?? ""}`,
-    async render() {
-      const data = await loadAuthoredGame(game.projectId);
-      if (!data) throw new Error("This game is missing from your library.");
-      return (await previewGame(data, data.library?.profile)).preview;
-    },
-  };
-}
-
-/** An installed development fixture's opening, fetched the way a boot fetches it. */
-export function installedThumbnail(game: InstalledGameDescriptor): ThumbnailSource {
-  const target = game.folder ?? game.hash;
-  return {
-    key: `installed:${target}:${game.revision ?? ""}`,
-    async render() {
-      const files = await fetchFixtureFiles(target);
-      const vocabulary = files["WORDS.TOK"];
-      if (!vocabulary) throw new Error("The game has no WORDS.TOK.");
-      const words = parseWordsTok(vocabulary).map(
-        (entry) => [entry.word, entry.id] as [string, number],
-      );
-      return (await previewGame({ files, words })).preview;
-    },
-  };
 }

@@ -6,7 +6,7 @@
  * shows while a new game is generated or a plain boot runs long.
  */
 import { defineAsyncComponent, ref, watch } from "vue";
-import AgentTaskControls from "../authoring/AgentTaskControls.vue";
+
 import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
@@ -22,6 +22,7 @@ const { routeNote = "", routePending = false } = defineProps<{
   routeNote?: string;
   routePending?: boolean;
 }>();
+const AgentTaskControls = defineAsyncComponent(() => import("../authoring/AgentTaskControls.vue"));
 const EmptyProjectStage = defineAsyncComponent(
   () => import("../studio/workspace/EmptyWorkspace.vue"),
 );
@@ -131,6 +132,7 @@ function onDrop(event: DragEvent): void {
           Your game will appear here when it is ready.
         </p>
         <AgentTaskControls
+          v-if="state.agentTask"
           :task="state.agentTask"
           @stop="stopAgent"
           @resume="continueAgent"

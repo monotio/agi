@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   computed,
+  defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
   onMounted,
@@ -18,7 +19,6 @@ import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { openContainer } from "../../../src/container/container.ts";
-import AgentResourceReview from "./AgentResourceReview.vue";
 import UiButton from "../ui/UiButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
 import UiExplain from "../ui/UiExplain.vue";
@@ -27,6 +27,15 @@ import "./agentPanel.css";
 const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
+const AgentResourceReview = defineAsyncComponent(() => import("./AgentResourceReview.vue"));
+watch(
+  settings.provider,
+  (provider) => {
+    if (provider === "openai") void import("openai").catch(() => {});
+    else if (provider === "anthropic") void import("@anthropic-ai/sdk").catch(() => {});
+  },
+  { immediate: true },
+);
 const agent = shallowRef<ReturnType<typeof borrowWorkspaceAgent>>();
 const tick = ref(0);
 const input = ref("");
@@ -51,15 +60,18 @@ const addContext = ref(false);
 const contexts = ref<string[]>([]);
 const selected = ref<string[]>([]);
 let off: (() => void) | undefined;
-function attach() {
+let retired = false;
+async function attach() {
   const session = engine.getProjectSession();
   if (!session) return;
+  const runtime = await engine.getAgentRuntime();
+  if (retired || engine.getProjectSession() !== session || agent.value) return;
   off?.();
   agent.value = borrowWorkspaceAgent({
     session,
     profileId: engine.roomMap.resources.value.profile?.id ?? "2.936",
     config: settings.llmConfig,
-    runtime: engine.getAgentRuntime,
+    runtime: () => runtime,
   });
   off = agent.value.subscribe(() => {
     tick.value++;
@@ -249,6 +261,7 @@ const offNewChat = commands?.register({
   run: newChat,
 });
 onBeforeUnmount(() => {
+  retired = true;
   off?.();
   offApprove?.();
   offNewChat?.();

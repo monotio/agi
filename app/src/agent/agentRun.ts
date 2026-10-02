@@ -27,7 +27,8 @@ export interface AgentProgress {
 
 /** A pause suspends the existing async task, including its staged resource container. */
 /** A task's spending allowance until the player chooses another; evals start from it too. */
-export const DEFAULT_TASK_BUDGET_USD = 5;
+export { DEFAULT_TASK_BUDGET_USD } from "../settings/aiSettings.ts";
+import { DEFAULT_TASK_BUDGET_USD } from "../settings/aiSettings.ts";
 
 export class AgentRun {
   private state: AgentRunState;

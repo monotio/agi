@@ -29,6 +29,7 @@ const emit = defineEmits<{
   task: [task: WordsTask];
 }>();
 const engine = useEngineApi();
+void engine.loadPlayerSentences();
 const editor = useWorkspaceEditor();
 const entries = computed<WordRows>(() => {
   try {

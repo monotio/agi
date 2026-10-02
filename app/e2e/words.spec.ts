@@ -141,3 +141,33 @@ test("WORDS Suggest and Predict prefill the Create agent composer", async ({ pag
   );
   expect(requests).toBe(2);
 });
+
+test("Create keeps a missed sentence across reload before WORDS first opens", async ({ page }) => {
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  const input = page.getByTestId("input-line");
+  if ((await textHook(page)).modal) {
+    await input.focus();
+    await page.keyboard.press("Enter");
+  }
+  await input.fill("inspect around");
+  await input.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).not.toBeNull();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(localStorage)
+          .filter((key) => key.startsWith("monotio_agi.tried."))
+          .map((key) => localStorage.getItem(key))
+          .join(""),
+      ),
+    )
+    .toContain("inspect around");
+  await page.reload();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await page.getByTestId("part-words").click();
+  await expect(page.getByTestId("player-sentence")).toContainText("inspect around");
+});

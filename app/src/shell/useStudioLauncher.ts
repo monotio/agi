@@ -10,8 +10,6 @@ import { computed } from "vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import type { LessonSession } from "../lessons/lessonCheck.ts";
 import type { LessonTarget, StudioLesson } from "../lessons/types.ts";
-import { useRoomStudio } from "../world/useRoomStudio.ts";
-import { useSpriteStudio } from "../world/useSpriteStudio.ts";
 import { useCreateWorkspace, type StudioRequest } from "./useCreateWorkspace.ts";
 import { useShell } from "./useShell.ts";
 
@@ -26,11 +24,10 @@ function withLesson(request: StudioRequest, lesson: LessonSession): StudioReques
 }
 
 export function useStudioLauncher() {
-  const { state } = useEngineApi();
+  const engine = useEngineApi();
+  const { state } = engine;
   const shell = useShell();
   const workspace = useCreateWorkspace();
-  const rooms = useRoomStudio();
-  const sprites = useSpriteStudio();
 
   /** A Studio can open now: Create is available and the screen fits one. */
   const available = computed(
@@ -48,8 +45,14 @@ export function useStudioLauncher() {
     if (shell.mode.value !== "create") return false;
     const request =
       target.studio === "room"
-        ? rooms.requestPicture(target.picture)
-        : await sprites.request(target.view);
+        ? (await import("../world/useRoomStudio.ts"))
+            .useRoomStudio(engine)
+            .requestPicture(target.picture)
+        : await (
+            await import("../world/useSpriteStudio.ts")
+          )
+            .useSpriteStudio(engine, workspace)
+            .request(target.view);
     if (!request) return false;
     workspace.openStudio(
       lesson

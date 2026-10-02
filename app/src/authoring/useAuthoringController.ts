@@ -107,8 +107,8 @@ const STALE_TURN_MESSAGE =
  * the running game: nothing was written over the newer save, and only
  * reloading the game from storage continues.
  */
-export const STALE_SAVE_MESSAGE =
-  "The game was changed elsewhere, so this conversation was not saved over it. Reload the game to continue from the saved project.";
+export { STALE_SAVE_MESSAGE } from "../project/projectTransaction.ts";
+import { STALE_SAVE_MESSAGE } from "../project/projectTransaction.ts";
 
 /**
  * The physical address an installed edition's conversation record lives

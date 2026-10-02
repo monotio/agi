@@ -7,6 +7,7 @@ export interface GameCatalogEntry {
   description: string;
   author: string;
   license: string;
+  preview?: string;
   load: () => Promise<OpenedGame>;
 }
 
@@ -18,6 +19,7 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     description: "Learn pictures, views and depth in a three-room tutorial.",
     author: "Monotio",
     license: "MIT",
+    preview: "catalog/adventure-department.png",
     load: async () => (await import("../../../games/adventure-department/game.ts")).buildTutorial(),
   },
   // The synthetic verification fixture is deliberately not a catalog entry: it

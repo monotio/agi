@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { VOCABULARY } from "../../src/vocabulary.ts";
-import AgentLogPanel from "./authoring/AgentLogPanel.vue";
-import AgentBubble from "./authoring/AgentBubble.vue";
 import GameHeader from "./shell/GameHeader.vue";
-import AiSettingsDialog from "./settings/AiSettings.vue";
-import SoundPreview from "./authoring/SoundPreview.vue";
 import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
-import PlayArea from "./play/PlayArea.vue";
 import { createWorkspaceEditor, provideWorkspaceEditor } from "./shell/workspaceEditor.ts";
 import { createCommandRegistry } from "./shell/commands/commandRegistry.ts";
 import { emptyCommandContext, provideCommands } from "./shell/commands/commandContext.ts";
@@ -40,14 +35,20 @@ import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
 import StaleTabNote from "./play/StaleTabNote.vue";
 import StartOverNote from "./play/StartOverNote.vue";
 import { nextViewportLayout } from "./play/viewportLayout.ts";
-import ReferenceUpload from "./references/ReferenceUpload.vue";
 import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
 import { useCreateMode } from "./shell/useCreateMode.ts";
 import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
+import { referenceUpload } from "./references/referenceUploadState.ts";
 
+const AgentLogPanel = defineAsyncComponent(() => import("./authoring/AgentLogPanel.vue"));
+const AgentBubble = defineAsyncComponent(() => import("./authoring/AgentBubble.vue"));
+const AiSettingsDialog = defineAsyncComponent(() => import("./settings/AiSettings.vue"));
+const SoundPreview = defineAsyncComponent(() => import("./authoring/SoundPreview.vue"));
+const PlayArea = defineAsyncComponent(() => import("./play/PlayArea.vue"));
+const ReferenceUpload = defineAsyncComponent(() => import("./references/ReferenceUpload.vue"));
 const AgentPanel = defineAsyncComponent(() => import("./agent/AgentPanel.vue"));
 const ProjectRestartNotice = defineAsyncComponent(
   () => import("./project/ProjectRestartNotice.vue"),
@@ -113,7 +114,7 @@ const WorldMap = defineAsyncComponent(() => import("./world/WorldMap.vue"));
 const CreateWorkspace = defineAsyncComponent(
   () => import("./studio/workspace/CreateWorkspace.vue"),
 );
-const mapOpen = engine.roomMap.open;
+const mapOpen = computed(() => engine.roomMap?.open.value ?? false);
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
   if (isOpen) releaseMovement();
@@ -133,6 +134,20 @@ const {
 
 const shellBridge = createShellBridge();
 provideShellBridge(shellBridge);
+shellBridge.togglePowerUp = (mode) => {
+  if (state.powerUp.busy) return;
+  if (state.powerUp.open) {
+    if (mode !== undefined && state.powerUp.mode !== mode && state.powerUp.mode !== "room") {
+      state.powerUp.mode = mode;
+      return;
+    }
+    engine.closePowerUp();
+    shellBridge.focusGameInput();
+    return;
+  }
+  if (mode !== undefined) state.powerUp.mode = mode;
+  void engine.openPowerUp(ai.llmConfig());
+};
 const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
 const ai = createAiSettings(engine, {
   dialog: aiSettingsDialog,
@@ -218,7 +233,7 @@ const playHereFromStudio = usePlayHereFromStudio({
 const { onDockKey } = useCreateMode({
   state,
   workspace,
-  roomMap: engine.roomMap,
+  roomMap: () => engine.roomMap,
   creating,
   phone,
   debugOpen,
@@ -732,6 +747,7 @@ watch(
           "
         >
           <PlayArea
+            v-if="state.phase === 'running'"
             v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
             ref="playArea"
             :touch-controls="touchControls"
@@ -802,13 +818,14 @@ watch(
           <div v-show="!creating || assistantShown" class="assistant-host">
             <!-- Mounted through the turn, so it sees the panel open and close. -->
             <AgentPanel v-if="creating && state.powerUp.open" />
-            <AgentBubble v-else-if="!creating" surface="drawer" />
+            <AgentBubble v-else-if="!creating && state.powerUp.open" surface="drawer" />
           </div>
         </aside>
       </div>
     </div>
 
     <AiSettingsDialog
+      v-if="ai.dialogRequested.value"
       ref="aiSettingsDialog"
       :settings="aiSettings"
       :budget-usd="taskBudget"
@@ -837,10 +854,10 @@ watch(
       size="lg"
       data-testid="developer-activity-sheet"
     >
-      <AgentLogPanel @booted="activitySheetOpen = false" />
+      <AgentLogPanel v-if="activitySheetOpen" @booted="activitySheetOpen = false" />
     </UiDialog>
 
-    <ReferenceUpload v-if="state.phase === 'running'" />
+    <ReferenceUpload v-if="referenceUpload.open" />
 
     <WorldMap v-if="mapOpen" />
   </div>

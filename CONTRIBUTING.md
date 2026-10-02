@@ -65,11 +65,11 @@ variable for the promptfoo lanes).
 
 `npm run check:bundle` runs after `npm run build` and fails, in CI too, when the
 compressed JavaScript, CSS or workers loaded from opening Home to a catalog
-game's first frame outgrow their budgets, or when Studio code or the AI
-authoring stack (loaded on the first AI action through
-`app/src/agent/authoringLoader.ts`) joins that path. The path is the entry
-chunk's static imports plus the dynamic imports Home starts on every visit,
-such as the tutorial build behind its catalog thumbnail.
+game's first frame outgrow their budgets. It measures Home, cold Play and the
+Create shell separately and checks their module paths: the agent, debugger,
+editors, WORDS analysis and SOUND previews load with their activities. Home
+uses cached opening images; clicking Play loads and checks the catalog game.
+Editor families load on first use, and the agent loads when its panel opens.
 `app/e2e/lazy-authoring.spec.ts` walks the same path in a browser, on the
 development server and on the production build. It checks which source modules
 each requested script carries. Separately,

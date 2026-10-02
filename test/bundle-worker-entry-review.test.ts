@@ -39,9 +39,32 @@ function runGate(startup: boolean, unsafe: boolean) {
       readFileSync(new URL("../app/devKeys.config.ts", import.meta.url)),
     );
     const main = { ...chunk("assets/index.js", [], [home]), isEntry: true };
-    const starter = { ...chunk(home), modules: ["games/adventure-department/game.ts"] };
+    const starter = {
+      ...chunk(home),
+      modules: [
+        "games/adventure-department/game.ts",
+        "app/src/play/PlayArea.vue",
+        "app/src/three/AgiStage.ts",
+        "app/src/audio/AgiAudio.ts",
+        "app/src/library/gamePreview.ts",
+        "app/src/library/gameLibrary.ts",
+        "app/src/project/projectHistoryStorage.ts",
+        "app/src/world/useRoomMap.ts",
+        "app/src/history/useHistoryView.ts",
+        "app/src/history/useHistoryController.ts",
+        "app/src/agent/agentLog.ts",
+      ],
+    };
+    const presence = {
+      ...chunk("assets/presence.js"),
+      modules: ["app/src/project/earlierProgress.ts"],
+    };
+    const create = {
+      ...chunk("assets/create.js"),
+      modules: ["app/src/studio/workspace/CreateWorkspace.vue"],
+    };
     const graph = {
-      chunks: [main, starter],
+      chunks: [main, starter, presence, create],
       assets: [{ file: entry }],
       workers: {
         [entry]: [chunk(entry, [], [debuggerFile]), chunk(debuggerFile, unsafe ? [entry] : [])],
@@ -53,6 +76,8 @@ function runGate(startup: boolean, unsafe: boolean) {
       startup ? 'new Worker("engine.worker.js");' : "export {};",
     );
     writeFileSync(join(assets, "home.js"), "export {};");
+    writeFileSync(join(assets, "presence.js"), "export {};");
+    writeFileSync(join(assets, "create.js"), "export {};");
     writeFileSync(join(assets, "engine.worker.js"), "self.onmessage = () => {};");
     writeFileSync(
       join(assets, "debugController.js"),

@@ -494,6 +494,36 @@ test("a saved-world boot binds its physical progress target before the worker bo
   assert.ok(boot, "the bound game is the one posted to the worker");
 });
 
+test("an opening retired while run modules load never spawns a worker", async (t) => {
+  const id = testProjectId("retired-module-load");
+  t.after(() => clearCachedGame(id));
+  await saveBody(id, 3);
+  let current = true;
+  let release: (() => void) | undefined;
+  let entered: (() => void) | undefined;
+  const ready = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const { lifecycle, workers } = bootHarness({
+    prepareRun: () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+        entered!();
+      }),
+  });
+  const boot = lifecycle.bootAuthoredGame("", STUB_CONFIG, {
+    projectId: id,
+    useCached: true,
+    opening: { isCurrent: () => current },
+  });
+  await ready;
+  current = false;
+  release!();
+  await boot;
+  assert.equal(workers.length, 0);
+  assert.equal(lifecycle.getBootedGame(), null);
+});
+
 test("a cached boot superseded while storage answered never takes the slot", async (t) => {
   const idA = testProjectId("superseded-a");
   const idB = testProjectId("superseded-b");
