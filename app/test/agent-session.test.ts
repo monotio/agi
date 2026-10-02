@@ -1027,3 +1027,70 @@ for (const provider of ["openai", "anthropic"] as const) {
     });
   }
 }
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} cancellation in the initial request also prevents orientation tools`, async () => {
+    let tools = 0;
+    const session = new AgentSession(
+      {
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      },
+      (kind, message) => {
+        if (kind === "request" && message === "[Ask] Inspect") session.task.cancel();
+      },
+    );
+    session.setOrientation({ game: "Test", profile: "2.936" });
+    session.setRuntime({
+      roomNotes: () => {
+        tools++;
+        return [];
+      },
+    });
+    await assert.rejects(session.runAsk("Inspect", 1), /cancel/i);
+    assert.equal(tools, 0);
+  });
+}
+test("offline Genesis cancellation prevents the plan and resource commit", async () => {
+  const state = createAgentSessionState();
+  let before: [string, Uint8Array][] = [];
+  const session = new AgentSession(
+    { provider: "stub", model: "stub", apiKey: "" },
+    (kind, message) => {
+      if (kind === "request" && message === "Starting Genesis using offline StubAgent") {
+        before = [...state.getFiles()].map(([key, bytes]) => [key, bytes.slice()]);
+        session.task.cancel();
+      }
+    },
+    state,
+  );
+  await assert.rejects(session.startGenesis("Test"), /cancel/i);
+  assert.equal(state.genesisComplete, false);
+  assert.deepEqual([...state.getFiles()], before);
+});
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} cancellation inside orientation inspection prevents its next tool and event`, async () => {
+    let orientation = 0;
+    const session = new AgentSession(
+      {
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      },
+      (kind, message) => {
+        if (kind === "request" && message.startsWith("[Orientation]")) orientation++;
+      },
+    );
+    session.setOrientation({ game: "Test", profile: "2.936" });
+    session.setRuntime({
+      roomNotes: () => {
+        session.task.cancel();
+        return [];
+      },
+    });
+    await assert.rejects(session.runAsk("Inspect", 1), /cancel/i);
+    assert.equal(orientation, 0);
+  });
+}

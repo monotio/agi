@@ -19,7 +19,7 @@ import { referenceManifest } from "../../../src/agent/referenceTools.ts";
 import { captureAgentWorkspace } from "../../../src/authoring/projectAgentCandidate.ts";
 import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
 import { ProjectModel } from "../../../src/authoring/projectModel.ts";
-import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
+import { diffProjectDocuments, sameProjectContent } from "../../../src/authoring/projectContent.ts";
 import {
   readProjectWorkspace,
   writeProjectWorkspace,
@@ -266,6 +266,7 @@ export function createWorkspaceAgent(options: Options) {
       changes: () => proposal.changes(),
       stale: () =>
         invalidBase ||
+        base.documentId !== pending.baseDocumentId ||
         session.model.capture().documentId !== pending.baseDocumentId ||
         session.history.capture().cursor !== pending.baseCommit,
     });
@@ -277,6 +278,9 @@ export function createWorkspaceAgent(options: Options) {
   let busy = false;
   let applying = false;
   let actionQueue: string[] | null = null;
+  let actionChat: string | null = null;
+  let appliedDuringRun:
+    { resources: readonly string[]; documentId: string; commit: string | null }[] | null = null;
   const progress: string[] = [];
   const observers = new Set<() => void>();
   const knownChats = new Set(store.chats.map((chat) => chat.id));
@@ -310,7 +314,7 @@ export function createWorkspaceAgent(options: Options) {
       },
       ...details,
     });
-    if (actionQueue !== null && busy) actionQueue.push(text);
+    if (actionQueue !== null && busy && chat.id === actionChat) actionQueue.push(text);
     else
       chat.transcript.push({
         role: "user",
@@ -406,6 +410,12 @@ export function createWorkspaceAgent(options: Options) {
         resources: changes.map((change) => change.key),
         outcome: result.status,
       });
+      if (chat.id === actionChat)
+        appliedDuringRun?.push({
+          resources: changes.map((change) => change.key),
+          documentId: session.model.capture().documentId,
+          commit,
+        });
       delete chat.pendingReview;
       reviews.delete(approving.chatId);
       if (review === approving) review = null;
@@ -471,8 +481,10 @@ export function createWorkspaceAgent(options: Options) {
     let provider: UnifiedConversation | undefined;
     let unreported: { toolCallId: string; result: AgentToolResult }[] = [];
     actionQueue = [];
+    actionChat = chat.id;
     const persisted: { resources: readonly string[]; documentId: string; commit: string | null }[] =
       [];
+    appliedDuringRun = persisted;
     const touched = new Set<string>();
     function flushActions() {
       for (const text of actionQueue ?? []) provider?.recordInterruption?.(text);
@@ -524,11 +536,6 @@ export function createWorkspaceAgent(options: Options) {
       assertLive();
       if ((autoApprove || automatic) && !review.stale()) {
         await approve();
-        persisted.push({
-          resources: changes.map((change) => change.key),
-          documentId: session.model.capture().documentId,
-          commit: session.history.capture().cursor,
-        });
         touched.clear();
         base = session.model.capture();
         workspace = captureAgentWorkspace({
@@ -770,15 +777,30 @@ export function createWorkspaceAgent(options: Options) {
           });
       });
     } catch (cause) {
+      const desired = new Map(
+        (driver.pending()?.changes() ?? []).map((change) => [change.key, change.content]),
+      );
       try {
         for (const change of staged
           ?.finish("Interrupted task", driver.pending()?.changes() ?? [])
-          .changes() ?? [])
+          .changes() ?? []) {
           touched.add(change.key);
+          desired.set(change.key, change.content);
+        }
       } catch {
         // Tool results retain validation failures when the staged candidate cannot compile.
       }
-      for (const change of prepared.values()) touched.add(change.key);
+      for (const change of prepared.values()) {
+        touched.add(change.key);
+        desired.set(change.key, change.content);
+      }
+      if (notes !== undefined) desired.set("notes", notes);
+      const discarded = [...touched].filter(
+        (key) =>
+          !persisted.some((effect) => effect.resources.includes(key)) ||
+          !desired.has(key) ||
+          !sameProjectContent(desired.get(key), session.model.capture().read(key)?.content),
+      );
       if (unreported.length) provider?.appendToolResults(unreported);
       provider?.recordInterruption?.(
         "The task was interrupted; outstanding tools were not executed.",
@@ -786,7 +808,7 @@ export function createWorkspaceAgent(options: Options) {
       action(chat, "interruption", {
         outcome: cause instanceof LlmRefusalError ? "refused" : "interrupted",
         error: String(cause),
-        discarded: [...touched],
+        discarded,
         persisted,
       });
       delete chat.pendingReview;
@@ -798,6 +820,8 @@ export function createWorkspaceAgent(options: Options) {
     } finally {
       flushActions();
       actionQueue = null;
+      actionChat = null;
+      appliedDuringRun = null;
       if (provider) chat.transcript = provider.getTranscript();
       busy = false;
       activeRun = null;

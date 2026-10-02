@@ -82,8 +82,8 @@ export interface Probe {
  * be attributed to a frame that had not been drawn when it was sampled.
  */
 export async function probe(page: Page): Promise<Probe> {
-  return page.getByTestId("game-canvas").evaluate((node) => {
-    const c = node as HTMLCanvasElement;
+  return page.evaluate(() => {
+    const c = document.querySelector<HTMLCanvasElement>("[data-testid='game-canvas']")!;
     const ctx = c.getContext("2d")!;
     const all = ctx.getImageData(0, 0, 320, 200).data;
     const band = ctx.getImageData(0, 8, 320, 168).data;

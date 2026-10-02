@@ -113,6 +113,22 @@ export class LlmRefusalError extends LlmResponseError {
   readonly outcome = "refused";
 }
 
+function userActionText(text: string): string {
+  try {
+    const event = JSON.parse(text) as Record<string, unknown>;
+    if (event?.["format"] === "monotio.agi.user-action" && event["version"] === 1) return text;
+  } catch {
+    // Older callers supply an explanation; retain it in the structured event.
+  }
+  return JSON.stringify({
+    format: "monotio.agi.user-action",
+    version: 1,
+    decision: "interruption",
+    outcome: "interrupted",
+    explanation: text,
+  });
+}
+
 function anthropicUsage(usage: Partial<BetaUsage> | undefined): LlmUsage {
   const input =
     (usage?.input_tokens ?? 0) +
@@ -612,7 +628,7 @@ export function createAnthropicConversation(
     },
     recordInterruption(text: string): void {
       closePending(text);
-      messages.push({ role: "user", content: text });
+      messages.push({ role: "user", content: userActionText(text) });
     },
     getTranscript(): unknown[] {
       return JSON.parse(JSON.stringify(messages));
@@ -967,7 +983,7 @@ export function createOpenAiConversation(
     },
     recordInterruption(text: string): void {
       closePending(text);
-      input.push({ role: "user", content: text });
+      input.push({ role: "user", content: userActionText(text) });
     },
     getTranscript(): unknown[] {
       return JSON.parse(JSON.stringify(input));

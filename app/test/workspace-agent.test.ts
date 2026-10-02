@@ -11,7 +11,10 @@ import type { CachedGameData, BootedGame } from "../src/project/gameTypes.ts";
 import { migrateAgentChats, type AgentChats } from "../../src/agent/chats.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
-import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../src/authoring/projectWorkspace.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
@@ -1407,3 +1410,110 @@ test("legacy chat migration retains the released provider session identity", () 
   });
   assert.equal(chats.chats[0]?.sessionId, "released-session");
 });
+
+test("restored reviews verify the saved base against its claimed identity", async () => {
+  const { session, agent } = fixture();
+  await agent.send("Add a welcome sign");
+  const chats = session.chats();
+  const pending = chats.chats[0]!.pendingReview!;
+  const forged = {
+    ...pending,
+    base: writeProjectWorkspace({
+      ...readProjectWorkspace(pending.base),
+      "logic:0": 'print("Forged base"); return;',
+    }),
+  };
+  chats.chats[0]!.pendingReview = forged;
+  await session.saveChats(chats);
+  const reopened = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+  });
+  assert.equal(reopened.pending()!.stale(), true);
+  await assert.rejects(reopened.approve(), /project changed/i);
+  session.dispose();
+});
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} interruption retains the applied identity when a human edit follows approval`, async (t) => {
+    const { session } = fixture();
+    let appliedDocument = "";
+    let appliedCommit = "";
+    let human: Promise<unknown> | undefined;
+    session.subscribe(() => {
+      if (session.history.capture().commits.length === 2 && !appliedCommit) {
+        appliedDocument = session.model.capture().documentId;
+        appliedCommit = session.history.capture().cursor!;
+        human = session.submit({
+          proposal: session.model.propose(session.model.capture(), "Human", [
+            { key: "words", content: '[["look",1],["human",2]]' },
+          ]),
+          label: "Human",
+          origin: "words",
+          author: "creator",
+        });
+      }
+    });
+    let requests = 0;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          ++requests > 1
+            ? ""
+            : providerSse(
+                provider,
+                provider === "openai"
+                  ? {
+                      id: "r",
+                      output: [
+                        {
+                          type: "function_call",
+                          call_id: "p",
+                          name: "propose_changes",
+                          arguments: JSON.stringify({
+                            label: "Kept",
+                            changes: [{ key: "notes", content: "Kept" }],
+                          }),
+                        },
+                      ],
+                    }
+                  : {
+                      id: "r",
+                      role: "assistant",
+                      type: "message",
+                      stop_reason: "tool_use",
+                      content: [
+                        {
+                          type: "tool_use",
+                          id: "p",
+                          name: "propose_changes",
+                          input: { label: "Kept", changes: [{ key: "notes", content: "Kept" }] },
+                        },
+                      ],
+                    },
+              ),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      }),
+    });
+    agent.autoApprove = true;
+    await assert.rejects(agent.send("Write notes"), /stream|message|chunks/i);
+    await human;
+    assert.notEqual(session.model.capture().documentId, appliedDocument);
+    assert.deepEqual(actions(agent.current().transcript).at(-1)?.["persisted"], [
+      { resources: ["notes"], documentId: appliedDocument, commit: appliedCommit },
+    ]);
+    session.dispose();
+  });
+}

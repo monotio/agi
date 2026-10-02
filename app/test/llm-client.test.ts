@@ -360,3 +360,20 @@ test("Anthropic accounts for compaction usage in addition to the message", async
   assert.equal(usage?.cacheWriteInput, 50);
   assert.equal(usage?.cacheWrite5m, 50);
 });
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} legacy interruption records use structured user actions`, () => {
+    const config = { provider, model: "test", apiKey: "offline" };
+    const conversation =
+      provider === "openai"
+        ? createOpenAiConversation(config)
+        : createAnthropicConversation(config);
+    conversation.recordInterruption!("Cancelled before adoption.");
+    const message = conversation.getTranscript().at(-1) as { role: string; content: string };
+    assert.equal(message.role, "user");
+    const event = JSON.parse(message.content) as Record<string, unknown>;
+    assert.equal(event["format"], "monotio.agi.user-action");
+    assert.equal(event["decision"], "interruption");
+    assert.equal(event["explanation"], "Cancelled before adoption.");
+  });
+}
