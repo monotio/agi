@@ -55,6 +55,8 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("End");
   await page.keyboard.press("Shift+Home");
+  // Monaco paints the keyboard selection on its next render frame.
+  await expect(page.locator(".monaco-editor .selected-text").first()).toBeVisible();
   const retained = await page.getByTestId("workspace-logic-editor").evaluate((root) => {
     const cursor = root.querySelector<HTMLElement>(".cursor");
     const selection = root.querySelector<HTMLElement>(".selected-text");
