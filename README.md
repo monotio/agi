@@ -8,7 +8,7 @@ This AGI is Sierra's
 [Adventure Game Interpreter](https://en.wikipedia.org/wiki/Adventure_Game_Interpreter),
 the engine behind King's Quest, Space Quest and Leisure Suit Larry, rebuilt
 from scratch, with manual editors and an optional AI co-author. Play the classics
-from your own copies, create a game in the Studios, or describe a new
+from your own copies, create a game in Create, or describe a new
 adventure and play it while an agent builds the world around you. With an agent
 connected, ask for changes mid-game: give the guard a different personality, add
 a puzzle, or turn the courtyard into a swamp. Everything you make is a real AGI
@@ -22,18 +22,18 @@ cents and two dollars. From the [Genesis benchmark](evals/benchmarks/genesis/1.0
 
 ## Try it
 
-Open [agi.monotio.com](https://agi.monotio.com/) and click **Play now** on
-**Adventure Department**, a three-room tutorial about how these games are made:
+Open [agi.monotio.com](https://agi.monotio.com/) and choose **Play the tutorial**.
+**Adventure Department** is a three-room tutorial about how these games are made:
 you repair a picture, wake up an actor and sort out a clerk's Depth. It is
 ready to play in your browser.
 
-![Adventure Department in Play: the apprentice has just painted the gallery's mural, and the status line reads Mural fixed! Next exhibit: go EAST.](docs/media/tutorial-gallery.png)
+![Adventure Department in Play with the CRT display](docs/media/play-crt-1.2.png)
 
 - **Play your own Sierra games.** **Add game** takes a ZIP or a game folder.
   The files stay in your browser's storage. The app
   recognises the edition, picks the matching interpreter and checks that the
   game opens.
-- **Watch a playthrough.** Verified releases come with a recorded completion
+- **Watch walkthrough.** Verified releases come with a recorded completion
   that replays on the real interpreter, keystroke by keystroke, on the game's
   own clock. Pause it, scrub the timeline, or **Take control** whenever you
   like.
@@ -99,13 +99,12 @@ Fan games span many genres and audiences.
 
 ## Make your own adventure
 
-**Create an adventure** on the home screen offers two ways in. **Create
-game** builds a playable project in your browser: **Starter**
-opens in a sunny clearing you can walk through, with an animated hero and
-the shared menu, death and save code, all editable; **Blank** opens an empty workspace; **Add a room** creates its first playable
-room and **Use Boilerplate** supplies the editable starting game. Both open
-in Create as ordinary AGI games you can edit, and a
-connected provider can pick them up later like any other project.
+**Make a new game** on the home screen opens four choices. **Starter** opens
+in a sunny clearing with an animated hero, menus, saving and game-over handling.
+**Boilerplate** supplies the shared boot, menus, saving and game-over code for
+your own rooms and artwork. **Blank** opens an empty workspace. Choose
+**Start building** to open your project in Create; **Add a room** can supply its
+first room. Every part of these starting games is editable.
 
 To edit a saved game, open its library card’s **Game actions → Create**.
 The workspace keeps the game running beside its editors. LOGIC has code completion,
@@ -114,9 +113,9 @@ as you go; a source error keeps the game on its last working build. **Undo** and
 **Redo** step across edits to every part, and **Saved** opens **History**.
 Games from the shared catalog need a personal copy before editing.
 
-**Build with AI** keeps the themed briefs. Pick a template or describe your
-own hero, setting and trouble, connect an OpenAI or Anthropic API key, and
-click **Create adventure**.
+**Create with AI** offers themed briefs or your own hero, setting and trouble.
+Connect an OpenAI or Anthropic API key and choose **Create with AI** to build
+the opening from editable Boilerplate.
 
 | Template                                                | Your predicament                                                     |
 | ------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -131,7 +130,7 @@ while the agent writes it. Along the way you can:
 
 - open **World map** to rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
-- use **Ask** in Play for hints and questions that leave the game untouched,
+- use **Agent** in Play for hints and questions that leave the game untouched,
   or open **Agent** (⌘I) beside any Create editor to change resources together;
 - review each changed resource and approve a coordinated change as one History
   commit, or turn on Auto-approve for the current game session;
@@ -179,7 +178,7 @@ sharing the game, especially with children. [Security](SECURITY.md) covers stora
 A running game has two modes, switched in the top bar. **Play** is the game as
 its players see it, with the rewind timeline. **Create** shows the parts list on
 the left and the same running game beside its editors. Open a PICTURE to draw
-with Room Studio’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
+with the PICTURE editor’s tools, a LOGIC to edit its instructions, or a VIEW to edit its
 loops and cels. WORDS groups words by meaning, tests sentences with the game’s parser and
 keeps a local list of missed playtest commands. OBJECTS has a table editor; SOUND has a step
 grid, tracker, presets and playback, and imports MIDI and VGM. **Focus** gives an editor the
@@ -221,17 +220,17 @@ the game running. Stopped runs show their exact running source; live edits wait
 until Continue. **Help → Keyboard shortcuts** lists the registered commands and keys.
 
 <p align="center">
-  <a href="docs/media/room-studio.png"><img src="docs/media/room-studio.png" width="49%" alt="Room Studio in the Art lens: the scene list on the left, the Adventure Department gallery with its velvet rope selected and its points showing, and the rope's inspector on the right"></a>
-  <a href="docs/media/room-studio-walk.png"><img src="docs/media/room-studio-walk.png" width="49%" alt="The Walk lens on the tutorial's Sprite Lab: the walkable tint, doors labelled Picture Gallery and Priority Archive, and a test walk from the west door that reports Reached"></a>
-  <a href="docs/media/studio-ask.png"><img src="docs/media/studio-ask.png" width="49%" alt="Agent on a bridge over a river: the changes outlined on the canvas with Before and After, the AI's summary, and Approve and Reject"></a>
-  <a href="docs/media/sprite-studio.png"><img src="docs/media/sprite-studio.png" width="49%" alt="VIEW editor on the tutorial's waving robot: the cel canvas, the loops and cels timeline with a mirrored loop, loop previews and the robot standing in its room"></a>
+  <a href="docs/media/workspace-picture-1.2.png"><img src="docs/media/workspace-picture-1.2.png" width="49%" alt="Create workspace with the parts list, running Starter game and PICTURE editor"></a>
+  <a href="docs/media/logic-problems-1.2.png"><img src="docs/media/logic-problems-1.2.png" width="49%" alt="LOGIC source and Problems beside the running game"></a>
+  <a href="docs/media/agent-review-1.2.png"><img src="docs/media/agent-review-1.2.png" width="49%" alt="Agent review with code differences, PICTURE previews and Approve and Reject controls"></a>
+  <a href="docs/media/view-editor-1.2.png"><img src="docs/media/view-editor-1.2.png" width="49%" alt="VIEW editor with loops and cels prepared from an original project image"></a>
 </p>
 
-_Left to right, top to bottom: Room Studio with the velvet rope selected, a test
-walk across the Sprite Lab, an agent change, and the VIEW editor on the
-waving robot._
+_Left to right, top to bottom: PICTURE, LOGIC with Problems, Agent review and
+VIEW with cels from an image. The [media gallery](docs/media/README.md) also
+shows WORDS, SOUND, History, Play with CRT and Make a new game._
 
-- **Room Studio** shows a room's picture under three lenses: Art for what the
+- **PICTURE editor** shows a room's picture under three lenses: Art for what the
   player sees, Depth for what stands in front, and Walk for the lines that steer
   the hero. The items list names what the picture draws. A stroke previews
   over the running game until the gesture finishes.
@@ -345,7 +344,7 @@ repository checks the work of both.
   before features, and a check nobody has seen fail counts as a comment.
 - **Authority in code.** The in-app agent can only call the tools on its
   session's [allowlist](src/agent/tools.ts), and what it writes still has to
-  get past the assembler, the resource checks and the Studio's pixel-level
+  get past the assembler, the resource checks and the editors’ pixel-level
   validators.
 - **Mistakes become evals.** A model error that recurs is stored as a bad case,
   [like this one](evals/fixtures/bad-cases/write-picture-source-y168.json),
@@ -357,11 +356,11 @@ repository checks the work of both.
   and the stored evals. [CI](.github/workflows/ci.yml) adds Playwright in
   Chromium and WebKit.
 - **Budgets.** The startup path, from Home to a game's first frame, has a
-  [bundle budget](scripts/check-bundle-budget.ts) that also keeps Studio and
+  [bundle budget](scripts/check-bundle-budget.ts) that also keeps editors and
   the AI stack off it, and [interaction budgets](app/e2e/perf-budgets.spec.ts)
-  bound boot long tasks and Studio frame and input times.
+  bound boot long tasks and editor frame and input times.
 - **Tests that are tested.** [Mutation testing](stryker.config.mjs), run on
-  demand, checks that the picture and Studio kernels' tests catch deliberate
+  demand, checks that the picture and editor kernels’ tests catch deliberate
   bugs.
 - **Paid runs by consent.** An eval runner calls a provider only with both
   `--live` and `--budget-usd` on the command line, and `npm run eval:cache`
@@ -372,6 +371,8 @@ repository checks the work of both.
   game it made.
 
 [How it fits together](CONTRIBUTING.md#how-it-fits-together) maps the code.
+The [local language server](docs/editor-setup.md) brings LOGIC completion, hover,
+navigation, rename and diagnostics to a stdio LSP client.
 
 ## Run it yourself
 
@@ -387,15 +388,11 @@ Open `http://localhost:5199/`. The site needs a connection to load; it is not
 an installable offline app yet. Exported games play offline in any compatible
 interpreter.
 
-| Document                                                | For                                                             |
-| ------------------------------------------------------- | --------------------------------------------------------------- |
-| [Interpreter compatibility](docs/fidelity.md)           | How the original interpreters behave and how the engine matches |
-| [Contributing](CONTRIBUTING.md)                         | Development setup, architecture, checks and pull requests       |
-| [Testing](docs/testing.md)                              | Game fixtures, walkthrough proofs and compatibility checks      |
-| [Hosting](docs/hosting.md#including-games-on-your-site) | Running your own copy and adding games to its catalog           |
-| [Evals](evals/README.md)                                | Measuring authoring quality                                     |
-| [Media gallery](docs/media/README.md)                   | Screenshots of the app, the Studios and the agent's tools       |
-| [Security](SECURITY.md)                                 | Keys, storage and data flow                                     |
+The [documentation index](docs/README.md) groups tutorials, how-to guides,
+references and explanations. Start with [building a game](docs/first-game.md),
+[editor setup for the language server](docs/editor-setup.md),
+[self-hosting](docs/hosting.md) or [contributing](CONTRIBUTING.md).
+For local provider setup, see [AGI_DEV_KEYS](CONTRIBUTING.md#development).
 
 ## License
 

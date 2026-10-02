@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/monotio/agi/security/policy
+    about: Read the policy and use private vulnerability reporting.
+  - name: Support
+    url: https://github.com/monotio/agi/blob/main/SUPPORT.md
+    about: Find guides and help with using the app.

@@ -1,0 +1,18 @@
+name: Feature request
+description: Describe something you want to do in AGI IS HERE.
+title: "Feature: "
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What are you trying to make or play?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the behavior and an example of using it.
+    validations:
+      required: true

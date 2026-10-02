@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test, reviewShot, keepDetectedProfile, seeStudioTours } from "./test.ts";
+import { expect, test, reviewShot, keepDetectedProfile } from "./test.ts";
 import { blockProviders, prepareIsolatedPage } from "./logicDebugShared.ts";
 import {
   openLibraryActions,
@@ -277,7 +277,7 @@ test("copies with identical content retain their immediate parent through real d
     try {
       const other = await fresh.newPage();
       await keepDetectedProfile(other);
-      await seeStudioTours(other);
+
       await prepareIsolatedPage(other);
       const otherProviders = blockProviders(other);
       await other.goto("/");

@@ -23,3 +23,17 @@ your idea; you can leave the details for it to work out.
 
 The examples live in `SKILL.md` files. Their opening metadata supplies the
 name and description; the Markdown below it is the editable game brief.
+
+## Adding a template
+
+Create `games/<id>/SKILL.md` with frontmatter `name` and `description`, followed
+by the editable adventure brief. The parser in
+[src/template/template.ts](../src/template/template.ts) validates that metadata.
+Register a static import and entry in
+[app/src/library/gameTemplates.ts](../app/src/library/gameTemplates.ts) so
+**Create with AI** can offer it. Check the template parser tests and the new-game
+selection in the browser. Use original content and record its license.
+
+Bundled playable games, including Adventure Department, are registered through
+[app/src/library/gameCatalog.ts](../app/src/library/gameCatalog.ts); self-hosted
+catalog games use the [hosting manifest](../docs/hosting.md#including-games-on-your-site).
