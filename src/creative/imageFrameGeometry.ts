@@ -1,6 +1,6 @@
 /** Pixel-grid geometry for marking image frames; regions use exclusive right/bottom edges. */
 import type { Rect } from "./catalog.ts";
-import type { ImageFrame } from "./imageOperations.ts";
+import { scaleImageFrame, type ImageFrame } from "./imageOperations.ts";
 
 export interface FrameBox extends ImageFrame {
   readonly id: string;
@@ -112,6 +112,21 @@ export function lockFrameSizes(boxes: readonly FrameBox[], size: Size, sheet: Si
       y: Math.min(f.region.y, sheet.height - height),
     },
   }));
+}
+/** Give found figures the smallest shared crop that contains every figure. */
+export function linkFoundFrames(boxes: readonly FrameBox[], sheet: Size): FrameBox[] {
+  if (!boxes.length) return [];
+  const width = Math.max(...boxes.map((f) => f.region.width));
+  const height = Math.max(...boxes.map((f) => f.region.height));
+  return boxes.map((f) => {
+    const region = {
+      x: Math.min(f.region.x, sheet.width - width),
+      y: Math.min(f.region.y, sheet.height - height),
+      width,
+      height,
+    };
+    return { ...f, region, linked: true, ...scaleImageFrame(region, f.height) };
+  });
 }
 /** Resize a linked set by the same edge deltas, constrained by every member. */
 export function resizeLinkedFrameBoxes(

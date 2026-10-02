@@ -10,6 +10,7 @@ import {
 import {
   assignFrameLoop,
   drawFrameRegion,
+  linkFoundFrames,
   resizeLinkedFrameBoxes,
   toggleFrameLink,
   mergeFrameSuggestions,
@@ -115,16 +116,17 @@ const previewCel = computed(() => {
   return cels?.[tick.value % cels.length];
 });
 function suggestions() {
-  return suggestImageFrames(props.image, suggestion.value === "grid" ? count.value : undefined).map(
-    (frame) => ({
-      ...frame,
-      ...scaleImageFrame(frame.region, celHeight.value),
-      id: `frame-${serial++}`,
-      edited: false,
-      linked: true,
-      loop: chosenLoop.value,
-    }),
-  );
+  const found = suggestImageFrames(
+    props.image,
+    suggestion.value === "grid" ? count.value : undefined,
+  ).map((frame) => ({
+    ...frame,
+    ...scaleImageFrame(frame.region, celHeight.value),
+    id: `frame-${serial++}`,
+    edited: false,
+    loop: chosenLoop.value,
+  }));
+  return linkFoundFrames(found, props.image);
 }
 watch(
   () => props.image,

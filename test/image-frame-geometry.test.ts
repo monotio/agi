@@ -136,3 +136,36 @@ test("figures with uneven tops keep left-to-right order within each row", () => 
     ["c", "a", "b", "d"],
   );
 });
+
+test("found figures share the smallest crop size that contains each figure", async () => {
+  const { linkFoundFrames } = await import("../src/creative/imageFrameGeometry.ts");
+  const boxes = [
+    { ...box("a"), height: 24 },
+    { ...box("b", 10, 4), region: { x: 10, y: 4, width: 8, height: 14 }, height: 24 },
+    { ...box("edge", 34, 12), height: 24 },
+  ];
+  const linked = linkFoundFrames(boxes, sheet);
+  assert.deepEqual(
+    linked.map((f) => f.region),
+    [
+      { x: 0, y: 0, width: 8, height: 14 },
+      { x: 10, y: 4, width: 8, height: 14 },
+      { x: 32, y: 10, width: 8, height: 14 },
+    ],
+  );
+  assert.deepEqual(
+    linked.map((f) => [f.width, f.height, f.linked, f.edited]),
+    [
+      [14, 24, true, false],
+      [14, 24, true, false],
+      [14, 24, true, false],
+    ],
+  );
+  for (const [i, f] of linked.entries()) {
+    const figure = boxes[i]!.region;
+    assert.ok(f.region.x <= figure.x && f.region.y <= figure.y);
+    assert.ok(f.region.x + f.region.width >= figure.x + figure.width);
+    assert.ok(f.region.y + f.region.height >= figure.y + figure.height);
+  }
+  assert.equal(boxes[0]!.region.width, 6);
+});
