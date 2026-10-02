@@ -180,7 +180,7 @@ function drawOverlay(): void {
         ctx.stroke();
       }
     }
-    ctx.font = "6px monospace";
+    ctx.font = `6px ${getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim()}`;
     ctx.textBaseline = "top";
     for (const box of overlayBoxes(state.debugObjects)) {
       const hot = box.label === `o${picked.value?.inspection.owner ?? -1}`;

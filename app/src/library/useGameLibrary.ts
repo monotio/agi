@@ -31,6 +31,8 @@ import {
   loadAuthoredGame,
   loadAuthoredGameWithHistoryLifetime,
   listCachedGames,
+  listUnsupportedStoredProjects,
+  type UnsupportedStoredProject,
   removeProjectWithProgress,
   renameAuthoredGame,
   updateGamePreview,
@@ -147,6 +149,7 @@ export function createGameLibrary(
   const initialProjectId =
     projectId(lastGameKey()) ?? initialGames[0]?.projectId ?? requireProjectId("knights-trial");
   const savedGames = ref<CachedGameMeta[]>(initialGames);
+  const unsupportedProjects = ref<UnsupportedStoredProject[]>([]);
   const selectedProjectId = ref<ProjectId | "">(initialProjectId);
   const zipInput = ref<HTMLInputElement>();
   const folderInput = ref<HTMLInputElement>();
@@ -892,6 +895,7 @@ export function createGameLibrary(
 
   function refreshLibrary(projectId?: ProjectId): void {
     savedGames.value = listCachedGames();
+    void refreshUnsupportedProjects();
     if (projectId) {
       selectedProjectId.value = projectId;
     } else if (!savedGames.value.some((entry) => entry.projectId === selectedProjectId.value))
@@ -904,8 +908,19 @@ export function createGameLibrary(
   function syncMenuPhase(): void {
     refreshPendingAutosave();
     savedGames.value = listCachedGames();
+    void refreshUnsupportedProjects();
     cachedMeta.value = selectedProjectId.value ? getCachedGameMeta(selectedProjectId.value) : null;
     resolveSavedTargets();
+  }
+
+  async function refreshUnsupportedProjects(): Promise<void> {
+    try {
+      unsupportedProjects.value = await listUnsupportedStoredProjects();
+      const unsupportedIds = new Set(unsupportedProjects.value.map((entry) => entry.projectId));
+      savedGames.value = savedGames.value.filter((entry) => !unsupportedIds.has(entry.projectId));
+    } catch (error) {
+      libraryActionError.value = `Your saved game library could not be refreshed: ${String(error).replace(/^Error: /, "")}`;
+    }
   }
 
   async function onPlayLibraryGame(
@@ -1672,6 +1687,8 @@ export function createGameLibrary(
 
   return {
     savedGames,
+    unsupportedProjects,
+    refreshUnsupportedProjects,
     selectedProjectId,
     cachedMeta,
     renaming,

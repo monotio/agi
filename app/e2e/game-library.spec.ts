@@ -20,6 +20,86 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 import { expect, test } from "./test.ts";
+import { readFile } from "node:fs/promises";
+import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
+
+for (const mode of ["create", "play"]) {
+  test(`future-version project stays on the shelf and its ${mode} link offers recovery`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+    const id = testProjectId(`future-${mode}`);
+    await page.evaluate(async (projectId) => {
+      const storage = await import("/src/project/gameStorage.ts");
+      await storage.saveAuthoredGame(projectId, {
+        title: "Tomorrow's adventure",
+        files: { "WORDS.TOK": new Uint8Array([0, 128, 255]) },
+        words: [],
+      });
+      await storage.bodyTransaction("readwrite", (store) => {
+        const request = store.get(projectId);
+        request.onsuccess = () =>
+          store.put({
+            ...request.result,
+            version: 999,
+            future: { bytes: new Uint8Array([4, 5, 255]), optional: undefined },
+          });
+        return request;
+      });
+    }, id);
+    await page.goto("/");
+    const card = page.getByTestId(`unsupported-project-card-${id}`);
+    await expect(card.getByRole("heading")).toHaveText("Tomorrow's adventure");
+    await expect(card).toContainText("Saved by a newer version of AGI IS HERE");
+    const before = await page.evaluate(async (id) => {
+      const storage = await import("/src/project/gameStorage.ts");
+      const codec = await import("/src/project/projectJournalCapture.ts");
+      const value = await storage.bodyTransaction("readonly", (store) => store.get(id));
+      return JSON.stringify(codec.encodeJournalValue(value));
+    }, id);
+    const download = page.waitForEvent("download");
+    await card.getByRole("button", { name: "Download", exact: true }).click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe(`${id}-stored-project.json`);
+    const downloaded = JSON.parse(await readFile((await file.path())!, "utf8"));
+    expect(downloaded.record).toEqual(JSON.parse(before));
+    const decoded = decodeJournalValue(downloaded.record) as { files: Record<string, Uint8Array> };
+    expect(decoded.files["WORDS.TOK"]).toEqual(new Uint8Array([0, 128, 255]));
+    await page.goto(`/#${mode}/${id}`);
+    const note = page.getByTestId("unsupported-project-route");
+    await expect(note).toContainText("Saved by a newer version of AGI IS HERE");
+    await expect(note.getByRole("button", { name: "Download", exact: true })).toBeVisible();
+    await expect(page.getByTestId("input-line")).toBeHidden();
+    await note.getByRole("button", { name: "Remove", exact: true }).click();
+    const dialog = note.getByTestId("remove-game-dialog");
+    await expect(dialog.getByRole("heading")).toHaveText("Remove Tomorrow's adventure?");
+    await expect(dialog.getByTestId("remove-game-cancel")).toBeFocused();
+    await dialog.getByTestId("remove-game-cancel").click();
+    expect(
+      await page.evaluate(async (id) => {
+        const storage = await import("/src/project/gameStorage.ts");
+        const codec = await import("/src/project/projectJournalCapture.ts");
+        return JSON.stringify(
+          codec.encodeJournalValue(
+            await storage.bodyTransaction("readonly", (store) => store.get(id)),
+          ),
+        );
+      }, id),
+    ).toBe(before);
+    await page.screenshot({ path: test.info().outputPath(`future-${mode}.png`), fullPage: true });
+    await note.getByRole("button", { name: "Remove", exact: true }).click();
+    await dialog.getByTestId("remove-game-confirm").click();
+    await expect(card).toHaveCount(0);
+    await expect(note).toHaveCount(0);
+    expect(
+      await page.evaluate(async (id) => {
+        const storage = await import("/src/project/gameStorage.ts");
+        return (await storage.bodyTransaction("readonly", (store) => store.get(id))) === undefined;
+      }, id),
+    ).toBe(true);
+  });
+}
 
 function tinyGame(message = "A library adventure."): {
   files: { name: string; data: Uint8Array }[];

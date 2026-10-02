@@ -187,3 +187,11 @@ test("Words editor copy binds to the approved vocabulary", () => {
     "The parser passes over these, so “look at the tree” reads as “look tree”.",
   );
 });
+
+test("future project recovery uses the approved note and plain actions", () => {
+  const source = readFileSync("app/src/home/UnsupportedProject.vue", "utf8");
+  assert.ok(source.includes("VOCABULARY.savedByNewer.label"));
+  assert.equal(VOCABULARY.savedByNewer.label, "Saved by a newer version of AGI IS HERE");
+  const copy = visibleCopy("app/src/home/UnsupportedProject.vue").map((text) => text.trim());
+  for (const label of ["Download", "Remove"]) assert.ok(copy.includes(label));
+});

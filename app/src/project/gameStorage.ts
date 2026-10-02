@@ -2251,33 +2251,24 @@ export function updateGamePreview(
   });
 }
 
-async function storedProjects(): Promise<StoredGameBody[]> {
+async function storedProjectRecords(): Promise<CapturedRecord[]> {
   // Keys first: the shared store also carries history batch/blob bodies, and
   // getAll() would clone every tape into memory just to name the projects.
   // Only the candidate project bodies are read — history keys all live under
   // `history/` and `conversation/` prefixes.
-  return (async (): Promise<StoredGameBody[]> => {
+  return (async (): Promise<CapturedRecord[]> => {
     const db = await openDatabase();
-    return new Promise<StoredGameBody[]>((resolve, reject) => {
+    return new Promise<CapturedRecord[]>((resolve, reject) => {
       const transaction = db.transaction("projects", "readonly");
       const store = transaction.objectStore("projects");
-      const found: StoredGameBody[] = [];
+      const found: CapturedRecord[] = [];
       const keysRequest = store.getAllKeys();
       keysRequest.onsuccess = () => {
         for (const key of keysRequest.result) {
           if (typeof key !== "string" || key.includes("/")) continue;
           const each = store.get(key);
           each.onsuccess = () => {
-            const data = each.result as StoredGameBody | undefined;
-            if (
-              data !== undefined &&
-              data.format === "monotio.agi.stored-project" &&
-              data.version === 1 &&
-              data.projectId === key &&
-              data.files &&
-              typeof data.files === "object"
-            )
-              found.push(data);
+            if (each.result !== undefined) found.push({ key, value: each.result });
           };
         }
       };
@@ -2287,6 +2278,59 @@ async function storedProjects(): Promise<StoredGameBody[]> {
         reject(transaction.error ?? new Error("Project storage transaction aborted."));
     });
   })();
+}
+
+async function storedProjects(): Promise<StoredGameBody[]> {
+  return (await storedProjectRecords()).flatMap(({ key, value }) => {
+    const data = value as StoredGameBody | undefined;
+    return data?.format === "monotio.agi.stored-project" &&
+      data.version === 1 &&
+      data.projectId === key &&
+      data.files &&
+      typeof data.files === "object"
+      ? [data]
+      : [];
+  });
+}
+
+export interface UnsupportedStoredProject {
+  readonly projectId: ProjectId;
+  readonly title: string;
+}
+
+function unsupportedStoredProject(key: string, value: unknown): UnsupportedStoredProject | null {
+  const id = projectId(key);
+  if (!id || value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record["format"] !== "monotio.agi.stored-project" || record["version"] === 1) return null;
+  return {
+    projectId: id,
+    title:
+      typeof record["title"] === "string" && record["title"].trim()
+        ? record["title"]
+        : "Saved project",
+  };
+}
+
+/** Opaque future bodies stay visible even when their resources and index cannot be read. */
+export async function listUnsupportedStoredProjects(): Promise<UnsupportedStoredProject[]> {
+  return (await storedProjectRecords()).flatMap(({ key, value }) => {
+    const entry = unsupportedStoredProject(key, value);
+    return entry ? [entry] : [];
+  });
+}
+
+/** Recovery download: retain the raw envelope, additive fields and every resource byte. */
+export async function downloadUnsupportedStoredProject(id: ProjectId): Promise<string> {
+  const raw = await bodyTransaction<unknown>("readonly", (store) => store.get(id));
+  if (!unsupportedStoredProject(id, raw))
+    throw new Error("The saved project changed. Refresh the library before downloading it.");
+  return JSON.stringify({
+    format: "monotio.agi.stored-project-recovery",
+    version: 1,
+    record: encodeJournalValue(raw),
+    index: localStorage.getItem(getStorageKey(id)),
+  });
 }
 
 /** Discover committed projects even when the disposable metadata cache is unavailable. */

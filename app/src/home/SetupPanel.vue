@@ -11,6 +11,8 @@ import UiButton from "../ui/UiButton.vue";
 import CreatePanel from "./CreatePanel.vue";
 import LibraryPanel from "./LibraryPanel.vue";
 import HomeHero from "./HomeHero.vue";
+import UnsupportedProject from "./UnsupportedProject.vue";
+import type { UnsupportedStoredProject } from "../project/gameStorage.ts";
 import { emptyProject } from "./emptyProjectRoute.ts";
 import BootCard from "../ui/BootCard.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -18,9 +20,14 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShell } from "../shell/useShell.ts";
 
 /** Why Home opened instead of the game a link named (App.vue). */
-const { routeNote = "", routePending = false } = defineProps<{
+const {
+  routeNote = "",
+  routePending = false,
+  unsupportedProject = undefined,
+} = defineProps<{
   routeNote?: string;
   routePending?: boolean;
+  unsupportedProject?: UnsupportedStoredProject | undefined;
 }>();
 const AgentTaskControls = defineAsyncComponent(() => import("../authoring/AgentTaskControls.vue"));
 const EmptyProjectStage = defineAsyncComponent(
@@ -74,6 +81,13 @@ function onDrop(event: DragEvent): void {
     <p v-if="routeNote" class="route-note" role="status" data-testid="route-note">
       {{ routeNote }}
     </p>
+    <UnsupportedProject
+      v-if="unsupportedProject"
+      :game="unsupportedProject"
+      heading
+      class="route-note"
+      data-testid="unsupported-project-route"
+    />
     <EmptyProjectStage v-if="emptyProject" :project="emptyProject" />
     <HomeHero v-if="!emptyProject" v-show="!createOpen" :create-open="createOpen" />
     <div

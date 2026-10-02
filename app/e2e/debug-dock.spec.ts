@@ -104,6 +104,9 @@ test("inspector shows live priority view, picks the drawn object, and lists stat
   // Pick the drawn object: arm inspect, click its centre, latch the card.
   await page.getByTestId("dbg-inspect-toggle").check();
   const overlay = page.getByTestId("dbg-overlay");
+  await expect
+    .poll(() => overlay.evaluate((canvas: HTMLCanvasElement) => canvas.getContext("2d")!.font))
+    .toContain('"Geist Mono"');
   const box = (await overlay.boundingBox())!;
   const bx = box.x;
   const by = box.y;

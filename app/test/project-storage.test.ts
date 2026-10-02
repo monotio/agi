@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId } from "./identity.ts";
 import * as storage from "../src/project/gameStorage.ts";
+import { decodeJournalValue } from "../src/project/projectJournalCapture.ts";
 
 const records = installIndexedDbFixture();
 const cache = new Map<string, string>();
@@ -19,6 +20,49 @@ const manual = () => ({
   title: "Manual adventure",
   files: { "WORDS.TOK": new Uint8Array(52) },
   words: [] as [string, number][],
+});
+
+test("future stored projects remain discoverable and download their untouched record", async () => {
+  const id = testProjectId("future-body");
+  await storage.saveAuthoredGame(id, manual());
+  const body = records.get(id) as Record<string, unknown>;
+  body["version"] = 999;
+  body["future"] = { bytes: new Uint8Array([0, 128, 255]), optional: undefined, zero: -0 };
+  const before = structuredClone(body);
+  const index = cache.get(storage.getStorageKey(id));
+  assert.ok(
+    (await storage.listUnsupportedStoredProjects()).some(
+      (entry) => entry.projectId === id && entry.title === "Manual adventure",
+    ),
+  );
+  await assert.rejects(storage.loadAuthoredGame(id), /version is not supported/);
+  const downloaded = JSON.parse(await storage.downloadUnsupportedStoredProject(id));
+  assert.deepEqual(decodeJournalValue(downloaded.record), before);
+  assert.equal(downloaded.index, index);
+  await storage.reconcileGameIndex();
+  assert.deepEqual(records.get(id), before);
+  assert.equal(cache.get(storage.getStorageKey(id)), index);
+  assert.equal(await storage.saveAuthoredGame(id, manual()), false);
+  assert.deepEqual(records.get(id), before);
+});
+
+test("future stored projects need neither readable resources nor a title to stay on the shelf", async () => {
+  const id = testProjectId("future-layout");
+  const body = {
+    projectId: id,
+    format: "monotio.agi.stored-project",
+    version: 2,
+    futureFiles: [1, 2],
+  };
+  records.set(id, body);
+  records.set("history/future-layout", { ...body, projectId: "history/future-layout" });
+  const entries = await storage.listUnsupportedStoredProjects();
+  assert.deepEqual(
+    entries.find((entry) => entry.projectId === id),
+    { projectId: id, title: "Saved project" },
+  );
+  assert.ok(entries.every((entry) => !entry.projectId.includes("/")));
+  assert.deepEqual(records.get(id), body);
 });
 
 test("manual saves use v1 body and index envelopes without provider metadata", async () => {
