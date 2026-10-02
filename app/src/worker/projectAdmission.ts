@@ -798,6 +798,9 @@ export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmis
       ctx.fns.historyResume();
       ctx.fns.postFrame(true);
     }
+    // A reload needs progress for these admitted bytes, even when the last
+    // periodic checkpoint belongs to the image before the edit.
+    if (ctx.projectAdmission === lane && result.status === "committed") ctx.fns.autosave(true);
     settle({
       status: installed ? "committed" : "unchanged",
       expected,

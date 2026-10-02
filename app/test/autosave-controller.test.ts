@@ -26,6 +26,7 @@ import {
   clearCachedGame,
   loadAuthoredGameWithHistoryLifetime,
   readHistoryLifetime,
+  getStorageKey,
 } from "../src/project/gameStorage.ts";
 
 installIndexedDbFixture();
@@ -1095,4 +1096,57 @@ test("an owned project checkpoint waits for session saving and never republishes
     readAutosave(projectProgressTarget(id, rig.revision, held.lifetime!)!.locator)?.image,
     "owned-state",
   );
+});
+
+test("a queued checkpoint cannot adopt a revision installed while its save waits", async (t) => {
+  const id = testProjectId("checkpoint-revision-fence");
+  t.after(() => clearCachedGame(id));
+  installLocalStorageMock(t);
+  const rig = await starterRig();
+  await saveAuthoredGame(id, { title: "Fence", files: rig.files, words: [] });
+  const held = (await loadAuthoredGameWithHistoryLifetime(id))!;
+  const game: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Fence",
+    revision: rig.revision,
+    files: rig.files,
+    words: [],
+    historyLifetime: held.lifetime!,
+  };
+  let release!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => null,
+    logAgent() {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_p, c) => c,
+    retireFailedRecovery() {},
+    async prepareCheckpoint() {
+      entered();
+      await gate;
+      return "owned" as const;
+    },
+  });
+  controller.handleAutosave({ image: "previous-image", cycle: 1, room: 1 });
+  await waiting;
+  game.revision = testRevision("new-image");
+  const index = JSON.parse(localStorage.getItem(getStorageKey(id))!) as {
+    library: { revision: string };
+  };
+  index.library.revision = game.revision;
+  localStorage.setItem(getStorageKey(id), JSON.stringify(index));
+  release();
+  assert.equal(await controller.getAutosaveWrite(), false);
+  assert.equal(controller.lastAutosaveRecord(), null);
 });

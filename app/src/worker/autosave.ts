@@ -4,6 +4,7 @@
  */
 import { createProgressPreview, isBlackFrame } from "../saves/progressPreview.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
+import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import type { WorkerPresentation } from "./workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
@@ -49,9 +50,12 @@ export function createAutosave(ctx: WorkerContext) {
       return false;
     }
     if (!image) return false;
+    const files = Object.fromEntries(ctx.engine.containerFiles);
+    if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
     const msg: Extract<WorkerPresentation, { type: "autosave" }> = {
       type: "autosave",
       image: bytesToBase64(image),
+      revision: computeResourceRevision(files),
       menus: ctx.engine.readMenuState(),
       cycle: ctx.cycle.cycleCount,
       room: ctx.engine.vars[0]!,

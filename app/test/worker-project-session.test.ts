@@ -20,7 +20,12 @@ import { requireProjectId } from "../../src/gameIdentity.ts";
 import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import * as storage from "../src/project/gameStorage.ts";
-import type { WorkerControl, WorkerInbound, WorkerQueryFn } from "../src/worker/workerProtocol.ts";
+import type {
+  WorkerControl,
+  WorkerInbound,
+  WorkerPresentation,
+  WorkerQueryFn,
+} from "../src/worker/workerProtocol.ts";
 
 installIndexedDbFixture();
 Object.defineProperty(globalThis, "localStorage", {
@@ -57,10 +62,11 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
     },
   });
   const messages: WorkerControl[] = [];
+  const presentation: WorkerPresentation[] = [];
   let now = 0;
   const ctx = createWorkerContext({
     control: (m) => messages.push(m),
-    presentation: () => {},
+    presentation: (m) => presentation.push(m),
     now: () => now,
     seedWord: () => 1,
   });
@@ -89,6 +95,14 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
     const id = ++queryId;
     onWorkerMessage(ctx, { type, id, ...extra } as WorkerInbound);
     const reply = messages.at(-1);
+    for (const message of messages) {
+      if (message.type === "historyBatch")
+        onWorkerMessage(ctx, {
+          type: "historyAck",
+          epoch: message.epoch,
+          batch: message.batch.batch,
+        });
+    }
     if (type === "previewUpdate" && loseAck) {
       loseAck = false;
       throw new WorkerQueryTimeoutError(id, type);
@@ -114,6 +128,10 @@ test("one MAIN run admits PICTURE, LOGIC, WORDS and Undo; autosave reopens exact
     });
   assert.equal((await edit("picture:0", "vis 4\nfill 1,1\nend\n", "picture")).status, "committed");
   assert.equal(engine.getPictureSurface().visual[161], 4);
+  assert.ok(
+    presentation.some((message) => message.type === "autosave"),
+    "an admitted native edit takes a checkpoint before the next periodic save",
+  );
   assert.equal(
     (await edit("logic:0", source.replace("Old room", "New room"), "logic")).status,
     "committed",

@@ -1,4 +1,5 @@
 import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
+import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 /**
  * The engine-worker message protocol, shared by both threads.
  *
@@ -943,6 +944,7 @@ export type WorkerPresentation =
   | {
       type: "autosave";
       image: string;
+      revision?: ResourceRevision;
       menus: EngineMenuState;
       cycle: number;
       room: number;
