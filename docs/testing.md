@@ -242,16 +242,19 @@ with local fixtures.
 
 Run `npm run check` and the affected specs locally, then push a branch covered by
 CI for the Linux verdict. CI prints `nproc` and memory and uses that core count
-for ordinary Playwright workers. Performance budgets always run alone on one
+for ordinary Playwright workers. Performance budgets and the CPU-throttled storage benchmark run alone on one
 worker; production tests also keep one worker. Retries stay at zero so every
 failure is visible.
 
 The Chromium suite is split into six spec groups using measured durations in
-`scripts/ci/durations.json`. Every run discovers the current specs through
+`scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
+Tagged WebKit desktop tests use two groups and `scripts/ci/webkit-durations.json`.
+Every run discovers the current specs through
 Playwright; new specs receive the median measured weight. The longest specs are
 assigned first to the lightest group. JSON report artifacts retain per-test
 durations for rebalancing. Each spec runs in exactly one group with every test
-selected by the ordinary suite configuration.
+selected by the ordinary suite configuration. The benchmark remains part of
+the required browser gate and nightly repetitions.
 
 CI installs the two package roots once and restores the resulting dependency
 cache in test and build jobs. The production build and chunk graph are shared

@@ -128,8 +128,8 @@ jobs:
 
   deploy:
     name: Deploy production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [check, browsers]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.browsers == 'true'
+    needs: [prepare, check, browsers]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:

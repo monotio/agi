@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 
+BENCHMARK = "history-bench.spec.ts"
+
 
 def classify(files, exists=Path.is_file):
     # Capture programs affect browser behavior even when kept beside documentation.
@@ -89,28 +91,46 @@ def file_filter(file):
     return r'(?:^|/)' + re.escape(file) + '$'
 
 
-def discover():
+def discover(suite="chromium"):
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / 'discovery.json'
         env = {**os.environ, 'PLAYWRIGHT_JSON_OUTPUT_FILE': str(output)}
+        selection = (['--config', 'playwright.webkit.config.ts'] if suite == 'webkit'
+                     else ['--grep-invert', '@perf'])
         subprocess.run(
-            ['npm', 'exec', '--', 'playwright', 'test', '--grep-invert', '@perf', '--list',
-             '--reporter=json'], cwd='app', env=env, check=True)
+            ['npm', 'exec', '--', 'playwright', 'test', *selection, '--list',
+             '--reporter=json'], cwd='app', env=env, check=True, stdout=subprocess.DEVNULL)
         return json.loads(output.read_text())
+
+
+def split_discovery(report, suite):
+    files = sorted({spec['file'] for spec in specs_in(report)})
+    isolated = [file for file in files if suite == 'chromium' and file == BENCHMARK]
+    return [file for file in files if file not in isolated], isolated
+
+
+def isolated(args):
+    _, files = split_discovery(discover(), 'chromium')
+    if files != [BENCHMARK]:
+        raise RuntimeError('Storage benchmark missing from discovery')
+    return playwright('e2e', args.report,
+                      [*[file_filter(file) for file in files], '--workers=1',
+                       f'--repeat-each={args.repeat}'])
 
 
 def shard(args):
     # Discover tests through Playwright so new specs are always included and config filters apply.
-    report = discover()
-    files = sorted({spec['file'] for spec in specs_in(report)})
-    weights = json.loads(Path('scripts/ci/durations.json').read_text())
+    report = discover(args.suite)
+    files, _ = split_discovery(report, args.suite)
+    weights = json.loads(Path('scripts/ci/' +
+                             ('webkit-durations.json' if args.suite == 'webkit' else 'durations.json')).read_text())
     buckets = partition(files, weights, args.count)
     selected = buckets[args.index - 1]
     print(f'Shard {args.index}/{args.count}: {len(selected)} specs', flush=True)
     if not selected:
         raise RuntimeError('Empty shard: adjust shard count')
     # Playwright treats file arguments as regular expressions.
-    return playwright('e2e', args.report,
+    return playwright('e2e:webkit-desktop' if args.suite == 'webkit' else 'e2e', args.report,
                       [file_filter(file) for file in selected] +
                       [f'--repeat-each={args.repeat}'])
 
@@ -123,6 +143,11 @@ def burn(args):
                   if path.startswith('app/production/')]
     result = 0
     repeat = ['--repeat-each=5']
+    if args.browser == 'chromium' and f'app/e2e/{BENCHMARK}' in files:
+        benchmark_filter = file_filter(f'e2e/{BENCHMARK}')
+        e2e = [pattern for pattern in e2e if pattern != benchmark_filter]
+        result |= playwright('e2e', 'app/test-results/ci-reports/burn-benchmark.json',
+                             [benchmark_filter, *repeat, '--workers=1'])
     if e2e:
         command = 'e2e' if args.browser == 'chromium' else 'e2e:webkit-desktop'
         result |= playwright(command, f'app/test-results/ci-reports/burn-{args.browser}.json',
@@ -174,9 +199,13 @@ def main():
     change.add_argument('--head', default='HEAD')
     balance = commands.add_parser('shard')
     balance.add_argument('--index', type=int, required=True)
+    balance.add_argument('--suite', choices=['chromium', 'webkit'], default='chromium')
     balance.add_argument('--count', type=int, default=6)
     balance.add_argument('--repeat', type=int, default=1)
     balance.add_argument('--report', required=True)
+    quiet = commands.add_parser('isolated')
+    quiet.add_argument('--repeat', type=int, default=1)
+    quiet.add_argument('--report', required=True)
     burn_in = commands.add_parser('burn')
     burn_in.add_argument('--specs', required=True)
     burn_in.add_argument('--browser', choices=['chromium', 'webkit'], required=True)
@@ -190,7 +219,7 @@ def main():
     if args.command == 'changes':
         changes(args)
         return 0
-    return {'shard': shard, 'burn': burn, 'issue': issue}[args.command](args)
+    return {'shard': shard, 'isolated': isolated, 'burn': burn, 'issue': issue}[args.command](args)
 
 
 if __name__ == '__main__':

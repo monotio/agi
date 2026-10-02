@@ -27,26 +27,29 @@ runs:
       if: inputs.browser != ''
       id: version
       shell: bash
-      run: echo "version=$(node -p 'require("./app/node_modules/playwright-core/package.json").version')" >> "$GITHUB_OUTPUT"
+      run: |
+        echo "version=$(node -p 'require("./app/node_modules/playwright-core/package.json").version')" >> "$GITHUB_OUTPUT"
+        image=$( . /etc/os-release; printf '%s-%s' "$ID" "$VERSION_ID" )
+        echo "image=$image" >> "$GITHUB_OUTPUT"
     - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       if: inputs.browser != ''
       id: browser
       with:
         path: ~/.cache/ms-playwright
-        key: browsers-${{ runner.os }}-${{ env.ImageOS }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
+        key: browsers-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
     - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       if: inputs.browser != ''
       with:
-        path: ~/.cache/agi-apt/*.deb
-        key: apt-${{ runner.os }}-${{ env.ImageOS }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
+        path: /tmp/agi-apt/*.deb
+        key: apt-${{ runner.os }}-${{ steps.version.outputs.image }}-${{ steps.version.outputs.version }}-${{ inputs.browser }}
     - name: Browser system dependencies
       if: inputs.browser != ''
       shell: bash
       env:
         BROWSER: ${{ inputs.browser }}
       run: |
-        mkdir -p "$HOME/.cache/agi-apt/partial"
-        printf 'Dir::Cache::archives "%s/.cache/agi-apt";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' "$HOME" | sudo tee /etc/apt/apt.conf.d/99-ci-cache > /dev/null
+        mkdir -p /tmp/agi-apt/partial
+        printf 'Dir::Cache::archives "/tmp/agi-apt";\nAPT::Keep-Downloaded-Packages "true";\nBinary::apt::APT::Keep-Downloaded-Packages "true";\n' | sudo tee /etc/apt/apt.conf.d/99-ci-cache > /dev/null
         cd app
         npx playwright install-deps "$BROWSER"
     - name: Browser binary

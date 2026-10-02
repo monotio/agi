@@ -6,7 +6,7 @@ import tempfile
 from unittest.mock import patch
 import unittest
 
-from tools import classify, partition, intermittent, file_filter, discover
+from tools import classify, partition, intermittent, file_filter, discover, split_discovery
 
 
 class Changes(unittest.TestCase):
@@ -50,6 +50,15 @@ class Shards(unittest.TestCase):
         self.assertTrue(pattern.search('/repo/app/e2e/menu-flow.spec.ts'))
         self.assertFalse(pattern.search('/repo/app/e2e/studio-menu-flow.spec.ts'))
 
+
+    def test_isolated_benchmark_and_shards_keep_every_file(self):
+        report = {'suites': [{'specs': [{'file': file} for file in
+                  ['history-bench.spec.ts', 'ordinary.spec.ts', 'new.spec.ts']]}]}
+        ordinary, isolated = split_discovery(report, 'chromium')
+        self.assertEqual(ordinary, ['new.spec.ts', 'ordinary.spec.ts'])
+        self.assertEqual(isolated, ['history-bench.spec.ts'])
+        self.assertEqual(split_discovery(report, 'webkit'),
+                         (['history-bench.spec.ts', 'new.spec.ts', 'ordinary.spec.ts'], []))
 
     def test_balances_durations_and_keeps_every_file_once(self):
         buckets = partition(['a', 'b', 'c', 'd', 'e', 'f'],

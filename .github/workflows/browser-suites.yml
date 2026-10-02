@@ -27,7 +27,8 @@ jobs:
           - { browser: chromium, index: 6, label: chromium 6/6 }
           - { browser: chromium, index: perf, label: timing budgets }
           - { browser: webkit, index: phone, label: webkit phone }
-          - { browser: webkit, index: desktop, label: webkit desktop }
+          - { browser: webkit, index: desktop-1, shard: 1, label: webkit desktop 1/2 }
+          - { browser: webkit, index: desktop-2, shard: 2, label: webkit desktop 2/2 }
     env:
       CI: "1"
       PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/ci-reports/${{ matrix.browser }}-${{ matrix.index }}.json
@@ -49,16 +50,22 @@ jobs:
         env:
           REPEAT: ${{ inputs.repeat }}
         run: npm --prefix app run e2e:perf -- --repeat-each="$REPEAT" --reporter=list,json
+      - name: Storage benchmark on one worker
+        if: ${{ !cancelled() && matrix.index == 'perf' }}
+        env:
+          REPEAT: ${{ inputs.repeat }}
+        run: python3 scripts/ci/tools.py isolated --repeat "$REPEAT" --report app/test-results/ci-reports/chromium-benchmark.json
       - name: WebKit phone
         if: matrix.index == 'phone'
         env:
           REPEAT: ${{ inputs.repeat }}
         run: npm --prefix app run e2e:phone -- --project=iphone-webkit --repeat-each="$REPEAT" --reporter=list,json
       - name: WebKit desktop
-        if: matrix.index == 'desktop'
+        if: matrix.shard != '' && matrix.browser == 'webkit'
         env:
           REPEAT: ${{ inputs.repeat }}
-        run: npm --prefix app run e2e:webkit-desktop -- --repeat-each="$REPEAT" --reporter=list,json
+          INDEX: ${{ matrix.shard }}
+        run: python3 scripts/ci/tools.py shard --suite webkit --index "$INDEX" --count 2 --repeat "$REPEAT" --report "app/test-results/ci-reports/webkit-desktop-$INDEX.json"
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
