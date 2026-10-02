@@ -20,6 +20,7 @@ export function createLogicLanguageSnapshot(input: {
   readonly source: string;
   readonly profile: AgiProfile;
   readonly dictionary: ReadonlyMap<string, number>;
+  readonly objects?: readonly string[];
 }) {
   const source = input.source;
   const profile = { ...input.profile };
@@ -144,18 +145,29 @@ export function createLogicLanguageSnapshot(input: {
     const end = at?.type === "ident" ? at.end : offset;
     const prefix = source.slice(start, offset);
     if (context.call) {
-      return syntax.definitions
-        .filter(
-          (entry) =>
-            entry.kind === "define" && entry.start < offset && entry.name.startsWith(prefix),
-        )
-        .map((entry) => ({
-          label: entry.name,
-          detail: "Local definition",
-          start,
-          end,
-          text: entry.name,
-        }));
+      const inventory =
+        byName.get(context.call.name)?.operands[context.call.parameter] === "item"
+          ? (input.objects ?? []).flatMap((name, index) =>
+              name.toLowerCase().startsWith(prefix.toLowerCase()) || `o${index}`.startsWith(prefix)
+                ? [{ label: name, detail: `OBJECT ${index}`, start, end, text: `o${index}` }]
+                : [],
+            )
+          : [];
+      return [
+        ...inventory,
+        ...syntax.definitions
+          .filter(
+            (entry) =>
+              entry.kind === "define" && entry.start < offset && entry.name.startsWith(prefix),
+          )
+          .map((entry) => ({
+            label: entry.name,
+            detail: "Local definition",
+            start,
+            end,
+            text: entry.name,
+          })),
+      ];
     }
     const kind = context.frames.some((frame) => frame.name === "if") ? "condition" : "action";
     const control: Record<string, string> = {

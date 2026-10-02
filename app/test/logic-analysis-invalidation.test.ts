@@ -1,30 +1,34 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LogicAnalysisClient } from "../src/studio/logic/analysisClient.ts";
-import { createLogicAnalysisService } from "../src/studio/logic/analysisService.ts";
-import type {
-  LogicAnalysisProject,
-  LogicAnalysisReply,
-  LogicAnalysisRequest,
-} from "../src/studio/logic/analysisProtocol.ts";
+import { attachLogicLanguageServer } from "../src/studio/logic/analysisService.ts";
+import type { LogicAnalysisProject } from "../src/studio/logic/analysisClient.ts";
+import type { LspMessage, LspResponse, LspNotification } from "../../src/logic/lspTypes.ts";
 
 class FakeWorker {
-  onmessage: ((event: MessageEvent<LogicAnalysisReply>) => void) | null = null;
+  onmessage: ((event: MessageEvent<LspResponse | LspNotification>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: ((event: MessageEvent) => void) | null = null;
-  requests: LogicAnalysisRequest[] = [];
+  requests: LspMessage[] = [];
   terminated = false;
-  analyze = createLogicAnalysisService();
-  postMessage(request: LogicAnalysisRequest) {
-    this.requests.push(structuredClone(request));
+  port = {
+    onmessage: null as ((event: { data: LspMessage }) => void) | null,
+    postMessage: (data: LspResponse | LspNotification) =>
+      this.onmessage?.({ data } as MessageEvent<LspResponse | LspNotification>),
+  };
+  constructor() {
+    attachLogicLanguageServer(this.port);
+  }
+  postMessage(request: LspMessage) {
+    if (request.id === undefined || request.id === 0)
+      this.port.onmessage!({ data: structuredClone(request) });
+    else this.requests.push(structuredClone(request));
   }
   terminate() {
     this.terminated = true;
   }
   reply(index = 0) {
-    this.onmessage?.({
-      data: this.analyze(this.requests[index]!),
-    } as MessageEvent<LogicAnalysisReply>);
+    this.port.onmessage!({ data: this.requests[index]! });
   }
 }
 
@@ -42,13 +46,13 @@ test("an invalid context rejects pending requests with its own error and clears 
   const worker = new FakeWorker();
   const client = new LogicAnalysisClient(() => worker);
   client.setProject(project());
-  const pending = client.request("logic:1", { method: "diagnostics" });
+  const pending = client.request("logic:1", "textDocument/diagnostic");
   const rejected = assert.rejects(pending, /bindings document|context/i);
   client.invalidateContext("The bindings document cannot be read.");
   await rejected;
   // No consulted snapshot: every request now fails until the next setProject.
   await assert.rejects(
-    client.request("logic:1", { method: "diagnostics" }),
+    client.request("logic:1", "textDocument/diagnostic"),
     /No authored logic document/,
   );
   // Invalidation is not a crash: the worker stays alive for the next snapshot.
@@ -60,14 +64,18 @@ test("a reply captured before invalidation cannot resolve a newer request", asyn
   const worker = new FakeWorker();
   const client = new LogicAnalysisClient(() => worker);
   client.setProject(project());
-  const stale = client.request("logic:1", { method: "hoverAt", offset: 4 });
+  const stale = client.request("logic:1", "textDocument/hover", {
+    position: { line: 0, character: 4 },
+  });
   const staleRejected = assert.rejects(stale, /bindings document|context/i);
   client.invalidateContext("The bindings document cannot be read.");
   await staleRejected;
 
   // The context parses again: a fresh snapshot takes over on a new epoch.
   client.setProject(project("set(door); return;", 3));
-  const current = client.request("logic:1", { method: "hoverAt", offset: 4 });
+  const current = client.request("logic:1", "textDocument/hover", {
+    position: { line: 0, character: 4 },
+  });
   let settled = false;
   void current.then(
     () => (settled = true),
@@ -78,7 +86,7 @@ test("a reply captured before invalidation cannot resolve a newer request", asyn
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(settled, false);
   worker.reply(1);
-  assert.equal((await current)?.text, "#define door 50");
+  assert.match((await current)?.contents.value ?? "", /#define door 50/);
   client.dispose();
 });
 
@@ -88,8 +96,8 @@ test("invalidation is restartable: a fixed document restores answers", async () 
   client.setProject(project());
   client.invalidateContext("The words document cannot be read.");
   client.setProject(project());
-  const diagnostics = client.request("logic:1", { method: "diagnostics" });
+  const diagnostics = client.request("logic:1", "textDocument/diagnostic");
   worker.reply(0);
-  assert.deepEqual(await diagnostics, { diagnostics: [], generatedDiagnostics: [] });
+  assert.deepEqual((await diagnostics).items, []);
   client.dispose();
 });

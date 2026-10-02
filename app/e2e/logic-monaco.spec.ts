@@ -38,6 +38,7 @@ async function mountEditor(page: Page): Promise<void> {
     document.body.append(dom);
     const editor = monaco.editor.create(dom, {
       automaticLayout: true,
+      "semanticHighlighting.enabled": true,
       fontSize: 14,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
@@ -544,3 +545,98 @@ for (const [marked, suggestion, expected] of [
     await unmountEditor(page);
   });
 }
+
+test("LOGIC uses LSP rename, outline, folding and quick fixes", async ({ page }) => {
+  await mountEditor(page);
+  await replaceSource(
+    page,
+    2,
+    '#define door 41\nif (isset(door)) {\n  set(door);\n  print("Hello");\n}\nreturn;',
+  );
+  await page.evaluate(() => {
+    const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+    h.editor.setPosition({ lineNumber: 3, column: 8 });
+    h.editor.trigger("spec", "editor.action.rename", {});
+  });
+  const rename = page.locator(".rename-box input");
+  await expect(rename).toBeVisible();
+  await rename.fill("gate");
+  await rename.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.model.getValue(),
+      ),
+    )
+    .toContain("set(gate)");
+  const renamed = await page.evaluate(() =>
+    (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.model.getValue(),
+  );
+  expect(renamed).toContain("#define gate 41");
+  await replaceSource(page, 3, renamed);
+  await page.evaluate(() => {
+    const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+    h.editor.trigger("spec", "editor.action.quickOutline", {});
+  });
+  await expect(page.locator(".quick-input-widget")).toBeVisible();
+  await expect(page.locator(".quick-input-widget")).toContainText("gate");
+  await page.keyboard.press("Escape");
+  const before = await page.evaluate(() =>
+    (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.editor.getTopForLineNumber(6),
+  );
+  await page.evaluate(() =>
+    (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.editor.trigger(
+      "spec",
+      "editor.foldAll",
+      {},
+    ),
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.editor.getTopForLineNumber(
+          6,
+        ),
+      ),
+    )
+    .toBeLessThan(before);
+  await replaceSource(page, 4, "set(lamp); return;");
+  await page.evaluate(async () => {
+    const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+    await h.handle.refreshDiagnostics();
+    h.editor.setPosition({ lineNumber: 1, column: 6 });
+    h.editor.trigger("spec", "editor.action.quickFix", {});
+  });
+  await expect(page.getByText("Define lamp as 0", { exact: true })).toBeVisible();
+  await reviewShot(page, "logic-quick-fix");
+  await page.getByText("Define lamp as 0", { exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as unknown as { __monacoHost: MonacoHost }).__monacoHost.model.getValue(),
+      ),
+    )
+    .toContain("#define lamp 0");
+  await unmountEditor(page);
+});
+
+test("LOGIC colouring comes from worker semantic tokens", async ({ page }) => {
+  await mountEditor(page);
+  await replaceSource(page, 2, 'print("Hello");\nreturn;');
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const spans = [...document.querySelectorAll(".view-line span")];
+        const string = spans.find((span) => span.textContent === '"Hello"');
+        const keyword = spans.find((span) => span.textContent === "return");
+        return (
+          !!string &&
+          !!keyword &&
+          getComputedStyle(string).color !== getComputedStyle(keyword).color
+        );
+      }),
+    )
+    .toBe(true);
+  await reviewShot(page, "logic-semantic-colouring");
+  await unmountEditor(page);
+});

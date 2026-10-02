@@ -1,5 +1,6 @@
 /** Project-aware language operations retain authored ranges and binding ownership. */
 import { createLogicLanguageSnapshot } from "../logic/language.ts";
+import { analyzeLogicSyntax } from "../logic/syntax.ts";
 import { expandProjectLogic } from "./projectLogic.ts";
 
 export function createProjectLogicLanguageSnapshot(
@@ -14,6 +15,7 @@ export function createProjectLogicLanguageSnapshot(
     source: expansion.prelude + source,
     profile: input.profile,
     dictionary: input.dictionary,
+    ...(input.objects ? { objects: input.objects } : {}),
   });
   const diagnostics = language.diagnostics
     .filter((entry) => entry.start >= base)
@@ -91,6 +93,40 @@ export function createProjectLogicLanguageSnapshot(
     return language.renameAt(expandedOffset(offset), name).map(authoredRange);
   }
 
+  function quickFixes() {
+    const fixes: {
+      title: string;
+      diagnostic: (typeof diagnostics)[number];
+      edits: { start: number; end: number; text: string }[];
+    }[] = [];
+    const tokens = analyzeLogicSyntax(source).tokens;
+    for (const diagnostic of diagnostics) {
+      const unknown = /unknown identifier '([a-zA-Z_.][a-zA-Z0-9_.]*)'/.exec(diagnostic.message);
+      if (unknown && !Object.hasOwn(input.bindings, unknown[1]!))
+        fixes.push({
+          title: `Define ${unknown[1]} as 0`,
+          diagnostic,
+          edits: [{ start: 0, end: 0, text: `#define ${unknown[1]} 0\n` }],
+        });
+      if (/expected ;/.test(diagnostic.message)) {
+        const previous = tokens
+          .filter((token) => token.end <= diagnostic.start && token.type !== "eof")
+          .at(-1);
+        if (previous) {
+          const changed = source.slice(0, previous.end) + ";" + source.slice(previous.end);
+          const result = createProjectLogicLanguageSnapshot({ ...input, source: changed });
+          if (result.diagnostics.length < diagnostics.length)
+            fixes.push({
+              title: "Insert semicolon",
+              diagnostic,
+              edits: [{ start: previous.end, end: previous.end, text: ";" }],
+            });
+        }
+      }
+    }
+    return fixes;
+  }
+
   return {
     source,
     diagnostics: Object.freeze(diagnostics),
@@ -101,5 +137,6 @@ export function createProjectLogicLanguageSnapshot(
     definitionAt,
     referencesAt,
     renameAt,
+    quickFixes,
   };
 }

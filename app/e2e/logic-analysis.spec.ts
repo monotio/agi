@@ -20,23 +20,23 @@ test("Logic Studio analysis loads on demand and resolves source through a real w
         bindings: { door: { num: 50 } },
       };
       client.setProject({ ...context, documents: { "logic:1": { version: 1, source } } });
-      const completions = await client.request("logic:1", {
-        method: "completeAt",
-        offset: source.length,
+      const completions = await client.request("logic:1", "textDocument/completion", {
+        position: { line: 1, character: 12 },
       });
-      const signature = await client.request("logic:1", {
-        method: "signatureAt",
-        offset: source.length,
+      const signature = await client.request("logic:1", "textDocument/signatureHelp", {
+        position: { line: 1, character: 12 },
       });
-      const incomplete = await client.request("logic:1", { method: "diagnostics" });
+      const incomplete = await client.request("logic:1", "textDocument/diagnostic");
       const repaired = "set(door); return;";
       client.setProject({
         ...context,
         revision: 2,
         documents: { "logic:1": { version: 2, source: repaired } },
       });
-      const definition = await client.request("logic:1", { method: "definitionAt", offset: 4 });
-      const valid = await client.request("logic:1", { method: "diagnostics" });
+      const definition = await client.request("logic:1", "textDocument/definition", {
+        position: { line: 0, character: 4 },
+      });
+      const valid = await client.request("logic:1", "textDocument/diagnostic");
       return { completions, signature, incomplete, definition, valid };
     } finally {
       client.dispose();
@@ -46,12 +46,13 @@ test("Logic Studio analysis loads on demand and resolves source through a real w
   expect(result.completions).toContainEqual({
     label: "open",
     detail: "Word group 100",
-    start: 15,
-    end: 18,
-    text: '"open"',
+    textEdit: {
+      range: { start: { line: 1, character: 9 }, end: { line: 1, character: 12 } },
+      newText: '"open"',
+    },
   });
-  expect(result.signature?.label).toBe("said(word, ...)");
-  expect(result.incomplete.diagnostics[0]?.line).toBe(2);
-  expect(result.definition).toEqual({ kind: "binding", name: "door", document: "bindings" });
-  expect(result.valid).toEqual({ diagnostics: [], generatedDiagnostics: [] });
+  expect(result.signature?.signatures[0]?.label).toBe("said(word, ...)");
+  expect(result.incomplete.items[0]?.range.start.line).toBe(1);
+  expect(result.definition?.uri).toBe("agi-project:///bindings.json");
+  expect(result.valid.items).toEqual([]);
 });

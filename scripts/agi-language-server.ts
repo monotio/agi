@@ -1,67 +1,48 @@
-/**
- * Local logic language server for the AGI source grammar, built on the shared
- * createLogicLanguageSnapshot service (src/logic/language.ts). This is a
- * bounded developer preview: a single stdio transport, one interpreter
- * profile and one optional WORDS.TOK dictionary frozen at process startup.
- * Restart the process to change either of those inputs.
- *
- *   npm run --silent language-server -- --stdio [--profile ID] [--words PATH]
- *
- * Standard output carries protocol messages only; run npm with --silent and
- * keep usage, warnings and errors on standard error. Documents arrive through
- * full text synchronization; the server edits nothing on disk, in a project
- * or in a running game. Open documents must use the language id "agi-logic".
- */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+#!/usr/bin/env -S node --experimental-strip-types
+/** Stdio transport and file loading around the shared LOGIC LSP core. */
+import {
+  readFileSync,
+  readdirSync,
+  statSync,
+  realpathSync,
+  mkdirSync,
+  existsSync,
+  writeFileSync,
+} from "node:fs";
+import { resolve, dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import type { InitializeResult } from "vscode-languageserver/node";
 import {
   createConnection,
-  DiagnosticSeverity,
-  ErrorCodes,
-  LSPErrorCodes,
-  PositionEncodingKind,
   ProposedFeatures,
   ResponseError,
-  TextDocuments,
-  TextDocumentSyncKind,
-  type CompletionItem,
-  type Diagnostic,
-  type Location,
-  type ParameterInformation,
-  type PublishDiagnosticsParams,
-  type Range,
-  type ServerCapabilities,
-  type TextDocumentPositionParams,
-  type TextEdit,
+  DidChangeWatchedFilesNotification,
 } from "vscode-languageserver/node";
-import { TextDocument } from "vscode-languageserver-textdocument";
-import { createLogicLanguageSnapshot } from "../src/logic/language.ts";
+import { createLogicLspServer } from "../src/logic/lspServer.ts";
+import type { LogicLanguageProject } from "../src/logic/lspServer.ts";
+import { readProjectLanguageInput } from "../src/authoring/projectLanguageInput.ts";
+import { readBindingsDocument } from "../src/authoring/projectDocuments.ts";
 import { parseWordsTok } from "../src/logic/words.ts";
 import { PROFILES, type AgiProfile, type ProfileId } from "../src/runtime/profile.ts";
 
-const LANGUAGE_ID = "agi-logic";
-const DIAGNOSTIC_SOURCE = "agi-logic";
-
-const USAGE = `AGI logic language server (developer preview).
+const USAGE = `AGI LOGIC language server.
 
 Usage:
-  npm run --silent language-server -- --stdio [--profile ID] [--words WORDS.TOK]
+  agi-language-server --stdio [--project PATH] [--sources DIR] [--profile ID] [--words WORDS.TOK]
 
 Options:
-  --stdio             Speak the protocol over stdin/stdout (required; the only
-                      transport in this preview).
-  --profile ID      Interpreter profile for command vocabulary and checks.
-                      Default 2.936. Known: ${Object.keys(PROFILES).join(", ")}.
-  --words PATH      Optional local WORDS.TOK image; its entries feed said()
-                      completion and message assembly checks.
-  --help            Print this text to stderr and exit.
+  --stdio          Speak LSP over stdin/stdout.
+  --project PATH   Exported project ZIP or AGI game directory (v2/v3).
+  --sources DIR    LOGIC source folder; default: beside the ZIP or in the game directory.
+  --profile ID     Standalone profile (default 2.936). Known: ${Object.keys(PROFILES).join(", ")}.
+  --words PATH     Standalone WORDS.TOK dictionary.
+  --extract-sources DIR  Write authored .lgc files and language inputs to a new folder, then exit.
+  --help, -h       Print usage to stderr and exit.
 
-The profile and dictionary are read once at startup; edit either input and
-restart the server to pick up changes. Documents sync as full text in UTF-16
-positions, must use the language id "${LANGUAGE_ID}", and are served only from
-what the client sends: the server reads no project files and writes nothing.
+Sources use logic.<number>.lgc (0..255) and language id agi-logic.
+Project bindings.json and WORDS.TOK override archived inputs. Send
+workspace/didChangeWatchedFiles after input changes to reload them.
 `;
 
 interface CliOptions {
@@ -69,9 +50,10 @@ interface CliOptions {
   readonly help: boolean;
   readonly profile: string;
   readonly words: string | undefined;
+  readonly project: string | undefined;
+  readonly sources: string | undefined;
+  readonly extractSources: string | undefined;
 }
-
-type Snapshot = ReturnType<typeof createLogicLanguageSnapshot>;
 
 function parseCli(args: string[]): CliOptions {
   const { values } = parseArgs({
@@ -83,6 +65,9 @@ function parseCli(args: string[]): CliOptions {
       help: { type: "boolean", short: "h" },
       profile: { type: "string", default: "2.936" },
       words: { type: "string" },
+      project: { type: "string" },
+      sources: { type: "string" },
+      "extract-sources": { type: "string" },
       // Passed through to the SDK watchdog; some clients add it for every
       // spawned server.
       clientProcessId: { type: "string" },
@@ -93,6 +78,9 @@ function parseCli(args: string[]): CliOptions {
     help: values.help === true,
     profile: values.profile as string,
     words: values.words,
+    project: values.project,
+    sources: values.sources,
+    extractSources: values["extract-sources"],
   };
 }
 
@@ -104,281 +92,158 @@ function loadDictionary(path: string | undefined): ReadonlyMap<string, number> {
   return dictionary;
 }
 
-function signatureParameters(label: string): ParameterInformation[] {
-  const open = label.indexOf("(");
-  const close = label.lastIndexOf(")");
-  if (open < 0 || close <= open + 1) return [];
-  return label
-    .slice(open + 1, close)
-    .split(",")
-    .map((part) => ({ label: part.trim() }))
-    .filter((parameter) => parameter.label.length > 0);
+async function readProject(path: string) {
+  const { readGameZip, readGameFiles } = await import("../app/src/archive/gameZip.ts");
+  const folder = statSync(path).isDirectory();
+  const game = folder
+    ? readGameFiles(
+        new Map(
+          readdirSync(path)
+            .filter((name) => statSync(join(path, name)).isFile())
+            .map((name) => [name, new Uint8Array(readFileSync(join(path, name)))]),
+        ),
+      )
+    : await readGameZip(new Uint8Array(readFileSync(path)));
+  return game;
 }
 
-function serve(profile: AgiProfile, dictionary: ReadonlyMap<string, number>): void {
+async function loadProject(options: CliOptions) {
+  if (!options.project) return undefined;
+  const path = resolve(options.project);
+  const folder = statSync(path).isDirectory();
+  const game = await readProject(path);
+  const input = readProjectLanguageInput(game);
+  const root = resolve(options.sources ?? (folder ? path : dirname(path)));
+  const wordsPath = join(root, "WORDS.TOK");
+  if (statExists(wordsPath)) {
+    input.dictionary.clear();
+    for (const [word, id] of loadDictionary(wordsPath)) input.dictionary.set(word, id);
+  }
+  const objectPath = join(root, "OBJECT");
+  if (statExists(objectPath)) {
+    const { readInventoryObjects } = await import("../src/authoring/inventory.ts");
+    input.objects = readInventoryObjects(
+      new Uint8Array(readFileSync(objectPath)),
+      input.profile,
+    ).map((item) => item.name);
+  }
+  const bindingPath = join(root, "bindings.json");
+  if (statExists(bindingPath))
+    input.bindings = readBindingsDocument(readFileSync(bindingPath, "utf8"));
+  const documents: LogicLanguageProject["documents"] extends Readonly<infer T> ? T : never = {};
+  for (const [key, source] of Object.entries(input.sources))
+    documents[key] = { source, uri: pathToFileURL(join(root, `logic.${key.slice(6)}.lgc`)).href };
+  for (const name of readdirSync(root)) {
+    if (/^logic\.(0|[1-9]\d{0,2})\.lgc$/.test(name) && Number(name.split(".")[1]) <= 255)
+      documents[`logic:${Number(name.split(".")[1])}`] = {
+        uri: pathToFileURL(join(root, name)).href,
+        source: readFileSync(join(root, name), "utf8"),
+      };
+  }
+  return {
+    profileId: input.profile.id,
+    words: [...input.dictionary],
+    objects: input.objects,
+    bindings: input.bindings,
+    documents,
+    ...(statExists(bindingPath)
+      ? {
+          bindingDocument: {
+            uri: pathToFileURL(bindingPath).href,
+            source: readFileSync(bindingPath, "utf8"),
+          },
+        }
+      : {}),
+  } satisfies LogicLanguageProject;
+}
+
+function statExists(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function serve(
+  profile: AgiProfile,
+  dictionary: ReadonlyMap<string, number>,
+  options: CliOptions,
+  initial: LogicLanguageProject | undefined,
+): void {
   const connection = createConnection(ProposedFeatures.all);
-  const documents: TextDocuments<TextDocument> = new TextDocuments<TextDocument>({
-    create(uri, languageId, version, text): TextDocument {
-      if (
-        typeof uri !== "string" ||
-        typeof languageId !== "string" ||
-        !Number.isSafeInteger(version) ||
-        typeof text !== "string"
-      )
-        throw new Error("Invalid document open notification.");
-      // A duplicate open cannot replace the active document or its cached source.
-      return documents.get(uri) ?? TextDocument.create(uri, languageId, version, text);
+  const version = (
+    JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    }
+  ).version;
+  const standalone = () => ({
+    profileId: profile.id,
+    words: [...loadDictionary(options.words)],
+    bindings: {},
+    documents: {},
+  });
+  const core = createLogicLspServer({
+    version,
+    project: initial ?? {
+      profileId: profile.id,
+      words: [...dictionary],
+      bindings: {},
+      documents: {},
     },
-    update(document, changes, version): TextDocument {
-      // The SDK mutates TextDocument in place. Refuse invalid/full-sync violations
-      // before it writes; suppressing diagnostics afterward would still poison
-      // hover, navigation and rename queries with an older source version.
-      if (
-        !Number.isSafeInteger(version) ||
-        version <= document.version ||
-        changes.some((change) => !change || typeof change.text !== "string" || "range" in change)
-      )
-        return document;
-      return TextDocument.update(document, changes, version);
+    publish: (message) => {
+      void connection.sendNotification(message.method, message.params);
     },
   });
-
-  const snapshots = new Map<string, { readonly version: number; readonly snapshot: Snapshot }>();
-  const publishedVersions = new Map<string, number>();
-
-  const agiDocument = (uri: string): TextDocument | undefined => {
-    const document = documents.get(uri);
-    return document !== undefined && document.languageId === LANGUAGE_ID ? document : undefined;
-  };
-
-  const snapshotFor = (document: TextDocument): Snapshot => {
-    const cached = snapshots.get(document.uri);
-    if (cached && cached.version === document.version) return cached.snapshot;
-    const snapshot = createLogicLanguageSnapshot({
-      source: document.getText(),
-      profile,
-      dictionary,
-    });
-    snapshots.set(document.uri, { version: document.version, snapshot });
-    return snapshot;
-  };
-
-  const rangeOf = (document: TextDocument, start: number, end: number): Range => ({
-    start: document.positionAt(start),
-    end: document.positionAt(end),
+  let dynamicWatches = false;
+  connection.onInitialize((params) => {
+    dynamicWatches =
+      params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
+    return core.handle({ jsonrpc: "2.0", id: 0, method: "initialize", params })!
+      .result as InitializeResult;
   });
-
-  const offsetOf = (document: TextDocument, params: TextDocumentPositionParams): number =>
-    document.offsetAt(params.position);
-
-  const fail = (error: unknown): never => {
-    if (error instanceof ResponseError) throw error;
-    const message = error instanceof Error ? error.message : String(error);
-    const code =
-      error instanceof RangeError ? ErrorCodes.InvalidParams : LSPErrorCodes.RequestFailed;
-    throw new ResponseError(code, message);
-  };
-
-  connection.onInitialize(
-    (): { capabilities: ServerCapabilities; serverInfo: { name: string; version: string } } => ({
-      capabilities: {
-        positionEncoding: PositionEncodingKind.UTF16,
-        textDocumentSync: {
-          openClose: true,
-          change: TextDocumentSyncKind.Full,
-        },
-        completionProvider: {
-          triggerCharacters: [".", '"', "#", "("],
-        },
-        signatureHelpProvider: {
-          triggerCharacters: ["(", ","],
-          retriggerCharacters: [","],
-        },
-        hoverProvider: true,
-        definitionProvider: true,
-        referencesProvider: true,
-        renameProvider: { prepareProvider: true },
-      },
-      serverInfo: { name: "agi-logic-language-server", version: "1.2.0-preview" },
-    }),
-  );
-
-  documents.onDidChangeContent((change) => {
-    const document = change.document;
-    if (document.languageId !== LANGUAGE_ID) return;
-    const last = publishedVersions.get(document.uri);
-    if (last !== undefined && document.version <= last) return;
-    const snapshot = snapshotFor(document);
-    publishedVersions.set(document.uri, document.version);
-    const diagnostics: Diagnostic[] = snapshot.diagnostics.map((entry) => ({
-      range: rangeOf(document, entry.start, entry.end),
-      severity: entry.severity === "error" ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
-      source: DIAGNOSTIC_SOURCE,
-      message: entry.message,
-    }));
-    const params: PublishDiagnosticsParams = {
-      uri: document.uri,
-      diagnostics,
-      version: document.version,
-    };
-    void connection.sendDiagnostics(params);
+  connection.onInitialized(() => {
+    const paths = [options.project, options.words, options.sources].filter(
+      (path): path is string => path !== undefined,
+    );
+    if (!dynamicWatches || !paths.length) return;
+    const roots = [
+      ...new Set(
+        paths.map((path) =>
+          statSync(path).isDirectory() ? resolve(path) : dirname(resolve(path)),
+        ),
+      ),
+    ];
+    void connection.client
+      .register(DidChangeWatchedFilesNotification.type, {
+        watchers: roots.map((root) => ({ globPattern: `${root.replaceAll("\\", "/")}/*` })),
+      })
+      .catch((error) =>
+        connection.console.error(`Cannot register input watches: ${String(error)}`),
+      );
   });
-
-  documents.onDidClose((change) => {
-    publishedVersions.delete(change.document.uri);
-    snapshots.delete(change.document.uri);
-    if (change.document.languageId === LANGUAGE_ID) {
-      void connection.sendDiagnostics({ uri: change.document.uri, diagnostics: [] });
-    }
+  connection.onRequest((method, params, token) => {
+    const id = 1;
+    if (token.isCancellationRequested)
+      core.handle({ jsonrpc: "2.0", method: "$/cancelRequest", params: { id } });
+    const response = core.handle({ jsonrpc: "2.0", id, method, params });
+    if (response?.error) throw new ResponseError(response.error.code, response.error.message);
+    return response?.result;
   });
-
-  connection.onCompletion((params, token) => {
-    const document = agiDocument(params.textDocument.uri);
-    if (!document || token.isCancellationRequested) return null;
+  connection.onNotification((method, params) => {
+    core.handle({ jsonrpc: "2.0", method, params });
+  });
+  connection.onDidChangeWatchedFiles(async () => {
     try {
-      const items = snapshotFor(document).completeAt(offsetOf(document, params));
-      return items.map((item): CompletionItem => {
-        const edit: TextEdit = {
-          range: rangeOf(document, item.start, item.end),
-          newText: item.text,
-        };
-        return { label: item.label, detail: item.detail, textEdit: edit };
-      });
+      core.setProject((await loadProject(options)) ?? standalone());
     } catch (error) {
-      return fail(error);
+      connection.console.error(`Cannot reload project: ${String(error)}`);
     }
   });
-
-  connection.onSignatureHelp((params, token) => {
-    const document = agiDocument(params.textDocument.uri);
-    if (!document || token.isCancellationRequested) return null;
-    try {
-      const signature = snapshotFor(document).signatureAt(offsetOf(document, params));
-      if (!signature) return null;
-      const parameters = signatureParameters(signature.label);
-      return {
-        signatures: [
-          {
-            label: signature.label,
-            documentation: signature.documentation,
-            parameters,
-          },
-        ],
-        activeSignature: 0,
-        activeParameter: Math.min(signature.activeParameter, Math.max(0, parameters.length - 1)),
-      };
-    } catch (error) {
-      return fail(error);
-    }
-  });
-
-  connection.onHover((params, token) => {
-    const document = agiDocument(params.textDocument.uri);
-    if (!document || token.isCancellationRequested) return null;
-    try {
-      const hover = snapshotFor(document).hoverAt(offsetOf(document, params));
-      if (!hover) return null;
-      const [head, ...rest] = hover.text.split("\n\n");
-      const value = `\`\`\`agi\n${head}\n\`\`\`${rest.length ? `\n\n${rest.join("\n\n")}` : ""}`;
-      return {
-        contents: { kind: "markdown", value },
-        range: rangeOf(document, hover.start, hover.end),
-      };
-    } catch (error) {
-      return fail(error);
-    }
-  });
-
-  connection.onDefinition((params, token) => {
-    const document = agiDocument(params.textDocument.uri);
-    if (!document || token.isCancellationRequested) return null;
-    try {
-      const definition = snapshotFor(document).definitionAt(offsetOf(document, params));
-      if (!definition) return null;
-      const location: Location = {
-        uri: document.uri,
-        range: rangeOf(document, definition.start, definition.end),
-      };
-      return location;
-    } catch (error) {
-      return fail(error);
-    }
-  });
-
-  connection.onReferences((params, token) => {
-    const document = agiDocument(params.textDocument.uri);
-    if (!document || token.isCancellationRequested) return null;
-    try {
-      const snapshot = snapshotFor(document);
-      const offset = offsetOf(document, params);
-      const definition = snapshot.definitionAt(offset);
-      if (!definition) return null;
-      return snapshot
-        .referencesAt(offset)
-        .filter(
-          (entry) =>
-            params.context.includeDeclaration !== false ||
-            entry.start !== definition.start ||
-            entry.end !== definition.end,
-        )
-        .map((entry): Location => ({
-          uri: document.uri,
-          range: rangeOf(document, entry.start, entry.end),
-        }));
-    } catch (error) {
-      return fail(error);
-    }
-  });
-
-  connection.onPrepareRename((params, token) => {
-    const document = agiDocument(params.textDocument.uri);
-    if (!document || token.isCancellationRequested) return null;
-    try {
-      const snapshot = snapshotFor(document);
-      const offset = offsetOf(document, params);
-      const range = snapshot
-        .referencesAt(offset)
-        .find((entry) => entry.start <= offset && offset < entry.end);
-      if (!range) return null;
-      const placeholder = document.getText(rangeOf(document, range.start, range.end));
-      // Probe with the current name: compiles cleanly and proves the token is
-      // renameable before the client offers the interaction.
-      snapshot.renameAt(offset, placeholder);
-      return { range: rangeOf(document, range.start, range.end), placeholder };
-    } catch {
-      return null;
-    }
-  });
-
-  connection.onRenameRequest((params, token) => {
-    const document = agiDocument(params.textDocument.uri);
-    if (!document || token.isCancellationRequested) return null;
-    try {
-      const version = document.version;
-      const edits = snapshotFor(document).renameAt(offsetOf(document, params), params.newName);
-      // The service answers same-document offsets only, so every edit lands on
-      // this URI; the captured version lets the client reject stale requests.
-      return {
-        documentChanges: [
-          {
-            textDocument: { uri: document.uri, version },
-            edits: edits.map((edit): TextEdit => ({
-              range: rangeOf(document, edit.start, edit.end),
-              newText: edit.text,
-            })),
-          },
-        ],
-      };
-    } catch (error) {
-      return fail(error);
-    }
-  });
-
-  documents.listen(connection);
   connection.listen();
 }
 
-function cli(args: string[]): void {
+async function cli(args: string[]): Promise<void> {
   let options: CliOptions;
   try {
     options = parseCli(args);
@@ -389,6 +254,37 @@ function cli(args: string[]): void {
   }
   if (options.help) {
     process.stderr.write(USAGE);
+    return;
+  }
+  if (options.extractSources) {
+    if (!options.project) throw new Error("Choose --project before extracting sources.");
+    const target = resolve(options.extractSources);
+    if (existsSync(target))
+      throw new Error("The source folder already exists. Choose a new folder.");
+    const game = await readProject(resolve(options.project));
+    const input = readProjectLanguageInput(game);
+    const { buildWordsTok } = await import("../src/logic/words.ts");
+    const { buildObjectFile } = await import("../src/authoring/inventory.ts");
+    mkdirSync(target, { recursive: true });
+    for (const [key, source] of Object.entries(input.sources))
+      writeFileSync(join(target, `logic.${key.slice(6)}.lgc`), source, { flag: "wx" });
+    writeFileSync(join(target, "bindings.json"), JSON.stringify(input.bindings, null, 2) + "\n", {
+      flag: "wx",
+    });
+    writeFileSync(
+      join(target, "WORDS.TOK"),
+      buildWordsTok([...input.dictionary].map(([word, id]) => ({ word, id }))),
+      { flag: "wx" },
+    );
+    writeFileSync(
+      join(target, "OBJECT"),
+      buildObjectFile(
+        input.objects.map((name) => ({ name })),
+        input.profile,
+      ),
+      { flag: "wx" },
+    );
+    process.stderr.write(`Extracted ${Object.keys(input.sources).length} LOGIC source(s).\n`);
     return;
   }
   if (!options.stdio) {
@@ -416,19 +312,15 @@ function cli(args: string[]): void {
     process.exitCode = 1;
     return;
   }
-  process.stderr.write(
-    `agi-logic language server preview: profile ${profile.id}, ${dictionary.size} dictionary word(s); restart to change auxiliary inputs.\n`,
-  );
-  serve(profile, dictionary);
+
+  serve(profile, dictionary, options, await loadProject(options));
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    cli(process.argv.slice(2));
-  } catch (error) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void cli(process.argv.slice(2)).catch((error: unknown) => {
     process.stderr.write(
       `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
     );
     process.exitCode = 1;
-  }
+  });
 }
