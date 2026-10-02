@@ -109,7 +109,7 @@ interface Size {
   readonly brotli: number;
 }
 
-type Group = "entry" | "home" | "js" | "css" | "workers";
+type Group = "entry" | "home" | "js" | "css" | "workers" | "fonts";
 
 /**
  * Budgets in bytes (gzip level 9, brotli quality 11). Each began as a measured
@@ -123,6 +123,9 @@ type Group = "entry" | "home" | "js" | "css" | "workers";
  * moving the code behind a dynamic import comes first.
  */
 const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }> = {
+  // Both variable Latin fonts are used on Home and preloaded: 51.6 kB WOFF2,
+  // including the UI symbols. WOFF2 is already compressed; allow 55 kB.
+  fonts: { gzip: 55_000, brotli: 55_000 },
   // The entry chunk alone: measured 453.0 kB gzip, 367.3 kB brotli.
   entry: { gzip: 500_000, brotli: 405_000 },
   home: { gzip: 500_000, brotli: 405_000 },
@@ -148,6 +151,7 @@ const BUDGETS: Record<Group, { readonly gzip: number; readonly brotli: number }>
 };
 
 const GROUP_LABELS: Record<Group, string> = {
+  fonts: "startup fonts",
   entry: "entry chunk",
   home: "Home JavaScript",
   js: "startup JavaScript",
@@ -350,7 +354,14 @@ function main(): void {
     js: boot.map((chunk) => chunk.file),
     css,
     workers,
+    fonts: existsSync(join(dist, "fonts"))
+      ? readdirSync(join(dist, "fonts"))
+          .filter((file) => file.endsWith(".woff2"))
+          .map((file) => `fonts/${file}`)
+      : [],
   };
+  if (groups.fonts.length !== 2)
+    failures.push(`Expected two bundled UI fonts, found ${groups.fonts.length}.`);
 
   const kB = (bytes: number): string => `${(bytes / 1000).toFixed(1)} kB`;
   const createEntry = graph.chunks.find((chunk) =>

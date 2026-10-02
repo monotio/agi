@@ -118,6 +118,11 @@ const registrations = new Map<string, ModelRegistration>();
 // Standalone Monaco resolves location previews from models rather than files.
 // Load only the sources a navigation request actually returns.
 monaco.editor.onDidCreateEditor((editor) => {
+  // Monaco measures text itself; CSS inheritance alone leaves its OS default.
+  editor.updateOptions({
+    fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--font-mono"),
+  });
+  void document.fonts.ready.then(() => monaco.editor.remeasureFonts());
   const changes = editor.onDidChangeModel(() => {
     if (editor.getModel()?.uri.scheme === "agi-preview") editor.updateOptions({ readOnly: true });
   });

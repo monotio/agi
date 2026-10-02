@@ -401,6 +401,8 @@ For local provider setup, see [AGI_DEV_KEYS](CONTRIBUTING.md#development).
 Created by Joakim Riedel and published by [Monotio](https://monotio.com). The
 engine, authoring tools, browser shell and original project assets, including
 the Adventure Department tutorial, use the [MIT license](LICENSE).
+The bundled UI fonts use the [SIL Open Font License 1.1](app/public/fonts/NOTICE.txt),
+with attribution in [NOTICE](NOTICE); they retain that licence in builds.
 Dependencies and imported games keep their own licenses; no commercial game
 assets are part of this repository. The icons are a hand-picked
 [Lucide](https://lucide.dev) set ([app/src/ui/icons.ts](app/src/ui/icons.ts)),
