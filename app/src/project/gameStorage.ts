@@ -1,4 +1,5 @@
 import { readAgentChats, appendAgentTasks, type AgentChat } from "../../../src/agent/chats.ts";
+import { resumeProjectSaveJournals } from "./projectSaveJournal.ts";
 import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
 import {
   readProjectWorkspace,
@@ -1419,13 +1420,23 @@ export function runInWriteTurn<T>(
   return operation();
 }
 export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGameData | null> {
+  const recovery =
+    typeof localStorage === "undefined"
+      ? undefined
+      : resumeProjectSaveJournals(localStorage, projectId, commitProject);
+  if (recovery !== undefined) await recovery;
   return serializeWrite(projectId, () => readBody(projectId));
 }
 
 /** Body and lifetime are read from one snapshot before a worker can start. */
-export function loadAuthoredGameWithHistoryLifetime(
+export async function loadAuthoredGameWithHistoryLifetime(
   projectId: ProjectId,
 ): Promise<{ data: CachedGameData; lifetime: string | null } | null> {
+  const recovery =
+    typeof localStorage === "undefined"
+      ? undefined
+      : resumeProjectSaveJournals(localStorage, projectId, commitProject);
+  if (recovery !== undefined) await recovery;
   return serializeWrite(projectId, async () => {
     let lifetime: string | null = null;
     const data = await readBody(projectId, (value) => {

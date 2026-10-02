@@ -128,7 +128,9 @@ test("a late admission after disposal leaves the old model and storage untouched
     label: "Edit",
     author: "creator",
   });
+  assert.equal(session.saveStatus().state, "pending", "queued admission is unsaved work");
   await Promise.resolve();
+  assert.equal(session.saveStatus().state, "pending", "blocked admission cannot report Saved");
   session.dispose();
   release!({ status: "committed", expected: null, current: null, patchGeneration: 1 });
   await assert.rejects(edit, /superseded/);

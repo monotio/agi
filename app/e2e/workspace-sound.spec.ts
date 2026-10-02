@@ -1,6 +1,7 @@
 import { expect, reviewShot, test } from "./test.ts";
 import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
+import type { ProjectSession } from "../src/project/projectSession.ts";
 
 async function starter(page: Page): Promise<void> {
   await isolateStorage(page);
@@ -181,4 +182,39 @@ test("sound presets, note keyboard edits and guided cue creation share the works
   await page.getByTestId("part-sound:2").click();
   const reopened = page.getByTestId("workspace-sound").filter({ visible: true });
   await expect(reopened.getByLabel("Tempo", { exact: true })).toHaveValue("240");
+});
+
+test("a SOUND edit survives an immediate reload before the project write @webkit-desktop", async ({
+  page,
+}) => {
+  await starter(page);
+  await page.getByTestId("part-sound:1").click();
+  await expect(page.getByTestId("workspace-sound")).toBeVisible();
+  await page.evaluate(async () => {
+    const session = (
+      window as unknown as {
+        __AGI_PROJECT__: {
+          getSession(): ProjectSession;
+        };
+      }
+    ).__AGI_PROJECT__.getSession();
+    const { soundProjectChanges } = await import("/src/studio/sound/soundEdits.ts");
+    const content = session.model.capture().read("sound:1")!.content as Uint8Array;
+    await session.submit({
+      proposal: session.model.propose(
+        session.model.capture(),
+        "Tempo",
+        soundProjectChanges("sound:1", content, 240),
+      ),
+      label: "Tempo",
+      origin: "sound",
+      author: "creator",
+    });
+    location.reload();
+  });
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await page.getByTestId("part-sound:1").click();
+  await expect(
+    page.getByTestId("workspace-sound").getByLabel("Tempo", { exact: true }),
+  ).toHaveValue("240");
 });

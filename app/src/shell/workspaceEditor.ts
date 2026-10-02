@@ -111,6 +111,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     const session = engine.getProjectSession();
     if (!session || busy.value) return;
     busy.value = true;
+    save.value = "Saving…";
     error.value = "";
     try {
       const outcome = await session[direction]();

@@ -11,6 +11,7 @@ export function createProjectAutosave<Capture, Receipt>(input: {
   let pending: Capture | undefined;
   let failed: Capture | undefined;
   let active: Promise<void> | null = null;
+  let writing: Capture | undefined;
   let disposed = false;
   let stopped = false;
   let state: "saved" | "pending" | "saving" | "failed" | "conflict" = "saved";
@@ -31,15 +32,18 @@ export function createProjectAutosave<Capture, Receipt>(input: {
     while (current() && !stopped && (failed !== undefined || pending !== undefined)) {
       const capture = failed ?? pending!;
       if (failed === undefined) pending = undefined;
+      writing = capture;
       notify("saving");
       try {
         const receipt = await input.write(capture);
         if (!current() || stopped) return;
         input.saved(receipt, capture);
         failed = undefined;
+        writing = undefined;
       } catch (error) {
         if (!current() || stopped) return;
         failed = capture;
+        writing = undefined;
         stopped = input.conflict(error);
         notify(stopped ? "conflict" : "failed");
         return;
@@ -86,6 +90,8 @@ export function createProjectAutosave<Capture, Receipt>(input: {
             ? "Changed in another tab. Reopen this game."
             : "",
     }),
+    captures: () =>
+      [writing ?? failed, pending].filter((capture): capture is Capture => capture !== undefined),
     dispose() {
       disposed = true;
       clearTimers();

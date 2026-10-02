@@ -37,6 +37,11 @@ import {
   type ProjectCommitReceipt,
 } from "./gameStorage.ts";
 import { createProjectAutosave } from "./projectAutosave.ts";
+import {
+  claimProjectSaveJournal,
+  projectSaveJournalKey,
+  writeProjectSaveJournal,
+} from "./projectSaveJournal.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import type { PreviewUpdateOutcome } from "../worker/workerProtocol.ts";
 
@@ -44,6 +49,7 @@ interface SessionSave {
   readonly snapshot: ProjectSnapshot;
   readonly data: ProjectCommitRequest["data"];
   request?: ProjectCommitRequest;
+  attempted?: boolean;
 }
 export interface PendingProjectRestart {
   readonly action: "restart" | "reenter";
@@ -163,6 +169,7 @@ function createSession(input: {
   let serial = 0;
   let forkId: CachedGameData["projectId"] | undefined;
   let tail = Promise.resolve();
+  let queued = 0;
   let diagnostics: PreparedProjectEdit["diagnostics"] = prepareProjectEdit({
     model,
     proposal: model.propose(model.capture(), "Opened", []),
@@ -192,41 +199,71 @@ function createSession(input: {
       }
     }
   }
+  const journalKey = projectSaveJournalKey(data.projectId, input.admission.runToken);
+  const releaseJournal = claimProjectSaveJournal(journalKey);
+  function requestFor(capture: SessionSave): ProjectCommitRequest {
+    if (capture.request !== undefined) return capture.request;
+    const fork = data.library?.source === "catalog";
+    if (fork) forkId ??= requireProjectId(`remix-${crypto.randomUUID()}`);
+    const saving = {
+      ...capture.data,
+      projectId: forkId ?? data.projectId,
+      ...(fork
+        ? {
+            title: `${data.title} Remix`,
+            imported: true,
+            roomGeneration: false,
+            library: {
+              ...data.library!,
+              source: "remix" as const,
+              catalog: undefined,
+              preview: undefined,
+              parent: { project: data.projectId, revision: expected.revision },
+            },
+          }
+        : { title: data.title, library: data.library }),
+    };
+    capture.request ??= {
+      projectId: saving.projectId,
+      workspaceId: `session-${input.lifetime}`,
+      commitId: `edit-${input.admission.runToken}-${++serial}`,
+      expected: fork ? null : { ...expected },
+      buildId: capture.snapshot.lastAdmissibleBuild!.identity.buildId,
+      documents: versions(capture.snapshot),
+      data: saving,
+    };
+    return capture.request;
+  }
+  function persistPending(): void {
+    if (input.write !== undefined || typeof localStorage === "undefined") return;
+    try {
+      writeProjectSaveJournal(
+        localStorage,
+        journalKey,
+        autosave.captures().map((capture) => ({
+          request: requestFor(capture),
+          attempted: capture.attempted === true,
+        })),
+      );
+    } catch {
+      // IndexedDB still owns the save; Saved awaits its durable receipt.
+    }
+  }
   const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt>({
     current,
     write: async (capture) => {
-      const fork = data.library?.source === "catalog";
-      if (fork) forkId ??= requireProjectId(`remix-${crypto.randomUUID()}`);
-      const saving = {
-        ...capture.data,
-        projectId: forkId ?? data.projectId,
-        ...(fork
-          ? {
-              title: `${data.title} Remix`,
-              imported: true,
-              roomGeneration: false,
-              library: {
-                ...data.library!,
-                source: "remix" as const,
-                catalog: undefined,
-                preview: undefined,
-                parent: { project: data.projectId, revision: expected.revision },
-              },
-            }
-          : { title: data.title, library: data.library }),
-      };
-      capture.request ??= {
-        projectId: saving.projectId,
-        workspaceId: `session-${input.lifetime}`,
-        commitId: `edit-${input.admission.runToken}-${++serial}`,
-        expected: fork ? null : { ...expected },
-        buildId: capture.snapshot.lastAdmissibleBuild!.identity.buildId,
-        documents: versions(capture.snapshot),
-        data: saving,
-      };
+      requestFor(capture);
+      if (!capture.attempted) {
+        capture.request = {
+          ...capture.request!,
+          expected: data.library?.source === "catalog" ? null : { ...expected },
+        };
+        capture.attempted = true;
+        persistPending();
+      }
       return input.write === undefined
-        ? (await commitProject(capture.request)).receipt
-        : input.write(capture.request);
+        ? (await commitProject(capture.request!)).receipt
+        : input.write(capture.request!);
     },
     saved: (receipt, capture) => {
       if (receipt.saved.projectId !== data.projectId) {
@@ -246,7 +283,10 @@ function createSession(input: {
       ["ConcurrencyConflictError", "ProjectDeletedError", "StaleAuthoringError"].includes(
         error.name,
       ),
-    changed: notify,
+    changed() {
+      persistPending();
+      notify();
+    },
   });
   function captureSave(
     snapshot: ProjectSnapshot,
@@ -360,7 +400,12 @@ function createSession(input: {
     };
   }
   function schedule<T>(operation: () => Promise<T>): Promise<T> {
-    const result = tail.then(operation);
+    queued++;
+    notify();
+    const result = tail.then(operation).finally(() => {
+      queued--;
+      notify();
+    });
     tail = result.then(
       () => {},
       () => {},
@@ -566,7 +611,7 @@ function createSession(input: {
         diagnostics,
         pendingRestart,
         pendingAdmission: pendingImage !== undefined,
-        save: autosave.status(),
+        save: session.saveStatus(),
       };
     },
     subscribe(observer: () => void) {
@@ -575,12 +620,18 @@ function createSession(input: {
         observers.delete(observer);
       };
     },
-    saveStatus: autosave.status,
+    saveStatus() {
+      const status = autosave.status();
+      return queued > 0 && status.state === "saved"
+        ? { ...status, state: "pending" as const }
+        : status;
+    },
     stopWrites: autosave.stop,
     dispose() {
       disposed = true;
       epoch++;
       autosave.dispose();
+      releaseJournal();
       for (const observer of observers) {
         try {
           observer();
