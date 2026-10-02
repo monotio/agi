@@ -97,6 +97,8 @@ async function bootTabA(page: Page): Promise<void> {
 
 async function resume(page: Page): Promise<void> {
   await page.getByTestId("btn-resume-cached").click();
+  await expect(page.getByRole("heading", { name: "Two tabs", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 2);
 }
@@ -237,6 +239,8 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   await page.getByTestId("menu-assistant").click();
   await expect(page.getByTestId("agent-bubble-error")).toContainText("changed elsewhere");
   await page.getByTestId("agent-bubble-reload").click();
+  // The old room and cycle remain visible until the replacement worker boots.
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 2);
   await expect(note).toHaveCount(0);
