@@ -115,14 +115,17 @@ async function walkToRoom(page: Page, key: string, room: number): Promise<void> 
   let ackedModal: string | null = null;
   // One held keydown sends a single direction message; a press landing while
   // the interpreter is parked (modal ack, input wait) can be consumed as the
-  // wait's answer instead. Re-pressing keeps walking like a player would.
+  // wait's answer instead. Re-press only when movement has stopped.
   let held = false;
+  let position: string | null = null;
+  let positionCycle = 0;
   try {
     await expect
       .poll(
         async () => {
           const hook = await textHook(page);
           lastHook = hook;
+          if (hook.room === room) return hook.room;
           if (hook.modal === null) {
             ackedModal = null;
           } else {
@@ -130,11 +133,23 @@ async function walkToRoom(page: Page, key: string, room: number): Promise<void> 
             if (instance !== ackedModal) {
               ackedModal = instance;
               await page.keyboard.press("Enter");
+              held = false;
             }
+            return hook.room;
           }
-          if (held) await page.keyboard.up(key);
-          await page.keyboard.down(key);
-          held = true;
+          const nextPosition = `${hook.room}:${hook.egoX}:${hook.egoY}`;
+          if (position !== nextPosition) {
+            position = nextPosition;
+            positionCycle = hook.cycle;
+          }
+          // AGI direction presses toggle walking. Keep a moving ego walking;
+          // send another press only after a modal or several idle cycles.
+          if (!held || hook.cycle - positionCycle >= 4) {
+            await page.keyboard.up(key);
+            await page.keyboard.down(key);
+            held = true;
+            positionCycle = hook.cycle;
+          }
           return hook.room;
         },
         { timeout: 30_000, intervals: [500] },

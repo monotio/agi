@@ -35,12 +35,15 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   page,
 }) => {
   await bootTutorial(page);
-  // The 62 px bar and 48 px strip leave 790 rows. A 3× frame fills
-  // less than 80% of the available area, so the screen uses the fluid fit.
-  expect(await surfaceBox(page)).toMatchObject({ width: 1264, height: 790 });
+  // System fonts can change the strip's height. The fluid frame fills the
+  // available stage at 8:5 instead of assuming one font's chrome height.
+  const available = (await page.locator(".stage:visible").boundingBox())!;
+  const fitWidth = Math.floor(Math.min(available.width, available.height * 1.6));
+  const original = { width: fitWidth, height: fitWidth / 1.6 };
+  await expect.poll(() => surfaceBox(page)).toMatchObject(original);
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("toggle-original-aspect").click();
-  // 4:3 needs 240 rows per step: 790 rows hold 3× (960×720).
+  // 4:3 needs 240 rows per step: the stage holds 3× (960×720).
   await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
   expect((await surfaceBox(page)).height).toBe(720);
   await page.getByTestId("toggle-original-aspect").click();
@@ -67,7 +70,7 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   await drawer.getByTestId("agent-bubble-close").click();
   await expect(drawer).toBeHidden();
   await expect(page.getByTestId("input-line")).toBeFocused();
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(1264);
+  await expect.poll(() => surfaceBox(page)).toMatchObject(original);
 });
 
 /** Pairs of top-bar controls whose boxes overlap, and how wide the bar is laid out. */

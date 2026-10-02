@@ -778,7 +778,11 @@ defineExpose({
           <span class="led" aria-hidden="true"></span
           >{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}
         </button>
-        <p v-show="gameFocused || touchControls" id="game-input-help" class="input-help">
+        <p
+          id="game-input-help"
+          class="input-help"
+          :class="{ 'input-help--hidden': !gameFocused && !touchControls }"
+        >
           <template v-if="touchControls">Type for the keyboard · Keys for F1–F10</template>
           <template v-else
             >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
@@ -1005,6 +1009,9 @@ defineExpose({
 .input-help {
   margin: 0;
   animation: hint-settle 1.2s ease-in 60s forwards;
+}
+.input-help--hidden {
+  visibility: hidden;
 }
 .input-help kbd {
   padding: 0 var(--space-1);

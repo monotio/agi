@@ -1879,10 +1879,12 @@ function onKeyup(event: KeyboardEvent): void {
    takes editor gestures; only an unfinished gesture paints a preview over MAIN. */
 .studio.is-embedded {
   grid-template-columns: 0 44px minmax(0, 1fr) minmax(140px, 236px);
-  grid-template-rows: 0 40px minmax(0, 1fr) 52px 28px;
+  grid-template-rows: 0 minmax(40px, max-content) minmax(0, 1fr) 52px 28px;
 }
 .studio.is-embedded .studio__options {
   grid-column: 2 / 5;
+  flex-wrap: wrap;
+  padding-block: var(--space-1);
 }
 .studio.is-embedded .studio__scene {
   grid-column: 4;

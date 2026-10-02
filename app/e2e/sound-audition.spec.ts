@@ -97,8 +97,14 @@ test("audition plays a native cue on its own context and preserves the game's ho
       contextTimes.push(...packet.outputs.map(() => previewContext.currentTime));
       original(packet);
     };
+    let lastPosition = -1;
     audition.subscribe((snapshot) => {
-      if (snapshot.status === "playing") wakeTimes.push(performance.now());
+      // Status notifications and an early timer wake can report the same
+      // position. Cadence measures actual tick progress, once per wake.
+      if (snapshot.status === "playing" && snapshot.positionTicks !== lastPosition) {
+        wakeTimes.push(performance.now());
+        lastPosition = snapshot.positionTicks;
+      }
     });
     audition.setTarget({
       projectId: "proj-1",
