@@ -4,8 +4,14 @@ import type { ProjectContent } from "../../../../src/authoring/projectContent.ts
 
 export type WordsTask =
   | { kind: "suggest"; group: number; words: readonly string[] }
-  | { kind: "predict"; room: number; pictures?: readonly number[] }
-  | { kind: "review"; room: number; commands: readonly string[]; pictures?: readonly number[] };
+  | { kind: "predict"; room: number; roomName?: string; pictures?: readonly number[] }
+  | {
+      kind: "review";
+      room: number;
+      roomName?: string;
+      commands: readonly string[];
+      pictures?: readonly number[];
+    };
 export function wordsTaskPrompt(
   task: WordsTask,
   documents: Readonly<Record<string, ProjectContent>>,
@@ -26,6 +32,18 @@ export function wordsTaskPrompt(
   if (task.kind === "review")
     return `Prepare WORDS.TOK and LOGIC changes for review in ROOM ${task.room} to answer these commands: ${task.commands.join("; ")}. Preserve existing group numbers and use real AGI said() responses.\n\n${context}`;
   return `Predict commands players will likely try in ROOM ${task.room}. Read its PICTURE description, objects, messages and LOGIC, including LOGIC 0. Resolve the room’s draw.pic bindings if its PICTURE is selected at runtime. Return a JSON object {"commands":["look tree"]} in your closing reply. Propose commands only; the editor checks responses and the builder chooses gaps to review.\n\n${context}`;
+}
+export function wordsTaskRequest(
+  task: WordsTask,
+  documents: Readonly<Record<string, ProjectContent>>,
+): { text: string; context: string } {
+  const text =
+    task.kind === "suggest"
+      ? `Suggest words for ${task.words[0] ?? `meaning ${task.group}`}`
+      : task.kind === "predict"
+        ? `Predict what players will try in ${task.roomName ?? `ROOM ${task.room}`}`
+        : `Add responses in ${task.roomName ?? `ROOM ${task.room}`}: ${task.commands.join("; ")}`;
+  return { text, context: wordsTaskPrompt(task, documents) };
 }
 export function readWordSuggestions(reply: string, kind: WordsTask["kind"]): string[] {
   try {
@@ -51,7 +69,7 @@ export async function openWordsTask(input: {
   task: WordsTask;
   documents: Readonly<Record<string, ProjectContent>>;
   engine: EngineApi;
-  compose(text: string): void;
+  compose(request: { text: string; context: string }): void;
   configured: boolean;
   config: LlmConfig;
   setup(): void;
@@ -62,5 +80,5 @@ export async function openWordsTask(input: {
   }
   if (!input.engine.state.powerUp.open) await input.engine.openPowerUp(input.config);
   input.engine.state.powerUp.mode = input.task.kind === "review" ? "remix" : "ask";
-  input.compose(wordsTaskPrompt(input.task, input.documents));
+  input.compose(wordsTaskRequest(input.task, input.documents));
 }

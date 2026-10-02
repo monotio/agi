@@ -111,6 +111,15 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
               name: "read_document",
               input: { key: picture, offset: null, limit: null },
             },
+            ...(prompt.includes("look at sign")
+              ? [
+                  {
+                    id: "words",
+                    name: "read_document",
+                    input: { key: "words", offset: null, limit: null },
+                  },
+                ]
+              : []),
           ],
         };
       }
@@ -125,10 +134,25 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
             }
           })
           .filter((item) => item.result?.details?.["key"]);
-        const changes = reads.slice(-2).map((item) => {
+        const signResponse = prompt.includes("look at sign");
+        const changes = reads.slice(signResponse ? -3 : -2).map((item) => {
           const r = item.result!;
           const key = String(r.details!["key"]);
           const text = r.message?.split(":\n").slice(1).join(":\n") ?? "";
+          if (signResponse && key === "words") {
+            const entries = JSON.parse(text) as [string, number][];
+            if (!entries.some(([word]) => word === "sign"))
+              entries.push(["sign", Math.max(1, ...entries.map(([, group]) => group)) + 1]);
+            return { key, content: JSON.stringify(entries) };
+          }
+          if (signResponse && key.startsWith("logic:"))
+            return {
+              key,
+              content: text.replace(
+                /return;\s*$/,
+                'if (said("look", "sign")) { print("Welcome sign"); }\nreturn;\n',
+              ),
+            };
           return {
             key,
             content: key.startsWith("logic:")
@@ -325,7 +349,12 @@ export function createWorkspaceAgent(options: Options) {
     const run = new AgentRun(config.model, () => notify(), config.budgetUsd);
     activeRun = run;
     const userId = id();
-    chat.messages.push({ id: userId, role: "user", text: instruction });
+    chat.messages.push({
+      id: userId,
+      role: "user",
+      text: instruction,
+      ...(context ? { context } : {}),
+    });
     if (chat.title === "New chat") chat.title = chatTitle(instruction);
     const make = options.conversation ?? conversation;
     let provider: UnifiedConversation | undefined;

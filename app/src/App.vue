@@ -241,6 +241,7 @@ const { onDockKey } = useCreateMode({
 });
 const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
   engine,
+  creating: () => creating.value,
   playArea: () => playArea.value,
   // Workspace keys reach MAIN only while the game zone owns focus.
   intercept: (ev) =>

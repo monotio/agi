@@ -3,6 +3,7 @@ interface AgentChatMessage {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly text: string;
+  readonly context?: string;
   readonly beforeCommit?: string;
   readonly commit?: string;
 }
@@ -89,8 +90,9 @@ export function readAgentChats(value: unknown): AgentChats {
         !["user", "assistant"].includes(message.role) ||
         typeof message.text !== "string" ||
         Object.keys(message).some(
-          (key) => !["id", "role", "text", "beforeCommit", "commit"].includes(key),
+          (key) => !["id", "role", "text", "context", "beforeCommit", "commit"].includes(key),
         ) ||
+        (message.context !== undefined && typeof message.context !== "string") ||
         (message.commit !== undefined &&
           (typeof message.commit !== "string" || typeof message.beforeCommit !== "string")) ||
         (message.beforeCommit !== undefined && message.commit === undefined)

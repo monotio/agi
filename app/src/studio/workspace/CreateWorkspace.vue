@@ -443,9 +443,9 @@ async function wordsTask(task: WordsTask): Promise<void> {
     task: scoped,
     documents: snapshot.value?.documents() ?? {},
     engine,
-    compose: (text) => {
+    compose: (request) => {
       workspace.showPanel("assistant");
-      editor.agentPrefill.value = { text, readOnly: task.kind !== "review" };
+      editor.agentPrefill.value = { ...request, readOnly: task.kind !== "review" };
     },
     configured: ai.aiConfigured.value,
     config: ai.llmConfig(),

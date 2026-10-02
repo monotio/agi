@@ -12,7 +12,7 @@ import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { wordGroups, nextWordGroup } from "./wordGroups.ts";
 import { meaningUses, sentenceOutcomes, type WordRows } from "./wordsAnalysis.ts";
-import { readWordSuggestions, wordsTaskPrompt, type WordsTask } from "./wordsAgent.ts";
+import { readWordSuggestions, wordsTaskRequest, type WordsTask } from "./wordsAgent.ts";
 const props = defineProps<{
   source: string;
   documents: Readonly<Record<string, ProjectContent>>;
@@ -31,6 +31,14 @@ const emit = defineEmits<{
 const engine = useEngineApi();
 void engine.loadPlayerSentences();
 const editor = useWorkspaceEditor();
+const roomName = computed(
+  () =>
+    engine.roomMap.graph.value.nodes.find((node) => node.room === props.room)?.title ||
+    editor.parts.value
+      .find((part) => part.id === `logic:${props.room}`)
+      ?.title.split(" · ROOM ")[0] ||
+    `ROOM ${props.room}`,
+);
 const entries = computed<WordRows>(() => {
   try {
     return JSON.parse(props.source) as WordRows;
@@ -201,6 +209,7 @@ function acceptSame(): void {
   if (!error.value) same.value = undefined;
 }
 function task(value: WordsTask): void {
+  if (value.kind !== "suggest") value = { ...value, roomName: roomName.value };
   pendingTask.value = {
     task: value,
     start: editor.agentMessages.value.length,
@@ -217,7 +226,7 @@ watch(
     const request = messages.findLastIndex(
       (message) =>
         message.role === "user" &&
-        message.text.startsWith(wordsTaskPrompt(pending.task, props.documents).split("\n")[0]!),
+        message.text.startsWith(wordsTaskRequest(pending.task, props.documents).text),
     );
     if (request < 0) return;
     const reply = messages.slice(request + 1).findLast((message) => message.role === "assistant");
@@ -376,7 +385,7 @@ function dismissGhosts(event: KeyboardEvent): void {
       </section>
       <section v-if="predictions.length" class="words-predictions" aria-label="Predicted commands">
         <div class="words-section">
-          <h3>✦ Players will likely try in ROOM {{ room }}</h3>
+          <h3>✦ Players will likely try in {{ roomName }}</h3>
           <UiButton size="sm" @click="predictions = []">Hide</UiButton>
         </div>
         <div v-for="prediction in predictionRows" :key="prediction.command" class="tried-row">

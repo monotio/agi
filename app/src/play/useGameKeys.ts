@@ -33,6 +33,7 @@ export const PAGE_CONTROLS =
 export function useGameKeys(deps: {
   engine: EngineApi;
   playArea: () => KeyTarget | null | undefined;
+  creating: () => boolean;
   /** Shell keys taken before the game: true when the event was consumed. */
   intercept: (ev: KeyboardEvent) => boolean;
 }) {
@@ -63,9 +64,8 @@ export function useGameKeys(deps: {
     if (state.phase !== "running" || !isInputReady) return;
     if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
-    // The bubble owns the keyboard while it is open: the world is frozen and
-    // nothing typed here may reach the interpreter's input line.
-    if (state.powerUp.open) {
+    // Play hints own the keyboard; Create routes each key by its focused zone.
+    if (state.powerUp.open && !deps.creating()) {
       if (ev.key === "Escape") {
         ev.preventDefault();
         closePowerUp();

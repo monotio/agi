@@ -575,8 +575,17 @@ test("Ask continues the current task chat with read-only tools and game notes", 
     },
   });
   const first = agent.current().id;
-  assert.equal(await agent.ask("Where next?", "Room 1"), "Try looking around.");
+  assert.equal(
+    await agent.ask("Where next?", "Room 1\nReturn concise hints."),
+    "Try looking around.",
+  );
   assert.equal(agent.current().id, first);
+  assert.deepEqual(agent.current().messages[0], {
+    id: agent.current().messages[0]!.id,
+    role: "user",
+    text: "Where next?",
+    context: "Room 1\nReturn concise hints.",
+  });
   assert.ok(prompt.includes("Friendly hints."));
   assert.ok(
     !allowed.includes("propose_changes") &&
