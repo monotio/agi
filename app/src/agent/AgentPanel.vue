@@ -11,7 +11,7 @@ import {
   watch,
 } from "vue";
 import AgentReply from "./AgentReply.ts";
-import { borrowWorkspaceAgent } from "./workspaceAgent.ts";
+import { borrowWorkspaceAgent, type ReplyFormatter } from "./workspaceAgent.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
@@ -42,6 +42,7 @@ const tick = ref(0);
 const input = ref("");
 const readOnly = ref(false);
 const taskContext = ref("");
+const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
 onMounted(() => composer.value?.focus());
 watch(
@@ -51,6 +52,7 @@ watch(
     input.value = prefill.text;
     readOnly.value = prefill.readOnly;
     taskContext.value = prefill.context ?? "";
+    formatReply.value = prefill.formatReply;
     editor.agentPrefill.value = null;
     await nextTick();
     composer.value?.focus();
@@ -201,6 +203,8 @@ async function send() {
   const request = input.value;
   const inspect = readOnly.value;
   const scoped = taskContext.value;
+  const replyFormatter = formatReply.value;
+  formatReply.value = undefined;
   taskContext.value = "";
   readOnly.value = false;
   input.value = "";
@@ -220,7 +224,7 @@ async function send() {
             .diagnostics.map((entry) => `${entry.document ?? "Project"}: ${entry.message}`) ?? [])
         : []),
     ].join("\n");
-    if (inspect) await agent.value?.ask(request, context);
+    if (inspect) await agent.value?.ask(request, context, replyFormatter);
     else await agent.value?.send(request, context);
   });
 }

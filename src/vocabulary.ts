@@ -9,6 +9,19 @@ export interface VocabularyAction extends VocabularyTerm {
   readonly tool: string;
 }
 
+export const WORDS_REPLY_COPY = {
+  suggested: "Suggested {words} · shown in WORDS",
+  suggestedCount: "Suggested {count} words · shown in WORDS",
+  predicted: "Predicted {count} {commands} · see Players will likely try in {room}",
+  command: "command",
+  commands: "commands",
+  unreadable: "The reply’s JSON could not be read.",
+  emptyWords: "The reply contained no usable words.",
+  emptyCommands: "The reply contained no usable commands.",
+  retrySuggest: "Try ✦ Suggest again.",
+  retryPredict: "Try ✦ Predict commands again.",
+} as const;
+
 export const VOCABULARY = {
   meaningButton: {
     id: "meaningButton",

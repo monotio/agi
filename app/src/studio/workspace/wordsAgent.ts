@@ -1,6 +1,8 @@
 import type { EngineApi } from "../../engine/engineContext.ts";
 import type { LlmConfig } from "../../agent/llmClient.ts";
 import type { ProjectContent } from "../../../../src/authoring/projectContent.ts";
+import { WORDS_REPLY_COPY } from "../../../../src/vocabulary.ts";
+import type { ReplyFormatter } from "../../agent/workspaceAgent.ts";
 
 export type WordsTask =
   | { kind: "suggest"; group: number; words: readonly string[] }
@@ -46,13 +48,16 @@ export function wordsTaskRequest(
   return { text, context: wordsTaskPrompt(task, documents) };
 }
 export function readWordSuggestions(reply: string, kind: WordsTask["kind"]): string[] {
+  return parseWordSuggestions(reply, kind) ?? [];
+}
+function parseWordSuggestions(reply: string, kind: WordsTask["kind"]): string[] | null {
   try {
     const start = reply.indexOf("{");
     const end = reply.lastIndexOf("}");
     const value: unknown = JSON.parse(reply.slice(start, end + 1));
-    if (typeof value !== "object" || value === null) return [];
+    if (typeof value !== "object" || value === null) return null;
     const rows = (value as Record<string, unknown>)[kind === "suggest" ? "synonyms" : "commands"];
-    if (!Array.isArray(rows)) return [];
+    if (!Array.isArray(rows)) return null;
     return [
       ...new Set(
         rows.filter(
@@ -61,15 +66,41 @@ export function readWordSuggestions(reply: string, kind: WordsTask["kind"]): str
       ),
     ].slice(0, 30);
   } catch {
-    return [];
+    return null;
   }
+}
+export function wordsTaskReply(reply: string, task: WordsTask): ReturnType<ReplyFormatter> {
+  if (task.kind === "review") return { text: reply };
+  const values = parseWordSuggestions(reply, task.kind);
+  const copy = WORDS_REPLY_COPY;
+  let text: string;
+  if (!values?.length) {
+    const problem =
+      values === null
+        ? copy.unreadable
+        : task.kind === "suggest"
+          ? copy.emptyWords
+          : copy.emptyCommands;
+    text = `${problem} ${task.kind === "suggest" ? copy.retrySuggest : copy.retryPredict}`;
+  } else if (task.kind === "suggest") {
+    text =
+      values.length <= 3
+        ? copy.suggested.replace("{words}", values.join(", "))
+        : copy.suggestedCount.replace("{count}", String(values.length));
+  } else {
+    text = copy.predicted
+      .replace("{count}", String(values.length))
+      .replace("{commands}", values.length === 1 ? copy.command : copy.commands)
+      .replace("{room}", () => task.roomName ?? `ROOM ${task.room}`);
+  }
+  return { text, context: reply };
 }
 /** One prefilled handoff point for the workspace's existing agent surface. */
 export async function openWordsTask(input: {
   task: WordsTask;
   documents: Readonly<Record<string, ProjectContent>>;
   engine: EngineApi;
-  compose(request: { text: string; context: string }): void;
+  compose(request: { text: string; context: string; formatReply?: ReplyFormatter }): void;
   configured: boolean;
   config: LlmConfig;
   setup(): void;
@@ -80,5 +111,10 @@ export async function openWordsTask(input: {
   }
   if (!input.engine.state.powerUp.open) await input.engine.openPowerUp(input.config);
   input.engine.state.powerUp.mode = input.task.kind === "review" ? "remix" : "ask";
-  input.compose(wordsTaskRequest(input.task, input.documents));
+  input.compose({
+    ...wordsTaskRequest(input.task, input.documents),
+    ...(input.task.kind === "review"
+      ? {}
+      : { formatReply: (reply: string) => wordsTaskReply(reply, input.task) }),
+  });
 }

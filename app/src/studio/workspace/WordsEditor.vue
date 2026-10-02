@@ -231,7 +231,7 @@ watch(
     if (request < 0) return;
     const reply = messages.slice(request + 1).findLast((message) => message.role === "assistant");
     if (!reply) return;
-    const values = readWordSuggestions(reply.text, pending.task.kind);
+    const values = readWordSuggestions(reply.context ?? reply.text, pending.task.kind);
     if (!values.length) {
       pendingTask.value = undefined;
       return;
