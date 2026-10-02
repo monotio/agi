@@ -15,6 +15,7 @@ import UiButton from "../ui/UiButton.vue";
 import CardDetailsDialog from "./CardDetailsDialog.vue";
 import GameCard from "./GameCard.vue";
 import SavedGameCard from "./SavedGameCard.vue";
+import UnsupportedProject from "./UnsupportedProject.vue";
 import TemplateCard from "./TemplateCard.vue";
 import TutorialCard from "./TutorialCard.vue";
 import { catalogLibraryCopy } from "./shelfIdentity.ts";
@@ -31,6 +32,7 @@ import { computed } from "vue";
 
 const {
   savedGames,
+  unsupportedProjects,
   pendingAutosave,
   pendingProgressTarget,
   localGames,
@@ -221,6 +223,16 @@ function startCreating(templateId: string): void {
     <div class="shelf-grid" data-testid="saved-game-gallery">
       <TutorialCard />
       <SavedGameCard v-for="game in shelfSavedGames" :key="game.projectId" :game />
+      <GameCard
+        v-for="game in unsupportedProjects"
+        :key="game.projectId"
+        :title="game.title"
+        :monogram="monogram(game.title)"
+        :data-testid="`unsupported-project-card-${game.projectId}`"
+        :data-project-id="game.projectId"
+      >
+        <UnsupportedProject :game />
+      </GameCard>
       <CatalogPanel />
       <!-- Autosave left over from an installed or unavailable game. -->
       <GameCard

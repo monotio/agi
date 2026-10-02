@@ -7,6 +7,7 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Added
 
+- Bundled Geist and Geist Mono fonts for consistent UI text and code.
 - Create workspace with a parts list, editors beside the running game, and Focus.
 - Live edits, autosave, shared Undo and Redo, and named History checkpoints.
 - LOGIC code intelligence, Problems, guided actions and a step debugger.
@@ -36,6 +37,8 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 
 ### Fixed
 
+- Projects saved by a newer version stay visible with Download and Remove
+  actions, including when opened through a game link.
 - Saving shows while a change is pending, and an edit survives a reload or tab
   close right after it is made.
 - Opening a menu while the game screen loads keeps the menu open.

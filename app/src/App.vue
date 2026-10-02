@@ -313,6 +313,10 @@ watch(
 
 /** Back and Forward between Play and Create; at the menu a stale game route is cleared. */
 async function onPopState(): Promise<void> {
+  if (state.phase === "idle" && followUnsupportedProjectRoute()) {
+    clearPlayHash();
+    return;
+  }
   if (state.phase === "idle" && (await followEmptyProjectRoute())) return;
   if (state.phase === "running") shell.followRoute(location.hash);
   else if (state.phase === "idle" && isGameRoute(location.hash)) clearPlayHash();
@@ -517,6 +521,7 @@ async function mountApplication(): Promise<void> {
   try {
     await reconcileGameIndex();
     lib.refreshLibrary();
+    await lib.refreshUnsupportedProjects();
   } catch (error) {
     lib.libraryActionError.value = `Your saved game library could not be refreshed: ${String(error).replace(/^Error: /, "")}`;
   }
@@ -542,7 +547,9 @@ async function mountApplication(): Promise<void> {
       state.phase = "error";
       state.error = e instanceof Error ? e.message : String(e);
     });
-  else if (await followEmptyProjectRoute()) {
+  else if (followUnsupportedProjectRoute()) {
+    shell.reset();
+  } else if (await followEmptyProjectRoute()) {
     return;
   } else if (playKey) {
     // Only a routed key that proves no resume offer takes the ordinary routed
@@ -563,6 +570,19 @@ onMounted(() =>
 
 /** Home's note about the link it was opened with; cleared once any game runs. */
 const routeNote = ref("");
+const unsupportedRouteId = ref("");
+const unsupportedRouteProject = computed(() =>
+  lib.unsupportedProjects.value.find((game) => game.projectId === unsupportedRouteId.value),
+);
+
+/** A future project link opens its recovery actions before any playable reader runs. */
+function followUnsupportedProjectRoute(): boolean {
+  const key = parseGameHash(location.hash)?.key;
+  const game = lib.unsupportedProjects.value.find((entry) => entry.projectId === key);
+  if (!game) return false;
+  unsupportedRouteId.value = game.projectId;
+  return true;
+}
 
 /**
  * A cold `#play/<target>` or `#create/<target>` whose game has no pending
@@ -840,7 +860,11 @@ watch(
       @closed="onAiSettingsClosed"
     />
 
-    <SetupPanel :route-note="routeNote" :route-pending="initialRoutePending" />
+    <SetupPanel
+      :route-note="routeNote"
+      :route-pending="initialRoutePending"
+      :unsupported-project="unsupportedRouteProject"
+    />
 
     <!-- Below the fold: while Studio holds the page still they wait hidden,
          out of Tab's reach. -->

@@ -39,6 +39,12 @@ export const WORDS_REPLY_COPY = {
 } as const;
 
 export const VOCABULARY = {
+  savedByNewer: {
+    id: "savedByNewer",
+    label: "Saved by a newer version of AGI IS HERE",
+    help: "Download the saved project or remove it from this browser.",
+    technical: "",
+  },
   meaningButton: {
     id: "meaningButton",
     label: "+ Meaning",
