@@ -1,4 +1,11 @@
-import { expect, test } from "./test.ts";
+import { fileURLToPath } from "node:url";
+import { prepareIsolatedPage } from "./logicDebugShared.ts";
+import {
+  openStoredWorkspace,
+  openWorkspaceLogic,
+  replaceWorkspaceDocument,
+} from "./workspaceShared.ts";
+import { expect, reviewShot, test } from "./test.ts";
 
 test("Logic Studio analysis loads on demand and resolves source through a real worker", async ({
   page,
@@ -54,4 +61,53 @@ test("Logic Studio analysis loads on demand and resolves source through a real w
   expect(result.incomplete.diagnostics[0]?.line).toBe(2);
   expect(result.definition).toEqual({ kind: "binding", name: "door", document: "bindings" });
   expect(result.valid).toEqual({ diagnostics: [], generatedDiagnostics: [] });
+});
+
+test("saved native WORDS.TOK supplies LOGIC diagnostics", async ({ page }) => {
+  await prepareIsolatedPage(page);
+  await page.goto("/");
+  await page.evaluate(
+    async (workspaceModule) => {
+      const { prepareLocalProject } = await import("/src/project/localProject.ts");
+      const { saveAuthoredGame } = await import("/src/project/gameStorage.ts");
+      const { readProjectWorkspace, writeProjectWorkspace } = await import(workspaceModule);
+      const prepared = prepareLocalProject({ title: "Native vocabulary", kind: "starter" });
+      const data = prepared.data();
+      const documents = { ...readProjectWorkspace(data.workspace!) };
+      documents["words"] = data.files["WORDS.TOK"]!;
+      data.workspace = writeProjectWorkspace(documents);
+      await saveAuthoredGame(prepared.projectId, data);
+    },
+    "/@fs" + fileURLToPath(new URL("../../src/authoring/projectWorkspace.ts", import.meta.url)),
+  );
+  await page.reload();
+  await openStoredWorkspace(page, "Native vocabulary");
+  await openWorkspaceLogic(page);
+  const result = await page.evaluate(async () => {
+    const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+    const model = monaco.editor.getModels().find((model) => model.uri.scheme === "agi-workspace")!;
+    const { __AGI_PROJECT__ } = window as unknown as {
+      __AGI_PROJECT__: { getSession(): import("../src/project/projectSession.ts").ProjectSession };
+    };
+    const words = __AGI_PROJECT__.getSession().model.capture().read("words")!.content;
+    return { native: words instanceof Uint8Array, source: model.getValue() };
+  });
+  expect(result.native).toBe(true);
+  expect(result.source).toContain('said("look")');
+  await replaceWorkspaceDocument(
+    page,
+    "logic:1",
+    result.source + '\nif (said("notintok")) { print("Test"); }\n',
+  );
+  const markers = () =>
+    page.evaluate(async () => {
+      const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
+      return monaco.editor
+        .getModelMarkers({})
+        .map((marker) => marker.message)
+        .join("\n");
+    });
+  await expect.poll(markers).toContain("notintok");
+  expect(await markers()).not.toContain("look");
+  await reviewShot(page, "native-words-logic");
 });

@@ -595,7 +595,7 @@ export function createWorkspaceAgent(options: Options) {
         const prompt = `${readOnly ? "Answer questions about this game using read-only tools and concise hints." : "You are the game's agent. Edit any resource through one coordinated change set. Read exact documents, retain existing ids and references, and use propose_changes for the final complete set. Whole-game tools stage edits; finish validates and offers them for review."} Write concise progress notes between tools. Game notes:\n${typeof currentNotes === "string" ? currentNotes : ""}\nAttached context:\n${context}\n${references ? referenceManifest(references) : ""}${revised}\nRequest:\n${instruction}`;
         let turn = await provider.sendUserMessage(prompt);
         while (true) {
-          await run.checkpoint();
+          await run.checkpoint(false);
           if (session.closed) throw new Error("The project session was closed.");
           for (const message of turn.assistantMessages ?? [])
             if (message.phase === "commentary" && message.text) progress.push(message.text);
