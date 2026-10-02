@@ -547,6 +547,109 @@ test("catalog edits save to a remix and later writes keep that owner", async () 
   session.dispose();
 });
 
+test("a catalog save can create its remix while the next edit awaits admission", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const original = requireProjectId("catalog-overlap");
+  let releaseSave!: () => void;
+  let saving!: () => void;
+  let releaseAdmission!: () => void;
+  let admitting!: () => void;
+  const saveEntered = new Promise<void>((resolve) => {
+    saving = resolve;
+  });
+  const saveGate = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const admissionEntered = new Promise<void>((resolve) => {
+    admitting = resolve;
+  });
+  const admissionGate = new Promise<void>((resolve) => {
+    releaseAdmission = resolve;
+  });
+  let admissions = 0;
+  const savedOwners: string[] = [];
+  const session = openProjectSession({
+    data: {
+      projectId: original,
+      title: "Catalog",
+      authoredAt: "",
+      generation: 7,
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+      library: {
+        version: 1,
+        source: "catalog",
+        revision: compiled.build.identity.revision,
+        catalog: { id: "proof", version: "1" },
+        validation: { status: "ready", message: "Ready" },
+      },
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "overlap-run",
+      async admit() {
+        if (++admissions === 2) {
+          admitting();
+          await admissionGate;
+        }
+        return { status: "committed", expected: null, current: null, patchGeneration: admissions };
+      },
+    },
+    async write(request) {
+      savedOwners.push(request.projectId);
+      if (savedOwners.length === 1) {
+        saving();
+        await saveGate;
+      }
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          projectId: request.projectId,
+          lifetime: "remix-owner",
+          generation: savedOwners.length,
+          revision: compiled.build.identity.revision,
+          authoring: authoringFingerprint(undefined, request.data.workspace),
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  const edit = (content: string) =>
+    session.submit({
+      proposal: session.model.propose(session.model.capture(), "Edit", [
+        { key: "logic:0", content },
+      ]),
+      origin: "logic",
+      label: "Edit",
+      author: "creator",
+    });
+  await edit("// first\nreturn;");
+  const flushing = session.flush();
+  await saveEntered;
+  const second = edit("// second\nreturn;");
+  await admissionEntered;
+  releaseSave();
+  await flushing;
+  assert.equal(session.lifetime, "remix-owner");
+  releaseAdmission();
+  assert.equal((await second).status, "committed");
+  await session.flush();
+  assert.equal(session.model.capture().read("logic:0")!.content, "// second\nreturn;");
+  assert.equal(savedOwners.length, 2);
+  assert.notEqual(savedOwners[0], original);
+  assert.equal(savedOwners[1], savedOwners[0]);
+  session.dispose();
+});
+
 test("owned saves carry the admitted world into legacy room continuation", async () => {
   const compiled = compileProjectDocuments({
     files: Object.fromEntries(createContainer().files),

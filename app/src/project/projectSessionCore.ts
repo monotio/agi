@@ -144,6 +144,7 @@ function createSession(
   storage: SessionStorage,
 ) {
   const data = structuredClone(input.data);
+  const openedProjectId = data.projectId;
   const openedAt = input.openedAt ?? Date.now();
   data.chats = migrateAgentChats(data);
   const inspection = inspectEditableProject(data);
@@ -446,10 +447,12 @@ function createSession(
       current: () =>
         current() &&
         epoch === fence.sessionEpoch &&
-        data.projectId === fence.projectId &&
         input.lifetime === fence.lifetime &&
         input.admission.runToken === fence.workerRunToken &&
-        expected.generation >= fence.generation,
+        // The first save may finish this session's catalog fork while an
+        // admitted edit waits. Its new body has its own generation counter.
+        ((data.projectId === fence.projectId && expected.generation >= fence.generation) ||
+          (fence.projectId === openedProjectId && data.projectId === forkId)),
       preflight() {
         beforeCommit?.();
         if (action === undefined)
