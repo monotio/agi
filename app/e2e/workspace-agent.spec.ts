@@ -1,6 +1,10 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
-import { openStoredWorkspace, replaceWorkspaceDocument } from "./workspaceShared.ts";
+import {
+  openStoredWorkspace,
+  openWorkspaceLogic,
+  replaceWorkspaceDocument,
+} from "./workspaceShared.ts";
 import {
   isolateStorage,
   textHook,
@@ -25,7 +29,7 @@ async function start(page: Page, provider: "stub" | "openai" = "stub") {
   await page.getByRole("button", { name: "Start building", exact: true }).click();
   await expect(page.getByTestId("parts-list")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await page.getByTestId("part-room:1:logic").click();
+  await openWorkspaceLogic(page);
   await page.keyboard.press("ControlOrMeta+i");
   await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
 }

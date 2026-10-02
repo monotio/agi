@@ -2,6 +2,7 @@
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import "./workspace.css";
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { compilePictureSource } from "../../../../src/picture/source.ts";
 import { openContainer } from "../../../../src/container/container.ts";
 import {
   readMusicDocument,
@@ -294,9 +295,25 @@ function gameHost(key: string, host: HTMLElement): void {
 watch(editor.selected, (key) => {
   editor.gameHost.value = key ? (gameHosts.get(key) ?? null) : null;
 });
+const pendingResources = computed(() => {
+  const resources: Record<string, Uint8Array> = {};
+  for (const [key, value] of Object.entries(optimistic.value)) {
+    if (value instanceof Uint8Array) resources[key] = value;
+    else if (key.startsWith("picture:")) {
+      try {
+        resources[key] = compilePictureSource(value, { profile: profile.value }).bytes;
+      } catch {
+        /* The last working image remains available beside invalid source. */
+      }
+    }
+  }
+  return resources;
+});
 function native(key: string): Uint8Array | undefined {
   const [kind, num] = key.split(":");
   if (kind !== "picture" && kind !== "view" && kind !== "sound") return undefined;
+  const pending = pendingResources.value[key];
+  if (pending) return pending;
   const bytes = container.value?.getResource(kind, Number(num)) ?? undefined;
   const prior = nativeCache.get(key);
   if (
@@ -812,11 +829,7 @@ onBeforeUnmount(() => {
         :underlay="traceUnderlays[key] ?? null"
         :picture-number="Number(key.split(':')[1])"
         :bytes="native(key)!"
-        :authored-source="
-          typeof snapshot?.read(key)?.content === 'string'
-            ? (snapshot.read(key)!.content as string)
-            : undefined
-        "
+        :authored-source="text(key)"
         :profile="profile"
         :title="tabRows.find((tab) => tab.key === key)?.label ?? key"
         :base-revision="revision"

@@ -225,7 +225,11 @@ export function useStudioDraft(options: StudioDraftOptions) {
   watch(
     () => toValue(options.base),
     (base, old) => {
-      if (base.source !== old.source || base.revision !== old.revision) reset(base);
+      if (base.source === old.source && base.revision === old.revision) return;
+      if (base.source === source.value) {
+        kept.value = base;
+        keptDepth.value = history.value.past.length;
+      } else reset(base);
     },
   );
 
