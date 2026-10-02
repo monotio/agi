@@ -253,22 +253,13 @@ const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
 function onShellKeyup(ev: KeyboardEvent): void {
   onGlobalKeyup(ev);
 }
-/** Create keeps Developer activity in its Activity tab while that shows. */
-const activityDocked = computed(
-  () =>
-    creating.value &&
-    !phone.value &&
-    workspace.active.right === "activity" &&
-    !workspace.collapsed.right,
-);
 /**
  * Developer activity is off the page everywhere: Settings → Advanced opens
- * it, as a dialog — or, in Create on a desktop, as the Activity tab.
+ * it as a dialog.
  */
 const activitySheetOpen = ref(false);
 function openDeveloperActivity(): void {
-  if (creating.value && !phone.value) workspace.showPanel("activity");
-  else activitySheetOpen.value = true;
+  activitySheetOpen.value = true;
 }
 const assistantShown = computed(() =>
   phone.value
@@ -425,6 +416,10 @@ function clearPlayHash(): void {
 const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
 );
+const workspaceAgentAvailable = computed(() => {
+  void state.patchTick;
+  return creating.value && engine.getProjectSession() !== null;
+});
 
 function releaseMovement(): void {
   playArea.value?.releaseMovement();
@@ -629,11 +624,18 @@ onUnmounted(() => {
 // player ejected, or a boot failed) the hash is cleared, the next game opens
 // in Play, and the autosave slot is re-read so the offer below matches storage.
 watch(
-  () => [state.phase, state.paused, state.walkthrough.active, state.walkthrough.tick] as const,
+  () =>
+    [
+      state.phase,
+      state.paused,
+      state.walkthrough.active,
+      state.walkthrough.tick,
+      state.patchTick,
+    ] as const,
   ([phase, paused, watching]) => {
     if (phase === "running") {
       routeNote.value = "";
-      if (!paused) {
+      if (!paused || (!watching && !state.historyView.active)) {
         if (watching) updateWatchHash();
         else shell.markRoute();
       }
@@ -818,8 +820,8 @@ watch(
         >
           <div v-show="!creating || assistantShown" class="assistant-host">
             <!-- Mounted through the turn, so it sees the panel open and close. -->
-            <AgentPanel v-if="creating && state.powerUp.open" />
-            <AgentBubble v-else-if="!creating && state.powerUp.open" surface="drawer" />
+            <AgentPanel v-if="workspaceAgentAvailable && state.powerUp.open" />
+            <AgentBubble v-else-if="state.powerUp.open" surface="drawer" />
           </div>
         </aside>
       </div>
@@ -849,7 +851,6 @@ watch(
     />
 
     <UiDialog
-      v-if="!activityDocked"
       v-model:open="activitySheetOpen"
       title="Developer activity"
       size="lg"

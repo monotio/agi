@@ -172,6 +172,23 @@ test("released bare-id progress remains readable under its matching bound target
   );
 });
 
+test("rebinding unchanged progress preserves an in-flight download owner", () => {
+  const game = {
+    installed: false,
+    projectId: testProjectId("download-owner"),
+    revision: testRevision("first"),
+    historyLifetime: "initial",
+    progressTarget: undefined as ProgressTarget | undefined,
+  };
+  const captured = bindProgressTarget(game);
+  assert.equal(bindProgressTarget(game), captured);
+  game.revision = testRevision("changed");
+  assert.notEqual(bindProgressTarget(game), captured);
+  const revised = game.progressTarget;
+  game.historyLifetime = "new-lifetime";
+  assert.notEqual(bindProgressTarget(game), revised);
+});
+
 test("installed games bind the exact folder digest and the full revision", () => {
   const revision = testRevision("installed-rev");
   const target = resolveProgressTarget({

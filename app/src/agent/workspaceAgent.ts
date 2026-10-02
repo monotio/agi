@@ -21,6 +21,9 @@ import { validateToolArguments } from "../../../src/agent/schemaValidate.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
 import type { ImageFrame } from "../../../src/creative/imageOperations.ts";
 import { PROFILES } from "../../../src/runtime/profile.ts";
+import { parseWordsTok } from "../../../src/logic/words.ts";
+import { disassembleLogic } from "../../../src/logic/disassembler.ts";
+import { disassemblePicture } from "../../../src/picture/source.ts";
 import type { ProjectProposal } from "../../../src/authoring/projectModel.ts";
 import type { ProjectSession } from "../project/projectSession.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
@@ -97,7 +100,10 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
       if (step++ === 0) {
         const docs = context["documents"] as { key: string }[] | undefined;
         const picture = docs?.find((d) => d.key.startsWith("picture:"))?.key;
-        const logic = docs?.find((d) => d.key.startsWith("logic:") && d.key !== "logic:0")?.key;
+        const room = /Current room (\d+)/.exec(prompt)?.[1];
+        const logic =
+          docs?.find((d) => d.key === `logic:${room}`)?.key ??
+          docs?.find((d) => d.key.startsWith("logic:") && d.key !== "logic:0")?.key;
         if (!picture || !logic) return { text: "The project is ready for a task.", toolCalls: [] };
         return {
           toolCalls: [
@@ -138,9 +144,21 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
         const changes = reads.slice(signResponse ? -3 : -2).map((item) => {
           const r = item.result!;
           const key = String(r.details!["key"]);
-          const text = r.message?.split(":\n").slice(1).join(":\n") ?? "";
+          const bytes =
+            r.details!["kind"] === "bytes"
+              ? Uint8Array.from(atob(String(r.details!["base64"])), (char) => char.charCodeAt(0))
+              : undefined;
+          const text =
+            bytes && key.startsWith("logic:")
+              ? disassembleLogic(bytes)
+              : bytes && key.startsWith("picture:")
+                ? disassemblePicture(bytes)
+                : (r.message?.split(":\n").slice(1).join(":\n") ?? "");
           if (signResponse && key === "words") {
-            const entries = JSON.parse(text) as [string, number][];
+            const entries: [string, number][] = bytes
+              ? parseWordsTok(bytes).map(({ word, id }) => [word, id])
+              : JSON.parse(text);
+            if (!entries.some(([word]) => word === "at")) entries.push(["at", 0]);
             if (!entries.some(([word]) => word === "sign"))
               entries.push(["sign", Math.max(1, ...entries.map(([, group]) => group)) + 1]);
             return { key, content: JSON.stringify(entries) };
@@ -148,10 +166,7 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
           if (signResponse && key.startsWith("logic:"))
             return {
               key,
-              content: text.replace(
-                /return;\s*$/,
-                'if (said("look", "sign")) { print("Welcome sign"); }\nreturn;\n',
-              ),
+              content: 'if (said("look", "sign")) { print("Welcome sign"); }\n' + text,
             };
           return {
             key,
@@ -585,6 +600,10 @@ export function createWorkspaceAgent(options: Options) {
                 success: false,
                 error: cause instanceof Error ? cause.message : String(cause),
               };
+            }
+            if (result.details?.["gameTests"] && result.message) {
+              progress.push(result.message);
+              notify();
             }
             run.recordTool(call.name, call.input, result, base.revision);
             results.push({ toolCallId: call.id, result });

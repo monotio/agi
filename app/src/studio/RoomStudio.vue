@@ -1891,12 +1891,15 @@ function onKeyup(event: KeyboardEvent): void {
 /* Embedded drawing surrounds the same MAIN stage. The transparent art pane
    takes editor gestures; only an unfinished gesture paints a preview over MAIN. */
 .studio.is-embedded {
-  grid-template-columns: 0 44px minmax(0, 1fr) 236px;
+  grid-template-columns: 0 44px minmax(0, 1fr) minmax(140px, 236px);
   grid-template-rows: 0 40px minmax(0, 1fr) 52px 28px;
+}
+.studio.is-embedded .studio__options {
+  grid-column: 2 / 5;
 }
 .studio.is-embedded .studio__scene {
   grid-column: 4;
-  grid-row: 2 / 5;
+  grid-row: 3 / 5;
   border-right: 0;
   border-left: 1px solid var(--hairline);
 }

@@ -128,6 +128,7 @@ const shortcutsBlocked = computed(
             icon="sparkles"
             data-testid="workspace-agent"
             :title="`${VOCABULARY.agent.help} (⌘I)`"
+            :disabled="!commands?.commands.value.some((command) => command.id === 'agent.focus')"
             @click="commands?.execute('agent.focus')"
             >Agent</UiButton
           >

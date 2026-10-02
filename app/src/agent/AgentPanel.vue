@@ -14,6 +14,7 @@ import AgentReply from "./AgentReply.ts";
 import { borrowWorkspaceAgent } from "./workspaceAgent.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
+import { useShellBridge } from "../shell/shellBridge.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useOptionalCommands } from "../shell/commands/commandContext.ts";
 import { VOCABULARY } from "../../../src/vocabulary.ts";
@@ -28,6 +29,7 @@ import "./agentPanel.css";
 const engine = useEngineApi();
 const editor = useWorkspaceEditor();
 const settings = useAiSettings();
+const bridge = useShellBridge();
 const AgentResourceReview = defineAsyncComponent(() => import("./AgentResourceReview.vue"));
 watch(
   settings.provider,
@@ -291,6 +293,17 @@ onBeforeUnmount(() => {
         {{ current?.title ?? "Agent" }} ▾</button
       ><UiButton size="sm" variant="ghost" :disabled="busy" @click="newChat" title="New chat (⌘N)"
         >New chat</UiButton
+      ><UiButton
+        size="sm"
+        variant="ghost"
+        data-testid="btn-record-test"
+        :disabled="busy || engine.state.recording.active || engine.state.recording.starting"
+        @click="
+          engine.closePowerUp();
+          bridge.focusGameInput();
+          bridge.startPlaytest();
+        "
+        >Playtest</UiButton
       >
     </header>
     <div class="agent-panel__mode">

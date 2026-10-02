@@ -43,7 +43,9 @@ function strings(source: string): string[] {
               value.toLowerCase() === term.toLowerCase() ||
               value.toLowerCase() === term.toLowerCase() + "s",
           )) &&
-        !/^\[data-testid=(["'])[-\w:]+\1\]$/.test(value) &&
+        !/^\[(?:data-testid|aria-labelledby)=(["'])[-\w:]+\1\](?:\s+\[tabindex=(["'])-?\d+\2\])?$/.test(
+          value,
+        ) &&
         !/\.(?:ts|vue)$/.test(value)
       )
         output.push(value);
@@ -111,7 +113,7 @@ test("visible editor copy uses the shared vocabulary, allowing internal identifi
 test("copy extraction detects visible text and dynamic tooltips while ignoring identifiers", () => {
   assert.deepEqual(
     strings(
-      `const mode = "sprite"; const picker = "[data-testid='sprite-transparent-colour']"; const label = "Ghost probe"; const heading = "Sprites";`,
+      `const mode = "sprite"; const picker = "[data-testid='sprite-transparent-colour']"; const from = "[aria-labelledby='sprite-recolor-from'] [tabindex='0']"; const label = "Ghost probe"; const heading = "Sprites";`,
     ),
     ["Ghost probe", "Sprites"],
   );

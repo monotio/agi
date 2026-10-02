@@ -28,6 +28,7 @@ import {
 } from "../../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../../src/crypto.ts";
 import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
+import { requireProjectId } from "../../../src/gameIdentity.ts";
 import { inspectEditableProject } from "./projectWorkspaceSource.ts";
 import {
   authoringFingerprint,
@@ -113,8 +114,11 @@ function createSession(input: {
     snapshot: ProjectSnapshot,
     data: ProjectCommitRequest["data"],
     outcome?: PreviewUpdateOutcome,
+    nativeInstalled?: boolean,
   ) => void;
   readonly changed?: () => void;
+  readonly forked?: (data: CachedGameData, lifetime: string) => void;
+  readonly saved?: (data: ProjectCommitRequest["data"], lifetime: string) => void;
 }) {
   const data = structuredClone(input.data);
   data.chats = migrateAgentChats(data);
@@ -152,10 +156,12 @@ function createSession(input: {
   }
   let pendingRestart: PendingProjectRestart | null = null;
   let pendingImage: ProjectDocumentsCompile | undefined;
+  let pendingPreparedRoom = false;
   let retrying = false;
   let disposed = false;
   let epoch = 0;
   let serial = 0;
+  let forkId: CachedGameData["projectId"] | undefined;
   let tail = Promise.resolve();
   let diagnostics: PreparedProjectEdit["diagnostics"] = prepareProjectEdit({
     model,
@@ -189,21 +195,51 @@ function createSession(input: {
   const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt>({
     current,
     write: async (capture) => {
+      const fork = data.library?.source === "catalog";
+      if (fork) forkId ??= requireProjectId(`remix-${crypto.randomUUID()}`);
+      const saving = {
+        ...capture.data,
+        projectId: forkId ?? data.projectId,
+        ...(fork
+          ? {
+              title: `${data.title} Remix`,
+              imported: true,
+              roomGeneration: false,
+              library: {
+                ...data.library!,
+                source: "remix" as const,
+                catalog: undefined,
+                preview: undefined,
+                parent: { project: data.projectId, revision: expected.revision },
+              },
+            }
+          : { title: data.title, library: data.library }),
+      };
       capture.request ??= {
-        projectId: data.projectId,
+        projectId: saving.projectId,
         workspaceId: `session-${input.lifetime}`,
         commitId: `edit-${input.admission.runToken}-${++serial}`,
-        expected: { ...expected },
+        expected: fork ? null : { ...expected },
         buildId: capture.snapshot.lastAdmissibleBuild!.identity.buildId,
         documents: versions(capture.snapshot),
-        data: capture.data,
+        data: saving,
       };
       return input.write === undefined
         ? (await commitProject(capture.request)).receipt
         : input.write(capture.request);
     },
-    saved: (receipt) => {
+    saved: (receipt, capture) => {
+      if (receipt.saved.projectId !== data.projectId) {
+        owners.delete(data.projectId);
+        Object.assign(data, capture.request!.data, {
+          projectId: receipt.saved.projectId,
+          generation: receipt.saved.generation,
+        });
+        owners.set(data.projectId, session);
+        input.forked?.(structuredClone(data), receipt.saved.lifetime);
+      }
       expected = { ...receipt.saved };
+      input.saved?.(capture.request!.data, receipt.saved.lifetime);
     },
     conflict: (error) =>
       error instanceof Error &&
@@ -212,17 +248,39 @@ function createSession(input: {
       ),
     changed: notify,
   });
-  function captureSave(snapshot: ProjectSnapshot, outcome?: PreviewUpdateOutcome) {
+  function captureSave(
+    snapshot: ProjectSnapshot,
+    outcome?: PreviewUpdateOutcome,
+    nativeInstalled = false,
+  ) {
     const image = snapshot.lastAdmissibleBuild!;
     const next = {
       ...data,
       files: Object.fromEntries(image.files()),
       workspace: writeProjectWorkspace(snapshot.documents()),
       projectHistory: writeProjectHistory(history.capture(), sha256Hex),
+      ...(typeof image.documents()["world"] === "string"
+        ? {
+            authoringState: {
+              ...data.authoringState,
+              authoring: {
+                ...(data.authoringState?.["authoring"] as Record<string, unknown> | undefined),
+                version: 1,
+                bindings: JSON.parse((image.documents()["bindings"] as string | undefined) ?? "{}"),
+                world: JSON.parse(image.documents()["world"] as string),
+              },
+            },
+          }
+        : {}),
     };
+    const tests = image.documents()["tests"];
+    delete next.files["TESTS.JSON"];
+    if (tests !== undefined)
+      next.files["TESTS.JSON"] =
+        typeof tests === "string" ? new TextEncoder().encode(tests) : tests.slice();
     if (next.files["WORDS.TOK"] !== undefined)
       next.words = parseWordsTok(next.files["WORDS.TOK"]).map(({ word, id }) => [word, id]);
-    input.publish?.(snapshot, next, outcome);
+    input.publish?.(snapshot, next, outcome, nativeInstalled);
     autosave.enqueue({ snapshot, data: next });
   }
   async function apply(
@@ -275,13 +333,15 @@ function createSession(input: {
         reason: restartReason(outcome.reason ?? "This image needs a game restart."),
       };
     else if (prepared.compiled !== undefined) pendingRestart = null;
-    if (prepared.compiled !== undefined)
+    if (prepared.compiled !== undefined) {
       pendingImage = outcome?.status === "deferred" ? prepared.compiled : undefined;
+      pendingPreparedRoom = pendingImage !== undefined && preparedRoom;
+    }
     diagnostics = prepared.diagnostics;
     const snapshot = model.apply(prepared.application);
     if (action !== undefined) history.accept(action);
     else history.record(snapshot.documents(), metadata);
-    captureSave(snapshot, outcome);
+    captureSave(snapshot, outcome, preparedRoom);
     if (pendingImage !== undefined) void retryAdmission();
     return {
       status:
@@ -311,7 +371,9 @@ function createSession(input: {
           const image = pendingImage;
           if (!current() || image === undefined) return;
           const before = model.capture();
-          const outcome = await input.admission.admit(image, versions(before));
+          const outcome = await (pendingPreparedRoom && input.admission.admitPreparedRoom
+            ? input.admission.admitPreparedRoom(image, versions(before))
+            : input.admission.admit(image, versions(before)));
           if (!current() || pendingImage !== image) return;
           if (outcome.status === "deferred") return;
           pendingImage = undefined;
@@ -395,7 +457,9 @@ function createSession(input: {
         captureSave(model.capture());
       });
     },
-    lifetime: input.lifetime,
+    get lifetime() {
+      return expected.lifetime;
+    },
     get runToken() {
       return input.admission.runToken;
     },

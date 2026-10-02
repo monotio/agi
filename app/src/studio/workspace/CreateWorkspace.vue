@@ -182,6 +182,7 @@ const groups = computed(() => {
   }
   const roomIds = new Set([
     ...engine.roomMap.graph.value.nodes.map((node) => node.room),
+    ...[...scan.scans.values()].flatMap((logic) => logic.targets.map((target) => target.to)),
     ...Object.keys(plan).map(Number),
   ]);
   const rooms = [...roomIds]
@@ -337,7 +338,7 @@ const writes = createWorkspaceWrites({
       label: `Changed ${key === "inventory" ? "OBJECTS" : key === "words" ? "WORDS" : key.replace(":", " ").toUpperCase()}`,
       author: "creator",
     });
-    if (!["committed", "diagnostics", "unchanged"].includes(result.status))
+    if (!["committed", "diagnostics", "unchanged", "restartRequired"].includes(result.status))
       throw new Error("This change needs a fresh room. Return to the room and retry.");
     editor.error.value = "";
     refresh();

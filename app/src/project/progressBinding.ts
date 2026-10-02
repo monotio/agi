@@ -87,6 +87,16 @@ export function bindProgressTarget(
   game: ProgressBindingSource & { progressTarget?: ProgressTarget | undefined },
 ): ProgressTarget | null {
   const target = resolveProgressTarget(game);
+  const previous = game.progressTarget;
+  if (
+    target !== null &&
+    previous !== undefined &&
+    target.locator === previous.locator &&
+    target.identity.project === previous.identity.project &&
+    target.identity.revision === previous.identity.revision &&
+    JSON.stringify(target.legacyKeys) === JSON.stringify(previous.legacyKeys)
+  )
+    return previous;
   game.progressTarget = target ?? undefined;
   return target;
 }
