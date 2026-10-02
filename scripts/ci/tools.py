@@ -8,6 +8,7 @@ import re
 import statistics
 import subprocess
 import sys
+import tempfile
 
 
 def classify(files, exists=Path.is_file):
@@ -88,11 +89,19 @@ def file_filter(file):
     return r'(?:^|/)' + re.escape(file) + '$'
 
 
+def discover():
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / 'discovery.json'
+        env = {**os.environ, 'PLAYWRIGHT_JSON_OUTPUT_FILE': str(output)}
+        subprocess.run(
+            ['npm', 'exec', '--', 'playwright', 'test', '--grep-invert', '@perf', '--list',
+             '--reporter=json'], cwd='app', env=env, check=True)
+        return json.loads(output.read_text())
+
+
 def shard(args):
     # Discover tests through Playwright so new specs are always included and config filters apply.
-    report = json.loads(subprocess.check_output(
-        ['npm', 'exec', '--', 'playwright', 'test', '--grep-invert', '@perf', '--list',
-         '--reporter=json'], cwd='app'))
+    report = discover()
     files = sorted({spec['file'] for spec in specs_in(report)})
     weights = json.loads(Path('scripts/ci/durations.json').read_text())
     buckets = partition(files, weights, args.count)

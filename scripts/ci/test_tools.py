@@ -1,7 +1,12 @@
 import re
+import json
+import os
+from pathlib import Path
+import tempfile
+from unittest.mock import patch
 import unittest
 
-from tools import classify, partition, intermittent, file_filter
+from tools import classify, partition, intermittent, file_filter, discover
 
 
 class Changes(unittest.TestCase):
@@ -22,6 +27,24 @@ class Changes(unittest.TestCase):
 
 
 class Shards(unittest.TestCase):
+    def test_discovery_keeps_the_run_report_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_report = Path(directory) / 'run.json'
+            run_report.write_text('original run report')
+            report = {'suites': [{'specs': [{'file': 'new.spec.ts'}]}]}
+
+            def fake_playwright(*args, **kwargs):
+                env = kwargs.get('env', os.environ)
+                Path(env['PLAYWRIGHT_JSON_OUTPUT_FILE']).write_text(json.dumps(report))
+                return b''
+
+            with patch.dict(os.environ, {'PLAYWRIGHT_JSON_OUTPUT_FILE': str(run_report)}), \
+                    patch('tools.subprocess.check_output', side_effect=fake_playwright), \
+                    patch('tools.subprocess.run', side_effect=fake_playwright):
+                self.assertEqual(discover(), report)
+                self.assertEqual(run_report.read_text(), 'original run report')
+
+
     def test_filters_select_exact_files_with_similar_names(self):
         pattern = re.compile(file_filter('menu-flow.spec.ts'))
         self.assertTrue(pattern.search('/repo/app/e2e/menu-flow.spec.ts'))
