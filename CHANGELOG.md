@@ -16,7 +16,12 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Agent Review and Auto-approve across resource types, task chats and optional
   image generation with a cost preview.
 - Starter, Boilerplate and Blank projects, plus Create with AI from a brief.
-- Local LOGIC language server and editor setup recipes.
+- LOGIC language server shared with the LOGIC editor: project-aware diagnostics,
+  navigation and rename across the game, references for numbered operands,
+  colouring, folding, quick fixes and an `agi-language-server` command for LSP
+  editors. Project ZIPs and AGI game folders open directly.
+- Documentation index, a first-game tutorial, editor setup, LOGIC reference and
+  extension guides; issue forms, support and security policies.
 
 ### Changed
 
@@ -28,6 +33,12 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
   data. Playback recordings use version 2 for debugger and project events;
   released version-1 recordings remain readable.
 - Provider evaluations use the app clients and measure conversation caching.
+
+### Fixed
+
+- Saving shows while a change is pending, and an edit survives a reload or tab
+  close right after it is made.
+- Opening a menu while the game screen loads keeps the menu open.
 
 ## [1.1.0]
 
