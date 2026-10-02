@@ -15,6 +15,23 @@ interface Use {
   logic: number;
   line: number;
 }
+/** Keep each LOGIC label once, with independently navigable source lines. */
+export function formatMeaningUses(uses: readonly Use[]) {
+  const locations: { logic: number; label: string; lines: number[] }[] = [];
+  for (const use of uses) {
+    let location = locations.find((entry) => entry.logic === use.logic);
+    if (!location) {
+      location = { logic: use.logic, label: "", lines: [] };
+      locations.push(location);
+    }
+    if (!location.lines.includes(use.line)) location.lines.push(use.line);
+  }
+  for (const location of locations) {
+    location.lines.sort((a, b) => a - b);
+    location.label = `LOGIC ${location.logic} ${location.lines.length === 1 ? "line" : "lines"}`;
+  }
+  return { count: `${uses.length} ${uses.length === 1 ? "use" : "uses"}`, locations };
+}
 interface MeaningUse extends Use {
   words: string[];
 }

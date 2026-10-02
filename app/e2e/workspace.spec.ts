@@ -727,6 +727,8 @@ for (const size of [
     const ignored = page.locator('[data-word-group="0"]');
     await expect(ignored).toContainText("a");
     const group = page.locator('[data-word-group="100"]');
+    await group.hover();
+    await group.getByRole("button", { name: "Add word", exact: true }).click();
     const input = group.getByRole("textbox");
     await input.fill("inspect");
     await input.press("Enter");

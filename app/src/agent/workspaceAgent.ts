@@ -76,8 +76,11 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
     async sendUserMessage(text) {
       prompt = text;
       if (text.startsWith("Answer questions about this game")) {
-        const reply =
-          "This test provider can inspect the game; connect a model for hints and debugging.";
+        const reply = text.includes('Return a JSON object {"synonyms"')
+          ? '{"synonyms":["inspect","check"]}'
+          : text.includes('Return a JSON object {"commands"')
+            ? '{"commands":["look tree","climb tree"]}'
+            : "This test provider can inspect the game; connect a model for hints and debugging.";
         transcript.push({ role: "user", text }, { role: "assistant", text: reply });
         return { text: reply, toolCalls: [] };
       }
