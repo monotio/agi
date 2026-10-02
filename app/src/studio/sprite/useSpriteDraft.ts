@@ -122,7 +122,11 @@ export function useSpriteDraft(options: {
   watch(
     () => toValue(options.base),
     (base, old) => {
-      if (base.bytes !== old.bytes || base.revision !== old.revision) reset(base);
+      if (base.bytes === old.bytes && base.revision === old.revision) return;
+      if (samePixels(base.bytes, document.value.payload)) {
+        kept.value = base;
+        keptDepth.value = history.value.past.length;
+      } else reset(base);
     },
   );
 

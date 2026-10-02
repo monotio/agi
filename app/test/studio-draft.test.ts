@@ -359,6 +359,19 @@ describe("useStudioDraft", () => {
     assert.equal(draft.history.value.past.length, 1);
   });
 
+  it("a matching saved source retains the next picture gesture and undo steps", async () => {
+    const { draft, base } = setup("art");
+    assert.ok(draft.apply({ type: "moveItem", itemId: "box", dx: 1, dy: 0 }, "Nudge").ok);
+    const saved = draft.source.value;
+    draft.beginGesture("Move");
+    draft.moveGesture({ type: "moveItem", itemId: "box", dx: 0, dy: 1 });
+    base.value = { source: saved, revision: testRevision("saved-picture") };
+    await nextTick();
+    assert.equal(draft.gesturing.value, true);
+    assert.ok(draft.endGesture({ type: "moveItem", itemId: "box", dx: 0, dy: 1 }, "Move").ok);
+    assert.equal(draft.history.value.past.length, 2);
+  });
+
   it("clears an edit notice when project Undo restores the source", async () => {
     const scope = effectScope();
     const { draft, base, editing } = scope.run(() => {

@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ref } from "vue";
+import { nextTick, ref } from "vue";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
@@ -181,6 +181,26 @@ describe("useSpriteDraft", () => {
     draft.cancelGesture();
     assert.deepEqual(draft.bytes.value, APPRENTICE);
     assert.equal(draft.canRedo.value, true, "a cancelled stroke leaves redo alone");
+  });
+
+  it("an autosave echo retains the next open stroke and local undo history", async () => {
+    const { draft, base } = setup();
+    const op = (x: number) => ({
+      op: { type: "setPixels" as const, loop: 2, cel: 0, changes: [{ x, y: 20, color: 4 }] },
+      targets: [2],
+    });
+    draft.beginGesture("Pencil");
+    draft.endGesture(op(1), "Pencil");
+    const saved = draft.bytes.value.slice();
+    draft.beginGesture("Pencil");
+    draft.moveGesture(op(2));
+    base.value = { bytes: saved, revision: testRevision("saved-stroke") };
+    await nextTick();
+    assert.equal(draft.gesturing.value, true);
+    assert.equal(at(celOf(draft.shown.value, 2), 2, 20), 4);
+    draft.endGesture(op(2), "Pencil");
+    assert.equal(draft.history.value.past.length, 2);
+    assert.equal(at(celOf(draft.document.value, 2), 2, 20), 4);
   });
 
   it("moves a cel to another loop as one undo step, and a refused part changes nothing", () => {

@@ -66,12 +66,12 @@ test("agent image tools review PICTURE and VIEW previews before one saved commit
   });
   await page.getByTestId("part-room:1:picture:1").click();
   await page.getByRole("button", { name: "Trace an image", exact: true }).click();
-  const pixels = new Uint8Array(4 * 2 * 4).fill(255);
-  for (let i = 0; i < 8; i++) pixels.set([255, 0, 0, 255], i * 4);
+  const pixels = new Uint8Array(6 * 4 * 4).fill(255);
+  for (const y of [1, 2]) for (const x of [2, 3]) pixels.set([255, 0, 0, 255], (y * 6 + x) * 4);
   await page.getByTestId("image-file").setInputFiles({
     name: "red.png",
     mimeType: "image/png",
-    buffer: Buffer.from(encodePngRgba(4, 2, pixels)),
+    buffer: Buffer.from(encodePngRgba(6, 4, pixels)),
   });
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
   const before = await page.evaluate(() => {

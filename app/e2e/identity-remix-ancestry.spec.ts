@@ -111,7 +111,10 @@ test("folder and ZIP games with the same vocabulary keep separate content and pr
   await mkdir(folder, { recursive: true });
   for (const { name, data } of archiveFiles(ORIGINAL, "Origin Adventure"))
     await writeFile(join(folder, name), data);
-  await page.getByTestId("game-folder-input").setInputFiles(folder);
+  const folderInput = page.getByTestId("game-folder-input");
+  // Initialize the page context before Playwright installs its directory input listener.
+  expect(await folderInput.evaluate((input: HTMLInputElement) => input.webkitdirectory)).toBe(true);
+  await folderInput.setInputFiles(folder);
   const originalCard = savedGameCard(page, "Origin Adventure");
   await expect(originalCard).toBeVisible();
   const originalId = (await originalCard.getAttribute("data-project-id"))!;

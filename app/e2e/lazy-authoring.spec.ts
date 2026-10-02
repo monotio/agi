@@ -109,7 +109,7 @@ test("Play boots a catalog game without the AI authoring stack, and opening Ask 
 test("the first agent drawer focuses its input and Escape returns to Play", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/");
-  await configureAi(page, { provider: "stub" });
+  await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await page.getByTestId("menu-assistant").click();

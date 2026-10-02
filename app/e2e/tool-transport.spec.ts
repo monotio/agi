@@ -11,16 +11,43 @@ for (const provider of ["openai", "anthropic"] as const) {
       provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages*",
       async (route) => {
         requests.push(route.request().postDataJSON());
+        const calls = [
+          [{ id: "picture", name: "read_picture", input: { room: 1 } }],
+          [{ id: "sprite", name: "read_view", input: { num: 0 } }],
+          [
+            { id: "compile", name: "write_logic", input: { room: 2, source: "return;" } },
+            {
+              id: "reference",
+              name: "read_command_reference",
+              input: { query: "release.priority", kind: "action", offset: null },
+            },
+          ],
+          [],
+        ][requests.length - 1]!;
         await route.fulfill(
           providerReply(
             provider,
             provider === "openai"
-              ? { id: "test", output: [] }
+              ? {
+                  id: "test",
+                  output: calls.map((call) => ({
+                    type: "function_call",
+                    call_id: call.id,
+                    name: call.name,
+                    arguments: JSON.stringify(call.input),
+                  })),
+                }
               : {
                   id: "test",
                   type: "message",
                   role: "assistant",
-                  content: [],
+                  stop_reason: calls.length ? "tool_use" : "end_turn",
+                  content: calls.map((call) => ({
+                    type: "tool_use",
+                    id: call.id,
+                    name: call.name,
+                    input: call.input,
+                  })),
                   usage: { input_tokens: 1, output_tokens: 1 },
                 },
           ),
@@ -134,6 +161,6 @@ for (const provider of ["openai", "anthropic"] as const) {
     expect(spriteBlocks).toHaveLength(3);
     expect(spriteBlocks[1]!.text).toContain("L0 C0, L1 C0");
     expect(spriteBlocks[2]!.type).toBe(provider === "openai" ? "input_image" : "image");
-    await page.screenshot({ path: `test-results/${provider}-tool-transport.png` });
+    await page.screenshot({ path: test.info().outputPath(`${provider}-tool-transport.png`) });
   });
 }

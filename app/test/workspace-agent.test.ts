@@ -1,3 +1,4 @@
+import { AgentRun } from "../src/agent/agentRun.ts";
 import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
 import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
@@ -1012,6 +1013,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     const { session } = fixture();
     const model = provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5";
     let spent = 0;
+    const usage = t.mock.method(AgentRun.prototype, "recordUsage");
     t.mock.method(
       globalThis,
       "fetch",
@@ -1052,6 +1054,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     });
     await agent.send("Describe the project");
     const rate = MODEL_CAPABILITIES[model]!.price!;
+    assert.equal(usage.mock.callCount(), 1);
     assert.equal(spent, (1000 * rate.input + 100 * rate.output) / 1e6);
     session.dispose();
   });
@@ -1517,3 +1520,49 @@ for (const provider of ["openai", "anthropic"] as const) {
     session.dispose();
   });
 }
+
+test("a completed $0.402 reply fits a $0.60 budget without reserving another request", async (t) => {
+  const { session } = fixture();
+  const fetch = t.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        providerSse("openai", {
+          id: "r",
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "Done." }],
+            },
+          ],
+          usage: { input_tokens: 201000, output_tokens: 0 },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  );
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "openai", model: "gpt-6-sol", apiKey: "offline", budgetUsd: 0.6 }),
+  });
+  let spent = 0;
+  let paused = false;
+  agent.subscribe(() => {
+    spent = Math.max(spent, agent.task?.spent ?? 0);
+    if (agent.task?.status === "paused") {
+      paused = true;
+      agent.cancel();
+    }
+  });
+  try {
+    await agent.send("Describe the project");
+    assert.equal(paused, false);
+    assert.equal(spent, 0.402);
+    assert.equal(fetch.mock.callCount(), 1);
+    assert.equal(agent.current().messages.at(-1)?.text, "Done.");
+  } finally {
+    session.dispose();
+  }
+});

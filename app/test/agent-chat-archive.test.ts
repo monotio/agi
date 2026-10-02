@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildProjectZip, buildPublicGameZip } from "../src/archive/projectArchive.ts";
+import {
+  buildProjectZip,
+  buildPublicGameZip,
+  continuationTranscript,
+} from "../src/archive/projectArchive.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -77,3 +81,55 @@ test("notes and checkpoints declare versions and readers reject unknown chat fie
     /field/i,
   );
 });
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} compaction survives legacy and task ZIP conversations and same-model continuation`, async () => {
+    const transcript =
+      provider === "openai"
+        ? [
+            { role: "user", content: "Build" },
+            { type: "compaction", id: "c", encrypted_content: "opaque-state" },
+          ]
+        : [
+            { role: "user", content: "Build" },
+            {
+              role: "assistant",
+              content: [
+                { type: "compaction", content: "Summary", encrypted_content: "opaque-state" },
+              ],
+            },
+          ];
+    const compiled = compileProjectDocuments({
+      files: Object.fromEntries(createContainer().files),
+      documents: { "logic:0": "return;", words: "[]" },
+      profileId: "2.936",
+    });
+    const chats = readAgentChats({
+      format: "monotio.agi.chats",
+      version: 1,
+      active: "c",
+      chats: [{ id: "c", title: "Task", provider, model: "test", transcript, messages: [] }],
+    });
+    for (const conversation of [{ provider, model: "test", transcript }, { chats }]) {
+      const data = {
+        projectId: requireProjectId(`compaction-${provider}`),
+        title: "Compaction",
+        authoredAt: "",
+        files: Object.fromEntries(compiled.files()),
+        words: [] as [string, number][],
+        ...conversation,
+      };
+      const opened = await readGameZip(await buildProjectZip(data));
+      const restored = opened.project!.chats?.chats[0]?.transcript ?? opened.project!.transcript;
+      assert.deepEqual(restored, transcript);
+      const replay = continuationTranscript(
+        { provider, model: "test", transcript: restored },
+        provider,
+        "test",
+      );
+      assert.deepEqual(replay, transcript);
+      const publicGame = await readGameZip(buildPublicGameZip(data));
+      assert.equal(publicGame.project, undefined);
+    }
+  });
+}

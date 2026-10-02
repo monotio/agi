@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, useTemplateRef, watch, ref, computed } from "vue";
+import { parseWordsTok } from "../../../../src/logic/words.ts";
 import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import type { ProfileId } from "../../../../src/runtime/profile.ts";
 import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
@@ -95,6 +96,7 @@ function analysis(): void {
   try {
     const text = props.snapshot.read("words")?.content;
     if (typeof text === "string") words = JSON.parse(text) as [string, number][];
+    else if (text) words = parseWordsTok(text).map(({ word, id }) => [word, id]);
     const names = props.snapshot.read("bindings")?.content;
     if (typeof names === "string") bindings = readBindingsDocument(names);
   } catch {
