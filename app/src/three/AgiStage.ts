@@ -132,6 +132,7 @@ export class AgiStage {
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly texture: THREE.DataTexture;
   private readonly rgba = new Uint8Array(FRAME_WIDTH * FRAME_HEIGHT * 4);
+  private frameUploaded = false;
   private readonly glowRgba = new Uint8Array(CRT_GLOW_WIDTH * CRT_GLOW_HEIGHT * 4);
   private readonly glowTexture: THREE.DataTexture;
   private crtOn = true;
@@ -802,7 +803,23 @@ export class AgiStage {
   /** Upload a composed 320x200 RGBA frame and draw it. */
   render(frame: Uint8Array | Uint8ClampedArray, immediate = false): void {
     if (this.disposed) return;
+    // A stationary game still posts cycle frames. Its flat view can keep the
+    // texture already presented; exploded masks may change independently.
+    if (this.frameUploaded && !this.exploded && frame.length === this.rgba.length) {
+      let changed = false;
+      for (let i = 0; i < frame.length; i++) {
+        if (frame[i] !== this.rgba[i]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) {
+        if (immediate && this.pendingRaf !== null) this.flush();
+        return;
+      }
+    }
     this.rgba.set(frame);
+    this.frameUploaded = true;
     this.texture.needsUpdate = true;
     if (this.crtOn) this.updateGlow();
     if (immediate || typeof requestAnimationFrame === "undefined") {
