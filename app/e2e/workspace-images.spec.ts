@@ -343,26 +343,21 @@ test("generation reviews a request and sends only through the mocked provider", 
   await page.getByTestId("generate-use").click();
   await expect(page.getByTestId("trace-opacity")).toBeVisible();
   await expect(page.getByTestId("generate-offer")).toBeHidden();
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          () =>
-            (
-              window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }
-            ).__AGI_PROJECT__
-              .getSession()
-              .model.capture()
-              .read("images")?.content,
-        ),
-      { timeout: 15000 },
-    )
-    .toContain("A tree reference");
+  // Tracing controls appear while the image transaction is still being admitted.
   await page.evaluate(() =>
     (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
       .getSession()
       .flush(),
   );
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
+          .getSession()
+          .model.capture()
+          .read("images")?.content,
+    ),
+  ).toContain("A tree reference");
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await expect(page.getByTestId("room-studio")).toHaveClass(/is-live-game/);
   const generatedCanvas = (await page.locator('[data-layer="art"] canvas').boundingBox())!;
