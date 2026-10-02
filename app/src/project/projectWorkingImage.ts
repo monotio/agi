@@ -59,7 +59,10 @@ export function compileWorkingProjectImage(input: {
       /* Incomplete source remains current; another commit may describe the running bytes. */
     }
   }
-  if (input.documentId !== undefined)
+  if (
+    input.documentId !== undefined &&
+    projectDocumentId(input.fallback, sha256Hex) !== input.documentId
+  )
     throw new Error("The pending project's working documents are missing from History.");
   return compileProjectDocuments({
     files: input.files,

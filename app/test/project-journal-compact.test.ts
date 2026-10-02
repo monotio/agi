@@ -9,6 +9,7 @@ import {
   authoringFingerprint,
   loadAuthoredGame,
   loadAuthoredGameWithHistoryLifetime,
+  saveAuthoredGame,
 } from "../src/project/gameStorage.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import {
@@ -453,4 +454,48 @@ test("recovery keeps the working image when Undo returns to invalid source", asy
   const recovered = (await loadAuthoredGame(original.projectId))!;
   assert.deepEqual(recovered.files, original.data.files);
   assert.equal((await commitProject(original)).receipt.saved.generation, recovered.generation);
+});
+
+test("recovery uses native documents for initial source errors before History exists", async () => {
+  const initial = await session("compact-initial-error");
+  initial.dispose();
+  await saveAuthoredGame(baseData.projectId, {
+    ...baseData,
+    workspace: writeProjectWorkspace({ "logic:0": "if (", "picture:1": Uint8Array.of(255) }),
+  });
+  const opened = (await loadAuthoredGameWithHistoryLifetime(baseData.projectId))!;
+  assert.equal(opened.data.projectHistory, undefined);
+  const owner = openProjectSession({
+    data: opened.data,
+    lifetime: opened.lifetime!,
+    admission: {
+      runToken: "initial-error",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+  });
+  await owner.submit({
+    proposal: owner.model.propose(owner.model.capture(), "Typing", [
+      { key: "logic:0", content: "if (isset(" },
+    ]),
+    label: "Typing",
+    origin: "logic",
+    author: "creator",
+  });
+  paint();
+  owner.dispose();
+  const recovered = (await loadAuthoredGame(opened.data.projectId))!;
+  assert.deepEqual(recovered.files, opened.data.files);
+  assert.equal(
+    (
+      recovered.workspace!.documents.find((doc) => doc.key === "logic:0")!.content as {
+        text: string;
+      }
+    ).text,
+    "if (isset(",
+  );
 });
