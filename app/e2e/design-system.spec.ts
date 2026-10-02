@@ -21,6 +21,7 @@ async function playTutorial(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 2);
 }
@@ -100,6 +101,7 @@ test("settings draw switches, and Developer activity is off every page", async (
   await expect(page.getByText("Copy debug bundle")).toBeHidden();
 
   await page.getByTestId("catalog-play-adventure-department").click();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await openGameOptions(page, "settings-menu");
   for (const id of ["toggle-mute", "toggle-original-aspect", "toggle-touch-controls"]) {
