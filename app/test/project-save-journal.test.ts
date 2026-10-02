@@ -108,3 +108,30 @@ test("an exact journal retry preserves negative zero in commit metadata", async 
   assert.ok(Object.is(saved!.authoringState!["value"], -0));
   assert.equal(cache.getItem(key), null);
 });
+
+test("an exact journal retry preserves sparse metadata arrays", async () => {
+  const input = request("journal-sparse-metadata");
+  const original = { ...input, data: { ...input.data, authoringState: { values: Array(1) } } };
+  await commitProject(original);
+  const key = projectSaveJournalKey(input.projectId, "sparse");
+  writeProjectSaveJournal(cache, key, [{ request: original, attempted: true }]);
+  assert.equal((await loadAuthoredGame(input.projectId))!.generation, 1);
+  assert.equal(cache.getItem(key), null);
+});
+
+test("unsupported commit metadata cannot become valid through journal serialization", () => {
+  const input = request("journal-invalid-metadata");
+  const key = projectSaveJournalKey(input.projectId, "invalid");
+  const original = cache.getItem(key);
+  for (const value of [NaN, Infinity, new Date(0), new Map(), () => {}]) {
+    assert.throws(() =>
+      writeProjectSaveJournal(cache, key, [
+        {
+          request: { ...input, data: { ...input.data, authoringState: { value } } },
+          attempted: false,
+        },
+      ]),
+    );
+    assert.equal(cache.getItem(key), original);
+  }
+});

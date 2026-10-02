@@ -21,9 +21,16 @@ function encode(value: unknown): unknown {
   if (value === undefined) return ["undefined"];
   if (Object.is(value, -0)) return ["negative-zero"];
   if (value instanceof Uint8Array) return ["bytes", Array.from(value)];
-  if (Array.isArray(value)) return ["array", value.map(encode)];
-  if (value !== null && typeof value === "object")
+  if (Array.isArray(value)) return ["array", Array.from(value, encode)];
+  if (value !== null && typeof value === "object") {
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
+      throw new Error("A pending project write contains an unsupported value.");
     return ["record", Object.entries(value).map(([key, item]) => [key, encode(item)])];
+  }
+  if (typeof value === "number" && !Number.isFinite(value))
+    throw new Error("A pending project write contains a non-finite number.");
+  if (value !== null && !["string", "number", "boolean"].includes(typeof value))
+    throw new Error("A pending project write contains an unsupported value.");
   return value;
 }
 function decode(value: unknown): unknown {
