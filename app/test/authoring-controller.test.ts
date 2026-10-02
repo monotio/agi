@@ -1676,6 +1676,95 @@ test("a stale tab's world-plan save refuses as stale and never saves over the ne
   await untouched();
 });
 
+test("AI settings wait for the Assistant chat's catalog fork before loading its session", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("settings-catalog-fork");
+  const files = createTestFiles();
+  const revision = computeResourceRevision(files);
+  await saveAuthoredGame(projectId, {
+    title: "Catalog",
+    files,
+    words: [],
+    library: {
+      version: 1,
+      source: "catalog",
+      revision,
+      catalog: { id: "settings", version: "1" },
+      validation: { status: "ready", message: "Ready" },
+    },
+  });
+  const data = (await loadAuthoredGame(projectId))!;
+  let game: BootedGame = {
+    installed: false,
+    projectId,
+    title: data.title,
+    revision,
+    files,
+    words: [],
+    authoredGame: data,
+    historyLifetime: await readHistoryLifetime(projectId),
+  };
+  const project = openProjectSession({
+    data,
+    lifetime: game.historyLifetime!,
+    admission: {
+      runToken: "settings-catalog-run",
+      admit: async () => assert.fail("a chat never admits resource changes"),
+    },
+    forked(saved, lifetime) {
+      game = {
+        ...game,
+        projectId: saved.projectId,
+        authoredGame: saved,
+        historyLifetime: lifetime,
+      };
+    },
+  });
+  t.after(() => project.dispose());
+  let release!: () => void;
+  const loading = new Promise<void>((resolve) => (release = resolve));
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getProjectSession: () => project,
+    getWorker: () => null,
+    query: async <T>() => null as T,
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => game,
+    setBootedGame: (next) => {
+      game = next!;
+    },
+    flushAutosave: async () => {},
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    loadAuthoring: async () => {
+      await loading;
+      return authoringStack;
+    },
+  });
+  await project.saveChats(project.chats());
+  const applying = controller.updateAiConfig(mockConfig);
+  await project.flush();
+  assert.notEqual(game.projectId, projectId);
+  release();
+  await applying;
+  assert.equal(controller.getSession()!.getProviderContext().model, mockConfig.model);
+  assert.equal(project.saveStatus().state, "saved");
+  await clearCachedGame(projectId);
+  await clearCachedGame(game.projectId!);
+});
+
 test("a stale tab's AI settings change says the game changed elsewhere and never saves over the newer project", async (t) => {
   const { ui, controller, untouched } = await staleTab(t, "two-tab-ai-config");
   await controller.updateAiConfig({ ...mockConfig, model: "another-model" });
