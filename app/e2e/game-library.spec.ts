@@ -425,6 +425,15 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await expect.poll(() => storedAutosave(page, projectId)).not.toBeNull();
   await expect(card.getByTestId("btn-resume-cached")).toHaveText("Resume");
+  // What players typed that the game missed belongs to the project too.
+  await page.evaluate(
+    (id) =>
+      localStorage.setItem(
+        `monotio_agi.tried.${id}`,
+        JSON.stringify([{ text: "pet dog", room: 1, unknown: "pet", count: 1 }]),
+      ),
+    projectId,
+  );
 
   // Removing is previewed: the dialog names the game and what goes with it,
   // and Cancel — the default focus — keeps every record.
@@ -471,7 +480,9 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
       (s) =>
         Object.keys(localStorage).filter(
           (key) =>
-            (key.startsWith("monotio_agi.autosave.") || key.startsWith("monotio_agi.saves.")) &&
+            (key.startsWith("monotio_agi.autosave.") ||
+              key.startsWith("monotio_agi.saves.") ||
+              key.startsWith("monotio_agi.tried.")) &&
             key.includes(s),
         ),
       projectId,

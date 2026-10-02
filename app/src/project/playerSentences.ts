@@ -18,9 +18,11 @@ export function resolvePlayerSentence(
 ): PlayerSentence[] {
   return rows.filter((row) => row.room !== entry.room || row.text !== entry.text);
 }
+const sentencesKey = (project: string): string => `monotio_agi.tried.${project}`;
+
 export function readPlayerSentences(project: string): PlayerSentence[] {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(`monotio_agi.tried.${project}`) ?? "[]");
+    const value: unknown = JSON.parse(localStorage.getItem(sentencesKey(project)) ?? "[]");
     if (!Array.isArray(value)) return [];
     return value.filter(
       (row): row is PlayerSentence =>
@@ -38,8 +40,13 @@ export function readPlayerSentences(project: string): PlayerSentence[] {
 }
 export function savePlayerSentences(project: string, rows: readonly PlayerSentence[]): void {
   try {
-    localStorage.setItem(`monotio_agi.tried.${project}`, JSON.stringify(rows));
+    localStorage.setItem(sentencesKey(project), JSON.stringify(rows));
   } catch {
     /* Editor observations remain available in memory. */
   }
+}
+
+/** Forget what players typed in a removed project, so a game added again starts clean. */
+export function clearPlayerSentences(storage: Pick<Storage, "removeItem">, project: string): void {
+  storage.removeItem(sentencesKey(project));
 }
