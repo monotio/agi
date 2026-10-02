@@ -22,7 +22,6 @@ import { compileProjectDocuments } from "../../../src/authoring/projectDocuments
 import { openContainer } from "../../../src/container/container.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiSegmented from "../ui/UiSegmented.vue";
-import UiExplain from "../ui/UiExplain.vue";
 import AgentTaskControls from "../authoring/AgentTaskControls.vue";
 import "./agentPanel.css";
 const engine = useEngineApi();
@@ -148,8 +147,18 @@ const approvalMode = computed({
   },
 });
 const approvalModes = [
-  { value: "review", label: VOCABULARY.review.label, testid: "agent-review-mode" },
-  { value: "auto", label: VOCABULARY.autoApprove.label, testid: "agent-auto-approve" },
+  {
+    value: "review",
+    label: VOCABULARY.review.label,
+    title: VOCABULARY.review.help,
+    testid: "agent-review-mode",
+  },
+  {
+    value: "auto",
+    label: VOCABULARY.autoApprove.label,
+    title: VOCABULARY.autoApprove.help,
+    testid: "agent-auto-approve",
+  },
 ];
 const roomName = computed(() => {
   const room = engine.roomMap.currentRoom.value ?? 0;
@@ -303,12 +312,6 @@ onBeforeUnmount(() => {
         size="sm"
         label="Agent changes"
         :options="approvalModes"
-      />
-      <UiExplain
-        question
-        term="agent-auto-approve"
-        :name="VOCABULARY.autoApprove.label"
-        :says="VOCABULARY.autoApprove.help"
       />
       <button
         @click="settings.openAiSettings($event, 'assistant')"

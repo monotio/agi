@@ -64,13 +64,14 @@ function onKey(event: KeyboardEvent): void {
   >
     <section v-for="group in groups" :key="group.label">
       <header>
-        <h2>{{ group.label }}</h2>
-        <UiExplain
-          question
-          :term="`parts-${group.label.toLowerCase().replaceAll(' ', '-')}`"
-          :name="group.label"
-          :says="group.help"
-        />
+        <h2>
+          <UiExplain
+            :term="`parts-${group.label.toLowerCase().replaceAll(' ', '-')}`"
+            :name="group.label"
+            :says="group.help"
+            >{{ group.label }}</UiExplain
+          >
+        </h2>
         <button
           v-if="
             (

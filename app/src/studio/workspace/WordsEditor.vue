@@ -456,15 +456,17 @@ function dismissGhosts(event: KeyboardEvent): void {
       </section>
       <section :aria-label="VOCABULARY.meanings.label">
         <div class="words-section">
-          <h3>{{ VOCABULARY.meanings.label }}</h3>
+          <h3>
+            <UiExplain
+              term="words-meanings"
+              :name="VOCABULARY.meanings.label"
+              :says="VOCABULARY.meanings.help"
+              technical="Stored as a word group in WORDS.TOK."
+              >{{ VOCABULARY.meanings.label }}</UiExplain
+            >
+          </h3>
           <small>{{ meanings.length }}</small
-          ><UiExplain
-            question
-            term="words-meanings"
-            :name="VOCABULARY.meanings.label"
-            :says="VOCABULARY.meanings.help"
-            technical="Stored as a word group in WORDS.TOK."
-          /><small class="words-order">{{ VOCABULARY.orderWords.label }}</small>
+          ><small class="words-order">{{ VOCABULARY.orderWords.label }}</small>
         </div>
         <div
           v-for="group in meanings"
@@ -594,14 +596,14 @@ function dismissGhosts(event: KeyboardEvent): void {
       <footer class="reserved-words">
         <span v-for="id in [1, 9999]" :key="id"
           ><span class="word-id">{{ id }}</span
-          >{{ id === 1 ? "anyword" : "rest of line"
-          }}<UiExplain
-            question
+          ><UiExplain
             :term="`reserved-word-${id}`"
             :name="id === 1 ? VOCABULARY.anyWord.label : VOCABULARY.restOfLine.label"
             :says="id === 1 ? VOCABULARY.anyWord.help : VOCABULARY.restOfLine.help"
             :technical="`Reserved WORDS.TOK group ${id}.`"
-        /></span>
+            >{{ id === 1 ? "anyword" : "rest of line" }}</UiExplain
+          ></span
+        >
       </footer>
     </div>
   </div>

@@ -116,14 +116,15 @@ function pick(patch: Partial<CurrentValues>): void {
       {{ priorityShown ?? VOCABULARY.none.label
       }}<small v-if="values.priority === 'band'">here</small>
     </button>
-    <span class="values__name">{{ VOCABULARY.drawingDepth.label }}</span>
-    <UiExplain
-      question
-      term="drawing-depth"
-      :name="VOCABULARY.drawingDepth.label"
-      :says="VOCABULARY.drawingDepth.help"
-      :technical="VOCABULARY.drawingDepth.technical"
-    />
+    <span class="values__name"
+      ><UiExplain
+        term="drawing-depth"
+        :name="VOCABULARY.drawingDepth.label"
+        :says="VOCABULARY.drawingDepth.help"
+        :technical="VOCABULARY.drawingDepth.technical"
+        >{{ VOCABULARY.drawingDepth.label }}</UiExplain
+      ></span
+    >
 
     <div
       v-if="open"

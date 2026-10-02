@@ -103,9 +103,10 @@ for (const size of [
     const before = await documents(page);
     await page.getByTestId("agent-auto-approve").click();
     await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute("aria-checked", "true");
-    await page.getByTestId("explain-agent-auto-approve").click();
-    await expect(page.getByTestId("explain-says")).toContainText("Undo takes them back");
-    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("agent-auto-approve")).toHaveAttribute(
+      "title",
+      /Undo takes them back/,
+    );
     await page.evaluate(() => {
       const panel = document.querySelector("[data-testid=workspace-agent-panel]")!;
       panel.setAttribute("data-review-seen", "false");

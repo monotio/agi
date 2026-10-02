@@ -6,6 +6,7 @@ import {
   onBeforeUnmount,
   ref,
   useId,
+  useSlots,
   useTemplateRef,
   watch,
 } from "vue";
@@ -14,8 +15,9 @@ import { openExplainer, type HelpTarget } from "./explain.ts";
 import { shellBridgeKey } from "../shell/shellBridge.ts";
 
 /**
- * The ⓘ after a label: a small round button that opens one sentence about
- * the thing it follows, in a popover under it (role dialog, clamped to the
+ * The ⓘ after a label, or, given slot content, the label itself (a heading
+ * that explains itself, with no icon): a button that opens one sentence about
+ * the thing it names, in a popover under it (role dialog, clamped to the
  * window): its name, the sentence, an optional action (the `action` slot,
  * handed `close`) and "Learn more ›" into the Help guide at `help`. Click,
  * Enter or Space opens it; a mouse resting on the button for 600 ms opens it
@@ -32,10 +34,8 @@ const {
   says,
   technical = undefined,
   help = undefined,
-  question = false,
 } = defineProps<{
   /** The registry id: `data-term` and the test id `explain-{term}`. */
-  question?: boolean;
   term: string;
   name: string;
   says: string;
@@ -43,6 +43,9 @@ const {
   help?: HelpTarget | undefined;
 }>();
 
+const slots = useSlots();
+/** A labelled explainer is its heading: its text names it and focus opens it. */
+const labelled = computed(() => !!slots["default"]);
 const bridge = inject(shellBridgeKey, null);
 const me = Symbol(term);
 const open = computed(() => openExplainer.value === me);
@@ -186,20 +189,20 @@ onBeforeUnmount(() => {
     ref="trigger"
     type="button"
     class="ui-explain"
-    :class="{ 'is-open': open }"
-    :aria-label="`What is ${name}?`"
-    :title="technical || says"
+    :class="{ 'is-open': open, 'ui-explain--label': labelled }"
+    :aria-label="labelled ? undefined : `What is ${name}?`"
+    :title="labelled ? undefined : technical || says"
     :aria-expanded="open"
     :aria-controls="open ? popId : undefined"
     aria-haspopup="dialog"
     :data-testid="`explain-${term}`"
     :data-term="term"
     @click.stop="toggle"
-    @focus="question && !returningFocus && show('hover')"
+    @focus="labelled && !returningFocus && show('hover')"
     @pointerenter="onEnter"
     @pointerleave="onLeave"
   >
-    <span v-if="question" aria-hidden="true">?</span>
+    <slot v-if="labelled" />
     <UiIcon v-else name="info" :size="12" />
   </button>
   <Teleport to="body">
@@ -257,6 +260,31 @@ onBeforeUnmount(() => {
   vertical-align: middle;
   cursor: help;
   transition: color var(--duration-fast) var(--ease-out);
+}
+/* A heading that explains itself: its own text and type, a quiet dotted
+   underline only while pointed at or focused. */
+.ui-explain.ui-explain--label {
+  display: inline;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  text-align: inherit;
+  text-decoration: underline dotted transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--duration-fast) var(--ease-out);
+}
+.ui-explain.ui-explain--label:hover,
+.ui-explain.ui-explain--label:focus-visible,
+.ui-explain.ui-explain--label.is-open {
+  color: inherit;
+  text-decoration-color: currentColor;
+}
+.ui-explain.ui-explain--label::after {
+  display: none;
 }
 /* The target a pointer can hit is a full control around the 16 px dot; a bar
    measuring what it can fit sets --explain-target to 0 (explain.ts). */

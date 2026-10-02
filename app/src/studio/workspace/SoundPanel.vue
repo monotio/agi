@@ -229,13 +229,14 @@ onBeforeUnmount(() => {
   >
     <header class="sound-heading">
       <div>
-        <h2>SOUND {{ documentKey.split(":")[1] }}</h2>
-        <UiExplain
-          question
-          term="sound-editor"
-          :name="VOCABULARY.sound.label"
-          :says="VOCABULARY.sound.help"
-        />
+        <h2>
+          <UiExplain
+            term="sound-editor"
+            :name="VOCABULARY.sound.label"
+            :says="VOCABULARY.sound.help"
+            >SOUND {{ documentKey.split(":")[1] }}</UiExplain
+          >
+        </h2>
       </div>
       <div class="sound-transport">
         <button

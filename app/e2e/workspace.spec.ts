@@ -296,6 +296,12 @@ for (const size of [
     await page.getByTestId("workspace-focus").click();
     await shot("picture-focus");
     await page.getByTestId("workspace-show-game").click();
+    // Headings explain themselves: the heading is the trigger, with no ? icon.
+    await expect(page.getByTestId("explain-parts-rooms")).toHaveText("ROOMS");
+    await expect(page.getByTestId("parts-list").getByText("?", { exact: true })).toHaveCount(0);
+    await page.getByTestId("explain-parts-rooms").focus();
+    await expect(page.getByTestId("explain-pop")).toBeVisible();
+    await page.keyboard.press("Escape");
     await page.getByTestId("explain-parts-rooms").click();
     await expect(page.getByTestId("explain-pop")).toBeVisible();
     await shot("parts-help");
