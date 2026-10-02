@@ -157,9 +157,8 @@ test("top navigation groups controls and follows game sound through shortcuts, a
   await expect(page.getByTestId("game-controls")).toBeHidden();
   await settings.click();
   await page.screenshot({ path: test.info().outputPath("navigation-mobile.png") });
-  // An outside click closes the sheet. The key hint in the strip under the
-  // game is a neutral target.
-  await page.locator("#game-input-help").click();
+  // An outside click on the game command closes the sheet.
+  await nav.getByRole("heading").click();
   await expect(settings).toHaveAttribute("aria-expanded", "false");
 });
 

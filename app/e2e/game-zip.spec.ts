@@ -144,10 +144,13 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
                     type: "function_call",
                     id: "patch",
                     call_id: "patch",
-                    name: "write_logic",
+                    name: "propose_changes",
                     arguments: JSON.stringify({
-                      room: 1,
-                      source: patchedSource,
+                      label: "Complete the world and remix room one",
+                      changes: [
+                        { key: "logic:1", content: patchedSource },
+                        { key: "logic:3", content: "return;" },
+                      ],
                     }),
                   },
                 ]
@@ -163,13 +166,19 @@ test("a friend opens an exported world in a fresh browser without a key @webkit-
     });
     await enterCreateMode(friend);
     await openWorkspaceAgent(friend);
-    await expect(friend.getByTestId("connect-assistant-ai")).toBeVisible();
+    await expect(friend.getByTestId("workspace-agent-panel")).toContainText(
+      "Connect your AI provider in Settings to start a task.",
+    );
     await friend.screenshot({ path: test.info().outputPath("power-up-connect.png") });
     await configureAi(friend, { provider: "openai", key: "test-placeholder" });
-    await expect(friend.getByTestId("agent-bubble-input")).toBeEnabled();
-    await friend.getByTestId("agent-bubble-input").fill("remix the room description");
-    await friend.getByTestId("agent-bubble-send").click();
-    await expect(friend.getByTestId("agent-bubble")).toBeHidden();
+    await expect(friend.getByTestId("agent-message")).toBeEnabled();
+    await friend.getByTestId("agent-message").fill("remix the room description");
+    await friend.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(friend.getByTestId("agent-review")).toBeVisible();
+    await friend.getByTestId("agent-approve").click();
+    await expect(friend.getByTestId("agent-review")).toHaveCount(0);
+    await friend.getByTestId("input-line").fill("look");
+    await friend.getByTestId("input-line").press("Enter");
     await expect
       .poll(async () => (await textHook(friend)).rows.join(" "))
       .toContain("Remixed room one.");
@@ -239,9 +248,11 @@ test("a v3 game can be imported, remixed, exported and opened in a fresh session
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("remix the room description");
-  await page.getByTestId("agent-bubble-send").click();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("remix the room description");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
   await expect
     .poll(async () => (await textHook(page)).rows.join(" "))
     .toContain("A remixed v3 adventure.");

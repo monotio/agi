@@ -10,6 +10,7 @@ import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import {
   isolateStorage,
+  agentActivity,
   openDeveloperActivity,
   openGameOptions,
   savedGameCard,
@@ -275,9 +276,7 @@ test("a reload resumes the parked window in an agent-authored room", async ({ pa
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
 
   // Room 1's entry window is parked too; acknowledge it, then walk east so
   // the stub authors room 2 and its entry print parks the pass there.
@@ -287,9 +286,7 @@ test("a reload resumes the parked window in an agent-authored room", async ({ pa
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 5_000 }).toBe(null);
   await input.fill("east");
   await input.press("Enter");
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
-    timeout: 10_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
   const parked = await textHook(page);
   expect(parked.rows.join(" ")).toContain("generated room 2");

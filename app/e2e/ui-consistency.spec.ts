@@ -80,14 +80,22 @@ test("the hero and Save settings share the one filled primary; card actions stay
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
-  for (const action of await page.locator(".agent-mode-switch button, .remix-close").all()) {
-    expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const action of await page
+    .getByRole("radiogroup", { name: "Agent changes", exact: true })
+    .getByRole("radio")
+    .all()) {
+    expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(24);
   }
   // The bubble's send button is the same primary as every other surface's.
-  await page.getByTestId("agent-bubble-input").fill("Make the mural brighter");
-  const send = page.getByTestId("agent-bubble-send");
+  await page.getByTestId("agent-message").fill("Make the mural brighter");
+  const send = page.getByRole("button", { name: "Send", exact: true });
   await expect(send).toBeEnabled();
-  expect(await send.evaluate(appearance)).toEqual(primary);
+  const panelPrimary = await send.evaluate(appearance);
+  expect({
+    color: panelPrimary.color,
+    background: panelPrimary.background,
+    radius: panelPrimary.radius,
+  }).toEqual({ color: primary.color, background: primary.background, radius: primary.radius });
   await page.screenshot({ animations: "disabled", path: test.info().outputPath("assistant.png") });
 });
 

@@ -129,7 +129,7 @@ The agent plans the world and builds the opening room: artwork, characters and
 game logic. When you walk into a room that is still unbuilt, play pauses
 while the agent writes it. Along the way you can:
 
-- plan on the world map in Create's World panel: rename rooms, edit their
+- open **World map** to rename rooms, edit their
   briefs and pin notes the agent reads when it builds that part of the world;
 - use **Ask** in Play for hints and questions that leave the game untouched,
   or open **Agent** (⌘I) beside any Create editor to change resources together;

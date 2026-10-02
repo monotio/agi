@@ -1,12 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { providerReply } from "../../test/provider-stream.ts";
-import {
-  enterCreateMode,
-  isolateStorage,
-  openAiSettings,
-  openWorkspaceAgent,
-  textHook,
-} from "./engineProbe.ts";
+import { isolateStorage, openAiSettings, enterPlayMode, textHook } from "./engineProbe.ts";
 
 test("one shared AI setup preserves the brief and keeps provider keys separate", async ({
   page,
@@ -103,8 +97,8 @@ test("AI settings pause only their own game interaction and preserve the assista
   expect((await textHook(page)).egoX).toBe(before.egoX);
   await expect(page.getByTestId("settings-menu")).toBeFocused();
 
-  await enterCreateMode(page);
-  await openWorkspaceAgent(page);
+  await enterPlayMode(page);
+  await page.getByTestId("menu-assistant").click();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");
@@ -112,13 +106,11 @@ test("AI settings pause only their own game interaction and preserve the assista
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where should I look next?");
   await openAiSettings(page);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(page.getByTestId("agent-bubble")).toBeVisible();
-  await expect(page.getByTestId("agent-mode-ask")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByTestId("agent-bubble-input")).toHaveValue("Where should I look next?");
   await expect(page.getByTestId("settings-menu")).toBeFocused();
   expect((await textHook(page)).paused).toBe(true);
@@ -162,8 +154,8 @@ test("changing the shared provider affects the next Ask without losing the conve
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await enterCreateMode(page);
-  await openWorkspaceAgent(page);
+  await enterPlayMode(page);
+  await page.getByTestId("menu-assistant").click();
   await openAiSettings(page);
   const dialog = page.getByTestId("ai-settings-dialog");
   await dialog.getByTestId("provider-select").selectOption("openai");
@@ -171,7 +163,6 @@ test("changing the shared provider affects the next Ask without losing the conve
   await dialog.getByTestId("effort-select").selectOption("low");
   await dialog.getByTestId("ai-settings-save").click();
   await expect(dialog).toBeHidden();
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("What is wrong with the mural?");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("The mural is unfinished.");

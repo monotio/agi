@@ -74,7 +74,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await controls.getByRole("button", { name: "F4", exact: true }).click();
   await openGameControls(page);
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeEnabled();
-  await page.screenshot({ path: "test-results/game-controls-desktop.png" });
+  await page.screenshot({ path: test.info().outputPath("game-controls-desktop.png") });
   await page.keyboard.press("Escape");
   await expect(controls).toBeHidden();
   await openGameControls(page);
@@ -82,7 +82,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(controls.getByRole("button", { name: "Inspect F3", exact: true })).toBeInViewport();
-  await page.screenshot({ path: "test-results/game-controls-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("game-controls-mobile.png") });
   await controls.getByRole("button", { name: "Repeat command F10", exact: true }).click();
   await expect(page.getByTestId("input-line")).toHaveValue("look");
   await page.getByTestId("input-line").press("Enter");
@@ -97,7 +97,7 @@ test("game controls discover bindings and menu labels, track disabled items, and
   await expect(controls).toContainText("Shortcuts appear here");
   await page.keyboard.press("Escape");
   await page.getByTestId("input-line").focus();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
   await expect(page.getByTestId("input-line")).not.toBeFocused();
 });
 

@@ -110,38 +110,10 @@ test("an unusual-name installed fixture boots through the real transport and exp
       fullPage: true,
     });
 
-    // Encoded resource requests crossed the wire for this card (and lazily for
-    // its sibling). Wait until both fixtures' manifests have been fetched —
-    // thumbnail fetches may still be queued — then scope further observation
-    // to the boot.
+    // Gallery lists fixtures; Play fetches the selected edition's native bytes.
     const encoded = encodeURIComponent(FOLDER);
-    const decoyEncoded = encodeURIComponent("Star Dock");
-    await expect
-      .poll(() => observed.some((entry) => entry.url.includes(`/fixtures/${encoded}/VOL.0`)), {
-        timeout: 30_000,
-      })
-      .toBe(true);
-    await expect
-      .poll(() => observed.some((entry) => entry.url.includes(`/fixtures/${decoyEncoded}/VOL.0`)), {
-        timeout: 30_000,
-      })
-      .toBe(true);
-    for (const entry of observed) {
-      expect(entry.status).toBe(200);
-    }
-    // Every byte the card's thumbnail read is this fixture's own.
     const moonFileNames = [...moon.files.values()].filter(isPlayableFileName);
-    for (const name of moonFileNames) {
-      const entry = observed.find(
-        (o) => new URL(o.url).pathname === `/fixtures/${encoded}/${encodeURIComponent(name)}`,
-      );
-      expect(entry, `encoded request for ${name}`).toBeDefined();
-      expect(await entry!.body).toEqual(
-        Buffer.from(new Uint8Array(await readFile(`${moon.dir}${name}`))),
-      );
-    }
-    observed.length = 0;
-
+    expect(observed.filter((entry) => /\/VOL\.0$/.test(entry.url))).toEqual([]);
     await card.getByTestId(`boot-${FOLDER}`).click();
     await expect
       .poll(async () => (await textHook(page)).rows.join(" "), { timeout: 30_000 })
@@ -154,14 +126,16 @@ test("an unusual-name installed fixture boots through the real transport and exp
     const moonEntries = observed.filter((entry) => entry.url.includes(`/fixtures/${encoded}/`));
     expect(moonEntries.length).toBeGreaterThan(0);
     for (const entry of moonEntries) expect(entry.status).toBe(200);
-    const moonVol = moonEntries.find(
-      (entry) => new URL(entry.url).pathname === `/fixtures/${encoded}/VOL.0`,
-    );
-    expect(moonVol, "boot fetched the selected fixture's VOL.0").toBeDefined();
-    expect(await moonVol!.body).toEqual(
-      Buffer.from(new Uint8Array(await readFile(`${moon.dir}VOL.0`))),
-    );
-
+    for (const name of moonFileNames) {
+      const entry = moonEntries.find(
+        (entry) =>
+          new URL(entry.url).pathname === `/fixtures/${encoded}/${encodeURIComponent(name)}`,
+      );
+      expect(entry, `encoded request for ${name}`).toBeDefined();
+      expect(await entry!.body).toEqual(
+        Buffer.from(new Uint8Array(await readFile(`${moon.dir}${name}`))),
+      );
+    }
     // The public export carries exactly the canonical playable set.
     const downloading = page.waitForEvent("download");
     await openGameOptions(page, "settings-menu");

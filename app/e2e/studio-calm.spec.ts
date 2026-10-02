@@ -122,7 +122,7 @@ for (const [width, height] of [
     // Depth and Walk: the view switch and the legend toggle sit in the options bar.
     for (const lens of ["2", "3"]) {
       await page.keyboard.press(lens);
-      await expect(studio.getByRole("toolbar", { name: "View" })).toBeVisible();
+      await expect(studio.getByRole("radiogroup", { name: "Lens", exact: true })).toBeVisible();
       expect(await coveredPoints(pane, stage, allowed)).toEqual([]);
       await expect.poll(barFits).toBe(true);
     }

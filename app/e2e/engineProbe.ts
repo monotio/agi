@@ -544,6 +544,21 @@ export async function closeWorkspaceEditor(page: Page): Promise<void> {
 
 /** Observe completed gesture publication and durable autosave. */
 export async function workspaceSaved(page: Page): Promise<void> {
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const probe = window as unknown as {
+          __AGI_PROJECT__: {
+            getSession(): { saveStatus(): { state: string; message: string } } | undefined;
+          };
+        };
+        const status = probe.__AGI_PROJECT__.getSession()?.saveStatus();
+        return status?.state === "failed" || status?.state === "conflict"
+          ? status.message
+          : status?.state;
+      }),
+    )
+    .toBe("saved");
   await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
   await page.evaluate(async () => {
     const probe = window as unknown as {
@@ -564,8 +579,22 @@ export async function enterCreateMode(page: Page): Promise<void> {
 /** Open the Create assistant through its registered workspace command. */
 export async function openWorkspaceAgent(page: Page): Promise<void> {
   await enterCreateMode(page);
+  const panel = page.getByTestId("workspace-agent-panel").or(page.getByTestId("agent-bubble"));
+  if (await panel.isVisible()) return;
   await page.getByTestId("workspace-agent").click();
-  await expect(page.getByTestId("agent-bubble")).toBeVisible();
+  await expect(panel).toBeVisible();
+}
+
+/** Developer activity remains published while its dialog is closed. */
+export async function agentActivity(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const state = (
+      window as unknown as {
+        __AGI_STATE__: { agentLog: { kind: string; detail: string }[] };
+      }
+    ).__AGI_STATE__;
+    return state.agentLog.map((entry) => `[${entry.kind}] ${entry.detail}`).join("\n");
+  });
 }
 
 /** Return to the full game before opening player tools. */

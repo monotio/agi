@@ -3,6 +3,7 @@ import {
   configureAi,
   enterPlayMode,
   isolateStorage,
+  agentActivity,
   openCreateAdventure,
   openDeveloperActivity,
   screenText,
@@ -97,10 +98,11 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
 
   // One flow, one turn: the agent log records a single Genesis request —
   // the world plan and the opening room landed together.
-  const panel = page.getByTestId("agent-panel");
-  await expect(panel).toContainText("Starting Genesis", { timeout: 30_000 });
-  await expect(panel).toContainText("planned a three-room world", { timeout: 30_000 });
-  const genesisRuns = await panel.locator(".agent-detail", { hasText: "Starting Genesis" }).count();
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("Starting Genesis");
+  await expect
+    .poll(() => agentActivity(page), { timeout: 30_000 })
+    .toContain("planned a three-room world");
+  const genesisRuns = (await agentActivity(page)).split("Starting Genesis").length - 1;
   expect(genesisRuns).toBe(1);
 
   // The map shows the plan over the running game: room 1 is authored and
@@ -111,7 +113,7 @@ test("a fresh create yields a playable room 1 and the planned map in one turn", 
   await expect(page.getByTestId("world-map").getByTestId("map-node-3")).toContainText("The Vault");
   await openWorldRoom(page.getByTestId("world-map"), 2);
   await expect(page.getByTestId("map-detail")).toContainText("planned");
-  await page.screenshot({ path: "test-results/plan-map-created.png" });
+  await page.screenshot({ path: test.info().outputPath("plan-map-created.png") });
 });
 
 test("Attach reference art opens the upload over the open world plan", async ({ page }) => {
@@ -137,9 +139,9 @@ test("Attach reference art opens the upload over the open world plan", async ({ 
 
 test("the player's world map shows walked rooms only — no plan, no controls", async ({ page }) => {
   await createAdventure(page);
-  await expect(page.getByTestId("agent-panel")).toContainText("planned a three-room world", {
-    timeout: 30_000,
-  });
+  await expect
+    .poll(() => agentActivity(page), { timeout: 30_000 })
+    .toContain("planned a three-room world");
 
   // The player entry is the discovered view: room 1 was walked; rooms 2 and
   // 3 exist only in the creator's plan and must not appear — nor may any
@@ -162,7 +164,7 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   // Even the visited room's detail carries no plan editor.
   await openWorldRoom(page.getByTestId("world-map"), 1);
   await expect(page.getByTestId("plan-room-title")).toHaveCount(0);
-  await page.screenshot({ path: "test-results/world-map-player.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-player.png") });
   await page.getByTestId("map-close").click();
 
   // The creator entry on the same session shows the full plan.
@@ -179,7 +181,7 @@ test("the player's world map shows walked rooms only — no plan, no controls", 
   await expect(map.getByTestId("map-detail")).toHaveAttribute("data-room", "1");
   await map.getByTestId("world-all-rooms").click();
   await expect(page.getByTestId("map-add-room")).toBeVisible();
-  await page.screenshot({ path: "test-results/world-map-creator.png" });
+  await page.screenshot({ path: test.info().outputPath("world-map-creator.png") });
 });
 
 test("editing a planned node and walking into it builds the edited version", async ({ page }) => {
@@ -204,9 +206,7 @@ test("editing a planned node and walking into it builds the edited version", asy
 
   // Walk east into the unbuilt room: the just-in-time room turn authors it.
   await say(page, "east");
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("authored room 2");
   await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(2);
 
   // World state kept the edits: the built node's plan entry still reads The
@@ -306,7 +306,7 @@ test("the plan surface stays usable on a phone and under reduced motion", async 
       ),
     );
   expect(animating).toBe(false);
-  await page.screenshot({ path: "test-results/plan-map-phone.png" });
+  await page.screenshot({ path: test.info().outputPath("plan-map-phone.png") });
 });
 
 test("a running authored game extends from a planned map node", async ({ page }) => {
@@ -316,9 +316,7 @@ test("a running authored game extends from a planned map node", async ({ page })
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
   await waitForRoom(page, 1, { coldBoot: true });
 
   await openMap(page);
@@ -328,9 +326,7 @@ test("a running authored game extends from a planned map node", async ({ page })
   const detail = page.getByTestId("map-detail");
   await expect(detail).toContainText("planned");
   await page.getByTestId("map-build-room").click();
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("authored room 2");
   // The map stayed open on the paused game and the node is now authored.
   await expect(page.getByTestId("world-map")).toBeVisible();
   await expect(page.getByTestId("map-detail")).toContainText("logic");
@@ -351,9 +347,7 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
   await waitForRoom(page, 1, { coldBoot: true });
 
   // Walk east: room 2 authors just-in-time.
@@ -374,12 +368,10 @@ test("a planned exit the source room lacks becomes a real route when built", asy
   await openWorldRoom(page.getByTestId("world-map"), 3);
   await expect(page.getByTestId("map-detail")).toContainText("planned");
   await page.getByTestId("map-build-room").click();
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 3", {
-    timeout: 30_000,
-  });
-  await expect(page.getByTestId("agent-panel")).toContainText("'north' now reaches room 3", {
-    timeout: 15_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("authored room 3");
+  await expect
+    .poll(() => agentActivity(page), { timeout: 15_000 })
+    .toContain("'north' now reaches room 3");
   await page.getByTestId("map-close").click();
   await expect.poll(async () => (await textHook(page)).paused).toBe(false);
 

@@ -143,15 +143,15 @@ test("Download project resumes private history in a fresh browser; Download game
     await enterCreateMode(other);
     await openWorkspaceAgent(other);
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
-    await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
     expect(requests).toHaveLength(0);
-    await other.getByTestId("agent-bubble-input").fill("Continue our garden.");
-    await other.getByTestId("agent-bubble-send").click();
-    await expect(other.getByTestId("agent-bubble")).toBeHidden();
-    expect(requests).toHaveLength(1);
+    await other.getByTestId("agent-message").fill("Continue our garden.");
+    await other.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
+    expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests[0])).toContain("Private genesis idea");
     expect(JSON.stringify(requests[0])).toContain("Continue our garden.");
-    expect(requests[0]?.["model"]).toBe("gpt-6.1-sol");
+    expect(requests[1]?.["model"]).toBe("gpt-6.1-sol");
     const continuationDownload = other.waitForEvent("download");
     await openGameOptions(other, "settings-menu");
     await other.getByTestId("btn-download-game").click();
@@ -164,7 +164,7 @@ test("Download project resumes private history in a fresh browser; Download game
     );
     expect(continuation.project?.provider).toBe("openai");
     expect(continuation.project?.conversationHistory?.[0]?.transcript).toEqual(transcript);
-    expect(JSON.stringify(continuation.project?.transcript)).toContain("Continue our garden.");
+    expect(JSON.stringify(continuation.project?.chats)).toContain("Continue our garden.");
     expect(
       new TextDecoder().decode(new Uint8Array(await readFile((await continued.path())!))),
     ).not.toContain("test-placeholder");

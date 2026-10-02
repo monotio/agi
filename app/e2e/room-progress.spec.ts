@@ -1,4 +1,4 @@
-import { cacheGame, configureAi } from "./engineProbe.ts";
+import { cacheGame, configureAi, agentActivity } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
@@ -132,25 +132,15 @@ for (const fail of [false, true])
       await page.keyboard.down("ArrowRight");
       await expect.poll(() => requests).toBe(1);
       await page.keyboard.up("ArrowRight");
-      const panel = page.getByTestId("agent-bubble");
-      await expect(panel).toContainText("Creating the next room");
-      await expect(panel.getByTestId("agent-bubble-room")).toContainText("2");
-      await expect(page.getByTestId("agent-bubble-input")).toBeHidden();
-      await page.keyboard.press("Escape");
-      await expect(panel).toBeVisible();
-      await expect(page.getByTestId("menu-assistant")).toBeDisabled();
+      expect(requests).toBe(1);
       release();
       if (fail) {
-        await expect(page.getByTestId("agent-bubble-error")).toContainText(
-          "Room generation test failure",
-        );
-        await panel.getByRole("button", { name: "Back to game" }).click();
-        await expect(panel).toBeHidden();
+        await expect.poll(() => agentActivity(page)).toContain("Room generation test failure");
         await expect.poll(async () => (await textHook(page)).room).toBe(1);
       } else {
         await expect.poll(() => requests).toBe(2);
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_room -> ok");
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_view -> ok");
+        await expect.poll(() => agentActivity(page)).toContain("read_room -> ok");
+        await expect.poll(() => agentActivity(page)).toContain("read_view -> ok");
         const tools = (providerRequests[0]!["tool_choice"] as { tools: { name: string }[] }).tools;
         expect(tools.some((tool) => tool.name === "read_room")).toBe(true);
         expect(tools.some((tool) => tool.name === "finish")).toBe(true);
@@ -173,11 +163,10 @@ for (const fail of [false, true])
           (item) => item.type === "function_call_output" && item.call_id === "call2",
         )!;
         expect(viewOutput.output!.some((block) => block.type === "input_image")).toBe(true);
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText("write_objects -> ok");
+        await expect.poll(() => agentActivity(page)).toContain("write_objects -> ok");
         await page.setViewportSize({ width: 390, height: 844 });
-        await page.screenshot({ path: "test-results/creating-next-room.png" });
+        await page.screenshot({ path: test.info().outputPath("creating-next-room.png") });
         finish();
-        await expect(panel).toBeHidden();
         await expect.poll(async () => (await textHook(page)).room).toBe(2);
         expect(requests, "the validated finish finishes without another provider turn").toBe(2);
         await page.keyboard.press("Tab");

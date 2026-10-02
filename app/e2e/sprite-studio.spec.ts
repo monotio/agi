@@ -332,7 +332,7 @@ test("a loop's cyan recoloured to blue by keys is saved, and the walking ego sho
   // The edit's notice shows in the status line while the popover is still open.
   await expect(studio.locator(".sprite-studio__status").getByTestId("studio-notice")).toBeVisible();
   await expect(recolor.getByTestId("sprite-recolor-count")).toHaveText(
-    "No pixels of colour 3, cyan in this loop.",
+    "colour 3, cyan is unused in this loop. Choose a colour used here.",
   );
   // The spent Recolour button leaves focus in the popover, on the From colour,
   // so the keys go on from there: Esc closes it.

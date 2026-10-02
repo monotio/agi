@@ -35,11 +35,12 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   page,
 }) => {
   await bootTutorial(page);
-  // 900 rows less the 52 px bar and the 48 px strip leave exactly 800: 4×.
-  expect(await surfaceBox(page)).toMatchObject({ width: 1280, height: 800 });
+  // The 62 px bar and 48 px strip leave 790 rows. A 3× frame fills
+  // less than 80% of the available area, so the screen uses the fluid fit.
+  expect(await surfaceBox(page)).toMatchObject({ width: 1264, height: 790 });
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("toggle-original-aspect").click();
-  // 4:3 needs 240 rows per step: 800 rows hold 3× (960×720).
+  // 4:3 needs 240 rows per step: 790 rows hold 3× (960×720).
   await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
   expect((await surfaceBox(page)).height).toBe(720);
   await page.getByTestId("toggle-original-aspect").click();
@@ -66,7 +67,7 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   await drawer.getByTestId("agent-bubble-close").click();
   await expect(drawer).toBeHidden();
   await expect(page.getByTestId("input-line")).toBeFocused();
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(1280);
+  await expect.poll(async () => (await surfaceBox(page)).width).toBe(1264);
 });
 
 /** Pairs of top-bar controls whose boxes overlap, and how wide the bar is laid out. */
@@ -96,9 +97,9 @@ test("Play shows the game and its bar only; Developer activity opens from Settin
   page,
 }) => {
   await bootTutorial(page);
-  // The tutorial registers no menu, so the key help does not offer Esc for one.
+  // The tutorial registers a game menu, exposed in the keyboard help.
   await expect(page.locator("#game-input-help")).toContainText("Arrows or numpad walk");
-  await expect(page.locator("#game-input-help")).not.toContainText("game menu");
+  await expect(page.locator("#game-input-help")).toContainText("Esc game menu");
   for (const [width, height] of [
     [1440, 900],
     [1280, 720],

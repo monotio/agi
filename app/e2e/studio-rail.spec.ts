@@ -43,7 +43,6 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     const studio = await openLabStudio(page);
     const rail = studio.getByRole("toolbar", { name: "Tools" });
-    studio.locator(".workspace-palette");
     for (const [key, lens, tools] of [
       ["1", "Art", 10],
       ["2", "Depth", 10],
@@ -60,7 +59,7 @@ for (const viewport of VIEWPORTS) {
       );
       const buttons = rail.getByRole("button");
       const count = await buttons.count();
-      expect(count).toBe(tools + 2);
+      expect(count).toBe(tools + 3);
       for (let k = 0; k < count; k++) {
         const button = buttons.nth(k);
         const name = `${lens}: ${await button.getAttribute("aria-label")}`;
@@ -110,7 +109,7 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
   await page.setViewportSize({ width: 1024, height: 600 });
   const studio = await openLabStudio(page);
   const top = {
-    lens: studio.locator(".workspace-lenses"),
+    lens: studio.getByRole("radiogroup", { name: "Lens", exact: true }),
     undo: page.getByTestId("workspace-undo"),
     status: page.getByTestId("workspace-saved"),
   };
@@ -124,8 +123,8 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
     ["3", "Walk"],
   ] as const) {
     await page.keyboard.press(key);
-    await expect(top.lens.getByRole("button", { name: new RegExp(lens) })).toHaveAttribute(
-      "aria-pressed",
+    await expect(top.lens.getByRole("radio", { name: new RegExp(lens) })).toHaveAttribute(
+      "aria-checked",
       "true",
     );
     for (const group of [top, stage]) {

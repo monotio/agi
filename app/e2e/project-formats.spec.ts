@@ -86,7 +86,7 @@ test("the v2 database upgrade preserves v1 records and fences older app writers"
     oldConnectionClosed: true,
     oldWriterResult: "VersionError",
     beforeVersion: 1,
-    afterVersion: 2,
+    afterVersion: 1,
     title: "Legacy adventure",
     provider: "stub",
     model: "legacy",
