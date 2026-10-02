@@ -403,6 +403,8 @@ test("journal identities order metadata keys by code point", async () => {
     base: baseData,
     expected: capture.base,
     openedAt: capture.openedAt,
+    baseImage: capture.baseImage,
+    image: capture.image,
     operations: capture.operations,
   };
   const reversed = {
@@ -414,4 +416,41 @@ test("journal identities order metadata keys by code point", async () => {
     captureProjectJournal({ ...input, request: reversed }).hash,
   );
   owner.dispose();
+});
+
+test("recovery keeps the working image when Undo returns to invalid source", async () => {
+  const owner = await session("compact-invalid-base");
+  const result = await owner.submit({
+    proposal: owner.model.propose(owner.model.capture(), "Typing", [
+      { key: "logic:0", content: "if (" },
+    ]),
+    label: "Typing",
+    origin: "logic",
+    author: "creator",
+  });
+  assert.equal(result.status, "diagnostics");
+  await edit(owner, 'print("working"); return;');
+  await owner.undo();
+  await owner.flush();
+  await owner.submit({
+    proposal: owner.model.propose(owner.model.capture(), "Notes", [
+      { key: "notes", content: "Still typing" },
+    ]),
+    label: "Notes",
+    origin: "logic",
+    author: "creator",
+  });
+  paint();
+  const capture = captured();
+  const original = {
+    ...capture.identity,
+    documents: owner.model
+      .capture()
+      .keys.map((key) => ({ key, version: owner.model.capture().version(key) })),
+    data: published,
+  };
+  owner.dispose();
+  const recovered = (await loadAuthoredGame(original.projectId))!;
+  assert.deepEqual(recovered.files, original.data.files);
+  assert.equal((await commitProject(original)).receipt.saved.generation, recovered.generation);
 });

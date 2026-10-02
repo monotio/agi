@@ -78,6 +78,8 @@ export interface ProjectJournalCapture {
   readonly versions: readonly { readonly key: string; readonly version: number }[];
   readonly base: NonNullable<ProjectCommitRequest["expected"]>;
   readonly openedAt: number;
+  readonly baseImage: string;
+  readonly image: string;
   readonly operations: readonly ProjectJournalOperation[];
   readonly metadata: Patch;
   readonly hash: string;
@@ -87,6 +89,8 @@ export function captureProjectJournal(input: {
   readonly base: CachedGameData;
   readonly expected: NonNullable<ProjectCommitRequest["expected"]>;
   readonly openedAt: number;
+  readonly baseImage: string;
+  readonly image: string;
   readonly operations: readonly ProjectJournalOperation[];
 }): ProjectJournalCapture {
   const { data, documents, ...identity } = input.request;
@@ -104,6 +108,8 @@ export function captureProjectJournal(input: {
     versions: documents.filter(({ version }) => version !== 1),
     base: input.expected,
     openedAt: input.openedAt,
+    baseImage: input.baseImage,
+    image: input.image,
     operations: input.operations,
     metadata: patch,
   };

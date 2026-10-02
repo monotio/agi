@@ -109,6 +109,7 @@ export function resumeProjectSaveJournals(
             const next = {
               ...capture,
               base: previous.saved,
+              baseImage: entry.capture.image,
               identity: { ...capture.identity, expected: previous.saved },
               operations:
                 capture.base.generation === entry.capture.base.generation &&

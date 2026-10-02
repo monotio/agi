@@ -127,6 +127,7 @@ function createSession(
       ): Promise<PreviewUpdateOutcome>;
     };
     readonly openedAt?: number;
+    readonly workingDocumentId?: string;
     readonly current?: () => boolean;
     readonly boundary?: () => Promise<void>;
     readonly write?: (request: ProjectCommitRequest) => Promise<ProjectCommitReceipt>;
@@ -164,6 +165,7 @@ function createSession(
     fallback: inspection.documents,
     history: history.capture(),
     profileId: inspection.profileId,
+    ...(input.workingDocumentId === undefined ? {} : { documentId: input.workingDocumentId }),
   });
   const model = new ProjectModel({ documents, build, digest: sha256Hex });
   if (history.capture().cursor === null) {
@@ -218,6 +220,7 @@ function createSession(
   }
   let journalBase = structuredClone(input.data);
   let journalExpected = { ...expected };
+  let journalImage = model.capture().lastAdmissibleBuild!.documentId;
   let operationBase = 0;
   let operationSerial = 0;
   let operations: { index: number; operation: ProjectJournalOperation }[] = [];
@@ -275,6 +278,8 @@ function createSession(
             base: journalBase,
             expected: journalExpected,
             openedAt,
+            baseImage: journalImage,
+            image: capture.snapshot.lastAdmissibleBuild!.documentId,
             operations: operations
               .filter(({ index }) => index > operationBase && index <= capture.operation)
               .map(({ operation }) => operation),
@@ -356,6 +361,7 @@ function createSession(
       data.library = capture.request!.data.library;
       expected = { ...receipt.saved };
       journalExpected = { ...receipt.saved };
+      journalImage = capture.snapshot.lastAdmissibleBuild!.documentId;
       journalBase = {
         ...capture.request!.data,
         projectId: receipt.saved.projectId,
@@ -792,6 +798,7 @@ export async function rebuildProjectJournal(
       data,
       lifetime: capture.base.lifetime,
       openedAt: capture.openedAt,
+      workingDocumentId: capture.baseImage,
       admission: {
         runToken: "journal-recovery",
         admit: async () => ({
@@ -813,7 +820,10 @@ export async function rebuildProjectJournal(
   try {
     for (const operation of capture.operations) await session.replay(operation);
     if (rebuilt === undefined) await session.replay({ kind: "capture" });
-    if (session.model.capture().lastAdmissibleBuild?.identity.buildId !== capture.identity.buildId)
+    if (
+      session.model.capture().lastAdmissibleBuild?.identity.buildId !== capture.identity.buildId ||
+      session.model.capture().lastAdmissibleBuild?.documentId !== capture.image
+    )
       throw new Error("Project journal could not rebuild its exact accepted image.");
     if (rebuilt === undefined) throw new Error("Project journal has no accepted capture.");
     return rebuilt;
