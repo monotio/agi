@@ -15,6 +15,7 @@ import {
   makeCelsChanges,
   suggestImageFrames,
   prepareImageCels,
+  detectImageBackground,
   type ProjectImageInput,
   type ImageFrame,
 } from "../../../../src/creative/imageOperations.ts";
@@ -25,6 +26,10 @@ import type { createImageGenerationMount } from "./imageGenerationMount.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useShellBridge } from "../../shell/shellBridge.ts";
 import { openSprite } from "../../../../src/view/spriteDocument.ts";
+import { readBindingsDocument } from "../../../../src/authoring/projectDocuments.ts";
+import { buildView } from "../../../../src/view/view.ts";
+import { nearestEgaIndex } from "../../../../src/view/spritesheet.ts";
+import { EGA_PALETTE } from "../../render/palette.ts";
 import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
 const props = defineProps<{
@@ -52,15 +57,64 @@ const generateOpen = ref(props.generate);
 const file = useTemplateRef("file");
 const isPicture = computed(() => props.target.startsWith("picture:"));
 const mirrors = shallowRef<readonly (number | null)[]>([]);
+const loopHeights = shallowRef<readonly number[]>([]);
+const background = shallowRef<readonly [number, number, number] | null>(null);
+const replaceOpen = ref(false);
+const colourOpen = ref(false);
+const colourNames = [
+  "Black",
+  "Blue",
+  "Green",
+  "Cyan",
+  "Red",
+  "Magenta",
+  "Brown",
+  "Light grey",
+  "Dark grey",
+  "Light blue",
+  "Light green",
+  "Light cyan",
+  "Light red",
+  "Light magenta",
+  "Yellow",
+  "White",
+];
+const name = computed(() => {
+  const bindings = props.session.model.capture().read("bindings")?.content;
+  if (typeof bindings === "string") {
+    const entry = Object.entries(readBindingsDocument(bindings)).find(
+      ([, binding]) => `${binding.kind}:${binding.num}` === props.target,
+    );
+    if (entry) return entry[0] === "ego_view" ? "Hero" : entry[0].replaceAll("_", " ");
+  }
+  return "Character";
+});
+const backgroundName = computed(() =>
+  background.value === null
+    ? "Background is see-through"
+    : `${colourNames[nearestEgaIndex(...background.value)]} is see-through`,
+);
+const sourceUrl = computed(() => {
+  if (!image.value) return "";
+  const canvas = document.createElement("canvas");
+  canvas.width = image.value.width;
+  canvas.height = image.value.height;
+  const pixels = new ImageData(canvas.width, canvas.height);
+  pixels.data.set(image.value.rgba);
+  canvas.getContext("2d")!.putImageData(pixels, 0, 0);
+  return canvas.toDataURL();
+});
 watch(
   () => props.resourceRevision,
   () => {
     const content = props.session.model.capture().read(props.target)?.content;
-    if (content instanceof Uint8Array && !isPicture.value)
-      mirrors.value = openSprite(content, props.profile).loops.map((loop) => loop.alias);
-    else if (typeof content === "string" && !isPicture.value) {
-      const input = JSON.parse(content) as { loops: { mirrorLoop?: number }[] };
-      mirrors.value = input.loops.map((loop) => loop.mirrorLoop ?? null);
+    if (!isPicture.value && content !== undefined) {
+      const sprite = openSprite(
+        typeof content === "string" ? buildView(JSON.parse(content), props.profile) : content,
+        props.profile,
+      );
+      mirrors.value = sprite.loops.map((loop) => loop.alias);
+      loopHeights.value = sprite.loops.map((loop) => loop.cels[0]?.height ?? 24);
     }
   },
   { immediate: true },
@@ -134,7 +188,10 @@ async function useImage(value: ProjectImageInput) {
       ),
       "Trace an image",
     );
-  else frames.value = [...suggestImageFrames(value)];
+  else {
+    background.value = detectImageBackground(value);
+    frames.value = [...suggestImageFrames(value)];
+  }
   generateOpen.value = false;
 }
 async function intake(blob: Blob, title: string) {
@@ -198,7 +255,7 @@ async function changeTrace(label: string) {
 const prepared = computed(() => {
   if (!image.value || isPicture.value) return null;
   try {
-    return prepareImageCels(image.value, frames.value, props.profile);
+    return prepareImageCels(image.value, frames.value, props.profile, background.value);
   } catch {
     return null;
   }
@@ -216,6 +273,7 @@ async function addCels() {
         image.value,
         frames.value,
         props.profile,
+        background.value,
       ),
       "Make cels from an image",
     );
@@ -275,22 +333,97 @@ onBeforeUnmount(() => {
     tabindex="0"
   >
     <header>
-      <strong>{{ isPicture ? "Trace an image" : "Make cels from an image" }}</strong>
-      <UiButton size="sm" variant="ghost" @click="emit('close')">Close</UiButton>
+      <strong>{{
+        isPicture ? "Trace an image" : `${name} VIEW ${target.slice(5)} · Cels from an image`
+      }}</strong>
+      <UiButton size="sm" variant="ghost" @click="emit('close')">{{
+        isPicture ? "Close" : "Done"
+      }}</UiButton>
     </header>
-    <div class="image-reference__actions">
+    <div v-if="isPicture || !image" class="image-reference__actions">
       <UiButton size="sm" :disabled="busy" @click="file?.click()">Bring in an image</UiButton>
       <UiButton size="sm" @click="generateOpen = !generateOpen">Generate</UiButton>
       <span>Drop, paste or choose an image.</span>
-      <input
-        ref="file"
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        data-testid="image-file"
-        @change="choose"
-        hidden
-      />
     </div>
+    <div v-if="image && !isPicture" class="image-source">
+      <span class="image-source__chip"><img :src="sourceUrl" alt="" />{{ image.title }}</span>
+      <div class="image-source__menu">
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :aria-expanded="replaceOpen"
+          @click="replaceOpen = !replaceOpen"
+          >Replace ▾</UiButton
+        >
+        <div v-if="replaceOpen" class="image-source__popover">
+          <UiButton
+            size="sm"
+            :disabled="busy"
+            title="Choose an image file"
+            @click="
+              file?.click();
+              replaceOpen = false;
+            "
+            >Bring in an image</UiButton
+          >
+          <UiButton
+            size="sm"
+            @click="
+              generateOpen = !generateOpen;
+              replaceOpen = false;
+            "
+            >Generate</UiButton
+          >
+        </div>
+      </div>
+      <div class="image-source__colour">
+        <UiButton
+          size="sm"
+          variant="ghost"
+          :aria-expanded="colourOpen"
+          @click="colourOpen = !colourOpen"
+          >{{ backgroundName
+          }}<i
+            class="image-source__swatch"
+            :style="{ background: background ? `rgb(${background.join(' ')})` : 'transparent' }"
+          ></i
+        ></UiButton>
+        <div
+          v-if="colourOpen"
+          class="image-source__popover"
+          role="group"
+          aria-label="See-through colour"
+        >
+          <button
+            v-for="(colour, index) in EGA_PALETTE"
+            :key="index"
+            type="button"
+            :aria-label="colourNames[index]"
+            :style="{ background: `rgb(${colour.join(' ')})` }"
+            @click="
+              background = colour;
+              colourOpen = false;
+            "
+          ></button>
+          <UiButton
+            size="sm"
+            @click="
+              background = null;
+              colourOpen = false;
+            "
+            >Use transparency</UiButton
+          >
+        </div>
+      </div>
+    </div>
+    <input
+      ref="file"
+      type="file"
+      accept="image/png,image/jpeg,image/webp"
+      data-testid="image-file"
+      @change="choose"
+      hidden
+    />
     <p v-if="error" role="alert">{{ error }}</p>
     <CreativeGenerate
       v-if="generateOpen && generation"
@@ -314,25 +447,38 @@ onBeforeUnmount(() => {
       Behind art
     </label>
     <template v-if="image && !isPicture">
-      <ImageFrameSheet v-model="frames" :image="image" :profile="profile" :mirrors="mirrors" />
-      <div class="image-reference__actions">
-        <UiButton
-          size="sm"
-          :disabled="!prepared || !frames.length"
-          :title="prepared ? '' : 'Adjust the frames first'"
-          data-testid="image-preview-hero"
-          @click="preview"
-          >{{ previewing ? "Stop preview" : "Preview on hero" }}</UiButton
-        >
-        <UiButton
-          size="sm"
-          :disabled="!prepared || !frames.length || busy"
-          :title="prepared ? '' : 'Adjust the frames first'"
-          data-testid="image-add-cels"
-          @click="addCels"
-          >Add as cels</UiButton
-        >
-      </div>
+      <ImageFrameSheet
+        v-show="!generateOpen"
+        v-model="frames"
+        :image="image"
+        :profile="profile"
+        :mirrors="mirrors"
+        :loop-heights="loopHeights"
+        :name="name"
+        :background="background"
+      >
+        <template #preview>
+          <UiButton
+            size="sm"
+            :disabled="!prepared || !frames.length"
+            :title="prepared ? '' : 'Adjust the frames first'"
+            data-testid="image-preview-hero"
+            @click="preview"
+            >{{ previewing ? "Stop preview" : "Try on Hero in the game" }}</UiButton
+          >
+        </template>
+        <template #commit>
+          <UiButton
+            size="sm"
+            variant="primary"
+            :disabled="!prepared || !frames.length || busy"
+            :title="prepared ? '' : 'Adjust the frames first'"
+            data-testid="image-add-cels"
+            @click="addCels"
+            >Add {{ frames.length }} cels</UiButton
+          >
+        </template>
+      </ImageFrameSheet>
       <p v-if="!prepared" role="alert">Adjust the frames to fit the image and cel size.</p>
     </template>
     <p v-if="status" role="status" data-testid="image-status">{{ status }}</p>
@@ -399,7 +545,6 @@ onBeforeUnmount(() => {
 }
 .image-reference--cels :deep(.frame-editor) {
   flex: 1;
-  overflow: auto;
   padding: var(--space-1);
 }
 .image-reference--cels > header,
@@ -409,5 +554,77 @@ onBeforeUnmount(() => {
 }
 .image-reference--cels .image-reference__actions {
   margin-top: var(--space-2);
+}
+.image-source {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  font-size: var(--text-xs);
+}
+.image-source__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.image-source__chip img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+.image-source__menu,
+.image-source__colour {
+  position: relative;
+}
+.image-source__colour {
+  margin-left: auto;
+}
+.image-source__swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  margin-left: var(--space-2);
+}
+.image-source__popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 5;
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 150px;
+  box-shadow: var(--shadow-pop);
+}
+.image-source__colour .image-source__popover button {
+  min-width: 24px;
+  min-height: 24px;
+  border: 1px solid var(--hairline);
+  cursor: pointer;
+}
+.image-reference--cels > .generate {
+  flex: 1;
+  overflow: auto;
+}
+:global(
+  .workspace-editor:has(.image-reference--cels)
+    > .workspace-editor__header
+    > button:not([data-testid])
+) {
+  display: none;
 }
 </style>

@@ -69,49 +69,142 @@ export function traceImageChanges(
   });
   return changes;
 }
-/** Suggest strips separated by empty columns; otherwise offer an editable regular grid. */
+/** Transparent sheets use alpha; opaque sheets use the most common corner colour. */
+export function detectImageBackground(
+  image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
+): readonly [number, number, number] | null {
+  for (let i = 3; i < image.rgba.length; i += 4) if (image.rgba[i]! < 128) return null;
+  const colours: Record<string, number> = {};
+  const size = Math.min(16, Math.max(1, Math.floor(Math.min(image.width, image.height) / 8)));
+  for (const left of [0, image.width - size])
+    for (const top of [0, image.height - size])
+      for (let y = top; y < top + size; y++)
+        for (let x = left; x < left + size; x++) {
+          const offset = (y * image.width + x) * 4;
+          const key = `${image.rgba[offset]},${image.rgba[offset + 1]},${image.rgba[offset + 2]}`;
+          colours[key] = (colours[key] ?? 0) + 1;
+        }
+  const key = Object.keys(colours).sort((a, b) => colours[b]! - colours[a]!)[0]!;
+  const rgb = key.split(",").map(Number);
+  return [rgb[0]!, rgb[1]!, rgb[2]!];
+}
+/** One scale for both axes, rounded to native cel pixels. */
+export function scaleImageFrame(region: Rect, requestedHeight: number) {
+  const scale =
+    Math.min(Math.max(1, Math.round(requestedHeight)), 168, (160 * region.height) / region.width) /
+    region.height;
+  return {
+    width: Math.max(1, Math.round(region.width * scale)),
+    height: Math.max(1, Math.round(region.height * scale)),
+  };
+}
+/** Separate figures at empty column and row gaps, then box each region tightly. */
 export function suggestImageFrames(
   image: Pick<ProjectImageInput, "width" | "height" | "rgba">,
   count?: number,
 ): readonly ImageFrame[] {
-  const regions: Rect[] = [];
-  if (count === undefined) {
+  const background = detectImageBackground(image);
+  const foreground = new Uint8Array(image.width * image.height);
+  for (let i = 0; i < foreground.length; i++) {
+    const offset = i * 4;
+    foreground[i] =
+      image.rgba[offset + 3]! >= 128 &&
+      (background === null ||
+        background.some((c, channel) => Math.abs(image.rgba[offset + channel]! - c) > 24))
+        ? 1
+        : 0;
+  }
+  function bands(region: Rect, horizontal: boolean): Rect[] {
+    const result: Rect[] = [];
+    const length = horizontal ? region.width : region.height;
     let start = -1;
-    for (let x = 0; x <= image.width; x++) {
-      let opaque = false;
-      if (x < image.width)
-        for (let y = 0; y < image.height; y++) {
-          if (image.rgba[(y * image.width + x) * 4 + 3]! >= 128) {
-            opaque = true;
+    for (let axis = 0; axis <= length; axis++) {
+      let occupied = false;
+      if (axis < length) {
+        for (let cross = 0; cross < (horizontal ? region.height : region.width); cross++) {
+          const x = region.x + (horizontal ? axis : cross);
+          const y = region.y + (horizontal ? cross : axis);
+          if (foreground[y * image.width + x]) {
+            occupied = true;
             break;
           }
         }
-      if (opaque && start < 0) start = x;
-      if (!opaque && start >= 0) {
-        regions.push({ x: start, y: 0, width: x - start, height: image.height });
+      }
+      if (occupied && start < 0) start = axis;
+      if (!occupied && start >= 0) {
+        result.push(
+          horizontal
+            ? { ...region, x: region.x + start, width: axis - start }
+            : { ...region, y: region.y + start, height: axis - start },
+        );
         start = -1;
       }
     }
+    return result;
   }
-  if (count !== undefined || regions.length < 2) {
-    regions.length = 0;
-    const columns = count ?? Math.min(4, image.width);
-    if (!Number.isInteger(columns) || columns < 1 || columns > image.width)
+  function connected(region: Rect): Rect[] {
+    const result: Rect[] = [];
+    for (let y = region.y; y < region.y + region.height; y++)
+      for (let x = region.x; x < region.x + region.width; x++) {
+        const start = y * image.width + x;
+        if (foreground[start] !== 1) continue;
+        const pending = [start];
+        foreground[start] = 2;
+        let left = x,
+          right = x,
+          top = y,
+          bottom = y;
+        while (pending.length) {
+          const pixel = pending.pop()!;
+          const px = pixel % image.width,
+            py = Math.floor(pixel / image.width);
+          left = Math.min(left, px);
+          right = Math.max(right, px);
+          top = Math.min(top, py);
+          bottom = Math.max(bottom, py);
+          for (
+            let ny = Math.max(region.y, py - 1);
+            ny <= Math.min(region.y + region.height - 1, py + 1);
+            ny++
+          )
+            for (
+              let nx = Math.max(region.x, px - 1);
+              nx <= Math.min(region.x + region.width - 1, px + 1);
+              nx++
+            ) {
+              const neighbour = ny * image.width + nx;
+              if (foreground[neighbour] !== 1) continue;
+              foreground[neighbour] = 2;
+              pending.push(neighbour);
+            }
+        }
+        result.push({ x: left, y: top, width: right - left + 1, height: bottom - top + 1 });
+      }
+    return result;
+  }
+  const whole = { x: 0, y: 0, width: image.width, height: image.height };
+  let regions: Rect[];
+  if (count !== undefined) {
+    if (!Number.isInteger(count) || count < 1 || count > image.width)
       throw new Error("Choose a frame count that fits the sheet.");
-    for (let i = 0; i < columns; i++) {
-      const x = Math.floor((i * image.width) / columns);
-      regions.push({
-        x,
-        y: 0,
-        width: Math.floor(((i + 1) * image.width) / columns) - x,
-        height: image.height,
-      });
-    }
+    regions = Array.from({ length: count }, (_, i) => {
+      const x = Math.floor((i * image.width) / count);
+      return { ...whole, x, width: Math.floor(((i + 1) * image.width) / count) - x };
+    });
+  } else {
+    // A column band can contain several rows; recheck columns within each row.
+    regions = bands(whole, true).flatMap((column) =>
+      bands(column, false).flatMap((row) => bands(row, true)),
+    );
+    regions = regions.flatMap(connected);
+    regions.sort((a, b) => a.y - b.y || a.x - b.x);
+    // Single-row sheets read left to right even when the figures have uneven tops.
+    if (regions.every((a) => regions.every((b) => a.y < b.y + b.height && b.y < a.y + a.height)))
+      regions.sort((a, b) => a.x - b.x);
   }
   return regions.map((region) => ({
     region,
-    width: Math.min(32, region.width),
-    height: Math.min(48, region.height),
+    ...scaleImageFrame(region, Math.min(24, region.height)),
     loop: 0,
   }));
 }
@@ -119,6 +212,7 @@ export function prepareImageCels(
   image: ProjectImageInput,
   frames: readonly ImageFrame[],
   profile: AgiProfile,
+  background = detectImageBackground(image),
 ) {
   const identity = { id: sha256Hex(image.rgba), incarnation: "image", revision: 0 };
   const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
@@ -128,10 +222,10 @@ export function prepareImageCels(
     outputWidth: frame.width,
     outputHeight: frame.height,
     sourceAnchor: {
-      x: frame.region.x + Math.floor(frame.region.width / 2),
+      x: frame.region.x,
       baselineEdgeY: frame.region.y + frame.region.height,
     },
-    outputAnchorX: Math.floor(frame.width / 2),
+    outputAnchorX: 0,
     sample: "nearest-centre-v1",
     allowCropBelowBaseline: false,
     allowCropOutsideCanvas: false,
@@ -148,7 +242,10 @@ export function prepareImageCels(
       algorithm: "manual-view-preparation-v1",
       sources: [identity],
       palette: "ega-weighted-243-v1",
-      mask: { alphaThreshold: 128, key: null },
+      mask: {
+        alphaThreshold: 128,
+        key: background === null ? null : { mode: "ega-index-v1", rgb: background },
+      },
       frames: preparedFrames,
       loops: loops.map((loop) => ({
         id: `loop-${loop}`,
@@ -165,6 +262,7 @@ export function makeCelsChanges(
   image: ProjectImageInput,
   frames: readonly ImageFrame[],
   profile: AgiProfile,
+  background = detectImageBackground(image),
 ): readonly ProjectChange[] {
   if (!/^view:(0|[1-9]\d{0,2})$/.test(target) || Number(target.slice(5)) > 255)
     throw new Error("Choose a VIEW target.");
@@ -185,7 +283,7 @@ export function makeCelsChanges(
             })) ?? [],
           ...(parsed?.description ? { description: parsed.description } : {}),
         };
-  const prepared = prepareImageCels(image, frames, profile);
+  const prepared = prepareImageCels(image, frames, profile, background);
   const loops = input.loops.map((loop) => ({ ...loop, cels: [...(loop.cels ?? [])] }));
   const destinations = [...new Set(frames.map((f) => f.loop))].sort((a, b) => a - b);
   for (const [i, destination] of destinations.entries()) {

@@ -14,12 +14,12 @@ import type { ProjectContent } from "../../src/authoring/projectContent.ts";
 import type { LlmTurnResult } from "../src/agent/llmClient.ts";
 import { testProjectId } from "./identity.ts";
 
-const rgba = Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255);
+const rgba = Uint8Array.of(255, 0, 0, 255, 0, 0, 0, 0, 0, 255, 0, 255);
 const image = {
   title: "Two frames",
   mime: "image/png",
-  encoded: encodePngRgba(2, 1, rgba),
-  width: 2,
+  encoded: encodePngRgba(3, 1, rgba),
+  width: 3,
   height: 1,
   rgba,
 };
