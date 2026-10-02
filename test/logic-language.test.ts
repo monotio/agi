@@ -11,6 +11,26 @@ const context = {
   ]),
 };
 
+test("controller references include menu enable and disable operands", () => {
+  const source =
+    'set.menu.item(m1, c4); enable.item(4); disable.item(c4);\n#message 1 "Open"\nreturn;';
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.deepEqual(language.referencesAt(source.indexOf("c4")), [
+    { start: source.indexOf("c4"), end: source.indexOf("c4") + 2 },
+    { start: source.indexOf("4); disable"), end: source.indexOf("4); disable") + 1 },
+    { start: source.lastIndexOf("c4"), end: source.lastIndexOf("c4") + 2 },
+  ]);
+});
+
+test("raw operand hover includes local aliases, while rename edits only the selected name", () => {
+  const source =
+    "#define scratch 0\nscratch = v0; if (v0 == 0) { increment(scratch); }\nassignn(v1, scratch); return;";
+  const language = createLogicLanguageSnapshot({ source, ...context });
+  assert.equal(language.referencesAt(source.indexOf("v0")).length, 5);
+  assert.match(language.hoverAt(source.indexOf("v0"))?.text ?? "", /Variable 0 \(scratch\)/);
+  assert.equal(language.renameAt(source.indexOf("scratch ="), "picture").length, 4);
+});
+
 test("completion and signature help work inside an unfinished condition", () => {
   const source = 'if (said("open", ';
   const language = createLogicLanguageSnapshot({ source, ...context });

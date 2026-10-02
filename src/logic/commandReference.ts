@@ -96,10 +96,12 @@ export function commandReference(profile: AgiProfile): CommandReference[] {
     const spec = actionSpec(candidate.code, profile);
     if (!spec || seen.has(spec.code)) continue;
     seen.add(spec.code);
+    // Controller identities use the conventional immediate-byte signature notation.
+    const signatureOperands = spec.operands.map((kind) => (kind === "controller" ? "imm" : kind));
     result.push({
       ...spec,
       kind: "action",
-      signature: `${spec.name}(${spec.operands.join(", ")})`,
+      signature: `${spec.name}(${signatureOperands.join(", ")})`,
       help: actionHelp(profile, spec.code, spec.name),
     });
   }
@@ -110,14 +112,16 @@ export function commandReference(profile: AgiProfile): CommandReference[] {
       spec.code <= profile.maxCondition &&
       !(spec.code === 0x13 && profile.condition0x13 === "wild-dispatch"),
   );
-  for (const spec of conditions)
+  for (const spec of conditions) {
+    const signatureOperands = spec.operands.map((kind) => (kind === "controller" ? "imm" : kind));
     result.push({
       ...spec,
       kind: "condition",
       signature:
-        spec.name === "said" ? "said(word, ...)" : `${spec.name}(${spec.operands.join(", ")})`,
+        spec.name === "said" ? "said(word, ...)" : `${spec.name}(${signatureOperands.join(", ")})`,
       help: [CONDITION_HELP[spec.code], HELP[spec.name]].filter(Boolean).join(" "),
     });
+  }
   return result;
 }
 

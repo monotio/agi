@@ -8,6 +8,7 @@ import { assembleLogic, AssemblerError } from "./assembler.ts";
 import { commandReference } from "./commandReference.ts";
 import { quoteLogicString } from "./disassembler.ts";
 import { analyzeLogicSyntax, scanLogicTokens, type Token } from "./syntax.ts";
+import { collectLogicOperands, OPERAND_NAMES } from "./languageOperands.ts";
 import type { AgiProfile } from "../runtime/profile.ts";
 
 interface TextEdit {
@@ -27,6 +28,7 @@ export function createLogicLanguageSnapshot(input: {
   const dictionary = new Map(input.dictionary);
   const syntax = analyzeLogicSyntax(source);
   const commands = commandReference(profile);
+  const operands = collectLogicOperands(syntax, commands);
   const byName = new Map(commands.map((command) => [command.name, command]));
   const diagnostics = syntax.diagnostics.map((entry) => ({
     ...entry,
@@ -210,6 +212,26 @@ export function createLogicLanguageSnapshot(input: {
   function hoverAt(offset: number) {
     checkOffset(offset);
     const token = tokenAt(offset);
+    const operand = operandAt(offset);
+    if (operand && !operand.name) {
+      const names = [
+        ...new Set(
+          operands
+            .filter(
+              (entry) => entry.kind === operand.kind && entry.num === operand.num && entry.name,
+            )
+            .map((entry) => entry.name),
+        ),
+      ];
+      const count = operands.filter(
+        (entry) => entry.kind === operand.kind && entry.num === operand.num && !entry.declaration,
+      ).length;
+      return {
+        start: operand.start,
+        end: operand.end,
+        text: `${OPERAND_NAMES[operand.kind]} ${operand.num}${names.length ? ` (${names.join(", ")})` : ""}\n\n${count} ${count === 1 ? "use" : "uses"} in this LOGIC.`,
+      };
+    }
     if (token?.type !== "ident") return null;
     const definition = definitionAt(offset);
     if (definition) {
@@ -235,6 +257,20 @@ export function createLogicLanguageSnapshot(input: {
 
   function definitionAt(offset: number) {
     checkOffset(offset);
+    const operand = operandAt(offset);
+    if (operand?.kind === "m" && !operand.name) {
+      const message = operands.find(
+        (entry) =>
+          entry.kind === "m" && entry.num === operand.num && entry.declaration && !entry.name,
+      );
+      if (message)
+        return {
+          kind: "message" as const,
+          name: `m${message.num}`,
+          start: message.start,
+          end: message.end,
+        };
+    }
     const declaration = syntax.definitions.find(
       (entry) => entry.start <= offset && entry.end > offset,
     );
@@ -250,6 +286,19 @@ export function createLogicLanguageSnapshot(input: {
   }
 
   function referencesAt(offset: number) {
+    const identities = operands.filter((entry) => entry.start <= offset && entry.end > offset);
+    const seen = new Set<number>();
+    if (identities.length)
+      return operands
+        .filter((entry) =>
+          identities.some((identity) => entry.kind === identity.kind && entry.num === identity.num),
+        )
+        .filter((entry) => {
+          if (seen.has(entry.start)) return false;
+          seen.add(entry.start);
+          return true;
+        })
+        .map(({ start, end }) => ({ start, end }));
     const definition = definitionAt(offset);
     if (!definition) return [];
     return [
@@ -261,6 +310,10 @@ export function createLogicLanguageSnapshot(input: {
   }
 
   function renameAt(offset: number, name: string): readonly TextEdit[] {
+    if (operandAt(offset) && !operandAt(offset)?.name)
+      throw new Error(
+        "Numbered operands have fixed identities. Rename a named binding or #define instead.",
+      );
     const definition = definitionAt(offset);
     if (!definition) throw new Error("Rename needs a resolved local definition.");
     if (!payload)
@@ -279,7 +332,7 @@ export function createLogicLanguageSnapshot(input: {
       tokens[0]!.type !== "ident" ||
       tokens[0]!.start !== 0 ||
       tokens[0]!.end !== name.length ||
-      (definition.kind === "define" && /^[vfoms]\d{1,3}$/.test(name))
+      (definition.kind === "define" && /^[vfomsiwc]\d+$/.test(name))
     )
       throw new Error("The new name is not a safe source identifier.");
     if (
@@ -289,7 +342,12 @@ export function createLogicLanguageSnapshot(input: {
       )
     )
       throw new Error(`The name '${name}' already has a definition.`);
-    const edits = referencesAt(offset).map((range) => ({ ...range, text: name }));
+    const edits = [
+      definition,
+      ...syntax.references.filter((entry) => entry.definitionStart === definition.start),
+    ]
+      .sort((a, b) => a.start - b.start)
+      .map(({ start, end }) => ({ start, end, text: name }));
     let changed = source;
     for (const edit of [...edits].reverse())
       changed = changed.slice(0, edit.start) + edit.text + changed.slice(edit.end);
@@ -301,6 +359,8 @@ export function createLogicLanguageSnapshot(input: {
 
   return {
     source,
+    operands,
+    operandAt,
     diagnostics: Object.freeze(diagnostics.map((entry) => Object.freeze(entry))),
     completeAt,
     signatureAt,
@@ -309,4 +369,9 @@ export function createLogicLanguageSnapshot(input: {
     referencesAt,
     renameAt,
   };
+
+  function operandAt(offset: number) {
+    checkOffset(offset);
+    return operands.find((entry) => entry.start <= offset && entry.end > offset);
+  }
 }

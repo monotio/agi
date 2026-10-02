@@ -165,6 +165,7 @@ async function queryWorker<K extends keyof LspOperations>(
   method: K,
   params: Record<string, unknown>,
   token: monaco.CancellationToken,
+  onError?: (message: string) => void,
 ): Promise<LspOperations[K] | undefined> {
   const controller = new AbortController();
   const cancellation = token.onCancellationRequested(() => controller.abort());
@@ -175,7 +176,8 @@ async function queryWorker<K extends keyof LspOperations>(
       params,
       controller.signal,
     );
-  } catch {
+  } catch (error) {
+    onError?.(error instanceof Error ? error.message : String(error));
     // Superseded snapshot, cancelled request or a restarting worker all mean
     // the same thing to an interactive provider: no authoritative answer.
     return undefined;
@@ -371,17 +373,21 @@ monaco.languages.registerRenameProvider(LOGIC_LANGUAGE_ID, {
         text: "",
         rejectReason: "Choose a defined name.",
       };
+    let rejectReason = "Fix the source errors, then rename the name.";
     const prepared = await queryWorker(
       session.registration,
       "textDocument/prepareRename",
       { position: protocolPosition(position) },
       token,
+      (message) => {
+        rejectReason = message;
+      },
     );
     if (!prepared || !queryIsLive(session, model, token))
       return {
         range: new monaco.Range(1, 1, 1, 1),
         text: "",
-        rejectReason: "Fix the source errors, then rename the name.",
+        rejectReason,
       };
     return { range: editorRange(prepared.range), text: prepared.placeholder };
   },

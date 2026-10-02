@@ -232,7 +232,7 @@ function lex(source: string, errors?: AssemblerError[]): Token[] {
 export type Ref =
   /** A number literal keeps its token, so a byte operand out of range reports where it was written. */
   | { kind: "num"; value: number; tok?: Token }
-  | { kind: "v" | "f" | "o" | "m" | "s"; index: number }
+  | { kind: "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c"; index: number }
   | { kind: "str"; text: string };
 
 export type TestExpr =
@@ -555,17 +555,19 @@ class Parser {
     }
     if (tok.type === "string") return { kind: "str", text: tok.text };
     if (tok.type === "ident") {
-      const m = /^([vfoms])(\d{1,3})$/.exec(tok.text);
+      const m = /^([vfomsiwc])(\d+)$/.exec(tok.text);
       if (m) {
         const idx = Number(m[2]);
-        if (idx > 255) throw new AssemblerError("index out of range 0..255", tok.line, tok.col);
-        return { kind: m[1] as "v" | "f" | "o" | "m" | "s", index: idx };
+        const limit = m[1] === "w" ? 65535 : 255;
+        if (idx > limit)
+          throw new AssemblerError(`index out of range 0..${limit}`, tok.line, tok.col);
+        return { kind: m[1] as "v" | "f" | "o" | "i" | "m" | "s" | "w" | "c", index: idx };
       }
       const defined = this.defines.get(tok.text);
       this.reference("define", tok);
       if (defined !== undefined) return { kind: "num", value: defined };
       throw new AssemblerError(
-        `unknown identifier '${tok.text}' (want vN/fN/oN/mN/sN, a number, or a #define)`,
+        `unknown identifier '${tok.text}' (want vN/fN/oN/iN/mN/sN/wN/cN, a number, or a #define)`,
         tok.line,
         tok.col,
       );

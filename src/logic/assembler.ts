@@ -54,8 +54,9 @@
  * (id 0x270f). AGI Studio's spellings of the two, "anyword" and "rol", are
  * accepted as well unless the game's own dictionary defines those words.
  *
- * Variable/flag/object/message/string refs accept v5 / f5 / o5 / m5 / s5
- * tokens or plain numbers. Immediate operands are plain numbers or #defines.
+ * Numbered refs accept v5 / f5 / o5 / i5 / m5 / s5 / w5 / c5 tokens or plain
+ * numbers. Word IDs are 16-bit; other operands are bytes. Numeric #defines
+ * resolve in the command argument's context.
  */
 
 import {
@@ -381,8 +382,8 @@ function refByte(ref: Ref, allowString: false, tok: Token, what: string): number
   if (ref.kind === "str") {
     throw new AssemblerError(`string not allowed as ${what} operand`, tok.line, tok.col);
   }
-  if (ref.kind === "num" && ref.value > 255) {
-    const at = ref.tok ?? tok;
+  if ((ref.kind === "num" ? ref.value : ref.index) > 255) {
+    const at = ref.kind === "num" ? (ref.tok ?? tok) : tok;
     throw new AssemblerError(`byte value out of range 0..255 in ${what}`, at.line, at.col);
   }
   return ref.kind === "num" ? ref.value : ref.index;

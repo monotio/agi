@@ -640,6 +640,36 @@ test("LOGIC colouring comes from worker semantic tokens", async ({ page }) => {
   await unmountEditor(page);
 });
 
+test("LOGIC Shift+F12 lists numbered variable uses in two logics", async ({ page }) => {
+  await mountEditor(page);
+  await page.evaluate(() => {
+    const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+    h.model.setValue("draw.pic(v0); return;");
+    h.client.setProject({
+      revision: 2,
+      profileId: "2.936",
+      words: [],
+      bindings: {},
+      documents: {
+        "logic:1": { version: 2, source: h.model.getValue() },
+        "logic:2": { version: 1, source: "load.pic(v0); return;" },
+      },
+    });
+    h.editor.setPosition({ lineNumber: 1, column: 11 });
+    h.editor.focus();
+  });
+  await page.keyboard.press("Shift+F12");
+  const peek = page.locator(".reference-zone-widget");
+  await expect(peek).toBeVisible();
+  await expect(peek).toContainText("draw.pic");
+  const closed = peek.getByRole("treeitem").filter({ hasText: "logic.2.lgc" }).first();
+  await expect(closed).toBeVisible();
+  await closed.click();
+  await expect(peek).toContainText("load.pic");
+  await reviewShot(page, "logic-numbered-references");
+  await unmountEditor(page);
+});
+
 test("LOGIC peeks project declarations and closed-file references", async ({ page }) => {
   await mountEditor(page);
   await page.evaluate(() => {
