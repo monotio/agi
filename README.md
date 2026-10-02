@@ -187,8 +187,11 @@ workspace while the game keeps running.
 Create works best on a larger screen; games play on phones too.
 
 **Trace an image** puts a dropped, pasted or chosen image under a PICTURE at
-adjustable opacity. **Make cels from an image** marks frames on a sheet, maps
-them to VIEW loops and previews them on the running hero before adding them.
+adjustable opacity. **Make cels from an image** opens a zoomable sheet with frame
+boxes. Draw, move and resize the boxes, colour them by VIEW loop and drag the
+thumbnails into order. Find frames keeps edited boxes; Details holds exact
+numbers. Preview the animation or try it on the running hero, then **Add as cels**
+saves the frames and image in one History step.
 **Generate** uses your OpenAI key and shows the model, quality, size and estimated
 cost before sending. These images autosave with History and travel in private
 project downloads. Public game exports carry the resulting AGI resources.

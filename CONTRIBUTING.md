@@ -269,6 +269,11 @@ version 1 include image documents, game notes and chat checkpoints.
 The image panel and generation controller load at their first use. Generation
 reviews a paid request before submission. Hero preview changes presentation
 pixels; interpreter state and recorded play retain the admitted game.
+`src/creative/imageFrameGeometry.ts` owns pixel snapping, bounded drawing and
+resizing, frame-size locking, reading order, loop assignment and preservation
+of edited suggestions. The sheet editor keeps these marks local until Add as
+cels submits one proposal. Editing a mirror loop gives it independent cels while
+preserving its displayed frames.
 
 **A LOGIC edit becomes a saved project**
 

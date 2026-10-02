@@ -187,8 +187,23 @@ export function makeCelsChanges(
   for (const [i, destination] of destinations.entries()) {
     while (loops.length <= destination) loops.push({ cels: [] });
     const loop = loops[destination]!;
-    if (loop.mirrorLoop !== undefined) throw new Error("Choose an independent loop to add cels.");
+    if (typeof loop.mirrorLoop === "number" && !loop.cels.length) {
+      const displayed = parseView(buildView(input, profile), profile).loops[destination]!;
+      loop.cels.push(
+        ...displayed.cels.map((cel) => ({
+          width: cel.width,
+          height: cel.height,
+          transparentColor: cel.transparentColor,
+          pixels: cel.pixels,
+        })),
+      );
+    }
+    delete loop.mirrorLoop;
     loop.cels.push(...prepared.input.loops[i]!.cels!);
+  }
+  for (const loop of loops.slice(input.loops.length)) {
+    if (!loop.cels.length)
+      loop.cels.push({ width: 1, height: 1, transparentColor: 0, pixels: [0] });
   }
   const attached = attach(documents, image);
   return [
