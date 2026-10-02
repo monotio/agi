@@ -116,6 +116,18 @@ export class LogicAnalysisClient {
     );
   }
 
+  /** Text for a client-side location preview, detached by setProject. */
+  documentSource(uri: string): string | undefined {
+    const project = this.project;
+    if (!project) return undefined;
+    const bindings = project.bindingDocument ?? {
+      uri: "agi-project:///bindings.json",
+      source: JSON.stringify(project.bindings, null, 2),
+    };
+    if (bindings.uri === uri) return bindings.source;
+    return Object.values(project.documents).find((document) => document.uri === uri)?.source;
+  }
+
   setDocumentUri(key: string, uri: string): void {
     if (this.uris.get(key) === uri) return;
     this.uris.set(key, uri);

@@ -103,6 +103,7 @@ interface ModelRegistration {
   readonly client: LogicAnalysisClient;
   readonly documentKey: string;
   readonly applyProjectEdit: ((edit: WorkspaceEdit, label: string) => Promise<void>) | undefined;
+  readonly previews: Map<string, monaco.editor.ITextModel>;
   disposed: boolean;
   dispose(): void;
 }
@@ -113,6 +114,36 @@ interface ModelRegistration {
  * only for a live registered model — foreign models get empty results.
  */
 const registrations = new Map<string, ModelRegistration>();
+
+// Standalone Monaco resolves location previews from models rather than files.
+// Load only the sources a navigation request actually returns.
+monaco.editor.onDidCreateEditor((editor) => {
+  const changes = editor.onDidChangeModel(() => {
+    if (editor.getModel()?.uri.scheme === "agi-preview") editor.updateOptions({ readOnly: true });
+  });
+  editor.onDidDispose(() => changes.dispose());
+});
+
+function locationUri(registration: ModelRegistration, uri: string): monaco.Uri {
+  if (uri === registration.model.uri.toString()) return registration.model.uri;
+  const source = registration.client.documentSource(uri);
+  if (source === undefined) return monaco.Uri.parse(uri);
+  let preview = registration.previews.get(uri);
+  if (!preview) {
+    const target = monaco.Uri.parse(uri);
+    preview = monaco.editor.createModel(
+      source,
+      "plaintext",
+      monaco.Uri.from({
+        scheme: "agi-preview",
+        authority: encodeURIComponent(registration.model.uri.toString()),
+        path: `/${target.path.split("/").at(-1)}`,
+      }),
+    );
+    registration.previews.set(uri, preview);
+  } else if (preview.getValue() !== source) preview.setValue(source);
+  return preview.uri;
+}
 
 function activeRegistration(model: monaco.editor.ITextModel): ModelRegistration | undefined {
   const registration = registrations.get(model.uri.toString());
@@ -294,7 +325,10 @@ monaco.languages.registerDefinitionProvider(LOGIC_LANGUAGE_ID, {
       token,
     );
     if (!definition || !queryIsLive(session, model, token)) return null;
-    return { uri: monaco.Uri.parse(definition.uri), range: editorRange(definition.range) };
+    return {
+      uri: locationUri(session.registration, definition.uri),
+      range: editorRange(definition.range),
+    };
   },
 });
 monaco.languages.registerReferenceProvider(LOGIC_LANGUAGE_ID, {
@@ -309,7 +343,7 @@ monaco.languages.registerReferenceProvider(LOGIC_LANGUAGE_ID, {
     );
     if (!references || !queryIsLive(session, model, token)) return null;
     return references.map((entry) => ({
-      uri: monaco.Uri.parse(entry.uri),
+      uri: locationUri(session.registration, entry.uri),
       range: editorRange(entry.range),
     }));
   },
@@ -496,11 +530,38 @@ export function registerLogicModel(
     client: options.client,
     documentKey: options.documentKey,
     applyProjectEdit: options.applyProjectEdit,
+    previews: new Map(),
     disposed: false,
     dispose,
   };
   registrations.set(uri, registration);
   const modelDisposal = model.onWillDispose(dispose);
+  const opener = monaco.editor.registerEditorOpener({
+    openCodeEditor(source, resource) {
+      if (
+        source?.getModel() !== model ||
+        ![...registration.previews.values()].some(
+          (preview) => preview.uri.toString() === resource.toString(),
+        )
+      )
+        return false;
+      source.trigger("agi-logic", "editor.action.peekDefinition", {});
+      return true;
+    },
+  });
+  const previewInvalidation = model.onDidChangeContent(() => {
+    if (!registration.previews.size) return;
+    for (const editor of monaco.editor.getEditors()) {
+      if (editor.getModel() !== model) continue;
+      editor
+        .getContribution<
+          monaco.editor.IEditorContribution & { closeWidget(focusEditor: boolean): void }
+        >("editor.contrib.referencesController")
+        ?.closeWidget(editor.hasWidgetFocus());
+    }
+    for (const preview of registration.previews.values()) preview.dispose();
+    registration.previews.clear();
+  });
 
   async function refreshDiagnostics(): Promise<void> {
     if (activeRegistration(model) !== registration) return;
@@ -537,6 +598,10 @@ export function registerLogicModel(
     if (registration.disposed) return;
     registration.disposed = true;
     modelDisposal.dispose();
+    opener.dispose();
+    previewInvalidation.dispose();
+    for (const preview of registration.previews.values()) preview.dispose();
+    registration.previews.clear();
     if (registrations.get(uri) === registration) {
       registrations.delete(uri);
       if (!model.isDisposed()) monaco.editor.setModelMarkers(model, MARKER_OWNER, []);

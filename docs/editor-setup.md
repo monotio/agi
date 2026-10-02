@@ -111,7 +111,8 @@ Review the value introduced by a define quick fix before compiling. Rename
 returns proposed versioned edits for the client to apply. Project renames also
 edit `bindings.json` and reject conflicting names or changes to compiled bytes.
 The browser applies coordinated renames through project History, so Undo restores
-the affected documents together. Formatting is omitted: the project has no
+the affected documents together. Project declarations and closed-file references
+open in read-only source previews. Formatting is omitted: the project has no
 canonical LOGIC formatter, and preserving authored message text matters.
 
 ## Neovim

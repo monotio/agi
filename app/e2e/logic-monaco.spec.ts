@@ -154,8 +154,7 @@ test("logic Monaco adapter serves shared-worker completion, signature, hover, de
   });
   await expect(page.locator(".monaco-hover")).toContainText("#define door 50");
 
-  // A binding definition is generated project state, not an authored range:
-  // the adapter must not invent a source location, so reveal keeps the caret.
+  // A project declaration opens in a source preview while the main caret stays put.
   await page.evaluate(() => {
     const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
     h.editor.setPosition(h.model.getPositionAt(5));
@@ -638,5 +637,54 @@ test("LOGIC colouring comes from worker semantic tokens", async ({ page }) => {
     )
     .toBe(true);
   await reviewShot(page, "logic-semantic-colouring");
+  await unmountEditor(page);
+});
+
+test("LOGIC peeks project declarations and closed-file references", async ({ page }) => {
+  await mountEditor(page);
+  await page.evaluate(() => {
+    const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+    h.model.setValue("set(door); return;");
+    h.client.setProject({
+      revision: 2,
+      profileId: "2.936",
+      words: [],
+      bindings: { door: { num: 50 } },
+      documents: {
+        "logic:1": { version: 2, source: h.model.getValue() },
+        "logic:2": { version: 1, source: "reset(door); return;" },
+      },
+    });
+    h.editor.setPosition({ lineNumber: 1, column: 6 });
+    h.editor.trigger("spec", "editor.action.revealDefinition", {});
+  });
+  const peek = page.locator(".peekview-widget");
+  await expect(peek).toBeVisible();
+  await expect(peek).toContainText("bindings.json");
+  await expect(peek.locator(".view-lines")).toContainText('"door"');
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+    h.editor.setPosition({ lineNumber: 1, column: 6 });
+    h.editor.trigger("spec", "editor.action.referenceSearch.trigger", {});
+  });
+  await expect(peek).toBeVisible();
+  const closed = peek.getByRole("treeitem").filter({ hasText: "logic.2.lgc" }).first();
+  await expect(closed).toBeVisible();
+  await closed.click();
+  await peek.getByRole("treeitem").filter({ hasText: "reset(door)" }).click();
+  await expect(peek.locator(".view-lines")).toContainText("reset");
+  expect(
+    await page.evaluate(() => {
+      const h = (window as unknown as { __monacoHost: MonacoHost }).__monacoHost;
+      const previews = h.monaco.editor
+        .getEditors()
+        .filter((editor) => editor.getModel()?.uri.scheme === "agi-preview");
+      return (
+        previews.length > 0 && previews.every((editor) => editor.getRawOptions().readOnly === true)
+      );
+    }),
+  ).toBe(true);
+  await reviewShot(page, "logic-project-references");
   await unmountEditor(page);
 });
