@@ -5,7 +5,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { buildView } from "../src/view/view.ts";
 import { playtestRoom, validateGenesis } from "../src/agent/playtest.ts";
-import { decodePng } from "../scripts/sheet-to-view.ts";
+import { decodePng } from "../scripts/png.ts";
 
 function world(extra = "", room = 1) {
   const state = createAgentSessionState();

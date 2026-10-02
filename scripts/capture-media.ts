@@ -22,7 +22,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { crc32, deflateSync, inflateSync } from "node:zlib";
-import { decodePng } from "./sheet-to-view.ts";
+import { decodePng } from "./png.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const APP = join(ROOT, "app");
