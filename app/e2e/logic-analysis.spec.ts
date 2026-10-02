@@ -1,3 +1,4 @@
+import type { ProjectSession } from "../src/project/projectSession.ts";
 import { fileURLToPath } from "node:url";
 import { prepareIsolatedPage } from "./logicDebugShared.ts";
 import {
@@ -87,7 +88,7 @@ test("saved native WORDS.TOK supplies LOGIC diagnostics", async ({ page }) => {
     const { monaco } = await import("/src/studio/logic/monacoLanguage.ts");
     const model = monaco.editor.getModels().find((model) => model.uri.scheme === "agi-workspace")!;
     const { __AGI_PROJECT__ } = window as unknown as {
-      __AGI_PROJECT__: { getSession(): import("../src/project/projectSession.ts").ProjectSession };
+      __AGI_PROJECT__: { getSession(): ProjectSession };
     };
     const words = __AGI_PROJECT__.getSession().model.capture().read("words")!.content;
     return { native: words instanceof Uint8Array, source: model.getValue() };
