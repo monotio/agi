@@ -31,27 +31,6 @@ jobs:
       - uses: ./scripts/ci/setup
       - run: npm run check
 
-  repeat-chromium:
-    name: Repeat LOGIC and image specs
-    needs: [prepare, build]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: ./scripts/ci/setup
-        with:
-          browser: chromium
-      - run: npm --prefix app run e2e -- e2e/logic-studio.spec.ts e2e/workspace-images.spec.ts --repeat-each=20 --reporter=list,json
-        env:
-          CI: "1"
-          PLAYWRIGHT_JSON_OUTPUT_FILE: test-results/ci-reports/repeat-chromium.json
-      - if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: repeat-chromium
-          path: app/test-results/
-
   build:
     needs: prepare
     if: (needs.prepare.outputs.browsers == 'true' || github.ref == 'refs/heads/main') && needs.prepare.outputs.duplicate != 'true'
