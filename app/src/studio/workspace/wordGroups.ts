@@ -2,12 +2,12 @@ import { ANY_WORD, REST_OF_LINE } from "../../../../src/logic/words.ts";
 
 export function wordGroups(entries: readonly (readonly [string, number])[]) {
   const groups: { id: number; words: string[] }[] = [];
-  const byId: Record<string, { id: number; words: string[] }> = {};
+  const byId = new Map<number, { id: number; words: string[] }>();
   for (const [word, id] of entries) {
-    let group = byId[String(id)];
+    let group = byId.get(id);
     if (group === undefined) {
       group = { id, words: [] };
-      byId[String(id)] = group;
+      byId.set(id, group);
       groups.push(group);
     }
     group.words.push(word);
