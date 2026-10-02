@@ -3,24 +3,25 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, wa
 import {
   suggestImageFrames,
   prepareImageCels,
+  scaleImageFrame,
   type ProjectImageInput,
   type ImageFrame,
 } from "../../../../src/creative/imageOperations.ts";
 import {
   assignFrameLoop,
   drawFrameRegion,
-  lockFrameSizes,
+  linkFoundFrames,
+  resizeLinkedFrameBoxes,
+  toggleFrameLink,
   mergeFrameSuggestions,
   moveFrameRegion,
   orderFrameBoxes,
   reorderFrameBoxes,
-  resizeFrameRegion,
   type FrameBox,
   type FrameHandle,
 } from "../../../../src/creative/imageFrameGeometry.ts";
 import type { Rect } from "../../../../src/creative/catalog.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
-import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { EGA_PALETTE } from "../../render/palette.ts";
 import UiButton from "../../ui/UiButton.vue";
 
@@ -28,19 +29,29 @@ const props = defineProps<{
   image: ProjectImageInput;
   profile: AgiProfile;
   mirrors: readonly (number | null)[];
+  loopHeights: readonly number[];
+  name: string;
+  background: readonly [number, number, number] | null;
 }>();
 const frames = defineModel<ImageFrame[]>({ required: true });
 const boxes = ref<FrameBox[]>([]);
 const selected = ref<string[]>([]);
 const chosenLoop = ref(0);
-const locked = ref(false);
+const celHeight = ref(props.loopHeights[0] ?? 24);
+const maximumHeight = computed(() =>
+  Math.max(
+    1,
+    Math.min(168, ...boxes.value.map((f) => Math.floor((160 * f.region.height) / f.region.width))),
+  ),
+);
 const manualOrder = ref(false);
-const suggestion = ref("alpha");
+const suggestion = ref("gaps");
 const count = ref(4);
-const replace = ref(false);
+
 const zoom = ref<number>();
 const fitScale = ref(1);
 const notice = ref("");
+const editor = useTemplateRef("editor");
 const viewport = useTemplateRef("viewport");
 const surface = useTemplateRef("surface");
 const canvas = useTemplateRef("canvas");
@@ -60,7 +71,15 @@ const handles: readonly { value: FrameHandle; label: string; x: number; y: numbe
   { value: "sw", label: "southwest", x: 0, y: 100 },
   { value: "w", label: "west", x: 0, y: 50 },
 ];
-const directions = ["Right", "Left", "Toward you", "Away", "", "", "", ""];
+const directions = ["Walk right", "Walk left", "Toward you", "Away"];
+const loopChoices = computed(() =>
+  Array.from({ length: Math.max(4, props.mirrors.length, chosenLoop.value + 1) }, (_, i) => i),
+);
+function loopName(loop: number): string {
+  const name = directions[loop] ?? "Loop";
+  const mirror = props.mirrors[loop];
+  return `${name} · loop ${loop}${mirror != null ? ` (mirrors ${directions[mirror]?.toLowerCase() ?? `loop ${mirror}`})` : ""}`;
+}
 const colours = [11, 13, 10, 14, 9, 12, 3, 6].map(
   (index) => `rgb(${EGA_PALETTE[index]!.join(" ")})`,
 );
@@ -69,12 +88,23 @@ const scale = computed(() => zoom.value ?? fitScale.value);
 const summary = computed(() => {
   const frame = active.value;
   if (!frame) return `${boxes.value.length} frames. Drag on the sheet to mark a frame.`;
-  return `Frame ${boxes.value.indexOf(frame) + 1}, loop ${frame.loop}, ${frame.region.width} by ${frame.region.height} at ${frame.region.x}, ${frame.region.y}`;
+  return `Frame ${boxes.value.indexOf(frame) + 1} · ${frame.region.width} × ${frame.region.height} at ${frame.region.x}, ${frame.region.y}`;
 });
-const mirror = computed(() => props.mirrors[chosenLoop.value]);
+const linkLabel = computed(() =>
+  active.value?.linked
+    ? `⛓ ${boxes.value.filter((f) => f.linked).length} frames · same size`
+    : `Frame ${active.value ? boxes.value.indexOf(active.value) + 1 : 1} unlinked`,
+);
 const preview = computed(() => {
   try {
-    return boxes.value.length ? prepareImageCels(props.image, boxes.value, props.profile) : null;
+    return boxes.value.length
+      ? prepareImageCels(
+          props.image,
+          boxes.value.map((f) => ({ ...f, ...scaleImageFrame(f.region, celHeight.value) })),
+          props.profile,
+          props.background,
+        )
+      : null;
   } catch {
     return null;
   }
@@ -86,16 +116,23 @@ const previewCel = computed(() => {
   return cels?.[tick.value % cels.length];
 });
 function suggestions() {
-  return suggestImageFrames(props.image, suggestion.value === "grid" ? count.value : undefined).map(
-    (frame) => ({ ...frame, id: `frame-${serial++}`, edited: false, loop: chosenLoop.value }),
-  );
+  const found = suggestImageFrames(
+    props.image,
+    suggestion.value === "grid" ? count.value : undefined,
+  ).map((frame) => ({
+    ...frame,
+    ...scaleImageFrame(frame.region, celHeight.value),
+    id: `frame-${serial++}`,
+    edited: false,
+    loop: chosenLoop.value,
+  }));
+  return linkFoundFrames(found, props.image);
 }
 watch(
   () => props.image,
   () => {
     boxes.value = suggestions();
     selected.value = boxes.value[0] ? [boxes.value[0].id] : [];
-    locked.value = false;
     manualOrder.value = false;
     zoom.value = undefined;
     void nextTick(fit);
@@ -103,13 +140,13 @@ watch(
   { immediate: true },
 );
 watch(
-  boxes,
+  [boxes, celHeight],
   () => {
-    frames.value = boxes.value.map(({ region, width, height, loop }) => ({
+    celHeight.value = Math.max(1, Math.min(maximumHeight.value, celHeight.value || 1));
+    frames.value = boxes.value.map(({ region, loop }) => ({
       region,
-      width,
-      height,
       loop,
+      ...scaleImageFrame(region, celHeight.value),
     }));
   },
   { deep: true, immediate: true },
@@ -184,7 +221,7 @@ function focusBox(id: string) {
       ?.focus({ preventScroll: true }),
   );
 }
-function updateRegion(id: string, region: Rect, resize = false) {
+function updateRegion(id: string, region: Rect) {
   const previous = boxes.value.find((f) => f.id === id)?.region;
   if (
     previous &&
@@ -200,12 +237,10 @@ function updateRegion(id: string, region: Rect, resize = false) {
           ...f,
           edited: true,
           region,
-          width: resize ? Math.min(160, region.width) : f.width,
-          height: resize ? Math.min(168, region.height) : f.height,
+          ...scaleImageFrame(region, celHeight.value),
         }
       : f,
   );
-  if (locked.value && resize) boxes.value = lockFrameSizes(boxes.value, region, props.image);
 }
 function sort() {
   if (!manualOrder.value) boxes.value = orderFrameBoxes(boxes.value);
@@ -226,36 +261,48 @@ function remove() {
   else surface.value?.focus();
 }
 function find() {
+  if (boxes.value.some((f) => f.edited) && !window.confirm("Replace the edited frame boxes?"))
+    return;
   try {
-    const size = active.value?.region;
-    const next = mergeFrameSuggestions(boxes.value, suggestions(), replace.value);
-    boxes.value =
-      manualOrder.value && !replace.value
-        ? [
-            ...boxes.value.filter((f) => next.includes(f)),
-            ...next.filter((f) => !boxes.value.includes(f)),
-          ]
-        : next;
-    if (replace.value) manualOrder.value = false;
-    if (locked.value && size) boxes.value = lockFrameSizes(boxes.value, size, props.image);
-    selected.value = selected.value.filter((id) => boxes.value.some((f) => f.id === id));
-    if (!selected.value.length && boxes.value[0]) selected.value = [boxes.value[0].id];
-    notice.value = `${boxes.value.length} frames found. ${replace.value ? "Frames replaced." : "Edited frames kept."}`;
-    replace.value = false;
+    boxes.value = mergeFrameSuggestions(boxes.value, suggestions(), true);
+    manualOrder.value = false;
+    selected.value = boxes.value[0] ? [boxes.value[0].id] : [];
+    notice.value = `${boxes.value.length} frames found.`;
   } catch (error) {
     notice.value = error instanceof Error ? error.message : String(error);
   }
 }
-function lock() {
-  locked.value = !locked.value;
-  if (locked.value && active.value)
-    boxes.value = lockFrameSizes(boxes.value, active.value.region, props.image);
+function link() {
+  if (!active.value) return;
+  try {
+    boxes.value = toggleFrameLink(boxes.value, active.value.id, props.image);
+  } catch (error) {
+    notice.value = String(error);
+  }
+}
+function destination(event: Event) {
+  const value = (event.target as HTMLSelectElement).value;
+  const loop =
+    value === "new"
+      ? Math.min(7, Math.max(4, props.mirrors.length, chosenLoop.value + 1))
+      : Number(value);
+  chosenLoop.value = loop;
+  boxes.value = assignFrameLoop(
+    boxes.value,
+    boxes.value.map((f) => f.id),
+    loop,
+  );
+  celHeight.value = props.loopHeights[loop] ?? 24;
 }
 function reorder(source: string, destination: string) {
   boxes.value = reorderFrameBoxes(boxes.value, source, destination);
   manualOrder.value = true;
   select(source);
-  focusBox(source);
+  void nextTick(() =>
+    editor.value
+      ?.querySelector<HTMLElement>(`[data-order-id="${source}"]`)
+      ?.focus({ preventScroll: true }),
+  );
 }
 let dragged: string | undefined;
 function startOrder(event: DragEvent, id: string) {
@@ -305,6 +352,7 @@ function begin(event: PointerEvent, frame?: FrameBox, handle?: FrameHandle) {
     frame = {
       id: `frame-${serial++}`,
       edited: true,
+      linked: false,
       region,
       width: 1,
       height: 1,
@@ -333,22 +381,8 @@ function move(event: PointerEvent) {
   const end = { x: start.x + dx, y: start.y + dy };
   const peers = original.filter((f) => f.id !== id);
   if (mode === "move") updateRegion(id, moveFrameRegion(region, dx, dy, props.image));
-  else {
-    let next =
-      mode === "draw"
-        ? drawFrameRegion(start, end, props.image, peers)
-        : resizeFrameRegion(region, mode, dx, dy, props.image, peers);
-    if (mode === "draw" && locked.value && peers[0]) {
-      const { width, height } = peers[0].region;
-      next = {
-        width,
-        height,
-        x: Math.min(next.x, props.image.width - width),
-        y: Math.min(next.y, props.image.height - height),
-      };
-    }
-    updateRegion(id, next, true);
-  }
+  else if (mode === "draw") updateRegion(id, drawFrameRegion(start, end, props.image, peers));
+  else boxes.value = resizeLinkedFrameBoxes(original, id, mode, dx, dy, props.image);
 }
 function end(event: PointerEvent) {
   if (!gesture) return;
@@ -376,52 +410,63 @@ function key(event: KeyboardEvent) {
     remove();
     return;
   }
-  if (/^[0-7]$/.test(event.key)) {
+  if (/^[0-3]$/.test(event.key)) {
     event.preventDefault();
     paint(Number(event.key));
     return;
   }
   const frame = active.value;
   if (!frame || !event.key.startsWith("Arrow")) return;
+  if (
+    event.altKey &&
+    target.closest(".frame-strip") &&
+    (event.key === "ArrowLeft" || event.key === "ArrowRight")
+  ) {
+    event.preventDefault();
+    orderStep(event.key === "ArrowLeft" ? -1 : 1);
+    return;
+  }
   event.preventDefault();
   const amount = event.shiftKey ? frame.region.width : 1;
   const dx = event.key === "ArrowLeft" ? -amount : event.key === "ArrowRight" ? amount : 0;
   const dy = event.key === "ArrowUp" ? -amount : event.key === "ArrowDown" ? amount : 0;
-  updateRegion(
-    frame.id,
-    event.altKey
-      ? resizeFrameRegion(frame.region, dx ? "e" : "s", dx, dy, props.image, [])
-      : moveFrameRegion(frame.region, dx, dy, props.image),
-    event.altKey,
-  );
+  if (event.altKey)
+    boxes.value = resizeLinkedFrameBoxes(
+      boxes.value,
+      frame.id,
+      dx ? "e" : "s",
+      dx,
+      dy,
+      props.image,
+    );
+  else updateRegion(frame.id, moveFrameRegion(frame.region, dx, dy, props.image));
   sort();
   focusBox(frame.id);
 }
-function detail(event: Event, field: keyof Rect | "celWidth" | "celHeight") {
+function detail(event: Event, field: keyof Rect) {
   const frame = active.value;
   if (!frame) return;
   const value = Math.round(Number((event.target as HTMLInputElement).value));
   if (!Number.isFinite(value)) return;
-  if (field === "celWidth" || field === "celHeight") {
-    const dimension = field === "celWidth" ? "width" : "height";
-    boxes.value = boxes.value.map((f) =>
-      f.id === frame.id || locked.value
-        ? {
-            ...f,
-            edited: true,
-            [dimension]: Math.max(1, Math.min(dimension === "width" ? 160 : 168, value)),
-          }
-        : f,
+  if (field === "width" || field === "height") {
+    boxes.value = resizeLinkedFrameBoxes(
+      boxes.value,
+      frame.id,
+      field === "width" ? "e" : "s",
+      field === "width" ? value - frame.region.width : 0,
+      field === "height" ? value - frame.region.height : 0,
+      props.image,
     );
-  } else {
-    const region = { ...frame.region, [field]: value };
-    region.width = Math.max(1, Math.min(region.width, props.image.width));
-    region.height = Math.max(1, Math.min(region.height, props.image.height));
-    region.x = Math.max(0, Math.min(region.x, props.image.width - region.width));
-    region.y = Math.max(0, Math.min(region.y, props.image.height - region.height));
-    updateRegion(frame.id, region, field === "width" || field === "height");
-    sort();
-  }
+  } else
+    updateRegion(
+      frame.id,
+      moveFrameRegion(
+        frame.region,
+        field === "x" ? value - frame.region.x : 0,
+        field === "y" ? value - frame.region.y : 0,
+        props.image,
+      ),
+    );
 }
 function regionStyle(frame: FrameBox) {
   return {
@@ -432,266 +477,176 @@ function regionStyle(frame: FrameBox) {
     "--loop-colour": colours[frame.loop],
   };
 }
-function thumbnailStyle(frame: FrameBox) {
-  const thumbScale = Math.min(54 / frame.region.width, 40 / frame.region.height);
-  return {
-    width: `${props.image.width * thumbScale}px`,
-    height: `${props.image.height * thumbScale}px`,
-    transform: `translate(${-frame.region.x * thumbScale}px, ${-frame.region.y * thumbScale}px)`,
-  };
-}
-const imageUrl = computed(() => {
-  const target = document.createElement("canvas");
-  target.width = props.image.width;
-  target.height = props.image.height;
-  const pixels = new ImageData(target.width, target.height);
-  pixels.data.set(props.image.rgba);
-  target.getContext("2d")!.putImageData(pixels, 0, 0);
-  return target.toDataURL();
+const thumbnails = computed(() => {
+  const prepared = preview.value;
+  if (!prepared) return [];
+  const loops = [...new Set(boxes.value.map((f) => f.loop))].sort((a, b) => a - b);
+  const counts: Record<string, number> = {};
+  return boxes.value.map((frame) => {
+    const index = counts[frame.loop] ?? 0;
+    counts[frame.loop] = index + 1;
+    const cel = prepared.input.loops[loops.indexOf(frame.loop)]!.cels![index]!;
+    const target = document.createElement("canvas");
+    target.width = cel.width;
+    target.height = cel.height;
+    const pixels = new ImageData(cel.width, cel.height);
+    for (let i = 0; i < cel.pixels.length; i++) {
+      const colour = cel.pixels[i]!;
+      pixels.data.set([...EGA_PALETTE[colour]!, colour === cel.transparentColor ? 0 : 255], i * 4);
+    }
+    target.getContext("2d")!.putImageData(pixels, 0, 0);
+    return target.toDataURL();
+  });
 });
 </script>
 
 <template>
-  <div class="frame-editor" @keydown.stop="key" @keyup.stop @keypress.stop>
-    <div class="frame-toolbar">
-      <label
-        >Find
-        <select v-model="suggestion" aria-label="Frame detection">
-          <option value="alpha">Alpha strips</option>
-          <option value="grid">Grid</option>
-        </select></label
-      >
-      <label v-if="suggestion === 'grid'"
-        >Count
-        <input
-          v-model.number="count"
-          aria-label="Grid frame count"
-          type="number"
-          min="1"
-          :max="image.width"
-      /></label>
-      <UiButton size="sm" @click="find">Find frames</UiButton>
-      <label><input v-model="replace" type="checkbox" /> Replace edited frames</label>
-    </div>
-    <div class="frame-toolbar">
-      <UiButton
-        size="sm"
-        :aria-pressed="zoom === undefined"
-        @click="
-          zoom = undefined;
-          fit();
-        "
-        >Fit</UiButton
-      >
-      <UiButton size="sm" aria-label="Zoom out" @click="zoom = Math.max(0.05, scale / 1.5)"
-        >−</UiButton
-      >
-      <span>{{ Math.round(scale * 100) }}%</span>
-      <UiButton size="sm" aria-label="Zoom in" @click="zoom = Math.min(64, scale * 1.5)"
-        >+</UiButton
-      >
-      <UiButton
-        size="sm"
-        :aria-pressed="locked"
-        :disabled="!active"
-        :title="active ? 'Applies the frame size to every box' : 'Select a frame to lock its size'"
-        aria-label="Lock frame size"
-        @click="lock"
-        >{{ active ? `${active.region.width} × ${active.region.height}` : "Frame size" }} ·
-        {{ locked ? "Locked" : "Free" }}</UiButton
-      >
-      <UiButton
-        size="sm"
-        variant="ghost"
-        :disabled="!selected.length"
-        :title="selected.length ? 'Delete selected frames' : 'Select a frame to delete'"
-        @click="remove"
-        >Delete frame</UiButton
-      >
-    </div>
-    <div class="frame-loops" role="group" aria-label="Assign loop">
-      <button
-        v-for="(direction, loop) in directions"
-        :key="loop"
-        type="button"
-        :aria-label="`Loop ${loop}${direction ? ` ${direction}` : ''}`"
-        :aria-pressed="chosenLoop === loop"
-        :style="{ '--loop-colour': colours[loop] }"
-        :title="
-          mirrors[loop] != null
-            ? `${VOCABULARY.mirrorLoop.label} of loop ${mirrors[loop]}. ${VOCABULARY.mirrorLoop.help}`
-            : VOCABULARY.loop.help
-        "
-        @click="paint(loop)"
-      >
-        <i aria-hidden="true"></i><span>{{ loop }} {{ direction }}</span
-        ><span v-if="mirrors[loop] != null" aria-hidden="true">⇋ {{ mirrors[loop] }}</span>
-      </button>
-    </div>
-    <p v-if="mirror != null" class="frame-hint">
-      Loop {{ chosenLoop }} is a {{ VOCABULARY.mirrorLoop.label }} of loop {{ mirror }}. Adding cels
-      gives it its own cels.
-    </p>
-    <div ref="viewport" class="frame-viewport">
-      <div
-        ref="surface"
-        class="frame-surface"
-        data-testid="frame-sheet"
-        role="group"
-        aria-label="Image frames: drag to draw, arrows to move, Alt and arrows to resize"
-        tabindex="0"
-        :style="{ width: `${image.width * scale}px`, height: `${image.height * scale}px` }"
-        @pointerdown.self="begin($event)"
-        @pointermove="move"
-        @pointerup="end"
-        @pointercancel="cancel"
-      >
-        <canvas ref="canvas" aria-hidden="true" />
-        <div
-          v-for="(frame, index) in boxes"
-          :key="frame.id"
-          class="frame-box"
-          :class="{ 'is-selected': selected.includes(frame.id) }"
-          :style="regionStyle(frame)"
-          data-testid="image-frame"
+  <div ref="editor" class="frame-editor" @keydown.stop="key" @keyup.stop @keypress.stop>
+    <div class="frame-main">
+      <div class="frame-sheet-area">
+        <UiButton
+          class="frame-link"
+          size="sm"
+          :aria-pressed="active?.linked ?? false"
+          :disabled="!active"
+          :title="active ? 'Click to unlink or relink this frame' : 'Select a frame to link'"
+          aria-label="Link selected frame"
+          @click="link"
+          >{{ linkLabel }}</UiButton
         >
-          <div
-            class="frame-box__body"
-            role="button"
-            tabindex="0"
-            :data-frame-id="frame.id"
-            :aria-label="`Frame ${index + 1}`"
-            :aria-pressed="selected.includes(frame.id)"
-            @focus="selected.includes(frame.id) || select(frame.id)"
-            @pointerdown.stop="begin($event, frame)"
-            @keydown.enter.prevent="select(frame.id, $event.shiftKey)"
-            @keydown.space.prevent="select(frame.id, $event.shiftKey)"
+        <div class="frame-find">
+          <UiButton size="sm" @click="find">Find frames again</UiButton>
+          <details class="frame-find-menu">
+            <summary aria-label="Frame finding options">▾</summary>
+            <div>
+              <label><input v-model="suggestion" type="radio" value="gaps" />By gaps</label>
+              <label><input v-model="suggestion" type="radio" value="grid" />Grid</label>
+              <label v-if="suggestion === 'grid'"
+                >Count<input
+                  v-model.number="count"
+                  type="number"
+                  aria-label="Grid frame count"
+                  min="1"
+                  :max="image.width"
+              /></label>
+            </div>
+          </details>
+        </div>
+        <div class="frame-zoom">
+          <UiButton
+            size="sm"
+            :aria-pressed="zoom === undefined"
+            @click="
+              zoom = undefined;
+              fit();
+            "
+            >Fit</UiButton
           >
-            <span>{{ index + 1 }}</span>
+          <UiButton size="sm" aria-label="Zoom out" @click="zoom = Math.max(0.05, scale / 1.5)"
+            >−</UiButton
+          >
+          <UiButton size="sm" aria-label="Zoom in" @click="zoom = Math.min(64, scale * 1.5)"
+            >+</UiButton
+          >
+        </div>
+        <div ref="viewport" class="frame-viewport">
+          <div
+            ref="surface"
+            class="frame-surface"
+            data-testid="frame-sheet"
+            role="group"
+            aria-label="Image frames: drag to draw, arrows to move, Alt and arrows to resize"
+            tabindex="0"
+            :style="{ width: `${image.width * scale}px`, height: `${image.height * scale}px` }"
+            @pointerdown.self="begin($event)"
+            @pointermove="move"
+            @pointerup="end"
+            @pointercancel="cancel"
+          >
+            <canvas ref="canvas" aria-hidden="true" />
+            <div
+              v-for="(frame, index) in boxes"
+              :key="frame.id"
+              class="frame-box"
+              :class="{ 'is-selected': selected.includes(frame.id) }"
+              :style="regionStyle(frame)"
+              data-testid="image-frame"
+            >
+              <div
+                class="frame-box__body"
+                role="button"
+                tabindex="0"
+                :data-frame-id="frame.id"
+                :aria-label="`Frame ${index + 1}`"
+                :aria-pressed="selected.includes(frame.id)"
+                @focus="selected.includes(frame.id) || select(frame.id)"
+                @pointerdown.stop="begin($event, frame)"
+                @keydown.enter.prevent="select(frame.id, $event.shiftKey)"
+                @keydown.space.prevent="select(frame.id, $event.shiftKey)"
+              >
+                <span>{{ index + 1 }}</span>
+              </div>
+              <button
+                v-for="handle in selected.includes(frame.id) ? handles : []"
+                :key="handle.value"
+                class="frame-handle"
+                type="button"
+                tabindex="-1"
+                :aria-label="`Resize frame ${index + 1} ${handle.label}`"
+                :style="{
+                  left: `${handle.x}%`,
+                  top: `${handle.y}%`,
+                  cursor: `${handle.value}-resize`,
+                }"
+                @pointerdown.stop="begin($event, frame, handle.value)"
+              ></button>
+            </div>
           </div>
-          <button
-            v-for="handle in selected.includes(frame.id) ? handles : []"
-            :key="handle.value"
-            class="frame-handle"
-            type="button"
-            tabindex="-1"
-            :aria-label="`Resize frame ${index + 1} ${handle.label}`"
-            :style="{ left: `${handle.x}%`, top: `${handle.y}%`, cursor: `${handle.value}-resize` }"
-            @pointerdown.stop="begin($event, frame, handle.value)"
-          ></button>
         </div>
       </div>
-    </div>
-    <p class="frame-hint">
-      Drag to mark · Shift-click to select · Arrows to move · Alt + arrows to resize · 0–7 for loops
-    </p>
-    <div class="frame-strip" role="group" aria-label="Frame order: drag thumbnails to reorder">
-      <button
-        v-for="(frame, index) in boxes"
-        :key="frame.id"
-        class="frame-thumbnail"
-        type="button"
-        draggable="true"
-        :aria-label="`Select frame ${index + 1} in order strip`"
-        :aria-pressed="selected.includes(frame.id)"
-        :style="{ '--loop-colour': colours[frame.loop] }"
-        @click="select(frame.id, $event.shiftKey)"
-        @dragstart.stop="startOrder($event, frame.id)"
-        @dragend="dragged = undefined"
-        @dragover.prevent.stop
-        @drop.prevent.stop="dropOrder(frame.id)"
-      >
-        <span class="frame-thumbnail__image"
-          ><img :src="imageUrl" alt="" draggable="false" :style="thumbnailStyle(frame)" /></span
-        ><span>{{ index + 1 }} · Loop {{ frame.loop }}</span>
-      </button>
-    </div>
-    <div class="frame-toolbar">
-      <UiButton
-        size="sm"
-        variant="ghost"
-        :disabled="!active || boxes[0]?.id === active.id"
-        :title="
-          !active
-            ? 'Select a frame to reorder'
-            : boxes[0]?.id === active.id
-              ? 'This frame is first'
-              : 'Move this frame earlier'
-        "
-        @click="orderStep(-1)"
-        >Move earlier</UiButton
-      >
-      <UiButton
-        size="sm"
-        variant="ghost"
-        :disabled="!active || boxes.at(-1)?.id === active.id"
-        :title="
-          !active
-            ? 'Select a frame to reorder'
-            : boxes.at(-1)?.id === active.id
-              ? 'This frame is last'
-              : 'Move this frame later'
-        "
-        @click="orderStep(1)"
-        >Move later</UiButton
-      >
-      <UiButton
-        size="sm"
-        variant="ghost"
-        @click="
-          manualOrder = false;
-          boxes = orderFrameBoxes(boxes);
-        "
-        >Reading order</UiButton
-      >
-    </div>
-    <div class="frame-bottom">
-      <details v-if="active" class="frame-details">
-        <summary>Details</summary>
-        <div class="frame-detail-fields">
-          <label v-for="field in ['x', 'y', 'width', 'height'] as const" :key="field"
-            >{{ field
-            }}<input
-              type="number"
-              :aria-label="`Selected frame ${field}`"
-              :value="active.region[field]"
-              :min="field === 'width' || field === 'height' ? 1 : 0"
-              :max="field === 'x' || field === 'width' ? image.width : image.height"
-              @change="detail($event, field)"
-          /></label>
-          <label
-            >Cel width<input
-              type="number"
-              min="1"
-              max="160"
-              :value="active.width"
-              @change="detail($event, 'celWidth')"
-          /></label>
-          <label
-            >Cel height<input
-              type="number"
-              min="1"
-              max="168"
-              :value="active.height"
-              @change="detail($event, 'celHeight')"
-          /></label>
+      <aside class="frame-preview">
+        <strong>Animation</strong>
+        <div class="frame-animation" role="group" aria-label="Animation preview">
+          <canvas
+            v-show="previewCel"
+            ref="animation"
+            role="img"
+            :aria-label="`Loop ${chosenLoop} animation`"
+            :style="
+              previewCel
+                ? { width: `${previewCel.width * 2}px`, height: `${previewCel.height}px` }
+                : {}
+            "
+          />
         </div>
-      </details>
-      <div class="frame-animation" role="group" aria-label="Animation preview">
-        <canvas
-          v-show="previewCel"
-          ref="animation"
-          role="img"
-          :aria-label="`Loop ${chosenLoop} animation`"
-          :style="
-            previewCel
-              ? {
-                  width: `${previewCel.width * 2 * Math.min(3, 56 / previewCel.height)}px`,
-                  height: `${previewCel.height * Math.min(3, 56 / previewCel.height)}px`,
-                }
-              : {}
-          "
-        />
+        <label class="frame-size"
+          >Size
+          <span class="frame-stepper">
+            <button
+              type="button"
+              aria-label="Smaller cels"
+              @click="celHeight = Math.max(1, celHeight - 1)"
+            >
+              −
+            </button>
+            <input
+              v-model.number="celHeight"
+              type="number"
+              aria-label="Cel height"
+              min="1"
+              :max="maximumHeight"
+            />
+            <button
+              type="button"
+              aria-label="Taller cels"
+              @click="celHeight = Math.min(maximumHeight, celHeight + 1)"
+            >
+              +
+            </button>
+          </span>
+          px tall · like {{ name }}</label
+        >
+        <slot name="preview" />
         <UiButton
           size="sm"
           variant="ghost"
@@ -699,17 +654,79 @@ const imageUrl = computed(() => {
           @click="animated = !animated"
           >{{ animated ? "Pause animation" : "Play animation" }}</UiButton
         >
+        <p class="frame-hint">Drag a box to adjust it. Drag on empty space to add one.</p>
+        <details v-if="active" class="frame-details">
+          <summary>
+            <span data-testid="frame-summary" role="status" aria-live="polite">{{ summary }}</span>
+          </summary>
+          <div class="frame-detail-fields">
+            <label v-for="field in ['x', 'y', 'width', 'height'] as const" :key="field"
+              >{{ field
+              }}<input
+                type="number"
+                :aria-label="`Selected frame ${field}`"
+                :value="active.region[field]"
+                :min="field === 'width' || field === 'height' ? 1 : 0"
+                :max="field === 'x' || field === 'width' ? image.width : image.height"
+                @change="detail($event, field)"
+            /></label>
+          </div>
+        </details>
+      </aside>
+    </div>
+    <div class="frame-strip" role="group" aria-label="Frame order: drag thumbnails to reorder">
+      <div v-for="(frame, index) in boxes" :key="frame.id" class="frame-strip-item">
+        <button
+          class="frame-thumbnail"
+          type="button"
+          draggable="true"
+          :data-order-id="frame.id"
+          :aria-label="`Select frame ${index + 1} in order strip`"
+          :aria-pressed="selected.includes(frame.id)"
+          :style="{ '--loop-colour': colours[frame.loop] }"
+          @click="select(frame.id, $event.shiftKey)"
+          @dragstart.stop="startOrder($event, frame.id)"
+          @dragend="dragged = undefined"
+          @dragover.prevent.stop
+          @drop.prevent.stop="dropOrder(frame.id)"
+        >
+          <span class="frame-thumbnail__image"
+            ><img
+              v-if="thumbnails[index]"
+              :src="thumbnails[index]"
+              alt=""
+              draggable="false"
+              data-testid="prepared-cel-thumbnail"
+          /></span>
+          <span>{{ index + 1 }}</span>
+        </button>
+        <button
+          class="frame-thumbnail__remove"
+          type="button"
+          :aria-label="`Remove frame ${index + 1}`"
+          @focus="select(frame.id)"
+          @click.stop="
+            select(frame.id);
+            remove();
+          "
+        >
+          ×
+        </button>
       </div>
     </div>
-    <p
-      class="frame-summary"
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      data-testid="frame-summary"
-    >
-      {{ summary }}
-    </p>
+    <p class="frame-hint">Drag to reorder · Delete removes</p>
+    <div class="frame-add">
+      <label
+        >Add to
+        <select aria-label="Add to loop" :value="chosenLoop" @change="destination">
+          <option v-for="loop in loopChoices" :key="loop" :value="loop">
+            {{ loopName(loop) }}
+          </option>
+          <option v-if="loopChoices.length < 8" value="new">A new loop</option>
+        </select></label
+      >
+      <slot name="commit" />
+    </div>
     <p v-if="notice" class="frame-hint" role="status">{{ notice }}</p>
   </div>
 </template>
@@ -746,34 +763,10 @@ select {
   border-radius: var(--radius-sm);
   padding: var(--space-1);
 }
-.frame-loops {
-  gap: var(--space-1);
-}
-.frame-loops button {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-.frame-loops button[aria-pressed="true"] {
-  color: var(--ink);
-  border-color: var(--loop-colour);
-}
-.frame-loops i {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-sm);
-  background: var(--loop-colour);
-}
 .frame-viewport {
-  height: clamp(180px, 30vh, 340px);
-  flex-shrink: 0;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
   overflow: auto;
   display: grid;
   place-items: safe center;
@@ -860,21 +853,24 @@ select {
   padding: var(--space-1);
   font-size: var(--text-xs);
   cursor: grab;
+  position: relative;
 }
 .frame-thumbnail[aria-pressed="true"] {
   outline: 1px solid var(--loop-colour);
   color: var(--ink);
 }
 .frame-thumbnail__image {
-  width: 54px;
-  height: 40px;
-  display: block;
+  width: 40px;
+  height: 48px;
+  display: grid;
+  place-items: center;
   overflow: hidden;
   background: var(--surface-sunken);
 }
 .frame-thumbnail img {
   display: block;
-  max-width: none;
+  max-width: 100%;
+  max-height: 48px;
   image-rendering: pixelated;
   pointer-events: none;
 }
@@ -901,11 +897,148 @@ select {
   font-size: var(--text-xs);
 }
 .frame-animation {
-  min-height: 56px;
+  min-height: 120px;
+  width: 100%;
+  justify-content: center;
+  background: var(--surface-sunken);
 }
 .frame-animation canvas {
   image-rendering: pixelated;
   background: var(--surface-sunken);
+}
+.frame-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-3);
+}
+.frame-sheet-area {
+  position: relative;
+  min-height: 240px;
+}
+.frame-link,
+.frame-find,
+.frame-zoom {
+  position: absolute;
+  z-index: 2;
+  background: var(--surface-1);
+  border-radius: var(--radius);
+}
+.frame-link {
+  left: 10px;
+  top: 10px;
+}
+.frame-find {
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+}
+.frame-zoom {
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+}
+.frame-find-menu summary {
+  padding: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+}
+.frame-find-menu > div {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  background: var(--surface-1);
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  display: grid;
+  gap: var(--space-2);
+  min-width: 100px;
+}
+.frame-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  overflow: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+.frame-preview > strong {
+  align-self: start;
+  font-size: var(--text-sm);
+}
+.frame-size {
+  font-size: var(--text-xs);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.frame-stepper {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+}
+.frame-stepper input {
+  width: 30px;
+  border: 0;
+  padding: 0;
+  text-align: center;
+  appearance: textfield;
+}
+.frame-stepper input::-webkit-inner-spin-button {
+  appearance: none;
+}
+.frame-stepper button {
+  background: none;
+  border: 0;
+  color: var(--ink-2);
+  cursor: pointer;
+  padding: var(--space-1);
+}
+.frame-strip-item {
+  position: relative;
+  flex-shrink: 0;
+}
+.frame-thumbnail__remove {
+  color: var(--ink-2);
+  border: 1px solid var(--hairline);
+  cursor: pointer;
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  padding: 0 var(--space-1);
+  background: var(--surface-3);
+  border-radius: var(--radius);
+  opacity: 0;
+}
+.frame-strip-item:hover .frame-thumbnail__remove,
+.frame-strip-item:focus-within .frame-thumbnail__remove {
+  opacity: 1;
+}
+.frame-add {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  border-top: 1px solid var(--hairline);
+  padding-top: var(--space-2);
+}
+.frame-add label {
+  font-size: var(--text-xs);
+}
+@media (max-width: 900px) {
+  .frame-main {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .frame-sheet-area {
+    min-height: 300px;
+  }
 }
 button:focus-visible,
 [tabindex]:focus-visible {

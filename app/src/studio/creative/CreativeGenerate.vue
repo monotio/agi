@@ -282,6 +282,14 @@ function bytes(value: number): string {
   return `${(value / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const formCost = computed(() => {
+  const estimate = estimateImageOutputCost(
+    model.value,
+    quality.value || "low",
+    size.value === "custom" ? customSize.value : size.value,
+  );
+  return estimate === null ? "Generate" : `Generate · about $${estimate.toFixed(2)}`;
+});
 const estimatedCost = computed(() => {
   const request = review.value?.summary;
   if (!request) return "";
@@ -329,8 +337,6 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
       data-testid="generate-form"
       @submit.prevent="prepareReview"
     >
-      <UiSegmented v-model="kind" label="Request kind" :options="KIND_OPTIONS" block size="sm" />
-
       <label class="generate__field">
         <span>Prompt</span>
         <textarea
@@ -342,196 +348,6 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         />
       </label>
 
-      <div class="generate__row">
-        <label class="generate__field">
-          <span>Role</span>
-          <UiSelect
-            v-model="role"
-            size="sm"
-            aria-label="Role"
-            :disabled="formDisabled"
-            data-testid="generate-role"
-          >
-            <option v-for="option in ROLE_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </UiSelect>
-        </label>
-        <label class="generate__field">
-          <span>Model</span>
-          <UiSelect
-            v-model="model"
-            size="sm"
-            aria-label="Model"
-            :disabled="formDisabled"
-            data-testid="generate-model"
-          >
-            <option v-for="id in modelIds" :key="id" :value="id">
-              {{ models[id]?.label ?? id }}
-            </option>
-          </UiSelect>
-        </label>
-      </div>
-
-      <div class="generate__row">
-        <label class="generate__field">
-          <span>Size</span>
-          <UiSelect
-            v-model="size"
-            size="sm"
-            aria-label="Size"
-            :disabled="formDisabled"
-            data-testid="generate-size"
-          >
-            <option v-if="capability?.customSizes" value="custom">Custom</option>
-            <option v-for="entry in capability?.sizes ?? []" :key="entry" :value="entry">
-              {{ entry }}
-            </option>
-          </UiSelect>
-        </label>
-        <label v-if="size === 'custom'" class="generate__field">
-          <span>Custom size</span>
-          <input
-            v-model="customSize"
-            :disabled="formDisabled"
-            placeholder="2048x2048"
-            data-testid="generate-custom-size"
-          />
-        </label>
-        <label class="generate__field">
-          <span>Quality</span>
-          <UiSelect
-            v-model="quality"
-            size="sm"
-            aria-label="Quality"
-            :disabled="formDisabled"
-            data-testid="generate-quality"
-          >
-            <option v-for="entry in capability?.qualities ?? []" :key="entry" :value="entry">
-              {{ entry }}
-            </option>
-          </UiSelect>
-        </label>
-        <label class="generate__field">
-          <span>Background</span>
-          <UiSelect
-            v-model="background"
-            size="sm"
-            aria-label="Background"
-            :disabled="formDisabled"
-            data-testid="generate-background"
-          >
-            <option v-for="entry in capability?.backgrounds ?? []" :key="entry" :value="entry">
-              {{ entry }}
-            </option>
-          </UiSelect>
-        </label>
-        <label v-if="usesFidelity" class="generate__field">
-          <span>Fidelity</span>
-          <UiSelect
-            v-model="inputFidelity"
-            size="sm"
-            aria-label="Input fidelity"
-            :disabled="formDisabled"
-            data-testid="generate-fidelity"
-          >
-            <option value="low">low</option>
-            <option value="high">high</option>
-          </UiSelect>
-        </label>
-      </div>
-
-      <label v-if="usesAsset" class="generate__field">
-        <span>Asset</span>
-        <UiSelect
-          v-model="assetKey"
-          size="sm"
-          aria-label="Reference image"
-          :disabled="formDisabled"
-          data-testid="generate-asset"
-        >
-          <option value="" disabled>Choose a source…</option>
-          <option v-for="option in sourceOptions" :key="option.key" :value="option.key">
-            {{ option.title }} ({{ option.width }}×{{ option.height }})
-          </option>
-        </UiSelect>
-      </label>
-
-      <UiDisclosure
-        id="generate-references"
-        label="References"
-        :hint="`${referenceKeys.length} chosen`"
-        test-id="generate-references"
-      >
-        <fieldset class="generate__refs" :disabled="formDisabled">
-          <label v-for="option in referenceOptions" :key="option.key" class="generate__ref">
-            <input
-              v-model="referenceKeys"
-              type="checkbox"
-              :value="option.key"
-              :aria-label="`Reference ${option.title}`"
-            />
-            <span class="generate__ref-title">{{ option.title }}</span>
-            <UiChip v-for="r in option.roles" :key="r">{{ r }}</UiChip>
-          </label>
-          <p v-if="referenceOptions.length === 0" class="generate__empty">
-            Approved board entries appear here.
-          </p>
-        </fieldset>
-      </UiDisclosure>
-
-      <section v-if="kind === 'edit'" class="generate__selection" data-testid="generate-selection">
-        <span class="generate__label">Selection</span>
-        <div v-if="baseRaster !== null" class="generate__base">
-          <canvas
-            ref="baseCanvas"
-            class="generate__base-canvas"
-            :width="baseRaster.width"
-            :height="baseRaster.height"
-            aria-label="Reference image preview"
-          />
-          <span class="generate__region" :style="selectionStyle" aria-hidden="true" />
-        </div>
-        <div class="generate__quad">
-          <input
-            v-model.number="selection.x"
-            type="number"
-            min="0"
-            aria-label="Selection x"
-            :disabled="formDisabled"
-            data-testid="generate-selection-x"
-          />
-          <input
-            v-model.number="selection.y"
-            type="number"
-            min="0"
-            aria-label="Selection y"
-            :disabled="formDisabled"
-            data-testid="generate-selection-y"
-          />
-          <input
-            v-model.number="selection.width"
-            type="number"
-            min="1"
-            aria-label="Selection width"
-            :disabled="formDisabled"
-            data-testid="generate-selection-width"
-          />
-          <input
-            v-model.number="selection.height"
-            type="number"
-            min="1"
-            aria-label="Selection height"
-            :disabled="formDisabled"
-            data-testid="generate-selection-height"
-          />
-        </div>
-        <p v-if="!selectionValid" class="generate__error" role="alert">
-          The selection stays inside the asset's pixels.
-        </p>
-        <p class="generate__hint">Only this area may change; every other pixel is preserved.</p>
-      </section>
-
       <UiButton
         type="submit"
         variant="primary"
@@ -540,8 +356,204 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         :title="formReady ? '' : formProblem"
         data-testid="generate-review"
       >
-        {{ phase === "preparing" ? "Preparing review…" : "Review request" }}
+        {{ phase === "preparing" ? "Preparing review…" : formCost }}
       </UiButton>
+      <UiDisclosure id="generate-options" label="Options" test-id="generate-options">
+        <UiSegmented v-model="kind" label="Request kind" :options="KIND_OPTIONS" block size="sm" />
+        <div class="generate__row">
+          <label class="generate__field">
+            <span>Role</span>
+            <UiSelect
+              v-model="role"
+              size="sm"
+              aria-label="Role"
+              :disabled="formDisabled"
+              data-testid="generate-role"
+            >
+              <option v-for="option in ROLE_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </UiSelect>
+          </label>
+          <label class="generate__field">
+            <span>Model</span>
+            <UiSelect
+              v-model="model"
+              size="sm"
+              aria-label="Model"
+              :disabled="formDisabled"
+              data-testid="generate-model"
+            >
+              <option v-for="id in modelIds" :key="id" :value="id">
+                {{ models[id]?.label ?? id }}
+              </option>
+            </UiSelect>
+          </label>
+        </div>
+
+        <div class="generate__row">
+          <label class="generate__field">
+            <span>Size</span>
+            <UiSelect
+              v-model="size"
+              size="sm"
+              aria-label="Size"
+              :disabled="formDisabled"
+              data-testid="generate-size"
+            >
+              <option v-if="capability?.customSizes" value="custom">Custom</option>
+              <option v-for="entry in capability?.sizes ?? []" :key="entry" :value="entry">
+                {{ entry }}
+              </option>
+            </UiSelect>
+          </label>
+          <label v-if="size === 'custom'" class="generate__field">
+            <span>Custom size</span>
+            <input
+              v-model="customSize"
+              :disabled="formDisabled"
+              placeholder="2048x2048"
+              data-testid="generate-custom-size"
+            />
+          </label>
+          <label class="generate__field">
+            <span>Quality</span>
+            <UiSelect
+              v-model="quality"
+              size="sm"
+              aria-label="Quality"
+              :disabled="formDisabled"
+              data-testid="generate-quality"
+            >
+              <option v-for="entry in capability?.qualities ?? []" :key="entry" :value="entry">
+                {{ entry }}
+              </option>
+            </UiSelect>
+          </label>
+          <label class="generate__field">
+            <span>Background</span>
+            <UiSelect
+              v-model="background"
+              size="sm"
+              aria-label="Background"
+              :disabled="formDisabled"
+              data-testid="generate-background"
+            >
+              <option v-for="entry in capability?.backgrounds ?? []" :key="entry" :value="entry">
+                {{ entry }}
+              </option>
+            </UiSelect>
+          </label>
+          <label v-if="usesFidelity" class="generate__field">
+            <span>Fidelity</span>
+            <UiSelect
+              v-model="inputFidelity"
+              size="sm"
+              aria-label="Input fidelity"
+              :disabled="formDisabled"
+              data-testid="generate-fidelity"
+            >
+              <option value="low">low</option>
+              <option value="high">high</option>
+            </UiSelect>
+          </label>
+        </div>
+
+        <label v-if="usesAsset" class="generate__field">
+          <span>Asset</span>
+          <UiSelect
+            v-model="assetKey"
+            size="sm"
+            aria-label="Reference image"
+            :disabled="formDisabled"
+            data-testid="generate-asset"
+          >
+            <option value="" disabled>Choose a source…</option>
+            <option v-for="option in sourceOptions" :key="option.key" :value="option.key">
+              {{ option.title }} ({{ option.width }}×{{ option.height }})
+            </option>
+          </UiSelect>
+        </label>
+
+        <UiDisclosure
+          id="generate-references"
+          label="References"
+          :hint="`${referenceKeys.length} chosen`"
+          test-id="generate-references"
+        >
+          <fieldset class="generate__refs" :disabled="formDisabled">
+            <label v-for="option in referenceOptions" :key="option.key" class="generate__ref">
+              <input
+                v-model="referenceKeys"
+                type="checkbox"
+                :value="option.key"
+                :aria-label="`Reference ${option.title}`"
+              />
+              <span class="generate__ref-title">{{ option.title }}</span>
+              <UiChip v-for="r in option.roles" :key="r">{{ r }}</UiChip>
+            </label>
+            <p v-if="referenceOptions.length === 0" class="generate__empty">
+              Approved board entries appear here.
+            </p>
+          </fieldset>
+        </UiDisclosure>
+
+        <section
+          v-if="kind === 'edit'"
+          class="generate__selection"
+          data-testid="generate-selection"
+        >
+          <span class="generate__label">Selection</span>
+          <div v-if="baseRaster !== null" class="generate__base">
+            <canvas
+              ref="baseCanvas"
+              class="generate__base-canvas"
+              :width="baseRaster.width"
+              :height="baseRaster.height"
+              aria-label="Reference image preview"
+            />
+            <span class="generate__region" :style="selectionStyle" aria-hidden="true" />
+          </div>
+          <div class="generate__quad">
+            <input
+              v-model.number="selection.x"
+              type="number"
+              min="0"
+              aria-label="Selection x"
+              :disabled="formDisabled"
+              data-testid="generate-selection-x"
+            />
+            <input
+              v-model.number="selection.y"
+              type="number"
+              min="0"
+              aria-label="Selection y"
+              :disabled="formDisabled"
+              data-testid="generate-selection-y"
+            />
+            <input
+              v-model.number="selection.width"
+              type="number"
+              min="1"
+              aria-label="Selection width"
+              :disabled="formDisabled"
+              data-testid="generate-selection-width"
+            />
+            <input
+              v-model.number="selection.height"
+              type="number"
+              min="1"
+              aria-label="Selection height"
+              :disabled="formDisabled"
+              data-testid="generate-selection-height"
+            />
+          </div>
+          <p v-if="!selectionValid" class="generate__error" role="alert">
+            The selection stays inside the asset's pixels.
+          </p>
+          <p class="generate__hint">Only this area may change; every other pixel is preserved.</p>
+        </section>
+      </UiDisclosure>
     </form>
 
     <!-- Review: the exact request, before it may cost anything. -->
@@ -644,17 +656,14 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
         alt="The provider's returned image"
         data-testid="generate-preview"
       />
-      <dl class="generate__facts">
-        <dt>Image</dt>
-        <dd>
-          {{ offer.width }}×{{ offer.height }} · {{ offer.format }} ·
-          {{ bytes(offer.encoded.byteLength) }} · <code>{{ short(offer.encoded.hash) }}…</code>
-        </dd>
-        <dt v-if="offer.usage !== undefined">Tokens</dt>
-        <dd v-if="offer.usage !== undefined">
-          {{ offer.usage.totalTokens }} total · {{ offer.usage.outputImageTokens }} image
-        </dd>
-      </dl>
+      <button
+        type="button"
+        class="generate__details"
+        aria-label="Result details"
+        :title="`${offer.width}×${offer.height} · ${offer.format} · ${bytes(offer.encoded.byteLength)} · ${offer.encoded.hash}${offer.usage ? ` · ${offer.usage.totalTokens} total tokens · ${offer.usage.outputImageTokens} image tokens` : ''}`"
+      >
+        Details
+      </button>
       <p v-if="offerStale" class="generate__error" role="alert" data-testid="generate-stale">
         This result belongs to an earlier version of your work. Dismiss it and start a new request.
       </p>
@@ -863,5 +872,18 @@ const noKey = computed(() => !credentialReady.value || failure.value?.reason ===
   max-height: 220px;
   border: 1px solid var(--hairline);
   image-rendering: pixelated;
+}
+.generate__details {
+  justify-self: start;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  font: var(--text-xs) var(--font-sans);
+  cursor: help;
+  padding: 0;
+}
+.generate__form :deep(.ui-disclosure__body) {
+  display: grid;
+  gap: var(--space-3);
 }
 </style>
