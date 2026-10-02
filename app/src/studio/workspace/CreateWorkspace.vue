@@ -776,6 +776,7 @@ onBeforeUnmount(() => {
         :generate="imageGenerate"
         :active="key === editor.selected.value"
         :image-revision="snapshot?.version('images') ?? 0"
+        :resource-revision="snapshot?.version(key) ?? 0"
         @close="imagePanel = undefined"
         @changed="refresh"
       />
@@ -809,6 +810,7 @@ onBeforeUnmount(() => {
       />
       <SpriteStudio
         v-else-if="key.startsWith('view:') && native(key) && profile"
+        v-show="imagePanel !== key"
         :workspace-focus="editor.focus.value"
         embedded
         :view-number="Number(key.split(':')[1])"

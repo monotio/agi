@@ -88,6 +88,29 @@ test("saved image references restore detached pixels and refuse unknown metadata
   );
 });
 
+test("adding to a mirror loop gives it independent cels and keeps both displayed loops", () => {
+  const input = {
+    loops: [
+      { cels: [{ width: 2, height: 1, pixels: [2, 4], transparentColor: 0 }] },
+      { mirrorLoop: 0 },
+    ],
+  };
+  const changes = makeCelsChanges(
+    { "view:0": JSON.stringify(input) },
+    "view:0",
+    image,
+    [{ region: { x: 0, y: 0, width: 2, height: 2 }, width: 2, height: 2, loop: 1 }],
+    PROFILES["2.936"],
+  );
+  const next = changes.find((c) => c.key === "view:0")!.content as Uint8Array;
+  const view = parseView(next);
+  assert.deepEqual([...view.loops[0]!.cels[0]!.pixels], [2, 4]);
+  assert.deepEqual([...view.loops[1]!.cels[0]!.pixels], [4, 2]);
+  assert.deepEqual([...view.loops[1]!.cels[1]!.pixels], [0, 4, 0, 4]);
+  assert.equal(view.loops[0]!.cels.length, 1);
+  assert.equal(view.loops[1]!.cels.length, 2);
+});
+
 test("large decoded attachments use image bounds while native documents retain their bounds", () => {
   const pixels = new Uint8Array(1536 * 1536 * 4);
   const documents = { [`attachment:${sha256Hex(pixels)}`]: pixels };
@@ -99,4 +122,26 @@ test("large decoded attachments use image bounds while native documents retain t
   const history = new ProjectHistory(sha256Hex);
   history.record(documents, { label: "Image", origin: "picture", author: "creator", time: 1 });
   assert.equal(Object.values(history.capture().blobs)[0]!.length, pixels.length);
+});
+
+test("assigning loop 7 fills new intervening loops with a transparent cel", () => {
+  const existing = buildView({
+    loops: [{ cels: [{ width: 1, height: 1, pixels: [2], transparentColor: 0 }] }],
+  });
+  const changes = makeCelsChanges(
+    { "view:0": existing },
+    "view:0",
+    image,
+    [{ region: { x: 0, y: 0, width: 2, height: 2 }, width: 2, height: 2, loop: 7 }],
+    PROFILES["2.936"],
+  );
+  const view = parseView(changes.find((c) => c.key === "view:0")!.content as Uint8Array);
+  assert.equal(view.loops.length, 8);
+  assert.deepEqual([...view.loops[0]!.cels[0]!.pixels], [2]);
+  for (const loop of view.loops.slice(1, 7)) {
+    assert.equal(loop.cels.length, 1);
+    assert.equal(loop.cels[0]!.transparentColor, 0);
+    assert.deepEqual([...loop.cels[0]!.pixels], [0]);
+  }
+  assert.deepEqual([...view.loops[7]!.cels[0]!.pixels], [0, 4, 0, 4]);
 });

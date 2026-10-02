@@ -24,7 +24,8 @@ import { decodeCreativeImage } from "../../references/creativeImageDecode.ts";
 import type { createImageGenerationMount } from "./imageGenerationMount.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
 import { useShellBridge } from "../../shell/shellBridge.ts";
-import { EGA_PALETTE } from "../../render/palette.ts";
+import { openSprite } from "../../../../src/view/spriteDocument.ts";
+import ImageFrameSheet from "./ImageFrameSheet.vue";
 import UiButton from "../../ui/UiButton.vue";
 const props = defineProps<{
   session: ProjectSession;
@@ -33,6 +34,7 @@ const props = defineProps<{
   generate: boolean;
   active: boolean;
   imageRevision: number;
+  resourceRevision: number;
 }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
 const CreativeGenerate = defineAsyncComponent(() => import("./CreativeGenerate.vue"));
@@ -47,8 +49,21 @@ const previewing = ref(false);
 const busy = ref(false);
 const generateOpen = ref(props.generate);
 const file = useTemplateRef("file");
-const canvas = useTemplateRef("sheet");
 const isPicture = computed(() => props.target.startsWith("picture:"));
+const mirrors = shallowRef<readonly (number | null)[]>([]);
+watch(
+  () => props.resourceRevision,
+  () => {
+    const content = props.session.model.capture().read(props.target)?.content;
+    if (content instanceof Uint8Array && !isPicture.value)
+      mirrors.value = openSprite(content, props.profile).loops.map((loop) => loop.alias);
+    else if (typeof content === "string" && !isPicture.value) {
+      const input = JSON.parse(content) as { loops: { mirrorLoop?: number }[] };
+      mirrors.value = input.loops.map((loop) => loop.mirrorLoop ?? null);
+    }
+  },
+  { immediate: true },
+);
 watch(
   () => props.imageRevision,
   () => {
@@ -237,66 +252,6 @@ watch(
     if (!active) stopPreview();
   },
 );
-watch(
-  [image, frames, canvas],
-  () => {
-    const target = canvas.value,
-      source = image.value;
-    if (!target || !source) return;
-    target.width = source.width;
-    target.height = source.height;
-    const context = target.getContext("2d")!;
-    const pixels = new ImageData(source.width, source.height);
-    pixels.data.set(source.rgba);
-    context.putImageData(pixels, 0, 0);
-    context.strokeStyle = `rgb(${EGA_PALETTE[11]!.join(" ")})`;
-    context.lineWidth = Math.max(1, source.width / 320);
-    for (const frame of frames.value)
-      context.strokeRect(frame.region.x, frame.region.y, frame.region.width, frame.region.height);
-  },
-  { deep: true, flush: "post" },
-);
-let start: { x: number; y: number } | undefined;
-function point(event: PointerEvent) {
-  const rect = canvas.value!.getBoundingClientRect();
-  return {
-    x: Math.max(
-      0,
-      Math.min(
-        image.value!.width - 1,
-        Math.floor(((event.clientX - rect.left) * image.value!.width) / rect.width),
-      ),
-    ),
-    y: Math.max(
-      0,
-      Math.min(
-        image.value!.height - 1,
-        Math.floor(((event.clientY - rect.top) * image.value!.height) / rect.height),
-      ),
-    ),
-  };
-}
-function markStart(event: PointerEvent) {
-  start = point(event);
-  canvas.value?.setPointerCapture(event.pointerId);
-}
-function markEnd(event: PointerEvent) {
-  if (!start || !image.value) return;
-  const end = point(event),
-    region = {
-      x: Math.min(start.x, end.x),
-      y: Math.min(start.y, end.y),
-      width: Math.abs(start.x - end.x) + 1,
-      height: Math.abs(start.y - end.y) + 1,
-    };
-  frames.value.push({
-    region,
-    width: Math.min(32, region.width),
-    height: Math.min(48, region.height),
-    loop: 0,
-  });
-  start = undefined;
-}
 window.addEventListener("paste", paste);
 onBeforeUnmount(() => {
   window.removeEventListener("paste", paste);
@@ -309,6 +264,7 @@ onBeforeUnmount(() => {
 <template>
   <section
     class="image-reference"
+    :class="{ 'image-reference--cels': !isPicture }"
     data-testid="image-reference"
     @dragover.prevent
     @drop="drop"
@@ -349,52 +305,11 @@ onBeforeUnmount(() => {
         @change="changeOpacity"
     /></label>
     <template v-if="image && !isPicture">
-      <p>Drag on the sheet to mark a frame. Adjust frames and choose their loops.</p>
-      <canvas
-        ref="sheet"
-        class="image-reference__sheet"
-        :style="{ width: `min(100%, ${(160 * image.width) / image.height}px)` }"
-        aria-label="Image frames"
-        @pointerdown="markStart"
-        @pointerup="markEnd"
-      />
-      <div class="image-reference__frames">
-        <div
-          v-for="(frame, index) in frames"
-          :key="index"
-          data-testid="image-frame"
-          class="image-reference__frame"
-        >
-          <span>{{ index + 1 }}</span>
-          <label v-for="field in ['x', 'y', 'width', 'height'] as const" :key="field"
-            >{{ field
-            }}<input
-              v-model.number="frame.region[field]"
-              type="number"
-              :min="field === 'width' || field === 'height' ? 1 : 0"
-              :aria-label="`Frame ${index + 1} ${field}`"
-          /></label>
-          <label
-            >Cel width<input v-model.number="frame.width" type="number" min="1" max="160"
-          /></label>
-          <label
-            >Cel height<input v-model.number="frame.height" type="number" min="1" max="168"
-          /></label>
-          <label
-            >Loop<input
-              v-model.number="frame.loop"
-              type="number"
-              min="0"
-              max="254"
-              :aria-label="`Frame ${index + 1} loop`"
-          /></label>
-          <UiButton size="sm" variant="ghost" @click="frames.splice(index, 1)">Remove</UiButton>
-        </div>
-      </div>
+      <ImageFrameSheet v-model="frames" :image="image" :profile="profile" :mirrors="mirrors" />
       <div class="image-reference__actions">
         <UiButton
           size="sm"
-          :disabled="!prepared"
+          :disabled="!prepared || !frames.length"
           :title="prepared ? '' : 'Adjust the frames first'"
           data-testid="image-preview-hero"
           @click="preview"
@@ -402,7 +317,7 @@ onBeforeUnmount(() => {
         >
         <UiButton
           size="sm"
-          :disabled="!prepared || busy"
+          :disabled="!prepared || !frames.length || busy"
           :title="prepared ? '' : 'Adjust the frames first'"
           data-testid="image-add-cels"
           @click="addCels"
@@ -418,7 +333,7 @@ onBeforeUnmount(() => {
 .image-reference {
   padding: var(--space-3);
   border-bottom: 1px solid var(--hairline);
-  background: var(--surface);
+  background: var(--surface-1);
   max-height: 45%;
   overflow: auto;
   flex-shrink: 0;
@@ -439,27 +354,25 @@ onBeforeUnmount(() => {
 .image-reference label {
   font-size: var(--text-xs);
 }
-.image-reference__sheet {
-  height: auto;
-  max-width: 100%;
-  image-rendering: pixelated;
-  touch-action: none;
-}
-.image-reference__frame {
+.image-reference--cels {
   display: flex;
-  align-items: end;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin: var(--space-2) 0;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
-.image-reference__frame label {
-  display: grid;
-  gap: var(--space-1);
+.image-reference--cels :deep(.frame-editor) {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-1);
 }
-.image-reference__frame input {
-  width: 48px;
-  background: var(--surface-sunken);
-  border: 1px solid var(--hairline);
-  color: var(--ink);
+.image-reference--cels > header,
+.image-reference--cels > .image-reference__actions,
+.image-reference--cels > p {
+  flex-shrink: 0;
+}
+.image-reference--cels .image-reference__actions {
+  margin-top: var(--space-2);
 }
 </style>
