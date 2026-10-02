@@ -611,6 +611,10 @@ export interface WorkerContext {
     installed: boolean;
     queue: WorkerInbound[];
     initialize?: (boot: BootMessage) => void;
+    prepareReplacement?: (
+      engine: Engine,
+      project: HistoryProjectDocuments | undefined,
+    ) => { lane: ProjectAdmissionState; project: HistoryProjectDocuments } | null;
     identity?: () => PreviewLaneIdentity | null;
     enterCreate?: (msg: Inbound<"projectCreate">) => void;
   };

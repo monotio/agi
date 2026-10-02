@@ -18,6 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Writable } from "node:stream";
 import { test } from "node:test";
 import {
   createProtocolConnection,
@@ -70,14 +71,22 @@ interface Running {
   readonly exited: Promise<number | null>;
 }
 
-function start(extraArgs: string[] = [], viaNpm = false): Running {
+function start(
+  extraArgs: string[] = [],
+  viaNpm = false,
+  output?: (stdin: ChildProcessWithoutNullStreams["stdin"]) => NodeJS.WritableStream,
+): Running {
   const [command, argv] = viaNpm
     ? ["npm", ["run", "--silent", "language-server", "--", "--stdio", ...extraArgs]]
     : [process.execPath, ["--experimental-strip-types", SERVER, "--stdio", ...extraArgs]];
   const child = spawn(command, argv, { cwd: ROOT }) as ChildProcessWithoutNullStreams;
   const stderr: string[] = [];
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk.toString("utf8")));
-  const connection = createProtocolConnection(child.stdout, child.stdin, console);
+  const connection = createProtocolConnection(
+    child.stdout,
+    output?.(child.stdin) ?? child.stdin,
+    console,
+  );
   const diagnostics: PublishDiagnosticsParams[] = [];
   connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
     diagnostics.push(params);
@@ -1424,11 +1433,35 @@ test(".lgc files attach through generic clients with another host language id", 
 });
 
 test("official client cancellation rejects a queued request and leaves documents usable", async () => {
-  const server = start();
+  let buffering = false;
+  const chunks: Buffer[] = [];
+  let cancellationWritten!: () => void;
+  const written = new Promise<void>((resolve) => {
+    cancellationWritten = resolve;
+  });
+  const server = start(
+    [],
+    false,
+    (stdin) =>
+      new Writable({
+        write(chunk: Buffer, _encoding, done) {
+          if (!buffering) {
+            stdin.write(chunk, done);
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+          if (Buffer.concat(chunks).includes('"method":"$/cancelRequest"')) cancellationWritten();
+          done();
+        },
+      }),
+  );
   const uri = "file:///cancel.lgc";
   try {
     await initialize(server);
     await open(server, uri, "#define door 41\nset(door); return;", 1);
+    // Deliver the official client's request and cancellation in one packet so
+    // the request is still queued when the server reads the cancellation.
+    buffering = true;
     const cancellation = new CancellationTokenSource();
     const request = server.connection.sendRequest(
       HoverRequest.type,
@@ -1436,6 +1469,9 @@ test("official client cancellation rejects a queued request and leaves documents
       cancellation.token,
     );
     cancellation.cancel();
+    await written;
+    buffering = false;
+    server.child.stdin.write(Buffer.concat(chunks));
     await assert.rejects(request, (error: { code?: number }) => error.code === -32800);
     cancellation.dispose();
     const hover = await server.connection.sendRequest(HoverRequest.type, {

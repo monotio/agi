@@ -222,6 +222,8 @@ export function createReplay(ctx: WorkerContext) {
     ctx.replay.reseeds = [];
     ctx.replay.reseedCursor = 0;
     ctx.replay.historyReplay = false;
+    // Tape-driven replacements regain Create authority only after taking control.
+    ctx.projectAdmission = null;
     ctx.engine = new Engine(
       openContainer(
         ctx.boot.currentBootFiles,
@@ -282,6 +284,7 @@ export function createReplay(ctx: WorkerContext) {
     // is dropped by the serial check and the host resolves its UI now.
     ctx.fns.abandonHostRequest();
     ctx.fns.setKeyWaiting(false);
+    ctx.projectAdmission = null;
     ctx.engine = new Engine(
       openContainer(
         ctx.boot.currentBootFiles,

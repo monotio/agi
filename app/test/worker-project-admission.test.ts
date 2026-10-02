@@ -15,6 +15,47 @@ import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { sha256Hex } from "../../src/crypto.ts";
 import type { WorkerControl, PreviewUpdateCandidateMessage } from "../src/worker/workerProtocol.ts";
 
+test("walkthrough rebuilds revoke Create admission; taking control can grant the replacement", async (t) => {
+  const control: WorkerControl[] = [];
+  const ctx = createWorkerContext({
+    control: (msg) => control.push(msg),
+    presentation: () => {},
+    now: () => 0,
+  });
+  ctx.host = createEngineHost(ctx);
+  t.after(() => ctx.fns.stopTimers());
+  const initial = candidate("// Authored source\nreturn;");
+  assert.ok(initial.documents);
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: initial.files,
+    words: [],
+    profile: "2.936",
+    projectMode: "create",
+    projectDocuments: initial.documents,
+  });
+  await ctx.projectLoader.loading;
+  ctx.fns.stopTimers();
+  for (const type of ["resetReplay", "replayRestore"] as const) {
+    const token = ctx.projectAdmission!.runToken;
+    if (type === "replayRestore") onWorkerMessage(ctx, { type: "resetReplay", seed: 1 });
+    const engine = ctx.engine;
+    onWorkerMessage(ctx, type === "resetReplay" ? { type, seed: 1 } : { type, tick: 0, id: 1 });
+    assert.notEqual(ctx.engine, engine);
+    assert.ok(ctx.projectAdmission === null, "a tape-driven engine has no Create authority");
+    onWorkerMessage(ctx, { type: "projectCreate", id: 2, documents: initial.documents });
+    const denied = control.at(-1);
+    assert.ok(denied?.type === "projectCreated" && !denied.grant);
+    onWorkerMessage(ctx, { type: "exitReplay" });
+    onWorkerMessage(ctx, { type: "projectCreate", id: 3, documents: initial.documents });
+    const granted = control.at(-1);
+    assert.ok(granted?.type === "projectCreated" && granted.grant?.identity);
+    assert.notEqual(granted.grant.runToken, token);
+    assert.equal(granted.grant.identity.documentId, initial.documentId);
+  }
+  ctx.fns.stopTimers();
+});
+
 function candidate(source = "return;", world = "{}"): PreviewUpdateCandidateMessage {
   const documents = { "logic:0": source, world };
   const compiled = compileProjectDocuments({
