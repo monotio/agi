@@ -63,6 +63,9 @@ test("audition plays a native cue on its own context and preserves the game's ho
 
     // The "game" instance: its own context held frozen by a worker owner.
     const gameContext = new AudioContext();
+    // Start the game clock before holding it. A newly created WebKit context
+    // can still be suspended while its initial resume is in flight.
+    await gameContext.resume();
     const gameAudio = new AgiAudio({ contextFactory: () => gameContext });
     gameAudio.output({ kind: "speaker", divisor: 2712 });
     gameAudio.setPauseOwner("worker", true);
