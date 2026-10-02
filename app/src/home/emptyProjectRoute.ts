@@ -34,9 +34,6 @@ export async function followEmptyProjectRoute(): Promise<boolean> {
   const id = projectId(route.key);
   if (!id) return false;
   const opened = await openEmptyProject(id, hash);
-  if (location.hash !== hash) {
-    emptyProject.value = null;
-    return false;
-  }
-  return opened;
+  // A newer route owns the shared state; a stale resolution changes nothing.
+  return opened && location.hash === hash;
 }

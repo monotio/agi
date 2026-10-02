@@ -21,8 +21,9 @@ export function pictureReviewPixels(
   const rgba = new Uint8Array(320 * 168 * 4);
   for (let i = 0; i < visual.length; i++) {
     const colour = EGA_RGB[visual[i]! & 15]!;
-    const alpha =
-      visual[i] === 15 && underlay ? (underlay.opacity * underlay.pixels[i * 4 + 3]!) / 255 : 0;
+    // Behind the art only the white paper shows the image; over it, every pixel does.
+    const shown = underlay !== null && (!underlay.behindArt || visual[i] === 15);
+    const alpha = shown ? (underlay.opacity * underlay.pixels[i * 4 + 3]!) / 255 : 0;
     for (let channel = 0; channel < 3; channel++) {
       const value = Math.round(
         colour[channel]! * (1 - alpha) + (underlay?.pixels[i * 4 + channel] ?? 0) * alpha,

@@ -182,11 +182,30 @@ test("image tools auto-approve through History, withdraw cleanly and refuse unkn
   }
 });
 
+test("PICTURE review draws an image traced over the art across every pixel, as the editor does", async () => {
+  const { pictureReviewPixels } = await import("../src/agent/workspaceImageReview.ts");
+  const documents: Record<string, ProjectContent> = {};
+  for (const change of traceImageChanges(documents, "picture:2", image, 0.6))
+    documents[change.key] = change.content!;
+  const visual = new Uint8Array(160 * 168).fill(15);
+  visual[84 * 160 + 40] = 1;
+  const after = pictureReviewPixels(visual, documents, "picture:2");
+  // 60% red over the blue mark: (0, 0, 170) * 0.4 + (255, 0, 0) * 0.6.
+  assert.deepEqual(
+    Array.from(after.slice((84 * 320 + 80) * 4, (84 * 320 + 80) * 4 + 4)),
+    [153, 0, 68, 255],
+  );
+  assert.deepEqual(
+    Array.from(after.slice((84 * 320 + 82) * 4, (84 * 320 + 82) * 4 + 4)),
+    [255, 102, 102, 255],
+  );
+});
+
 test("PICTURE review shows a changed tracing layer below native marks", async () => {
   const { pictureReviewPixels, imageReviewTargets } =
     await import("../src/agent/workspaceImageReview.ts");
   const documents: Record<string, ProjectContent> = {};
-  for (const change of traceImageChanges(documents, "picture:2", image, 0.6))
+  for (const change of traceImageChanges(documents, "picture:2", image, 0.6, true))
     documents[change.key] = change.content!;
   const visual = new Uint8Array(160 * 168).fill(15);
   visual[84 * 160 + 40] = 1;
