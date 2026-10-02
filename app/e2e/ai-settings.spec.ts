@@ -99,6 +99,7 @@ test("AI settings pause only their own game interaction and preserve the assista
 
   await enterPlayMode(page);
   await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("connect-assistant-ai")).toBeEnabled();
   await openAiSettings(page);
   await dialog.getByTestId("provider-select").selectOption("openai");
   await dialog.getByTestId("api-key-input").fill("test-openai-key");

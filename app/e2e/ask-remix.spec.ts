@@ -64,6 +64,7 @@ test("Ask stays paused and remembers the conversation after reload", async ({ pa
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterPlayMode(page);
   await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("connect-assistant-ai")).toBeEnabled();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   expect(requests.length).toBe(0);
