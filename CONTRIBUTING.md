@@ -95,33 +95,8 @@ runtime checks.
 
 ### Local logic language server
 
-After `npm ci` at the repository root, a local LSP developer preview is available:
-
-```bash
-npm run --silent language-server -- --stdio
-```
-
-Configure an LSP client to launch this command from the repository and associate
-AGI source files with language id `agi-logic`. Standard output is reserved for
-protocol messages, so keep `--silent`. `--help` prints options to standard error.
-The command runs locally over stdio.
-
-The server uses the shared AGI compiler and language service for diagnostics,
-completion, signature help, hover, same-document definitions and references, and
-byte-preserving local rename proposals. It receives full document text with UTF-16
-positions. Rename returns versioned edits for the client to apply.
-
-The default interpreter profile is `2.936`; select another known profile with
-`--profile ID`. Add `--words path/to/WORDS.TOK` for vocabulary completion and
-`said()` compilation. Profile and dictionary inputs are fixed at startup; restart
-after changing them. The preview analyzes source received from the client and
-loads no project binding metadata or include files. Cross-document operations,
-automatic file discovery and an editor marketplace extension are outside this
-preview. It writes no files and does not connect to a running browser game.
-
-`node --test --experimental-strip-types test/logic-lsp.test.ts` launches the actual
-CLI through the official protocol client SDK. Editor-specific integrations should
-be tested in their target client before claiming compatibility.
+See [LOGIC editor setup](docs/editor-setup.md) for installation, project inputs,
+capabilities and editor recipes.
 
 ## Where things live
 
