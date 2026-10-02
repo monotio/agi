@@ -277,12 +277,9 @@ export async function isolateStorage(page: Page): Promise<void> {
       // The marker itself is what survives the reload, so the check has to be
       // in localStorage rather than in a page variable.
       if (localStorage.getItem("monotio_agi.e2e.isolated") === "1") return;
-      // The Studio tour's record, when a fixture seeded it (test.ts), outlives the clear.
-      const tour = localStorage.getItem("monotio_agi.studioTour");
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem("monotio_agi.e2e.isolated", "1");
-      if (tour !== null) localStorage.setItem("monotio_agi.studioTour", tour);
     } catch {
       /* a context that blocks storage is already isolated */
     }

@@ -1,13 +1,6 @@
 import type { KnipConfig } from "knip";
 
 const config: KnipConfig = {
-  // Temporary (1.2 workspace integration): remove each entry when the file is mounted.
-  ignore: [
-    "app/e2e/fixtures/studioFrameReview.ts",
-    "app/e2e/fixtures/studioFrameTabsReview.ts",
-    "app/src/studio/host/ProjectExplorer.vue",
-    "app/src/studio/host/ProjectOverview.vue",
-  ],
   workspaces: {
     ".": {
       entry: [
@@ -17,6 +10,7 @@ const config: KnipConfig = {
         // documented in docs/media/README.md, not package.json.
         "scripts/benchmark-media.ts",
         "scripts/capture-feedback.ts",
+        "scripts/generate-logic-reference.ts",
         // Spawned as a shell string by app/playwright.production.config.ts
         // (webServer command), which knip cannot resolve as an import.
         "scripts/serve-production.ts",
@@ -41,6 +35,8 @@ const config: KnipConfig = {
         "playwright*.config.ts",
         // Documentation captures, matched by playwright.media.config.ts.
         "e2e/media/*.media.ts",
+        // Dynamically imported by the tab keyboard spec through a URL string.
+        "e2e/fixtures/studioFrameTabsReview.ts",
         "production/**/*.spec.ts",
         // node --test glob from the app `test:app` script.
         "test/*.test.ts",

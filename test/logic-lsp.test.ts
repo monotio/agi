@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -193,6 +193,8 @@ test("initialize advertises only the implemented capabilities over the npm entry
   const server = start([], true);
   try {
     const result = await initialize(server);
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string };
+    assert.equal(result.serverInfo?.version, pkg.version);
     const capabilities = result.capabilities;
     assert.equal(capabilities.positionEncoding, PositionEncodingKind.UTF16);
     const sync = capabilities.textDocumentSync;

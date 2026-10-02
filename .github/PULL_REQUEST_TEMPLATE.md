@@ -9,6 +9,8 @@
 - [ ] **Browser behavior is proven in the real app** with scenario, request or download assertions; screenshots for visual changes.
 - [ ] **A recurring failure became a rule**: stored bad case under `evals/`, permanent test, or eslint/ast-grep rule.
 - [ ] **Public documentation updated** for changed behavior.
+- [ ] **Format or version changes follow the [release contract](../AGENTS.md#release-contract)**: optional extensions retain their version; breaking changes include migrations and released fixtures.
+- [ ] **Docs and media reflect the shipped UI**: update captures and alt text for visible changes.
 - [ ] **Contribution provenance checked**: no commercial game assets or copied interpreter code; original AGI resources are allowed.
 - [ ] `npm run check` passes locally.
 

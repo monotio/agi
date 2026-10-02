@@ -256,12 +256,11 @@ compatibility on physical Android and iPhone browsers with the keyboard open,
 rotation, interruption and save/restore. Full-game compatibility needs recorded
 completion runs on the specific game edition and interpreter profile.
 
-Desktop Studio runs in WebKit too: `npm --prefix app run e2e:webkit-desktop`
-(`app/playwright.webkit.config.ts`) runs the scenarios tagged `@webkit-desktop`,
-a Room Studio edit kept, reloaded and exported, an export reopened in a fresh
-browser, a mirrored cel repaired in Sprite Studio, a test walk with Play here,
-keyboard-only editing and the unkept-changes dialog. Tag a scenario by ending
-its title with `@webkit-desktop`; it runs from its existing spec.
+Desktop workspace scenarios run in WebKit with
+`npm --prefix app run e2e:webkit-desktop` (`app/playwright.webkit.config.ts`).
+Tag a desktop scenario by ending its title with `@webkit-desktop`; the config
+selects it from its existing spec. Use the tag for visible workspace behavior
+that needs a WebKit check, including editors, keyboard controls and agent review.
 
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
@@ -271,7 +270,7 @@ source; run it in an isolated checkout as described in the script.
 A walkthrough is a route through a real game, played from a cold boot with
 normal player inputs on a virtual clock, with assertions at each score,
 inventory and story milestone. Every catalogued route also ships as a tape that
-the app replays under **Watch a playthrough**.
+the app replays under **Watch walkthrough**.
 
 ### Running the walkthroughs
 
@@ -305,7 +304,7 @@ seed. The routes reach these endpoints:
 
 Every game module under `test/speedrun/` owns its catalog entry; the catalog in
 `test/speedrun/walkthroughs.ts` only lists them, and
-`scripts/generate-walkthroughs.ts` ships one tape per entry. Each entry defines
+`npm run walkthrough:generate` (`scripts/generate-walkthroughs.ts`) ships one tape per entry. Each entry defines
 its coverage, route and observable endpoint once for Node, CLI and browser
 checks, and the same catalog includes KQ1's completion proof.
 `scripts/walkthrough.ts` writes a replay for any catalog entry; for example,
@@ -623,9 +622,9 @@ and exact deduplication of committed batches after eviction. The history
 transport browser spec checks seeking, Watch and Undo layouts on phones; it runs
 in both the desktop and phone configurations.
 
-`app/e2e/reference-art.spec.ts` checks reference uploads through actual provider
-request bodies using local stubs, including JPEG/WebP MIME types, pending
-composer attachments and explicit editing intent. It calls no paid providers.
+`app/test/reference-art.test.ts` checks reference handling with deterministic
+inputs. Browser image flows are exercised in `app/e2e/workspace-agent-images.spec.ts`
+and `app/e2e/openai-image-provider.spec.ts` with local provider stubs.
 
 The `app/e2e/history-bench.spec.ts` benchmark uses Chromium's Moto G4 emulation
 with 4× CPU throttling. Representative measurements:

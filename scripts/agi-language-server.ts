@@ -43,6 +43,9 @@ import { PROFILES, type AgiProfile, type ProfileId } from "../src/runtime/profil
 
 const LANGUAGE_ID = "agi-logic";
 const DIAGNOSTIC_SOURCE = "agi-logic";
+const PACKAGE = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+  version: string;
+};
 
 const USAGE = `AGI logic language server (developer preview).
 
@@ -199,7 +202,7 @@ function serve(profile: AgiProfile, dictionary: ReadonlyMap<string, number>): vo
         referencesProvider: true,
         renameProvider: { prepareProvider: true },
       },
-      serverInfo: { name: "agi-logic-language-server", version: "1.2.0-preview" },
+      serverInfo: { name: "agi-logic-language-server", version: PACKAGE.version },
     }),
   );
 

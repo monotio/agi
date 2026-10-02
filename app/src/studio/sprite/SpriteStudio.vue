@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, inject, nextTick, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { StudioFocus } from "../../../../src/agent/studioAssistTools.ts";
 import { viewAssistScope } from "../../../../src/studio/assistScope.ts";
 import { openSprite, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
@@ -26,10 +26,8 @@ import StudioAssistCompare from "../StudioAssistCompare.vue";
 import StudioAssistPanel from "../StudioAssistPanel.vue";
 import StudioKeepDialog from "../StudioKeepDialog.vue";
 import StudioKeySheet from "../StudioKeySheet.vue";
-import StudioTour from "../StudioTour.vue";
 import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
-import { useStudioTour } from "../useStudioTour.ts";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
 import { useFold } from "../useFold.ts";
 import StudioStatusNotice from "../StudioStatusNotice.vue";
@@ -558,17 +556,13 @@ const keepFocus = useStudioFocus(useTemplateRef("root"));
 const calm = useStudioCalm();
 /**
  * The status bar's Keys button. Safari leaves a clicked button unfocused, so
- * activation takes its focus first: the sheet (and a tour its Tour button
- * relaunches) returns focus to what had it when the sheet opened.
+ * activation takes its focus first: the sheet returns focus to what had it when the sheet opened.
  */
 function openKeySheet(event: MouseEvent): void {
   if (event.currentTarget instanceof HTMLElement)
     event.currentTarget.focus({ preventScroll: true });
   calm.sheetOpen.value = true;
 }
-/** The first-run tour: once per viewer, silent while a lesson's card is open. */
-const tour = useStudioTour("sprite", { lesson: () => lesson.session.value !== null });
-onMounted(() => void tour.offer());
 const keySheet = spriteKeySheet();
 /**
  * The options bar folds what it cannot fit, least used first: the backdrop,
@@ -802,7 +796,6 @@ const status = computed(() => {
         v-if="lesson.session.value"
         :session="lesson.session.value"
         :outcome="lesson.outcome.value"
-        @tour="tour.start()"
       />
       <SpritePalette
         v-model="color"
@@ -908,14 +901,8 @@ const status = computed(() => {
       />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
-    <StudioTour v-if="!embedded" :tour :stage name="VIEW editor" />
 
-    <StudioKeySheet
-      v-model:open="calm.sheetOpen.value"
-      name="VIEW editor"
-      :sections="keySheet"
-      @tour="tour.start()"
-    />
+    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="VIEW editor" :sections="keySheet" />
     <StudioKeepDialog
       v-if="!embedded"
       v-model:ask="dialog"

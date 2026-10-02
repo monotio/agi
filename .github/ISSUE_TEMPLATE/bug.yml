@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a problem with playing or creating.
+title: "Bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: What did you do, and which game or resource was open?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include screenshots or a small original example. Remove keys and private conversations.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: App version and browser
+      placeholder: "1.2.0, Firefox, desktop"
+    validations:
+      required: true
