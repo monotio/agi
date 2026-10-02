@@ -431,6 +431,11 @@ function wordResponse(room: number, command: string): void {
   guidedKind.value = "response";
 }
 const ai = useAiSettings();
+async function openWordsChat(): Promise<void> {
+  editor.focus.value = false;
+  if (!engine.state.powerUp.open) await engine.openPowerUp(ai.llmConfig());
+  workspace.showPanel("assistant");
+}
 async function wordsTask(task: WordsTask): Promise<void> {
   editor.focus.value = false;
   const { openWordsTask } = await import("./wordsAgent.ts");
@@ -873,6 +878,7 @@ onBeforeUnmount(() => {
         @open-logic="openWordLogic"
         @response="wordResponse"
         @task="wordsTask"
+        @chat="openWordsChat"
       />
       <TableEditor
         v-else-if="key === 'inventory' && text(key) !== undefined"

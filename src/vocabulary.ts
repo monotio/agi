@@ -9,6 +9,22 @@ export interface VocabularyAction extends VocabularyTerm {
   readonly tool: string;
 }
 
+export const WORDS_EDITOR_COPY = {
+  unknown: "“{word}” is a new word, so the game stops reading there.",
+  teach: "Teach “{word}”…",
+  more: "More ▾",
+  newMeaning: "New meaning",
+  skip: "Skip it like “the”",
+  suggesting: "Suggesting…",
+  addAll: "Add all",
+  dismiss: "Dismiss",
+  retry: "Retry",
+  suggestionsFrom: "Suggestions from {model}",
+  openChat: "Open chat",
+  changed: "WORDS or the room changed. Try again with the current words.",
+  existing: "These words already have meanings. Try another meaning.",
+} as const;
+
 export const WORDS_REPLY_COPY = {
   suggested: "Suggested {words} · shown in WORDS",
   suggestedCount: "Suggested {count} words · shown in WORDS",

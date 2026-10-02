@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   sentenceOutcomes,
   meaningUses,
+  formatMeaningUses,
   changeMeaning,
 } from "../src/studio/workspace/wordsAnalysis.ts";
 const words: [string, number][] = [
@@ -126,4 +127,26 @@ test("meaning uses retain said source spellings for the head chip", () => {
     })["100"]?.[0]?.words,
     [],
   );
+});
+
+test("uses group LOGIC labels, sort and deduplicate linked lines, and retain reference counts", () => {
+  const formatted = formatMeaningUses([
+    { logic: 1, line: 34 },
+    { logic: 0, line: 58 },
+    { logic: 1, line: 32 },
+    { logic: 1, line: 33 },
+    { logic: 1, line: 32 },
+  ]);
+  assert.deepEqual(formatted, {
+    count: "5 uses",
+    locations: [
+      { logic: 1, label: "LOGIC 1 lines", lines: [32, 33, 34] },
+      { logic: 0, label: "LOGIC 0 line", lines: [58] },
+    ],
+  });
+  assert.deepEqual(formatMeaningUses([{ logic: 3, line: 8 }]), {
+    count: "1 use",
+    locations: [{ logic: 3, label: "LOGIC 3 line", lines: [8] }],
+  });
+  assert.deepEqual(formatMeaningUses([]), { count: "0 uses", locations: [] });
 });

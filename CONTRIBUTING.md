@@ -69,7 +69,8 @@ game's first frame outgrow their budgets. It measures Home, cold Play and the
 Create shell separately and checks their module paths: the agent, debugger,
 editors, WORDS analysis and SOUND previews load with their activities. Home
 uses cached opening images; clicking Play loads and checks the catalog game.
-Editor families load on first use, and the agent loads when its panel opens.
+Editor families load on first use. The agent loads when its panel opens or an
+editor requests suggestions.
 `app/e2e/lazy-authoring.spec.ts` walks the same path in a browser, on the
 development server and on the production build. It checks which source modules
 each requested script carries. Separately,

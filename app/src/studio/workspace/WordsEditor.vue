@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
-import { VOCABULARY } from "../../../../src/vocabulary.ts";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { VOCABULARY, WORDS_EDITOR_COPY } from "../../../../src/vocabulary.ts";
 import { parseSentence } from "../../../../src/runtime/parser.ts";
 import { buildWordsTok } from "../../../../src/logic/words.ts";
 import type { AgiProfile } from "../../../../src/runtime/profile.ts";
@@ -8,11 +8,17 @@ import type { ProjectContent } from "../../../../src/authoring/projectContent.ts
 import type { PlayerSentence } from "../../project/playerSentences.ts";
 import { useWorkspaceEditor } from "../../shell/workspaceEditor.ts";
 import { useEngineApi } from "../../engine/engineContext.ts";
+import { useAiSettings } from "../../settings/useAiSettings.ts";
 import UiButton from "../../ui/UiButton.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import { wordGroups, nextWordGroup } from "./wordGroups.ts";
-import { meaningUses, sentenceOutcomes, type WordRows } from "./wordsAnalysis.ts";
-import { readWordSuggestions, wordsTaskRequest, type WordsTask } from "./wordsAgent.ts";
+import {
+  meaningUses,
+  formatMeaningUses,
+  sentenceOutcomes,
+  type WordRows,
+} from "./wordsAnalysis.ts";
+import { runWordsTask, type WordsTask } from "./wordsAgent.ts";
 const props = defineProps<{
   source: string;
   documents: Readonly<Record<string, ProjectContent>>;
@@ -27,10 +33,23 @@ const emit = defineEmits<{
   openLogic: [logic: number, line: number];
   response: [room: number, command: string];
   task: [task: WordsTask];
+  chat: [];
 }>();
 const engine = useEngineApi();
 void engine.loadPlayerSentences();
 const editor = useWorkspaceEditor();
+const ai = useAiSettings();
+const copy = WORDS_EDITOR_COPY;
+const adding = ref<number>();
+const more = ref(false);
+const taskProblems = ref<Record<string, string>>({});
+const taskRequests = ref<Record<string, WordsTask>>({});
+const toast = ref("");
+let retired = false;
+onBeforeUnmount(() => {
+  retired = true;
+});
+
 const roomName = computed(
   () =>
     engine.roomMap.graph.value.nodes.find((node) => node.room === props.room)?.title ||
@@ -51,6 +70,9 @@ const empty = ref<number[]>([]);
 const drafts = ref<Record<string, string>>({});
 const find = ref("");
 const sentence = ref("");
+watch(sentence, () => {
+  more.value = false;
+});
 const error = ref("");
 const ghosts = ref<Record<string, string[]>>({});
 const predictions = ref<string[]>([]);
@@ -80,7 +102,9 @@ const predictionRows = computed(() =>
     };
   }),
 );
-const pendingTask = ref<{ task: WordsTask; start: number; source: string; room: number }>();
+const pendingTask = ref<WordsTask>();
+const predictOpen = ref(false);
+const dismissedTask = ref(false);
 const groups = computed(() => {
   const rows = wordGroups(entries.value).map((group) => {
     const head =
@@ -89,11 +113,13 @@ const groups = computed(() => {
         .find((word) => group.words.includes(word)) ?? group.words[0];
     return {
       ...group,
+      usage: formatMeaningUses(uses.value[String(group.id)] ?? []),
       words: head ? [head, ...group.words.filter((word) => word !== head)] : group.words,
     };
   });
   for (const id of [0, ...empty.value])
-    if (!rows.some((row) => row.id === id)) rows.push({ id, words: [] });
+    if (!rows.some((row) => row.id === id))
+      rows.push({ id, words: [], usage: formatMeaningUses([]) });
   return rows.sort(
     (a, b) =>
       (uses.value[String(b.id)]?.length ?? 0) - (uses.value[String(a.id)]?.length ?? 0) ||
@@ -157,10 +183,23 @@ function wordKey(event: KeyboardEvent, id: number, words: readonly string[]): vo
 async function addMeaning(word?: string): Promise<void> {
   const id = nextWordGroup([...entries.value, ...empty.value.map((group) => ["", group] as const)]);
   empty.value.push(id);
+  adding.value = id;
   find.value = "";
   if (word) addWord(id, word);
   await nextTick();
   document.querySelector<HTMLInputElement>(`[data-word-group="${id}"] input`)?.focus();
+}
+async function openAdd(id: number): Promise<void> {
+  adding.value = id;
+  await nextTick();
+  document.querySelector<HTMLInputElement>(`[data-word-group="${id}"] .add-word`)?.focus();
+}
+function addAll(id: number): void {
+  const words = (ghosts.value[String(id)] ?? []).filter(
+    (word) => !entries.value.some(([existing]) => existing === word),
+  );
+  write([...entries.value, ...words.map((word) => [word, id] as const)]);
+  if (!error.value) ghosts.value[String(id)] = [];
 }
 function drop(event: DragEvent, to: number): void {
   const value = event.dataTransfer?.getData("application/x-agi-word");
@@ -208,51 +247,88 @@ function acceptSame(): void {
   if (!error.value && same.value.entry) engine.resolvePlayerSentence(same.value.entry);
   if (!error.value) same.value = undefined;
 }
-function task(value: WordsTask): void {
+async function task(value: WordsTask): Promise<void> {
   if (value.kind !== "suggest") value = { ...value, roomName: roomName.value };
-  pendingTask.value = {
-    task: value,
-    start: editor.agentMessages.value.length,
-    source: props.source,
-    room: props.room,
-  };
-  emit("task", value);
-}
-watch(
-  () => editor.agentMessages.value,
-  (messages) => {
-    const pending = pendingTask.value;
-    if (!pending || pending.source !== props.source || pending.room !== props.room) return;
-    const request = messages.findLastIndex(
-      (message) =>
-        message.role === "user" &&
-        message.text.startsWith(wordsTaskRequest(pending.task, props.documents).text),
-    );
-    if (request < 0) return;
-    const reply = messages.slice(request + 1).findLast((message) => message.role === "assistant");
-    if (!reply) return;
-    const values = readWordSuggestions(reply.context ?? reply.text, pending.task.kind);
-    if (!values.length) {
-      pendingTask.value = undefined;
+  if (value.kind === "review") {
+    emit("task", value);
+    return;
+  }
+  if (pendingTask.value) return;
+  if (!ai.aiConfigured.value) {
+    await ai.openAiSettings(null, "assistant");
+    return;
+  }
+  const key = value.kind === "suggest" ? String(value.group) : "predict";
+  const source = props.source;
+  const modelLabel = ai.aiModelLabel.value;
+  const room = props.room;
+  taskRequests.value[key] = value;
+  taskProblems.value[key] = "";
+  pendingTask.value = value;
+  dismissedTask.value = false;
+  if (value.kind === "suggest") ghosts.value[key] = [];
+  else {
+    predictions.value = [];
+    predictOpen.value = true;
+  }
+  try {
+    await editor.flush.value?.();
+    const result = await runWordsTask({
+      task:
+        value.kind === "predict"
+          ? {
+              ...value,
+              pictures: engine.roomMap.resources.value.scans.get(room)?.pictures ?? [],
+            }
+          : value,
+      documents: props.documents,
+      engine,
+      config: ai.llmConfig,
+    });
+    if (retired || dismissedTask.value) return;
+    if (source !== props.source || room !== props.room) {
+      taskProblems.value[key] = copy.changed;
       return;
     }
-    if (pending.task.kind === "suggest")
-      ghosts.value[String(pending.task.group)] = values.filter(
+    taskProblems.value[key] = result.problem;
+    if (value.kind === "suggest") {
+      ghosts.value[key] = result.values.filter(
         (word) => !entries.value.some(([existing]) => existing === word),
       );
-    else if (pending.task.kind === "predict") predictions.value = values;
+      if (result.values.length && !ghosts.value[key]!.length)
+        taskProblems.value[key] = copy.existing;
+    } else predictions.value = result.values;
+    if (result.values.length) toast.value = copy.suggestionsFrom.replace("{model}", modelLabel);
+  } catch (cause) {
+    if (!retired && !dismissedTask.value)
+      taskProblems.value[key] = cause instanceof Error ? cause.message : String(cause);
+  } finally {
     pendingTask.value = undefined;
-  },
-  { deep: true },
-);
+  }
+}
 function typeInGame(): void {
   engine.sendInput(sentence.value);
 }
 function dismissGhosts(event: KeyboardEvent): void {
-  if (!moving.value && !same.value && !Object.values(ghosts.value).some((words) => words.length))
+  if (
+    !moving.value &&
+    !same.value &&
+    adding.value === undefined &&
+    !more.value &&
+    !predictOpen.value &&
+    !pendingTask.value &&
+    !Object.values(ghosts.value).some((words) => words.length) &&
+    !Object.values(taskProblems.value).some(Boolean)
+  )
     return;
   event.stopPropagation();
+  dismissedTask.value = true;
   ghosts.value = {};
+  taskProblems.value = {};
+  predictions.value = [];
+  predictOpen.value = false;
+  adding.value = undefined;
+  more.value = false;
   moving.value = undefined;
   same.value = undefined;
 }
@@ -266,11 +342,19 @@ function dismissGhosts(event: KeyboardEvent): void {
         :placeholder="VOCABULARY.findWord.label"
         :title="VOCABULARY.findWord.help"
       />
-      <UiButton size="sm" @click="task({ kind: 'predict', room })">{{
-        VOCABULARY.predictCommands.label
-      }}</UiButton>
+      <UiButton
+        size="sm"
+        :disabled="!!pendingTask"
+        :title="pendingTask ? copy.suggesting : VOCABULARY.predictCommands.help"
+        @click="task({ kind: 'predict', room })"
+        >{{ VOCABULARY.predictCommands.label }}</UiButton
+      >
       <UiButton size="sm" @click="addMeaning()">{{ VOCABULARY.meaningButton.label }}</UiButton>
     </header>
+    <div v-if="toast" class="words-toast" role="status">
+      {{ toast }} · <button class="words-link" @click="emit('chat')">{{ copy.openChat }}</button>
+      <button class="chip-remove" :aria-label="copy.dismiss" @click="toast = ''">×</button>
+    </div>
     <p v-if="error" class="words-error" role="alert">{{ error }}</p>
     <form v-if="moving" class="words-choice" @submit.prevent="move" aria-label="Move to…">
       <strong>{{ VOCABULARY.moveWord.label }} {{ moving.word }}</strong>
@@ -353,14 +437,37 @@ function dismissGhosts(event: KeyboardEvent): void {
           >
             <template v-if="unknown">
               <p>
-                The game stops reading at <b>“{{ unknown }}”</b>, a new word.
+                {{ copy.unknown.replace("{word}", unknown) }}
               </p>
               <div class="words-actions">
-                <UiButton size="sm" @click="sameAs(unknown)"
-                  >Add “{{ unknown }}” to a meaning…</UiButton
-                ><UiButton size="sm" @click="addMeaning(unknown)"
-                  >New meaning “{{ unknown }}”</UiButton
-                ><UiButton size="sm" @click="addWord(0, unknown)">Skip it like “the”</UiButton>
+                <UiButton size="sm" variant="primary" @click="sameAs(unknown)">{{
+                  copy.teach.replace("{word}", unknown)
+                }}</UiButton>
+                <div class="tester-more">
+                  <UiButton size="sm" variant="ghost" :aria-expanded="more" @click="more = !more">{{
+                    copy.more
+                  }}</UiButton>
+                  <div v-if="more" class="tester-menu">
+                    <UiButton
+                      size="sm"
+                      variant="ghost"
+                      @click="
+                        addMeaning(unknown);
+                        more = false;
+                      "
+                      >{{ copy.newMeaning }}</UiButton
+                    >
+                    <UiButton
+                      size="sm"
+                      variant="ghost"
+                      @click="
+                        addWord(0, unknown);
+                        more = false;
+                      "
+                      >{{ copy.skip }}</UiButton
+                    >
+                  </div>
+                </div>
               </div>
             </template>
             <template v-if="outcomes.length">
@@ -383,13 +490,33 @@ function dismissGhosts(event: KeyboardEvent): void {
           </div>
         </div>
       </section>
-      <section v-if="predictions.length" class="words-predictions" aria-label="Predicted commands">
+      <section v-if="predictOpen" class="words-predictions" aria-label="Predicted commands">
         <div class="words-section">
           <h3>✦ Players will likely try in {{ roomName }}</h3>
-          <UiButton size="sm" @click="predictions = []">Hide</UiButton>
+          <UiButton
+            size="sm"
+            @click="
+              predictions = [];
+              predictOpen = false;
+              dismissedTask = true;
+            "
+            >{{ copy.dismiss }}</UiButton
+          >
+        </div>
+        <p v-if="pendingTask?.kind === 'predict'">{{ copy.suggesting }}</p>
+        <div v-if="taskProblems['predict']" class="words-error" role="alert">
+          {{ taskProblems["predict"] }}
+          <button
+            class="words-link"
+            :disabled="!!pendingTask"
+            :title="pendingTask ? copy.suggesting : copy.retry"
+            @click="task(taskRequests['predict']!)"
+          >
+            {{ copy.retry }}
+          </button>
         </div>
         <div v-for="prediction in predictionRows" :key="prediction.command" class="tried-row">
-          <code>{{ prediction.command }}</code
+          <code class="prediction-ghost">✦ {{ prediction.command }}</code
           ><small>{{ prediction.answered ? "✓ " : "○ " }}{{ prediction.description }}</small>
           <UiButton
             v-if="!prediction.answered"
@@ -399,6 +526,7 @@ function dismissGhosts(event: KeyboardEvent): void {
           >
         </div>
         <UiButton
+          v-if="predictions.length"
           size="sm"
           :disabled="predictionRows.every((row) => row.answered)"
           title="Choose commands with a response gap to review"
@@ -409,7 +537,7 @@ function dismissGhosts(event: KeyboardEvent): void {
               commands: predictionRows.filter((row) => !row.answered).map((row) => row.command),
             })
           "
-          >{{ VOCABULARY.reviewCommands.label }}</UiButton
+          >{{ copy.addAll }}</UiButton
         >
         <p class="words-note">{{ VOCABULARY.predictCommands.help }}</p>
       </section>
@@ -513,36 +641,68 @@ function dismissGhosts(event: KeyboardEvent): void {
               class="word-chip word-suggestion"
               @click="addWord(group.id, word)"
             >
-              {{ word }}
+              ✦ {{ word }}
+            </button>
+            <template v-if="ghosts[String(group.id)]?.length">
+              <button class="words-link" @click="addAll(group.id)">{{ copy.addAll }}</button>
+              <button class="words-link" @click="ghosts[String(group.id)] = []">
+                {{ copy.dismiss }}
+              </button>
+            </template>
+            <button
+              v-if="adding !== group.id"
+              class="word-chip row-action"
+              :aria-label="VOCABULARY.addWord.label"
+              @click="openAdd(group.id)"
+            >
+              +
             </button>
             <input
+              v-if="adding === group.id"
               v-model="drafts[String(group.id)]"
-              class="add-word"
+              class="add-word row-action"
               :aria-label="`${VOCABULARY.addWord.label}: ${group.words.join(', ') || VOCABULARY.wordGroup.label}`"
               :placeholder="VOCABULARY.addWord.label"
               @keydown="wordKey($event, group.id, group.words)"
             />
             <button
-              class="words-link suggest"
+              v-if="pendingTask?.kind !== 'suggest' || pendingTask.group !== group.id"
+              class="words-link suggest row-action"
+              :disabled="!!pendingTask"
+              :title="pendingTask ? copy.suggesting : VOCABULARY.suggestWords.help"
               @click="task({ kind: 'suggest', group: group.id, words: group.words })"
             >
               {{ VOCABULARY.suggestWords.label }}
             </button>
+            <span v-else class="words-note">{{ copy.suggesting }}</span>
+            <div v-if="taskProblems[String(group.id)]" class="words-error" role="alert">
+              {{ taskProblems[String(group.id)] }}
+              <button
+                class="words-link"
+                :disabled="!!pendingTask"
+                :title="pendingTask ? copy.suggesting : copy.retry"
+                @click="task(taskRequests[String(group.id)]!)"
+              >
+                {{ copy.retry }}
+              </button>
+            </div>
           </div>
           <div class="meaning-uses">
-            <template v-if="uses[String(group.id)]?.length"
-              ><small
-                >{{ uses[String(group.id)]!.length }}
-                {{ uses[String(group.id)]!.length === 1 ? "use" : "uses" }}</small
-              ><button
-                v-for="use in uses[String(group.id)]"
-                :key="`${use.logic}:${use.line}`"
-                class="words-link"
-                :title="`LOGIC ${use.logic} · line ${use.line}`"
-                @click="emit('openLogic', use.logic, use.line)"
-              >
-                LOGIC {{ use.logic }} · {{ use.line }}
-              </button></template
+            <template v-if="group.usage.locations.length">
+              <span>{{ group.usage.count }}</span>
+              <span v-for="location in group.usage.locations" :key="location.logic">
+                · {{ location.label }}
+                <template v-for="(line, index) in location.lines" :key="line"
+                  ><span v-if="index">, </span
+                  ><a
+                    class="words-link"
+                    :href="`#logic-${location.logic}-line-${line}`"
+                    :aria-label="`LOGIC ${location.logic} line ${line}`"
+                    @click.prevent="emit('openLogic', location.logic, line)"
+                    >{{ line }}</a
+                  ></template
+                >
+              </span> </template
             ><template v-else
               ><small>{{ VOCABULARY.readyResponse.label }}</small
               ><UiButton size="sm" @click="emit('response', room, group.words[0] ?? '')">{{
@@ -581,9 +741,17 @@ function dismissGhosts(event: KeyboardEvent): void {
             >
               ×
             </button></span
+          ><button
+            v-if="adding !== 0"
+            class="word-chip row-action"
+            :aria-label="VOCABULARY.addWord.label"
+            @click="openAdd(0)"
+          >
+            +</button
           ><input
+            v-if="adding === 0"
             v-model="drafts['0']"
-            class="add-word"
+            class="add-word row-action"
             :aria-label="`${VOCABULARY.addWord.label}: Skipped`"
             :placeholder="VOCABULARY.addWord.label"
             @keydown="wordKey($event, 0, skipped.words)"
@@ -657,7 +825,6 @@ p {
 .sentence-tester {
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg);
-  overflow: hidden;
   background: var(--surface-1);
 }
 .sentence-input {
@@ -711,8 +878,9 @@ p {
 }
 .meaning-row {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-3);
   margin-bottom: var(--space-2);
   border: 1px solid var(--hairline);
@@ -730,8 +898,14 @@ p {
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+.meaning-chips {
+  position: relative;
+  flex: 1;
+}
 .meaning-uses {
-  padding-left: var(--space-8);
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--ink-3);
 }
 .word-id {
   color: var(--ink-3);
@@ -740,13 +914,16 @@ p {
   min-width: var(--space-6);
 }
 .word-chip {
+  position: relative;
   font-family: var(--font-mono);
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  box-sizing: border-box;
+  height: var(--space-7);
+  padding: 0 var(--space-3);
   font-size: var(--text-sm);
   background: var(--surface-3);
   color: var(--ink-2);
@@ -758,7 +935,9 @@ p {
   font-weight: 600;
 }
 .word-suggestion {
+  border-color: var(--action-line);
   border-style: dashed;
+  background: transparent;
   color: var(--action);
   cursor: pointer;
 }
@@ -774,17 +953,42 @@ p {
 .word-chip .chip-remove,
 .word-chip .chip-move {
   opacity: 0;
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  height: 100%;
+  pointer-events: none;
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-1);
+  background: var(--surface-3);
+}
+.word-chip .chip-remove {
+  right: 0;
+}
+.word-chip .chip-move {
+  right: var(--space-5);
+}
+.word-chip:has(.chip-remove):hover,
+.word-chip:has(.chip-remove):focus-within {
+  padding-right: calc(var(--space-3) + var(--space-8));
 }
 .word-chip:hover .chip-remove,
 .word-chip:hover .chip-move,
 .word-chip:focus-within .chip-remove,
 .word-chip:focus-within .chip-move {
   opacity: 1;
+  pointer-events: auto;
+  padding: 0 var(--space-1);
 }
 @media (hover: none) {
   .word-chip .chip-remove,
   .word-chip .chip-move {
     opacity: 1;
+    pointer-events: auto;
+    padding: 0 var(--space-1);
+  }
+  .word-chip:has(.chip-remove) {
+    padding-right: calc(var(--space-3) + var(--space-8));
   }
 }
 .words-link {
@@ -812,14 +1016,58 @@ select {
   font-size: var(--text-sm);
 }
 input.add-word {
-  width: 110px;
+  width: auto;
+  min-width: 0;
+  height: var(--space-7);
   border-style: dashed;
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-xs);
 }
-.suggest {
+.row-action {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+}
+.meaning-row:hover .row-action,
+.meaning-row:focus-within .row-action,
+.skipped-words:hover .row-action,
+.skipped-words:focus-within .row-action {
+  opacity: 1;
+  pointer-events: auto;
+  position: static;
+}
+.words-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+.words-toast .chip-remove {
   margin-left: auto;
+}
+.tester-more {
+  position: relative;
+}
+.tester-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  display: grid;
+  padding: var(--space-1);
+  background: var(--surface-2);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+}
+.prediction-ghost {
+  border: 1px dashed var(--action-line);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+  color: var(--action);
 }
 .tried-list,
 .words-predictions {
