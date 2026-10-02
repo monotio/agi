@@ -1124,6 +1124,9 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
                 true,
               );
               postSessionSnapshot(completed);
+              // A parked entry window may not advance another cycle. Capture
+              // again after publication so its image names the saved revision.
+              if (getBootedGame() === owner) await flushAutosave();
             };
             return result;
           }

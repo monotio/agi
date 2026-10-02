@@ -712,8 +712,12 @@ function createSession(
       });
     },
     async flush() {
-      await tail;
-      await autosave.flush();
+      let scheduled: Promise<unknown>;
+      do {
+        scheduled = tail;
+        await scheduled;
+        await autosave.flush();
+      } while (scheduled !== tail);
     },
     retry: autosave.retry,
     capture() {

@@ -6,6 +6,8 @@ import {
   type PowerUpUiState,
 } from "../src/authoring/useAuthoringController.ts";
 import { ResourceCommitError } from "../src/project/projectTransaction.ts";
+import { openProjectSession } from "../src/project/projectSession.ts";
+import { computeResourceRevision } from "../../src/authoring/resourceRevision.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
 import * as authoringStack from "../src/agent/authoringStack.ts";
 import {
@@ -365,6 +367,104 @@ test("handleRoomAuthoring moves the booted game to the revision it saved once th
   assert.equal(bootedGame.revision, await gameRevision(stored!.files));
   assert.notEqual(bootedGame.revision, await gameRevision(files));
   assert.equal(bootedGame.behindStorage, undefined);
+
+  await clearCachedGame(projectId);
+});
+
+test("an answered room checkpoints after its owned project publishes the installed revision", async (t) => {
+  installLocalStorageMock(t);
+  const projectId = testProjectId("owned-room-checkpoint");
+  const files = createTestFiles();
+  await saveAuthoredGame(projectId, {
+    title: "JIT Room Game",
+    provider: "stub",
+    model: "offline-stub",
+    files,
+    words: [],
+    roomGeneration: true,
+  });
+  const bootedGame: BootedGame = {
+    installed: false,
+    projectId,
+    title: "JIT Room Game",
+    revision: await gameRevision(files),
+    files,
+    words: [],
+  };
+  const data = (await loadAuthoredGame(projectId))!;
+  const project = openProjectSession({
+    data,
+    lifetime: (await readHistoryLifetime(projectId))!,
+    admission: {
+      runToken: "room-run",
+      admit: async () => assert.fail("the worker already installed the room answer"),
+      admitPreparedRoom: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    publish(snapshot, saved) {
+      bootedGame.files = saved.files;
+      bootedGame.revision = snapshot.lastAdmissibleBuild!.identity.revision;
+    },
+  });
+  t.after(() => project.dispose());
+  let checkpoints = 0;
+  const room = assembleLogic("return;", { dictionary: new Map() }).payload;
+  // The running game answers with what it holds: the room once the answer landed.
+  let running = files;
+  const worker = { postMessage() {} } as unknown as Worker;
+  const controller = useAuthoringController({
+    state: {
+      phase: "running",
+      powerUp: createMockPowerUp(),
+      agentTask: null,
+      agentLog: [],
+      profile: "2.936",
+      worldTick: 0,
+      planDurableRev: "",
+    },
+    getWorker: () => worker,
+    query: async <T>(type: string) => (type === "exportFiles" ? (running as T) : (null as T)),
+    logAgent: () => {},
+    readFrames: async () => [],
+    pauseEngine: () => {},
+    resumeEngine: () => {},
+    getBootedGame: () => bootedGame,
+    setBootedGame: () => {},
+    flushAutosave: async () => {
+      assert.equal(bootedGame.revision, computeResourceRevision(running));
+      assert.equal(project.saveStatus().state, "saved");
+      checkpoints++;
+    },
+    getProjectSession: () => project,
+    getAutosaveWrite: async () => true,
+    clearAutosave: () => {},
+    awaitPatched: ackPatch,
+    configForGame: (_p, config) => config,
+    getLlmConfig: () => ({ provider: "stub", apiKey: "", model: "offline-stub" }),
+  });
+  await controller.handleRoomAuthoring(
+    { op: "room", context: { room: 2 } },
+    {
+      handle: async () => {
+        controller.getSession()!.state.container.putResource("logic", 2, room);
+        return "Room created";
+      },
+    },
+    () => {},
+  );
+
+  assert.equal(checkpoints, 0, "the host answer has not been delivered");
+  running = Object.fromEntries(controller.getSession()!.state.getFiles());
+  controller.roomAnswered();
+  // Drain the answer's publish and durable write, without advancing the engine.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await project.flush();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(checkpoints, 1, "a parked room gets a checkpoint at its installed revision");
 
   await clearCachedGame(projectId);
 });
