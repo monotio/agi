@@ -238,6 +238,45 @@ regression assertions belong in the test suite, gated by fixture availability.
 Keep captured saves, game resources, disassemblies, screenshots and transcripts
 with local fixtures.
 
+### CI browser checks
+
+Run `npm run check` and the affected specs locally, then push a branch covered by
+CI for the Linux verdict. CI prints `nproc` and memory and uses that core count
+for ordinary Playwright workers. Performance budgets always run alone on one
+worker; production tests also keep one worker. Retries stay at zero so every
+failure is visible.
+
+The Chromium suite is split into six spec groups using measured durations in
+`scripts/ci/durations.json`. Every run discovers the current specs through
+Playwright; new specs receive the median measured weight. The longest specs are
+assigned first to the lightest group. JSON report artifacts retain per-test
+durations for rebalancing. Each spec runs in exactly one group with every test
+selected by the ordinary suite configuration.
+
+CI installs the two package roots once and restores the resulting dependency
+cache in test and build jobs. The production build and chunk graph are shared
+with both production browser jobs. Playwright browser caches use the browser,
+version and runner OS; apt archives are cached too, while system dependencies
+are installed on each fresh runner.
+
+Pull requests repeat added or changed specs five times. Chromium covers their
+ordinary tests and, in an isolated run, their timing tests. WebKit covers their
+`@webkit-desktop` tests. Changed production specs run in both engines. Reproduce
+with `npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=5` or
+`npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts --repeat-each=5`.
+
+At 03:17 UTC each night, the full Chromium, WebKit phone, WebKit desktop,
+performance and production suites run with `--repeat-each=3`. The report job
+creates or updates the single **Nightly browser flakes** issue when a test has
+both passing and failing attempts, with counts and the run link. Consistent
+failures remain failures in the run. Only that report job has `issues: write`.
+
+Markdown and documentation asset changes skip browsers and builds while the
+standard gate runs and the required CI contexts complete. Documentation capture
+code runs the full browser checks. The required browser context also includes
+the PR burn-in when changed specs exist. See the
+[CI job coverage](../CONTRIBUTING.md#ci-verification) for the complete gate.
+
 ### Input and phone checks
 
 Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
