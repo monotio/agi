@@ -28,7 +28,14 @@ test("private archives preserve chats and notes while public games carry playabl
         provider: "stub",
         model: "offline-stub",
         transcript: [{ role: "user", text: "Private task" }],
-        messages: [{ id: "message", role: "assistant", text: "Done" }],
+        messages: [
+          {
+            id: "message",
+            role: "user",
+            text: "Predict in Meadow",
+            context: "LOGIC 1\nReturn JSON",
+          },
+        ],
       },
     ],
   });

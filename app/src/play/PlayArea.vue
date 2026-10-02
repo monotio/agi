@@ -53,6 +53,7 @@ const {
 const presentation = usePresentation();
 const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
 const bridge = useShellBridge();
+const agentBlocksGame = computed(() => state.powerUp.open && !props.inspectorDocked);
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
@@ -245,7 +246,7 @@ function sendScreenClick(ev: MouseEvent): void {
   if (
     state.walkthrough.active ||
     state.paused ||
-    state.powerUp.open ||
+    agentBlocksGame.value ||
     state.modal !== null ||
     state.waitingForKey
   ) {
@@ -436,7 +437,7 @@ function onTouchDirection(dir: number): void {
     if (wasWalking && state.phase === "running") sendDirection(0);
     return;
   }
-  if (state.phase !== "running" || state.powerUp.open || state.prompt) return;
+  if (state.phase !== "running" || agentBlocksGame.value || state.prompt) return;
   touchMovementActive = state.modal === null && !state.waitingForKey;
   if (state.waitingForKey || state.modal === "save" || state.modal === "restore")
     sendKey(DIRECTION_KEYS[dir]!);
@@ -445,7 +446,7 @@ function onTouchDirection(dir: number): void {
 
 function onVirtualKey(code: number): void {
   resumeAudio();
-  if (state.phase !== "running" || state.powerUp.open || composing.value) return;
+  if (state.phase !== "running" || agentBlocksGame.value || composing.value) return;
   if (state.prompt) {
     if (code === AGI_KEY.ENTER || code === AGI_KEY.ESCAPE) {
       submitPrompt(code === AGI_KEY.ESCAPE ? "" : promptLine.value, code === AGI_KEY.ESCAPE);
@@ -649,7 +650,7 @@ defineExpose({
           <input
             id="game-command"
             :disabled="
-              state.powerUp.open ||
+              agentBlocksGame ||
               state.historyView.active ||
               (!state.inputReady && !state.walkthrough.active)
             "
@@ -717,7 +718,7 @@ defineExpose({
 
     <TouchControls
       v-if="touchControls && state.phase === 'running'"
-      :disabled="state.powerUp.open || state.paused"
+      :disabled="agentBlocksGame || state.paused"
       :navigating="state.modal !== null"
       :hold="state.holdToMove"
       @direction="onTouchDirection"

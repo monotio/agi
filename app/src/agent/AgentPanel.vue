@@ -10,6 +10,7 @@ import {
   shallowRef,
   watch,
 } from "vue";
+import AgentReply from "./AgentReply.ts";
 import { borrowWorkspaceAgent } from "./workspaceAgent.ts";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
@@ -40,6 +41,7 @@ const agent = shallowRef<ReturnType<typeof borrowWorkspaceAgent>>();
 const tick = ref(0);
 const input = ref("");
 const readOnly = ref(false);
+const taskContext = ref("");
 const composer = useTemplateRef("composer");
 onMounted(() => composer.value?.focus());
 watch(
@@ -48,6 +50,7 @@ watch(
     if (!prefill) return;
     input.value = prefill.text;
     readOnly.value = prefill.readOnly;
+    taskContext.value = prefill.context ?? "";
     editor.agentPrefill.value = null;
     await nextTick();
     composer.value?.focus();
@@ -197,11 +200,14 @@ async function send() {
   if (!input.value.trim() || busy.value) return;
   const request = input.value;
   const inspect = readOnly.value;
+  const scoped = taskContext.value;
+  taskContext.value = "";
   readOnly.value = false;
   input.value = "";
   await action(async () => {
     await editor.flush.value?.();
     const context = [
+      scoped,
       `Current room ${engine.roomMap.currentRoom.value ?? 0}`,
       ...contexts.value,
       ...(editor.agentContext.value
@@ -229,6 +235,12 @@ function newChat() {
   chatList.value = false;
 }
 function keys(event: KeyboardEvent) {
+  if (event.key === "Escape" && event.target === composer.value && !input.value.trim()) {
+    event.preventDefault();
+    event.stopPropagation();
+    editor.returnFromAgent.value?.();
+    return;
+  }
   if (!(event.metaKey || event.ctrlKey)) return;
   if (event.key === "Enter") {
     event.preventDefault();
@@ -332,7 +344,12 @@ onBeforeUnmount(() => {
         :class="{ 'agent-panel__message--user': message.role === 'user' }"
       >
         <strong>{{ message.role === "user" ? "You" : "Agent" }}</strong>
-        <p>{{ message.text }}</p>
+        <p v-if="message.role === 'user'">{{ message.text }}</p>
+        <AgentReply v-else :text="message.text" />
+        <details v-if="message.context" class="agent-panel__task-context">
+          <summary>Context</summary>
+          <pre>{{ message.context }}</pre>
+        </details>
         <div v-if="message.commit" class="agent-panel__checkpoints">
           <UiButton
             size="sm"

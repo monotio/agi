@@ -84,7 +84,23 @@ async function play(): Promise<void> {
   if (!(await workspace.confirmStudioLeave())) return;
   shell.setMode("play");
 }
+let agentOrigin: HTMLElement | null = null;
+function returnFromAgent(): void {
+  if (agentOrigin?.isConnected && agentOrigin.getClientRects().length) agentOrigin.focus();
+  else if (!zones.focus("editor")) focusGame();
+}
+editor.returnFromAgent.value = returnFromAgent;
 function agent(): void {
+  if (engine.state.powerUp.open) {
+    engine.closePowerUp();
+    void nextTick().then(returnFromAgent);
+    return;
+  }
+  if (
+    document.activeElement instanceof HTMLElement &&
+    zones.zoneFor(document.activeElement) !== "agent"
+  )
+    agentOrigin = document.activeElement;
   workspace.showPanel("assistant");
   shell.openRemix();
   void nextTick().then(() => {
@@ -167,8 +183,11 @@ const provideParts = () => [
   },
 ];
 let offDispatcher: (() => void) | undefined;
-const onFocus = (event: FocusEvent): void =>
-  zones.track(event.target instanceof Node ? event.target : null);
+const onFocus = (event: FocusEvent): void => {
+  const target = event.target instanceof Node ? event.target : null;
+  if (target instanceof HTMLElement && zones.zoneFor(target) === "editor") agentOrigin = target;
+  zones.track(target);
+};
 onMounted(() => {
   offDispatcher = props.registry.mount(window);
   document.addEventListener("focusin", onFocus);
@@ -184,6 +203,7 @@ onScopeDispose(() => {
   offClose();
   offEscape();
   zones.dispose();
+  if (editor.returnFromAgent.value === returnFromAgent) editor.returnFromAgent.value = undefined;
 });
 defineExpose({ context, blocksGame });
 </script>

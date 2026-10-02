@@ -91,8 +91,10 @@ test("WORDS Suggest and Predict prefill the Create agent composer", async ({ pag
   await page.goto("/");
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   let requests = 0;
+  const prompts: string[] = [];
   await page.route("**/api/openai/v1/responses", async (route) => {
     requests++;
+    prompts.push(route.request().postData() ?? "");
     await route.fulfill(
       providerReply("openai", {
         id: `words-${requests}`,
@@ -123,16 +125,24 @@ test("WORDS Suggest and Predict prefill the Create agent composer", async ({ pag
     .click();
   const panel = page.getByTestId("workspace-agent-panel");
   await expect(panel).toBeVisible();
-  await expect(panel.getByTestId("agent-message")).toHaveValue(
-    /^Suggest synonyms for WORDS.TOK meaning 100:/,
-  );
+  await expect(panel.getByTestId("agent-message")).toHaveValue("Suggest words for look");
   await expect(panel.getByTestId("agent-message")).toBeFocused();
   await panel.getByRole("button", { name: "Send", exact: true }).click();
   await expect(words.locator('[data-word-group="100"] .word-suggestion')).toHaveText("inspect");
   expect(requests).toBe(1);
+  const firstMessage = panel.locator(".agent-panel__message--user").first();
+  await expect(firstMessage.locator("p").first()).toHaveText("Suggest words for look");
+  const folded = firstMessage.locator("details");
+  await expect(folded).not.toHaveAttribute("open", "");
+  await expect(folded.locator("summary")).toHaveText("Context");
+  await folded.locator("summary").click();
+  await expect(folded).toContainText("Return a JSON object");
+  expect(prompts[0]).toContain("meaning 100");
+  await folded.locator("summary").click();
+
   await words.getByRole("button", { name: "✦ Predict commands", exact: true }).click();
   await expect(panel.getByTestId("agent-message")).toHaveValue(
-    /^Predict commands players will likely try in ROOM 1/,
+    "Predict what players will try in Meadow",
   );
   await expect(panel.getByTestId("agent-message")).toBeFocused();
   await panel.getByRole("button", { name: "Send", exact: true }).click();
@@ -140,6 +150,12 @@ test("WORDS Suggest and Predict prefill the Create agent composer", async ({ pag
     "look tree",
   );
   expect(requests).toBe(2);
+  await expect(
+    words.getByRole("heading", { name: "✦ Players will likely try in Meadow" }),
+  ).toBeVisible();
+  expect(prompts[1]).toContain("draw.pic(v50)");
+  expect(prompts[1]).toContain("commands");
+  await page.screenshot({ path: test.info().outputPath("words-context-1440.png") });
 });
 
 test("Create keeps a missed sentence across reload before WORDS first opens", async ({ page }) => {

@@ -1,10 +1,14 @@
+import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
 import { isolateStorage, textHook, configureAi } from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
-async function start(page: Page) {
+async function start(page: Page, provider: "stub" | "openai" = "stub") {
   await isolateStorage(page);
   await page.goto("/");
-  await configureAi(page, { provider: "stub" });
+  await configureAi(page, {
+    provider,
+    ...(provider === "openai" ? { key: "test-placeholder" } : {}),
+  });
   await page.goto("/#create-adventure");
   await page
     .getByTestId("create-adventure-disclosure")
@@ -133,3 +137,100 @@ for (const size of [
     await expect.poll(async () => (await documents(page))["picture:1"]).toBe(before["picture:1"]);
   });
 }
+
+test("Agent toggles from composer, editor and game and Escape returns to the originating editor", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const panel = page.getByTestId("workspace-agent-panel");
+  const composer = panel.getByTestId("agent-message");
+  await composer.focus();
+  await page.keyboard.press("ControlOrMeta+i");
+  await expect(panel).toBeHidden();
+  const logic = page.getByTestId("workspace-logic-editor").locator(".inputarea");
+  await logic.focus();
+  await page.keyboard.press("ControlOrMeta+i");
+  await expect(composer).toBeFocused();
+  await composer.fill("Keep this draft");
+  await composer.press("Escape");
+  await expect(composer).toBeFocused();
+  await composer.fill("");
+  await composer.press("Escape");
+  await expect(logic).toBeFocused();
+  await expect(panel).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("keyboard-1440.png") });
+  await page.keyboard.press("ControlOrMeta+i");
+  await expect(panel).toBeHidden();
+  await page.getByTestId("input-line").focus();
+  await page.keyboard.press("ControlOrMeta+i");
+  await expect(composer).toBeFocused();
+});
+
+test("Approve admits a said response before Create game input", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await start(page);
+  const input = page.getByTestId("input-line");
+  if ((await textHook(page)).modal) {
+    await input.focus();
+    await input.press("Enter");
+    await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  }
+  await page.getByTestId("agent-message").fill("Add a welcome sign that answers look at sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect
+    .poll(() => page.getByTestId("agent-code-diff").locator(".line-insert").count())
+    .toBeGreaterThan(0);
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await expect
+    .poll(async () => (await documents(page))["logic:1"])
+    .toContain('said("look", "sign")');
+  const composer = page.getByTestId("agent-message");
+  await composer.pressSequentially("look at sign");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
+  await composer.fill("");
+  await expect(input).toBeEnabled();
+  await input.focus();
+  await input.fill("look at sign");
+  await input.press("Enter");
+  await expect.poll(async () => (await textHook(page)).rows.join("\n")).toContain("Welcome sign");
+  await page.screenshot({ path: test.info().outputPath("approved-sign-1440.png") });
+});
+
+test("Agent replies render safe Markdown", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.route("**/api/openai/v1/responses", async (route) => {
+    await route.fulfill(
+      providerReply("openai", {
+        id: "markdown",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "output_text",
+                text: 'Hello **builder** and *player*.\n\n- Use `said()`.\n- Read words.\n\n1. Look\n2. Open\n\n```agi\nprint("Welcome");\n```\n\n<img src=x onerror="window.injected=true">',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+  await start(page, "openai");
+  await page.getByTestId("agent-message").fill("Explain commands");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const reply = page.locator(".agent-panel__markdown").last();
+  await expect(reply.locator("strong")).toHaveText("builder");
+  await expect(reply.locator("em")).toHaveText("player");
+  await expect(reply.locator("ul li")).toHaveCount(2);
+  await expect(reply.locator("ol li")).toHaveCount(2);
+  await expect(reply.locator("li code")).toHaveText("said()");
+  await expect(reply.locator("pre code")).toHaveText('print("Welcome");');
+  await expect(reply.locator("img")).toHaveCount(0);
+  await expect(reply).toContainText('<img src=x onerror="window.injected=true">');
+  await page.screenshot({ path: test.info().outputPath("markdown-1440.png") });
+});

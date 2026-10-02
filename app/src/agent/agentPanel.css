@@ -74,7 +74,7 @@
   background: var(--surface-3);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
 }
-.agent-panel__message strong {
+.agent-panel__message > strong {
   font-size: var(--text-xs);
   color: var(--muted);
 }
@@ -195,4 +195,28 @@
 }
 .shell-body--workspace.shell-body--picture.shell-body--agent > .shell-side {
   grid-column: 3;
+}
+
+.agent-panel__markdown strong {
+  color: inherit;
+}
+.agent-panel__markdown ul,
+.agent-panel__markdown ol {
+  padding-left: var(--space-6);
+}
+.agent-panel__markdown pre,
+.agent-panel__task-context pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: var(--space-3);
+  background: var(--surface-0);
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+}
+.agent-panel__task-context {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.agent-panel__task-context summary {
+  cursor: pointer;
 }
