@@ -122,6 +122,16 @@ const stageStyle = computed(() => {
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
+// v-model preserves the native IME draft across renders. Keep its buffer
+// separate from the engine line so onInputEdit can compare the previous text.
+const nativeInput = ref("");
+watch(
+  [inputLine, promptLine, () => state.prompt],
+  () => {
+    nativeInput.value = state.prompt ? promptLine.value : inputLine.value;
+  },
+  { flush: "sync" },
+);
 
 function bindCanvas(el: unknown): void {
   presentation.canvasEl.value = el instanceof HTMLCanvasElement ? el : undefined;
@@ -410,6 +420,7 @@ function onInputEdit(event: Event): void {
           : next.slice(start, newEnd);
       for (const char of entered) sendKey(char.charCodeAt(0));
       // Raw-key answers do not edit the parser command that preceded them.
+      nativeInput.value = previous;
       input.value = previous;
       return;
     }
@@ -420,6 +431,7 @@ function onInputEdit(event: Event): void {
       else inserted += char;
     }
     inputLine.value = next.slice(0, start) + inserted + next.slice(newEnd);
+    nativeInput.value = inputLine.value;
     if (input.value !== inputLine.value) input.value = inputLine.value;
     sendEdit(inputLine.value);
   }
@@ -662,7 +674,7 @@ defineExpose({
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
-            :value="state.prompt ? promptLine : inputLine"
+            v-model="nativeInput"
             :inputmode="state.prompt?.kind === 'getnum' ? 'numeric' : 'text'"
             data-testid="input-line"
             autocomplete="off"
