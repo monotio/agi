@@ -1,9 +1,16 @@
-/** Synchronous write-ahead copies survive teardown while IndexedDB commits settle. */
+/** Edited document journals survive teardown while IndexedDB commits settle. */
 import type { ProjectId } from "../../../src/gameIdentity.ts";
 import type { ProjectCommitRequest, ProjectCommitReceipt } from "./gameStorage.ts";
+import {
+  encodeJournalValue,
+  decodeJournalValue,
+  type ProjectJournalCapture,
+} from "./projectJournalCapture.ts";
+import { sha256Hex } from "../../../src/crypto.ts";
 
 interface JournalEntry {
-  request: ProjectCommitRequest;
+  request?: ProjectCommitRequest;
+  capture?: ProjectJournalCapture;
   attempted: boolean;
 }
 const PREFIX = "monotio_agi.project-writes.";
@@ -17,36 +24,6 @@ export function claimProjectSaveJournal(key: string): () => void {
   };
 }
 
-function encode(value: unknown): unknown {
-  if (value === undefined) return ["undefined"];
-  if (Object.is(value, -0)) return ["negative-zero"];
-  if (value instanceof Uint8Array) return ["bytes", Array.from(value)];
-  if (Array.isArray(value)) return ["array", Array.from(value, encode)];
-  if (value !== null && typeof value === "object") {
-    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)
-      throw new Error("A pending project write contains an unsupported value.");
-    return ["record", Object.entries(value).map(([key, item]) => [key, encode(item)])];
-  }
-  if (typeof value === "number" && !Number.isFinite(value))
-    throw new Error("A pending project write contains a non-finite number.");
-  if (value !== null && !["string", "number", "boolean"].includes(typeof value))
-    throw new Error("A pending project write contains an unsupported value.");
-  return value;
-}
-function decode(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  const [tag, items] = value;
-  if (tag === "undefined") return undefined;
-  if (tag === "negative-zero") return -0;
-  if (!Array.isArray(items)) throw new Error("Invalid pending project write.");
-  if (tag === "bytes") return Uint8Array.from(items as number[]);
-  if (tag === "array") return items.map(decode);
-  if (tag === "record")
-    return Object.fromEntries(
-      (items as [string, unknown][]).map(([key, item]) => [key, decode(item)]),
-    );
-  throw new Error("Invalid pending project write.");
-}
 export function projectSaveJournalKey(project: ProjectId, owner: string): string {
   return `${PREFIX}${project}.${owner}`;
 }
@@ -56,7 +33,22 @@ export function writeProjectSaveJournal(
   entries: readonly JournalEntry[],
 ): void {
   if (entries.length === 0) storage.removeItem(key);
-  else storage.setItem(key, JSON.stringify({ version: 1, entries: encode(entries) }));
+  else {
+    const raw = JSON.stringify({
+      version: entries[0]?.capture === undefined ? 1 : 2,
+      entries: encodeJournalValue(entries),
+    });
+    try {
+      storage.setItem(key, raw);
+    } catch (error) {
+      try {
+        storage.removeItem(key);
+      } catch {
+        /* Storage may be unavailable. */
+      }
+      throw error;
+    }
+  }
 }
 
 /** Replay exact attempted requests; only an unattempted successor takes its predecessor's receipt. */
@@ -64,6 +56,7 @@ export function resumeProjectSaveJournals(
   storage: Storage,
   project: ProjectId,
   write: (request: ProjectCommitRequest) => Promise<{ receipt: ProjectCommitReceipt }>,
+  rebuild?: (capture: ProjectJournalCapture) => Promise<{ receipt: ProjectCommitReceipt }>,
 ): Promise<void> | undefined {
   const active = recovering.get(project);
   if (active) return active;
@@ -78,33 +71,57 @@ export function resumeProjectSaveJournals(
       const raw = storage.getItem(key);
       if (raw === null) continue;
       const journal = JSON.parse(raw) as { version: number; entries: unknown };
-      if (journal.version !== 1)
+      if (journal.version !== 1 && journal.version !== 2)
         throw new Error("This pending project write version is not supported.");
-      const entries = decode(journal.entries) as JournalEntry[];
+      const entries = decodeJournalValue(journal.entries) as JournalEntry[];
       if (!Array.isArray(entries)) throw new Error("Invalid pending project writes.");
       let previous: ProjectCommitReceipt | undefined;
       while (entries.length > 0) {
         const entry = entries[0]!;
-        if (!entry.attempted && previous !== undefined)
+        const beforeAttempt = storage.getItem(key)!;
+        if (!entry.attempted && previous !== undefined && entry.request !== undefined)
           entry.request = { ...entry.request, expected: previous.saved };
         entry.attempted = true;
         writeProjectSaveJournal(storage, key, entries);
         try {
-          previous = (await write(entry.request)).receipt;
+          if (entry.capture !== undefined) {
+            if (rebuild === undefined) throw new Error("Project journal recovery is unavailable.");
+            previous = (await rebuild(entry.capture)).receipt;
+          } else previous = (await write(entry.request!)).receipt;
         } catch (error) {
           if (
             error instanceof Error &&
             ["ConcurrencyConflictError", "ProjectDeletedError", "ProjectExistsError"].includes(
               error.name,
             )
-          )
+          ) {
+            storage.setItem(key, beforeAttempt);
             break;
+          }
           throw error;
         }
         entries.shift();
         // Keep the successor's resolved base durable before dropping its predecessor.
-        if (entries[0] && !entries[0].attempted)
-          entries[0].request = { ...entries[0].request, expected: previous.saved };
+        const successor = entries[0];
+        if (successor && !successor.attempted) {
+          if (successor.capture !== undefined && entry.capture !== undefined) {
+            const { hash: _hash, ...capture } = successor.capture;
+            const next = {
+              ...capture,
+              base: previous.saved,
+              identity: { ...capture.identity, expected: previous.saved },
+              operations:
+                capture.base.generation === entry.capture.base.generation &&
+                capture.base.lifetime === entry.capture.base.lifetime
+                  ? capture.operations.slice(entry.capture.operations.length)
+                  : capture.operations,
+            };
+            successor.capture = {
+              ...next,
+              hash: sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(next)))),
+            };
+          } else successor.request = { ...successor.request!, expected: previous.saved };
+        }
         writeProjectSaveJournal(storage, key, entries);
       }
     }

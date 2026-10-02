@@ -25,8 +25,9 @@ export async function prepareAndAdmitProjectEdit(input: {
   });
   input.preflight();
   const before = input.model.capture();
+  const changes = input.proposal.changes();
   const documentVersions = [
-    ...new Set([...before.keys, ...input.proposal.changes().map((change) => change.key)]),
+    ...new Set([...before.keys, ...changes.map((change) => change.key)]),
   ].map((key) => ({ key, version: before.version(key) }));
   function valid() {
     const current = input.model.capture();
@@ -43,5 +44,5 @@ export async function prepareAndAdmitProjectEdit(input: {
     outcome = await input.admit(prepared.compiled, documentVersions);
   }
   if (!valid()) throw new Error("Project edit was superseded.");
-  return { prepared, outcome };
+  return { prepared, outcome, changes };
 }

@@ -238,3 +238,23 @@ export async function updateBootedResources(
   }
   booted.revision = revision;
 }
+
+/** Derived commit metadata follows the native revision and retires an older preview. */
+export function projectCommitLibrary(
+  previous: LibraryMetadata | undefined,
+  defaults: Pick<LibraryMetadata, "revision" | "source">,
+): LibraryMetadata {
+  const next = normalizeLibraryMetadata(previous, defaults);
+  next.revision = defaults.revision;
+  const changed = previous === undefined || previous.revision !== defaults.revision;
+  if (changed)
+    next.validation = previous
+      ? {
+          status: "unverified",
+          message: "Resources changed. Check the opening again to refresh its preview.",
+        }
+      : { status: "unverified", message: "Ready to check." };
+  const merged = { ...previous, ...next };
+  if (changed) delete merged.preview;
+  return merged;
+}
