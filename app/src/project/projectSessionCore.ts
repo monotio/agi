@@ -189,6 +189,7 @@ function createSession(
   let serial = 0;
   let forkId: CachedGameData["projectId"] | undefined;
   let tail = Promise.resolve();
+  let documentTail = tail;
   let queued = 0;
   let diagnostics: PreparedProjectEdit["diagnostics"] = prepareProjectEdit({
     model,
@@ -508,17 +509,18 @@ function createSession(
       diagnostics: prepared.diagnostics,
     };
   }
-  function schedule<T>(operation: () => Promise<T>): Promise<T> {
-    queued++;
+  function schedule<T>(operation: () => Promise<T>, savesDocuments = true): Promise<T> {
+    if (savesDocuments) queued++;
     notify();
     const result = tail.then(operation).finally(() => {
-      queued--;
+      if (savesDocuments) queued--;
       notify();
     });
     tail = result.then(
       () => {},
       () => {},
     );
+    if (savesDocuments) documentTail = tail;
     return result;
   }
   async function retryAdmission(): Promise<void> {
@@ -545,7 +547,7 @@ function createSession(
           if (outcome.status === "committed" || outcome.status === "unchanged")
             captureSave(before, outcome);
           notify();
-        });
+        }, false);
       }
     } catch (cause) {
       if (current()) {
@@ -714,10 +716,10 @@ function createSession(
     async flush() {
       let scheduled: Promise<unknown>;
       do {
-        scheduled = tail;
+        scheduled = documentTail;
         await scheduled;
         await autosave.flush();
-      } while (scheduled !== tail);
+      } while (scheduled !== documentTail);
     },
     retry: autosave.retry,
     capture() {

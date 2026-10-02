@@ -782,3 +782,76 @@ test("flush follows an edit queued while its storage write is in flight", async 
   assert.equal(session.saveStatus().state, "saved");
   session.dispose();
 });
+
+test("saved source stays saved while a deferred preview admission awaits the worker", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let releaseBoundary!: () => void;
+  let releaseAdmission!: () => void;
+  let entered!: () => void;
+  const admissionEntered = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let admissions = 0;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("saved-preview"),
+      title: "Saved preview",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace({ "logic:0": "return;" }),
+    },
+    lifetime: "saved-preview",
+    admission: {
+      runToken: "preview-run",
+      admit: async () => {
+        if (++admissions === 1)
+          return { status: "deferred", expected: null, current: null, patchGeneration: 0 };
+        entered();
+        await new Promise<void>((resolve) => {
+          releaseAdmission = resolve;
+        });
+        return { status: "committed", expected: null, current: null, patchGeneration: 1 };
+      },
+    },
+    boundary: () =>
+      new Promise<void>((resolve) => {
+        releaseBoundary = resolve;
+      }),
+    write: async (request) => ({
+      commitId: request.commitId,
+      workspaceId: request.workspaceId,
+      candidateHash: "a",
+      documents: request.documents,
+      saved: {
+        ...request.expected!,
+        generation: request.expected!.generation + 1,
+        buildId: request.buildId,
+      },
+    }),
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Edit", [
+        { key: "logic:0", content: 'print("Saved"); return;' },
+      ]),
+      label: "Edit",
+      origin: "logic",
+      author: "creator",
+    });
+    await session.flush();
+    releaseBoundary();
+    await admissionEntered;
+    assert.equal(session.capture().pendingAdmission, true);
+    assert.equal(session.saveStatus().state, "saved");
+    // Saving documents does not wait for a player to close the parked window.
+    await session.flush();
+  } finally {
+    session.dispose();
+    releaseAdmission();
+  }
+});
