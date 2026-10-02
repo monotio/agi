@@ -6,6 +6,8 @@ import { parseWordsTok } from "../../../src/logic/words.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
 import type { ProjectCommitMetadata } from "../../../src/authoring/projectHistoryData.ts";
 import type { ProjectSession, PendingProjectRestart } from "../project/projectSession.ts";
+import type { HistoryBoot } from "../../../src/agent/history.ts";
+import { base64ToBytes } from "../project/bytes.ts";
 import type { ProfileId } from "../../../src/runtime/profile.ts";
 import type { AgentHandler, LlmRequest } from "../agent/hostRequests.ts";
 import {
@@ -393,9 +395,9 @@ export function useEngine(
     pendingProjectRestart.value = null;
   };
   let projectSessionOpening: string | undefined;
-  function openSession(
+  async function openSession(
     grant: Extract<WorkerControl, { type: "booted" }>["projectAdmission"],
-  ): void {
+  ): Promise<void> {
     const openedGame = lifecycle.getBootedGame();
     const worker = link.getWorker();
     if (
@@ -420,7 +422,7 @@ export function useEngine(
       !game.removed &&
       !game.behindStorage;
     projectSessionOpening = grant.runToken;
-    void Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
+    await Promise.all([import("../project/projectSession.ts"), import("./mainProjectAdmission.ts")])
       .then(([{ openProjectSession }, { createMainProjectAdmission }]) => {
         if (!current()) return;
         const admission = createMainProjectAdmission({
@@ -502,6 +504,69 @@ export function useEngine(
       .finally(() => {
         if (projectSessionOpening === grant.runToken) projectSessionOpening = undefined;
       });
+  }
+  async function adoptHistorySession(game: BootedGame, boot: HistoryBoot, snapshot: unknown) {
+    const worker = link.getWorker();
+    const editable = projectSession !== null || projectMode === "create";
+    const { loadAuthoredGame } = await import("../project/gameStorage.ts");
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
+    if (!editable || game.installed || !game.projectId) {
+      const controller = await loadAuthoringController();
+      await controller.adoptSessionState(game, boot, snapshot);
+      // The legacy adoption writes the body; a later Create must open that generation.
+      if (game.projectId && !game.installed && lifecycle.getBootedGame() === game)
+        game.authoredGame = (await loadAuthoredGame(game.projectId)) ?? game.authoredGame;
+      return;
+    }
+    projectOpenEpoch++;
+    projectSession?.dispose();
+    projectSession = null;
+    pendingProjectRestart.value = null;
+    const data = await loadAuthoredGame(game.projectId);
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
+    if (data === null) throw new Error("The saved project is missing. Reopen the game.");
+    const [
+      { readProjectWorkspace },
+      { readProjectDocuments },
+      { diffProjectDocuments },
+      { detectProfile },
+    ] = await Promise.all([
+      import("../../../src/authoring/projectWorkspace.ts"),
+      import("../../../src/authoring/projectDocuments.ts"),
+      import("../../../src/authoring/projectContent.ts"),
+      import("../../../src/runtime/profile.ts"),
+    ]);
+    const files = Object.fromEntries(
+      Object.entries(boot.files).map(([name, bytes]) => [name, base64ToBytes(bytes)]),
+    );
+    const documents = boot.project
+      ? readProjectWorkspace(boot.project.documents)
+      : readProjectDocuments({
+          files,
+          profileId: detectProfile(new Map(Object.entries(files)), boot.profile).id,
+        }).documents;
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
+    const reply = await link.query("projectCreate");
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
+    if (!reply.grant) throw new Error(reply.reason ?? "Open this game in Create to edit it.");
+    game.authoredGame = data;
+    await openSession(reply.grant);
+    if (lifecycle.getBootedGame() !== game || link.getWorker() !== worker) return;
+    const session = projectSession as ProjectSession | null;
+    if (session === null)
+      throw new Error("The adopted project could not be opened. Reopen the game.");
+    const changes = diffProjectDocuments(session.model.capture().documents(), documents);
+    if (changes.length > 0) {
+      const result = await session.submit({
+        proposal: session.model.propose(session.model.capture(), "Resume from here", changes),
+        label: "Resume from here",
+        origin: "history",
+        author: "creator",
+      });
+      if (result.status !== "committed")
+        throw new Error("The adopted project could not be saved. Reopen the game.");
+      await session.flush();
+    }
   }
   const playerSentences = shallowRef<readonly PlayerSentence[]>([]);
   let sentenceTools: typeof PlayerSentenceTools | undefined;
@@ -880,14 +945,12 @@ export function useEngine(
         pauseEngine,
         resumeEngine,
         drainHistoryCommits: async () => {
+          await projectSession?.flush();
           await historyController?.drainHistoryCommits();
         },
         highlightRoom: (room) => roomMap.value?.select(room),
         getSession: () => authoringController?.getSession() ?? null,
-        adoptSession: (game, boot, snapshot) =>
-          loadAuthoringController().then((controller) =>
-            controller.adoptSessionState(game, boot, snapshot),
-          ),
+        adoptSession: adoptHistorySession,
         logAgent,
       });
       link.deps.handleHistoryView = historyView.applyReport;
@@ -933,7 +996,6 @@ export function useEngine(
       const worker = link.getWorker();
       if (
         mode !== "create" ||
-        projectSession ||
         projectSessionOpening ||
         !game?.authoredGame ||
         game.installed ||
@@ -946,16 +1008,31 @@ export function useEngine(
           ...(data.workspace ? { documents: data.workspace } : {}),
           ...(data.projectHistory ? { history: data.projectHistory } : {}),
         })
-        .then((reply) => {
+        .then(async (reply) => {
           if (
             projectMode !== "create" ||
             lifecycle.getBootedGame() !== game ||
-            link.getWorker() !== worker ||
-            projectSession
+            link.getWorker() !== worker
           )
             return;
-          if (reply.grant) openSession(reply.grant);
-          else state.status = reply.reason ?? "Open this game in Create to edit it.";
+          if (!reply.grant) {
+            state.status = reply.reason ?? "Open this game in Create to edit it.";
+            return;
+          }
+          if (projectSession && projectSession.runToken !== reply.grant.runToken) {
+            await projectSession.flush();
+            const { loadAuthoredGame } = await import("../project/gameStorage.ts");
+            const saved = await loadAuthoredGame(data.projectId);
+            if (
+              projectMode !== "create" ||
+              lifecycle.getBootedGame() !== game ||
+              link.getWorker() !== worker
+            )
+              return;
+            if (saved === null) throw new Error("The saved project is missing. Reopen the game.");
+            game.authoredGame = saved;
+          }
+          await openSession(reply.grant);
         })
         .catch((cause) => {
           if (lifecycle.getBootedGame() === game) state.status = String(cause);

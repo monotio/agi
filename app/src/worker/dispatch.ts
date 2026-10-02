@@ -219,6 +219,7 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
             initializeProjectAdmission,
             projectAdmissionIdentity,
             enterProjectCreate,
+            prepareProjectAdmissionReplacement,
           }) => {
             Object.assign(
               ctx.fns,
@@ -234,6 +235,8 @@ export function onWorkerMessage(ctx: WorkerContext, msg: WorkerInbound): void {
                 );
             };
             loader.identity = () => projectAdmissionIdentity(ctx, ctx.projectAdmission);
+            loader.prepareReplacement = (engine, project) =>
+              prepareProjectAdmissionReplacement(ctx, engine, project);
             loader.enterCreate = (request) => enterProjectCreate(ctx, request);
             loader.installed = true;
           },

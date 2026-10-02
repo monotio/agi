@@ -331,6 +331,7 @@ export function createHistoryView(
     if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
     if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
       throw new Error("the adopted state is not the recorded state");
+    const admission = ctx.projectLoader.prepareReplacement?.(candidate, boot.project) ?? null;
     ctx.fns.abandonHostRequest();
     endView(false);
     ctx.fns.historyEnd("resume");
@@ -350,6 +351,8 @@ export function createHistoryView(
     ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
     ctx.input.clickQueue = (boot.clickQueue ?? []).map(([x, y]): [number, number] => [x, y]);
     ctx.engine = candidate;
+    ctx.projectAdmission = admission?.lane ?? null;
+    if (admission !== null) ctx.boot.project = admission.project;
     ctx.fns.armJournal();
     ctx.fns.setKeyWaiting(ctx.engine.awaitingKey);
     ctx.engine.vars[22] = ctx.boot.selectedSoundDevice === 0 ? 1 : 3;

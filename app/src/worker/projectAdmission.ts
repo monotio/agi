@@ -22,6 +22,8 @@ import { validateCompleteImage } from "../../../src/runtime/projectImageValidati
 import { prepareProjectRestart } from "../../../src/runtime/projectRestart.ts";
 import { installProjectRestart } from "./projectRestart.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
+import type { Engine } from "../../../src/runtime/engine.ts";
+import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import {
   newProjectAdmissionState,
   mintPreviewRunToken,
@@ -369,6 +371,23 @@ export interface ProjectAdmissionOptions {
     sourceBindings: Record<string, { kind: SourceBindingKind; num: number }>;
     bindings: DebugBindings;
   }) => (() => number) | null;
+}
+
+/** Verify the adopted source authority before replacing a Create run. */
+export function prepareProjectAdmissionReplacement(
+  ctx: WorkerContext,
+  engine: Engine,
+  project: HistoryProjectDocuments | undefined,
+): { lane: ProjectAdmissionState; project: HistoryProjectDocuments } | null {
+  if (ctx.projectAdmission === null) return null;
+  const lane = newProjectAdmissionState(mintPreviewRunToken(), engine);
+  const detached = {
+    ...ctx,
+    engine,
+    boot: { ...ctx.boot, authoredWords: null, project: undefined },
+  };
+  initializeProjectAdmission(detached, lane, project?.documents, undefined);
+  return { lane, project: detached.boot.project! };
 }
 
 export function createProjectAdmission(ctx: WorkerContext, options: ProjectAdmissionOptions) {
@@ -859,7 +878,7 @@ export function enterProjectCreate(ctx: WorkerContext, msg: Inbound<"projectCrea
     return;
   }
   try {
-    if (!ctx.projectAdmission) {
+    if (!ctx.projectAdmission || ctx.projectAdmission.engine !== ctx.engine) {
       const lane = newProjectAdmissionState(mintPreviewRunToken(), ctx.engine);
       initializeProjectAdmission(ctx, lane, msg.documents, msg.history);
       ctx.projectAdmission = lane;
