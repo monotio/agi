@@ -106,7 +106,7 @@ both `--live` and `--budget-usd` on the command line (`EVAL_LIVE=1` and a budget
 variable for the promptfoo comparisons).
 
 `npm run check:bundle` runs after `npm run build` and fails, in CI too, when the
-compressed JavaScript, CSS or workers loaded from opening Home to a catalog
+compressed JavaScript, CSS, fonts or workers loaded from opening Home to a catalog
 game's first frame outgrow their budgets. It measures Home, cold Play and the
 Create shell separately and checks their module paths: the agent, debugger,
 editors, WORDS analysis and SOUND previews load with their activities. Home
@@ -399,6 +399,51 @@ new chrome should reach for a token or a `ui/` component first. After a reviewed
 cleanup, `npm run lint:tokens -- --update` records the new baseline.
 `app/ui-gallery.html`, `app/studio-harness.html` and `app/sprite-harness.html`
 are dev/test pages. Run `npm run dev`, then open their corresponding URLs.
+
+### UI fonts
+
+UI text uses the self-hosted variable Geist 1.7.2 subset named AGI Geist;
+code, coordinates and keyboard chips use Geist Mono 1.7.2. Both cover Latin
+text and the UI's punctuation, arrows and keyboard symbols. AGI Geist includes
+static outlines for missing symbols from Inter 4.1, Noto Sans Math and Noto Sans
+Symbols 2. Mono uses AGI Geist for missing symbols. All these font sources and
+derivatives use SIL OFL 1.1; [NOTICE](app/public/fonts/NOTICE.txt) and the complete
+licences under `app/public/licenses/` ship with them. The game's GPU text uses
+the project's separate 8×8 bitmap font.
+
+The two WOFF2 files in `app/public/fonts/` are 29,228 and 22,404 bytes. Both are
+used on Home, so `app/index.html` preloads them with `crossorigin`; CSS uses
+`font-display: swap`. The tokens provide Arial/Liberation Sans and Courier
+New/Liberation Mono fallbacks with `size-adjust` and vertical metric overrides.
+The adjustments match average advances of ASCII letters and digits at weight
+400 and Geist's 1005/-295/0 ascent/descent/gap per 1000 units. This reduces
+loading shifts; individual strings and other weights can still differ before
+the fonts load. Loaded Latin text uses the same metrics across platforms;
+glyphs outside the subset may use installed fonts. Monaco reads `--font-mono`
+when each editor is created and remeasures after fonts finish loading.
+
+The bundle check counts both fonts separately with a 55 kB compressed budget;
+WOFF2 is already compressed. Font changes also need `e2e/ui-font.spec.ts`, the
+Studio layout specs and `npm --prefix app run e2e:perf`. The font spec checks
+Chromium's actual glyph sources, including symbols and Monaco, and verifies
+that the page requests two WOFF2 files.
+
+To reproduce the subsets, install `fonttools[woff]==4.66.1` in a Python virtual
+environment. Supply these upstream TTFs in one source directory:
+
+| Files                                    | Upstream source                                                                                                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Geist[wght].ttf`, `GeistMono[wght].ttf` | [Geist 1.7.2 release](https://github.com/vercel/geist-font/releases/tag/v1.7.2)                                                                                |
+| `InterVariable.ttf`                      | [Inter 4.1 release](https://github.com/rsms/inter/releases/tag/v4.1)                                                                                           |
+| `NotoSansMath-Regular.ttf`               | [Google Fonts math source](https://github.com/google/fonts/blob/dbd1ab6e65dc59bcda3ca8de9fd372f58f98e0af/ofl/notosansmath/NotoSansMath-Regular.ttf)            |
+| `NotoSansSymbols2-Regular.ttf`           | [Google Fonts symbols source](https://github.com/google/fonts/blob/7b6724ac7ececc713e9ba93af309f7520c9a80a3/ofl/notosanssymbols2/NotoSansSymbols2-Regular.ttf) |
+
+Run `python scripts/subset-ui-fonts.py <source-directory> <output-directory>`.
+The script verifies source SHA-256 identities, retains the 100–900 weight axes
+and licence metadata, adds missing symbol outlines at their default weight,
+and preserves timestamps for repeatable bytes. Review the generated files
+before replacing the bundled ones; update their content-hashed URLs in the
+tokens and preload links together. Keep the upstream OFL notices with them.
 
 ## Interpreter behavior
 

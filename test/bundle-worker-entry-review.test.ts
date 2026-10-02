@@ -20,11 +20,15 @@ function runGate(startup: boolean, unsafe: boolean) {
   const scripts = join(directory, "scripts");
   const app = join(directory, "app");
   const assets = join(app, "dist", "assets");
+  const fonts = join(app, "dist", "fonts");
   const records = join(app, "node_modules", ".agi");
-  for (const path of [scripts, assets, records]) mkdirSync(path, { recursive: true });
+  for (const path of [scripts, assets, fonts, records]) mkdirSync(path, { recursive: true });
   const debuggerFile = "assets/debugController.js";
   const home = "assets/home.js";
   try {
+    // This size-only build fixture includes the two required startup fonts.
+    writeFileSync(join(fonts, "sans.woff2"), new Uint8Array([0x77, 0x4f, 0x46, 0x32]));
+    writeFileSync(join(fonts, "mono.woff2"), new Uint8Array([0x77, 0x4f, 0x46, 0x32]));
     // Run the actual gate, unchanged, in a complete disposable build tree.
     writeFileSync(
       join(scripts, "check-bundle-budget.ts"),
