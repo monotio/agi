@@ -12,6 +12,8 @@ import { expect } from "./test.ts";
 export async function openStoredWorkspace(page: Page, title: string): Promise<void> {
   await openLibraryActions(page, savedGameCard(page, title));
   await page.getByTestId("edit-library-game").click();
+  await expect(page.getByRole("heading", { name: title, exact: true, level: 1 })).toBeVisible();
+  await expect(page.getByTestId("input-line")).toBeEnabled();
   await expect(page.getByTestId("parts-list")).toBeVisible();
 }
 
