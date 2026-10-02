@@ -11,6 +11,7 @@ import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
+import { wordsTaskReply } from "../src/studio/workspace/wordsAgent.ts";
 
 let seq = 0;
 function fixture(chats?: AgentChats, roomGeneration = true) {
@@ -592,6 +593,53 @@ test("Ask continues the current task chat with read-only tools and game notes", 
       !allowed.includes("write_notes") &&
       allowed.includes("read_room"),
   );
+  session.dispose();
+});
+
+test("Ask stores a formatted reply with raw context and keeps ordinary follow-ups readable", async () => {
+  const { session } = fixture();
+  const raw = '{"synonyms":["inspect"]}';
+  let reply = raw;
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+    conversation() {
+      return {
+        setAvailableTools() {},
+        async sendUserMessage() {
+          return { text: reply, toolCalls: [] };
+        },
+        appendToolResults() {},
+        async complete() {
+          return { toolCalls: [] };
+        },
+        getTranscript() {
+          return [{ role: "assistant", text: reply }];
+        },
+      };
+    },
+  });
+  assert.equal(
+    await agent.ask("Suggest words for look", "WORDS", (text) =>
+      wordsTaskReply(text, { kind: "suggest", group: 100, words: ["look"] }),
+    ),
+    "Suggested inspect · shown in WORDS",
+  );
+  const message = agent.current().messages.at(-1)!;
+  assert.deepEqual(message, {
+    id: message.id,
+    role: "assistant",
+    text: "Suggested inspect · shown in WORDS",
+    context: raw,
+  });
+  assert.deepEqual(session.chats().chats[0]!.messages.at(-1), message);
+  assert.deepEqual(agent.current().transcript, [{ role: "assistant", text: raw }]);
+  assert.deepEqual(agent.progress, ["Suggested inspect · shown in WORDS"]);
+  reply = "Try looking around.";
+  await agent.ask("Where next?");
+  assert.equal(agent.current().messages.at(-1)!.text, reply);
+  assert.equal(agent.current().messages.at(-1)!.context, undefined);
   session.dispose();
 });
 

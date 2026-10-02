@@ -2,6 +2,7 @@
 import { computed, inject, provide, ref, shallowRef, type InjectionKey } from "vue";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { ChooserItem } from "./commands/chooserItems.ts";
+import type { ReplyFormatter } from "../agent/workspaceAgent.ts";
 
 export function createWorkspaceEditor(engine: EngineApi) {
   const debugCommand =
@@ -15,11 +16,14 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
   const selected = ref<string>();
-  const agentPrefill = shallowRef<{ text: string; context?: string; readOnly: boolean } | null>(
-    null,
-  );
+  const agentPrefill = shallowRef<{
+    text: string;
+    context?: string;
+    readOnly: boolean;
+    formatReply?: ReplyFormatter;
+  } | null>(null);
   const returnFromAgent = shallowRef<() => void>();
-  const agentMessages = shallowRef<readonly { role: string; text: string }[]>([]);
+  const agentMessages = shallowRef<readonly { role: string; text: string; context?: string }[]>([]);
   const agentContext = shallowRef<{ label: string; text: string } | null>(null);
   const agentContexts: Record<string, { label: string; text: string } | null> = {};
   function setAgentContext(key: string, context: { label: string; text: string } | null): void {

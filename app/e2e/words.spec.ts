@@ -105,7 +105,12 @@ test("WORDS Suggest and Predict prefill the Create agent composer", async ({ pag
             content: [
               {
                 type: "output_text",
-                text: requests === 1 ? '{"synonyms":["inspect"]}' : '{"commands":["look tree"]}',
+                text:
+                  requests === 1
+                    ? '{"synonyms":["inspect"]}'
+                    : requests === 2
+                      ? '{"commands":["look tree"]}'
+                      : '{"commands":',
               },
             ],
           },
@@ -140,6 +145,18 @@ test("WORDS Suggest and Predict prefill the Create agent composer", async ({ pag
   expect(prompts[0]).toContain("meaning 100");
   await folded.locator("summary").click();
 
+  const suggestReply = panel.locator(".agent-panel__message").filter({
+    hasText: "Suggested inspect · shown in WORDS",
+  });
+  await expect(suggestReply.locator("p")).toHaveText("Suggested inspect · shown in WORDS");
+  const suggestContext = suggestReply.locator("details");
+  await expect(suggestContext).not.toHaveAttribute("open", "");
+  await expect(suggestContext.locator("summary")).toHaveText("Context");
+  await expect(suggestContext.locator("pre")).toBeHidden();
+  await suggestContext.locator("summary").click();
+  await expect(suggestContext.locator("pre")).toHaveText('{"synonyms":["inspect"]}');
+  await suggestContext.locator("summary").click();
+
   await words.getByRole("button", { name: "✦ Predict commands", exact: true }).click();
   await expect(panel.getByTestId("agent-message")).toHaveValue(
     "Predict what players will try in Meadow",
@@ -155,7 +172,45 @@ test("WORDS Suggest and Predict prefill the Create agent composer", async ({ pag
   ).toBeVisible();
   expect(prompts[1]).toContain("draw.pic(v50)");
   expect(prompts[1]).toContain("commands");
+  const predictReply = panel.locator(".agent-panel__message").filter({
+    hasText: "Predicted 1 command · see Players will likely try in Meadow",
+  });
+  await expect(predictReply.locator("p")).toHaveText(
+    "Predicted 1 command · see Players will likely try in Meadow",
+  );
+  await expect(predictReply.locator("details")).not.toHaveAttribute("open", "");
+  await expect(predictReply.locator("pre")).toBeHidden();
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
   await page.screenshot({ path: test.info().outputPath("words-context-1440.png") });
+  await predictReply.locator("summary").click();
+  await expect(predictReply.locator("pre")).toHaveText('{"commands":["look tree"]}');
+  await page.screenshot({ path: test.info().outputPath("words-reply-context-1440.png") });
+  await predictReply.locator("summary").click();
+
+  await words.getByRole("button", { name: "✦ Predict commands", exact: true }).click();
+  await panel.getByRole("button", { name: "Send", exact: true }).click();
+  const unreadable = panel.locator(".agent-panel__message").filter({
+    hasText: "The reply’s JSON could not be read. Try ✦ Predict commands again.",
+  });
+  await expect(unreadable.locator("p")).toHaveText(
+    "The reply’s JSON could not be read. Try ✦ Predict commands again.",
+  );
+  await expect(unreadable.locator("pre")).toBeHidden();
+  await unreadable.locator("summary").click();
+  await expect(unreadable.locator("pre")).toHaveText('{"commands":');
+  await unreadable.locator("summary").click();
+  await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  await page.screenshot({ path: test.info().outputPath("words-unreadable-reply-1440.png") });
+  expect(requests).toBe(3);
+  await page.reload();
+  await page.getByTestId("workspace-agent").click();
+  await expect(suggestReply.locator("p")).toHaveText("Suggested inspect · shown in WORDS");
+  await expect(predictReply.locator("p")).toHaveText(
+    "Predicted 1 command · see Players will likely try in Meadow",
+  );
+  await expect(suggestContext).not.toHaveAttribute("open", "");
+  await suggestContext.locator("summary").click();
+  await expect(suggestContext.locator("pre")).toHaveText('{"synonyms":["inspect"]}');
 });
 
 test("Create keeps a missed sentence across reload before WORDS first opens", async ({ page }) => {

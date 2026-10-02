@@ -39,6 +39,7 @@ export interface AgentReview {
   changes(): ReturnType<ProjectProposal["changes"]>;
   stale(): boolean;
 }
+export type ReplyFormatter = (reply: string) => { text: string; context?: string };
 interface Options {
   readonly session: ProjectSession;
   readonly profileId: ProfileId;
@@ -312,6 +313,7 @@ export function createWorkspaceAgent(options: Options) {
     context: string,
     readOnly = false,
     automatic = false,
+    formatReply?: ReplyFormatter,
   ) {
     if (session.closed) throw new Error("The project session was closed.");
     if (busy || applying) throw new Error("Wait for the current task to finish.");
@@ -450,7 +452,9 @@ export function createWorkspaceAgent(options: Options) {
           if (session.closed) throw new Error("The project session was closed.");
           if (turn.usage) run.recordUsage(turn.usage);
           if (turn.text) {
-            progress.push(turn.text);
+            progress.push(
+              turn.toolCalls.length === 0 && formatReply ? formatReply(turn.text).text : turn.text,
+            );
             notify();
           }
           if (turn.toolCalls.length === 0) break;
@@ -603,7 +607,11 @@ export function createWorkspaceAgent(options: Options) {
           }
         }
         if (!(await offer(turn.text ?? "")))
-          chat.messages.push({ id: id(), role: "assistant", text: turn.text ?? "Finished." });
+          chat.messages.push({
+            id: id(),
+            role: "assistant",
+            ...(formatReply ? formatReply(turn.text ?? "") : { text: turn.text ?? "Finished." }),
+          });
       });
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -706,12 +714,14 @@ export function createWorkspaceAgent(options: Options) {
         context,
       );
     },
-    async ask(instruction: string, context = "") {
+    async ask(instruction: string, context = "", formatReply?: ReplyFormatter) {
       await drive(
         store.chats.find((chat) => chat.id === store.active)!,
         instruction,
         context,
         true,
+        false,
+        formatReply,
       );
       return current().messages.at(-1)?.text ?? "";
     },
