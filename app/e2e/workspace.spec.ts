@@ -93,6 +93,10 @@ test("one running workspace retains editors and opens Focus with a chord @webkit
   await page.keyboard.insertText("if (");
   await expect(page.getByTestId("workspace-last-good")).toBeVisible();
   await expect(page.getByTestId("workspace-saved")).toContainText("Saved");
+  // Start the workspace chord outside Monaco's completion popup. Escape in
+  // the editor dismisses that popup before the workspace's two-key sequence.
+  await page.getByTestId("workspace-focus").focus();
+  await expect(page.locator(".suggest-widget.visible")).toBeHidden();
   await page.keyboard.press("ControlOrMeta+k");
   await page.keyboard.press("z");
   await expect(page.getByTestId("workspace-show-game")).toBeVisible();

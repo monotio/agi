@@ -96,6 +96,8 @@ export async function startFixtureServer(
     root: fileURLToPath(new URL("..", import.meta.url)),
     logLevel: "silent",
     ...config,
+    // These servers exercise fixture HTTP routes, so app dependency scans are unused.
+    optimizeDeps: { noDiscovery: true, include: [] },
     // Independent dev servers must not replace the application's optimizer files.
     cacheDir,
     plugins,

@@ -82,6 +82,47 @@ test("a new project snapshot rejects old requests even when text and version ret
   client.dispose();
 });
 
+test("an unchanged workspace notification preserves a pending definition", async () => {
+  const worker = new FakeWorker();
+  const client = new LogicAnalysisClient(() => worker);
+  const snapshot = project("marker: return;\ngoto marker;");
+  client.setProject(snapshot);
+  const definition = client.request("logic:1", "textDocument/definition", {
+    position: { line: 1, character: 6 },
+  });
+  client.setProject(structuredClone(snapshot));
+  worker.reply();
+  assert.deepEqual((await definition)?.range, {
+    start: { line: 0, character: 0 },
+    end: { line: 0, character: 6 },
+  });
+  client.dispose();
+});
+
+test("a definition captured before an edit cannot move a newer document's caret", async () => {
+  const worker = new FakeWorker();
+  const client = new LogicAnalysisClient(() => worker);
+  client.setProject(project("marker: return;\ngoto marker;"));
+  const old = client.request("logic:1", "textDocument/definition", {
+    position: { line: 1, character: 6 },
+  });
+  const deliver = worker.onmessage!;
+  let reply: MessageEvent<LspResponse | LspNotification> | undefined;
+  worker.onmessage = (event) => (reply = event);
+  worker.reply();
+  worker.onmessage = deliver;
+  const rejected = assert.rejects(old, /superseded/);
+  client.setProject(project("\nmarker: return;\ngoto marker;", 2));
+  deliver(reply!);
+  await rejected;
+  const current = client.request("logic:1", "textDocument/definition", {
+    position: { line: 2, character: 6 },
+  });
+  worker.reply(1);
+  assert.equal((await current)?.range.start.line, 1);
+  client.dispose();
+});
+
 test("cancellation, disposal and a dead worker settle promises and allow clean restart", async () => {
   const workers: FakeWorker[] = [];
   const client = new LogicAnalysisClient(() => {
