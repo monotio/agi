@@ -540,7 +540,13 @@ test("a stored project archive carries only the card's own physical sidecars", a
   );
   assert.ok(retired !== null && retired.locator !== target.locator);
 
-  const lib = library(fakeEngine());
+  const engine = fakeEngine();
+  let mapReady = false;
+  Object.defineProperty(engine, "roomMap", {
+    get: () => (mapReady ? { storedSidecar } : null),
+  });
+  const lib = library(engine);
+  mapReady = true;
   await lib.onExportLibraryGame(meta, true);
   assert.equal(lib.exportRefusal.value, "", "the private download completed without notes");
   assert.equal(downloads.length, 1);

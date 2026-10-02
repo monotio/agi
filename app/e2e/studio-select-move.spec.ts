@@ -144,7 +144,7 @@ test("a drag toward the edge stops at it and is kept; one past the edge says whi
   // At the edge, a drag further up goes nowhere and names the item there.
   await drag(page, await cell(page, 80, 31), await cell(page, 80, 26));
   await expect(studio.getByTestId("studio-notice")).toHaveText(
-    "Picture light is at the picture's top edge.",
+    "Picture light is at the picture's top edge. Move it inward.",
   );
   await workspaceSaved(page);
   expect(await source(page)).toContain("rect 63,0 96,2");

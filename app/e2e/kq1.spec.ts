@@ -10,6 +10,7 @@ import {
   canvasHash,
   configureAi,
   isolateStorage,
+  agentActivity,
   openCreateAdventure,
   openGameControls,
   openLibraryActions,
@@ -82,13 +83,13 @@ test("boots authentic KQ1 to the title screen and advances to courtyard", async 
 
   // The title screen (Room 83) uses the authentic vector renderer with Roberta Williams credits
   await expect.poll(() => canvasColors(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(8);
-  await page.screenshot({ path: "test-results/kq1-title-screen.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-title-screen.png") });
 
   // Advance past title screen to room 1 (courtyard): status line on row 0.
   await advanceToCourtyard(page);
   await expect.poll(async () => (await textHook(page)).rows[0]).toContain("Score:");
   await expect.poll(() => canvasColors(page), { timeout: 15_000 }).toBeGreaterThanOrEqual(8);
-  await page.screenshot({ path: "test-results/kq1-courtyard.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-courtyard.png") });
 });
 
 test("KQ1 boots on the interpreter profile detected from its own AGIDATA.OVL", async ({ page }) => {
@@ -168,7 +169,7 @@ test("parser: typing 'look' produces a game response", async ({ page }) => {
   const { rows } = await textHook(page);
   const windowRows = rows.filter((r) => /#[^#]*[a-z][^#]*#/i.test(r));
   expect(windowRows.length).toBeGreaterThan(0);
-  await page.screenshot({ path: "test-results/kq1-print-window.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-print-window.png") });
 });
 
 test("print modal pauses the world until dismissed (classic AGI)", async ({ page }) => {
@@ -205,7 +206,7 @@ test("Tab key opens authentic inventory modal", async ({ page }) => {
   await page.keyboard.press("Tab");
   await expectModal(page, "inventory", 5_000);
   expect(await screenText(page)).toContain("You are carrying:");
-  await page.screenshot({ path: "test-results/kq1-inventory.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-inventory.png") });
 
   // Dismiss with Escape
   await page.keyboard.press("Escape");
@@ -243,7 +244,7 @@ test("F1 help screen displays in text mode and is dismissed on key", async ({ pa
 
   // Verify help text contains "Help"
   expect(await screenText(page)).toContain("Help");
-  await page.screenshot({ path: "test-results/kq1-text-screen.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-text-screen.png") });
 
   // Dismiss help screen with a key
   await page.keyboard.press("Enter");
@@ -264,7 +265,7 @@ test("Escape opens the authentic menu bar; arrows navigate; Escape closes it", a
   expect(rows[0]).toContain("File");
   expect(rows[0]).toContain("Speed");
   expect(rows[2]).toContain("About KQ");
-  await page.screenshot({ path: "test-results/kq1-menu-bar.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-menu-bar.png") });
 
   await page.keyboard.press("ArrowRight");
   await expect.poll(async () => (await textHook(page)).rows[2]).toContain("Save Game");
@@ -421,7 +422,7 @@ test("an autosave resumes the courtyard across a browser reload", async ({ page 
   // step size of one or two per cycle.
   expect(Math.abs(after.egoX - before.egoX)).toBeLessThanOrEqual(4);
   expect(Math.abs(after.egoY - before.egoY)).toBeLessThanOrEqual(4);
-  await page.screenshot({ path: "test-results/kq1-resumed.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-resumed.png") });
 
   // ...and the resumed game is a live game, not a restored still frame.
   await waitForCycles(page, 10);
@@ -592,7 +593,7 @@ test("a corrupt autosave is discarded and the game boots normally", async ({ pag
   await expect(page.getByTestId("title-prompt-hint")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("error-panel")).toHaveCount(0);
   await expect(page.getByTestId("resume-caption")).toBeHidden();
-  await expect(page.getByTestId("agent-panel")).toContainText("Autosave discarded");
+  await expect.poll(() => agentActivity(page)).toContain("Autosave discarded");
 });
 
 test("game frame is hidden until game is running, clicking screen advances title screen, and menu button ejects", async ({
@@ -648,18 +649,16 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await expect.poll(async () => (await textHook(page)).paused).toBe(true);
 
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await expect(page.getByTestId("agent-panel")).not.toContainText("[Orientation]");
+  await expect.poll(() => agentActivity(page)).not.toContain("[Orientation]");
   await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where am I?");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   // The submitted context names the game and the profile the engine detected.
-  await expect(page.getByTestId("agent-panel")).toContainText("[Orientation] kq1", {
-    timeout: 20_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 20_000 }).toContain("[Orientation] kq1");
   await expect(page.getByTestId("agent-bubble-room")).toContainText("room 1");
-  await page.screenshot({ path: "test-results/kq1-power-up-bubble.png" });
-  await expect(page.getByTestId("agent-panel")).toContainText("profile 2.917");
+  await page.screenshot({ path: test.info().outputPath("kq1-power-up-bubble.png") });
+  await expect.poll(() => agentActivity(page)).toContain("profile 2.917");
 
   // ...and its prompt really is the live container read back as source.
   const prompt = await page.evaluate(() => {
@@ -697,7 +696,7 @@ test("KQ1 orientation accompanies the first question, Escape resumes", async ({ 
   await expect.poll(() => canvasHash(page), { timeout: 15_000 }).not.toBe(before);
   await page.keyboard.up("ArrowLeft");
   await page.keyboard.press("ArrowLeft"); // AGI: press the direction again to stop.
-  await page.screenshot({ path: "test-results/kq1-power-up-resumed.png" });
+  await page.screenshot({ path: test.info().outputPath("kq1-power-up-resumed.png") });
 });
 
 test("a locally loaded patched game can be downloaded and imported", async ({ page }) => {

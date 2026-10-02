@@ -84,11 +84,11 @@ test("at 1024 no part of a Studio bar runs under another", async ({ page }) => {
   const studio = page.getByTestId("room-studio");
   await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
   await page.getByTestId("workspace-focus").click();
-  await look("room top", studio.locator(".workspace-lenses"));
+  await look("room top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
   await look("room options", studio.getByTestId("studio-options-bar"));
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("3");
-  await look("room walk top", studio.locator(".workspace-lenses"));
+  await look("room walk top", studio.getByRole("radiogroup", { name: "Lens", exact: true }));
   await look("room walk options", studio.getByTestId("studio-options-bar"));
   await closeWorkspaceEditor(page);
 

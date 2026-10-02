@@ -50,15 +50,15 @@ test("the featured opening image does not move the controls below it", async ({ 
   for (const width of [390, 700]) {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
-    const opening = "**/games/adventure-department/game.ts*";
+    const opening = "**/catalog/adventure-department.png";
     await page.route(opening, async (route) => {
       await held;
       await route.continue();
     });
     await page.setViewportSize({ width, height: 844 });
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     const card = page.getByTestId("catalog-adventure-department");
-    await expect(card.getByTestId("thumbnail-placeholder")).toBeVisible();
+    await expect(card.getByRole("img")).toBeVisible();
     const before = await page.getByTestId("catalog-play-adventure-department").boundingBox();
     release();
     await expect(card.getByRole("img")).toBeVisible();
@@ -81,8 +81,8 @@ test("one Settings menu owns AI and budget while Remix stays compact", async ({ 
   await dialog.getByTestId("ai-settings-save").click();
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
-  const composer = page.getByTestId("agent-bubble");
-  await expect(composer.getByTestId("agent-bubble-input")).toBeEnabled();
+  const composer = page.getByTestId("workspace-agent-panel");
+  await expect(composer.getByTestId("agent-message")).toBeEnabled();
   await expect(composer.getByTestId("connect-assistant-ai")).toHaveCount(0);
   await expect(composer.locator("input[type=number]")).toHaveCount(0);
   await expect(composer).not.toContainText(/Change AI settings|Task budget|Not configured/);

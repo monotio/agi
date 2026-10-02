@@ -2,6 +2,7 @@ import type { PreviewUpdateOutcome } from "../src/worker/workerProtocol.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { authoringFingerprint } from "../src/project/gameStorage.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { createContainer } from "../../src/container/container.ts";
@@ -183,6 +184,61 @@ test("deferred admission publishes documents then retries at a supplied natural 
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.deepEqual(order, ["admit", "publish", "boundary", "admit", "publish"]);
   session.dispose();
+});
+
+test("a deferred prepared room retries its native image adoption", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let attempts = 0;
+  let committed = false;
+  let installedDuringWait = false;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("prepared-room-retry"),
+      title: "Room",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "prepared-room-run",
+      admit: async () => {
+        throw new Error("A room adoption keeps its reconciliation path");
+      },
+      admitPreparedRoom: async () => ({
+        status: ++attempts === 1 ? "deferred" : "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    boundary: async () => {},
+    publish: (_snapshot, _data, outcome, nativeInstalled) => {
+      committed ||= outcome?.status === "committed";
+      installedDuringWait ||= outcome?.status === "deferred" && nativeInstalled === true;
+    },
+  });
+  try {
+    await session.submitPreparedRoom({
+      proposal: session.model.propose(session.model.capture(), "Room", [
+        { key: "logic:0", content: "// room\nreturn;" },
+      ]),
+      origin: "agent",
+      label: "Room",
+      author: "agent",
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(installedDuringWait, true);
+    assert.equal(attempts, 2);
+    assert.equal(committed, true);
+    assert.equal(session.capture().pendingAdmission, false);
+  } finally {
+    session.dispose();
+  }
 });
 
 test("borrowed editors observe the same owned documents and diagnostics", async () => {
@@ -409,6 +465,137 @@ test("invalid typing retains the latest waiting runnable image and saves exact d
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.equal(admitted, 'print("Ready"); return;');
     assert.equal(session.model.capture().read("logic:0")!.content, "if (");
+  } finally {
+    session.dispose();
+  }
+});
+
+test("catalog edits save to a remix and later writes keep that owner", async () => {
+  const documents = { "logic:0": "return;" };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const original = requireProjectId("catalog-proof");
+  const requests: { projectId: string; expected: unknown }[] = [];
+  const session = openProjectSession({
+    data: {
+      projectId: original,
+      title: "Catalog",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+      workspace: writeProjectWorkspace(documents),
+      library: {
+        version: 1,
+        source: "catalog",
+        revision: compiled.build.identity.revision,
+        catalog: { id: "proof", version: "1" },
+        validation: { status: "ready", message: "Ready" },
+      },
+    },
+    lifetime: "original",
+    admission: {
+      runToken: "catalog-run",
+      admit: async () => ({
+        status: "committed",
+        expected: null,
+        current: null,
+        patchGeneration: 1,
+      }),
+    },
+    write: async (request) => {
+      requests.push({ projectId: request.projectId, expected: request.expected });
+      assert.notEqual(request.projectId, original);
+      assert.equal(request.data.library?.source, "remix");
+      assert.equal(request.data.library?.parent?.project, original);
+      assert.equal(request.data.library?.catalog, undefined);
+      return {
+        commitId: request.commitId,
+        workspaceId: request.workspaceId,
+        candidateHash: "a",
+        documents: request.documents,
+        saved: {
+          projectId: request.projectId,
+          lifetime: "remix-owner",
+          generation: requests.length,
+          revision: compiled.build.identity.revision,
+          authoring: authoringFingerprint(undefined, request.data.workspace),
+          buildId: request.buildId,
+        },
+      };
+    },
+  });
+  for (const comment of ["first", "second"]) {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Edit", [
+        { key: "logic:0", content: `// ${comment}\nreturn;` },
+      ]),
+      origin: "logic",
+      label: "Edit",
+      author: "creator",
+    });
+    await session.flush();
+    assert.equal(session.saveStatus().state, "saved");
+  }
+  assert.equal(requests[0]!.expected, null);
+  assert.equal(requests[1]!.projectId, requests[0]!.projectId);
+  assert.equal(session.lifetime, "remix-owner");
+  session.dispose();
+});
+
+test("owned saves carry the admitted world into legacy room continuation", async () => {
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents: { "logic:0": "return;" },
+    profileId: "2.936",
+  });
+  let world: unknown;
+  const session = openProjectSession({
+    data: {
+      projectId: requireProjectId("world-continuation"),
+      title: "World",
+      authoredAt: "",
+      files: Object.fromEntries(compiled.files()),
+      words: [],
+    },
+    lifetime: "initial",
+    admission: {
+      runToken: "world-run",
+      admit: async () => ({
+        status: "unchanged",
+        expected: null,
+        current: null,
+        patchGeneration: 0,
+      }),
+    },
+    write: async (request) => {
+      world = request.data.authoringState?.["authoring"];
+      throw new Error("Capture only");
+    },
+  });
+  try {
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Plan", [
+        {
+          key: "world",
+          content: JSON.stringify({
+            rooms: { "2": { title: "Gallery", description: "Portraits", exits: {} } },
+            facts: {},
+            quests: {},
+          }),
+        },
+      ]),
+      label: "Plan",
+      origin: "agent",
+      author: "creator",
+    });
+    await session.flush();
+    assert.equal(
+      (world as { world: { rooms: Record<string, { title: string }> } })?.world?.rooms["2"]?.title,
+      "Gallery",
+    );
   } finally {
     session.dispose();
   }

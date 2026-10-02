@@ -309,6 +309,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
 
   const projectTurnBases = new WeakMap<BootedGame, ProjectSnapshot>();
   let session: AgentSession | null = null;
+  let planSaveTail: Promise<void> = Promise.resolve();
   let remixNeedsSave = false;
   /** The room request whose saved room waits for the link to post its answer. */
   let roomDelivery: { resolve: () => void; reject: (error: Error) => void } | null = null;
@@ -389,7 +390,7 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
       if (tasks.length)
         await project.saveChats(appendAgentTasks({ chats: project.chats() }, tasks));
       await project.flush();
-      return true;
+      return project.saveStatus().state === "saved";
     }
     const authoringState = author.getAuthoringState();
     const { provider, model } = author.getProviderContext();
@@ -808,6 +809,12 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     author: AgentSession,
     files: Record<string, Uint8Array>,
   ): Promise<void> {
+    const project = options.getProjectSession?.();
+    if (project && !game.installed) {
+      await project.flush();
+      if (project.saveStatus().state !== "saved") throw new Error(project.saveStatus().message);
+      return;
+    }
     const owner = await saveTurn(game, author, files);
     await updateBootedResources(owner, files);
     // The bound target stays the same address across the revision move;
@@ -820,6 +827,22 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     author: AgentSession,
     tests: Uint8Array,
   ): Promise<void> {
+    const project = options.getProjectSession?.();
+    if (project && !game.installed) {
+      const snapshot = project.model.capture();
+      await project.submit({
+        proposal: project.model.propose(snapshot, "Recorded test", [
+          { key: "tests", content: new TextDecoder().decode(tests) },
+        ]),
+        label: "Recorded test",
+        origin: "guided",
+        author: "creator",
+      });
+      await project.flush();
+      if (project.saveStatus().state !== "saved") throw new Error(project.saveStatus().message);
+      author.state.testsPayload = tests.slice();
+      return;
+    }
     const current = await query("exportFiles");
     if (!current || getBootedGame() !== game)
       throw new Error("The game changed while saving the recording. Try again.");
@@ -1303,8 +1326,30 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     const author = session;
     if (!game || game.installed || !game.projectId || !author) return false;
     const writtenRev = planRevisionOf(author);
-    // A newer save refuses as stale (thrown): the plan edit stays unsaved.
-    const saved = await saveSessionRecord(game, author);
+    const project = options.getProjectSession?.();
+    const world = JSON.stringify(author.state.authoring.world);
+    const saving = project
+      ? planSaveTail.then(async () => {
+          if (options.getProjectSession?.() !== project || session !== author) return false;
+          const base = project.model.capture();
+          await project.submit({
+            proposal: project.model.propose(base, "Updated plan", [
+              { key: "world", content: world },
+            ]),
+            label: "Updated plan",
+            origin: "guided",
+            author: "creator",
+          });
+          await project.flush();
+          return project.saveStatus().state === "saved";
+        })
+      : saveSessionRecord(game, author);
+    if (project)
+      planSaveTail = saving.then(
+        () => {},
+        () => {},
+      );
+    const saved = await saving;
     if (!saved) logAgent("error", "Browser storage could not save the updated world plan.");
     else reportPlanSaved(writtenRev);
     // The committed world plan is a tape checkpoint too: a Resume here
@@ -1378,6 +1423,15 @@ export function useAuthoringController(options: AuthoringControllerOptions): Aut
     session: AgentSession | null,
     files: Record<string, Uint8Array>,
   ): CachedGameData {
+    const project = options.getProjectSession?.();
+    if (project && !game.installed) {
+      files = { ...files };
+      delete files["TESTS.JSON"];
+      const tests = project.model.capture().lastAdmissibleBuild!.documents()["tests"];
+      if (tests !== undefined)
+        files["TESTS.JSON"] =
+          typeof tests === "string" ? new TextEncoder().encode(tests) : tests.slice();
+    }
     return {
       ...data,
       files,

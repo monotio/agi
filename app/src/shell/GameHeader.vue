@@ -64,6 +64,7 @@ const emit = defineEmits<{
   "developer-activity": [];
 }>();
 
+const engine = useEngineApi();
 const {
   state,
   resumeAudio,
@@ -72,12 +73,11 @@ const {
   stopTestRecording,
   cancelTestRecording,
   saveRecordedTest,
-  roomMap,
   retryHistorySave,
   startNewTimeline,
   readOldTimeline,
   currentGame,
-} = useEngineApi();
+} = engine;
 const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
@@ -155,7 +155,7 @@ function onHelpAction(request: HelpRequest): void {
       controlsOpen.value = true;
       return;
     case "map":
-      roomMap.openMap({ experience: shell.mode.value });
+      engine.roomMap?.openMap({ experience: shell.mode.value });
       return;
     case "hint":
       if (!state.powerUp.open) bridge.togglePowerUp("ask");

@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import type { WorkerInbound, WorkerQueryFn } from "../src/worker/workerProtocol.ts";
-import { isolateStorage, textHook, waitForAutosaveAfter } from "./engineProbe.ts";
+import { isolateStorage, textHook, waitForAutosaveAfter, waitForCycles } from "./engineProbe.ts";
 import { expect, reviewShot, test } from "./test.ts";
 
 interface ProjectProbe {
@@ -108,6 +108,7 @@ test("MAIN Create edits, Undo and invalid source autosave survive reopen", async
     probe.getWorker()!.postMessage({ type: "dismissPrint" } satisfies WorkerInbound);
   });
   await expect.poll(async () => (await textHook(page)).rows.join("\n")).not.toContain("New room");
+  await waitForCycles(page, 2);
   const words = await page.evaluate(async () => {
     const probe = (window as unknown as { __AGI_PROJECT__: ProjectProbe }).__AGI_PROJECT__;
     const session = probe.getSession()!;

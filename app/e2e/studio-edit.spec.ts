@@ -428,6 +428,8 @@ test("the first autosaved edit on a catalog game forks a remix", async ({ page }
   expect(new URL(page.url()).hash).not.toBe(catalog);
   // The remix keeps the named objects with the kept edit.
   await openWorkspacePicture(page, 1);
+  await page.keyboard.press("1");
+  await studio.getByRole("searchbox", { name: "Filter items" }).fill("");
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   // The picture's own source: nothing says Rebuilt.
   await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);

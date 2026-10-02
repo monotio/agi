@@ -20,7 +20,7 @@ import {
 } from "../saves/resumePointer.ts";
 import { resolveGameHash } from "../../../src/games/knownGames.ts";
 import { clearGameSaves } from "../saves/gameSaves.ts";
-import { removeMapSidecar } from "../world/roomMapStore.ts";
+import { emptyMapSidecar, readMapSidecar, removeMapSidecar } from "../world/roomMapStore.ts";
 import { findInstalledFolder, gameStorageKey } from "../project/gameTypes.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
 import type { AiSettingsApi } from "../settings/useAiSettings.ts";
@@ -102,6 +102,14 @@ function bindsTarget(target: ProgressTarget | null, expected: ProgressTarget): b
   );
 }
 
+function storedMap(locator: string) {
+  try {
+    return readMapSidecar(localStorage, locator);
+  } catch {
+    return emptyMapSidecar();
+  }
+}
+
 /** The engine-reported profile, when it names a known interpreter. */
 function liveProfileToProfileId(profile: string | null): ProfileId | undefined {
   return profile !== null && Object.hasOwn(PROFILES, profile) ? (profile as ProfileId) : undefined;
@@ -127,7 +135,6 @@ export function createGameLibrary(
     getBootedGame,
     flushAutosave,
     exportCurrentGame,
-    roomMap,
   } = engine;
   const { llmConfig, openAiSettings, aiConfigured } = ai;
   const bindSaved = seams?.bindSavedProgressTarget ?? bindSavedProgressTarget;
@@ -1565,7 +1572,9 @@ export function createGameLibrary(
       const mapSidecar = project
         ? ownerTarget === undefined
           ? undefined
-          : structuredClone(roomMap.storedSidecar(ownerTarget.locator))
+          : structuredClone(
+              engine.roomMap?.storedSidecar(ownerTarget.locator) ?? storedMap(ownerTarget.locator),
+            )
         : undefined;
       if (backup) {
         backup.report.notes.push(...notes);

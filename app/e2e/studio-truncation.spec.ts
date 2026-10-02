@@ -52,6 +52,7 @@ for (const [width, height] of [
 
     // The status readout of a pixel and the Select tool's hint.
     await studio.getByRole("treeitem", { name: /^West doorway/ }).click();
+    await page.getByTestId("workspace-focus").click();
     await page.mouse.move(...(await cell(page, 80, 120)));
     await expect(studio.getByTestId("studio-status")).toContainText("x 80");
     await look("status", studio.getByTestId("studio-status"));

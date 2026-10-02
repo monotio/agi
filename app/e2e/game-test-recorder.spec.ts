@@ -55,7 +55,10 @@ function remixResponses(
 
 async function agentFeed(page: Page): Promise<string> {
   return page.evaluate(() =>
-    (window.__AGI_TRACE__ ?? []).map((entry) => String(entry.detail)).join("\n"),
+    [
+      (window.__AGI_TRACE__ ?? []).map((entry) => String(entry.detail)).join("\n"),
+      document.querySelector("[data-testid=workspace-agent-panel]")?.textContent ?? "",
+    ].join("\n"),
   );
 }
 
@@ -92,7 +95,7 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
   await page.getByTestId("btn-record-test").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("workspace-agent-panel")).toHaveCount(0);
   await expect(page.getByTestId("recording-bar")).toBeVisible();
   await page.getByTestId("input-line").focus();
   await page.keyboard.down("ArrowRight");
@@ -127,19 +130,23 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Change the mural lesson text");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Change the mural lesson text");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect.poll(() => agentFeed(page)).toContain("Game tests: 6 game tests pass, 2 fail");
 
   // Repair: the same rerun reports the whole selection green again.
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Restore the mural lesson text");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Restore the mural lesson text");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect.poll(() => agentFeed(page)).toContain("Game tests: 8 game tests pass, 0 fail");
 
   // Export the project; the recorded test travels only in the project archive.
@@ -186,10 +193,10 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
     await enterCreateMode(other);
     await openWorkspaceAgent(other);
-    await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
-    await other.getByTestId("agent-bubble-input").fill("Run every stored game test");
-    await other.getByTestId("agent-bubble-send").click();
-    await expect(other.getByTestId("agent-bubble")).toBeHidden();
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
+    await other.getByTestId("agent-message").fill("Run every stored game test");
+    await other.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
     await expect
       .poll(() => agentFeed(other), { timeout: 30_000 })
       .toContain("8 game tests pass, 0 fail");

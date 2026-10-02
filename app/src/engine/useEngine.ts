@@ -37,8 +37,9 @@ import {
   writeAutosave,
 } from "../saves/useAutosaveController.ts";
 import { clearCachedGame } from "../project/gameStorage.ts";
-import { resolveProgressTarget } from "../project/progressBinding.ts";
+import { bindProgressTarget, resolveProgressTarget } from "../project/progressBinding.ts";
 import {
+  advanceAuthoring,
   STALE_SAVE_MESSAGE,
   PROJECT_REMOVED_MESSAGE,
   watchProjectWrites,
@@ -394,7 +395,7 @@ export function useEngine(
   function openSession(
     grant: Extract<WorkerControl, { type: "booted" }>["projectAdmission"],
   ): void {
-    const game = lifecycle.getBootedGame();
+    const openedGame = lifecycle.getBootedGame();
     const worker = link.getWorker();
     if (
       grant === undefined ||
@@ -405,11 +406,12 @@ export function useEngine(
     const epoch = ++projectOpenEpoch;
     if (
       grant === undefined ||
-      game?.authoredGame === undefined ||
-      game.projectId === undefined ||
-      game.historyLifetime == null
+      openedGame?.authoredGame === undefined ||
+      openedGame.projectId === undefined ||
+      openedGame.historyLifetime == null
     )
       return;
+    let game: BootedGame = openedGame;
     const current = () =>
       projectOpenEpoch === epoch &&
       lifecycle.getBootedGame() === game &&
@@ -431,13 +433,35 @@ export function useEngine(
           lifetime: game.historyLifetime!,
           admission,
           current,
-          publish(snapshot, data, outcome) {
+          forked(data, lifetime) {
             if (!current()) return;
-            const running = outcome?.status === "committed" || outcome?.status === "unchanged";
+            game = {
+              ...game!,
+              projectId: data.projectId,
+              title: data.title,
+              authoredGame: data,
+              historyLifetime: lifetime,
+            };
+            lifecycle.setBootedGame(game);
+            const target = bindProgressTarget(game);
+            if (target) writeResumePointer(localStorage, target.locator);
+            autosaveController.reset();
+            hook.autosave = -1;
+            state.patchTick++;
+            state.worldTick++;
+            void autosaveController.flushAutosave();
+          },
+          publish(snapshot, data, outcome, nativeInstalled) {
+            if (!current()) return;
+            const running =
+              nativeInstalled === true ||
+              outcome?.status === "committed" ||
+              outcome?.status === "unchanged";
             if (running) {
               game.files = structuredClone(data.files);
               game.revision = snapshot.lastAdmissibleBuild!.identity.revision;
-              if (outcome.replacementRunToken !== undefined)
+              bindProgressTarget(game);
+              if (outcome?.replacementRunToken !== undefined)
                 state.profile = snapshot.lastAdmissibleBuild!.identity.profileId;
             }
             if (running)
@@ -458,6 +482,9 @@ export function useEngine(
               const frame = link.getLatestFrame();
               if (frame !== null) roomMap.value?.observeFrame(frame);
             }
+          },
+          saved(data) {
+            if (current()) advanceAuthoring(game, data.authoringState, data.workspace);
           },
           changed() {
             if (current()) {
@@ -1062,7 +1089,8 @@ export function useEngine(
     ) => (await loadAuthoringController()).getAgentRuntime(...args),
     updateAiConfig,
     openPowerUp(config: LlmConfig) {
-      if (projectMode !== "create") return openPowerUp(config);
+      if (projectMode !== "create" || lifecycle.getBootedGame()?.installed)
+        return openPowerUp(config);
       state.powerUp.open = true;
       state.powerUp.mode = "remix";
       state.powerUp.busy = false;

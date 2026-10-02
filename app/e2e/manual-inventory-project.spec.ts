@@ -1,3 +1,4 @@
+import { nextWordGroup } from "../src/studio/workspace/wordGroups.ts";
 import type { Page } from "@playwright/test";
 import { openContainer } from "../../src/container/container.ts";
 import { parseWordsTok } from "../../src/logic/words.ts";
@@ -74,9 +75,8 @@ for (const kind of ["boilerplate", "starter"] as const) {
     expect(typeof inventory).toBe("string");
     expect(JSON.parse(inventory!)).toEqual([]);
     const words = JSON.parse(vocabulary!) as [string, number][];
-    let nextGroup = Math.max(255, ...words.map((entry) => entry[1])) + 1;
     for (const word of ["collect", "relic", "open", "gate", "pockets"])
-      if (!words.some((entry) => entry[0] === word)) words.push([word, nextGroup++]);
+      if (!words.some((entry) => entry[0] === word)) words.push([word, nextWordGroup(words)]);
     const puzzle = `
 if (said("collect", "relic")) {
   if (!has(0)) { get(0); print("You pick up the bronze relic."); }

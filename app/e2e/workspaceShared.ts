@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
+import { VOCABULARY } from "../../src/vocabulary.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
 import {
   enterCreateMode,
@@ -24,7 +25,7 @@ export async function openWorkspaceLogic(page: Page, num = 1): Promise<Locator> 
     .click();
   if (await show.isVisible()) await show.click();
   const editor = page.getByTestId("workspace-logic-editor").filter({ visible: true });
-  await expect(editor.locator(".monaco-editor")).toBeVisible();
+  await expect(editor.locator(".monaco-editor")).toBeVisible({ timeout: 30_000 });
   return editor;
 }
 
@@ -79,6 +80,27 @@ export async function replaceWorkspaceDocument(
     await page.keyboard.press("ControlOrMeta+a");
     await page.keyboard.insertText(text);
     await page.keyboard.press("Escape");
+  } else if (key === "words") {
+    const show = page.getByTestId("workspace-show-game");
+    if (await show.isVisible()) await show.click();
+    await page.getByTestId("part-words").click();
+    const editor = page.getByTestId("workspace-words-editor").filter({ visible: true });
+    const desired = JSON.parse(text) as [string, number][];
+    for (const [word, id] of desired) {
+      const current = JSON.parse(await workspaceDocument(page, key)) as [string, number][];
+      if (current.some(([entry, meaning]) => entry === word && meaning === id)) continue;
+      const group = editor.locator(`[data-word-group="${id}"]`);
+      if (!(await group.count())) {
+        await editor
+          .getByRole("button", { name: VOCABULARY.meaningButton.label, exact: true })
+          .click();
+        await expect(group).toBeVisible();
+      }
+      const input = group.locator("input.add-word");
+      await input.fill(word);
+      await input.press("Enter");
+      await workspaceSaved(page);
+    }
   } else {
     const show = page.getByTestId("workspace-show-game");
     if (await show.isVisible()) await show.click();
@@ -90,7 +112,7 @@ export async function replaceWorkspaceDocument(
         : (JSON.parse(text) as { name: string; startingRoom: number }[]).map(
             (row) => [row.name, row.startingRoom] as const,
           );
-    const first = key === "words" ? "Word" : "OBJECT";
+    const first = VOCABULARY.objectColumn.label;
     const second = key === "words" ? "Group" : "Room";
     // Table edits retain existing entries and append the requested vocabulary/objects.
     for (const [index, row] of rows.entries()) {

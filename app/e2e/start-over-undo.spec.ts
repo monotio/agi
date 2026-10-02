@@ -16,8 +16,7 @@ import {
  */
 
 const note = (page: Page) => page.getByTestId("start-over-note");
-const startedOverMarks = (page: Page) =>
-  page.locator('.history-marker--restart[title="Started over"]');
+const startedOverMarks = (page: Page) => page.locator(".transport-marker--restart");
 
 /** Exit to Home and use Start over on the tutorial's saved card. */
 async function startOverFromHome(page: Page): Promise<void> {

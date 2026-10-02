@@ -71,8 +71,8 @@ for (const viewport of [
     await openWorkspacePicture(page, 2, false);
     const studio = page.getByTestId("room-studio");
     await expect(studio).toBeVisible();
-    const lens = studio.locator(".workspace-lenses");
-    const bar = studio.locator(".workspace-lenses");
+    const lens = studio.getByRole("radiogroup", { name: "Lens", exact: true });
+    const bar = studio.getByRole("radiogroup", { name: "Lens", exact: true });
     const rail = studio.getByRole("toolbar", { name: "Tools" });
     const tools = studio.getByTestId("studio-rail-tools");
     const below = studio.getByTestId("studio-rail-more-below");
@@ -83,15 +83,15 @@ for (const viewport of [
       ["3", "Walk"],
     ] as const) {
       await page.keyboard.press(key);
-      await expect(lens.getByRole("button", { name: new RegExp(name) })).toHaveAttribute(
-        "aria-pressed",
+      await expect(lens.getByRole("radio", { name: new RegExp(name) })).toHaveAttribute(
+        "aria-checked",
         "true",
       );
       const context = `${name} at ${viewport.width}×${viewport.height}`;
       const top = await boxes([
-        ["Art tab", lens.getByRole("button", { name: /Art/ })],
-        ["Depth tab", lens.getByRole("button", { name: /Depth/ })],
-        ["Walk tab", lens.getByRole("button", { name: /Walk/ })],
+        ["Art tab", lens.getByRole("radio", { name: /Art/ })],
+        ["Depth tab", lens.getByRole("radio", { name: /Depth/ })],
+        ["Walk tab", lens.getByRole("radio", { name: /Walk/ })],
       ]);
       expect(top.length, `${context}: all lens tabs show`).toBe(3);
       expectApart(top, context);

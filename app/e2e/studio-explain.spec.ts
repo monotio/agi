@@ -1,4 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
+import { VOCABULARY } from "../../src/vocabulary.ts";
 import { STUDIO_TERMS, type StudioTerm } from "../src/studio/studioTerms.ts";
 import {
   enterCreateMode,
@@ -52,15 +53,24 @@ async function everyExplainer(
   const seen: string[] = [];
   for (let i = 0; i < count; i++) {
     const trigger = triggers.nth(i);
-    const term = (await trigger.getAttribute("data-term")) as StudioTerm;
-    expect(Object.keys(STUDIO_TERMS), `${term} is a registry term`).toContain(term);
-    await expect(trigger).toHaveAccessibleName(`What is ${STUDIO_TERMS[term].name}?`);
+    const term = (await trigger.getAttribute("data-term")) as StudioTerm | "drawing-depth";
+    const entry =
+      term === "drawing-depth"
+        ? {
+            name: VOCABULARY.drawingDepth.label,
+            says: VOCABULARY.drawingDepth.help,
+            help: undefined,
+          }
+        : STUDIO_TERMS[term];
+    expect(entry, `${term} is a registry term`).toBeDefined();
+    await expect(trigger).toHaveAccessibleName(`What is ${entry.name}?`);
     await trigger.click();
     const pop = page.getByTestId("explain-pop");
     await expect(pop).toHaveAttribute("data-term", term);
-    await expect(pop.getByRole("heading")).toHaveText(STUDIO_TERMS[term].name);
-    await expect(pop.getByTestId("explain-says")).toHaveText(STUDIO_TERMS[term].says);
-    await expect(pop.getByTestId("explain-more")).toBeVisible();
+    await expect(pop.getByRole("heading")).toHaveText(entry.name);
+    await expect(pop.getByTestId("explain-says")).toHaveText(entry.says);
+    if (entry.help) await expect(pop.getByTestId("explain-more")).toBeVisible();
+    else await expect(pop.getByTestId("explain-more")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(pop).toHaveCount(0);
     await expect(trigger).toBeFocused();

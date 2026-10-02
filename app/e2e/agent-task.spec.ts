@@ -3,7 +3,14 @@ import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, openAiSettings, textHook, enterCreateMode } from "./engineProbe.ts";
+import {
+  configureAi,
+  openAiSettings,
+  textHook,
+  enterCreateMode,
+  openWorkspaceAgent,
+  workspaceSaved,
+} from "./engineProbe.ts";
 
 test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a staged remix", async ({
   page,
@@ -36,7 +43,7 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
       await route.fulfill(
         providerReply("openai", {
           id: `task${request}`,
-          usage: { input_tokens: 0, output_tokens: request === 3 ? 120000 : 0 },
+          usage: { input_tokens: 0, output_tokens: request === 3 ? 60000 : 0 },
           output:
             request === 1
               ? [
@@ -82,27 +89,33 @@ test("GPT-6.1 Sol is the new-user default; Stop and budget pauses retain a stage
     await page.getByTestId("btn-resume-cached").click();
     await expect.poll(async () => (await textHook(page)).room).toBe(1);
     await enterCreateMode(page);
-    await page.getByTestId("power-up").click();
+    await openWorkspaceAgent(page);
     await configureAi(page, { provider: "openai", key: "test-placeholder", budget: 1 });
-    await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-    await page.getByTestId("agent-bubble-input").fill("Add sparkle to the vocabulary");
-    await page.getByTestId("agent-bubble-send").click();
+    await openWorkspaceAgent(page);
+    await expect(page.getByTestId("agent-message")).toBeEnabled();
+    await page.getByTestId("agent-message").fill("Add sparkle to the vocabulary");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect.poll(() => requests).toBe(2);
     // UiButton's fine-pointer height is --control-h (40px); touch gets 44px via
     // the pointer:coarse media query.
     expect((await page.getByTestId("agent-stop").boundingBox())!.height).toBeGreaterThanOrEqual(40);
     await page.getByTestId("agent-stop").click();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Stopped");
-    expect((await textHook(page)).paused).toBe(true);
-    await page.screenshot({ path: "test-results/agent-stopped.png" });
+    expect((await textHook(page)).paused).toBe(false);
+    await page.screenshot({ path: test.info().outputPath("agent-stopped.png") });
     release();
     await page.getByTestId("agent-continue").click();
     await expect(page.getByTestId("agent-pause-reason")).toContainText("Budget");
     expect(requests).toBe(3);
-    expect((await page.getByTestId("agent-bubble").boundingBox())!.y).toBeGreaterThanOrEqual(0);
-    await page.screenshot({ path: "test-results/agent-budget.png" });
+    expect(
+      (await page.getByTestId("workspace-agent-panel").boundingBox())!.y,
+    ).toBeGreaterThanOrEqual(0);
+    await page.screenshot({ path: test.info().outputPath("agent-budget.png") });
     await page.getByTestId("agent-continue").click();
-    await expect(page.getByTestId("agent-bubble")).toBeHidden();
+    await expect(page.getByTestId("agent-review")).toBeVisible();
+    await page.getByTestId("agent-approve").click();
+    await expect(page.getByTestId("agent-review")).toHaveCount(0);
+    await workspaceSaved(page);
     const words = await page.evaluate(async () => {
       const path = "/src/project/gameStorage.ts";
       const { listCachedGames, loadAuthoredGame } = await import(path);
@@ -151,7 +164,7 @@ test("unknown spend waits for a request allowance in the real assistant", async 
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   // Simulate a selectable model whose price has not yet been verified.
   const modelModule = `/@fs${new URL("../../src/agent/modelEffort.ts", import.meta.url).pathname}`;
   await page.evaluate(async (path) => {
@@ -159,13 +172,13 @@ test("unknown spend waits for a request allowance in the real assistant", async 
     delete MODEL_CAPABILITIES["gpt-6-sol"].price;
   }, modelModule);
   await configureAi(page, { provider: "openai", model: "gpt-6-sol", key: "placeholder" });
-  await page.getByTestId("agent-bubble-input").fill("Inspect this room.");
-  await page.getByTestId("agent-bubble-send").click();
+  await page.getByTestId("agent-message").fill("Inspect this room.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByTestId("agent-pause-reason")).toContainText("Spend unknown");
   expect(requests).toBe(0);
   await page.getByTestId("agent-request-limit").fill("2");
   await page.screenshot({ path: test.info().outputPath("request-allowance.png") });
   await page.getByTestId("agent-continue").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
   expect(requests).toBe(1);
 });

@@ -199,6 +199,7 @@ onBeforeUnmount(() => {
     :data-term="term"
     @click.stop="toggle"
     @focus="labelled && !returningFocus && show('hover')"
+    @focusout="onFocusOut"
     @pointerenter="onEnter"
     @pointerleave="onLeave"
   >

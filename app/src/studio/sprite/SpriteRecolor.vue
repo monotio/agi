@@ -98,7 +98,7 @@ function apply(): void {
   // stays in the popover, on the From colour, rather than dropping out of Studio.
   void nextTick(() =>
     root.value
-      ?.querySelector<HTMLElement>('[data-testid="actor-recolor-from"] [tabindex="0"]')
+      ?.querySelector<HTMLElement>('[aria-labelledby="sprite-recolor-from"] [tabindex="0"]')
       ?.focus(),
   );
 }

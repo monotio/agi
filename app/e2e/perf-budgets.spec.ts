@@ -1,6 +1,13 @@
 import { expect, test } from "./test.ts";
-import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, waitForRoom, openWorldRoom } from "./engineProbe.ts";
+import type { Page } from "@playwright/test";
+import type { ProjectSession } from "../src/project/projectSession.ts";
+import {
+  isolateStorage,
+  waitForRoom,
+  openWorkspacePicture,
+  openWorkspaceView,
+  workspaceSaved,
+} from "./engineProbe.ts";
 
 /**
  * Interaction budgets on the real app, measured in the page with the
@@ -134,6 +141,16 @@ async function playTutorial(page: Page): Promise<void> {
   await waitForRoom(page, 1, { coldBoot: true });
 }
 
+async function historyCommits(page: Page): Promise<number> {
+  const count = await page.evaluate(
+    () =>
+      (window as unknown as { __AGI_PROJECT__: { getSession(): ProjectSession } }).__AGI_PROJECT__
+        .getSession()
+        .capture().history.commits.length,
+  );
+  return count;
+}
+
 /** Press at `from`, move one step per animation frame to `to`, release. */
 async function dragPerFrame(
   page: Page,
@@ -182,14 +199,11 @@ test(
   PERF,
   async ({ page }) => {
     await playTutorial(page);
-    await enterCreateMode(page);
-    const panel = page.getByTestId("world-panel");
-    await openWorldRoom(panel, 1);
-    await panel.getByTestId("world-open-studio").click();
-    const studio = page.getByTestId("room-studio");
-    await expect(studio).toBeVisible();
+    const studio = await openWorkspacePicture(page, 1);
     await studio.getByRole("searchbox", { name: "Filter items" }).fill("Marble bust");
     await studio.locator('[role="treeitem"][data-row]').first().click();
+    await page.getByTestId("workspace-focus").click();
+    await expect(page.getByTestId("workspace-focus")).toHaveAttribute("aria-pressed", "true");
     // The bust is painted over the finished room, so it moves without changing
     // another item's art: from its chest (sceneArt.ts) 30 px across the floor.
     const pane = page.locator(".studio-pane").last();
@@ -199,11 +213,13 @@ test(
       box.x + (x + 0.5) * 2 * zoom,
       box.y + (y + 0.5) * zoom,
     ];
+    const commits = await historyCommits(page);
     await startWindow(page);
     await dragPerFrame(page, cell(8, 112), cell(38, 108), 60);
     const sample = await endWindow(page);
     report("studio-drag", sample);
-    await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+    await workspaceSaved(page);
+    expect(await historyCommits(page)).toBe(commits + 1);
     expect(sample.frames).toBeGreaterThanOrEqual(60);
     // Measured: p95 16.8 ms (every frame on time), slowest event 16–32 ms.
     expect(sample.frameP95, "p95 frame interval while dragging (ms)").toBeLessThan(50);
@@ -211,30 +227,15 @@ test(
   },
 );
 
-async function openApprentice(page: Page): Promise<Locator> {
-  await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-sprite-0").click();
-  const studio = page.getByTestId("sprite-studio");
-  await expect(studio).toBeVisible();
-  return studio;
-}
-
 test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ page }) => {
   await playTutorial(page);
-  const studio = await openApprentice(page);
-  await studio.locator('[data-colour="4"]').click();
+  const studio = await openWorkspaceView(page, 0, false);
+  await studio.locator('.sprite-workspace-palette [data-colour="4"]').click();
   await studio.locator('[data-loop="0"][data-cel="0"]').click();
   const canvas = studio.getByTestId("sprite-canvas");
-  const box = (await canvas.boundingBox())!;
   const width = Number(await canvas.getAttribute("data-width"));
   const height = Number(await canvas.getAttribute("data-height"));
-  const zoom = Number(await canvas.getAttribute("data-zoom"));
-  const cell = (x: number, y: number): [number, number] => [
-    box.x + (x + 0.5) * 2 * zoom,
-    box.y + (y + 0.5) * zoom,
-  ];
+  const commits = await historyCommits(page);
   await startWindow(page);
   // Four strokes across the cel: two rows, a column, a diagonal.
   const strokes: [[number, number], [number, number]][] = [
@@ -255,11 +256,20 @@ test("pencil strokes in Sprite Studio keep frames responsive", PERF, async ({ pa
       [width - 1, height - 1],
     ],
   ];
-  for (const [from, to] of strokes) await dragPerFrame(page, cell(...from), cell(...to), 20);
+  for (const [from, to] of strokes) {
+    const box = (await canvas.boundingBox())!;
+    const zoom = Number(await canvas.getAttribute("data-zoom"));
+    const cell = (x: number, y: number): [number, number] => [
+      box.x + (x + 0.5) * 2 * zoom,
+      box.y + (y + 0.5) * zoom,
+    ];
+    await dragPerFrame(page, cell(...from), cell(...to), 20);
+  }
   const sample = await endWindow(page);
   report("sprite-pencil", sample);
   // Each stroke is one undo step.
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("4 changes");
+  await workspaceSaved(page);
+  expect(await historyCommits(page)).toBe(commits + 4);
   expect(sample.frames).toBeGreaterThanOrEqual(80);
   // Measured: p95 16.7 ms (every frame on time), slowest event 24 ms.
   expect(sample.frameP95, "p95 frame interval while drawing (ms)").toBeLessThan(50);

@@ -9,12 +9,52 @@ import { openProjectSession } from "../src/project/projectSession.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { createContainer } from "../../src/container/container.ts";
+import { assembleLogic } from "../../src/logic/assembler.ts";
+import { buildWordsTok } from "../../src/logic/words.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
 import type { UnifiedConversation, LlmTurnResult } from "../src/agent/llmClient.ts";
 import { wordsTaskReply } from "../src/studio/workspace/wordsAgent.ts";
 
 let seq = 0;
-function fixture(chats?: AgentChats, roomGeneration = true) {
+test("offline editing reads native vocabulary and changes the attached room", async () => {
+  const { session } = fixture();
+  await session.submit({
+    proposal: session.model.propose(session.model.capture(), "Native room", [
+      {
+        key: "logic:1",
+        content: assembleLogic('if (said(2)) { print("Original response"); } return;', {
+          dictionary: new Map(),
+        }).payload,
+      },
+      { key: "words", content: buildWordsTok([{ word: "look", id: 2 }]) },
+    ]),
+    label: "Native room",
+    origin: "logic",
+    author: "creator",
+  });
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "stub", model: "stub", apiKey: "" }),
+  });
+  await agent.send("Typing look at sign should describe it.", "Current room 1");
+  const changes = agent.pending()!.changes();
+  assert.match(
+    String(changes.find((change) => change.key === "logic:1")?.content),
+    /Original response/,
+  );
+  assert.match(
+    String(changes.find((change) => change.key === "logic:1")?.content),
+    /said\("look", "sign"\)/,
+  );
+  assert.ok(
+    JSON.parse(String(changes.find((change) => change.key === "words")?.content)).some(
+      ([word]: [string, number]) => word === "sign",
+    ),
+  );
+  session.dispose();
+});
+function fixture(chats?: AgentChats, roomGeneration = true, admissionGate?: () => Promise<void>) {
   const documents = {
     "logic:0": "return;",
     "picture:1": "vis 1\nfill 0,0\nend\n",
@@ -40,6 +80,7 @@ function fixture(chats?: AgentChats, roomGeneration = true) {
     admission: {
       runToken: "test",
       async admit() {
+        await admissionGate?.();
         return { status: "committed", expected: null, current: null, patchGeneration: 1 };
       },
     },
@@ -726,8 +767,22 @@ test("imported projects require complete room references before offering an agen
   session.dispose();
 });
 
-test("model settings preserve the owned project writer and current editor documents", async () => {
-  const { session } = fixture();
+test("settings, recordings and successive plan edits retain the owned writer and editor documents", async () => {
+  let holding = false;
+  let release!: () => void;
+  let entered!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const admission = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const { session } = fixture(undefined, true, async () => {
+    if (holding) {
+      entered();
+      await blocked;
+    }
+  });
   const files = Object.fromEntries(session.model.capture().lastAdmissibleBuild!.files());
   const game: BootedGame = {
     installed: false,
@@ -786,6 +841,50 @@ test("model settings preserve the owned project writer and current editor docume
     "settings must use the owned writer instead of a parallel storage write",
   );
   assert.equal(state.powerUp.error, "");
+  assert.equal(
+    session.model.capture().read("logic:0")!.content,
+    'print("Current typing"); return;',
+  );
+  const author = controller.getSession()!;
+  const tests = new TextEncoder().encode('{"format":"monotio.agi.tests.v1","tests":[]}');
+  await controller.commitTestsFile(game, author, tests);
+  assert.equal(session.model.capture().read("tests")!.content, new TextDecoder().decode(tests));
+  assert.equal(session.history.capture().commits.at(-1)!.label, "Recorded test");
+  const exported = controller.assembleExportData(
+    {
+      projectId: game.projectId!,
+      title: game.title,
+      authoredAt: "",
+      files,
+      words: game.words,
+    },
+    game,
+    author,
+    files,
+  );
+  assert.deepEqual(exported.files["TESTS.JSON"], tests);
+  const { refreshProjectAgent } = await import("../src/agent/projectTurn.ts");
+  refreshProjectAgent(session, author.state, "2.936");
+  holding = true;
+  author.state.authoring.world.rooms["2"] = {
+    title: "The Gallery",
+    description: "A long hall with a locked door.",
+    exits: {},
+  };
+  const nameSaved = controller.persistSessionState();
+  await Promise.race([
+    admission,
+    nameSaved.then(() => assert.fail("Plan edit waits for admission")),
+  ]);
+  author.state.authoring.world.rooms["2"]!.description = "A long gallery of portraits.";
+  const briefSaved = controller.persistSessionState();
+  refreshProjectAgent(session, author.state, "2.936");
+  release();
+  const saved = await Promise.all([nameSaved, briefSaved]);
+  const world = JSON.parse(String(session.model.capture().read("world")!.content));
+  assert.equal(world.rooms["2"]?.title, "The Gallery");
+  assert.equal(world.rooms["2"]?.description, "A long gallery of portraits.");
+  assert.equal(saved[1], true, "the latest plan edit is durable");
   assert.equal(
     session.model.capture().read("logic:0")!.content,
     'print("Current typing"); return;',

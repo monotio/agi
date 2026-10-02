@@ -83,7 +83,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await page.getByTestId("catalog-play-adventure-department").click();
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
-  await page.getByTestId("connect-assistant-ai").click();
+  await page.locator(".agent-panel__model").click();
   const remixKeyLink = dialog.getByRole("link", { name: "Get an API key" });
   await expect(remixKeyLink).toHaveAttribute("href", "https://platform.openai.com/api-keys");
   await dialog.getByTestId("provider-select").selectOption("anthropic");

@@ -299,7 +299,7 @@ for (const missingBody of [false, true]) {
   );
 }
 
-test("the offline tutorial has a generated thumbnail and fits a phone", async ({ page }) => {
+test("the offline tutorial has a cached thumbnail and fits a phone", async ({ page }) => {
   let providerCalls = 0;
   await page.route("**/api/**", (route) => {
     providerCalls++;
@@ -310,7 +310,7 @@ test("the offline tutorial has a generated thumbnail and fits a phone", async ({
   await page.goto("/");
   const card = page.getByTestId("catalog-adventure-department");
   await expect(card).toBeVisible();
-  await expect(card.getByRole("img")).toHaveAttribute("src", /^data:image\/png/);
+  await expect(card.getByRole("img")).toHaveAttribute("src", "catalog/adventure-department.png");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath("game-library-phone.png"), fullPage: true });
   await page.getByTestId("catalog-play-adventure-department").click();
@@ -373,9 +373,11 @@ test("the first catalog edit forks a remix and preserves the original", async ({
   await enterCreateMode(page);
   await openWorkspaceAgent(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await page.getByTestId("agent-bubble-input").fill("Rename the picture gallery");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await page.getByTestId("agent-message").fill("Rename the picture gallery");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect.poll(() => requests).toBe(2);
   const after = await page.evaluate(async (originalProjectId) => {
     const storage = await import("/src/project/gameStorage.ts");
