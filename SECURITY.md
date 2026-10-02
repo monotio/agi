@@ -60,10 +60,9 @@ Report through [GitHub private vulnerability reporting](https://github.com/monot
 impact and a small reproduction. Keep API keys and private game transcripts out
 of reports. Security concerns belong in this private channel.
 
-Maintainers aim to acknowledge reports within seven days and provide an initial
-assessment within fourteen days. These are response targets for a volunteer
-project. We coordinate a fix and disclosure with the reporter and share progress
-in the private report.
+This is a personal project maintained on a best-effort basis, without a
+guaranteed response time. Reports are read, and fixes and disclosure are
+coordinated with the reporter in the private report.
 
 ## Release controls
 

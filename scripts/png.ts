@@ -8,7 +8,7 @@
 import { deflateSync, inflateSync } from "node:zlib";
 
 /** The authentic 16-colour EGA palette, RGB. */
-const EGA_RGB: readonly [number, number, number][] = [
+export const EGA_RGB: readonly [number, number, number][] = [
   [0x00, 0x00, 0x00],
   [0x00, 0x00, 0xaa],
   [0x00, 0xaa, 0x00],
