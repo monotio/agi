@@ -787,8 +787,10 @@ defineExpose({
           data-testid="game-keys"
           @click="focusInput"
         >
-          <span class="led" aria-hidden="true"></span
-          >{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}
+          <span class="led" aria-hidden="true"></span>
+          <span class="keys-led-label">
+            <span>{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}</span>
+          </span>
         </button>
         <p
           id="game-input-help"
@@ -1101,6 +1103,18 @@ defineExpose({
   font: inherit;
   white-space: nowrap;
   cursor: pointer;
+}
+/* Reserve the widest label so focus cannot reflow the strip during a click. */
+.keys-led-label {
+  display: grid;
+}
+.keys-led-label > span,
+.keys-led-label::after {
+  grid-area: 1 / 1;
+}
+.keys-led-label::after {
+  content: "Click the game to play";
+  visibility: hidden;
 }
 .keys-led:hover {
   color: var(--ink);
