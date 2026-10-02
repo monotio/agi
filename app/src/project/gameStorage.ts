@@ -1,4 +1,10 @@
 import { readAgentChats, appendAgentTasks, type AgentChat } from "../../../src/agent/chats.ts";
+import {
+  encodeJournalValue,
+  journalCandidate,
+  type ProjectJournalCapture,
+} from "./projectJournalCapture.ts";
+import { resumeProjectSaveJournals } from "./projectSaveJournal.ts";
 import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
 import {
   readProjectWorkspace,
@@ -14,6 +20,7 @@ import {
   gameRevision,
   isLocalGamePreview,
   normalizeLibraryMetadata,
+  projectCommitLibrary,
   type LibraryMetadata,
 } from "./gameMetadata.ts";
 /**
@@ -972,21 +979,10 @@ async function stampLibraryMetadata(
   const previous = data.library;
   if (protectCatalog && previous?.source === "catalog" && previous.revision !== revision)
     throw new Error("Catalog resources are immutable. Create a remix before changing them.");
-  const next = normalizeLibraryMetadata(previous, {
+  const merged = projectCommitLibrary(previous, {
     revision,
     source: data.imported ? "zip" : "authored",
   });
-  next.revision = revision;
-  if (!previous || previous.revision !== revision) {
-    next.validation = previous
-      ? {
-          status: "unverified",
-          message: "Resources changed. Check the opening again to refresh its preview.",
-        }
-      : { status: "unverified", message: "Ready to check." };
-  }
-  const merged = { ...previous, ...next };
-  if (!previous || previous.revision !== revision) delete merged.preview;
   const changed = JSON.stringify(previous) !== JSON.stringify(merged);
   data.library = merged;
   return changed;
@@ -1097,6 +1093,7 @@ export interface ProjectCommitReceipt {
   readonly commitId: string;
   readonly workspaceId: string;
   readonly candidateHash: string;
+  readonly journalHash?: string;
   readonly documents: readonly { readonly key: string; readonly version: number }[];
   readonly saved: CommittedProjectIdentity;
   /** Exact durable History acknowledged by this receipt. */
@@ -1141,7 +1138,10 @@ function commitContent(value: unknown): unknown {
  * Candidate metadata accepts finite JSON values, undefined and Uint8Array bytes;
  * other structured-clone types are rejected before storage.
  */
-export async function commitProject(input: ProjectCommitRequest): Promise<{
+export async function commitProject(
+  input: ProjectCommitRequest,
+  journalHash?: string,
+): Promise<{
   receipt: ProjectCommitReceipt;
   warnings: readonly "indexRepairPending"[];
 }> {
@@ -1247,6 +1247,7 @@ export async function commitProject(input: ProjectCommitRequest): Promise<{
               commitId: request.commitId,
               workspaceId: request.workspaceId,
               candidateHash,
+              ...(journalHash === undefined ? {} : { journalHash }),
               ...(history !== undefined
                 ? {
                     history: {
@@ -1418,14 +1419,78 @@ export function runInWriteTurn<T>(
     return Promise.reject(new Error("This write turn is closed or was issued for another queue."));
   return operation();
 }
+async function recoverProjectJournal(
+  capture: ProjectJournalCapture,
+): Promise<{ receipt: ProjectCommitReceipt }> {
+  const { hash, ...intent } = capture;
+  if (sha256Hex(new TextEncoder().encode(JSON.stringify(encodeJournalValue(intent)))) !== hash)
+    throw new Error("Invalid pending project write identity.");
+  const base = await serializeWrite(capture.base.projectId, async () => {
+    const rows = await readBodyRecordSet([
+      `commit/${capture.identity.projectId}/${capture.identity.commitId}`,
+      `lifetime/${capture.identity.projectId}`,
+    ]);
+    const committed = rows.get(
+      `commit/${capture.identity.projectId}/${capture.identity.commitId}`,
+    ) as StoredProjectCommit | undefined;
+    if (committed !== undefined) {
+      if (committed.format !== "monotio.agi.project-commit" || committed.version !== 1)
+        throw new Error("This project commit version is not supported by this app.");
+      if (
+        liveLifetime(rows.get(`lifetime/${capture.identity.projectId}`) as HistoryLifetime) !==
+        committed.receipt.saved.lifetime
+      )
+        throw new ProjectDeletedError(
+          "This commit belongs to a removed or replaced project lifetime.",
+        );
+      if (committed.receipt.journalHash !== capture.hash)
+        throw new Error("This commit ID was reused for a different candidate.");
+      return { receipt: committed.receipt };
+    }
+    let lifetime: string | null = null;
+    const data = await readBody(capture.base.projectId, (value) => {
+      lifetime = value;
+    });
+    if (data === null || lifetime !== capture.base.lifetime)
+      throw new ProjectDeletedError("This project was removed or replaced by another window.");
+    if (
+      (data.generation ?? 0) !== capture.base.generation ||
+      data.library?.revision !== capture.base.revision ||
+      authoringFingerprint(data.authoringState, data.workspace) !== capture.base.authoring
+    )
+      throw new ConcurrencyConflictError(
+        "This project was modified by another window.",
+        storedBody(data),
+      );
+    return { data };
+  });
+  if ("receipt" in base) return { receipt: base.receipt! };
+  const { rebuildProjectJournal } = await import("./projectSessionCore.ts");
+  const rebuilt = await rebuildProjectJournal(base.data!, capture, {
+    commit: commitProject,
+    fingerprint: authoringFingerprint,
+  });
+  return commitProject(journalCandidate(capture, rebuilt), capture.hash);
+}
+
 export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGameData | null> {
+  const recovery =
+    typeof localStorage === "undefined"
+      ? undefined
+      : resumeProjectSaveJournals(localStorage, projectId, commitProject, recoverProjectJournal);
+  if (recovery !== undefined) await recovery;
   return serializeWrite(projectId, () => readBody(projectId));
 }
 
 /** Body and lifetime are read from one snapshot before a worker can start. */
-export function loadAuthoredGameWithHistoryLifetime(
+export async function loadAuthoredGameWithHistoryLifetime(
   projectId: ProjectId,
 ): Promise<{ data: CachedGameData; lifetime: string | null } | null> {
+  const recovery =
+    typeof localStorage === "undefined"
+      ? undefined
+      : resumeProjectSaveJournals(localStorage, projectId, commitProject, recoverProjectJournal);
+  if (recovery !== undefined) await recovery;
   return serializeWrite(projectId, async () => {
     let lifetime: string | null = null;
     const data = await readBody(projectId, (value) => {

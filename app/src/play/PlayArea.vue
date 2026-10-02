@@ -135,7 +135,7 @@ watch(
   (phase) => {
     if (phase === "running" && !props.touchControls) {
       nextTick(() => {
-        inputEl.value?.focus({ preventScroll: true });
+        claimGameFocus();
       });
     }
   },
@@ -263,6 +263,11 @@ function sendScreenClick(ev: MouseEvent): void {
 
 function focusInput(): void {
   inputEl.value?.focus({ preventScroll: true });
+}
+
+/** A late-loaded surface respects the control the player already chose. */
+function claimGameFocus(): void {
+  if (document.activeElement === document.body) focusInput();
 }
 
 function triggerKey(code: number): void {
@@ -571,7 +576,7 @@ function onSplitUp(): void {
 
 onMounted(() => {
   void presentation.initStage(props.crtEnabled);
-  if (!props.touchControls) nextTick(focusInput);
+  if (!props.touchControls) nextTick(claimGameFocus);
   // Callers close whatever held the keyboard first (the assistant, a sheet);
   // the input re-enables on the next render, so focus lands after it.
   bridge.focusGameInput = () => void nextTick(focusInput);
