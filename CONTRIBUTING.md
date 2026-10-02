@@ -119,9 +119,39 @@ each requested script carries. Separately,
 `app/e2e/perf-budgets.spec.ts` bounds boot long tasks and editor frame and input
 times. Its tests are tagged `@perf`: `npm --prefix app run e2e` leaves them out,
 and `npm --prefix app run e2e:perf` runs them alone on one worker, so no other
-test shares the machine they measure; CI runs them after the first of its four
-Chromium shards. Change a budget only on purpose: edit it beside its measured
-value and give the reason in the commit.
+test shares the machine they measure; CI gives them a separate Linux job.
+Change a budget only on purpose: edit it beside its measured value and give the
+reason in the commit.
+
+### CI verification
+
+Before pushing a code change, run `npm run check` and the affected browser specs.
+Push a development branch covered by the CI workflow for the Linux verdict;
+local browser results establish behavior on your local platform. CI runs on
+`main`, `lane/**`, `rc/**` and pull requests. A push with an open pull request
+leaves the full run to that pull request. New pushes cancel older runs for the
+same ref.
+
+| CI job                       | Coverage                                                                                                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prepare CI                   | Changed-file classification, CI helper tests and one installation of both package roots, cached by lockfiles                                                                                       |
+| Static checks and unit tests | Full `npm run check`, including offline eval replay                                                                                                                                                |
+| Build production artifact    | One production build, bundle boundaries and budgets, site and chunk-graph artifacts                                                                                                                |
+| Playwright                   | Ten Chromium shards and three tagged WebKit desktop shards balanced by measured spec durations, WebKit phone, and separate jobs for timing budgets and the storage benchmark, each with one worker |
+| Production browser           | Chromium and WebKit against the shared production artifact                                                                                                                                         |
+| PR burn-in                   | Each added or changed spec repeated five times in Chromium; tagged desktop tests also in WebKit; changed production specs in both engines                                                          |
+| Nightly browser burn-in      | Every browser suite repeated three times; one issue records tests with both passing and failing attempts                                                                                           |
+
+The required contexts stay `Typecheck, lint, unit tests, build`,
+`Playwright (play, remix and export)` and the repository-managed `CodeQL`.
+The first two aggregate their jobs and fail if an applicable job fails. Changes
+confined to Markdown or documentation assets skip browser jobs and development
+branch builds; required CI contexts still report success after the standard
+gate. Main builds and publishes each checked commit. Capture code
+under `docs/` still runs the browsers. CodeQL keeps its repository-managed policy.
+Browser JSON reports and failure traces are retained as run artifacts. See
+[CI browser checks](docs/testing.md#ci-browser-checks) for worker counts and
+repeat-run commands.
 
 ### Editor setup
 

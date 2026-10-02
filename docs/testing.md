@@ -238,6 +238,58 @@ regression assertions belong in the test suite, gated by fixture availability.
 Keep captured saves, game resources, disassemblies, screenshots and transcripts
 with local fixtures.
 
+### CI browser checks
+
+Run `npm run check` and the affected specs locally, then push a branch covered by
+CI for the Linux verdict. CI prints `nproc` and memory and uses two
+ordinary Playwright workers per job. Performance budgets and the CPU-throttled
+storage benchmark run alone on one worker; production tests also keep one
+worker. Retries stay at zero so every failure is visible.
+
+The Chromium suite is split into ten spec groups using measured durations in
+`scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
+Tagged WebKit desktop tests use three groups and `scripts/ci/webkit-durations.json`.
+Every run discovers the current specs through Playwright; new specs receive the
+median measured weight. The longest specs are
+assigned first to the lightest group. JSON report artifacts retain per-test
+durations for rebalancing. Each spec runs in exactly one group with every test
+selected by the ordinary suite configuration. The benchmark remains part of
+the required browser gate and nightly repetitions. Timing budgets and
+storage each have their own job, with timing tests first after runner setup.
+The suite matrix runs at most 15 jobs at once; PR burn-in runs one browser job
+at a time. Together with quality and the two production browsers, this uses
+at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
+
+CI installs the two package roots once and restores the resulting dependency
+cache in test and build jobs. The production build and chunk graph are shared
+with both production browser jobs. Playwright browser caches use the browser,
+version and runner OS; apt archives are cached too, while system dependencies
+are installed on each fresh runner.
+
+Pull requests repeat added or changed specs five times. Chromium covers their
+ordinary tests and, in an isolated run, their timing tests. WebKit covers their
+`@webkit-desktop` tests. Changed production specs run in both engines. Reproduce
+with `npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=5` or
+`npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts --repeat-each=5`.
+
+Repeat the storage benchmark with
+`npm --prefix app run e2e -- e2e/history-bench.spec.ts --repeat-each=5 --workers=1`.
+Selection and reporting helpers have their own regression tests:
+`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/ci -p 'test_*.py'`.
+
+At 03:17 UTC each night, the full Chromium, WebKit phone, WebKit desktop,
+performance and production suites run with `--repeat-each=3`. The report job
+creates or updates the single **Nightly browser flakes** issue when a test has
+both passing and failing attempts, with counts and the run link. Consistent
+failures remain failures in the run. Only that report job has `issues: write`.
+
+Markdown and documentation asset changes skip browsers and development branch
+builds while the standard gate runs and the required CI contexts complete.
+Main builds and publishes each checked commit. Documentation capture
+code runs the full browser checks. The required browser context also includes
+the PR burn-in when changed specs exist. See the
+[CI job coverage](../CONTRIBUTING.md#ci-verification) for the complete gate.
+
 ### Input and phone checks
 
 Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
