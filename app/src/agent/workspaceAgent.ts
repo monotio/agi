@@ -4,6 +4,7 @@ import {
   createAnthropicConversation,
   createOpenAiConversation,
   LlmResponseError,
+  LlmRefusalError,
   type LlmConfig,
   type UnifiedConversation,
 } from "./llmClient.ts";
@@ -16,6 +17,14 @@ import {
 } from "../../../src/agent/tools.ts";
 import { referenceManifest } from "../../../src/agent/referenceTools.ts";
 import { captureAgentWorkspace } from "../../../src/authoring/projectAgentCandidate.ts";
+import { compileProjectDocuments } from "../../../src/authoring/projectDocuments.ts";
+import { ProjectModel } from "../../../src/authoring/projectModel.ts";
+import { diffProjectDocuments } from "../../../src/authoring/projectContent.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../../src/authoring/projectWorkspace.ts";
+import { sha256Hex } from "../../../src/crypto.ts";
 import { ProjectDraft } from "../../../src/authoring/projectDraft.ts";
 import { validateToolArguments } from "../../../src/agent/schemaValidate.ts";
 import type { ProjectChange } from "../../../src/authoring/projectContent.ts";
@@ -52,6 +61,7 @@ interface Options {
     transcript: unknown[],
     run: AgentRun,
     catalog?: readonly ToolDefinition[],
+    sessionId?: string,
   ) => UnifiedConversation;
   readonly runtime?: () => AgentRuntimeDeps;
   readonly changed?: () => void;
@@ -61,11 +71,12 @@ function conversation(
   transcript: unknown[],
   run: AgentRun,
   catalog: readonly ToolDefinition[] = WORKSPACE_AGENT_TOOLS,
+  sessionId?: string,
 ): UnifiedConversation {
   if (config.provider === "openai")
-    return createOpenAiConversation(config, transcript, undefined, run, catalog);
+    return createOpenAiConversation(config, transcript, sessionId, run, catalog);
   if (config.provider === "anthropic")
-    return createAnthropicConversation(config, transcript, run, catalog);
+    return createAnthropicConversation(config, transcript, run, catalog, sessionId);
   return stubConversation(transcript);
 }
 /** Offline authoring uses real validation and admission, with a deterministic resource edit. */
@@ -193,6 +204,9 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
       transcript.push({ role: "assistant", text });
       return { text, toolCalls: [] };
     },
+    recordInterruption(text) {
+      transcript.push({ role: "user", text });
+    },
     getTranscript() {
       return structuredClone(transcript);
     },
@@ -213,11 +227,56 @@ export function createWorkspaceAgent(options: Options) {
   const store = session.chats();
   let review: AgentReview | null = null;
   const reviews = new Map<string, AgentReview>();
+  for (const chat of store.chats) {
+    const pending = chat.pendingReview;
+    if (!pending) continue;
+    const currentImage = session.model.capture().lastAdmissibleBuild!;
+    const files = Object.fromEntries(currentImage.files());
+    let invalidBase = false;
+    let build;
+    try {
+      build = compileProjectDocuments({
+        files,
+        documents: readProjectWorkspace(pending.baseImage ?? pending.base),
+        profileId: options.profileId,
+      });
+    } catch {
+      invalidBase = true;
+      build = compileProjectDocuments({
+        files,
+        documents: currentImage.documents(),
+        profileId: options.profileId,
+      });
+    }
+    const model = new ProjectModel({
+      documents: readProjectWorkspace(pending.base),
+      digest: sha256Hex,
+      build,
+    });
+    const base = model.capture();
+    const proposal = model.propose(
+      base,
+      pending.label,
+      diffProjectDocuments(base.documents(), readProjectWorkspace(pending.candidate)),
+    );
+    reviews.set(chat.id, {
+      proposal,
+      chatId: chat.id,
+      messageId: pending.messageId,
+      changes: () => proposal.changes(),
+      stale: () =>
+        invalidBase ||
+        session.model.capture().documentId !== pending.baseDocumentId ||
+        session.history.capture().cursor !== pending.baseCommit,
+    });
+  }
+  review = store.active === null ? null : (reviews.get(store.active) ?? null);
   let activeRun: AgentRun | null = null;
   let autoApprove = false;
   let error = "";
   let busy = false;
   let applying = false;
+  let actionQueue: string[] | null = null;
   const progress: string[] = [];
   const observers = new Set<() => void>();
   const knownChats = new Set(store.chats.map((chat) => chat.id));
@@ -238,6 +297,26 @@ export function createWorkspaceAgent(options: Options) {
     await session.saveChats(store);
     notify();
   };
+  function action(chat: AgentChat, decision: string, details: Record<string, unknown> = {}) {
+    const snapshot = session.model.capture();
+    const text = JSON.stringify({
+      format: "monotio.agi.user-action",
+      version: 1,
+      decision,
+      resultingRevision: {
+        documentId: snapshot.documentId,
+        revision: snapshot.revision,
+        commit: session.history.capture().cursor,
+      },
+      ...details,
+    });
+    if (actionQueue !== null && busy) actionQueue.push(text);
+    else
+      chat.transcript.push({
+        role: "user",
+        ...(chat.provider === "stub" ? { text } : { content: text }),
+      });
+  }
   function newChat(title = "New chat", background = false): AgentChat {
     if ((busy || applying) && !background)
       throw new Error("Finish the current task before starting a chat.");
@@ -249,6 +328,7 @@ export function createWorkspaceAgent(options: Options) {
       model: config.model,
       transcript: [],
       messages: [],
+      sessionId: crypto.randomUUID(),
       ...(background ? { background: true } : {}),
     };
     knownChats.add(chat.id);
@@ -272,6 +352,10 @@ export function createWorkspaceAgent(options: Options) {
   function current(): AgentChat {
     return structuredClone(store.chats.find((chat) => chat.id === store.active)!);
   }
+  function assertLive() {
+    activeRun?.assertActive();
+    if (session.closed) throw new Error("The project session was closed.");
+  }
   async function approve(keys?: readonly string[]) {
     const approving = review;
     if (approving === null || applying) return;
@@ -287,7 +371,7 @@ export function createWorkspaceAgent(options: Options) {
         .filter((change) => keys === undefined || keys.includes(change.key));
       if (changes.length === 0) throw new Error("Select a change to approve.");
       const proposal = session.model.propose(
-        approving.proposal.base,
+        session.model.capture(),
         approving.proposal.label,
         changes,
       );
@@ -301,8 +385,10 @@ export function createWorkspaceAgent(options: Options) {
       });
       ws.propose("Validate selection", []);
       const before = session.history.capture().cursor!;
+      assertLive();
       const result = await session.submit({
         proposal,
+        beforeCommit: assertLive,
         label: `AI: ${proposal.label}`,
         origin: "agent",
         author: "agent",
@@ -316,6 +402,11 @@ export function createWorkspaceAgent(options: Options) {
       chat.messages = chat.messages.map((message) =>
         message.id === approving.messageId ? { ...message, beforeCommit: before, commit } : message,
       );
+      action(chat, "approve", {
+        resources: changes.map((change) => change.key),
+        outcome: result.status,
+      });
+      delete chat.pendingReview;
       reviews.delete(approving.chatId);
       if (review === approving) review = null;
       await save();
@@ -378,7 +469,17 @@ export function createWorkspaceAgent(options: Options) {
     if (chat.title === "New chat") chat.title = chatTitle(instruction);
     const make = options.conversation ?? conversation;
     let provider: UnifiedConversation | undefined;
+    let unreported: { toolCallId: string; result: AgentToolResult }[] = [];
+    actionQueue = [];
+    const persisted: { resources: readonly string[]; documentId: string; commit: string | null }[] =
+      [];
+    const touched = new Set<string>();
+    function flushActions() {
+      for (const text of actionQueue ?? []) provider?.recordInterruption?.(text);
+      actionQueue = [];
+    }
     async function offer(text: string) {
+      assertLive();
       const offered = driver.pending();
       const native = staged?.finish(chatTitle(instruction), offered?.changes() ?? []);
       const combined = new Map(
@@ -397,18 +498,38 @@ export function createWorkspaceAgent(options: Options) {
       );
       const messageId = id();
       chat.messages.push({ id: messageId, role: "assistant", text: text || proposal.label });
-      const capturedRevision = base.revision;
+      const capturedDocumentId = base.documentId;
+      const capturedCommit = session.history.capture().cursor!;
+      chat.pendingReview = {
+        label: proposal.label,
+        messageId,
+        baseRevision: base.revision,
+        baseDocumentId: base.documentId,
+        baseCommit: capturedCommit,
+        base: writeProjectWorkspace(base.documents()),
+        baseImage: writeProjectWorkspace(base.lastAdmissibleBuild!.documents()),
+        candidate: writeProjectWorkspace(proposal.documents()),
+      };
       review = {
         proposal,
         chatId: chat.id,
         messageId,
         changes: () => proposal.changes(),
-        stale: () => session.model.capture().revision !== capturedRevision,
+        stale: () =>
+          session.model.capture().documentId !== capturedDocumentId ||
+          session.history.capture().cursor !== capturedCommit,
       };
       reviews.set(chat.id, review);
       notify();
+      assertLive();
       if ((autoApprove || automatic) && !review.stale()) {
         await approve();
+        persisted.push({
+          resources: changes.map((change) => change.key),
+          documentId: session.model.capture().documentId,
+          commit: session.history.capture().cursor,
+        });
+        touched.clear();
         base = session.model.capture();
         workspace = captureAgentWorkspace({
           draft: new ProjectDraft(base.documents()),
@@ -448,7 +569,8 @@ export function createWorkspaceAgent(options: Options) {
           chat.summary = handoff.text;
           initial = [{ role: "user", content: `Task summary:\n${chat.summary}` }];
         }
-        provider = make(config, initial, run);
+        chat.sessionId ??= crypto.randomUUID();
+        provider = make(config, initial, run, WORKSPACE_AGENT_TOOLS, chat.sessionId);
         const runtime = options.runtime?.() ?? {};
         const references = (await runtime.referenceArt?.([])) ?? runtime.references;
         const allowedTools = withReferences(
@@ -468,7 +590,8 @@ export function createWorkspaceAgent(options: Options) {
         while (true) {
           await run.checkpoint();
           if (session.closed) throw new Error("The project session was closed.");
-          if (turn.usage) run.recordUsage(turn.usage);
+          for (const message of turn.assistantMessages ?? [])
+            if (message.phase === "commentary" && message.text) progress.push(message.text);
           if (turn.text) {
             progress.push(
               turn.toolCalls.length === 0 && formatReply ? formatReply(turn.text).text : turn.text,
@@ -476,12 +599,14 @@ export function createWorkspaceAgent(options: Options) {
             notify();
           }
           if (turn.toolCalls.length === 0) break;
-          const results = [];
+          const results = unreported;
           for (const call of turn.toolCalls) {
             progress.push(
               VOCABULARY_ACTIONS[call.name as keyof typeof VOCABULARY_ACTIONS]?.label ?? call.name,
             );
             notify();
+            await run.checkpoint(false);
+            assertLive();
             let result: AgentToolResult;
             try {
               const definition = WORKSPACE_AGENT_TOOLS.find((tool) => tool.name === call.name);
@@ -490,6 +615,7 @@ export function createWorkspaceAgent(options: Options) {
               const problems = validateToolArguments(definition.parameters, call.input);
               if (problems.length) throw new Error(problems.join(" "));
               if (call.name === "write_notes") {
+                touched.add("notes");
                 notes =
                   [
                     ...new Set(
@@ -508,6 +634,7 @@ export function createWorkspaceAgent(options: Options) {
                 call.name === "make_cels_from_an_image"
               ) {
                 const operations = await import("../../../src/creative/imageOperations.ts");
+                assertLive();
                 const offered = driver.pending();
                 const native = staged?.finish(chatTitle(instruction), offered?.changes() ?? []);
                 const combined = new Map(
@@ -560,9 +687,12 @@ export function createWorkspaceAgent(options: Options) {
                 staged = undefined;
                 driver = projectDriver();
                 result = { success: true, message: "Image changes staged for review." };
-              } else if (PROJECT_ASSIST_TOOLS.some((tool) => tool.name === call.name))
+              } else if (PROJECT_ASSIST_TOOLS.some((tool) => tool.name === call.name)) {
                 result = driver.execute(call.name, call.input);
-              else {
+                if (result.success && call.name === "propose_changes")
+                  for (const change of call.input["changes"] as ProjectChange[])
+                    touched.add(change.key);
+              } else {
                 staged ??= workspace.openToolState();
                 result = await executeAgentToolAsync(staged.state, call.name, call.input, {
                   ...runtime,
@@ -589,6 +719,8 @@ export function createWorkspaceAgent(options: Options) {
                   allowMissingRooms: session.allowMissingRooms,
                 });
                 driver = projectDriver();
+                touched.clear();
+                delete chat.pendingReview;
                 reviews.delete(chat.id);
                 if (review?.chatId === chat.id) review = null;
                 result = { success: true, message: "Discarded the task's pending changes." };
@@ -616,10 +748,12 @@ export function createWorkspaceAgent(options: Options) {
             results.push({ toolCallId: call.id, result });
           }
           provider.appendToolResults(results);
+          unreported = [];
+          flushActions();
           try {
             turn = await provider.complete();
           } catch (cause) {
-            if (cause instanceof LlmResponseError && /output limit|refus/i.test(cause.message)) {
+            if (cause instanceof LlmResponseError && /output limit/i.test(cause.message)) {
               run.pause(cause.message);
               await run.checkpoint();
               turn = await provider.sendUserMessage(
@@ -636,9 +770,34 @@ export function createWorkspaceAgent(options: Options) {
           });
       });
     } catch (cause) {
+      try {
+        for (const change of staged
+          ?.finish("Interrupted task", driver.pending()?.changes() ?? [])
+          .changes() ?? [])
+          touched.add(change.key);
+      } catch {
+        // Tool results retain validation failures when the staged candidate cannot compile.
+      }
+      for (const change of prepared.values()) touched.add(change.key);
+      if (unreported.length) provider?.appendToolResults(unreported);
+      provider?.recordInterruption?.(
+        "The task was interrupted; outstanding tools were not executed.",
+      );
+      action(chat, "interruption", {
+        outcome: cause instanceof LlmRefusalError ? "refused" : "interrupted",
+        error: String(cause),
+        discarded: [...touched],
+        persisted,
+      });
+      delete chat.pendingReview;
+      flushActions();
+      reviews.delete(chat.id);
+      if (review?.chatId === chat.id) review = null;
       error = cause instanceof Error ? cause.message : String(cause);
       throw cause;
     } finally {
+      flushActions();
+      actionQueue = null;
       if (provider) chat.transcript = provider.getTranscript();
       busy = false;
       activeRun = null;
@@ -651,9 +810,17 @@ export function createWorkspaceAgent(options: Options) {
       .find((message) => message.id === messageId);
     if (!message?.commit || !message.beforeCommit)
       throw new Error("This message has no applied changes.");
-    if (mode === "restore") return session.restore(message.beforeCommit);
+    const chat = store.chats.find((entry) => entry.messages.includes(message))!;
+    async function recordDecision(result: unknown) {
+      const status =
+        result && typeof result === "object" && "status" in result ? result.status : "unchanged";
+      action(chat, mode, { messageId, checkpoint: message!.beforeCommit, outcome: status });
+      await save();
+      return result;
+    }
+    if (mode === "restore") return recordDecision(await session.restore(message.beforeCommit));
     const history = session.history.capture();
-    if (history.cursor === message.commit) return session.undo();
+    if (history.cursor === message.commit) return recordDecision(await session.undo());
     const commit = history.commits.find((commit) => commit.id === message.commit)!;
     const parent = history.commits.find((entry) => entry.id === message.beforeCommit);
     if (!commit || !parent) throw new Error("This checkpoint has been pruned from History.");
@@ -671,12 +838,14 @@ export function createWorkspaceAgent(options: Options) {
       const before = parent.documents[key];
       return { key, content: before ? history.blobs[before]! : null };
     });
-    return session.submit({
-      proposal: session.model.propose(snapshot, "Undo message", changes),
-      label: "Undo message",
-      author: "creator",
-      origin: "history",
-    });
+    return recordDecision(
+      await session.submit({
+        proposal: session.model.propose(snapshot, "Undo message", changes),
+        label: "Undo message",
+        author: "creator",
+        origin: "history",
+      }),
+    );
   }
   return {
     current,
@@ -758,11 +927,19 @@ export function createWorkspaceAgent(options: Options) {
       }
     },
     approve,
-    reject() {
+    async reject() {
       if (applying) return;
-      if (review) reviews.delete(review.chatId);
+      if (review) {
+        const chat = store.chats.find((chat) => chat.id === review!.chatId)!;
+        action(chat, "reject", {
+          resources: review.changes().map((change) => change.key),
+          outcome: "discarded",
+        });
+        delete chat.pendingReview;
+        reviews.delete(review.chatId);
+      }
       review = null;
-      notify();
+      await save();
     },
     undoMessage(messageId: string) {
       return checkpoint(messageId, "undo");

@@ -1,3 +1,4 @@
+import { validateTranscript } from "../../../src/agent/transcript.ts";
 import type { AgentRun } from "./agentRun.ts";
 /**
  * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Sonnet 5.5 / Fable 5.1) and OpenAI
@@ -73,6 +74,7 @@ export interface LlmUsage {
 
 /** One provider request, measured — never assumed complete on a failed stream. */
 export interface LlmRequestTelemetry {
+  readonly sessionId?: string;
   provider: ProviderType;
   model: string;
   /** Provider-assigned response/request id, when delivered. */
@@ -105,6 +107,10 @@ export class LlmResponseError extends Error {
     this.usage = usage;
     this.telemetry = telemetry;
   }
+}
+
+export class LlmRefusalError extends LlmResponseError {
+  readonly outcome = "refused";
 }
 
 function anthropicUsage(usage: Partial<BetaUsage> | undefined): LlmUsage {
@@ -216,7 +222,16 @@ function pngPixels(png: Uint8Array): number {
   return view.getUint32(16) * view.getUint32(20);
 }
 
+interface AssistantMessage {
+  readonly id?: string;
+  readonly phase?: "commentary" | "final_answer";
+  readonly status?: string;
+  readonly text: string;
+}
 export interface LlmTurnResult {
+  assistantMessages?: readonly AssistantMessage[];
+  stopReason?: string;
+  outcome?: "completed";
   usage?: LlmUsage;
   telemetry?: LlmRequestTelemetry;
 
@@ -299,6 +314,7 @@ export function createAnthropicConversation(
    * default stays the full AGENT_TOOLS for every existing caller.
    */
   catalog?: readonly ToolDefinition[],
+  initialSessionId?: string,
 ): UnifiedConversation {
   let client: Promise<Anthropic> | undefined;
   const getClient = () =>
@@ -327,9 +343,10 @@ export function createAnthropicConversation(
   let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
 
   const messages: BetaMessageParam[] = Array.isArray(initialTranscript)
-    ? JSON.parse(JSON.stringify(initialTranscript))
+    ? JSON.parse(JSON.stringify(validateTranscript(initialTranscript, config.provider, true)))
     : [];
 
+  const sessionId = initialSessionId || crypto.randomUUID();
   let contextStart = Math.max(
     0,
     messages.findLastIndex(
@@ -360,6 +377,7 @@ export function createAnthropicConversation(
   }
 
   async function step(): Promise<LlmTurnResult> {
+    validateTranscript(messages, "anthropic");
     const requestIndex = ++requestCount;
     const toolContent = pendingToolContent;
     pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
@@ -378,6 +396,7 @@ export function createAnthropicConversation(
           model: config.model || DEFAULT_MODELS.anthropic,
           // Cache the growing tool/result history as well as the static prefix.
           cache_control: { type: "ephemeral" },
+          metadata: { user_id: sessionId },
           output_config: {
             effort: resolveModelEffort(
               config.model || DEFAULT_MODELS.anthropic,
@@ -477,6 +496,7 @@ export function createAnthropicConversation(
     const hitShare = cacheHitShare(usage);
     const telemetry: LlmRequestTelemetry = {
       provider: "anthropic",
+      sessionId,
       model: response.model ?? config.model,
       requestId: response.id,
       requestIndex,
@@ -505,14 +525,16 @@ export function createAnthropicConversation(
             ? `The model declined this request${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}. Rephrase the request or choose another model; nothing was executed.`
             : `The model stopped before completing the turn (${response.stop_reason}).`;
       closePending(reason);
-      if (response.stop_reason === "refusal" && run) {
-        run.pause(reason);
-        await run.checkpoint(false);
-        messages.push({
-          role: "user",
-          content: "Continue the current task with an approach the provider can complete.",
-        });
-        return step();
+      if (response.stop_reason === "refusal") {
+        const explanation = response.content
+          .filter((block) => block.type === "text")
+          .map((block) => block.text)
+          .join("\n");
+        throw new LlmRefusalError(
+          `${reason} ${explanation || response.stop_details?.explanation || ""}`.trim(),
+          usage,
+          telemetry,
+        );
       }
       throw new LlmResponseError(reason, usage, telemetry);
     }
@@ -539,7 +561,17 @@ export function createAnthropicConversation(
       }
     }
 
-    return { text: text.trim(), toolCalls, usage, telemetry };
+    return {
+      text: text.trim(),
+      toolCalls,
+      usage,
+      telemetry,
+      assistantMessages: [
+        { id: response.id, text: text.trim(), status: response.stop_reason ?? "" },
+      ],
+      stopReason: response.stop_reason ?? "",
+      outcome: "completed",
+    };
   }
 
   return {
@@ -584,6 +616,9 @@ export function createAnthropicConversation(
     },
     getTranscript(): unknown[] {
       return JSON.parse(JSON.stringify(messages));
+    },
+    getSessionId(): string {
+      return sessionId;
     },
     getUsage(): LlmUsage {
       return { ...totalUsage };
@@ -646,7 +681,7 @@ export function createOpenAiConversation(
   let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
 
   const input: OpenAI.Responses.ResponseInputItem[] = Array.isArray(initialTranscript)
-    ? JSON.parse(JSON.stringify(initialTranscript))
+    ? JSON.parse(JSON.stringify(validateTranscript(initialTranscript, config.provider, true)))
     : [];
   const sessionId = initialSessionId || crypto.randomUUID();
 
@@ -669,7 +704,8 @@ export function createOpenAiConversation(
       });
   }
 
-  async function step(): Promise<LlmTurnResult> {
+  async function step(commentaryTurns = 0): Promise<LlmTurnResult> {
+    validateTranscript(input, "openai");
     const requestIndex = ++requestCount;
     const toolContent = pendingToolContent;
     pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
@@ -778,6 +814,7 @@ export function createOpenAiConversation(
     const hitShare = cacheHitShare(usage);
     const telemetry: LlmRequestTelemetry = {
       provider: "openai",
+      sessionId,
       model: response.model ?? config.model,
       requestId: response.id,
       requestIndex,
@@ -800,22 +837,30 @@ export function createOpenAiConversation(
       const reason =
         response.incomplete_details?.reason === "max_output_tokens"
           ? "The provider response reached its output limit before completion. Partial tool arguments were not executed."
-          : `The model stopped before completing the turn (${response.incomplete_details?.reason ?? response.status}).`;
+          : `The model stopped before completing the turn (${response.incomplete_details?.reason ?? response.status}). ${response.error?.message ?? ""}`;
       closePending(reason);
       throw new LlmResponseError(reason, usage, telemetry);
     }
-    let text = "";
+    const assistantMessages: AssistantMessage[] = [];
+    const refusals: string[] = [];
     const toolCalls: ToolCallItem[] = [];
 
     for (const item of response.output) {
       // Retain all output items verbatim into input (reasoning, function_call, message)
       // Reasoning and tool linkage travel verbatim into the next request.
       if (item.type === "message" && item.role === "assistant") {
-        for (const content of item.content) {
-          if (content.type === "output_text") {
-            text += content.text;
-          }
-        }
+        const text = item.content
+          .filter((content) => content.type === "output_text")
+          .map((content) => content.text)
+          .join("\n");
+        assistantMessages.push({
+          ...(item.id ? { id: item.id } : {}),
+          ...(item.phase ? { phase: item.phase } : {}),
+          ...(item.status ? { status: item.status } : {}),
+          text,
+        });
+        for (const content of item.content)
+          if (content.type === "refusal") refusals.push(content.refusal);
       } else if (item.type === "function_call") {
         let parsedInput: Record<string, unknown>;
         try {
@@ -838,7 +883,34 @@ export function createOpenAiConversation(
       }
     }
 
-    return { text: text.trim(), toolCalls, usage, telemetry };
+    if (refusals.length) {
+      const reason = refusals.join("\n");
+      closePending(reason);
+      throw new LlmRefusalError(reason, usage, telemetry);
+    }
+    if (
+      !toolCalls.length &&
+      assistantMessages.length &&
+      assistantMessages.every((message) => message.phase === "commentary")
+    ) {
+      if (commentaryTurns >= 3)
+        throw new LlmResponseError(
+          "The model returned commentary without a final answer after four responses. Retry the task.",
+          usage,
+          telemetry,
+        );
+      const next = await step(commentaryTurns + 1);
+      return {
+        ...next,
+        assistantMessages: [...assistantMessages, ...(next.assistantMessages ?? [])],
+      };
+    }
+    const text = assistantMessages
+      .filter((message) => message.phase !== "commentary")
+      .map((message) => message.text)
+      .join("\n")
+      .trim();
+    return { text, assistantMessages, toolCalls, usage, telemetry, outcome: "completed" };
   }
 
   return {

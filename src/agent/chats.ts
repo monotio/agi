@@ -1,3 +1,9 @@
+import {
+  readProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../authoring/projectWorkspace.ts";
+import { validateTranscript } from "./transcript.ts";
+
 /** Task conversations are private project data; credentials never enter this schema. */
 interface AgentChatMessage {
   readonly id: string;
@@ -6,6 +12,16 @@ interface AgentChatMessage {
   readonly context?: string;
   readonly beforeCommit?: string;
   readonly commit?: string;
+}
+interface PendingAgentReview {
+  readonly label: string;
+  readonly messageId: string;
+  readonly baseRevision: number;
+  readonly baseDocumentId: string;
+  readonly baseCommit: string;
+  readonly base: PortableProjectWorkspace;
+  readonly baseImage?: PortableProjectWorkspace;
+  readonly candidate: PortableProjectWorkspace;
 }
 export interface AgentChat {
   readonly id: string;
@@ -17,6 +33,8 @@ export interface AgentChat {
   background?: boolean;
   archived?: boolean;
   summary?: string;
+  pendingReview?: PendingAgentReview;
+  sessionId?: string;
 }
 export interface AgentChats {
   readonly format: "monotio.agi.chats";
@@ -80,6 +98,7 @@ export function readAgentChats(value: unknown): AgentChats {
       !Array.isArray(chat.messages)
     )
       throw new Error("Invalid game chat.");
+    validateTranscript(chat.transcript, chat.provider);
     ids.add(chat.id);
     const messageIds = new Set<string>();
     for (const message of chat.messages) {
@@ -100,10 +119,43 @@ export function readAgentChats(value: unknown): AgentChats {
         throw new Error("Invalid chat message.");
       messageIds.add(message.id);
     }
+    if (chat.pendingReview !== undefined) {
+      const pending = chat.pendingReview;
+      if (
+        !pending ||
+        typeof pending.label !== "string" ||
+        typeof pending.messageId !== "string" ||
+        !messageIds.has(pending.messageId) ||
+        !Number.isSafeInteger(pending.baseRevision) ||
+        pending.baseRevision < 0 ||
+        typeof pending.baseDocumentId !== "string" ||
+        !/^[a-f0-9]{64}$/.test(pending.baseDocumentId) ||
+        typeof pending.baseCommit !== "string" ||
+        Object.keys(pending).some(
+          (key) =>
+            ![
+              "label",
+              "messageId",
+              "baseRevision",
+              "baseDocumentId",
+              "baseCommit",
+              "base",
+              "baseImage",
+              "candidate",
+            ].includes(key),
+        )
+      )
+        throw new Error("Invalid pending agent review.");
+      readProjectWorkspace(pending.base);
+      if (pending.baseImage !== undefined) readProjectWorkspace(pending.baseImage);
+      readProjectWorkspace(pending.candidate);
+    }
     if (
       (chat.background !== undefined && typeof chat.background !== "boolean") ||
       (chat.archived !== undefined && typeof chat.archived !== "boolean") ||
-      (chat.summary !== undefined && typeof chat.summary !== "string")
+      (chat.summary !== undefined && typeof chat.summary !== "string") ||
+      (chat.sessionId !== undefined &&
+        (typeof chat.sessionId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(chat.sessionId)))
     )
       throw new Error("Invalid game chat.");
     if (
@@ -119,6 +171,8 @@ export function readAgentChats(value: unknown): AgentChats {
             "background",
             "archived",
             "summary",
+            "pendingReview",
+            "sessionId",
           ].includes(key),
       )
     )
@@ -133,6 +187,7 @@ export function migrateAgentChats(data: {
   provider?: string | undefined;
   model?: string | undefined;
   transcript?: unknown[] | undefined;
+  sessionId?: string | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
 }): AgentChats {
   if (data.chats !== undefined) return readAgentChats(data.chats);
@@ -140,6 +195,7 @@ export function migrateAgentChats(data: {
   if (data.transcript?.length)
     chats.push({
       id: "legacy-current",
+      ...(data.sessionId === undefined ? {} : { sessionId: data.sessionId }),
       title: chatTitle(requestText(data.transcript)) || `Created ${data.title ?? "game"}`,
       provider: data.provider ?? "stub",
       model: data.model ?? "stub",
@@ -156,7 +212,12 @@ export function migrateAgentChats(data: {
       messages: transcriptMessages(entry.transcript, `legacy-archive-${i}`),
       archived: true,
     });
-  return { format: "monotio.agi.chats", version: 1, active: chats[0]?.id ?? null, chats };
+  return readAgentChats({
+    format: "monotio.agi.chats",
+    version: 1,
+    active: chats[0]?.id ?? null,
+    chats,
+  });
 }
 
 /** Merge automatic task entries without changing the user's active conversation. */

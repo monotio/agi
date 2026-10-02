@@ -934,3 +934,96 @@ test("Ask's first-turn brief withholds the room's plan entry, as read_room does 
   for (const secret of ["Vault antechamber", "lever behind the tapestry", "north"])
     assert.doesNotMatch(bodies[0]!, new RegExp(secret), `Ask withholds ${secret}`);
 });
+
+for (const provider of ["openai", "anthropic"] as const) {
+  for (const boundary of ["notification", "commit"] as const) {
+    test(`${provider} legacy remix fences cancellation at ${boundary}`, async (t) => {
+      const state = createAgentSessionState();
+      const before = [...state.getFiles()].map(([key, bytes]) => [key, [...bytes]]);
+      let successfulTools = 0;
+      t.mock.method(
+        globalThis,
+        "fetch",
+        async () =>
+          new Response(
+            providerSse(
+              provider,
+              provider === "openai"
+                ? {
+                    id: "r",
+                    output:
+                      boundary === "notification"
+                        ? [
+                            {
+                              type: "function_call",
+                              call_id: "w",
+                              name: "write_words",
+                              arguments: '{"words":["lamp"],"groups":null}',
+                            },
+                          ]
+                        : [
+                            {
+                              type: "message",
+                              role: "assistant",
+                              content: [{ type: "output_text", text: "Ready" }],
+                            },
+                          ],
+                  }
+                : {
+                    id: "r",
+                    type: "message",
+                    role: "assistant",
+                    content:
+                      boundary === "notification"
+                        ? [
+                            {
+                              type: "tool_use",
+                              id: "w",
+                              name: "write_words",
+                              input: { words: ["lamp"], groups: null },
+                            },
+                          ]
+                        : [{ type: "text", text: "Ready" }],
+                  },
+            ),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const session = new AgentSession(
+        {
+          provider,
+          model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+          apiKey: "offline",
+        },
+        (kind, message, detail) => {
+          if (
+            boundary === "notification" &&
+            kind === "request" &&
+            message === "[Remix] write_words"
+          )
+            session.task.cancel();
+          if (
+            kind === "response" &&
+            (
+              (detail as Record<string, unknown> | undefined)?.["result"] as
+                { success?: boolean } | undefined
+            )?.success
+          )
+            successfulTools++;
+        },
+        state,
+      );
+      await assert.rejects(
+        session.runPowerUp("Inspect", 1, undefined, async () => {
+          if (boundary === "commit") session.task.cancel();
+        }),
+        /cancel/i,
+      );
+      assert.equal(successfulTools, 0);
+      assert.deepEqual(
+        [...state.getFiles()].map(([key, bytes]) => [key, [...bytes]]),
+        before,
+      );
+    });
+  }
+}

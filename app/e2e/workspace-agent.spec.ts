@@ -1,6 +1,13 @@
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "./test.ts";
-import { isolateStorage, textHook, configureAi } from "./engineProbe.ts";
+import { openStoredWorkspace, replaceWorkspaceDocument } from "./workspaceShared.ts";
+import {
+  isolateStorage,
+  textHook,
+  configureAi,
+  workspaceSaved,
+  openWorkspaceAgent,
+} from "./engineProbe.ts";
 import type { Page } from "@playwright/test";
 async function start(page: Page, provider: "stub" | "openai" = "stub") {
   await isolateStorage(page);
@@ -234,4 +241,38 @@ test("Agent replies render safe Markdown", async ({ page }) => {
   await expect(reply.locator("img")).toHaveCount(0);
   await expect(reply).toContainText('<img src=x onerror="window.injected=true">');
   await page.screenshot({ path: test.info().outputPath("markdown-1440.png") });
+});
+
+test("saved reviews reopen with previews and detect a changed base", async ({ page }) => {
+  await start(page);
+  const before = await documents(page);
+  await page.getByTestId("agent-message").fill("Add a welcome sign");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await workspaceSaved(page);
+  async function reopen() {
+    await page.goto("/");
+    await page.reload();
+    await openStoredWorkspace(page, "Agent proof");
+    await openWorkspaceAgent(page);
+  }
+  await reopen();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await expect(page.getByTestId("agent-art-review").locator("img").first()).toBeVisible();
+  await expect
+    .poll(() => page.getByTestId("agent-code-diff").locator(".line-insert").count())
+    .toBeGreaterThan(0);
+  await expect(page.getByTestId("agent-approve")).toBeEnabled();
+  expect((await documents(page))["logic:1"]).toBe(before["logic:1"]);
+  await page.screenshot({ path: test.info().outputPath("saved-review.png") });
+  await replaceWorkspaceDocument(page, "logic:0", `${before["logic:0"]}\n// Human edit\n`);
+  await reopen();
+  await expect(page.getByTestId("agent-conflict")).toBeVisible();
+  await expect(page.getByTestId("agent-approve")).toBeDisabled();
+  await page.screenshot({ path: test.info().outputPath("stale-review.png") });
+  await page.getByTestId("agent-reject").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
+  await workspaceSaved(page);
+  await reopen();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
 });

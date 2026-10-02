@@ -1,9 +1,13 @@
+import { MODEL_CAPABILITIES } from "../../src/agent/modelEffort.ts";
+import { providerSse } from "../../test/provider-stream.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createWorkspaceAgent } from "../src/agent/workspaceAgent.ts";
 import { useAuthoringController } from "../src/authoring/useAuthoringController.ts";
 import { AgentSession } from "../src/agent/agentSession.ts";
-import type { BootedGame } from "../src/project/gameTypes.ts";
+import { buildProjectZip } from "../src/archive/projectArchive.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import type { CachedGameData, BootedGame } from "../src/project/gameTypes.ts";
 import { migrateAgentChats, type AgentChats } from "../../src/agent/chats.ts";
 import { openProjectSession } from "../src/project/projectSession.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -54,7 +58,13 @@ test("offline editing reads native vocabulary and changes the attached room", as
   );
   session.dispose();
 });
-function fixture(chats?: AgentChats, roomGeneration = true, admissionGate?: () => Promise<void>) {
+function fixture(
+  chats?: AgentChats,
+  roomGeneration = true,
+  admissionGate?: () => Promise<void>,
+  initial?: CachedGameData,
+) {
+  let savedData: CachedGameData | undefined;
   const documents = {
     "logic:0": "return;",
     "picture:1": "vis 1\nfill 0,0\nend\n",
@@ -66,7 +76,7 @@ function fixture(chats?: AgentChats, roomGeneration = true, admissionGate?: () =
     profileId: "2.936",
   });
   const session = openProjectSession({
-    data: {
+    data: initial ?? {
       projectId: requireProjectId(`agent-test-${++seq}`),
       title: "Test",
       roomGeneration,
@@ -76,15 +86,20 @@ function fixture(chats?: AgentChats, roomGeneration = true, admissionGate?: () =
       words: [["look", 1]],
       workspace: writeProjectWorkspace(documents),
     },
-    lifetime: "test",
+    lifetime: initial ? "reopened" : "test",
     admission: {
-      runToken: "test",
+      runToken: initial ? "reopened" : "test",
       async admit() {
         await admissionGate?.();
         return { status: "committed", expected: null, current: null, patchGeneration: 1 };
       },
     },
     async write(request) {
+      savedData = {
+        ...structuredClone(request.data),
+        projectId: request.projectId,
+        authoredAt: "",
+      };
       return {
         commitId: request.commitId,
         workspaceId: request.workspaceId,
@@ -156,7 +171,7 @@ function fixture(chats?: AgentChats, roomGeneration = true, admissionGate?: () =
       };
     },
   });
-  return { session, agent, sent, resumed, documents };
+  return { session, agent, sent, resumed, documents, saved: () => savedData! };
 }
 test("one coordinated review selects resources, records a chat checkpoint and undoes all admitted changes", async () => {
   const { session, agent, documents } = fixture();
@@ -267,7 +282,7 @@ test("model switch continues with a summary handoff and keeps thinking blocks aw
   const agent = createWorkspaceAgent({
     session,
     profileId: "2.936",
-    config: () => ({ provider: "stub", model, apiKey: "" }),
+    config: () => ({ provider: "openai", model, apiKey: "" }),
     conversation(_config, transcript) {
       offered.push(transcript);
       const history = [...transcript];
@@ -275,12 +290,12 @@ test("model switch continues with a summary handoff and keeps thinking blocks aw
         setAvailableTools() {},
         async sendUserMessage(text) {
           requests.push(text);
-          history.push({ role: "user", text });
+          history.push({ role: "user", content: text });
           if (text.includes("compaction summary pattern"))
             return { text: "Objective: add a sign. Next: revise the wording.", toolCalls: [] };
           history.push(
-            { type: "reasoning", encrypted_content: "private-thinking" },
-            { role: "assistant", text: "Done" },
+            { type: "reasoning", summary: [], encrypted_content: "private-thinking" },
+            { role: "assistant", content: [{ type: "output_text", text: "Done" }] },
           );
           return { text: "Done", toolCalls: [] };
         },
@@ -906,4 +921,489 @@ test("resuming a background task uses the current Review mode for a user follow-
   await agent.approve();
   assert.equal(session.history.capture().commits.length, before + 1);
   session.dispose();
+});
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} cancellation in the tool notification prevents auto-approval`, async (t) => {
+    const { session } = fixture();
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          providerSse(
+            provider,
+            provider === "openai"
+              ? {
+                  id: "r",
+                  output: [
+                    {
+                      type: "function_call",
+                      call_id: "n",
+                      name: "write_notes",
+                      arguments: JSON.stringify({ text: "Cancelled notes" }),
+                    },
+                    {
+                      type: "function_call",
+                      call_id: "p",
+                      name: "propose_changes",
+                      arguments: JSON.stringify({
+                        label: "Cancelled",
+                        changes: [{ key: "notes", content: "Cancelled notes" }],
+                      }),
+                    },
+                  ],
+                  usage: { input_tokens: 1, output_tokens: 1 },
+                }
+              : {
+                  id: "r",
+                  type: "message",
+                  role: "assistant",
+                  stop_reason: "tool_use",
+                  content: [
+                    {
+                      type: "tool_use",
+                      id: "n",
+                      name: "write_notes",
+                      input: { text: "Cancelled notes" },
+                    },
+                    {
+                      type: "tool_use",
+                      id: "p",
+                      name: "propose_changes",
+                      input: {
+                        label: "Cancelled",
+                        changes: [{ key: "notes", content: "Cancelled notes" }],
+                      },
+                    },
+                  ],
+                  usage: { input_tokens: 1, output_tokens: 1 },
+                },
+          ),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      }),
+    });
+    agent.autoApprove = true;
+    agent.subscribe(() => {
+      if (agent.progress.at(-1) === "Propose changes") agent.cancel();
+    });
+    await assert.rejects(agent.send("Change notes"), /cancel/i);
+    assert.equal(session.model.capture().read("notes"), undefined);
+    assert.equal(session.history.capture().commits.length, 1);
+    assert.equal(agent.pending(), null);
+    session.dispose();
+  });
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} workspace charges production adapter usage exactly once`, async (t) => {
+    const { session } = fixture();
+    const model = provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5";
+    let spent = 0;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          providerSse(
+            provider,
+            provider === "openai"
+              ? {
+                  id: "r",
+                  output: [
+                    {
+                      type: "message",
+                      role: "assistant",
+                      content: [{ type: "output_text", text: "Done." }],
+                    },
+                  ],
+                  usage: { input_tokens: 1000, output_tokens: 100 },
+                }
+              : {
+                  id: "r",
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Done." }],
+                  usage: { input_tokens: 1000, output_tokens: 100 },
+                },
+          ),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({ provider, model, apiKey: "offline" }),
+    });
+    agent.subscribe(() => {
+      spent = Math.max(spent, agent.task?.spent ?? 0);
+    });
+    await agent.send("Describe the project");
+    const rate = MODEL_CAPABILITIES[model]!.price!;
+    assert.equal(spent, (1000 * rate.input + 100 * rate.output) / 1e6);
+    session.dispose();
+  });
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  function reply(content: { name: string; input: Record<string, unknown> } | string) {
+    return providerSse(
+      provider,
+      provider === "openai"
+        ? {
+            id: "r",
+            output:
+              typeof content === "string"
+                ? [
+                    {
+                      type: "message",
+                      role: "assistant",
+                      content: [{ type: "output_text", text: content }],
+                    },
+                  ]
+                : [
+                    {
+                      type: "function_call",
+                      call_id: "p",
+                      name: content.name,
+                      arguments: JSON.stringify(content.input),
+                    },
+                  ],
+          }
+        : {
+            id: "r",
+            role: "assistant",
+            type: "message",
+            stop_reason: typeof content === "string" ? "end_turn" : "tool_use",
+            content:
+              typeof content === "string"
+                ? [{ type: "text", text: content }]
+                : [{ type: "tool_use", id: "p", name: content.name, input: content.input }],
+          },
+    );
+  }
+  function settings() {
+    return {
+      provider,
+      model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+      apiKey: "offline",
+    };
+  }
+  test(`${provider} dropped response records a truthful interruption after staged notes`, async (t) => {
+    const { session } = fixture();
+    let requests = 0;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          ++requests === 1 ? reply({ name: "write_notes", input: { text: "Staged lesson" } }) : "",
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const agent = createWorkspaceAgent({ session, profileId: "2.936", config: settings });
+    await assert.rejects(agent.send("Write notes"), /stream|message|chunks/i);
+    const text = JSON.stringify(agent.current().transcript);
+    assert.match(text, /monotio.agi.user-action/);
+    assert.match(text, /interruption/);
+    assert.match(text, /discarded/);
+    assert.equal(session.model.capture().read("notes"), undefined);
+    assert.equal(agent.pending(), null);
+    session.dispose();
+  });
+  test(`${provider} pending review survives reconstruction and decisions reach replay`, async (t) => {
+    let { session, saved } = fixture();
+    let requests = 0;
+    const bodies: Record<string, unknown>[] = [];
+    t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response(
+        reply(
+          ++requests === 1
+            ? {
+                name: "propose_changes",
+                input: { label: "Notes", changes: [{ key: "notes", content: "Lesson" }] },
+              }
+            : "Ready.",
+        ),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const options = { session, profileId: "2.936" as const, config: settings };
+    const first = createWorkspaceAgent(options);
+    await first.send("Write a lesson");
+    await session.flush();
+    const stored = saved();
+    const archived = await readGameZip(await buildProjectZip(stored));
+    assert.deepEqual(archived.project?.chats, stored.chats);
+    session = fixture(undefined, true, undefined, stored).session;
+    const reopened = createWorkspaceAgent({ ...options, session });
+    assert.ok(reopened.pending(), "pending proposal must reopen");
+    assert.equal(reopened.pending()!.stale(), false);
+    assert.ok(
+      reopened.pending()!.proposal.base.lastAdmissibleBuild,
+      "review previews need their saved base image",
+    );
+    assert.equal(reopened.current().pendingReview?.baseRevision, 0);
+    await reopened.approve(["notes"]);
+    assert.equal(reopened.current().pendingReview, undefined);
+    assert.match(JSON.stringify(reopened.current().transcript), /approve/);
+    const message = reopened.current().messages.find((entry) => entry.commit)!;
+    await reopened.undoMessage(message.id);
+    await reopened.restoreBefore(message.id);
+    await reopened.send("What changed?");
+    assert.match(JSON.stringify(bodies.at(-1)), /monotio.agi.user-action/);
+    assert.match(JSON.stringify(bodies.at(-1)), /undo/);
+    assert.match(JSON.stringify(bodies.at(-1)), /restore/);
+    session.dispose();
+  });
+  test(`${provider} restored pending review detects a moved base and rejection is saved`, async (t) => {
+    const { session } = fixture();
+    let requests = 0;
+    t.mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          reply(
+            ++requests === 1
+              ? {
+                  name: "propose_changes",
+                  input: { label: "Notes", changes: [{ key: "notes", content: "Lesson" }] },
+                }
+              : "Ready.",
+          ),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const options = { session, profileId: "2.936" as const, config: settings };
+    const agent = createWorkspaceAgent(options);
+    await agent.send("Write a lesson");
+    await session.submit({
+      proposal: session.model.propose(session.model.capture(), "Typing", [
+        { key: "notes", content: "Human lesson" },
+      ]),
+      label: "Typing",
+      origin: "logic",
+      author: "creator",
+    });
+    const reopened = createWorkspaceAgent(options);
+    assert.ok(reopened.pending());
+    assert.equal(reopened.pending()!.stale(), true);
+    await assert.rejects(reopened.approve(), /project changed/i);
+    await reopened.reject();
+    const again = createWorkspaceAgent(options);
+    assert.equal(again.pending(), null);
+    assert.match(JSON.stringify(again.current().transcript), /reject/);
+    session.dispose();
+  });
+}
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} chat session identity stays stable across turns and reconstruction`, async (t) => {
+    const { session } = fixture();
+    const bodies: Record<string, unknown>[] = [];
+    t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response(
+        providerSse(
+          provider,
+          provider === "openai"
+            ? {
+                id: `r${bodies.length}`,
+                output: [
+                  {
+                    type: "message",
+                    role: "assistant",
+                    content: [{ type: "output_text", text: "Done" }],
+                  },
+                ],
+              }
+            : {
+                id: `r${bodies.length}`,
+                role: "assistant",
+                type: "message",
+                content: [{ type: "text", text: "Done" }],
+              },
+        ),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const options = {
+      session,
+      profileId: "2.936" as const,
+      config: () => ({
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      }),
+    };
+    const first = createWorkspaceAgent(options);
+    await first.send("Hello");
+    await first.send("Continue");
+    const resumed = createWorkspaceAgent(options);
+    await resumed.send("Continue again");
+    const keys = bodies.map((body) =>
+      provider === "openai"
+        ? body["prompt_cache_key"]
+        : (body["metadata"] as { user_id?: string } | undefined)?.user_id,
+    );
+    assert.ok(keys[0]);
+    assert.deepEqual(keys, [keys[0], keys[0], keys[0]]);
+    assert.ok(resumed.current().sessionId);
+    resumed.newChat();
+    await resumed.send("Another task");
+    const last = bodies.at(-1)!;
+    assert.notEqual(
+      provider === "openai"
+        ? last["prompt_cache_key"]
+        : (last["metadata"] as { user_id: string }).user_id,
+      keys[0],
+    );
+    session.dispose();
+  });
+}
+
+test("workspace presents commentary separately and stores the final answer", async (t) => {
+  const { session } = fixture();
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        providerSse("openai", {
+          id: "r",
+          output: [
+            {
+              type: "message",
+              id: "c",
+              role: "assistant",
+              phase: "commentary",
+              content: [{ type: "output_text", text: "Checking." }],
+            },
+            {
+              type: "message",
+              id: "f",
+              role: "assistant",
+              phase: "final_answer",
+              content: [{ type: "output_text", text: "Done." }],
+            },
+          ],
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  );
+  const agent = createWorkspaceAgent({
+    session,
+    profileId: "2.936",
+    config: () => ({ provider: "openai", model: "gpt-6-sol", apiKey: "offline" }),
+  });
+  await agent.send("Inspect");
+  assert.deepEqual(agent.progress, ["Checking.", "Done."]);
+  assert.equal(agent.current().messages.at(-1)?.text, "Done.");
+  session.dispose();
+});
+
+function actions(transcript: unknown[]): Record<string, unknown>[] {
+  return transcript.flatMap((item) => {
+    const record = item as Record<string, unknown>;
+    const text = record["text"] ?? record["content"];
+    if (
+      record["role"] !== "user" ||
+      typeof text !== "string" ||
+      !text.startsWith('{"format":"monotio.agi.user-action"')
+    )
+      return [];
+    return [JSON.parse(text) as Record<string, unknown>];
+  });
+}
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} interruption distinguishes applied commits from discarded later staging`, async (t) => {
+    const { session } = fixture();
+    let requests = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      const step = ++requests;
+      const name = step === 1 ? "propose_changes" : "write_notes";
+      const input =
+        step === 1
+          ? { label: "Kept", changes: [{ key: "notes", content: "Kept" }] }
+          : { text: "Discarded" };
+      return new Response(
+        step > 2
+          ? ""
+          : providerSse(
+              provider,
+              provider === "openai"
+                ? {
+                    id: `r${step}`,
+                    output: [
+                      {
+                        type: "function_call",
+                        call_id: `p${step}`,
+                        name,
+                        arguments: JSON.stringify(input),
+                      },
+                    ],
+                  }
+                : {
+                    id: `r${step}`,
+                    role: "assistant",
+                    type: "message",
+                    stop_reason: "tool_use",
+                    content: [{ type: "tool_use", id: `p${step}`, name, input }],
+                  },
+            ),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const agent = createWorkspaceAgent({
+      session,
+      profileId: "2.936",
+      config: () => ({
+        provider,
+        model: provider === "openai" ? "gpt-6-sol" : "claude-opus-5-5",
+        apiKey: "offline",
+      }),
+    });
+    agent.autoApprove = true;
+    await assert.rejects(agent.send("Write notes"), /stream|message|chunks/i);
+    assert.equal(session.model.capture().read("notes")?.content, "Kept");
+    const events = actions(agent.current().transcript);
+    assert.equal(events[0]?.["decision"], "approve");
+    assert.deepEqual(events[0]?.["resources"], ["notes"]);
+    const interruption = events.at(-1)!;
+    assert.deepEqual(interruption["discarded"], ["notes"]);
+    assert.deepEqual(interruption["persisted"], [
+      {
+        resources: ["notes"],
+        documentId: session.model.capture().documentId,
+        commit: session.history.capture().cursor,
+      },
+    ]);
+    assert.deepEqual(interruption["resultingRevision"], {
+      documentId: session.model.capture().documentId,
+      revision: session.model.capture().revision,
+      commit: session.history.capture().cursor,
+    });
+    session.dispose();
+  });
+}
+
+test("legacy chat migration retains the released provider session identity", () => {
+  const chats = migrateAgentChats({
+    provider: "openai",
+    model: "gpt-6-sol",
+    sessionId: "released-session",
+    transcript: [{ role: "user", content: "Continue" }],
+  });
+  assert.equal(chats.chats[0]?.sessionId, "released-session");
 });
