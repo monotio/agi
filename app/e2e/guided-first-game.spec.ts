@@ -239,12 +239,23 @@ test("the first guided game: starter, editors, five actions, play both ways and 
     .poll(async () => (await screenText(page)).replace(/#/g, " ").replace(/\s+/g, " "))
     .toContain("The clearing hums back.");
   await input.press("Enter");
+  // Use the game's native speed setting for the three doorway walks.
+  // Their contract is room entry, save and restore rather than walking cadence.
+  await page.keyboard.press("Escape");
+  await expect.poll(async () => (await textHook(page)).modal).toBe("menu");
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => screenText(page)).toContain("Fastest");
+  for (let item = 0; item < 3; item++) await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await textHook(page)).modal).toBeNull();
   await walkToRoom(page, "ArrowRight", 2);
   await reviewShot(page, "guided-play-grove");
 
   // The editable Starter's real native menu saves this authored second room.
   await page.keyboard.press("Escape");
   await expect.poll(async () => (await textHook(page)).modal).toBe("menu");
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(() => screenText(page)).toContain("Save Game");
   const menuText = await screenText(page);
   for (const label of ["File", "Speed", "Sound", "Help", "Save Game", "Restore Game"])
     expect(menuText).toContain(label);
