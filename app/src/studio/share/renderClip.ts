@@ -137,7 +137,10 @@ export async function recordClip(source: ClipSource, options: RecordOptions): Pr
     for (let f = 0; f < frames.length && !signal.aborted; f++) {
       await until(start + f * period, signal);
       if (signal.aborted) break;
-      if (document.hidden) throw new Error("the tab went to the background. Save it in front.");
+      if (document.hidden)
+        throw new Error(
+          "the tab went to the background. Bring this tab to the front and try again.",
+        );
       draw(frames[f]!.commands, frames[f]!.caption);
       track?.requestFrame();
       onProgress((f + 1) / frames.length);

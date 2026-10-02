@@ -56,4 +56,9 @@ test("a stale Create route resolution leaves the newer blank project in place", 
   assert.equal(await stale, false);
   assert.equal(emptyProject.value?.title, "second");
   assert.equal(place.hash, second);
+
+  // The current route naming a project that is gone leaves no blank workspace behind.
+  place.hash = `#create/${encodeURIComponent(testProjectId("missing"))}`;
+  assert.equal(await followEmptyProjectRoute(), false);
+  assert.equal(emptyProject.value, null);
 });

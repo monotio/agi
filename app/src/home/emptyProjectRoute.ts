@@ -32,8 +32,9 @@ export async function followEmptyProjectRoute(): Promise<boolean> {
   }
   const { projectId } = await import("../../../src/gameIdentity.ts");
   const id = projectId(route.key);
-  if (!id) return false;
-  const opened = await openEmptyProject(id, hash);
+  const opened = id ? await openEmptyProject(id, hash) : false;
   // A newer route owns the shared state; a stale resolution changes nothing.
-  return opened && location.hash === hash;
+  if (location.hash !== hash) return false;
+  if (!opened) emptyProject.value = null;
+  return opened;
 }
