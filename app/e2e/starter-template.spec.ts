@@ -24,6 +24,8 @@ test("Starter stands still for 60 cycles, walks and returns to its standing pose
     .click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await expect(page.getByTestId("input-line")).toBeEnabled();
+  // The worker can enter room 1 before the GPU paints its first picture.
+  await expect.poll(() => canvasPicHash(page)).not.toBe(0);
   const idle = await canvasPicHash(page);
   const from = (await textHook(page)).cycle;
   const hashes = new Set<number>();
