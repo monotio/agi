@@ -31,7 +31,7 @@ jobs:
 
   build:
     needs: prepare
-    if: needs.prepare.outputs.browsers == 'true' && needs.prepare.outputs.duplicate != 'true'
+    if: (needs.prepare.outputs.browsers == 'true' || github.ref == 'refs/heads/main') && needs.prepare.outputs.duplicate != 'true'
     uses: ./.github/workflows/build.yml
 
   check:
@@ -47,13 +47,13 @@ jobs:
           PREPARE: ${{ needs.prepare.result }}
           QUALITY: ${{ needs.quality.result }}
           BUILD: ${{ needs.build.result }}
-          BROWSERS: ${{ needs.prepare.outputs.browsers }}
+          BUILD_REQUIRED: ${{ needs.prepare.outputs.browsers == 'true' || github.ref == 'refs/heads/main' }}
           DUPLICATE: ${{ needs.prepare.outputs.duplicate }}
         run: |
           test "$PREPARE" = success
           if [ "$DUPLICATE" = true ]; then exit 0; fi
           test "$QUALITY" = success
-          if [ "$BROWSERS" = true ]; then test "$BUILD" = success; else test "$BUILD" = skipped; fi
+          if [ "$BUILD_REQUIRED" = true ]; then test "$BUILD" = success; else test "$BUILD" = skipped; fi
 
   suites:
     needs: [prepare, build]
@@ -128,8 +128,8 @@ jobs:
 
   deploy:
     name: Deploy production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.browsers == 'true'
-    needs: [prepare, check, browsers]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [check, browsers]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -218,8 +218,8 @@ jobs:
 
   verify:
     name: Verify deployed browser app
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.browsers == 'true'
+    needs: [prepare, deploy]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production

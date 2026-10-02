@@ -145,8 +145,9 @@ same ref.
 The required contexts stay `Typecheck, lint, unit tests, build`,
 `Playwright (play, remix and export)` and the repository-managed `CodeQL`.
 The first two aggregate their jobs and fail if an applicable job fails. Changes
-confined to Markdown or documentation assets skip builds and browser jobs;
-required CI contexts still report success after the standard gate. Capture code
+confined to Markdown or documentation assets skip browser jobs and development
+branch builds; required CI contexts still report success after the standard
+gate. Main builds and publishes each checked commit. Capture code
 under `docs/` still runs the browsers. CodeQL keeps its repository-managed policy.
 Browser JSON reports and failure traces are retained as run artifacts. See
 [CI browser checks](docs/testing.md#ci-browser-checks) for worker counts and
