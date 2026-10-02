@@ -213,6 +213,7 @@ export function prepareImageCels(
   frames: readonly ImageFrame[],
   profile: AgiProfile,
   background = detectImageBackground(image),
+  transparent = true,
 ) {
   const identity = { id: sha256Hex(image.rgba), incarnation: "image", revision: 0 };
   const preparedFrames: ViewRecipeFrame[] = frames.map((frame, i) => ({
@@ -243,8 +244,8 @@ export function prepareImageCels(
       sources: [identity],
       palette: "ega-weighted-243-v1",
       mask: {
-        alphaThreshold: 128,
-        key: background === null ? null : { mode: "ega-index-v1", rgb: background },
+        alphaThreshold: transparent ? 128 : 0,
+        key: !transparent || background === null ? null : { mode: "ega-index-v1", rgb: background },
       },
       frames: preparedFrames,
       loops: loops.map((loop) => ({
@@ -263,6 +264,7 @@ export function makeCelsChanges(
   frames: readonly ImageFrame[],
   profile: AgiProfile,
   background = detectImageBackground(image),
+  transparent = true,
 ): readonly ProjectChange[] {
   if (!/^view:(0|[1-9]\d{0,2})$/.test(target) || Number(target.slice(5)) > 255)
     throw new Error("Choose a VIEW target.");
@@ -283,7 +285,7 @@ export function makeCelsChanges(
             })) ?? [],
           ...(parsed?.description ? { description: parsed.description } : {}),
         };
-  const prepared = prepareImageCels(image, frames, profile, background);
+  const prepared = prepareImageCels(image, frames, profile, background, transparent);
   const loops = input.loops.map((loop) => ({ ...loop, cels: [...(loop.cels ?? [])] }));
   const destinations = [...new Set(frames.map((f) => f.loop))].sort((a, b) => a - b);
   for (const [i, destination] of destinations.entries()) {

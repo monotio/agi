@@ -257,9 +257,16 @@ export class AgiStage {
       const edge = edgeDistance(q, CRT.cornerRadius);
       const face = clamp(float(0.5).sub(edge), 0.0, 1.0);
 
+      // Keep the complete rectangular frame inside the rounded glass. The
+      // overscan belongs to this black border, including the bowed corners.
+      const frameUv = q
+        .sub(0.5)
+        .mul(1 + 2 * CRT.overscan)
+        .add(0.5);
+      const frameFace = clamp(float(0.5).sub(edgeDistance(frameUv, 0.0)), 0.0, 1.0);
       // Source position in frame pixels, rows counted from the top.
-      const sx = q.x.mul(FRAME_WIDTH);
-      const sy = float(1.0).sub(q.y).mul(FRAME_HEIGHT);
+      const sx = frameUv.x.mul(FRAME_WIDTH);
+      const sy = float(1.0).sub(frameUv.y).mul(FRAME_HEIGHT);
       const baseX = floor(sx.sub(0.5));
       const baseY = floor(sy.sub(0.5));
 
@@ -324,14 +331,14 @@ export class AgiStage {
 
       // Halation: the glass scatters every phosphor's light a little and
       // the brightest ones more.
-      const scattered = texture(glow, vec2(q.x, float(1.0).sub(q.y))).rgb;
+      const scattered = texture(glow, vec2(frameUv.x, float(1.0).sub(frameUv.y))).rgb;
       const halation = scattered
         .mul(CRT.halation)
         .add(scattered.sub(CRT.glowThreshold).max(0.0).mul(CRT.glow));
 
       const vignette = float(1.0).sub(dot(c, c).mul(CRT.vignette));
       const tube = beams.mul(mask).div(maskMean).add(halation).mul(vignette).mul(wakeLevel);
-      return tube.add(rimLight(edge, 1)).mul(face);
+      return tube.mul(frameFace).add(rimLight(edge, 1)).mul(face);
     })();
 
     this.quad = new THREE.Mesh(this.geometry, this.crtMaterial);

@@ -32,6 +32,7 @@ const props = defineProps<{
   loopHeights: readonly number[];
   name: string;
   background: readonly [number, number, number] | null;
+  backgroundTransparent: boolean;
 }>();
 const frames = defineModel<ImageFrame[]>({ required: true });
 const boxes = ref<FrameBox[]>([]);
@@ -56,10 +57,13 @@ const viewport = useTemplateRef("viewport");
 const surface = useTemplateRef("surface");
 const canvas = useTemplateRef("canvas");
 const animation = useTemplateRef("animation");
+const animationPanel = useTemplateRef("animationPanel");
+const animationWidth = ref(0);
 const animated = ref(true);
 const tick = ref(0);
 let serial = 0;
 let observer: ResizeObserver | undefined;
+let fitRaf: number | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
 const handles: readonly { value: FrameHandle; label: string; x: number; y: number }[] = [
   { value: "nw", label: "northwest", x: 0, y: 0 },
@@ -103,6 +107,7 @@ const preview = computed(() => {
           boxes.value.map((f) => ({ ...f, ...scaleImageFrame(f.region, celHeight.value) })),
           props.profile,
           props.background,
+          props.backgroundTransparent,
         )
       : null;
   } catch {
@@ -114,6 +119,11 @@ const previewCel = computed(() => {
   const loops = [...new Set(boxes.value.map((f) => f.loop))].sort((a, b) => a - b);
   const cels = preview.value.input.loops[loops.indexOf(chosenLoop.value)]?.cels;
   return cels?.[tick.value % cels.length];
+});
+const animationScale = computed(() => {
+  const cels = preview.value?.input.loops.flatMap((loop) => loop.cels ?? []) ?? [];
+  const width = Math.max(1, ...cels.map((cel) => cel.width * 2));
+  return Math.max(1, Math.floor(animationWidth.value / width));
 });
 function suggestions() {
   const found = suggestImageFrames(
@@ -185,6 +195,7 @@ watch(
   { flush: "post", immediate: true },
 );
 function fit() {
+  animationWidth.value = animationPanel.value?.clientWidth ?? 0;
   const target = viewport.value;
   if (target)
     fitScale.value = Math.max(
@@ -196,8 +207,17 @@ function fit() {
     );
 }
 onMounted(() => {
-  observer = new ResizeObserver(fit);
+  observer = new ResizeObserver(() => {
+    // Measure on the next frame: fitting changes the preview's height and
+    // must finish outside the current resize notification cycle.
+    if (fitRaf !== undefined) return;
+    fitRaf = requestAnimationFrame(() => {
+      fitRaf = undefined;
+      fit();
+    });
+  });
   if (viewport.value) observer.observe(viewport.value);
+  if (animationPanel.value) observer.observe(animationPanel.value);
   fit();
   timer = setInterval(() => {
     if (animated.value) tick.value++;
@@ -205,6 +225,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   observer?.disconnect();
+  if (fitRaf !== undefined) cancelAnimationFrame(fitRaf);
   if (timer) clearInterval(timer);
 });
 function select(id: string, multiple = false) {
@@ -605,8 +626,23 @@ const thumbnails = computed(() => {
         </div>
       </div>
       <aside class="frame-preview">
-        <strong>Animation</strong>
-        <div class="frame-animation" role="group" aria-label="Animation preview">
+        <div class="frame-preview__header">
+          <strong>Animation</strong>
+          <UiButton
+            size="sm"
+            :icon="animated ? 'pause' : 'play'"
+            :aria-label="animated ? 'Pause animation' : 'Play animation'"
+            :aria-pressed="animated"
+            @click="animated = !animated"
+            >{{ animated ? "Pause" : "Play" }}</UiButton
+          >
+        </div>
+        <div
+          ref="animationPanel"
+          class="frame-animation"
+          role="group"
+          aria-label="Animation preview"
+        >
           <canvas
             v-show="previewCel"
             ref="animation"
@@ -614,7 +650,10 @@ const thumbnails = computed(() => {
             :aria-label="`Loop ${chosenLoop} animation`"
             :style="
               previewCel
-                ? { width: `${previewCel.width * 2}px`, height: `${previewCel.height}px` }
+                ? {
+                    width: `${previewCel.width * 2 * animationScale}px`,
+                    height: `${previewCel.height * animationScale}px`,
+                  }
                 : {}
             "
           />
@@ -647,13 +686,6 @@ const thumbnails = computed(() => {
           px tall · like {{ name }}</label
         >
         <slot name="preview" />
-        <UiButton
-          size="sm"
-          variant="ghost"
-          :aria-pressed="animated"
-          @click="animated = !animated"
-          >{{ animated ? "Pause animation" : "Play animation" }}</UiButton
-        >
         <p class="frame-hint">Drag a box to adjust it. Drag on empty space to add one.</p>
         <details v-if="active" class="frame-details">
           <summary>
@@ -899,10 +931,12 @@ select {
 .frame-animation {
   min-height: 120px;
   width: 100%;
-  justify-content: center;
+  justify-content: flex-start;
   background: var(--surface-sunken);
 }
 .frame-animation canvas {
+  flex: none;
+  margin: auto;
   image-rendering: pixelated;
   background: var(--surface-sunken);
 }
@@ -965,8 +999,12 @@ select {
   border: 1px solid var(--hairline);
   border-radius: var(--radius);
 }
-.frame-preview > strong {
-  align-self: start;
+.frame-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  width: 100%;
   font-size: var(--text-sm);
 }
 .frame-size {

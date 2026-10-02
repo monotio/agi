@@ -547,6 +547,13 @@ function createSession(input: {
         }
       });
     },
+    renameTag(name: string, next: string | null) {
+      return schedule(async () => {
+        if (!current()) throw new Error("Project session was closed.");
+        history.renameTag(name, next);
+        captureSave(model.capture());
+      });
+    },
     async flush() {
       await tail;
       await autosave.flush();

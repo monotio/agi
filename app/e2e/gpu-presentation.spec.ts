@@ -94,7 +94,7 @@ test("saved game keeps its message visible through resize, then changes rooms an
     );
   };
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
-  await page.screenshot({ path: "test-results/gpu-opening-message.png" });
+  await page.screenshot({ path: test.info().outputPath("gpu-opening-message.png") });
   await page.setViewportSize({ width: 800, height: 720 });
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
   expect((await textHook(page)).modal).toBe("print");
@@ -110,7 +110,7 @@ test("saved game keeps its message visible through resize, then changes rooms an
     )
     .toEqual([255, 255, 85, 255]);
   await expect.poll(coloredPixels).toBeGreaterThan(1000);
-  await page.screenshot({ path: "test-results/gpu-message-room-arrival.png" });
+  await page.screenshot({ path: test.info().outputPath("gpu-message-room-arrival.png") });
 
   // Test that CRT shader can be toggled on and off via settings
   await page.getByTestId("settings-menu").click();

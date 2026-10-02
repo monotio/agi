@@ -32,6 +32,8 @@ function sheet() {
   for (let f = 0; f < 4; f++)
     for (let y = 2; y < 11; y++)
       for (let x = 2; x < 8; x++) pixels.set([255, f * 50, 0, 255], (y * 40 + f * 10 + x) * 4);
+  // Retain a transparent corner inside each figure's bounding box.
+  for (let f = 0; f < 4; f++) pixels.set([0, 0, 0, 0], (2 * 40 + f * 10 + 2) * 4);
   return Buffer.from(encodePngRgba(40, 12, pixels));
 }
 async function blankRoom(page: Page) {
@@ -187,6 +189,61 @@ test("make a four-cel walk loop and preview it on the running hero", async ({ pa
     .click({ timeout: 8000 });
   await upload(page);
   await expect(page.getByTestId("image-frame")).toHaveCount(4);
+  const toggle = page.getByRole("button", { name: "Pause animation", exact: true });
+  await expect(toggle.locator("svg")).toBeVisible();
+  await toggle.click();
+  await expect(page.getByRole("button", { name: "Play animation", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await page.getByRole("button", { name: "Play animation", exact: true }).click();
+  const transparency = page.getByRole("switch", { name: "Background is see-through", exact: true });
+  await expect(transparency).toHaveAttribute("aria-checked", "true");
+  await transparency.click();
+  await expect(transparency).toHaveAttribute("aria-checked", "false");
+  const preview = page.getByRole("img", { name: "Loop 0 animation", exact: true });
+  await expect
+    .poll(() =>
+      preview.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        return canvas.getContext("2d")!.getImageData(0, 0, 1, 1).data[3];
+      }),
+    )
+    .toBe(255);
+  await transparency.click();
+  await expect
+    .poll(() =>
+      preview.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        return canvas.getContext("2d")!.getImageData(0, 0, 1, 1).data[3];
+      }),
+    )
+    .toBe(0);
+  const size = await preview.evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    return {
+      width: canvas.clientWidth,
+      height: canvas.clientHeight,
+      celWidth: canvas.width,
+      celHeight: canvas.height,
+      panel: canvas.parentElement!.clientWidth,
+    };
+  });
+  expect(size.width / (size.celWidth * 2)).toBe(size.height / size.celHeight);
+  expect(Number.isInteger(size.height / size.celHeight)).toBe(true);
+  expect(size.width).toBeGreaterThan(size.panel - size.celWidth * 2);
+  const celHeight = page.getByLabel("Cel height", { exact: true });
+  const originalHeight = await celHeight.inputValue();
+  await celHeight.fill("168");
+  await expect
+    .poll(() =>
+      preview.evaluate((element) => {
+        const canvas = element as HTMLCanvasElement;
+        return [canvas.clientWidth / (canvas.width * 2), canvas.clientHeight / canvas.height];
+      }),
+    )
+    .toEqual([1, 1]);
+  await celHeight.fill(originalHeight);
   await page.getByTestId("image-preview-hero").click();
   await expect(page.getByTestId("image-preview-hero")).toHaveText("Stop preview");
   const before = (await textHook(page)).cycle;

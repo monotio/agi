@@ -3,6 +3,7 @@
  * The README and docs/media images, from the real app and the agent's own tools.
  *
  *   npm run media:capture
+ *   npm run media:capture -- play-crt-1.2 history-1.2 agent-review-1.2 cels-from-image-1.2
  *
  * Browser shots: Playwright drives the app in test mode on its own Vite
  * server (app/playwright.media.config.ts, app/e2e/media/docs.media.ts) at
@@ -47,6 +48,16 @@ const BROWSER_SHOTS = [
   "agent-review-1.2",
   "history-1.2",
 ].map((name) => `${name}.png`);
+// Optional shot names keep a focused UI change's capture run small.
+const requested = process.argv.slice(2).map((name) => `${name.replace(/\.png$/, "")}.png`);
+for (const name of requested)
+  if (!BROWSER_SHOTS.includes(name)) throw new Error(`Unknown browser capture: ${name}`);
+const selectedShots = requested.length ? requested : BROWSER_SHOTS;
+const selectedTests = selectedShots.map((name) =>
+  name === "cels-from-image-1.2.png" || name === "view-editor-1.2.png"
+    ? "view-cels-1.2"
+    : name.slice(0, -4),
+);
 /** The capture-feedback files the media gallery shows. */
 const TOOL_FILES = [
   "picture-controls-1.png",
@@ -141,21 +152,28 @@ const tools = join(STAGING, "tools");
 mkdirSync(raw, { recursive: true });
 
 run(
-  [join(APP, "node_modules/playwright/cli.js"), "test", "--config", "playwright.media.config.ts"],
+  [
+    join(APP, "node_modules/playwright/cli.js"),
+    "test",
+    "--config",
+    "playwright.media.config.ts",
+    ...(requested.length ? ["--grep", selectedTests.map((name) => `${name}$`).join("|")] : []),
+  ],
   APP,
 );
-run(["--experimental-strip-types", join(ROOT, "scripts/capture-feedback.ts"), tools], ROOT);
+if (!requested.length)
+  run(["--experimental-strip-types", join(ROOT, "scripts/capture-feedback.ts"), tools], ROOT);
 
 // Specs write only inside test.info().outputPath; publishing copies the named captures.
 const captures = readdirSync(raw, { recursive: true }).map((name) => String(name));
 const staged = [
-  ...BROWSER_SHOTS.map((name) => {
+  ...selectedShots.map((name) => {
     const matches = captures.filter((path) => path.endsWith(`/${name}`));
     if (matches.length !== 1)
       throw new Error(`Expected one capture for ${name}, got ${matches.length}`);
     return { name, from: join(raw, matches[0]!) };
   }),
-  ...TOOL_FILES.map((name) => ({ name, from: join(tools, name) })),
+  ...(requested.length ? [] : TOOL_FILES).map((name) => ({ name, from: join(tools, name) })),
 ].map(({ name, from }) => {
   const bytes = new Uint8Array(readFileSync(from));
   return { name, bytes: name.endsWith(".png") ? compactPng(bytes) : bytes };

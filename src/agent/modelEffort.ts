@@ -27,7 +27,7 @@ export const MODEL_OPTIONS: Record<ModelProvider, { id: string; label: string }[
     { id: "gpt-6-sol", label: "GPT-6 Sol" },
     { id: "gpt-6-luna", label: "GPT-6 Luna" },
   ],
-  stub: [{ id: "offline-stub", label: "Offline Deterministic Stub" }],
+  stub: [{ id: "offline-stub", label: "Demo" }],
 };
 
 const REASONING_LEVELS: readonly ModelEffort[] = ["low", "medium", "high", "xhigh", "max"];

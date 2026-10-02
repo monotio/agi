@@ -545,12 +545,32 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
   }
 }
 const versionName = ref("");
+const editingName = ref<string>();
+const versionNames = computed(() => {
+  const names: Record<string, string[]> = {};
+  for (const [name, id] of Object.entries(historyState.value?.tags ?? {}))
+    (names[id] ??= []).push(name);
+  return names;
+});
 async function restore(id: string): Promise<void> {
   await session?.restore(id);
 }
 async function nameVersion(): Promise<void> {
-  if (versionName.value.trim()) {
-    await session?.tag(versionName.value.trim());
+  if (!versionName.value.trim()) return;
+  try {
+    if (editingName.value === undefined) await session?.tag(versionName.value.trim());
+    else await session?.renameTag(editingName.value, versionName.value.trim());
+    versionName.value = "";
+    editingName.value = undefined;
+    editor.error.value = "";
+  } catch (cause) {
+    editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+async function clearName(name: string): Promise<void> {
+  await session?.renameTag(name, null);
+  if (editingName.value === name) {
+    editingName.value = undefined;
     versionName.value = "";
   }
 }
@@ -965,8 +985,18 @@ onBeforeUnmount(() => {
       History.
     </p>
     <form @submit.prevent="nameVersion">
-      <input v-model="versionName" aria-label="Version name" /><UiButton size="sm" type="submit"
-        >Name this version</UiButton
+      <input v-model="versionName" aria-label="Version name" /><UiButton size="sm" type="submit">{{
+        editingName === undefined ? "Name this version" : "Save name"
+      }}</UiButton>
+      <UiButton
+        v-if="editingName !== undefined"
+        size="sm"
+        variant="ghost"
+        @click="
+          editingName = undefined;
+          versionName = '';
+        "
+        >Cancel</UiButton
       >
     </form>
     <div
@@ -974,8 +1004,40 @@ onBeforeUnmount(() => {
       :key="commit.id"
       class="workspace-history__row"
     >
-      <span>{{ commit.label }}</span
-      ><UiButton
+      <div class="workspace-history__labels">
+        <div
+          v-for="name in versionNames[commit.id] ?? []"
+          :key="name"
+          class="workspace-history__checkpoint"
+        >
+          <span class="workspace-history__name">{{ name }}</span>
+          <div class="workspace-history__actions">
+            <UiButton
+              size="sm"
+              variant="ghost"
+              :aria-label="`Rename ${name}`"
+              @click="
+                editingName = name;
+                versionName = name;
+              "
+              >Rename</UiButton
+            >
+            <UiButton
+              size="sm"
+              variant="ghost"
+              :aria-label="`Clear ${name}`"
+              @click="clearName(name)"
+              >Clear</UiButton
+            >
+          </div>
+        </div>
+        <span
+          class="workspace-history__label"
+          :class="{ 'is-secondary': versionNames[commit.id]?.length }"
+          >{{ commit.label }}</span
+        >
+      </div>
+      <UiButton
         size="sm"
         :disabled="commit.id === historyState?.cursor || editor.busy.value"
         @click="restore(commit.id)"

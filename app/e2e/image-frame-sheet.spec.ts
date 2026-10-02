@@ -186,6 +186,12 @@ test("mark, resize and paint frames before one exact VIEW commit", async ({ page
 });
 
 test("white sheet finds tight linked figures and adds exact prepared cels", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.addEventListener("error", (event) => {
+      if (event.message.includes("ResizeObserver"))
+        document.documentElement.dataset["resizeError"] = event.message;
+    });
+  });
   await page.setViewportSize({ width: 1440, height: 900 });
   await isolateStorage(page);
   await page.goto("/#create-adventure");
@@ -208,7 +214,12 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   });
   await expect(page.getByTestId("image-frame")).toHaveCount(4);
   await expect(page.getByTestId("frame-summary")).toHaveText("Frame 1 · 12 × 48 at 12, 24");
-  await expect(page.getByRole("button", { name: "White is see-through" })).toBeVisible();
+  await expect(
+    page.getByRole("switch", { name: "Background is see-through", exact: true }),
+  ).toHaveAttribute("aria-checked", "true");
+  await expect(
+    page.getByRole("button", { name: "See-through colour", exact: true }),
+  ).toHaveAttribute("title", "White is see-through");
   await expect(page.getByRole("button", { name: "Link selected frame" })).toHaveText(
     "⛓ 4 frames · same size",
   );
@@ -348,4 +359,5 @@ test("white sheet finds tight linked figures and adds exact prepared cels", asyn
   expect((await projectView(page)).commits).toBe(after.commits);
   await page.getByTestId("part-room:1:picture:1").click();
   await expect(page.getByRole("button", { name: "Trace an image", exact: true })).toBeVisible();
+  await expect(page.locator("html")).not.toHaveAttribute("data-resize-error");
 });
