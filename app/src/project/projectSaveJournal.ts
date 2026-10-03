@@ -30,6 +30,11 @@ const PREFIX = "monotio_agi.project-writes.";
 const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
 const RETIRED_PREFIX = "monotio_agi.project-write-retired.";
 export const PROJECT_SAVE_JOURNAL_EVENT = "project-save-journal";
+function belongsToProject(key: string | null, project: ProjectId, prefix = PREFIX): key is string {
+  if (key === null || !key.startsWith(prefix)) return false;
+  // Worker owner tokens contain no dots; project IDs may contain them.
+  return key.slice(prefix.length, key.lastIndexOf(".")) === project;
+}
 function changed(): void {
   if (typeof dispatchEvent !== "undefined") dispatchEvent(new Event(PROJECT_SAVE_JOURNAL_EVENT));
 }
@@ -56,10 +61,7 @@ export function clearProjectSaveJournals(
   if (lifetime != null) retire(`${RETIRED_PREFIX}lifetime.${project}.${lifetime}`);
   const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
   for (const key of keys)
-    if (
-      key?.startsWith(`${PREFIX}${project}.`) ||
-      key?.startsWith(`${RECOVERY_PREFIX}${project}.`)
-    ) {
+    if (belongsToProject(key, project) || belongsToProject(key, project, RECOVERY_PREFIX)) {
       if (key.startsWith(PREFIX)) retire(`${RETIRED_PREFIX}key.${key}`);
       storage.removeItem(key);
       delete terminal[key];
@@ -73,7 +75,7 @@ export function discardProjectSaveRecoveries(
   observed: readonly { key: string; raw: string }[],
 ): void {
   for (const { key, raw } of observed) {
-    if (!key.startsWith(`${PREFIX}${project}.`) || storage.getItem(key) !== raw) continue;
+    if (!belongsToProject(key, project) || storage.getItem(key) !== raw) continue;
     storage.setItem(`${RETIRED_PREFIX}key.${key}`, "1");
     storage.removeItem(key);
     storage.removeItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
@@ -87,7 +89,7 @@ interface RecoveryMarker {
 }
 const terminal: Record<string, RecoveryMarker> = {};
 
-/** Retained journals whose original project lifetime or generation has ended. */
+/** Retained journals whose base differs from the live project version. */
 export function readProjectSaveRecoveries(
   storage: Storage,
   project: ProjectId,
@@ -95,7 +97,7 @@ export function readProjectSaveRecoveries(
   const found: { key: string; raw: string; reason: string }[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (!key?.startsWith(`${PREFIX}${project}.`)) continue;
+    if (!belongsToProject(key, project)) continue;
     try {
       const stored = storage.getItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
       const marker = stored === null ? terminal[key] : (JSON.parse(stored) as RecoveryMarker);
@@ -191,8 +193,7 @@ export function resumeProjectSaveJournals(
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (key?.startsWith(`${PREFIX}${project}.`) && !live.has(key) && !retired.has(key))
-      keys.push(key);
+    if (belongsToProject(key, project) && !live.has(key) && !retired.has(key)) keys.push(key);
   }
   if (keys.length === 0) return undefined;
   const run = (async () => {

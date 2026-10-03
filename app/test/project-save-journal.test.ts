@@ -272,3 +272,24 @@ test("recovery removes an ended lifetime's journal even when no retirement marke
   });
   assert.equal(cache.getItem(key), null);
 });
+
+test("removal retires only the exact project namespace, including dotted IDs", async () => {
+  const parent = request("journal-project");
+  const child = request("journal-project.child");
+  const parentKey = projectSaveJournalKey(parent.projectId, "owner");
+  const childKey = projectSaveJournalKey(child.projectId, "owner");
+  writeProjectSaveJournal(cache, parentKey, [{ request: parent, attempted: false }]);
+  writeProjectSaveJournal(cache, childKey, [{ request: child, attempted: false }]);
+  const childRaw = cache.getItem(childKey);
+  clearProjectSaveJournals(cache, parent.projectId, "parent-lifetime");
+  assert.equal(cache.getItem(parentKey), null);
+  assert.equal(cache.getItem(childKey), childRaw);
+  let writes = 0;
+  await resumeProjectSaveJournals(cache, parent.projectId, async (request) => {
+    writes++;
+    return commitProject(request);
+  });
+  assert.equal(writes, 0);
+  writeProjectSaveJournal(cache, childKey, [{ request: child, attempted: false }]);
+  assert.equal(cache.getItem(childKey), childRaw);
+});

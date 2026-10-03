@@ -174,7 +174,7 @@ test("removal clears ended journals before a recreated project opens", async ({
   expect(result).toEqual({ title: "Recreated", raw: null });
 });
 
-test("a terminal journal offers discard in Create and Home", async ({ page }) => {
+test("a stale journal in the live lifetime offers discard in Create and Home", async ({ page }) => {
   await isolateStorage(page);
   await page.goto("/#create-adventure");
   await page
@@ -192,20 +192,20 @@ test("a terminal journal offers discard in Create and Home", async ({ page }) =>
 
     const id = listCachedGames().find((game) => game.title === "Pending recovery")!.projectId;
     const stored = (await loadAuthoredGameWithHistoryLifetime(id))!;
-    const key = projectSaveJournalKey(id, "ended-owner");
+    const key = projectSaveJournalKey(id, "stale-owner");
     writeProjectSaveJournal(localStorage, key, [
       {
         attempted: false,
         request: {
           projectId: id,
           commitId: "pending",
-          workspaceId: "ended",
+          workspaceId: "stale",
           buildId: "a".repeat(64),
           documents: [],
           expected: {
             projectId: id,
-            lifetime: "ended-lifetime",
-            generation: stored.data.generation!,
+            lifetime: stored.lifetime!,
+            generation: stored.data.generation! - 1,
             revision: stored.data.library!.revision,
             authoring: authoringFingerprint(stored.data.authoringState, stored.data.workspace),
             buildId: "a".repeat(64),
