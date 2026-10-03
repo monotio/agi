@@ -9,6 +9,7 @@
  * so instead, with Download game (the running game, from memory) and Back to
  * games. Nothing is stored for the game from then on.
  */
+import { useWorkspaceEditor } from "../shell/workspaceEditor.ts";
 import UiButton from "../ui/UiButton.vue";
 import UiToast from "../ui/UiToast.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -16,6 +17,7 @@ import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { PROJECT_REMOVED_MESSAGE } from "../project/projectTransaction.ts";
 
 const engine = useEngineApi();
+const editor = useWorkspaceEditor();
 const { state } = engine;
 const { exportBusy, onExportAgiZip } = useGameLibrary();
 
@@ -35,13 +37,14 @@ async function reload(): Promise<void> {
     @dismiss="state.projectRemoved = false"
   >
     {{ PROJECT_REMOVED_MESSAGE }}
+    <UiButton size="sm" @click="editor.downloadUnsavedEdits">Unsaved edits</UiButton>
     <UiButton
       size="sm"
       data-testid="removed-tab-download"
       :disabled="exportBusy"
       @click="onExportAgiZip(true, true)"
     >
-      Download
+      Download game
     </UiButton>
     <UiButton size="sm" @click="reload">Reload</UiButton>
     <UiButton size="sm" data-testid="removed-tab-leave" @click="engine.ejectGame()">
@@ -56,7 +59,8 @@ async function reload(): Promise<void> {
     @dismiss="state.staleTab = false"
   >
     Changed in another tab. Editing is paused. Download your unsaved edits, then reload.
-    <UiButton size="sm" @click="onExportAgiZip(true, true)">Download</UiButton>
+    <UiButton size="sm" @click="editor.downloadUnsavedEdits">Unsaved edits</UiButton>
+    <UiButton size="sm" @click="onExportAgiZip(true, true)">Download game</UiButton>
     <UiButton size="sm" @click="reload">Reload</UiButton>
     <UiButton size="sm" @click="engine.ejectGame()">Exit</UiButton>
   </UiToast>

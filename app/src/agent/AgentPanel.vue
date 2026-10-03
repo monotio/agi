@@ -80,6 +80,9 @@ async function attach() {
     profileId: engine.roomMap.resources.value.profile?.id ?? "2.936",
     config: settings.llmConfig,
     runtime: () => runtime,
+    beforeApprove: async () => {
+      await editor.flush.value?.();
+    },
   });
   off = agent.value.subscribe(() => {
     tick.value++;
@@ -246,10 +249,7 @@ async function send() {
 }
 async function approve() {
   if (editor.readOnly.value) return;
-  await action(async () => {
-    await editor.flush.value?.();
-    await agent.value?.approve(selected.value);
-  });
+  await action(() => agent.value?.approve(selected.value));
 }
 function newChat() {
   void action(() => agent.value?.newChat());

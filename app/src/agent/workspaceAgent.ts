@@ -65,6 +65,7 @@ interface Options {
   ) => UnifiedConversation;
   readonly runtime?: () => AgentRuntimeDeps;
   readonly changed?: () => void;
+  readonly beforeApprove?: () => Promise<void>;
 }
 function conversation(
   config: LlmConfig,
@@ -213,13 +214,19 @@ function stubConversation(initial: unknown[]): UnifiedConversation {
   };
 }
 let sequence = 0;
-const owned = new WeakMap<ProjectSession, ReturnType<typeof createWorkspaceAgent>>();
+const owned = new WeakMap<
+  ProjectSession,
+  { agent: ReturnType<typeof createWorkspaceAgent>; options: Options }
+>();
 export function borrowWorkspaceAgent(options: Options) {
-  let agent = owned.get(options.session);
-  if (!agent) {
-    agent = createWorkspaceAgent(options);
-    owned.set(options.session, agent);
+  const existing = owned.get(options.session);
+  if (existing) {
+    if (options.beforeApprove)
+      Object.assign(existing.options, { beforeApprove: options.beforeApprove });
+    return existing.agent;
   }
+  const agent = createWorkspaceAgent(options);
+  owned.set(options.session, { agent, options });
   return agent;
 }
 export function createWorkspaceAgent(options: Options) {
@@ -366,6 +373,7 @@ export function createWorkspaceAgent(options: Options) {
     applying = true;
     notify();
     try {
+      await options.beforeApprove?.();
       if (approving.stale())
         throw new Error(
           "The project changed while the agent worked. Send a follow-up to revise these changes.",
@@ -535,7 +543,13 @@ export function createWorkspaceAgent(options: Options) {
       notify();
       assertLive();
       if ((autoApprove || automatic) && !review.stale()) {
-        await approve();
+        try {
+          await approve();
+        } catch (cause) {
+          error = cause instanceof Error ? cause.message : String(cause);
+          notify();
+          return true;
+        }
         touched.clear();
         base = session.model.capture();
         workspace = captureAgentWorkspace({

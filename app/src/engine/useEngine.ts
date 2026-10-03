@@ -1273,8 +1273,14 @@ export function useEngine(
     /** Boot the running project again from storage under its own AI settings. */
     reloadFromStorage: () => autosaveController.reloadFromStorage(activeLlmConfig),
     flushAutosave: async (timeoutMs?: number) => {
-      await projectSession?.flush();
-      return autosaveController.flushAutosave(timeoutMs);
+      const documents = projectSession?.flush().catch((cause: unknown) => {
+        logAgent("error", `Could not save project documents: ${String(cause)}`);
+      });
+      const [progress] = await Promise.all([
+        autosaveController.flushAutosave(timeoutMs),
+        documents,
+      ]);
+      return progress;
     },
     flushAutosaveDetailed: autosaveController.flushAutosaveDetailed,
     lastAutosaveRecord: autosaveController.lastAutosaveRecord,

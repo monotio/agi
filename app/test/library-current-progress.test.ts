@@ -1320,3 +1320,31 @@ test("an incompatible checkpoint refused during opening offers the latest versio
   assert.match(engine.api.state.error, /interpreter profile/);
   assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
 });
+
+test("a revision refusal during opening offers the latest version once with its bytes preserved", async (t) => {
+  const cleanup = cleanupAfter(t);
+  installLocalStorage(t);
+  const engine = fakeEngine();
+  const id = testProjectId("checkpoint-opening-revision");
+  await saveAuthoredGame(id, savedProjectBody({ "dir.vol": new Uint8Array([1, 2]) }));
+  const target = (await bindSavedProgressTarget(id))!;
+  cleanup.later(() => removeProjectWithProgress(target, []));
+  const raw = JSON.stringify(autosaveFor(target, 4));
+  localStorage.setItem(autosaveKey(target.locator), raw);
+  engine.api.resumeFromRecord = async () => {
+    engine.api.state.phase = "error";
+    engine.api.state.error =
+      "This play position belongs to an earlier version of the game. Your project is safe. Start the latest version? The old position is replaced when the new run saves.";
+    return false;
+  };
+  const lib = library(engine.api);
+  await flush();
+  await lib.onPlayLibraryGame(lib.savedGames.value.find((game) => game.projectId === id)!);
+  assert.equal(lib.latestVersion.value?.locator, target.locator);
+  assert.equal(engine.api.state.error.match(/Start the latest version\?/g)?.length, 1);
+  assert.equal(
+    engine.api.state.error.match(/The old position is replaced when the new run saves\./g)?.length,
+    1,
+  );
+  assert.equal(localStorage.getItem(autosaveKey(target.locator)), raw);
+});

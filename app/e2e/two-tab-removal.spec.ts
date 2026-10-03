@@ -67,6 +67,9 @@ function held(page: Page, locator: string) {
       const { readResumePointer } = await import("/src/saves/resumePointer.ts");
       const { readProjectSaveRecoveries } = await import("/src/project/projectSaveJournal.ts");
       return {
+        projectNamedKeys: Object.keys(localStorage)
+          .filter((key) => /[.:/]a(?:[.:/]|$)/.test(key))
+          .sort(),
         record: (await loadAuthoredGame(id)) !== null,
         checkpoint: localStorage.getItem(autosaveKey(locator)) !== null,
         recovery: readProjectSaveRecoveries(localStorage, id).length,
@@ -166,6 +169,7 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await card.getByTestId("remove-game-confirm").click();
   await expect(card).toHaveCount(0);
   expect(await held(page, locator)).toEqual({
+    projectNamedKeys: ["monotio_agi.authored.a.b"],
     record: false,
     checkpoint: false,
     recovery: 0,
@@ -196,6 +200,7 @@ test("a game removed in another tab stops storing, says so once, and never comes
     .toEqual({ checkpoints: true, timeline: true });
   expect((await textHook(tabB)).cycle).toBeGreaterThan(cycle);
   expect(await held(tabB, locator)).toEqual({
+    projectNamedKeys: ["monotio_agi.authored.a.b"],
     record: false,
     checkpoint: false,
     recovery: 0,
@@ -217,6 +222,7 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await expect(tabB.getByTestId("saved-game-gallery")).toBeVisible();
   await expect(tabB.getByTestId("hero-primary")).toHaveText("Play the tutorial");
   expect(await held(tabB, locator)).toEqual({
+    projectNamedKeys: ["monotio_agi.authored.a.b"],
     record: false,
     checkpoint: false,
     recovery: 0,

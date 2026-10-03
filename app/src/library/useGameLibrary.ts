@@ -942,7 +942,9 @@ export function createGameLibrary(
     if (target.kind !== "project") return;
     latestVersion.value = target;
     state.phase = "error";
-    state.error = `${cause ?? "This play position belongs to an earlier version of the game. Your project is safe."} Start the latest version? The old position is replaced when the new run saves.`;
+    state.error = cause?.includes("Start the latest version?")
+      ? cause
+      : `${cause ?? "This play position belongs to an earlier version of the game. Your project is safe."} Start the latest version? The old position is replaced when the new run saves.`;
   }
   watch(
     () => state.phase,

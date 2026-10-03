@@ -65,8 +65,13 @@ for (const mode of ["refusal", "storage", "stale", "removed"] as const) {
       );
       await expect(page.getByTestId("pending-edit-recovery")).toHaveCount(0);
       const unsaved = page.waitForEvent("download");
-      await page.getByTestId("download-unsaved-edits").click();
-      const bytes = await readFile((await (await unsaved).path())!);
+      await page
+        .getByTestId(mode === "removed" ? "removed-tab-note" : "stale-tab-note")
+        .getByRole("button", { name: "Unsaved edits", exact: true })
+        .click();
+      const downloaded = await unsaved;
+      expect(downloaded.suggestedFilename()).toBe("agi-unsaved-edits.zip");
+      const bytes = await readFile((await downloaded.path())!);
       expect(bytes.toString()).toContain("LOCAL_TYPED_SENTINEL");
     } else {
       await page.evaluate((mode) => {
@@ -644,4 +649,37 @@ test("Unsaved edits downloads current buffers when IndexedDB writes are refused"
     "UNSAVED_DOWNLOAD_SENTINEL",
   );
   await page.screenshot({ path: test.info().outputPath("unsaved-download.png") });
+});
+
+test("recovery download reports browser failure and keeps the recovery data", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await starter(page);
+  await page.getByTestId("btn-exit").click();
+  await page.evaluate(async () => {
+    const { listCachedGames } = await import("/src/project/gameStorage.ts");
+    const id = listCachedGames().find((game) => game.title === "Recovery proof")!.projectId;
+    const raw = "raw recovery bytes";
+    const hash = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw))),
+      (byte) => byte.toString(16).padStart(2, "0"),
+    ).join("");
+    localStorage.setItem(`monotio_agi.project-writes.${id}.downloadtest`, raw);
+    localStorage.setItem(
+      `monotio_agi.project-recovery.${id}.downloadtest`,
+      JSON.stringify({ version: 1, hash, reason: "Earlier version" }),
+    );
+    window.dispatchEvent(new Event("project-save-journal"));
+    URL.createObjectURL = () => {
+      throw new Error("Browser refused the download");
+    };
+  });
+  const recovery = page.getByTestId("pending-edit-recovery");
+  await expect(recovery).toBeVisible();
+  await recovery.getByRole("button", { name: "Download recovery data", exact: true }).click();
+  await expect(recovery.getByRole("alert")).toHaveText(
+    "Could not download recovery data: Browser refused the download. Try Download recovery data again.",
+  );
+  await page.screenshot({ path: test.info().outputPath("recovery-download-failure.png") });
+  expect(errors).toEqual([]);
 });

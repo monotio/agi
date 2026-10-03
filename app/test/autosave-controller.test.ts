@@ -1281,6 +1281,48 @@ test("a not-ready checkpoint is distinct from a storage failure", async (t) => {
   assert.equal(controller.lastAutosaveRecord(), null);
 });
 
+test("a second ownership check reports not ready after storing the checkpoint", async (t) => {
+  installLocalStorageMock(t);
+  const id = testProjectId("checkpoint-second-not-ready");
+  const files = { "VOL.0": Uint8Array.of(1) };
+  await saveAuthoredGame(id, { title: "Pending", files, words: [] });
+  let preparations = 0;
+  const posted: { id: number }[] = [];
+  const game: BootedGame = {
+    installed: false,
+    projectId: id,
+    title: "Pending",
+    files,
+    words: [],
+    revision: await gameRevision(files),
+    historyLifetime: await readHistoryLifetime(id),
+  };
+  const worker = {
+    postMessage(message: { id: number }) {
+      posted.push(message);
+    },
+  } as unknown as Worker;
+  const controller = useAutosaveController({
+    state: { resumed: false },
+    getBootedGame: () => game,
+    getWorker: () => worker,
+    logAgent() {},
+    isInstalledGame: () => false,
+    bootGame: async () => {},
+    bootAuthoredGame: async () => {},
+    configForGame: (_project, config) => config,
+    retireFailedRecovery() {},
+    prepareCheckpoint: async () => (++preparations === 1 ? "owned" : "not_ready"),
+  });
+  const flushing = controller.flushAutosaveDetailed();
+  controller.handleAutosave({ image: "pending", revision: game.revision, cycle: 2, room: 1 });
+  controller.handleFlushed({ id: posted.at(-1)!.id, taken: true, cycle: 2 });
+  assert.equal((await flushing).status, "not_ready");
+  assert.equal(preparations, 2);
+  assert.equal(readAutosave(resolveProgressTarget(game)!.locator)?.image, "pending");
+  assert.equal(controller.lastAutosaveRecord(), null);
+});
+
 test("a checkpoint queued behind its publication lock cannot write after its run changes", async (t) => {
   installLocalStorageMock(t);
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");

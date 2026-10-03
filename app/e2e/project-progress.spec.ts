@@ -73,6 +73,9 @@ for (const destination of ["Play", "Create"] as const) {
     await expect(page.getByTestId("error-panel")).toContainText(
       "The old position is replaced when the new run saves.",
     );
+    const refusal = await page.getByTestId("error-panel").innerText();
+    expect(refusal.match(/Start the latest version\?/g)).toHaveLength(1);
+    expect(refusal.match(/The old position is replaced when the new run saves\./g)).toHaveLength(1);
     expect(await page.evaluate((key) => localStorage.getItem(key), original.key)).toBe(
       original.raw,
     );
@@ -501,4 +504,48 @@ test("Exit leaves a moment it cannot checkpoint and keeps the last save point", 
   const kept = (await storedAutosave(page, projectId))?.cycle ?? 0;
   expect(kept, "the save point from before the window is kept").toBeGreaterThan(0);
   expect(kept).toBeLessThan(windowUp.cycle);
+});
+
+test("page hide stores play progress when the document flush fails", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await isolateStorage(page);
+  await page.goto("/#create-adventure");
+  await page
+    .getByTestId("create-adventure-disclosure")
+    .getByLabel("Name", { exact: true })
+    .fill("Hide progress");
+  await page.getByTestId("local-create-kind-starter").click();
+  await page.getByRole("button", { name: "Start building", exact: true }).click();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  const project = await page.evaluate(async () => {
+    const { listCachedGames } = await import("/src/project/gameStorage.ts");
+    return listCachedGames().find((game) => game.title === "Hide progress")!.projectId;
+  });
+  await expect.poll(() => storedAutosave(page, project)).not.toBeNull();
+  const storedCycle = (await storedAutosave(page, project))!.cycle;
+  await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(storedCycle);
+  await page.evaluate(() => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getSession(): { flush(): Promise<void> } };
+      hideFlushes: number;
+    };
+    probe.__AGI_PROJECT__.getSession().flush = () =>
+      Promise.reject(new Error("Injected document flush failure"));
+    probe.hideFlushes = 0;
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (message, ...args) {
+      if (message.type === "flush") probe.hideFlushes++;
+      return Reflect.apply(post, this, [message, ...args]);
+    };
+    window.dispatchEvent(new Event("pagehide"));
+  });
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { hideFlushes: number }).hideFlushes))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await storedAutosave(page, project))!.cycle)
+    .toBeGreaterThan(storedCycle);
+  expect(errors).toEqual([]);
 });

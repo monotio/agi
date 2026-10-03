@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { buildZip } from "../archive/zip.ts";
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import type { ProjectId } from "../../../src/gameIdentity.ts";
 import {
@@ -9,6 +10,7 @@ import {
 import UiButton from "../ui/UiButton.vue";
 
 const { projectId } = defineProps<{ projectId: ProjectId | undefined }>();
+const error = ref("");
 const recoveries = ref<ReturnType<typeof readProjectSaveRecoveries>>([]);
 function refresh(): void {
   try {
@@ -31,23 +33,29 @@ function discard(): void {
   refresh();
 }
 async function download(): Promise<void> {
-  const entries = recoveries.value.map(({ raw }, index) => ({
-    name: `recovery-data/journal-${index + 1}.json`,
-    data: new TextEncoder().encode(raw),
-  }));
-  const { buildZip } = await import("../archive/zip.ts");
-  const url = URL.createObjectURL(new Blob([buildZip(entries)], { type: "application/zip" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "agi-recovery-data.zip";
-  link.click();
-  URL.revokeObjectURL(url);
+  error.value = "";
+  try {
+    const entries = recoveries.value.map(({ raw }, index) => ({
+      name: `recovery-data/journal-${index + 1}.json`,
+      data: new TextEncoder().encode(raw),
+    }));
+    const url = URL.createObjectURL(new Blob([buildZip(entries)], { type: "application/zip" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "agi-recovery-data.zip";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (cause) {
+    const message = (cause instanceof Error ? cause.message : String(cause)).replace(/[.]+$/, "");
+    error.value = `Could not download recovery data: ${message}. Try Download recovery data again.`;
+  }
 }
 </script>
 
 <template>
   <div v-if="recoveries.length" data-testid="pending-edit-recovery" role="status">
     <p>Recovery data belongs to an earlier project version. Download it to keep a copy.</p>
+    <p v-if="error" role="alert">{{ error }}</p>
     <UiButton size="sm" @click="download">Download recovery data</UiButton>
     <UiButton size="sm" @click="discard">Discard pending edits</UiButton>
   </div>

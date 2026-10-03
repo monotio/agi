@@ -803,6 +803,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         undefined,
         stored.game.identity.revision,
       );
+      if (ownership === "not_ready") preparationNotReady = true;
       if (
         ownership === "refused" ||
         ownership === "not_ready" ||

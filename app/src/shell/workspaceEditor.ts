@@ -1,4 +1,5 @@
 /** Presentation shared by the Create host, top bar and keyboard adapter. */
+import { buildZip } from "../archive/zip.ts";
 import { computed, inject, provide, ref, shallowRef, type InjectionKey } from "vue";
 import type { ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { EngineApi } from "../engine/engineContext.ts";
@@ -130,18 +131,23 @@ export function createWorkspaceEditor(engine: EngineApi) {
     }
   }
   async function downloadUnsavedEdits(): Promise<void> {
-    const buffers = unsavedEdits.value?.() ?? {};
-    const files = Object.entries(buffers).map(([key, content]) => ({
-      name: `unsaved-edits/${key.replace(":", "-")}.${typeof content === "string" ? "txt" : "bin"}`,
-      data: typeof content === "string" ? new TextEncoder().encode(content) : content.slice(),
-    }));
-    const { buildZip } = await import("../archive/zip.ts");
-    const url = URL.createObjectURL(new Blob([buildZip(files)], { type: "application/zip" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "agi-unsaved-edits.zip";
-    link.click();
-    URL.revokeObjectURL(url);
+    error.value = "";
+    try {
+      const buffers = unsavedEdits.value?.() ?? {};
+      const files = Object.entries(buffers).map(([key, content]) => ({
+        name: `unsaved-edits/${key.replace(":", "-")}.${typeof content === "string" ? "txt" : "bin"}`,
+        data: typeof content === "string" ? new TextEncoder().encode(content) : content.slice(),
+      }));
+      const url = URL.createObjectURL(new Blob([buildZip(files)], { type: "application/zip" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "agi-unsaved-edits.zip";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      const message = (cause instanceof Error ? cause.message : String(cause)).replace(/[.]+$/, "");
+      error.value = `Could not download unsaved edits: ${message}. Try Download unsaved edits again.`;
+    }
   }
   function reset(): void {
     selected.value = undefined;

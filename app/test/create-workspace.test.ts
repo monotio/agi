@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createWorkspaceEditor } from "../src/shell/workspaceEditor.ts";
+import type { EngineApi } from "../src/engine/engineContext.ts";
 import { ref } from "vue";
 import { registerCreatePanel } from "../src/shell/createDocks.ts";
 import {
@@ -195,4 +197,18 @@ test("leaving asks an open Studio only while it holds unkept changes", async () 
   assert.equal(await ws.confirmStudioLeave(), false);
   releaseNewer();
   assert.equal(ws.studioUnkept(), false);
+});
+
+test("unsaved edits download reports a browser download failure and retains buffers", async (t) => {
+  const editor = createWorkspaceEditor({} as EngineApi);
+  editor.unsavedEdits.value = () => ({ notes: "Pending typing" });
+  t.mock.method(URL, "createObjectURL", () => {
+    throw new Error("Browser refused the download");
+  });
+  await editor.downloadUnsavedEdits();
+  assert.equal(
+    editor.error.value,
+    "Could not download unsaved edits: Browser refused the download. Try Download unsaved edits again.",
+  );
+  assert.equal(editor.unsavedEdits.value()["notes"], "Pending typing");
 });
