@@ -55,21 +55,21 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
+    "@anthropic-ai/sdk": "^0.129.0",
     "@ast-grep/cli": "0.45.3",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.3",
     "dependency-cruiser": "^18.4.0",
     "eslint": "^10.11.0",
-    "eslint-plugin-vue": "^10.11.0",
+    "eslint-plugin-vue": "^10.11.1",
     "globals": "^17.12.0",
     "knip": "^6.38.0",
     "npm-run-all2": "^9.0.3",
-    "openai": "^7.22.0",
-    "prettier": "^3.9.8",
+    "openai": "^7.25.0",
+    "prettier": "^3.9.9",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.70.1",
+    "typescript-eslint": "^8.71.0",
     "vue-eslint-parser": "^10.4.1"
   }
 }
