@@ -234,8 +234,10 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(cycle);
   await downloadGame(page);
   expect(await stored(page)).toEqual(kept);
-  await note.getByRole("button", { name: "Dismiss" }).click();
-  await expect(note).toHaveCount(0);
+  await expect(note.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"])
+    await expect(note.getByRole("button", { name, exact: true })).toBeVisible();
 
   // The Assistant still offers the same reload, which loads the edit.
   await page.getByTestId("menu-assistant").click();

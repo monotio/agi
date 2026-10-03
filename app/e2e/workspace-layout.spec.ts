@@ -229,6 +229,11 @@ for (const size of sizes) {
         await page.bringToFront();
         const note = page.getByTestId(removed ? "removed-tab-note" : "stale-tab-note");
         await expect(note).toHaveCount(1);
+        await expect(note.getByRole("button", { name: "Dismiss", exact: true })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(note).toHaveCount(1);
+        if ((await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) !== "true")
+          await page.getByTestId("workspace-focus").click();
         await shot(page, `${removed ? "removed" : "stale"}-focus-${size.width}`);
         await header(page);
         for (const name of ["Download unsaved edits", "Download game", "Reload", "Exit"])

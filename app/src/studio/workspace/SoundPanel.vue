@@ -105,6 +105,7 @@ watch(
   },
 );
 function change(edit: (value: SoundDocument) => SoundDocument): void {
+  if (props.readOnly) return;
   try {
     const next = edit(document.value);
     const bytes = next.encode();
@@ -125,12 +126,16 @@ function selectNote(id: string | undefined): void {
   if (note) voice.value = note.lane;
 }
 function commit(field: SoundField, edit: () => void): void {
+  if (props.readOnly) return;
   edit();
   delete drafts.value[field];
 }
 watch(selected, () => {
   drafts.value = {};
 });
+function draft(field: SoundField, event: Event): void {
+  if (!props.readOnly) drafts.value[field] = value(event);
+}
 function value(event: Event): string {
   return (event.target as HTMLInputElement).value;
 }
@@ -169,11 +174,13 @@ function gridEdit(next: SoundDocument): void {
   change(() => next);
 }
 function chooseFile(event: Event): void {
+  if (props.readOnly) return;
   const input = event.target as HTMLInputElement;
   musicFile.value = input.files?.[0];
   input.value = "";
 }
 function drop(event: DragEvent): void {
+  if (props.readOnly) return;
   const file = event.dataTransfer?.files[0];
   if (!file || !/\.(mid|midi|vgm)$/i.test(file.name)) return;
   event.preventDefault();
@@ -181,6 +188,7 @@ function drop(event: DragEvent): void {
   musicFile.value = file;
 }
 function applyImport(bytes: Uint8Array, after: number, add: boolean): void {
+  if (props.readOnly) return;
   if (add) emit("add", bytes, after);
   else
     change(() => {
@@ -222,7 +230,6 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div
-    :inert="readOnly"
     class="workspace-sound"
     data-testid="workspace-sound"
     @keydown="keys"
@@ -282,6 +289,8 @@ onBeforeUnmount(() => {
         >{{ VOCABULARY.startFrom.label }}
         <select
           aria-label="Start from"
+          :disabled="readOnly"
+          :title="readOnly ? 'Editing is paused in this tab' : undefined"
           value=""
           @change="
             preset(value($event));
@@ -294,20 +303,28 @@ onBeforeUnmount(() => {
           </option>
         </select>
       </label>
-      <UiButton size="sm" variant="ghost" @click="fileInput?.click()">{{
-        VOCABULARY.importMusic.label
-      }}</UiButton>
+      <UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
+        @click="fileInput?.click()"
+        >{{ VOCABULARY.importMusic.label }}</UiButton
+      >
       <input
         ref="fileInput"
         hidden
         type="file"
         accept=".mid,.midi,.vgm"
         aria-label="Music file"
+        :disabled="readOnly"
+        :title="readOnly ? 'Editing is paused in this tab' : undefined"
         @change="chooseFile"
       />
     </div>
     <SoundImport
       v-if="musicFile"
+      :read-only="readOnly"
       :file="musicFile"
       :profile-id="profileId"
       :replace-name="`SOUND ${documentKey.split(':')[1]}`"
@@ -324,8 +341,10 @@ onBeforeUnmount(() => {
           <input
             type="number"
             aria-label="Tempo"
+            :disabled="readOnly"
+            :title="readOnly ? 'Editing is paused in this tab' : undefined"
             :value="drafts.tempo ?? tempo"
-            @input="drafts.tempo = value($event)"
+            @input="draft('tempo', $event)"
             min="40"
             max="240"
             @change="commit('tempo', () => setTempo(Number(value($event))))"
@@ -359,6 +378,7 @@ onBeforeUnmount(() => {
       </div>
       <SoundGrid
         v-if="mode === 'grid'"
+        :read-only="readOnly"
         :document="document"
         :tempo="tempo"
         :division="division"
@@ -374,6 +394,7 @@ onBeforeUnmount(() => {
       />
       <SoundTracker
         v-else
+        :read-only="readOnly"
         :document="document"
         :step-ticks="gridTick(1, tempo, division)"
         :position="status === 'playing' ? position : 0"
@@ -388,6 +409,8 @@ onBeforeUnmount(() => {
           }}<input
             type="range"
             aria-label="Drawing volume"
+            :disabled="readOnly"
+            :title="readOnly ? 'Editing is paused in this tab' : undefined"
             v-model.number="drawVolume"
             min="0"
             max="15"
@@ -404,8 +427,10 @@ onBeforeUnmount(() => {
               >Volume<input
                 type="number"
                 aria-label="Volume"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 :value="drafts.volume ?? attenuationToVolume(event.data.attenuation)"
-                @input="drafts.volume = value($event)"
+                @input="draft('volume', $event)"
                 min="0"
                 max="15"
                 @change="
@@ -414,7 +439,12 @@ onBeforeUnmount(() => {
             /></label>
           </div>
           <div class="sound-note-actions">
-            <UiButton size="sm" variant="ghost" title="Remove (Delete)" @click="remove(event)"
+            <UiButton
+              size="sm"
+              variant="ghost"
+              :disabled="readOnly"
+              :title="readOnly ? 'Editing is paused in this tab' : 'Remove (Delete)'"
+              @click="remove(event)"
               >Remove</UiButton
             >
           </div>
@@ -425,13 +455,17 @@ onBeforeUnmount(() => {
             <label v-if="event.lane < 3 && event.data.kind !== 'raw'" :title="VOCABULARY.pitch.help"
               >Note<input
                 aria-label="Note"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 :value="drafts.note ?? pitch(event)"
-                @input="drafts.note = value($event)"
+                @input="draft('note', $event)"
                 @change="commit('note', () => friendly(event!.id, { note: value($event) }))"
             /></label>
             <label v-if="event.lane === 3 && event.data.kind !== 'raw'"
               >Noise<select
                 aria-label="Noise pattern"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 :value="event.data.kind === 'noise' ? event.data.control : 'rest'"
                 @change="
                   change((doc) =>
@@ -462,8 +496,10 @@ onBeforeUnmount(() => {
               >Length<input
                 type="number"
                 aria-label="Length in beats"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 :value="drafts.beats ?? beats(event)"
-                @input="drafts.beats = value($event)"
+                @input="draft('beats', $event)"
                 min="0.001"
                 step="0.25"
                 @change="
@@ -481,8 +517,10 @@ onBeforeUnmount(() => {
               >Ticks<input
                 type="number"
                 aria-label="Ticks"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 :value="drafts.ticks ?? event.durationTicks"
-                @input="drafts.ticks = value($event)"
+                @input="draft('ticks', $event)"
                 min="0"
                 max="65536"
                 @change="
@@ -495,8 +533,10 @@ onBeforeUnmount(() => {
               >Divisor<input
                 type="number"
                 aria-label="Divisor"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 :value="drafts.divisor ?? event.data.divisor"
-                @input="drafts.divisor = value($event)"
+                @input="draft('divisor', $event)"
                 min="1"
                 max="1023"
                 @change="
@@ -509,8 +549,10 @@ onBeforeUnmount(() => {
               >Attenuation<input
                 type="number"
                 aria-label="Attenuation"
+                :disabled="readOnly"
+                :title="readOnly ? 'Editing is paused in this tab' : undefined"
                 :value="drafts.attenuation ?? event.data.attenuation"
-                @input="drafts.attenuation = value($event)"
+                @input="draft('attenuation', $event)"
                 min="0"
                 max="15"
                 @change="

@@ -9,7 +9,7 @@ const emit = defineEmits<{ edit: [text: string] }>();
     :value="source"
     :readonly="readOnly"
     placeholder="Style, tone and rules for this game…"
-    @input="emit('edit', ($event.target as HTMLTextAreaElement).value)"
+    @input="!readOnly && emit('edit', ($event.target as HTMLTextAreaElement).value)"
   ></textarea>
 </template>
 <style scoped>

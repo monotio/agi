@@ -124,6 +124,7 @@ const ANCHOR_LABELS: Record<ResizeAnchor, string> = {
 };
 
 function resize(): void {
+  if (frozen) return;
   if (validSize.value && resized.value)
     emit("edit", {
       type: "resizeCel",
@@ -133,6 +134,7 @@ function resize(): void {
     });
 }
 function applyTransparent(): void {
+  if (frozen) return;
   if (transparent.value === cel.transparent) return;
   if (clash.value && remap.value === undefined) return;
   emit("edit", {
@@ -156,6 +158,7 @@ function chooseTransparent(): void {
 }
 
 function onAnchorKey(event: KeyboardEvent, current: ResizeAnchor): void {
+  if (frozen) return;
   const step: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 3, ArrowUp: -3 };
   if (!(event.key in step)) return;
   event.preventDefault();
@@ -197,6 +200,8 @@ defineExpose({ chooseTransparent });
               W
               <input
                 v-model.number="width"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
                 type="number"
                 min="1"
                 :max="MAX_CEL_WIDTH"
@@ -209,6 +214,8 @@ defineExpose({ chooseTransparent });
               H
               <input
                 v-model.number="height"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
                 type="number"
                 min="1"
                 :max="MAX_CEL_HEIGHT"
@@ -224,10 +231,11 @@ defineExpose({ chooseTransparent });
                 role="radio"
                 :aria-checked="anchor === entry"
                 :aria-label="ANCHOR_LABELS[entry]"
-                :title="ANCHOR_LABELS[entry]"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : ANCHOR_LABELS[entry]"
                 :tabindex="anchor === entry ? 0 : -1"
                 :data-anchor="entry"
-                @click="anchor = entry"
+                @click="!frozen && (anchor = entry)"
                 @keydown="onAnchorKey($event, entry)"
               ></button>
             </div>
@@ -290,7 +298,12 @@ defineExpose({ chooseTransparent });
           <div class="cel-panel__form">
             <label>
               Colour
-              <select v-model.number="transparent" data-testid="sprite-transparent-colour">
+              <select
+                v-model.number="transparent"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
+                data-testid="sprite-transparent-colour"
+              >
                 <option v-for="(name, value) in EGA_COLOUR_NAMES" :key="value" :value="value">
                   {{ value }} · {{ name }}
                 </option>
@@ -298,7 +311,11 @@ defineExpose({ chooseTransparent });
             </label>
             <label v-if="clash">
               Pixels using it become
-              <select v-model.number="remap">
+              <select
+                v-model.number="remap"
+                :disabled="frozen"
+                :title="frozen ? PAUSED : undefined"
+              >
                 <option
                   v-for="(name, value) in EGA_COLOUR_NAMES"
                   :key="value"

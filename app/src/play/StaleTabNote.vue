@@ -26,9 +26,7 @@ async function reload(): Promise<void> {
   <UiToast
     v-if="state.projectRemoved && state.phase === 'running'"
     tone="warn"
-    dismissible
     data-testid="removed-tab-note"
-    @dismiss="state.projectRemoved = false"
   >
     <span class="read-only-message">{{ PROJECT_REMOVED_MESSAGE }}</span>
     <UiButton size="sm" @click="editor.downloadUnsavedEdits">Download unsaved edits</UiButton>
@@ -48,9 +46,7 @@ async function reload(): Promise<void> {
   <UiToast
     v-else-if="state.staleTab && state.phase === 'running'"
     tone="warn"
-    dismissible
     data-testid="stale-tab-note"
-    @dismiss="state.staleTab = false"
   >
     <span class="read-only-message">
       Changed in another tab. Editing is paused. Download your unsaved edits, then reload.
