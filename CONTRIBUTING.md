@@ -72,7 +72,7 @@ server is already running, give the browser tests their own port:
 | `npm run language-server`                                    | LOGIC stdio language server; see docs/editor-setup.md                 |
 | `npm run lint`                                               | ESLint with zero warnings                                             |
 | `npm run lint:dead`                                          | Find unused files, exports and dependencies with knip                 |
-| `npm run lint:deps`                                          | Check import boundaries and cycles                                    |
+| `npm run lint:deps`                                          | Check import boundaries, Home static imports and cycles               |
 | `npm run mutation`                                           | Stryker mutation report for picture and editor kernels                |
 | `npm run mutation:test`                                      | Run the picture and editor tests used by mutation testing             |
 | `npm run lint:fix`                                           | Apply ESLint fixes                                                    |
@@ -104,6 +104,14 @@ deterministic stub provider, so browser tests run offline. Live
 model evaluations are described in [evals](evals/README.md). A paid run takes
 both `--live` and `--budget-usd` on the command line (`EVAL_LIVE=1` and a budget
 variable for the promptfoo comparisons).
+
+`npm run check` catches static imports of deferred Home modules in `lint:deps`,
+using the existing dependency graph. It follows imports and re-exports from the
+Home entry and earlier-progress activity; dynamic and type-only edges end a path.
+The source patterns and activity roots live in `scripts/deferred-modules.mjs`,
+shared with the bundle check. Failures show the import path; the step reports its
+elapsed time. `npm run check:bundle` remains the authority for emitted chunks
+after a production build.
 
 `npm run check:bundle` runs after `npm run build` and fails, in CI too, when the
 compressed JavaScript, CSS, fonts or workers loaded from opening Home to a catalog
