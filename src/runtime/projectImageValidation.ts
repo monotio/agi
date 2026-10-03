@@ -1,25 +1,33 @@
 /** Detached native validation for complete project images. */
-import { RESOURCE_KINDS, type GameContainer } from "../types.ts";
+import type { GameContainer } from "../types.ts";
 import type { AgiProfile } from "./profile.ts";
 import { decodeInventoryFile, inventoryTableFits } from "./inventoryFile.ts";
-import { validateCandidateResource, stageDictionary } from "./previewAdmission.ts";
+import { diffResources, validateCandidateResource, stageDictionary } from "./previewAdmission.ts";
 
-/** Validate every native resource before a candidate can be saved or replace a run. */
+function fileChanged(container: GameContainer, previous: GameContainer, name: string): boolean {
+  const bytes = container.files.get(name);
+  const before = previous.files.get(name);
+  return (
+    bytes !== undefined &&
+    (before === undefined ||
+      bytes.length !== before.length ||
+      bytes.some((byte, i) => byte !== before[i]))
+  );
+}
+
+/** Validate changed payloads; unchanged imported bytes retain their native runtime behavior. */
 export function validateCompleteImage(
   container: GameContainer,
   profile: AgiProfile,
   soundDevice: number,
+  previous: GameContainer,
 ): void {
-  for (const kind of RESOURCE_KINDS) {
-    for (let num = 0; num < 256; num++) {
-      const bytes = container.getResource(kind, num);
-      if (bytes !== null) validateCandidateResource(kind, num, bytes, null, profile, soundDevice);
-    }
-  }
+  for (const { kind, num, newPayload, oldPayload } of diffResources(previous, container).changes)
+    validateCandidateResource(kind, num, newPayload, oldPayload, profile, soundDevice);
   const words = container.files.get("WORDS.TOK");
-  if (words !== undefined) stageDictionary(words);
+  if (words !== undefined && fileChanged(container, previous, "WORDS.TOK")) stageDictionary(words);
   const objects = container.files.get("OBJECT");
-  if (objects === undefined) return;
+  if (objects === undefined || !fileChanged(container, previous, "OBJECT")) return;
   const decoded = decodeInventoryFile(objects, profile);
   if (!inventoryTableFits(decoded, profile)) throw new Error("OBJECT has an invalid item table.");
   const size = decoded[0]! | (decoded[1]! << 8);

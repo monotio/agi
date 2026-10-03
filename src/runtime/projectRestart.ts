@@ -13,11 +13,17 @@ export function prepareProjectRestart(
   candidate: PreviewUpdateCandidate,
   host: EngineHost,
   fallbackProfile: AgiProfile,
+  previousFiles: ReadonlyMap<string, Uint8Array>,
 ): Engine {
   const files = canonicalizeCandidateFiles(candidate.files);
   const profile = detectProfileDecision(files, candidate.profile ?? fallbackProfile).profile;
   const container = openStagedContainer(files, profile);
-  validateCompleteImage(container, profile, host.soundDevice?.() ?? 1);
+  validateCompleteImage(
+    container,
+    profile,
+    host.soundDevice?.() ?? 1,
+    openStagedContainer(previousFiles, fallbackProfile),
+  );
   if (container.getResource("logic", 0) === null)
     throw new Error("The game needs LOGIC 0 to start.");
   const words = files.get("WORDS.TOK");

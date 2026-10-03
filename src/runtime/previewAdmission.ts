@@ -211,7 +211,7 @@ export function imageLayout(files: ReadonlyMap<string, Uint8Array>): ImageLayout
 
 /** Open the canonical files as a detached, self-owned container. */
 export function openStagedContainer(
-  files: Map<string, Uint8Array>,
+  files: ReadonlyMap<string, Uint8Array>,
   profile: AgiProfile,
 ): GameContainer {
   let staged: GameContainer;
