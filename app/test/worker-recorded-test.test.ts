@@ -334,3 +334,14 @@ test("a stop handled after a run replacement ends the recording without a snapsh
   assert.equal(r.recorderState.recording.active, false);
   assert.equal(r.recorderState.recording.error, "");
 });
+
+test("cancelling a pending stop discards it without reporting a restart", async (t) => {
+  const r = await rig(t, "recorded-cancelled-stop");
+  await r.recorder.startTestRecording();
+  r.holdStopRecording();
+  const pending = r.recorder.stopTestRecording();
+  r.recorder.cancelTestRecording();
+  r.releaseStopRecording();
+  assert.equal(await pending, null);
+  assert.equal(r.recorderState.recording.active, false);
+});

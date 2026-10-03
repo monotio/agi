@@ -315,6 +315,7 @@ async function onRecordStop(): Promise<void> {
   const snapshot = await stopTestRecording();
   if (!snapshot) return;
   if ("endedBy" in snapshot) {
+    state.recording.error = "";
     recordResult.value = "Recording ended by restart. Start Playtest to record the new run.";
     return;
   }

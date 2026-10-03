@@ -5,7 +5,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import type { ProjectSession } from "../src/project/projectSession.ts";
-import type { WorkerQueryFn, WorkerOutbound } from "../src/worker/workerProtocol.ts";
+import type { WorkerQueryFn, WorkerOutbound, WorkerInbound } from "../src/worker/workerProtocol.ts";
 
 interface ProjectProbe {
   getSession(): ProjectSession | null;
@@ -214,6 +214,26 @@ test("Create saves OBJECT removal and restarts MAIN with the changed image", asy
   await openWorkspaceAgent(page);
   await page.getByTestId("btn-record-test").click();
   await expect(page.getByTestId("recording-bar")).toBeVisible();
+  // Hold Stop and name on the wire while the real worker replaces the run.
+  await page.evaluate(() => {
+    const worker = (
+      window as unknown as { __AGI_PROJECT__: ProjectProbe }
+    ).__AGI_PROJECT__.getWorker()!;
+    const post = worker.postMessage.bind(worker);
+    let held: WorkerInbound | null = null;
+    worker.postMessage = (message: WorkerInbound) => {
+      if (message.type === "stopRecording") held = message;
+      else post(message);
+    };
+    Object.assign(window, {
+      releaseRecordingStop() {
+        if (!held) throw new Error("Stop request was not held");
+        worker.postMessage = post;
+        post(held);
+      },
+    });
+  });
+  await page.getByTestId("record-stop").click();
   await reviewShot(page, "project-restart-offer");
   await page.getByRole("button", { name: "Restart with your changes", exact: true }).click();
   await expect(page.getByTestId("project-restart-notice")).toHaveCount(0);
@@ -228,6 +248,13 @@ test("Create saves OBJECT removal and restarts MAIN with the changed image", asy
     .not.toBe(token);
   await expect(page.getByTestId("recording-bar")).toHaveCount(0);
   await expect(page.getByTestId("record-error")).toContainText("Game restarted");
+  await page.evaluate(() =>
+    (window as unknown as { releaseRecordingStop(): void }).releaseRecordingStop(),
+  );
+  await expect(page.getByTestId("record-result")).toContainText("Recording ended by restart");
+  await expect(page.getByTestId("record-dialog")).toBeHidden();
+  await expect(page.getByTestId("record-error")).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("recording-ended-by-restart.png") });
   await openWorkspaceAgent(page);
   await page.getByTestId("btn-record-test").click();
   await expect(page.getByTestId("recording-bar")).toBeVisible();
