@@ -54,7 +54,7 @@ jobs:
           REPEAT: ${{ inputs.repeat }}
         run: python3 scripts/ci/tools.py shard --index "$INDEX" --repeat "$REPEAT" --report "app/test-results/ci-reports/chromium-$INDEX.json"
       - name: Repeat click-to-walk under CPU throttling
-        if: matrix.browser == 'chromium' && matrix.index == 5
+        if: always() && matrix.browser == 'chromium' && matrix.index == 5
         run: npm --prefix app run e2e -- e2e/click-to-walk.spec.ts --grep 'a mouse click' --repeat-each=10 --workers=1
       - name: Timing budgets on one worker
         if: matrix.index == 'perf'
