@@ -271,11 +271,12 @@ test("a reload resumes into the checkpoint's parked window @webkit-desktop", asy
   page,
   browserName,
 }) => {
-  if (browserName === "chromium") {
+  // The agent-room case below covers the throttled journey on every run; this
+  // one throttles only when AGI_PROGRESS_CPU_RATE asks for it.
+  const rate = Number(process.env["AGI_PROGRESS_CPU_RATE"] ?? 1);
+  if (browserName === "chromium" && rate !== 1) {
     const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Emulation.setCPUThrottlingRate", {
-      rate: Number(process.env["AGI_PROGRESS_CPU_RATE"] ?? 6),
-    });
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate });
   }
   const game = createContainer();
   game.putResource("picture", 1, Uint8Array.of(0xf0, 1, 0xf8, 0, 0, 0xff));
