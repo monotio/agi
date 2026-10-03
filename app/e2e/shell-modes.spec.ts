@@ -5,6 +5,7 @@ import {
   cacheGame,
   isolateStorage,
   openGameOptions,
+  surfaceBox,
   textHook,
   waitForAutosaveAfter,
   waitForCycles,
@@ -27,15 +28,6 @@ async function bootTutorial(page: Parameters<typeof textHook>[0]): Promise<void>
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await waitForCycles(page, 2);
 }
-
-// A resize can briefly leave no visible surface; polls read zero until it returns.
-const surfaceBox = async (page: Parameters<typeof textHook>[0]) =>
-  (await page.locator(".game-surface:visible").boundingBox()) ?? {
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-  };
 
 test("Play fits the game to a whole multiple of the frame and the Ask drawer resizes it", async ({
   page,
@@ -148,13 +140,7 @@ test("short windows fit the whole game under the bar and the top bar never overl
     await page.setViewportSize({ width, height });
     if (screenWidth)
       await expect.poll(async () => (await surfaceBox(page)).width).toBe(screenWidth);
-    else
-      await expect
-        .poll(async () => {
-          const { width } = await surfaceBox(page);
-          return width > 0 && width < 640;
-        })
-        .toBe(true);
+    else await expect.poll(async () => (await surfaceBox(page)).width).toBeLessThan(640);
     const layout = await page.evaluate(() => {
       const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
       const body = document.querySelector(".shell-body")!;
@@ -422,4 +408,78 @@ test("the strip's key hint never prints over the transport, and Create's stage f
   // The screen fills that column at its 320×200 aspect.
   await expect.poll(async () => (await surfaceBox(page)).width).toBe(1188);
   expect((await surfaceBox(page)).height).toBe(742.5);
+});
+
+test("the game surface stays mounted and visible through GPU startup and resize", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const probe = {
+      gaps: 0,
+      samples: 0,
+      started: false,
+      surfaces: new Set<Element>(),
+      backends: new Set<string>(),
+    };
+    Object.assign(window, { surfaceContinuity: probe });
+    const sample = () => {
+      const surfaces = [...document.querySelectorAll(".game-surface")];
+      const visible = surfaces.filter((surface) => {
+        const box = surface.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      });
+      if (visible.length > 0) probe.started = true;
+      if (probe.started) {
+        probe.samples++;
+        if (visible.length !== 1) probe.gaps++;
+        for (const surface of surfaces) probe.surfaces.add(surface);
+        for (const surface of visible) probe.backends.add(surface.getAttribute("data-testid")!);
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/three/AgiStage.ts", async (route) => {
+    await ready;
+    await route.continue();
+  });
+  await bootTutorial(page);
+  await expect(page.getByTestId("game-canvas")).toBeVisible();
+  release();
+  await expect(page.getByTestId("gpu-canvas")).toBeVisible();
+  for (const viewport of [
+    { width: 800, height: 600 },
+    { width: 844, height: 390 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const box = await surfaceBox(page);
+    expect(box.width).toBeGreaterThan(0);
+    await waitForCycles(page, 1);
+  }
+  const measured = await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        surfaceContinuity: {
+          gaps: number;
+          samples: number;
+          surfaces: Set<Element>;
+          backends: Set<string>;
+        };
+      }
+    ).surfaceContinuity;
+    return {
+      gaps: probe.gaps,
+      samples: probe.samples,
+      canvases: probe.surfaces.size,
+      backends: [...probe.backends].sort(),
+    };
+  });
+  expect(measured).toMatchObject({ gaps: 0, canvases: 2, backends: ["game-canvas", "gpu-canvas"] });
+  expect(measured.samples).toBeGreaterThan(2);
+  await page.screenshot({ path: test.info().outputPath("surface-after-resize.png") });
 });

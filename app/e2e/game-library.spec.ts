@@ -576,3 +576,27 @@ test("removing a game forgets its progress, so the same bytes come back fresh", 
   await expect(readded.getByTestId("btn-resume-cached")).toHaveText("Play");
   await expect(readded.getByText("IN PROGRESS", { exact: true })).toHaveCount(0);
 });
+
+test("a late Agent panel keeps Settings open @webkit-desktop", async ({ page }) => {
+  await isolateStorage(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/agent/AgentPanel.vue", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await enterCreateMode(page);
+  await page.getByTestId("workspace-agent").click();
+  await page.getByTestId("settings-menu").click();
+  await expect(page.getByTestId("settings-menu-menu")).toBeVisible();
+  release();
+  await expect(page.getByTestId("workspace-agent-panel")).toBeVisible();
+  await expect(page.getByTestId("open-ai-settings")).toBeVisible();
+  await page.getByTestId("open-ai-settings").click();
+  await expect(page.getByTestId("ai-settings-dialog")).toBeVisible();
+});

@@ -385,7 +385,7 @@ test("a checkpoint cannot resume against changed game resources and remains reco
     .getByTestId(`saved-game-card-${checkpoint.projectId}`)
     .getByRole("button", { name: "Resume", exact: true })
     .click();
-  await expect(page.getByTestId("error-panel")).toContainText("different revision");
+  await expect(page.getByTestId("error-panel")).toContainText("earlier version");
   expect(
     await page.evaluate(({ key, raw }) => localStorage.getItem(key) === raw, checkpoint),
     "Rejected resume preserves the checkpoint bytes",

@@ -1,4 +1,4 @@
-/** Edited document journals survive teardown while IndexedDB commits settle. */
+/** Accepted project captures recover interrupted storage acknowledgements. */
 import type { ProjectId } from "../../../src/gameIdentity.ts";
 import type { ProjectCommitRequest, ProjectCommitReceipt } from "./gameStorage.ts";
 import {
@@ -28,13 +28,19 @@ function readEntries(storage: Storage, key: string): JournalEntry[] {
 }
 const PREFIX = "monotio_agi.project-writes.";
 const RECOVERY_PREFIX = "monotio_agi.project-recovery.";
+export const PROJECT_SAVE_JOURNAL_EVENT = "project-save-journal";
+function belongsToProject(key: string | null, project: ProjectId, prefix = PREFIX): key is string {
+  if (key === null || !key.startsWith(prefix)) return false;
+  // Worker owner tokens contain no dots; project IDs may contain them.
+  return key.slice(prefix.length, key.lastIndexOf(".")) === project;
+}
+function changed(): void {
+  if (typeof dispatchEvent !== "undefined") dispatchEvent(new Event(PROJECT_SAVE_JOURNAL_EVENT));
+}
 export function clearProjectSaveJournals(storage: Storage, project: ProjectId): void {
   const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
   for (const key of keys)
-    if (
-      key?.startsWith(`${PREFIX}${project}.`) ||
-      key?.startsWith(`${RECOVERY_PREFIX}${project}.`)
-    ) {
+    if (belongsToProject(key, project) || belongsToProject(key, project, RECOVERY_PREFIX)) {
       storage.removeItem(key);
       delete terminal[key];
     }
@@ -46,7 +52,7 @@ export function discardProjectSaveRecoveries(
   observed: readonly { key: string; raw: string }[],
 ): void {
   for (const { key, raw } of observed) {
-    if (!key.startsWith(`${PREFIX}${project}.`) || storage.getItem(key) !== raw) continue;
+    if (!belongsToProject(key, project) || storage.getItem(key) !== raw) continue;
     storage.removeItem(key);
     storage.removeItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
     delete terminal[key];
@@ -59,7 +65,7 @@ interface RecoveryMarker {
 }
 const terminal: Record<string, RecoveryMarker> = {};
 
-/** Retained journals whose original project lifetime or generation has ended. */
+/** Retained journals whose base differs from the live project version. */
 export function readProjectSaveRecoveries(
   storage: Storage,
   project: ProjectId,
@@ -67,7 +73,7 @@ export function readProjectSaveRecoveries(
   const found: { key: string; raw: string; reason: string }[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (!key?.startsWith(`${PREFIX}${project}.`)) continue;
+    if (!belongsToProject(key, project)) continue;
     try {
       const stored = storage.getItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`);
       const marker = stored === null ? terminal[key] : (JSON.parse(stored) as RecoveryMarker);
@@ -91,23 +97,45 @@ const recovering = new Map<string, Promise<void>>();
 const live = new Set<string>();
 const releasing = new Map<string, Promise<void>>();
 
-export function claimProjectSaveJournal(key: string): () => void {
-  live.add(key);
+export function claimProjectSaveJournal(key: string): { ready: Promise<boolean>; release(): void } {
+  let settle!: (held: boolean) => void;
+  const ready = new Promise<boolean>((resolve) => {
+    settle = resolve;
+  });
   let release!: () => void;
+  let released = false;
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
   const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
-  const ownership = locks?.request(key, () => held).catch(() => {});
-  return () => {
-    live.delete(key);
-    release();
-    if (ownership) {
-      releasing.set(key, ownership);
-      void ownership.finally(() => {
-        if (releasing.get(key) === ownership) releasing.delete(key);
-      });
-    }
+  if (!locks) settle(false);
+  const ownership = locks
+    ?.request(key, () => {
+      if (released) {
+        settle(false);
+        return;
+      }
+      live.add(key);
+      settle(true);
+      return held;
+    })
+    .catch(() => {
+      settle(false);
+    });
+  return {
+    ready,
+    release() {
+      released = true;
+      live.delete(key);
+      settle(false);
+      release();
+      if (ownership) {
+        releasing.set(key, ownership);
+        void ownership.finally(() => {
+          if (releasing.get(key) === ownership) releasing.delete(key);
+        });
+      }
+    },
   };
 }
 
@@ -129,6 +157,20 @@ export function writeProjectSaveJournal(
   }
 }
 
+/** Surface accepted captures that could not be stored against their base. */
+export function markProjectSaveRecovery(storage: Storage, key: string, reason: string): void {
+  const raw = storage.getItem(key);
+  if (raw === null) return;
+  const marker: RecoveryMarker = {
+    version: 1,
+    hash: sha256Hex(new TextEncoder().encode(raw)),
+    reason,
+  };
+  terminal[key] = marker;
+  storage.setItem(`${RECOVERY_PREFIX}${key.slice(PREFIX.length)}`, JSON.stringify(marker));
+  changed();
+}
+
 /** Replay exact attempted requests; only an unattempted successor takes its predecessor's receipt. */
 export function resumeProjectSaveJournals(
   storage: Storage,
@@ -136,14 +178,15 @@ export function resumeProjectSaveJournals(
   write: (request: ProjectCommitRequest) => Promise<{ receipt: ProjectCommitReceipt }>,
   rebuild?: (capture: ProjectJournalCapture) => Promise<{ receipt: ProjectCommitReceipt }>,
 ): Promise<void> | undefined {
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (!locks) return undefined;
   const active = recovering.get(project);
   if (active) return active;
   const retired = new Set(readProjectSaveRecoveries(storage, project).map(({ key }) => key));
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
-    if (key?.startsWith(`${PREFIX}${project}.`) && !live.has(key) && !retired.has(key))
-      keys.push(key);
+    if (belongsToProject(key, project) && !live.has(key) && !retired.has(key)) keys.push(key);
   }
   if (keys.length === 0) return undefined;
   const run = (async () => {
@@ -172,11 +215,20 @@ export function resumeProjectSaveJournals(
               previous = (await rebuild(entry.capture)).receipt;
             } else previous = (await write(entry.request!)).receipt;
           } catch (error) {
+            if (error instanceof Error && error.name === "ProjectDeletedError") {
+              const current = readEntries(storage, key);
+              const index = current.findIndex(
+                (candidate) => entryIdentity(candidate) === entryIdentity(entry),
+              );
+              if (index < 0) break;
+              current.splice(index, 1);
+              writeProjectSaveJournal(storage, key, current);
+              entries = current.filter((candidate) => observed.has(entryIdentity(candidate)));
+              continue;
+            }
             if (
               error instanceof Error &&
-              ["ConcurrencyConflictError", "ProjectDeletedError", "ProjectExistsError"].includes(
-                error.name,
-              )
+              ["ConcurrencyConflictError", "ProjectExistsError"].includes(error.name)
             ) {
               const current = readEntries(storage, key);
               const index = current.findIndex(
@@ -241,12 +293,9 @@ export function resumeProjectSaveJournals(
         }
       };
       await releasing.get(key);
-      const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
-      if (locks)
-        await locks.request(key, { ifAvailable: true }, async (lock) => {
-          if (lock && !live.has(key)) await recover();
-        });
-      else if (!live.has(key)) await recover();
+      await locks.request(key, { ifAvailable: true }, async (lock) => {
+        if (lock && !live.has(key)) await recover();
+      });
     }
   })().finally(() => recovering.delete(project));
   recovering.set(project, run);

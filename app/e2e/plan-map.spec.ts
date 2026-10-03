@@ -279,7 +279,6 @@ test("a refused plan write flags unsaved, retains the edit, and Retry lands it",
   // Across a reload the durable revision is what the session reopens with.
   await page.getByTestId("map-close").click();
   await page.reload();
-  await page.getByTestId("btn-resume-cached").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
   await openMap(page);
   await openWorldRoom(page.getByTestId("world-map"), 2);

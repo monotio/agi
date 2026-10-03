@@ -445,6 +445,19 @@ async function onRecordSave(): Promise<void> {
     @start-walkthrough="onStartWalkthrough"
   />
   <div class="shell-notices">
+    <div
+      v-if="state.phase === 'running' && workspaceEditor.save.value !== 'Saved'"
+      class="notice-actions"
+    >
+      <UiButton
+        size="sm"
+        data-testid="download-unsaved-edits"
+        :disabled="state.leaving || ejectBusy"
+        @click="workspaceEditor.downloadUnsavedEdits"
+      >
+        Download unsaved edits
+      </UiButton>
+    </div>
     <ProjectJournalRecovery
       v-if="state.phase === 'running'"
       :project-id="currentGame()?.projectId"

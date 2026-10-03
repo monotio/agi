@@ -1226,11 +1226,13 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       );
     }
     if (options.pendingEditorChanges?.())
-      notes.push("Pending editor changes are omitted from this download. They remain in this tab.");
+      notes.push("Pending editor changes remain in this tab and are omitted from the download.");
     if (game.removed)
-      notes.push("This project was removed. The download contains this tab's running version.");
+      notes.push("This download contains this tab's running version of the removed project.");
     else if (needsReload(game))
-      notes.push("Changed in another tab. The download contains this tab's running version.");
+      notes.push(
+        "This download contains this tab's running version from before the other tab's changes.",
+      );
     if (game !== booted) throw new Error("The game changed during download. Try again.");
     const progressTarget = game.progressTarget;
     const session = options.authoring?.getSession() ?? null;

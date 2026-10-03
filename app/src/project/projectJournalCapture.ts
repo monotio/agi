@@ -93,7 +93,6 @@ export function captureProjectJournal(input: {
   readonly baseImage: string;
   readonly image: string;
   readonly operations: readonly ProjectJournalOperation[];
-  readonly editorIntent?: true;
 }): ProjectJournalCapture {
   const { data, documents, ...identity } = input.request;
   const original = metadata(data);
@@ -114,7 +113,6 @@ export function captureProjectJournal(input: {
     image: input.image,
     operations: input.operations,
     metadata: patch,
-    ...(input.editorIntent ? { editorIntent: true as const } : {}),
   };
   return {
     ...capture,

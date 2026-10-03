@@ -1,3 +1,4 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import { replayHistorySegment } from "./worker-ctx.ts";
 import type { HistorySegment } from "../../src/agent/history.ts";
 import assert from "node:assert/strict";
@@ -26,6 +27,8 @@ import type {
   WorkerPresentation,
   WorkerQueryFn,
 } from "../src/worker/workerProtocol.ts";
+
+installWebLocksFixture();
 
 installIndexedDbFixture();
 Object.defineProperty(globalThis, "localStorage", {

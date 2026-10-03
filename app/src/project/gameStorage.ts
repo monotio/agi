@@ -935,10 +935,52 @@ export function readStoredBody(raw: unknown, projectId: ProjectId): CachedGameDa
   if (normalized.library !== undefined) normalized.library = readLibrary(normalized);
   return normalized;
 }
-const rejectedProjectReads = new Map<
-  ProjectId,
-  { generation: number | undefined; error: unknown }
->();
+const READ_ERROR_PREFIX = "monotio_agi.project-read-error.";
+interface ProjectReadError {
+  readonly lifetime: string | null;
+  readonly generation?: number;
+  readonly reason: string;
+  readonly unsupported: boolean;
+}
+const rejectedProjectReads = new Map<ProjectId, ProjectReadError>();
+function clearProjectReadError(projectId: ProjectId): void {
+  rejectedProjectReads.delete(projectId);
+  try {
+    localStorage.removeItem(`${READ_ERROR_PREFIX}${projectId}`);
+  } catch {
+    /* Keep storage refusals separate from valid body reads. */
+  }
+}
+function rememberedProjectReadError(
+  projectId: ProjectId,
+  generation: number | undefined,
+  lifetime: string | null,
+): Error | undefined {
+  let rejected = rejectedProjectReads.get(projectId);
+  try {
+    const raw = localStorage.getItem(`${READ_ERROR_PREFIX}${projectId}`);
+    if (raw !== null) {
+      const stored = JSON.parse(raw) as ProjectReadError;
+      if (
+        typeof stored.reason === "string" &&
+        typeof stored.unsupported === "boolean" &&
+        (stored.generation === undefined || typeof stored.generation === "number")
+      )
+        rejected = stored;
+    }
+  } catch {
+    /* The current page retains its rejected read when storage is unavailable. */
+  }
+  if (
+    rejected === undefined ||
+    rejected.generation !== generation ||
+    rejected.lifetime !== lifetime
+  )
+    return;
+  return rejected.unsupported
+    ? new UnsupportedStoredFormatError(rejected.reason)
+    : new Error(rejected.reason);
+}
 async function readBody(
   projectId: ProjectId,
   onLifetime?: (lifetime: string | null) => void,
@@ -949,7 +991,8 @@ async function readBody(
     ...historyBlobKeys(projectId, (raw as StoredGameBody | undefined)?.editHistory),
   ]);
   const stored = snapshot.head as StoredGameBody | undefined;
-  onLifetime?.(liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime));
+  const lifetime = liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime);
+  onLifetime?.(lifetime);
   if (!stored && raw === null) return null;
   if (!stored)
     throw new Error(
@@ -973,9 +1016,20 @@ async function readBody(
         snapshot.records,
       );
     }
-    rejectedProjectReads.delete(projectId);
+    clearProjectReadError(projectId);
   } catch (error) {
-    rejectedProjectReads.set(projectId, { generation: data.generation, error });
+    const rejected: ProjectReadError = {
+      lifetime,
+      ...(data.generation === undefined ? {} : { generation: data.generation }),
+      reason: error instanceof Error ? error.message : String(error),
+      unsupported: error instanceof UnsupportedStoredFormatError,
+    };
+    rejectedProjectReads.set(projectId, rejected);
+    try {
+      localStorage.setItem(`${READ_ERROR_PREFIX}${projectId}`, JSON.stringify(rejected));
+    } catch {
+      // A storage refusal preserves the raw body; the current open still reports its error.
+    }
     throw error;
   }
   data.library = readLibrary(data);
@@ -1540,8 +1594,12 @@ export async function loadProjectProgressIdentity(projectId: ProjectId) {
     const snapshot = await readBodyRecords(projectId, () => [`lifetime/${projectId}`]);
     if (snapshot.head === undefined) return null;
     const data = readStoredBody(snapshot.head, projectId);
-    const rejected = rejectedProjectReads.get(projectId);
-    if (rejected !== undefined && rejected.generation === data.generation) throw rejected.error;
+    const rejected = rememberedProjectReadError(
+      projectId,
+      data.generation,
+      liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime),
+    );
+    if (rejected !== undefined) throw rejected;
     return {
       revision: readLibrary(data).revision,
       lifetime: liveLifetime(snapshot.records.get(`lifetime/${projectId}`) as HistoryLifetime),
@@ -2002,7 +2060,7 @@ async function removeProjectRecords(
     transaction.oncomplete = () => {
       if (outcome === undefined) reject(new Error("Project storage transaction closed early."));
       else {
-        rejectedProjectReads.delete(project);
+        clearProjectReadError(project);
         resolve(outcome);
       }
     };
@@ -2021,10 +2079,13 @@ export function clearCachedGame(projectId: ProjectId): Promise<void> {
     // history — and the legacy progress under its bare id is captured into a
     // durable recovery record before any of it leaves.
     const removed = await removeProjectRecords(projectId);
-    clearProjectSaveJournals(localStorage, projectId);
-    localStorage.removeItem(getStorageKey(projectId));
-    // A tab running the removed lifetime stops writing for it at once; one
-    // already removed has no lifetime left to end.
+    try {
+      clearProjectSaveJournals(localStorage, projectId);
+      localStorage.removeItem(getStorageKey(projectId));
+    } catch (error) {
+      console.error("Project removal cleanup failed after the records left:", error);
+    }
+    // The durable removal ends the owner even when localStorage refuses cleanup.
     if (removed.removedLifetime !== null)
       announceProjectWrite({ projectId, removed: removed.removedLifetime });
   });
@@ -2055,12 +2116,12 @@ export function removeProjectWithProgress(
     // metadata index is a disposable cache reconcileGameIndex rebuilds.
     try {
       localStorage.removeItem(getStorageKey(target.project));
-      if (removed.removedLifetime !== null)
-        announceProjectWrite({ projectId: target.project, removed: removed.removedLifetime });
+      clearProjectSaveJournals(localStorage, target.project);
     } catch (error) {
       console.error("Project removal cleanup failed after the records left:", error);
     }
-    clearProjectSaveJournals(localStorage, target.project);
+    if (removed.removedLifetime !== null)
+      announceProjectWrite({ projectId: target.project, removed: removed.removedLifetime });
     return { recoveryId: removed.recoveryId, retiredLocator: target.locator };
   });
 }
@@ -2378,8 +2439,8 @@ async function classifyStoredProject(
     data.library = readLibrary(data);
     const history = (raw as StoredGameBody).editHistory;
     if (history !== undefined) historyBlobKeys(id, history);
-    const rejected = rejectedProjectReads.get(id);
-    if (rejected !== undefined && rejected.generation === data.generation) throw rejected.error;
+    const rejected = rememberedProjectReadError(id, data.generation, await readHistoryLifetime(id));
+    if (rejected !== undefined) throw rejected;
     return { state: "readable", data };
   } catch (error) {
     let recoverable = true;

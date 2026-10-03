@@ -42,11 +42,13 @@ Released notes are also available on [GitHub Releases](https://github.com/monoti
 - Projects with unsupported formats stay visible with recovery actions, including
   when opened through a game link. Download is available for records it can preserve.
 - Saving… shows while a change is pending and Saved confirms the project reached
-  browser storage. Pending editor changes can recover after closing when browser
-  recovery storage is available. A failed save keeps the workspace open with Retry.
+  browser storage. Keep the tab open until Saved; unsaved edits may be lost on close.
+  Download unsaved edits keeps current buffers during save failures. Accepted
+  captures retain recovery after interrupted acknowledgement. A failed save keeps Retry.
 - Download game can produce a backup after a failed save or a change in another tab,
-  with a report of its limitations. Stale and removed tabs can leave without saving.
-- Pending edits from an earlier project version stay available as a recovery download.
+  with a report of its limitations. Stale and removed tabs are read-only with Download, Reload and Exit.
+- Accepted or legacy recovery captures retain Download recovery data and Discard pending edits.
+- Earlier play positions stay intact and offer Start the latest version.
 - Name this version names what is on screen, including source with errors.
 - Opening a menu while the game screen loads keeps the menu open.
 

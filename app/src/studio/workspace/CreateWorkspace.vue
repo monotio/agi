@@ -81,7 +81,6 @@ const optimistic = shallowRef<Readonly<Record<string, ProjectContent>>>({});
 let session: ProjectSession | null = null;
 let unsubscribe: (() => void) | undefined;
 let retired = false;
-let recoveryError = "";
 const writeConflict = ref(false);
 const musicDrop = shallowRef<File>();
 const musicDropTarget = ref<string>();
@@ -135,15 +134,10 @@ function refresh(): void {
       );
     });
   } else traceUnderlays.value = {};
-  if (
-    capture.save.state === "saved" &&
-    !editor.busy.value &&
-    Object.keys(optimistic.value).length === 0
-  ) {
-    if (editor.error.value === recoveryError) editor.error.value = "";
-    recoveryError = "";
-  } else if (recoveryError) editor.error.value = recoveryError;
   writeConflict.value = capture.save.state === "conflict";
+  editor.readOnly.value = writeConflict.value;
+  editor.pendingChanges.value =
+    session.pendingChanges || editor.busy.value || Object.keys(optimistic.value).length > 0;
   if (writeConflict.value) editor.error.value = "";
   historyState.value = capture.history;
   editor.pendingAdmission.value = capture.pendingAdmission;
@@ -340,20 +334,31 @@ function native(key: string): Uint8Array | undefined {
   return bytes;
 }
 const soundTempos = new WeakMap<Uint8Array, number>();
-function editorChanges(key: string, value: ProjectContent): readonly ProjectChange[] {
+function editorChanges(
+  key: string,
+  value: ProjectContent,
+  music = content("music"),
+): readonly ProjectChange[] {
   const tempo = value instanceof Uint8Array ? soundTempos.get(value) : undefined;
   if (key.startsWith("sound:") && value instanceof Uint8Array && tempo !== undefined) {
-    const music = content("music");
     return soundProjectChanges(key, value, tempo, typeof music === "string" ? music : undefined);
   }
   return [{ key, content: value }];
 }
 const actionBusy = ref(false);
+const writerBusy = ref(false);
+watch(
+  [actionBusy, writerBusy],
+  ([action, writer]) => {
+    editor.busy.value = action || writer;
+  },
+  { flush: "sync" },
+);
 const writes = createWorkspaceWrites({
   async durable() {
     await session?.flush();
   },
-  async write(key, value, editorIntent) {
+  async write(key, value) {
     if (retired || session === null || session !== engine.getProjectSession())
       throw new Error("Open this project again to retry the change.");
     const origin = (
@@ -363,18 +368,19 @@ const writes = createWorkspaceWrites({
     const result = await engine.submitProjectEdit({
       changes,
       origin,
-      ...(editorIntent === undefined ? {} : { editorIntent }),
       label: `Changed ${key === "inventory" ? "OBJECTS" : key === "words" ? "WORDS" : key.replace(":", " ").toUpperCase()}`,
       author: "creator",
     });
     if (!["committed", "diagnostics", "unchanged", "restartRequired"].includes(result.status))
       throw new Error("This change needs a fresh room. Return to the room and retry.");
-    if (!recoveryError) editor.error.value = "";
+    editor.error.value = "";
     refresh();
   },
   changed(drafts, busy) {
     optimistic.value = drafts;
-    editor.busy.value = busy || actionBusy.value;
+    writerBusy.value = busy;
+    editor.pendingChanges.value =
+      busy || (session?.pendingChanges ?? false) || Object.keys(drafts).length > 0;
     if (editor.busy.value) editor.save.value = "Saving…";
     else refresh();
   },
@@ -416,12 +422,8 @@ async function retrySave(): Promise<void> {
     /* The save notice keeps the cause and Retry. */
   }
 }
-function rememberEdit(key: string, value: ProjectContent): number | undefined {
-  const cause = session?.rememberEditorChanges(editorChanges(key, value));
-  if (cause) editor.error.value = recoveryError = cause.message;
-  return session?.captureEditorIntent(key);
-}
 function edit(key: string, value: ProjectContent): void {
+  if (writeConflict.value) return;
   const before = content(key);
   if (typeof before === "string" && before === value) return;
   if (
@@ -433,14 +435,15 @@ function edit(key: string, value: ProjectContent): void {
     return;
   editor.error.value = "";
   editor.pin(key);
-  writes.edit(key, value, rememberEdit(key, value));
+  writes.edit(key, value);
 }
 function editSound(key: string, bytes: Uint8Array, tempo: number): void {
+  if (writeConflict.value) return;
   soundTempos.set(bytes, tempo);
   if (soundTempo(key) === tempo) edit(key, bytes);
   else {
     editor.error.value = "";
-    writes.edit(key, bytes, rememberEdit(key, bytes));
+    writes.edit(key, bytes);
   }
 }
 function soundTempo(key: string): number {
@@ -520,6 +523,7 @@ async function wordChange(
   action: { from: number; to: number; word?: string } | { remove: string },
 ): Promise<void> {
   try {
+    if (writeConflict.value) throw new Error(session!.saveStatus().message);
     await writes.flush();
     const captured = session?.model.capture();
     if (!captured) return;
@@ -533,13 +537,8 @@ async function wordChange(
       "remove" in action
         ? removeMeaningWord(words, captured.documents(), action.remove, profile.value)
         : changeMeaning(words, captured.documents(), action, profile.value);
-    const recovery = session?.rememberEditorChanges(changes);
-    if (recovery) editor.error.value = recoveryError = recovery.message;
     const result = await engine.submitProjectEdit({
       changes,
-      ...(changes[0] === undefined
-        ? {}
-        : { editorIntent: session!.captureEditorIntent(changes[0].key)! }),
       origin: "words",
       author: "creator",
       label:
@@ -557,8 +556,8 @@ async function wordChange(
   }
 }
 async function guidedAction(action: WorkspaceAction): Promise<void> {
+  if (writeConflict.value || actionBusy.value) return;
   actionBusy.value = true;
-  editor.busy.value = true;
   try {
     await writes.flush();
     const capture = session?.model.capture();
@@ -566,13 +565,8 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
     const { prepareWorkspaceAction } = await import("./workspaceGuided.ts");
     const prepared = prepareWorkspaceAction(capture, profile.value.id, action);
     if (!prepared.ok) throw new Error(prepared.message);
-    const recovery = session?.rememberEditorChanges(prepared.changes);
-    if (recovery) editor.error.value = recoveryError = recovery.message;
     const result = await engine.submitProjectEdit({
       changes: prepared.changes,
-      ...(prepared.changes[0] === undefined
-        ? {}
-        : { editorIntent: session!.captureEditorIntent(prepared.changes[0].key)! }),
       label: prepared.label,
       origin: "logic",
       author: "creator",
@@ -589,12 +583,12 @@ async function guidedAction(action: WorkspaceAction): Promise<void> {
       const key = prepared.changes.find((change) => change.key.startsWith("logic:"))?.key;
       if (key) editor.open(key);
     }
+    guidedKind.value = undefined;
     editor.error.value = "";
   } catch (cause) {
     editor.error.value = String(cause instanceof Error ? cause.message : cause);
   } finally {
     actionBusy.value = false;
-    editor.busy.value = false;
     refresh();
   }
 }
@@ -606,31 +600,44 @@ const versionNames = computed(() => {
     (names[id] ??= []).push(name);
   return names;
 });
-async function restore(id: string): Promise<void> {
-  await session?.restore(id);
-}
-async function nameVersion(): Promise<void> {
-  if (!versionName.value.trim()) return;
+async function historyAction(action: () => Promise<unknown>): Promise<void> {
+  actionBusy.value = true;
   try {
-    await flushWorkspace();
-    if (editingName.value === undefined) await session?.tag(versionName.value.trim());
-    else await session?.renameTag(editingName.value, versionName.value.trim());
+    if (writeConflict.value) throw new Error(session!.saveStatus().message);
+    await writes.flush();
+    await action();
     await session?.flush();
-    versionName.value = "";
-    editingName.value = undefined;
     editor.error.value = "";
   } catch (cause) {
     editor.error.value = cause instanceof Error ? cause.message : String(cause);
+  } finally {
+    actionBusy.value = false;
+    refresh();
   }
+}
+async function restore(id: string): Promise<void> {
+  await historyAction(async () => session?.restore(id));
+}
+async function nameVersion(): Promise<void> {
+  if (!versionName.value.trim()) return;
+  await historyAction(async () => {
+    if (editingName.value === undefined) await session?.tag(versionName.value.trim());
+    else await session?.renameTag(editingName.value, versionName.value.trim());
+    versionName.value = "";
+    editingName.value = undefined;
+  });
 }
 async function clearName(name: string): Promise<void> {
-  await session?.renameTag(name, null);
-  if (editingName.value === name) {
-    editingName.value = undefined;
-    versionName.value = "";
-  }
+  await historyAction(async () => {
+    await session?.renameTag(name, null);
+    if (editingName.value === name) {
+      editingName.value = undefined;
+      versionName.value = "";
+    }
+  });
 }
 async function add(group: string): Promise<void> {
+  if (writeConflict.value || actionBusy.value) return;
   if (group === "WORDS" || group === "OBJECTS") {
     const key = group === "WORDS" ? "words" : "inventory";
     const source = text(key);
@@ -739,8 +746,44 @@ function escape(event: KeyboardEvent): void {
   } else lastEscape = now;
 }
 window.addEventListener("keydown", escape, true);
+function warnBeforeUnload(event: BeforeUnloadEvent): void {
+  event.preventDefault();
+  event.returnValue = "";
+}
+watch(
+  () => editor.pendingChanges.value,
+  (unsaved) => {
+    if (unsaved) window.addEventListener("beforeunload", warnBeforeUnload);
+    else window.removeEventListener("beforeunload", warnBeforeUnload);
+  },
+  { immediate: true, flush: "sync" },
+);
+function flushHidden(): void {
+  if (!writeConflict.value) void flushWorkspace().catch(() => {});
+}
+function visibilityChanged(): void {
+  if (document.visibilityState === "hidden") flushHidden();
+}
+window.addEventListener("pagehide", flushHidden);
+document.addEventListener("visibilitychange", visibilityChanged);
+editor.unsavedEdits.value = () => {
+  const buffers = {
+    ...(session?.saveStatus().state === "saved" ? {} : snapshot.value?.documents()),
+    ...optimistic.value,
+  };
+  for (const [key, value] of Object.entries(buffers))
+    if (key.startsWith("sound:"))
+      for (const change of editorChanges(key, value, buffers["music"]))
+        buffers[change.key] = change.content!;
+  return buffers;
+};
 onBeforeUnmount(() => {
   retired = true;
+  window.removeEventListener("beforeunload", warnBeforeUnload);
+  window.removeEventListener("pagehide", flushHidden);
+  document.removeEventListener("visibilitychange", visibilityChanged);
+  editor.unsavedEdits.value = undefined;
+  editor.pendingChanges.value = false;
   writes.dispose();
   editor.flush.value = undefined;
   editor.discard.value = undefined;
@@ -755,6 +798,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <PartsList
+    :read-only="writeConflict || actionBusy"
     v-show="creating && !workspace.collapsed.left && !editor.focus.value"
     :groups="groups"
     :selected="editor.selected.value"
@@ -798,6 +842,10 @@ onBeforeUnmount(() => {
         <UiButton
           size="sm"
           variant="ghost"
+          :disabled="writeConflict || actionBusy"
+          :title="
+            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
+          "
           @click="
             imagePanel = editor.selected.value;
             imageGenerate = false;
@@ -811,6 +859,10 @@ onBeforeUnmount(() => {
         <UiButton
           size="sm"
           variant="ghost"
+          :disabled="writeConflict || actionBusy"
+          :title="
+            writeConflict ? 'Editing is paused. Download your unsaved edits, then reload.' : ''
+          "
           @click="
             imagePanel = editor.selected.value;
             imageGenerate = true;
@@ -834,7 +886,7 @@ onBeforeUnmount(() => {
         v-model:action="guidedKind"
         :room="Number(editor.selected.value?.split(':')[1] ?? 0)"
         :initial-command="guidedCommand"
-        :busy="editor.busy.value"
+        :busy="editor.busy.value || writeConflict"
         @add="guidedAction"
       />
       <UiButton
@@ -847,7 +899,12 @@ onBeforeUnmount(() => {
         >Focus</UiButton
       >
       <ImageReferencePanel
-        v-if="imagePanel === editor.selected.value && imagePanel?.startsWith('picture:') && session"
+        v-if="
+          !writeConflict &&
+          imagePanel === editor.selected.value &&
+          imagePanel?.startsWith('picture:') &&
+          session
+        "
         :key="imagePanel"
         :session="session"
         :target="imagePanel"
@@ -883,7 +940,7 @@ onBeforeUnmount(() => {
       class="workspace-editor__surface"
     >
       <ImageReferencePanel
-        v-if="imagePanel === key && session && key.startsWith('view:')"
+        v-if="!writeConflict && imagePanel === key && session && key.startsWith('view:')"
         :session="session"
         :target="key"
         :profile="profile"
@@ -895,6 +952,7 @@ onBeforeUnmount(() => {
         @changed="refresh"
       />
       <RoomStudio
+        :read-only="writeConflict || actionBusy"
         v-if="key.startsWith('picture:') && native(key) && profile"
         :live-game="
           creating &&
@@ -918,6 +976,7 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
       />
       <SpriteStudio
+        :read-only="writeConflict || actionBusy"
         v-else-if="key.startsWith('view:') && native(key) && profile"
         v-show="imagePanel !== key"
         :workspace-focus="editor.focus.value"
@@ -932,6 +991,7 @@ onBeforeUnmount(() => {
         @edit="edit(key, $event)"
       />
       <LogicEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key.startsWith('logic:') && text(key) !== undefined && snapshot"
         :ref="
           (instance) => {
@@ -961,6 +1021,7 @@ onBeforeUnmount(() => {
         @selection="editor.setAgentContext(key, $event)"
       />
       <WordsEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key === 'words' && text(key) !== undefined && snapshot"
         :source="text(key)!"
         :documents="snapshot.documents()"
@@ -976,12 +1037,14 @@ onBeforeUnmount(() => {
         @chat="openWordsChat"
       />
       <TableEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key === 'inventory' && text(key) !== undefined"
         :kind="key"
         :source="text(key)!"
         @edit="edit(key, $event)"
       />
       <SoundPanel
+        :read-only="writeConflict || actionBusy"
         v-else-if="key.startsWith('sound:') && native(key)"
         :document-key="key"
         :bytes="soundBytes(key)"
@@ -994,6 +1057,7 @@ onBeforeUnmount(() => {
         @add="addImportedSound"
       />
       <NotesEditor
+        :read-only="writeConflict || actionBusy"
         v-else-if="key === 'notes'"
         :source="text(key) ?? ''"
         @edit="edit(key, $event)"
@@ -1046,6 +1110,7 @@ onBeforeUnmount(() => {
       <input v-model="versionName" aria-label="Version name" placeholder="Opening scene" /><UiButton
         size="sm"
         type="submit"
+        :disabled="writeConflict || editor.busy.value"
         >{{ editingName === undefined ? "Name this version" : "Save name" }}</UiButton
       >
       <UiButton
@@ -1075,6 +1140,7 @@ onBeforeUnmount(() => {
             <UiButton
               size="sm"
               variant="ghost"
+              :disabled="writeConflict || editor.busy.value"
               :aria-label="`Rename ${name}`"
               @click="
                 editingName = name;
@@ -1085,6 +1151,7 @@ onBeforeUnmount(() => {
             <UiButton
               size="sm"
               variant="ghost"
+              :disabled="writeConflict || editor.busy.value"
               :aria-label="`Clear ${name}`"
               @click="clearName(name)"
               >Clear</UiButton
@@ -1099,7 +1166,7 @@ onBeforeUnmount(() => {
       </div>
       <UiButton
         size="sm"
-        :disabled="commit.id === historyState?.cursor || editor.busy.value"
+        :disabled="writeConflict || commit.id === historyState?.cursor || editor.busy.value"
         @click="restore(commit.id)"
         >Restore</UiButton
       >

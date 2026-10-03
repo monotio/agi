@@ -14,6 +14,7 @@ import {
   parseAutosaveRecord,
   readGameProgress,
   writeAutosave,
+  withCheckpointLock,
   type AutosaveGame,
   type AutosaveRecord,
 } from "./gameProgress.ts";
@@ -116,7 +117,7 @@ export function readAutosave(targetKey: string): AutosaveRecord | null {
  * checkpoint — either key's stored value — so a pointer naming another game
  * survives a selected clear.
  */
-export function clearAutosave(targetKey: string): void {
+function clearCheckpointBytes(targetKey: string): void {
   try {
     localStorage.removeItem(autosaveKey(targetKey));
     const resolved = resolveGameHash(targetKey);
@@ -136,6 +137,10 @@ export function clearAutosave(targetKey: string): void {
   }
 }
 
+export function clearAutosave(targetKey: string): Promise<void> {
+  return withCheckpointLock(targetKey, () => clearCheckpointBytes(targetKey));
+}
+
 /**
  * The checkpoint Home may offer to continue: the last game played's, while
  * its game can still boot. An authored project's checkpoint without a
@@ -151,7 +156,7 @@ export function resumableAutosave(): AutosaveRecord | null {
   const project = record.game.identity.project;
   if (getCachedGameMeta(project)) return record;
   try {
-    if (localStorage.getItem(getStorageKey(project)) === null) clearAutosave(key);
+    if (localStorage.getItem(getStorageKey(project)) === null) void clearAutosave(key);
   } catch {
     /* a store we cannot read offers nothing */
   }
@@ -176,12 +181,13 @@ export interface AutosaveControllerContext {
   };
   readonly getBootedGame: () => BootedGame | null;
   readonly getWorker: () => Worker | null;
+  readonly getRunScope?: () => string | undefined;
   /** The project's write owner makes its live image durable before a checkpoint. */
   readonly prepareCheckpoint?: (
     game: BootedGame,
     files: Record<string, Uint8Array> | undefined,
     revision: ResourceRevision | undefined,
-  ) => Promise<"owned" | "legacy" | "refused">;
+  ) => Promise<"owned" | "legacy" | "refused" | "not_ready">;
   readonly onAutosaveStored?: (cycle: number) => void;
   readonly onAutosaveRestored?: (room: number, egoX: number, egoY: number) => void;
   /** An autosave found a newer save in storage and wrote nothing; called once per game. */
@@ -242,6 +248,7 @@ type AutosaveFlushResult =
   | { status: "saved"; cycle: number }
   | { status: "already_durable"; cycle: number }
   | { status: "not_checkpointable" }
+  | { status: "not_ready" }
   | { status: "storage_failure"; error?: unknown }
   | { status: "timeout" };
 
@@ -348,7 +355,7 @@ export interface ResumeBootCarrier {
 
 export interface AutosaveController {
   readAutosave(targetKey: string): AutosaveRecord | null;
-  clearAutosave(targetKey: string): void;
+  clearAutosave(targetKey: string): Promise<void>;
   lastAutosaveRecord(): AutosaveRecord | null;
   getAutosaveWrite(): Promise<boolean>;
   flushAutosave(timeoutMs?: number): Promise<boolean>;
@@ -426,6 +433,32 @@ export interface AutosaveController {
 
 export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveController {
   let lastAutosave: AutosaveRecord | null = null;
+  let lastAutosaveScope: {
+    game: BootedGame;
+    worker: Worker | null;
+    lifetime: string | null | undefined;
+    run: string | undefined;
+  } | null = null;
+  function invalidateOldCheckpoint(): void {
+    const game = ctx.getBootedGame();
+    if (
+      lastAutosave !== null &&
+      (lastAutosaveScope?.game !== game ||
+        lastAutosaveScope.worker !== ctx.getWorker() ||
+        lastAutosaveScope.lifetime !== game?.historyLifetime ||
+        lastAutosaveScope.run !== ctx.getRunScope?.() ||
+        lastAutosave.game.identity.revision !== game?.revision)
+    ) {
+      lastAutosave = null;
+      lastAutosaveScope = null;
+    }
+  }
+  let preparationNotReady = false;
+  let checkpointTraceCount = 0;
+  function traceCheckpoint(stage: string, details: unknown) {
+    if (checkpointTraceCount++ < 32)
+      ctx.logAgent("log", `Checkpoint ${stage}: ${JSON.stringify(details)}`);
+  }
   let autosaveWrite: Promise<boolean> = Promise.resolve(true);
   const flushWaiters = new Map<number, (saved: boolean) => void>();
   const flushDetailedWaiters = new Map<number, (res: AutosaveFlushResult) => void>();
@@ -637,18 +670,27 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     return readGameProgress(localStorage, target).autosave?.preview;
   }
 
-  async function storeAutosave(msg: {
-    image: string;
-    revision?: ResourceRevision;
-    preview?: unknown;
-    menus?: EngineMenuState;
-    cycle: number;
-    room: number;
-    files?: Record<string, Uint8Array>;
-  }): Promise<boolean> {
+  async function storeAutosave(
+    msg: {
+      image: string;
+      revision?: ResourceRevision;
+      preview?: unknown;
+      menus?: EngineMenuState;
+      cycle: number;
+      room: number;
+      files?: Record<string, Uint8Array>;
+    },
+    captured: { game: BootedGame | null; worker: Worker | null; run: string | undefined },
+  ): Promise<boolean> {
     try {
       const booted = ctx.getBootedGame();
-      if (!booted) return false;
+      if (
+        !booted ||
+        booted !== captured.game ||
+        ctx.getWorker() !== captured.worker ||
+        ctx.getRunScope?.() !== captured.run
+      )
+        return false;
       const game = booted;
       // The one physical address every read and write below answers to,
       // resolved before the body, files and progress it may touch — a
@@ -703,7 +745,12 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       // A checkpoint names the revision this game runs. Once storage holds
       // another one (a Keep in another tab, which took its own checkpoint),
       // this one could never resume and would bury that tab's: skip it.
-      if (storageMovedPast(game)) return false;
+      if (
+        storageMovedPast(game) ||
+        (msg.revision !== undefined &&
+          (game.revision !== msg.revision || target.identity.revision !== msg.revision))
+      )
+        return false;
       // A snapshot without its own picture (the worker sends none for a black
       // screen) keeps the card's previous one — only this game's own
       // physical record supplies it.
@@ -722,8 +769,18 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
           identity: target.identity,
         },
       };
-      if (ctx.getBootedGame() !== game) return false;
+      if (
+        ctx.getBootedGame() !== game ||
+        ctx.getWorker() !== captured.worker ||
+        ctx.getRunScope?.() !== captured.run
+      )
+        return false;
       const stored = writeAutosave(localStorage, target, record);
+      traceCheckpoint("stored", {
+        cycle: msg.cycle,
+        identity: stored?.game.identity,
+        lifetime: expectedEpoch,
+      });
       if (!stored) {
         ctx.logAgent("log", "autosave failed: browser storage rejected the save record");
         return false;
@@ -736,12 +793,34 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       // Removed while this checkpoint was written: the removing tab cleared
       // the key before it, or this lifetime check sees the receipt now.
       if (ctx.getBootedGame() === game && (await projectRemoved(game, expectedEpoch))) {
-        clearAutosave(target.locator);
+        clearCheckpointBytes(target.locator);
         return false;
       }
-      if (ctx.getBootedGame() !== game) return false;
+      // A document edit can land while the lifetime read waits. Re-prove its
+      // owner before acknowledging a cycle as durable for the current project.
+      const ownership = await ctx.prepareCheckpoint?.(
+        game,
+        undefined,
+        stored.game.identity.revision,
+      );
+      if (ownership === "not_ready") preparationNotReady = true;
+      if (
+        ownership === "refused" ||
+        ownership === "not_ready" ||
+        ctx.getBootedGame() !== game ||
+        game.revision !== stored.game.identity.revision ||
+        ctx.getWorker() !== captured.worker ||
+        ctx.getRunScope?.() !== captured.run
+      )
+        return false;
       ctx.onAutosaveStored?.(stored.cycle);
       lastAutosave = stored;
+      lastAutosaveScope = {
+        game,
+        worker: captured.worker,
+        lifetime: game.historyLifetime,
+        run: captured.run,
+      };
       return true;
     } catch (error) {
       ctx.logAgent("log", `autosave failed: ${String(error)}`);
@@ -759,19 +838,51 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
     files?: Record<string, Uint8Array>;
   }): void {
     const game = ctx.getBootedGame();
+    invalidateOldCheckpoint();
     const revision = msg.revision ?? game?.revision;
+    const captured = { game, worker: ctx.getWorker(), run: ctx.getRunScope?.() };
+    traceCheckpoint("captured", {
+      cycle: msg.cycle,
+      workerRevision: revision,
+      project: game?.projectId,
+      lifetime: game?.historyLifetime,
+    });
     autosaveWrite = autosaveWrite
       .then(async () => {
-        if (game === null || ctx.getBootedGame() !== game) return false;
+        if (
+          game === null ||
+          ctx.getBootedGame() !== game ||
+          ctx.getWorker() !== captured.worker ||
+          ctx.getRunScope?.() !== captured.run
+        )
+          return false;
         const ownership =
           (await ctx.prepareCheckpoint?.(game, msg.files, msg.revision)) ?? "legacy";
-        if (ownership === "refused" || ctx.getBootedGame() !== game) return false;
+        preparationNotReady = ownership === "not_ready";
+        traceCheckpoint("prepared", {
+          cycle: msg.cycle,
+          ownership,
+          workerRevision: revision,
+          runningRevision: game.revision,
+        });
+        if (ownership === "refused" || ownership === "not_ready" || ctx.getBootedGame() !== game)
+          return false;
         if (ownership === "owned") {
           if (game.revision !== revision) return false;
           const { files: _files, ...checkpoint } = msg;
-          return storeAutosave({ ...checkpoint, revision: revision! });
+          const target = resolveProgressTarget(game);
+          return target === null
+            ? false
+            : withCheckpointLock(target.locator, () =>
+                storeAutosave({ ...checkpoint, revision: revision! }, captured),
+              );
         }
-        return storeAutosave(msg);
+        const target = resolveProgressTarget(game);
+        if (target === null)
+          ctx.logAgent("log", "autosave skipped: the game has no resolvable progress target");
+        return target === null
+          ? false
+          : withCheckpointLock(target.locator, () => storeAutosave(msg, captured));
       })
       .catch(() => false);
   }
@@ -788,15 +899,28 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         if (saved) {
           detailedResolve?.({ status: "saved", cycle });
         } else {
-          detailedResolve?.({ status: "storage_failure" });
+          detailedResolve?.({ status: preparationNotReady ? "not_ready" : "storage_failure" });
         }
       });
       return;
     }
 
+    invalidateOldCheckpoint();
     const lastCycle = lastAutosave?.cycle;
     const isCleanOpening = cycle === 0;
-    const isUnchanged = lastCycle !== undefined && cycle <= lastCycle;
+    const game = ctx.getBootedGame();
+    const target = game === null ? null : resolveProgressTarget(game);
+    const isUnchanged =
+      lastCycle !== undefined &&
+      cycle <= lastCycle &&
+      target !== null &&
+      lastAutosave !== null &&
+      autosaveMatches(lastAutosave.game, target.locator) &&
+      lastAutosave.game.identity.revision === target.identity.revision &&
+      lastAutosaveScope?.game === game &&
+      lastAutosaveScope.worker === ctx.getWorker() &&
+      lastAutosaveScope.lifetime === game?.historyLifetime &&
+      lastAutosaveScope.run === ctx.getRunScope?.();
 
     if (isCleanOpening || isUnchanged) {
       simpleResolve?.(true);
@@ -924,7 +1048,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
       (pending.target !== undefined && pending.target.identity.revision !== revision)
     )
       return fail(
-        "This checkpoint belongs to an earlier build. Open its matching project or start the current game from its opening. Your checkpoint has been kept.",
+        "This play position belongs to an earlier version of the game. Your project is safe. Start the latest version? The old position is replaced when the new run saves.",
       );
     const profile = detectProfile(new Map(Object.entries(boot.files)), boot.profile).id;
     if (pending.profile !== undefined && pending.profile !== profile)
@@ -1025,6 +1149,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
   }
 
   function lastAutosaveRecord(): AutosaveRecord | null {
+    invalidateOldCheckpoint();
     return lastAutosave;
   }
 
@@ -1301,9 +1426,9 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
    * Drop the selected checkpoint and its resume state, then report what was
    * read for the startOver log line. Returns the record the selection held.
    */
-  function discardCheckpoint(targetKey: string): AutosaveRecord | null {
+  async function discardCheckpoint(targetKey: string): Promise<AutosaveRecord | null> {
     const record = readAutosave(targetKey);
-    clearAutosave(targetKey);
+    await clearAutosave(targetKey);
     dropResumeIntent(true);
     ctx.state.resumed = false;
     if (resumeCaptionTimer !== null) {
@@ -1522,7 +1647,7 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
         },
       });
     }
-    discardCheckpoint(selected.locator);
+    await discardCheckpoint(selected.locator);
     await ctx.bootAuthoredGame("", ctx.configForGame(selected.project, config), {
       projectId: selected.project,
       useCached: true,
@@ -1581,6 +1706,8 @@ export function useAutosaveController(ctx: AutosaveControllerContext): AutosaveC
 
   function resetScreen(): void {
     lastAutosave = null;
+    lastAutosaveScope = null;
+    checkpointTraceCount = 0;
     ctx.state.resumed = false;
     if (resumeCaptionTimer !== null) {
       clearTimeout(resumeCaptionTimer);

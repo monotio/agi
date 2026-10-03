@@ -45,7 +45,9 @@ const readOnly = ref(false);
 const taskContext = ref("");
 const formatReply = shallowRef<ReplyFormatter>();
 const composer = useTemplateRef("composer");
-onMounted(() => composer.value?.focus());
+onMounted(() => {
+  if (!document.querySelector("dialog[open]")) composer.value?.focus();
+});
 watch(
   editor.agentPrefill,
   async (prefill) => {
@@ -78,6 +80,9 @@ async function attach() {
     profileId: engine.roomMap.resources.value.profile?.id ?? "2.936",
     config: settings.llmConfig,
     runtime: () => runtime,
+    beforeApprove: async () => {
+      await editor.flush.value?.();
+    },
   });
   off = agent.value.subscribe(() => {
     tick.value++;
@@ -148,20 +153,22 @@ const approvalMode = computed({
     autoApprove.value = value === "auto";
   },
 });
-const approvalModes = [
+const approvalModes = computed(() => [
   {
+    disabled: editor.readOnly.value,
     value: "review",
     label: VOCABULARY.review.label,
     title: VOCABULARY.review.help,
     testid: "agent-review-mode",
   },
   {
+    disabled: editor.readOnly.value,
     value: "auto",
     label: VOCABULARY.autoApprove.label,
     title: VOCABULARY.autoApprove.help,
     testid: "agent-auto-approve",
   },
-];
+]);
 const roomName = computed(() => {
   const room = engine.roomMap.currentRoom.value ?? 0;
   return (
@@ -201,6 +208,7 @@ const images = computed(() => {
   }
 });
 async function action(work: () => unknown) {
+  if (editor.readOnly.value) return;
   error.value = "";
   try {
     await work();
@@ -210,7 +218,7 @@ async function action(work: () => unknown) {
   }
 }
 async function send() {
-  if (!input.value.trim() || busy.value) return;
+  if (!input.value.trim() || busy.value || editor.readOnly.value) return;
   const request = input.value;
   const inspect = readOnly.value;
   const scoped = taskContext.value;
@@ -240,10 +248,8 @@ async function send() {
   });
 }
 async function approve() {
-  await action(async () => {
-    await editor.flush.value?.();
-    await agent.value?.approve(selected.value);
-  });
+  if (editor.readOnly.value) return;
+  await action(() => agent.value?.approve(selected.value));
 }
 function newChat() {
   void action(() => agent.value?.newChat());
@@ -304,7 +310,12 @@ onBeforeUnmount(() => {
     <header class="agent-panel__header">
       <button class="agent-panel__chat-title" @click="chatList = !chatList" aria-label="Chats">
         {{ current?.title ?? "Agent" }} ▾</button
-      ><UiButton size="sm" variant="ghost" :disabled="busy" @click="newChat" title="New chat (⌘N)"
+      ><UiButton
+        size="sm"
+        variant="ghost"
+        :disabled="busy || editor.readOnly.value"
+        @click="newChat"
+        title="New chat (⌘N)"
         >New chat</UiButton
       ><UiButton
         size="sm"
@@ -337,7 +348,7 @@ onBeforeUnmount(() => {
     <nav v-if="chatList" class="agent-panel__chats" aria-label="Chats">
       <div v-for="chat in chats" :key="chat.id">
         <button
-          :disabled="busy"
+          :disabled="busy || editor.readOnly.value"
           @click="
             action(() => agent?.resume(chat.id));
             chatList = false;
@@ -348,7 +359,7 @@ onBeforeUnmount(() => {
         ><UiButton
           size="sm"
           variant="ghost"
-          :disabled="busy"
+          :disabled="busy || editor.readOnly.value"
           :aria-label="`Delete ${chat.title}`"
           @click="action(() => agent?.deleteChat(chat.id))"
           >×</UiButton
@@ -374,13 +385,13 @@ onBeforeUnmount(() => {
           <UiButton
             size="sm"
             variant="ghost"
-            :disabled="busy"
+            :disabled="busy || editor.readOnly.value"
             @click="action(() => agent?.undoMessage(message.id))"
             >Undo this</UiButton
           ><UiButton
             size="sm"
             variant="ghost"
-            :disabled="busy"
+            :disabled="busy || editor.readOnly.value"
             @click="action(() => agent?.restoreBefore(message.id))"
             >Restore to before this</UiButton
           >
@@ -419,7 +430,7 @@ onBeforeUnmount(() => {
         <footer>
           <UiButton
             size="sm"
-            :disabled="busy || review.stale() || !selected.length"
+            :disabled="editor.readOnly.value || busy || review.stale() || !selected.length"
             variant="primary"
             data-testid="agent-approve"
             @click="approve"
@@ -427,7 +438,7 @@ onBeforeUnmount(() => {
           ><UiButton
             size="sm"
             variant="ghost"
-            :disabled="busy"
+            :disabled="busy || editor.readOnly.value"
             data-testid="agent-reject"
             @click="
               agent?.reject();
@@ -486,14 +497,16 @@ onBeforeUnmount(() => {
         placeholder="Describe a change…"
         data-testid="agent-message"
         :rows="review ? 1 : 3"
-        :disabled="busy"
+        :disabled="busy || editor.readOnly.value"
       ></textarea>
       <div>
         <UiButton
           type="submit"
           size="sm"
           variant="primary"
-          :disabled="busy || !input.trim() || !agent || !settings.aiConfigured.value"
+          :disabled="
+            editor.readOnly.value || busy || !input.trim() || !agent || !settings.aiConfigured.value
+          "
           >Send</UiButton
         ><span>⌘↵</span>
       </div>

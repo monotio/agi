@@ -94,15 +94,21 @@ function files(directory: string): string[] {
   });
 }
 
+function retiredPattern(retired: string): RegExp {
+  return new RegExp(
+    retired === "Keep"
+      ? "\\bKeep\\b(?! this tab open(?: until it says Saved)?(?:[.!?]|\\s*$))"
+      : `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
+    retired === "Keep" ? "" : "i",
+  );
+}
+
 test("visible editor copy uses the shared vocabulary, allowing internal identifiers", () => {
   const violations: string[] = [];
   for (const file of [...files("app/src/studio"), "app/src/shell/helpContent.ts"]) {
     for (const copy of visibleCopy(file)) {
       for (const retired of Object.keys(RETIRED_UI_TERMS)) {
-        const pattern = new RegExp(
-          `\\b${retired}${["sprite", "proposal", "candidate", "drawing element"].includes(retired) ? "s?" : ""}\\b${retired === "Onion" ? "(?! skin)" : ""}`,
-          retired === "Keep" ? "" : "i",
-        );
+        const pattern = retiredPattern(retired);
         if (pattern.test(copy)) violations.push(`${file}: ${copy.trim()}`);
       }
     }
@@ -208,4 +214,17 @@ test("unsupported project recovery uses version-neutral copy and plain actions",
   assert.ok(source.includes("Saved project format needs another app version"));
   const copy = visibleCopy("app/src/home/UnsupportedProject.vue").map((text) => text.trim());
   for (const label of ["Download", "Remove"]) assert.ok(copy.includes(label));
+});
+
+test("Keep action labels are retired while tab-open sentences remain allowed", () => {
+  const pattern = retiredPattern("Keep");
+  for (const label of ["Keep", "Keep changes", "Keep edits", "Keep this tab open changes"])
+    assert.ok(pattern.test(label), label);
+  for (const copy of [
+    "Keep this tab open",
+    "Keep this tab open.",
+    "Keep this tab open until it says Saved.",
+    "Could not save. Keep this tab open until it says Saved.",
+  ])
+    assert.equal(pattern.test(copy), false, copy);
 });

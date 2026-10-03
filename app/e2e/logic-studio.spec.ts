@@ -171,6 +171,7 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
   await page.keyboard.press("Control+Space");
   await expect(page.locator(".suggest-widget")).toBeVisible();
   await expect(page.locator(".suggest-widget")).toContainText("look");
+  await page.screenshot({ path: test.info().outputPath("completion-visible.png") });
   await page.keyboard.press("Escape");
   await replaceWorkspaceDocument(page, "logic:1", originalSource + '\nif (said("look")) {}\n');
 

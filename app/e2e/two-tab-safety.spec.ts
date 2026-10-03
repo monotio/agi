@@ -200,7 +200,9 @@ test("a stale tab's Download game, Ask and Exit leave another tab's saved edit i
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
   await page.getByTestId("agent-bubble-input").fill("What is in this room?");
   await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble-error")).toContainText("changed elsewhere");
+  await expect(page.getByTestId("agent-bubble-error")).toContainText(
+    "Changed in another tab. Editing is paused.",
+  );
   await expect(page.getByTestId("agent-bubble-reload")).toBeVisible();
   expect(await stored(page)).toEqual(kept);
 
@@ -223,7 +225,7 @@ test("a tab running an older revision hears of another tab's saved edit at once 
   // Playing, assistant closed: the stage says so, once, and nothing is modal.
   const note = page.getByTestId("stale-tab-note");
   await expect(note).toHaveText(
-    /This game changed in another tab\. Reload game to continue from the saved version\./,
+    /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
   await expect(note).toHaveAttribute("role", "status");
   await expect(page.getByTestId("agent-bubble")).toHaveCount(0);
@@ -237,7 +239,9 @@ test("a tab running an older revision hears of another tab's saved edit at once 
 
   // The Assistant still offers the same reload, which loads the edit.
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble-error")).toContainText("changed elsewhere");
+  await expect(page.getByTestId("agent-bubble-error")).toContainText(
+    "Changed in another tab. Editing is paused.",
+  );
   await page.getByTestId("agent-bubble-reload").click();
   // The old room and cycle remain visible until the replacement worker boots.
   await expect(page.getByTestId("input-line")).toBeEnabled();
@@ -267,10 +271,12 @@ test("a label saved in another tab is heard at once, and nothing this tab saves 
 
   const note = page.getByTestId("stale-tab-note");
   await expect(note).toHaveText(
-    /This game changed in another tab\. Reload game to continue from the saved version\./,
+    /Changed in another tab\. Editing is paused\. Download your unsaved edits, then reload\./,
   );
   await page.getByTestId("menu-assistant").click();
-  await expect(page.getByTestId("agent-bubble-error")).toContainText("changed elsewhere");
+  await expect(page.getByTestId("agent-bubble-error")).toContainText(
+    "Changed in another tab. Editing is paused.",
+  );
   await expect(page.getByTestId("agent-bubble-reload")).toBeVisible();
   await page.getByRole("button", { name: "Back to game", exact: true }).click();
 

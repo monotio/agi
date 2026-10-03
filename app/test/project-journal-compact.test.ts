@@ -1,5 +1,5 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import assert from "node:assert/strict";
-import type { ProjectChange } from "../../src/authoring/projectContent.ts";
 import { test } from "node:test";
 import { createContainer } from "../../src/container/container.ts";
 import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
@@ -25,6 +25,7 @@ import type { ProjectCommitRequest } from "../src/project/gameStorage.ts";
 import { testProjectId } from "./identity.ts";
 
 installIndexedDbFixture();
+installWebLocksFixture();
 let baseData: CachedGameData;
 let published: ProjectCommitRequest["data"];
 const values = new Map<string, string>();
@@ -498,198 +499,59 @@ test("recovery uses native documents for initial source errors before History ex
   );
 });
 
-test("editor intent restores notes and invalid LOGIC before debounce or admission", async () => {
-  const opened = await session("journal-editor-intent");
-  opened.rememberEditorChanges([
-    { key: "notes", content: "immediate note" },
-    { key: "logic:0", content: "invalid LOGIC !!!" },
-    { key: "words", content: '[["newword",42]]' },
-  ]);
-  const before = opened.model.capture().lastAdmissibleBuild!.identity.buildId;
-  assert.equal(opened.model.capture().read("notes")!.content, "UNEDITED_SENTINEL");
-  opened.dispose();
-  const recovered = (await loadAuthoredGame(baseData.projectId))!;
-  const documents = recovered.workspace!.documents;
-  assert.equal(documents.find(({ key }) => key === "notes")!.content.type, "text");
-  assert.deepEqual(documents.find(({ key }) => key === "notes")!.content, {
-    type: "text",
-    text: "immediate note",
-  });
-  assert.deepEqual(documents.find(({ key }) => key === "logic:0")!.content, {
-    type: "text",
-    text: "invalid LOGIC !!!",
-  });
-  assert.deepEqual(documents.find(({ key }) => key === "words")!.content, {
-    type: "text",
-    text: '[["newword",42]]',
-  });
-  const restarted = openProjectSession({
-    data: recovered,
-    lifetime: opened.lifetime,
-    admission: {
-      runToken: "restored-editor",
-      admit: async () => {
-        throw new Error("invalid source reached engine");
+test("a session publishes no journal or accepted image before its lock is acquired", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator")!;
+  let acquire!: () => Promise<void>;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      locks: {
+        request(_name: string, callback: () => Promise<void>) {
+          return new Promise<void>((resolve) => {
+            acquire = async () => {
+              await callback();
+              resolve();
+            };
+          });
+        },
       },
     },
   });
-  assert.equal(restarted.model.capture().lastAdmissibleBuild!.identity.buildId, before);
-  restarted.dispose();
-});
-
-test("SOUND intent keeps the captured bytes and tempo together before admission", async () => {
-  const owner = await session("journal-editor-sound");
-  const { soundProjectChanges } = await import("../src/studio/sound/soundEdits.ts");
-  const original = Uint8Array.of(8, 0, 10, 0, 12, 0, 14, 0, 255, 255, 255, 255, 255, 255, 255, 255);
-  const bytes = original.slice();
-  owner.rememberEditorChanges(soundProjectChanges("sound:7", bytes, 180));
-  // An editor may reuse its event buffer; recovery belongs to the captured gesture.
-  bytes.fill(0);
-  owner.dispose();
-  const recovered = (await loadAuthoredGame(baseData.projectId))!;
-  assert.deepEqual(recovered.workspace!.documents.find(({ key }) => key === "sound:7")!.content, {
-    type: "bytes",
-    bytes: [...original],
-  });
-  const music = recovered.workspace!.documents.find(({ key }) => key === "music")!.content;
-  assert.ok(music.type === "text");
-  assert.equal(JSON.parse(music.text)["7"].tempo, 180);
-});
-
-test("a catalog fork acknowledgement keeps a newer editor intent recoverable immediately", async () => {
-  const owner = await session("journal-fork-intent", false, false, true);
-  await edit(owner, 'print("first remix"); return;');
-  owner.rememberEditorChanges([{ key: "notes", content: "newer than the fork receipt" }]);
-  const projectId = captured().identity.projectId;
-  await owner.flush();
-  assert.notEqual(projectId, baseData.projectId);
-  assert.equal(journals().length, 1);
-  assert.ok(journals()[0]![0].startsWith(`monotio_agi.project-writes.${projectId}.`));
-  assert.match(journals()[0]![1], /newer than the fork receipt/);
-  owner.dispose();
-  const recovered = (await loadAuthoredGame(projectId))!;
-  assert.deepEqual(recovered.workspace!.documents.find(({ key }) => key === "notes")!.content, {
-    type: "text",
-    text: "newer than the fork receipt",
-  });
-});
-
-for (const action of ["undo", "restore"] as const) {
-  test(`written editor intent stays retired after ${action} and reopen`, async () => {
-    const owner = await session(`intent-${action}`);
-    const initial = owner.history.capture().cursor!;
-    // A derived companion changes between the gesture and admission.
-    owner.rememberEditorChanges([
-      { key: "notes", content: "Edited" },
-      { key: "music", content: '{"1":90}' },
-    ]);
-    await owner.submit({
-      proposal: owner.model.propose(owner.model.capture(), "Derived metadata", [
-        { key: "notes", content: "Edited" },
-        { key: "music", content: '{"1":90,"2":120}' },
-      ]),
-      label: "Derived metadata",
-      origin: "sound",
-      author: "creator",
-    });
-    await owner.flush();
-    await (action === "undo" ? owner.undo() : owner.restore(initial));
-    await owner.flush();
-    owner.dispose();
-    const saved = await loadAuthoredGame(testProjectId(`intent-${action}`));
-    assert.equal(
-      saved!.workspace!.documents.find((doc) => doc.key === "music"),
-      undefined,
-    );
+  const owner = await session("session-lock-ready");
+  const before = owner.model.capture().documentId;
+  const editing = edit(owner, 'print("Acquired"); return;');
+  try {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    paint();
     assert.equal(journals().length, 0);
-  });
-}
-
-test("a coordinated intent recovers a document removal before admission", async () => {
-  const owner = await session("intent-removal");
-  assert.equal(owner.rememberEditorChanges([{ key: "notes", content: null }]), undefined);
-  owner.dispose();
-  const reopened = await loadAuthoredGame(testProjectId("intent-removal"));
-  assert.equal(
-    reopened!.workspace!.documents.find((doc) => doc.key === "notes"),
-    undefined,
-  );
-});
-
-test("an unchanged accepted document retires its editor intent", async () => {
-  const owner = await session("intent-unchanged");
-  owner.rememberEditorChanges([{ key: "notes", content: "UNEDITED_SENTINEL" }]);
-  await edit(owner, "UNEDITED_SENTINEL", "notes");
-  await owner.flush();
-  owner.dispose();
-  assert.equal(journals().length, 0);
-});
-
-for (const action of ["undo", "restore"] as const) {
-  test(`${action} supersedes an older unadmitted intent on another document`, async () => {
-    const owner = await session(`pending-intent-${action}`);
-    const initial = owner.history.capture().cursor!;
-    await edit(owner, 'print("Committed"); return;');
-    await owner.flush();
-    owner.rememberEditorChanges([{ key: "notes", content: "Older pending notes" }]);
-    await (action === "undo" ? owner.undo() : owner.restore(initial));
-    await owner.flush();
+    assert.equal(owner.model.capture().documentId, before);
+    const holding = acquire();
+    assert.equal(await owner.ready, true);
+    await editing;
+    paint();
+    assert.equal(journals().length, 1);
     owner.dispose();
-    const reopened = await loadAuthoredGame(testProjectId(`pending-intent-${action}`));
-    assert.deepEqual(reopened!.workspace!.documents.find((doc) => doc.key === "notes")!.content, {
-      type: "text",
-      text: "UNEDITED_SENTINEL",
-    });
-    assert.equal(journals().length, 0);
-  });
-}
+    await holding;
+  } finally {
+    owner.dispose();
+    Object.defineProperty(globalThis, "navigator", descriptor);
+  }
+});
 
-test("two SOUND gestures retire only their admitted intent, including tempo-only edits", async () => {
-  const owner = await session("intent-two-sounds");
-  const { soundProjectChanges } = await import("../src/studio/sound/soundEdits.ts");
-  const bytes = Uint8Array.of(8, 0, 10, 0, 12, 0, 14, 0, 255, 255, 255, 255, 255, 255, 255, 255);
-  const submit = async (changes: readonly ProjectChange[], intent?: number) =>
-    owner.submit({
-      proposal: owner.model.propose(owner.model.capture(), "Sound", changes),
-      label: "Sound",
-      origin: "sound",
-      author: "creator",
-      ...(intent === undefined ? {} : { editorIntent: intent }),
-    });
-  await submit([...soundProjectChanges("sound:1", bytes, 90), { key: "sound:2", content: bytes }]);
-  await owner.flush();
-  const first = soundProjectChanges(
-    "sound:1",
-    bytes,
-    120,
-    String(owner.model.capture().read("music")!.content),
-  );
-  owner.rememberEditorChanges(first);
-  const intent1 = owner.captureEditorIntent("sound:1");
-  const second = soundProjectChanges("sound:2", bytes, 180, String(first[1]!.content));
-  owner.rememberEditorChanges(second);
-  const intent2 = owner.captureEditorIntent("sound:2");
-  // The first write derives the shared metadata after the second gesture.
-  const actual = soundProjectChanges("sound:1", bytes, 120, String(second[1]!.content));
-  await submit(actual, intent1);
-  await owner.flush();
-  assert.match(journals()[0]![1], /editorIntent/);
-  assert.equal(owner.captureEditorIntent("sound:2"), intent2);
-  await submit(
-    soundProjectChanges(
-      "sound:2",
-      bytes,
-      180,
-      String(owner.model.capture().read("music")!.content),
-    ),
-    intent2,
-  );
-  await owner.flush();
-  owner.dispose();
-  const reopened = await loadAuthoredGame(testProjectId("intent-two-sounds"));
-  const music = reopened!.workspace!.documents.find((doc) => doc.key === "music")!.content;
-  assert.ok(music.type === "text");
-  assert.equal(JSON.parse(music.text)["1"].tempo, 120);
-  assert.equal(JSON.parse(music.text)["2"].tempo, 180);
-  assert.equal(journals().length, 0);
+test("a project without Web Locks opens read-only and retains accepted content", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator")!;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+  const owner = await session("locks-unavailable");
+  try {
+    assert.equal(await owner.ready, false);
+    await assert.rejects(edit(owner, "Changed"));
+    assert.equal(owner.saveStatus().state, "conflict");
+    assert.equal(owner.model.capture().read("notes")!.content, "UNEDITED_SENTINEL");
+    paint();
+    owner.dispose();
+    assert.equal(journals().length, 0);
+  } finally {
+    owner.dispose();
+    Object.defineProperty(globalThis, "navigator", descriptor);
+  }
 });

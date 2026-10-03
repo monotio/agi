@@ -23,7 +23,7 @@ export const PLAY_START = [
 ];
 
 const HOME_DEFERRED_MODULES = [
-  /^app\/src\/agent\/.*\.ts$/,
+  /^app\/src\/agent\/.*\.(ts|vue)(?:$|\?)/,
   /^app\/src\/authoring\/(AgentBubble|AgentLogPanel|AgentTaskControls|SoundPreview)\.vue(?:$|\?)/,
   /^app\/src\/authoring\/useAuthoringController\.ts$/,
   /^src\/agent\/(agentState|history|worldPlan|roomPictures|viewUsage|toolTransport|gameTestFormat|tools|prompt|playtest)\.ts$/,

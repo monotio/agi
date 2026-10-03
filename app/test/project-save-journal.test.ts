@@ -1,3 +1,4 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { testProjectId } from "./identity.ts";
@@ -8,12 +9,14 @@ import {
   type ProjectCommitRequest,
 } from "../src/project/gameStorage.ts";
 import {
+  clearProjectSaveJournals,
   projectSaveJournalKey,
   resumeProjectSaveJournals,
   writeProjectSaveJournal,
 } from "../src/project/projectSaveJournal.ts";
 
 installIndexedDbFixture();
+installWebLocksFixture();
 const values = new Map<string, string>();
 const cache = {
   get length() {
@@ -178,7 +181,7 @@ test("a terminal recovery conflict is surfaced once with its original bytes", as
   let attempts = 0;
   const conflict = async () => {
     attempts++;
-    throw Object.assign(new Error("Project lifetime ended"), { name: "ProjectDeletedError" });
+    throw Object.assign(new Error("Project changed"), { name: "ConcurrencyConflictError" });
   };
   await resumeProjectSaveJournals(cache, input.projectId, conflict);
   await resumeProjectSaveJournals(cache, input.projectId, conflict);
@@ -198,7 +201,7 @@ test("a recovery marker failure still opens the project and exposes retained edi
   };
   try {
     await resumeProjectSaveJournals(cache, input.projectId, async () => {
-      throw Object.assign(new Error("Removed project"), { name: "ProjectDeletedError" });
+      throw Object.assign(new Error("Project changed"), { name: "ConcurrencyConflictError" });
     });
     const { readProjectSaveRecoveries } = await import("../src/project/projectSaveJournal.ts");
     assert.equal(readProjectSaveRecoveries(cache, input.projectId)[0]?.raw, raw);
@@ -209,8 +212,7 @@ test("a recovery marker failure still opens the project and exposes retained edi
 });
 
 test("discard removes only the observed recovery bytes and removal clears both journal namespaces", async () => {
-  const { discardProjectSaveRecoveries, clearProjectSaveJournals } =
-    await import("../src/project/projectSaveJournal.ts");
+  const { discardProjectSaveRecoveries } = await import("../src/project/projectSaveJournal.ts");
   const values = new Map<string, string>();
   const storage = {
     clear: () => values.clear(),
@@ -230,10 +232,122 @@ test("discard removes only the observed recovery bytes and removal clears both j
   discardProjectSaveRecoveries(storage, project, [{ key, raw: "older" }]);
   assert.equal(values.get(key), "newer");
   discardProjectSaveRecoveries(storage, project, [{ key, raw: "newer" }]);
-  assert.equal(values.size, 0);
+  assert.equal(storage.getItem(key), null);
+  assert.equal(storage.getItem(marker), null);
+  assert.equal(storage.getItem(`monotio_agi.project-write-retired.key.${key}`), null);
   values.set(key, "pending");
   values.set(marker, "marker");
   values.set(projectSaveJournalKey("other" as never, "owner"), "other");
   clearProjectSaveJournals(storage, project);
+  assert.equal(storage.getItem(key), null);
+  assert.equal(storage.getItem(marker), null);
   assert.equal(values.size, 1);
+});
+
+test("removal clears observed journal bytes without writing retirement markers", () => {
+  const input = request("journal-removal-quota");
+  const key = projectSaveJournalKey(input.projectId, "owner");
+  writeProjectSaveJournal(cache, key, [{ request: input, attempted: false }]);
+  const setItem = cache.setItem;
+  cache.setItem = () => {
+    throw new Error("Storage write refused");
+  };
+  try {
+    clearProjectSaveJournals(cache, input.projectId);
+    assert.equal(cache.getItem(key), null);
+  } finally {
+    cache.setItem = setItem;
+  }
+});
+
+test("recovery removes an ended lifetime's journal even when no retirement marker was stored", async () => {
+  const input = request("journal-ended-without-marker");
+  const key = projectSaveJournalKey(input.projectId, "owner");
+  writeProjectSaveJournal(cache, key, [{ request: input, attempted: false }]);
+  await resumeProjectSaveJournals(cache, input.projectId, async () => {
+    throw Object.assign(new Error("Project lifetime ended"), { name: "ProjectDeletedError" });
+  });
+  assert.equal(cache.getItem(key), null);
+});
+
+test("removal retires only the exact project namespace, including dotted IDs", async () => {
+  const parent = request("journal-project");
+  const child = request("journal-project.child");
+  const parentKey = projectSaveJournalKey(parent.projectId, "owner");
+  const childKey = projectSaveJournalKey(child.projectId, "owner");
+  writeProjectSaveJournal(cache, parentKey, [{ request: parent, attempted: false }]);
+  writeProjectSaveJournal(cache, childKey, [{ request: child, attempted: false }]);
+  const childRaw = cache.getItem(childKey);
+  clearProjectSaveJournals(cache, parent.projectId);
+  assert.equal(cache.getItem(parentKey), null);
+  assert.equal(cache.getItem(childKey), childRaw);
+  let writes = 0;
+  await resumeProjectSaveJournals(cache, parent.projectId, async (request) => {
+    writes++;
+    return commitProject(request);
+  });
+  assert.equal(writes, 0);
+  writeProjectSaveJournal(cache, childKey, [{ request: child, attempted: false }]);
+  assert.equal(cache.getItem(childKey), childRaw);
+});
+
+test("journal ownership is ready only inside the acquired lock callback", async () => {
+  const { claimProjectSaveJournal } = await import("../src/project/projectSaveJournal.ts");
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator")!;
+  let acquire!: () => Promise<void>;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      locks: {
+        request(_key: string, callback: () => Promise<void>) {
+          return new Promise<void>((resolve) => {
+            acquire = async () => {
+              await callback();
+              resolve();
+            };
+          });
+        },
+      },
+    },
+  });
+  const owner = claimProjectSaveJournal("readiness");
+  try {
+    let ready = false;
+    void owner.ready.then((held) => {
+      ready = held;
+    });
+    await Promise.resolve();
+    assert.equal(ready, false);
+    const held = acquire();
+    assert.equal(await owner.ready, true);
+    owner.release();
+    await held;
+  } finally {
+    owner.release();
+    Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+  }
+});
+
+test("deletion acknowledgement preserves an unobserved successor entry", async () => {
+  const first = request("journal-deleted-successor");
+  const successor = {
+    ...first,
+    commitId: "successor",
+    data: { ...first.data, title: "Unobserved" },
+  };
+  const key = projectSaveJournalKey(first.projectId, "owner");
+  writeProjectSaveJournal(cache, key, [{ request: first, attempted: false }]);
+  await resumeProjectSaveJournals(cache, first.projectId, async () => {
+    writeProjectSaveJournal(cache, key, [
+      { request: first, attempted: true },
+      { request: successor, attempted: false },
+    ]);
+    throw Object.assign(new Error("Lifetime ended"), { name: "ProjectDeletedError" });
+  });
+  const remaining = cache.getItem(key)!;
+  assert.match(remaining, /Unobserved/);
+  const { decodeJournalValue } = await import("../src/project/projectJournalCapture.ts");
+  assert.deepEqual(decodeJournalValue(JSON.parse(remaining).entries), [
+    { request: successor, attempted: false },
+  ]);
 });

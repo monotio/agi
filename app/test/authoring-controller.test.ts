@@ -17,6 +17,8 @@ import {
 } from "../src/agent/authoringLoader.ts";
 import type { LlmConfig } from "../src/agent/llmClient.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
+import { installWebLocksFixture } from "./webLocksFixture.ts";
+
 import { testProjectId, testRevision } from "./identity.ts";
 import {
   saveAuthoredGame,
@@ -43,6 +45,8 @@ import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { BRIDGE_SOURCE } from "../../test/studioAssistFixtures.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
 import type { AwaitPatchedFn } from "../src/engine/workerQueries.ts";
+
+installWebLocksFixture();
 
 const records = installIndexedDbFixture();
 

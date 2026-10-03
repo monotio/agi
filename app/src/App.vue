@@ -101,6 +101,7 @@ const engine = useEngine(
     engine.observeMapFrame(frame);
   },
   {
+    pendingEditorChanges: () => workspaceEditor.pendingChanges.value,
     flushWorkspace: async () => {
       await workspaceEditor.flush.value?.();
     },
@@ -199,6 +200,7 @@ const shell = createShell({
   librarySource: (projectId) =>
     lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
   initialMode: parseGameHash(location.hash)?.mode ?? "play",
+  awaitingLatest: () => lib.latestVersion.value !== undefined,
 });
 provideShell(shell);
 engine.setProjectMode(shell.mode.value);
@@ -345,7 +347,7 @@ async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"):
     const stored = lib.savedGames.value.find((game) => game.projectId === projectId);
     if (!stored) return;
     shell.expectCreate(projectId);
-    await lib.onPlayLibraryGame(stored, undefined, undefined, "create");
+    await lib.onPlayLibraryGame(stored);
     shell.expectCreate(projectId);
   } else shell.setMode("create");
   const { loadAuthoredGame } = await import("./project/gameStorage.ts");
@@ -620,13 +622,7 @@ async function openRoutedGame(key: string): Promise<void> {
     parseGameHash(location.hash)?.mode !== "create"
   )
     return;
-  if (stored)
-    return lib.onPlayLibraryGame(
-      stored,
-      undefined,
-      undefined,
-      parseGameHash(location.hash)?.mode === "create" ? "create" : "play",
-    );
+  if (stored) return lib.onPlayLibraryGame(stored);
   try {
     await lib.onPlayLocalGame(key);
   } catch (error) {
@@ -678,7 +674,7 @@ watch(
       return;
     }
     if (phase === "idle" || phase === "error") {
-      shell.reset();
+      if (phase !== "error" || lib.latestVersion.value === undefined) shell.reset();
       clearPlayHash();
       lib.syncMenuPhase();
     }

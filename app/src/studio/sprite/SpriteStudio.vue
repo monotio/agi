@@ -106,9 +106,11 @@ const {
   cyclers = [],
   priorityBase = undefined,
   stagedReference = undefined,
+  readOnly = false,
   embedded = false,
   workspaceFocus = false,
 } = defineProps<{
+  readOnly?: boolean;
   embedded?: boolean;
   workspaceFocus?: boolean;
   viewNumber: number;
@@ -633,6 +635,7 @@ const status = computed(() => {
 
 <template>
   <div
+    :inert="readOnly"
     ref="root"
     class="sprite-studio"
     :class="{ 'is-embedded': embedded, 'is-workspace-focus': workspaceFocus }"

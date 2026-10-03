@@ -1,5 +1,11 @@
 import { expect, test } from "./test.ts";
-import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engineProbe.ts";
+import {
+  isolateStorage,
+  openGameOptions,
+  surfaceBox,
+  textHook,
+  waitForCycles,
+} from "./engineProbe.ts";
 
 /**
  * Original 4:3 shows the 320×200 frame the way a monitor of the day did:
@@ -8,7 +14,7 @@ import { isolateStorage, openGameOptions, textHook, waitForCycles } from "./engi
  * pixel, are unchanged.
  */
 async function screenRatio(page: Parameters<typeof textHook>[0]): Promise<number> {
-  const box = (await page.locator(".game-surface:visible").boundingBox())!;
+  const box = await surfaceBox(page);
   return box.width / box.height;
 }
 

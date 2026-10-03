@@ -26,6 +26,7 @@ import { exportMidi } from "../../../../src/sound/midi.ts";
 import { gridTick, beatLengthLabel, silenceSoundEvent } from "../../../../src/sound/sequencer.ts";
 import { DRUM_SOUNDS } from "../../../../src/sound/sequencer.ts";
 const props = defineProps<{
+  readOnly?: boolean;
   documentKey: string;
   bytes: Uint8Array;
   profileId: ProfileId;
@@ -221,6 +222,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div
+    :inert="readOnly"
     class="workspace-sound"
     data-testid="workspace-sound"
     @keydown="keys"

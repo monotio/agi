@@ -40,10 +40,10 @@ import type {
 import { createProjectAutosave } from "./projectAutosave.ts";
 import {
   claimProjectSaveJournal,
+  markProjectSaveRecovery,
   projectSaveJournalKey,
   writeProjectSaveJournal,
 } from "./projectSaveJournal.ts";
-import type { ProjectChange, ProjectContent } from "../../../src/authoring/projectContent.ts";
 import type { CachedGameData } from "./gameTypes.ts";
 import {
   captureProjectJournal,
@@ -62,30 +62,27 @@ interface SessionSave {
   operation: number;
   journal?: ProjectJournalCapture;
 }
-/* Project save-state model: session documents and MAIN progress have separate owners.
- * State            | Typing; coordinated actions| Flush / Retry     | Exit / Reload
- * writable-clean   | accept, queue save         | drain             | drain, leave / reopen
- * writable-pending | accept, replace pending    | drain             | drain, leave / reopen
- * writable-failed  | retain; action barrier    | exact retry       | hold; Retry or discard
- * stale / removed  | journal typing; refuse rest| refuse            | leave / reopen (stale)
- * recovering       | wait for journal replay    | wait              | wait
- * closed           | refuse                     | refuse            | already left
- * State            | Download project / Export game          | Chip; banner / notes
- * writable-clean   | running image + owned sidecars / game   | Saved
- * pending / failed | flush; accepted edits; report omissions | Saving… / Could not save. Retry
- * stale / removed  | running image; report drafts + sidecars | Changed in another tab / Project removed
- * recovering       | wait for open; Home retains raw recovery| opening; replay or Discard pending edits
- * closed           | Home downloads durable data / game      | workspace gone
- * Transitions: edit -> pending; acknowledgement -> clean; rejection -> failed;
- * external write -> stale; deletion -> removed; reopen -> recovering -> clean;
- * Exit/discard -> closed. Deferred admission publishes MAIN without another save.
- * Source saving never waits for a player interaction; checkpoints await active
- * admission attempts. Name, guided actions and WORDS drain before changing the
- * model. Compatible journals replay before open. Replaced versions
- * retain their journal with a discard banner. Backup/export notes name omitted
- * editor changes and Retry; stale notes name Reload, removed notes name Download.
- * Create reload opens saved documents and keeps an older MAIN checkpoint until
- * another checkpoint replaces it. Explicit Play requires a matching build.
+/* Project documents and play position have separate acknowledgements.
+ * State            | Editors / actions         | Flush / Retry     | Exit / Reload
+ * writable-clean   | accept; drain actions     | drain             | drain, leave / reopen
+ * writable-pending | retain buffers; drain     | drain             | drain, leave / reopen
+ * writable-failed  | retain buffers; refuse    | exact Retry       | hold; Retry or discard
+ * stale / removed  | read-only; buffers visible| refuse            | leave / reopen, no writes
+ * recovering       | accepted or legacy replay | wait              | wait
+ * closed           | refuse                    | refuse            | already left
+ * Saved means project documents are stored in IndexedDB. Runtime admission
+ * and play progress have their own owners. Unaccepted buffers stay in memory;
+ * closing before Saved can lose them. Unsaved edits downloads current buffers
+ * without compiling or saving. Download exports accepted project/game content.
+ * Accepted captures publish only under an acquired journal lock. Recovery keeps
+ * exact commit identity and acknowledges only observed entries. Readers retain
+ * v1/v2 journals. Stale/removed callbacks stop before ownership is released.
+ * Name, Restore, Clear, guided actions, WORDS and agent changes drain the writer.
+ * Checkpoint preparation checks stored document identity, returning not ready when
+ * the captured identity cannot publish. Admission requests a fresh checkpoint.
+ * Resume requires matching project, revision, lifetime and profile; mismatch
+ * preserves the old position and offers an explicit start of the latest version.
+ * The IndexedDB lifetime fence prevents removed writers recreating project data.
  */
 export interface PendingProjectRestart {
   readonly action: "restart" | "reenter";
@@ -169,6 +166,7 @@ function createSession(
       nativeInstalled?: boolean,
     ) => void;
     readonly changed?: () => void;
+    readonly checkpointReady?: () => void;
     readonly forked?: (data: CachedGameData, lifetime: string) => void;
     readonly saved?: (
       data: ProjectCommitRequest["data"],
@@ -218,7 +216,7 @@ function createSession(
   let pendingRestart: PendingProjectRestart | null = null;
   let pendingImage: ProjectDocumentsCompile | undefined;
   let pendingPreparedRoom = false;
-  let retrying = false;
+  let admissionTail: Promise<void> | undefined;
   let disposed = false;
   let writeBlock: "stale" | "removed" | undefined;
   let epoch = 0;
@@ -265,23 +263,22 @@ function createSession(
   function recordOperation(operation: ProjectJournalOperation) {
     operations.push({ index: ++operationSerial, operation });
   }
-  const editorIntents: Record<
-    string,
-    { content: ProjectContent | null; id: number; primary: string }
-  > = {};
-  let intentSerial = 0;
-  function sameContent(a: ProjectContent | null | undefined, b: ProjectContent | null): boolean {
-    return (
-      a === b ||
-      (a instanceof Uint8Array &&
-        b instanceof Uint8Array &&
-        a.length === b.length &&
-        a.every((value, index) => value === b[index]))
-    );
-  }
   let journalFrame: number | undefined;
   let journalKey = projectSaveJournalKey(data.projectId, input.admission.runToken);
   let releaseJournal = claimProjectSaveJournal(journalKey);
+  let journalReady = input.write !== undefined;
+  let locksUnavailable = false;
+  const ready =
+    input.write !== undefined
+      ? Promise.resolve(true)
+      : releaseJournal.ready.then((held) => {
+          journalReady = held;
+          if (!held) {
+            locksUnavailable = true;
+            session.stopWrites();
+          }
+          return held;
+        });
   function requestFor(capture: SessionSave): ProjectCommitRequest {
     if (capture.request !== undefined) return capture.request;
     const fork = data.library?.source === "catalog";
@@ -321,7 +318,7 @@ function createSession(
       else clearTimeout(journalFrame);
       journalFrame = undefined;
     }
-    if (input.write !== undefined) return;
+    if (input.write !== undefined || disposed || writeBlock !== undefined || !journalReady) return;
     try {
       if (typeof localStorage === "undefined") throw new Error("Browser storage is unavailable.");
       const entries = autosave
@@ -342,48 +339,9 @@ function createSession(
             });
           return { capture: capture.journal, attempted: capture.attempted === true };
         });
-      const intents = Object.entries(editorIntents);
-      if (intents.length > 0) {
-        const snapshot = model.capture();
-        const image = snapshot.lastAdmissibleBuild!;
-        const changes = intents.map(([key, intent]) => ({
-          key,
-          content: intent.content,
-          version: snapshot.version(key) + 1,
-        }));
-        const request = {
-          ...requestFor({ snapshot, data, operation: operationSerial }),
-          commitId: `editor-${input.admission.runToken}-${intentSerial}-${operationSerial}`,
-        };
-        const capture = captureProjectJournal({
-          request,
-          base: journalBase,
-          expected: journalExpected,
-          openedAt,
-          baseImage: journalImage,
-          image: image.documentId,
-          operations: [
-            ...operations
-              .filter(({ index }) => index > operationBase)
-              .map(({ operation }) => operation),
-            {
-              kind: "edit",
-              changes,
-              metadata: {
-                label: "Recovered editor changes",
-                origin: "logic",
-                author: "creator",
-                time: openedAt,
-              },
-            },
-          ],
-          editorIntent: true,
-        });
-        entries.push({ capture, attempted: false });
-      }
       writeProjectSaveJournal(localStorage, journalKey, entries);
     } catch {
-      // The previous recovery intent remains until its durable acknowledgement.
+      // The previous accepted capture remains until its durable acknowledgement.
       return new Error(
         "Browser recovery storage could not keep this edit. Keep this tab open until Saved.",
       );
@@ -393,6 +351,9 @@ function createSession(
   function scheduleJournal() {
     if (
       input.write !== undefined ||
+      disposed ||
+      writeBlock !== undefined ||
+      !journalReady ||
       typeof localStorage === "undefined" ||
       journalFrame !== undefined
     )
@@ -412,6 +373,9 @@ function createSession(
   const autosave = createProjectAutosave<SessionSave, ProjectCommitReceipt>({
     current,
     write: async (capture) => {
+      if (input.write === undefined && !(await releaseJournal.ready))
+        throw new Error("Editing needs Web Locks. Download this project.");
+      if (writeBlock !== undefined || disposed) throw new Error(session.saveStatus().message);
       requestFor(capture);
       if (!capture.attempted) {
         capture.request = {
@@ -447,9 +411,15 @@ function createSession(
         });
         owners.set(data.projectId, session);
         previousKey = journalKey;
-        releasePrevious = releaseJournal;
+        releasePrevious = releaseJournal.release;
         journalKey = projectSaveJournalKey(data.projectId, input.admission.runToken);
+        journalReady = false;
         releaseJournal = claimProjectSaveJournal(journalKey);
+        void releaseJournal.ready.then((held) => {
+          journalReady = held;
+          if (held) persistPending();
+          else session.stopWrites();
+        });
         input.forked?.(structuredClone(data), receipt.saved.lifetime);
       }
       data.library = capture.request!.data.library;
@@ -484,7 +454,7 @@ function createSession(
         )
       )
         return false;
-      writeBlock = error.name === "ProjectDeletedError" ? "removed" : "stale";
+      session.stopWrites(error.name === "ProjectDeletedError" ? "removed" : "stale");
       return true;
     },
     changed() {
@@ -543,8 +513,8 @@ function createSession(
     action?: ProjectHistoryAction,
     preparedRoom = false,
     beforeCommit?: () => void,
-    editorIntent?: number,
   ) {
+    await ready;
     beforeCommit?.();
     if (!current() || autosave.status().state === "conflict")
       throw new Error("Project session is closed for writes.");
@@ -555,34 +525,6 @@ function createSession(
       workerRunToken: input.admission.runToken,
       generation: expected.generation,
     };
-    // A gesture can derive companion metadata again at admission. Transfer its
-    // intent into the admitted capture by group, while preserving later gestures.
-    const written = proposal.changes();
-    const nextDocuments = proposal.documents();
-    const intentGroups = new Set(
-      Object.values(editorIntents)
-        .filter((intent) => {
-          if (action !== undefined) return true;
-          if (editorIntent !== undefined) return intent.id === editorIntent;
-          const primary = editorIntents[intent.primary];
-          return (
-            primary?.id === intent.id &&
-            sameContent(nextDocuments[intent.primary] ?? null, primary.content) &&
-            (written.some((change) => change.key === intent.primary) ||
-              Object.entries(editorIntents)
-                .filter(([, companion]) => companion.id === intent.id)
-                .every(([key, companion]) =>
-                  sameContent(nextDocuments[key] ?? null, companion.content),
-                ))
-          );
-        })
-        .map((intent) => intent.id),
-    );
-    const capturedIntents = Object.fromEntries(
-      Object.entries(editorIntents)
-        .filter(([, intent]) => intentGroups.has(intent.id))
-        .map(([key, intent]) => [key, intent.id]),
-    );
     const { prepared, outcome, changes } = await prepareAndAdmitProjectEdit({
       model,
       proposal,
@@ -642,9 +584,9 @@ function createSession(
         : { action: { direction: action.direction, target: action.target } }),
     });
     captureSave(snapshot, outcome, preparedRoom);
-    for (const [key, id] of Object.entries(capturedIntents))
-      if (editorIntents[key]?.id === id) delete editorIntents[key];
     if (pendingImage !== undefined) void retryAdmission();
+    else if (outcome?.status === "committed" || outcome?.status === "unchanged")
+      input.checkpointReady?.();
     return {
       status:
         outcome?.status === "restartRequired"
@@ -658,10 +600,17 @@ function createSession(
   function schedule<T>(operation: () => Promise<T>, savesDocuments = true): Promise<T> {
     if (savesDocuments) queued++;
     notify();
-    const result = tail.then(operation).finally(() => {
-      if (savesDocuments) queued--;
-      notify();
-    });
+    const result = tail
+      .then(async () => {
+        await ready;
+        if (!current() || writeBlock !== undefined)
+          throw new Error(session.saveStatus().message || "Project session is closed for writes.");
+        return operation();
+      })
+      .finally(() => {
+        if (savesDocuments) queued--;
+        notify();
+      });
     tail = result.then(
       () => {},
       () => {},
@@ -669,9 +618,14 @@ function createSession(
     if (savesDocuments) documentTail = tail;
     return result;
   }
-  async function retryAdmission(): Promise<void> {
-    if (retrying) return;
-    retrying = true;
+  function retryAdmission(): Promise<void> {
+    if (admissionTail !== undefined) return admissionTail;
+    admissionTail = settleAdmission().finally(() => {
+      admissionTail = undefined;
+    });
+    return admissionTail;
+  }
+  async function settleAdmission(): Promise<void> {
     try {
       while (current() && writeBlock === undefined && pendingImage !== undefined) {
         await (input.boundary?.() ?? new Promise<void>((resolve) => setTimeout(resolve, 50)));
@@ -690,8 +644,10 @@ function createSession(
               action: outcome.roomReentry === true ? "reenter" : "restart",
               reason: restartReason(outcome.reason ?? "This image needs a game restart."),
             };
-          if (outcome.status === "committed" || outcome.status === "unchanged")
+          if (outcome.status === "committed" || outcome.status === "unchanged") {
             captureSave(before, outcome, false, false);
+            input.checkpointReady?.();
+          }
           notify();
         }, false);
       }
@@ -704,8 +660,6 @@ function createSession(
         };
         notify();
       }
-    } finally {
-      retrying = false;
     }
   }
   async function activate(mode: "restart" | "reenter") {
@@ -750,30 +704,7 @@ function createSession(
   const session = {
     model,
     history,
-    rememberEditorChanges(changes: readonly ProjectChange[]) {
-      if (disposed) throw new Error("Project session is closed for writes.");
-      const primary = changes[0]?.key;
-      if (primary === undefined) return;
-      const previous = editorIntents[primary];
-      if (previous?.primary === primary)
-        for (const [key, intent] of Object.entries(editorIntents))
-          if (intent.id === previous.id) delete editorIntents[key];
-      const id = ++intentSerial;
-      for (const change of changes) {
-        editorIntents[change.key] = {
-          content: change.content instanceof Uint8Array ? change.content.slice() : change.content,
-          id,
-          primary,
-        };
-      }
-      return persistPending();
-    },
-    get hasEditorIntents() {
-      return Object.keys(editorIntents).length > 0;
-    },
-    captureEditorIntent(key: string): number | undefined {
-      return editorIntents[key]?.id;
-    },
+    ready,
     get closed() {
       return !current();
     },
@@ -801,6 +732,9 @@ function createSession(
     get pendingRestart() {
       return pendingRestart;
     },
+    get pendingChanges() {
+      return queued > 0 || autosave.captures().some((capture) => !capture.acknowledged);
+    },
     restartWithChanges() {
       return schedule(() => activate("restart"));
     },
@@ -808,7 +742,7 @@ function createSession(
       return schedule(() => activate("reenter"));
     },
     submit(
-      edit: { proposal: ProjectProposal; beforeCommit?: () => void; editorIntent?: number } & Omit<
+      edit: { proposal: ProjectProposal; beforeCommit?: () => void } & Omit<
         ProjectCommitMetadata,
         "time"
       >,
@@ -828,7 +762,6 @@ function createSession(
           undefined,
           false,
           edit.beforeCommit,
-          edit.editorIntent,
         ),
       );
     },
@@ -901,13 +834,17 @@ function createSession(
           throw new Error(status.message || "Project save is pending. Retry the save.");
       } while (scheduled !== documentTail);
     },
-    async prepareCheckpoint() {
-      let scheduled: Promise<unknown>;
-      do {
-        scheduled = tail;
-        await scheduled;
-        await session.flush();
-      } while (scheduled !== tail);
+    async prepareCheckpoint(revision?: string) {
+      const status = session.saveStatus();
+      if (status.state === "failed") throw new Error(status.message);
+      return current() &&
+        writeBlock === undefined &&
+        status.state === "saved" &&
+        (revision === undefined
+          ? pendingImage === undefined
+          : revision === model.capture().lastAdmissibleBuild!.identity.revision)
+        ? ("ready" as const)
+        : ("not_ready" as const);
     },
     retry() {
       return session.flush();
@@ -934,10 +871,11 @@ function createSession(
         return {
           ...status,
           state: "conflict" as const,
-          message:
-            writeBlock === "removed"
-              ? "Project removed. Download game to keep this version."
-              : "Changed in another tab. Reload game.",
+          message: locksUnavailable
+            ? "Editing needs Web Locks. Download this project."
+            : writeBlock === "removed"
+              ? "This project was removed. Download your unsaved edits to keep them."
+              : "Changed in another tab. Editing is paused. Download your unsaved edits, then reload.",
         };
       return queued > 0 && status.state === "saved"
         ? { ...status, state: "pending" as const }
@@ -945,7 +883,21 @@ function createSession(
     },
     stopWrites(reason: "stale" | "removed" = "stale") {
       writeBlock = reason;
+      if (journalFrame !== undefined) {
+        if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(journalFrame);
+        else clearTimeout(journalFrame);
+        journalFrame = undefined;
+      }
       autosave.stop();
+      if (reason === "stale" && input.write === undefined && typeof localStorage !== "undefined") {
+        try {
+          markProjectSaveRecovery(localStorage, journalKey, session.saveStatus().message);
+        } catch {
+          /* Retain accepted bytes. */
+        }
+      }
+      releaseJournal.release();
+      notify();
     },
     async replay(operation: ProjectJournalOperation) {
       if (operation.kind === "capture") {
@@ -973,7 +925,7 @@ function createSession(
       );
     },
     discard() {
-      for (const key of Object.keys(editorIntents)) delete editorIntents[key];
+      writeBlock ??= "stale";
       autosave.dispose();
       session.dispose();
     },
@@ -986,7 +938,7 @@ function createSession(
       disposed = true;
       epoch++;
       autosave.dispose();
-      releaseJournal();
+      releaseJournal.release();
       for (const observer of observers) {
         try {
           observer();
