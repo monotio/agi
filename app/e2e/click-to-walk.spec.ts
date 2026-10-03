@@ -86,7 +86,9 @@ async function clickFramePixel(page: Page, x: number, y: number): Promise<void> 
   );
 }
 
-test("a mouse click walks ego on the Amiga profile", async ({ page }) => {
+test("a mouse click walks ego on the Amiga profile", async ({ page, context }) => {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
   await isolateStorage(page);
   await page.goto("/");
   await bootClickGame(page, "click-walk-amiga", "amiga-2.316");
