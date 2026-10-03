@@ -5,7 +5,7 @@ import { assembleLogic } from "../src/logic/assembler.ts";
 import { buildWordsTok } from "../src/logic/words.ts";
 import { buildView } from "../src/view/view.ts";
 import { playtestRoom, validateGenesis } from "../src/agent/playtest.ts";
-import { decodePng } from "../scripts/sheet-to-view.ts";
+import { decodePng } from "../scripts/png.ts";
 
 function world(extra = "", room = 1) {
   const state = createAgentSessionState();
@@ -193,10 +193,10 @@ test("genesis executes actual boot logic and accepts a start room other than one
   );
 });
 
-test("handover accepts a long intro: thirty messages and a silent title animation", () => {
+test("finish accepts a long intro: thirty messages and a silent title animation", () => {
   // Boot validation failed after sixteen dismissed messages, and its
   // simulation stopped at 600 cycles, so a story told over many windows or a
-  // half-minute title animation could never pass handover.
+  // half-minute title animation could never pass finish.
   const state = world();
   state.container.putResource(
     "logic",
@@ -683,7 +683,7 @@ test("failed outcomes return targeted investigation steps for exits, inventory a
   assert.match(advice, /v2/);
   assert.match(advice, /get/);
   assert.match(advice, /f30/);
-  assert.match(advice, /read_room_context/);
+  assert.match(advice, /read_room/);
 });
 
 test("playtest can request longer sequences while retaining an execution budget", () => {

@@ -12,15 +12,57 @@ snapshots:
       style: primary
       start: 15
       end: 66
+  <button title="Just click to start">Start</button>:
+    labels:
+    - source: Just click to start
+      style: primary
+      start: 15
+      end: 34
   <button>Staged — inspect</button>:
     labels:
     - source: Staged — inspect
       style: primary
       start: 8
       end: 26
+  <p>Build a game without an API key.</p>:
+    labels:
+    - source: Build a game without an API key.
+      style: primary
+      start: 3
+      end: 35
+  <p>Connect AI. Editing works either way.</p>:
+    labels:
+    - source: Connect AI. Editing works either way.
+      style: primary
+      start: 3
+      end: 40
+  <p>Create with or without AI.</p>:
+    labels:
+    - source: Create with or without AI.
+      style: primary
+      start: 3
+      end: 29
+  <p>Drawing and imports stay available without one.</p>:
+    labels:
+    - source: Drawing and imports stay available without one.
+      style: primary
+      start: 3
+      end: 50
+  <p>Nothing is written until you approve.</p>:
+    labels:
+    - source: Nothing is written until you approve.
+      style: primary
+      start: 3
+      end: 40
   <small>Never saved</small>:
     labels:
     - source: Never saved
       style: primary
       start: 7
       end: 18
+  <span>Edit<small>Open in Logic Studio; no engine needed</small></span>:
+    labels:
+    - source: Open in Logic Studio; no engine needed
+      style: primary
+      start: 17
+      end: 55

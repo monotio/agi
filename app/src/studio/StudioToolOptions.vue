@@ -66,7 +66,7 @@ const clampSeed = (value: number): number => Math.min(239, Math.max(0, Math.roun
       <span class="tool-options__with">
         <label class="tool-options__toggle">
           <input v-model="stipple" type="checkbox" />
-          Stipple
+          Speckled
         </label>
         <UiExplain v-bind="explain('stipple')" />
       </span>

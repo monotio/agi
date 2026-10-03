@@ -22,6 +22,12 @@ import {
 import { gameContainer } from "./worker-ctx.ts";
 import { openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts";
+import { createContainer } from "../../src/container/container.ts";
+import { projectDocumentId } from "../../src/authoring/projectContent.ts";
+import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
+import { sha256Hex } from "../../src/crypto.ts";
+import { decodeTextRows } from "../src/project/gameTypes.ts";
 import { buildView } from "../../src/view/view.ts";
 import {
   decodeHostImage,
@@ -253,6 +259,121 @@ function asRecording(segments: HistorySegment[]): HistoryRecording {
     segments,
   };
 }
+
+test("Create take and restore grant the adopted engine admission and journal the next edit", async () => {
+  const source =
+    'if (v40 == 0) { load.pic(0); draw.pic(0); show.pic(); accept.input(); assignn(v40, 1); } if (said("look")) { print("Old room"); } return;';
+  const documents = {
+    "logic:0": source,
+    "picture:0": "vis 1\nfill 1,1\nend\n",
+    words: '[["look",10]]',
+  };
+  const compiled = compileProjectDocuments({
+    files: Object.fromEntries(createContainer().files),
+    documents,
+    profileId: "2.936",
+  });
+  const h = viewHarness(openContainer(compiled.files()), {
+    projectMode: "create",
+    projectDocuments: writeProjectWorkspace(documents),
+    words: [["look", 10]],
+  });
+  await h.ctx.projectLoader.loading;
+  h.ctx.fns.stopTimers();
+  const { ctx, send, tick } = h;
+  tick(12);
+  send({ type: "pause", paused: true });
+  send({ type: "historyRetain", id: 1 });
+  const retained = h.control.find((m) => m.type === "historyRetained");
+  assert.ok(retained?.type === "historyRetained" && retained.boot);
+  const recording = asRecording(collectSegments(h.control));
+  send({ type: "historyViewStart", id: 2, recording, segment: 0, tick: 6 });
+  const opened = finalView(h.control, 2);
+  assert.equal(opened.error, null);
+  assert.equal(opened.canResume, true);
+  const departedEngine = ctx.engine;
+  const departedToken = ctx.projectAdmission!.runToken;
+  send({
+    type: "historyViewTake",
+    id: 3,
+    generation: opened.generation,
+    segment: 0,
+    tick: opened.tick,
+    seq: opened.seq,
+  });
+  const taken = h.control.find((m) => m.type === "historyTaken");
+  assert.ok(taken?.type === "historyTaken" && taken.ok);
+  assert.notEqual(ctx.engine, departedEngine);
+
+  for (const [index, label] of ["Taken room", "Restored room"].entries()) {
+    if (index === 1)
+      send({ type: "historyViewRestore", id: 10, boot: retained.boot, from: retained.from });
+    send({ type: "projectCreate", id: 11 + index });
+    const created = h.control.at(-1);
+    assert.ok(created?.type === "projectCreated" && created.grant);
+    assert.ok(created.grant.identity, "the replacement grants a live identity");
+    assert.notEqual(
+      created.grant.runToken,
+      departedToken,
+      "a replacement ends the old physical run",
+    );
+    const nextDocuments = { ...documents, "logic:0": source.replace("Old room", label) };
+    const next = compileProjectDocuments({
+      files: Object.fromEntries(compiled.files()),
+      documents: nextDocuments,
+      profileId: "2.936",
+    });
+    const candidate = {
+      files: Object.fromEntries(next.files()),
+      sources: { "0": nextDocuments["logic:0"] },
+      sourceBindings: {},
+      profile: "2.936" as const,
+      buildId: next.build.identity.buildId,
+      revision: next.build.identity.revision,
+      origins: [],
+      documents: writeProjectWorkspace(nextDocuments),
+      documentId: projectDocumentId(nextDocuments, sha256Hex),
+    };
+    send({
+      type: "previewUpdate",
+      id: 20 + index,
+      runToken: departedToken,
+      expected: created.grant.identity,
+      candidate,
+    });
+    const stale = h.control.at(-1);
+    assert.ok(stale?.type === "previewUpdateResult");
+    assert.equal(stale.status, "refused", "the departed run cannot edit the adopted engine");
+    send({
+      type: "previewUpdate",
+      id: 30 + index,
+      runToken: created.grant.runToken,
+      expected: created.grant.identity,
+      candidate,
+    });
+    const result = h.control.at(-1);
+    assert.ok(result?.type === "previewUpdateResult");
+    assert.equal(result.status, "committed", result.reason ?? "the replacement admits the edit");
+    send({ type: "pause", paused: false });
+    send({ type: "input", text: "look" });
+    tick(12);
+    assert.ok(
+      decodeTextRows(ctx.engine!.getPresentation().text).some((row) => row.includes(label)),
+    );
+    send({ type: "dismissPrint" });
+    tick(6);
+    send({ type: "pause", paused: true });
+    const segment = collectSegments(h.control).at(-1)!;
+    assert.ok(
+      segment.events.some(
+        (event) =>
+          event.cause.kind === "projectImage" && event.cause.documentId === candidate.documentId,
+      ),
+      "the edit belongs to the adopted recording segment",
+    );
+  }
+  ctx.fns.stopTimers();
+});
 
 /** The terminal report for a request id (progress posts share it). */
 function finalView(control: WorkerControl[], id: number) {
@@ -673,10 +794,8 @@ test("a take mid-envelope adopts the v3 table and crosses its hold", () => {
   send({ type: "pause", paused: false });
   tick(12);
   const attenuations = h.presentation
-    .filter(
-      (m): m is Extract<WorkerPresentation, { type: "soundOutput" }> => m.type === "soundOutput",
-    )
-    .map((m) => m.output)
+    .filter((m): m is Extract<WorkerPresentation, { type: "soundTick" }> => m.type === "soundTick")
+    .flatMap((m) => m.outputs)
     .filter((o): o is { kind: "psg"; bytes: number[] } => o.kind === "psg")
     .map((o) => o.bytes.at(-1)!)
     .filter((b) => (b & 0xf0) === 0x90);

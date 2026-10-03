@@ -59,7 +59,7 @@ function toolResult(bodies: readonly string[]): string {
 
 function modelSession(): AgentSession {
   return new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     createAgentSessionState(),
   );
@@ -96,16 +96,16 @@ test("a tool outside the task's list is refused before dispatch", async () => {
 test("every task type names its own allowlist", () => {
   // The Studio tools need a creator's selection: no writing task lists them.
   for (const [task, list] of Object.entries({ GENESIS_TOOLS, ROOM_AUTHORING_TOOLS, REMIX_TOOLS })) {
-    assert.ok(list.includes("handover"), `${task} can finish its turn`);
-    for (const studio of ["read_edit_context", "propose_edit", "withdraw_edit"])
+    assert.ok(list.includes("finish"), `${task} can finish its turn`);
+    for (const studio of ["read_edit_context", "propose_changes", "withdraw_changes"])
       assert.ok(!list.includes(studio), `${task} lists ${studio}`);
   }
-  assert.ok(STUDIO_ASSIST_TASK_TOOLS.includes("withdraw_edit"));
+  assert.ok(STUDIO_ASSIST_TASK_TOOLS.includes("withdraw_changes"));
   for (const [task, list] of Object.entries({ ASK_TOOLS, STUDIO_ASSIST_TASK_TOOLS }))
-    assert.ok(!list.includes("write_words") && !list.includes("handover"), task);
+    assert.ok(!list.includes("write_words") && !list.includes("finish"), task);
 });
 
-test("view_reference is listed for the reference tasks and offered only when a turn has art", async (t) => {
+test("read_reference_image is listed for the reference tasks and offered only when a turn has art", async (t) => {
   for (const [task, list] of Object.entries({
     GENESIS_TOOLS,
     ROOM_AUTHORING_TOOLS,
@@ -113,7 +113,7 @@ test("view_reference is listed for the reference tasks and offered only when a t
     ASK_TOOLS,
     STUDIO_ASSIST_TASK_TOOLS,
   }))
-    assert.ok(list.includes("view_reference"), task);
+    assert.ok(list.includes("read_reference_image"), task);
   const bodies = scriptProvider(t, "read_words", {
     exact: null,
     offset: null,
@@ -123,7 +123,7 @@ test("view_reference is listed for the reference tasks and offered only when a t
   const offered = (index: number) =>
     (JSON.parse(bodies[index]!) as { tool_choice: { tools: { name: string }[] } }).tool_choice.tools
       .map((tool) => tool.name)
-      .includes("view_reference");
+      .includes("read_reference_image");
   const session = modelSession();
   await session.runAsk("What is here?", 1);
   assert.equal(offered(0), false, "no art, not offered");

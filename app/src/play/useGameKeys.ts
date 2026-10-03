@@ -22,9 +22,18 @@ export interface KeyTarget {
   focusInput(): void;
 }
 
+/**
+ * Page controls keep every key: nothing typed on the timeline, a menu, a
+ * button or the shell's own regions reaches the game. Only the game's input,
+ * or in Play the page itself, passes keys to the interpreter.
+ */
+export const PAGE_CONTROLS =
+  "button, input, textarea, select, a, audio, summary, dialog, [data-shell-keys]";
+
 export function useGameKeys(deps: {
   engine: EngineApi;
   playArea: () => KeyTarget | null | undefined;
+  creating: () => boolean;
   /** Shell keys taken before the game: true when the event was consumed. */
   intercept: (ev: KeyboardEvent) => boolean;
 }) {
@@ -35,7 +44,6 @@ export function useGameKeys(deps: {
     toggleWalkthroughPause,
     resumeWalkthrough,
     advanceDialog,
-    historyView,
     sendKey,
   } = deps.engine;
   const area = deps.playArea;
@@ -56,9 +64,8 @@ export function useGameKeys(deps: {
     if (state.phase !== "running" || !isInputReady) return;
     if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.target instanceof Element && ev.target.closest("dialog[open]")) return;
-    // The bubble owns the keyboard while it is open: the world is frozen and
-    // nothing typed here may reach the interpreter's input line.
-    if (state.powerUp.open) {
+    // Play hints own the keyboard; Create routes each key by its focused zone.
+    if (state.powerUp.open && !deps.creating()) {
       if (ev.key === "Escape") {
         ev.preventDefault();
         closePowerUp();
@@ -74,15 +81,14 @@ export function useGameKeys(deps: {
     // typed there may reach the game's parser.
     const target = ev.target;
     if (
-      (target instanceof Element &&
-        target !== area()?.inputEl &&
-        target.closest(
-          "button, input, textarea, select, a, audio, summary, dialog, [data-shell-keys]",
-        )) ||
+      (target instanceof Element && target !== area()?.inputEl && target.closest(PAGE_CONTROLS)) ||
       (ev.key === "Tab" && ev.shiftKey)
     ) {
       return;
     }
+    // Tab belongs to the game while it has the keyboard (Sierra games open the
+    // inventory with it); Shift+Tab, above, is the documented way out.
+    if (ev.key === "Tab" && target === area()?.inputEl) ev.preventDefault();
     if (
       state.walkthrough.active &&
       (state.walkthrough.status === "playing" ||
@@ -110,17 +116,17 @@ export function useGameKeys(deps: {
       // engine gets nothing while the recording is under view.
       if (ev.key === " ") {
         ev.preventDefault();
-        historyView.transportToggle();
+        deps.engine.historyView.transportToggle();
         return;
       }
       if (ev.key === "Escape") {
         ev.preventDefault();
-        historyView.exitHistory();
+        deps.engine.historyView.exitHistory();
         return;
       }
       if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
         ev.preventDefault();
-        void historyView.stepMark(ev.key === "ArrowRight" ? 1 : -1);
+        void deps.engine.historyView.stepMark(ev.key === "ArrowRight" ? 1 : -1);
         return;
       }
       return;
@@ -131,7 +137,7 @@ export function useGameKeys(deps: {
       // does under a map or bubble pause.
       if (ev.key === " " || ev.key === "Escape") {
         ev.preventDefault();
-        historyView.resumeLive();
+        deps.engine.historyView.resumeLive();
         return;
       }
     }

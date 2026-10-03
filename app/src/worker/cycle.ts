@@ -1,3 +1,4 @@
+import { observeSentence } from "./missedSentences.ts";
 /**
  * The worker's timers: the 60 Hz host-poll interval and the sound clock
  * interval, plus the functions a logic cycle is made of. Pure functions of
@@ -12,19 +13,63 @@ export const HOST_POLL_MS = 1000 / 60;
 const CYCLE_REPORT_MS = 250;
 
 export function createCycle(ctx: WorkerContext) {
-  function tickEngine(): void {
-    if (!ctx.engine) return;
+  /**
+   * Runs `run` as one worker tick entry — the single place a controlled
+   * pass's completion is counted. With execution control armed the engine's
+   * own completed-cycle serial is the witness: a pass that reached its
+   * post-logic tail is counted here, wherever the entry came from (cycle
+   * poll, host answer, queued key), exactly once; a debugger stop,
+   * cooperative yield, fresh suspension or fault left the serial untouched
+   * and counts nothing. Unarmed runs always return false — their scheduler
+   * branch counts completion itself.
+   */
+  function runTickEntry(run: () => void): boolean {
+    const engine = ctx.engine;
+    if (!engine) return false;
+    // The debugger's stop latch freezes every entry: a parked or yielded
+    // pass counts zero, never reaches the tape or the unarmed completion
+    // branch below.
+    if (ctx.fns.debugStoppedHeld()) return false;
+    const armedSerial = engine.executionControlActive ? engine.completedCycleSerial : null;
+    run();
+    observeSentence(
+      ctx,
+      undefined,
+      !engine.continuationPending && !engine.awaitingHostAnswer && engine.modalKind === null,
+    );
+    // Whatever the entry latched — a breakpoint, a watch, a pause — is
+    // reported before the next atomic operation in the outer loop, and a
+    // deferred control arm lands on the boundary a completed pass left.
+    ctx.fns.debugAfterEntry();
+    // The serial is per engine instance; a replaced engine can never be
+    // mistaken for a completion the captured serial preceded.
+    if (
+      ctx.engine !== engine ||
+      armedSerial === null ||
+      engine.completedCycleSerial === armedSerial
+    )
+      return false;
+    finishCycle();
+    return true;
+  }
+
+  function tickEngine(): boolean {
+    const engine = ctx.engine;
+    if (!engine) return false;
     ctx.cycle.initialLogicStarted = true;
     // A suspended interaction freezes the cycle until its answer lands — the
     // gate inside tick() is the same, but skipping here keeps the recorder's
     // operation list honest: a parked tick never runs.
-    if (ctx.engine.hostInteractionPending && !ctx.engine.hostInteractionReady) return;
-    if (ctx.recording.recording) {
-      ctx.recording.recording.tape.run("tick", () => ctx.engine!.tick());
-      // A tick that ended suspended stays one recorded operation: the resumed
-      // answer and the calls it produces join the same list on the next tick.
-      if (ctx.engine!.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
-    } else ctx.engine.tick();
+    if (engine.hostInteractionPending && !engine.hostInteractionReady) return false;
+    const tape = ctx.recording.recording?.tape;
+    return runTickEntry(() => {
+      if (tape) {
+        tape.run("tick", () => engine.tick());
+        // A tick that ended suspended stays one recorded operation: the resumed
+        // answer and the calls it produces join the same list on the next tick.
+        if (engine.awaitingHostAnswer) tape.holdTick();
+      } else engine.tick();
+    });
   }
 
   function recordedClock(): void {
@@ -36,6 +81,10 @@ export function createCycle(ctx: WorkerContext) {
     // every discharge into the next poll's observation would let a pause or
     // input recorded in between replay ahead of a mutation it followed.
     const h = ctx.history;
+    // A debugger stop inside advanceClock/soundTick latches mid-batch: the
+    // remaining discharge loop must not tape clocks the engine never ran —
+    // the latch's own early-out is checked before each record.
+    if (ctx.fns.debugStoppedHeld()) return;
     if (ctx.replay.replay === null && h.segment !== null) {
       if (h.inPoll) {
         h.pendingSound++;
@@ -74,8 +123,13 @@ export function createCycle(ctx: WorkerContext) {
     const frozen = authoring || ctx.cycle.paused;
     const ticks = ctx.clocks.sound.advance(ctx.ports.now(), frozen);
     for (let tick = 0; tick < ticks; tick++) {
+      // The first discharge that stops execution ends the batch: the next
+      // recordedClock would record a mutation the engine refused.
+      if (ctx.fns.debugStoppedHeld()) break;
       recordedClock();
     }
+    // Publish a sound-phase stop the batch latched.
+    ctx.fns.debugAfterEntry();
   }
 
   /**
@@ -95,7 +149,10 @@ export function createCycle(ctx: WorkerContext) {
     // ones outside spill into the event stream in arrival order instead.
     ctx.history.inPoll = true;
     try {
-      if (ctx.cycle.paused) {
+      if (ctx.cycle.paused || ctx.fns.debugStoppedHeld()) {
+        // An explicit debugger stop freezes like a pause: the clocks keep
+        // their fractional carry and rebase wall time so a resume inherits
+        // no backlog, and no parked pass runs.
         // The frozen clock still re-bases so a resume inherits no backlog;
         // stray discharges recorded under a paused poll still feed — the
         // pause landed after them on the live tick axis.
@@ -111,14 +168,22 @@ export function createCycle(ctx: WorkerContext) {
       // but a recorded lane feeds its own count, never the re-derived one.
       const discharged = ctx.clocks.sound.advance(now, false);
       const soundTicks = obs?.sound ?? discharged;
-      for (let i = 0; i < soundTicks; i++) recordedClock();
+      for (let i = 0; i < soundTicks; i++) {
+        // A clock or sound phase can stop mid-batch — the remaining due
+        // ticks and everything after them must not run in this poll.
+        if (ctx.fns.debugStoppedHeld()) return false;
+        recordedClock();
+      }
       ctx.fns.deliverQueuedKey();
       if (
         engine.modalKind !== null ||
         engine.continuationPending ||
         engine.hostInteractionPending
       ) {
-        tickEngine();
+        // Under armed control a parked pass resuming here can run its
+        // post-logic tail — tickEngine counted that completion and the poll
+        // reports it; anything less still reports no cycle.
+        const completed = tickEngine();
         ctx.fns.noteTransition();
         ctx.fns.flushTraceBatch();
         ctx.fns.postFrame();
@@ -131,19 +196,34 @@ export function createCycle(ctx: WorkerContext) {
           ctx.fns.noteTransition();
           ctx.fns.postFrame(true);
         }
-        return false;
+        return completed;
       }
       // The cycle clock always polls — its accumulators stay honest — but a
       // recorded lane decides whether the live poll fired.
       const polled = ctx.clocks.cycle.poll(now, engine.vars[10]!);
       if (!(obs?.cycle ?? polled)) return false;
       ctx.fns.flushDeferredMovement();
+      if (engine.executionControlActive) {
+        // Armed control: the poll only decides the pass may run — whether a
+        // cycle completed is the engine's serial. tickEngine counted a pass
+        // that reached its tail; a stop, yield or fresh suspension counts
+        // nothing.
+        const completed = tickEngine();
+        ctx.fns.noteTransition();
+        ctx.fns.flushTraceBatch();
+        ctx.fns.postFrame(completed);
+        return completed;
+      }
       tickEngine();
       finishCycle();
       ctx.fns.postFrame(true);
       return true;
     } finally {
       ctx.history.inPoll = false;
+      // Whatever the step latched — a sound/clock-phase stop mid-batch, a
+      // pause racing the boundary — publishes before the caller's next
+      // atomic operation; replay drives call stepHostTick directly.
+      ctx.fns.debugAfterEntry();
     }
   }
 
@@ -227,6 +307,7 @@ export function createCycle(ctx: WorkerContext) {
   return {
     onPause,
     tickEngine,
+    runTickEntry,
     recordedClock,
     stopTimers,
     finishCycle,

@@ -5,7 +5,7 @@
  * 2:1 logical pixel aspect of the original display is preserved.
  */
 
-import { deflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 
 /** The authentic 16-colour EGA palette, RGB. */
 export const EGA_RGB: readonly [number, number, number][] = [
@@ -169,4 +169,114 @@ export function cropSideBySidePng(
     return out;
   };
   return sideBySidePng(sub(a), sub(b), cw, ch);
+}
+
+interface DecodedPng {
+  width: number;
+  height: number;
+  /** RGBA, row-major, 4 bytes per pixel. */
+  rgba: Uint8Array;
+}
+
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** Decode an 8-bit non-interlaced RGB or RGBA PNG to RGBA. */
+export function decodePng(bytes: Uint8Array): DecodedPng {
+  for (let i = 0; i < PNG_SIGNATURE.length; i++) {
+    if (bytes[i] !== PNG_SIGNATURE[i]) throw new Error("not a PNG file");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = -1;
+  const idat: Uint8Array[] = [];
+  let pos = 8;
+  while (pos + 8 <= bytes.length) {
+    const length = view.getUint32(pos);
+    const type = String.fromCharCode(...bytes.subarray(pos + 4, pos + 8));
+    const data = bytes.subarray(pos + 8, pos + 8 + length);
+    if (type === "IHDR") {
+      width = view.getUint32(pos + 8);
+      height = view.getUint32(pos + 12);
+      bitDepth = data[8]!;
+      colorType = data[9]!;
+      if (data[10] !== 0) throw new Error("compressed PNGs only (method 0)");
+      if (data[12] !== 0) throw new Error("interlaced PNGs are not supported");
+    } else if (type === "IDAT") {
+      idat.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+    pos += 12 + length;
+  }
+  if (bitDepth !== 8 || (colorType !== 2 && colorType !== 6)) {
+    throw new Error(
+      `unsupported PNG: bit depth ${bitDepth}, colour type ${colorType} (need 8-bit RGB or RGBA)`,
+    );
+  }
+  const channels = colorType === 6 ? 4 : 3;
+  const stride = width * channels;
+
+  const concat = new Uint8Array(idat.reduce((n, c) => n + c.length, 0));
+  let off = 0;
+  for (const c of idat) {
+    concat.set(c, off);
+    off += c.length;
+  }
+  const raw = new Uint8Array(inflateSync(concat));
+  if (raw.length < (stride + 1) * height) throw new Error("truncated PNG image data");
+
+  // Undo the per-scanline filters (PNG spec 9.2); `prior` is the reconstructed
+  // previous row, all zero for the first.
+  const out = new Uint8Array(stride * height);
+  let prior = new Uint8Array(stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]!;
+    const src = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    const row = out.subarray(y * stride, (y + 1) * stride);
+    for (let i = 0; i < stride; i++) {
+      const a = i >= channels ? row[i - channels]! : 0;
+      const b = prior[i]!;
+      const c = i >= channels ? prior[i - channels]! : 0;
+      const x = src[i]!;
+      let value: number;
+      switch (filter) {
+        case 0:
+          value = x;
+          break;
+        case 1:
+          value = x + a;
+          break;
+        case 2:
+          value = x + b;
+          break;
+        case 3:
+          value = x + ((a + b) >> 1);
+          break;
+        case 4: {
+          const p = a + b - c;
+          const pa = Math.abs(p - a);
+          const pb = Math.abs(p - b);
+          const pc = Math.abs(p - c);
+          value = x + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+          break;
+        }
+        default:
+          throw new Error(`unknown PNG filter type ${filter} on row ${y}`);
+      }
+      row[i] = value & 0xff;
+    }
+    prior = row;
+  }
+
+  if (channels === 4) return { width, height, rgba: out };
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    rgba[i * 4] = out[i * 3]!;
+    rgba[i * 4 + 1] = out[i * 3 + 1]!;
+    rgba[i * 4 + 2] = out[i * 3 + 2]!;
+    rgba[i * 4 + 3] = 0xff;
+  }
+  return { width, height, rgba };
 }

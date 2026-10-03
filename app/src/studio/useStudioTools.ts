@@ -220,11 +220,11 @@ export function useStudioTools(options: StudioToolsOptions) {
   /** Drawing is blocked (view only, or a Keep that needs a reload): say so. */
   function blocked(): boolean {
     if (options.frozen()) {
-      options.say({ tone: "warn", text: "This picture is view only: nothing can be drawn." });
+      options.say({ tone: "warn", text: "This picture is read-only." });
       return true;
     }
     if (!options.paused?.()) return false;
-    options.say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
+    options.say({ tone: "warn", text: "Approve or reject the AI's change first." });
     return true;
   }
 

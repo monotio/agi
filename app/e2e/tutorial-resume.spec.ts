@@ -12,7 +12,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
 test("the tutorial shelf offers Resume and restores the checkpoint exactly", async ({ page }) => {
   await isolateStorage(page);

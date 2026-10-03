@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { effectScope, ref, shallowRef } from "vue";
+import { effectScope, nextTick, ref, shallowRef } from "vue";
 import { DEFAULT_V2_PROFILE } from "../../src/runtime/profile.ts";
 import { testRevision } from "./identity.ts";
 import { NO_UNLOCKS, type LensUnlocks } from "../src/studio/studioLocks.ts";
@@ -174,7 +174,10 @@ describe("useStudioDraft", () => {
     assert.equal(draft.preview.value, null, "the preview snaps back to the start");
     const end = draft.endGesture(move("occ", 45, 0), "Move Occluder");
     assert.ok(!end.ok && end.refusal.kind === "kernel");
-    assert.equal(end.refusal.message, "That would move part of it off the picture.");
+    assert.equal(
+      end.refusal.message,
+      "Part of the item would leave the picture. Move it closer to the centre.",
+    );
     assert.match(end.refusal.detail ?? "", /off the surface at 164,105/);
     assert.equal(draft.source.value, SOURCE);
     assert.equal(draft.history.value.past.length, 0);
@@ -354,6 +357,46 @@ describe("useStudioDraft", () => {
     assert.ok(ended.ok);
     assert.equal(ended.sideEffects?.cells, 26019);
     assert.equal(draft.history.value.past.length, 1);
+  });
+
+  it("a matching saved source retains the next picture gesture and undo steps", async () => {
+    const { draft, base } = setup("art");
+    assert.ok(draft.apply({ type: "moveItem", itemId: "box", dx: 1, dy: 0 }, "Nudge").ok);
+    const saved = draft.source.value;
+    draft.beginGesture("Move");
+    draft.moveGesture({ type: "moveItem", itemId: "box", dx: 0, dy: 1 });
+    base.value = { source: saved, revision: testRevision("saved-picture") };
+    await nextTick();
+    assert.equal(draft.gesturing.value, true);
+    assert.ok(draft.endGesture({ type: "moveItem", itemId: "box", dx: 0, dy: 1 }, "Move").ok);
+    assert.equal(draft.history.value.past.length, 2);
+  });
+
+  it("clears an edit notice when project Undo restores the source", async () => {
+    const scope = effectScope();
+    const { draft, base, editing } = scope.run(() => {
+      const state = setup("art");
+      return {
+        ...state,
+        editing: useStudioEditing({
+          draft: state.draft,
+          selectedId: ref("box"),
+          frozen: () => false,
+          lens: () => "art",
+        }),
+      };
+    })!;
+    assert.equal(editing.nudge(20, 0), true);
+    const notice = editing.notice.value;
+    assert.ok(notice);
+    base.value = { source: draft.source.value, revision: testRevision("saved") };
+    await nextTick();
+    assert.equal(editing.notice.value, notice, "autosave retains the edit's notice");
+    base.value = { source: SOURCE, revision: testRevision("restored") };
+    await nextTick();
+    assert.equal(draft.source.value, SOURCE);
+    assert.equal(editing.notice.value, null);
+    scope.stop();
   });
 
   it("says in the status line what else changed, with the undo key, and clears it after", () => {
@@ -620,7 +663,10 @@ describe("useStudioDrag", () => {
     drag.release(at(110, 100));
     const stopped = reports.at(-1)!;
     assert.ok(!stopped.ok && stopped.refusal.kind === "kernel");
-    assert.equal(stopped.refusal.message, "Occluder is at the picture's right edge.");
+    assert.equal(
+      stopped.refusal.message,
+      "Occluder is at the picture's right edge. Move it inward.",
+    );
     assert.match(stopped.refusal.detail ?? "", /moving by 10,0: "Occluder" is at the right edge/);
     assert.equal(line(draft, 12), "rect 80,92 159,107");
     assert.equal(draft.history.value.past.length, 1);
@@ -755,7 +801,7 @@ describe("several items as one", () => {
     assert.equal(line(draft, 3), "rect 0,10 20,30");
     assert.equal(line(draft, 7), "fill 10,20");
     assert.equal(editing.nudge(-1, 0), false);
-    assert.equal(editing.notice.value?.text, "Box is at the picture's left edge.");
+    assert.equal(editing.notice.value?.text, "Box is at the picture's left edge. Move it inward.");
     assert.equal(draft.history.value.past.length, 1);
     scope.stop();
   });
@@ -798,10 +844,7 @@ describe("several items as one", () => {
     // Draw order moves one item at a time.
     selection.ids = ["box", "paint"];
     assert.equal(editing.reorder(1), false);
-    assert.equal(
-      editing.notice.value?.text,
-      "Draw order changes one item at a time: select just one.",
-    );
+    assert.equal(editing.notice.value?.text, "Select one item to change its draw order.");
     scope.stop();
   });
 
@@ -862,7 +905,7 @@ describe("several items as one", () => {
     assert.ok(!draft.document.value.items.some((item) => item.id === "paint"));
     assert.deepEqual(editing.notice.value, {
       tone: "warn",
-      text: "Door to room 2 stays put now: Ungroup split Red box into drawing elements.",
+      text: "Door to room 2 stays put now: Ungroup split Red box into items.",
     });
     // One level down, Ungroup gives the members their ids back and the door keeps its art.
     assert.equal(draft.undo(), true);

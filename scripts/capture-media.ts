@@ -3,6 +3,7 @@
  * The README and docs/media images, from the real app and the agent's own tools.
  *
  *   npm run media:capture
+ *   npm run media:capture -- play-crt-1.2 history-1.2 agent-review-1.2 cels-from-image-1.2
  *
  * Browser shots: Playwright drives the app in test mode on its own Vite
  * server (app/playwright.media.config.ts, app/e2e/media/docs.media.ts) at
@@ -19,10 +20,10 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { crc32, deflateSync, inflateSync } from "node:zlib";
-import { decodePng } from "./sheet-to-view.ts";
+import { decodePng } from "./png.ts";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const APP = join(ROOT, "app");
@@ -30,17 +31,33 @@ const STAGING = join(ROOT, ".captures/media");
 const OUT = join(ROOT, "docs/media");
 /** A README image should load quickly: ~350 KB per PNG. */
 const BUDGET = 350 * 1024;
+// CRT beams and phosphors carry continuous color detail; retain their rendered pixels.
+const CRT_BUDGET = 850 * 1024;
 
-/** app/e2e/media/docs.media.ts writes one PNG per test, named after it. */
+/** Named captures written by app/e2e/media/docs.media.ts. */
 const BROWSER_SHOTS = [
-  "home",
-  "tutorial-gallery",
-  "create-mode",
-  "room-studio",
-  "room-studio-walk",
-  "studio-ask",
-  "sprite-studio",
+  "home-1.2",
+  "new-game-1.2",
+  "play-crt-1.2",
+  "workspace-picture-1.2",
+  "logic-problems-1.2",
+  "cels-from-image-1.2",
+  "view-editor-1.2",
+  "words-1.2",
+  "sound-grid-1.2",
+  "agent-review-1.2",
+  "history-1.2",
 ].map((name) => `${name}.png`);
+// Optional shot names keep a focused UI change's capture run small.
+const requested = process.argv.slice(2).map((name) => `${name.replace(/\.png$/, "")}.png`);
+for (const name of requested)
+  if (!BROWSER_SHOTS.includes(name)) throw new Error(`Unknown browser capture: ${name}`);
+const selectedShots = requested.length ? requested : BROWSER_SHOTS;
+const selectedTests = selectedShots.map((name) =>
+  name === "cels-from-image-1.2.png" || name === "view-editor-1.2.png"
+    ? "view-cels-1.2"
+    : name.slice(0, -4),
+);
 /** The capture-feedback files the media gallery shows. */
 const TOOL_FILES = [
   "picture-controls-1.png",
@@ -130,28 +147,44 @@ function compactPng(bytes: Uint8Array): Uint8Array {
 }
 
 rmSync(STAGING, { recursive: true, force: true });
-const raw = join(STAGING, "raw");
+const raw = join(STAGING, "results");
 const tools = join(STAGING, "tools");
 mkdirSync(raw, { recursive: true });
 
 run(
-  [join(APP, "node_modules/playwright/cli.js"), "test", "--config", "playwright.media.config.ts"],
+  [
+    join(APP, "node_modules/playwright/cli.js"),
+    "test",
+    "--config",
+    "playwright.media.config.ts",
+    ...(requested.length ? ["--grep", selectedTests.map((name) => `${name}$`).join("|")] : []),
+  ],
   APP,
-  { AGI_MEDIA_OUT: raw },
 );
-run(["--experimental-strip-types", join(ROOT, "scripts/capture-feedback.ts"), tools], ROOT);
+if (!requested.length)
+  run(["--experimental-strip-types", join(ROOT, "scripts/capture-feedback.ts"), tools], ROOT);
 
+// Specs write only inside test.info().outputPath; publishing copies the named captures.
+const captures = readdirSync(raw, { recursive: true }).map((name) => String(name));
 const staged = [
-  ...BROWSER_SHOTS.map((name) => ({ name, from: join(raw, name) })),
-  ...TOOL_FILES.map((name) => ({ name, from: join(tools, name) })),
+  ...selectedShots.map((name) => {
+    const matches = captures.filter((path) => path.endsWith(`/${name}`));
+    if (matches.length !== 1)
+      throw new Error(`Expected one capture for ${name}, got ${matches.length}`);
+    return { name, from: join(raw, matches[0]!) };
+  }),
+  ...(requested.length ? [] : TOOL_FILES).map((name) => ({ name, from: join(tools, name) })),
 ].map(({ name, from }) => {
   const bytes = new Uint8Array(readFileSync(from));
   return { name, bytes: name.endsWith(".png") ? compactPng(bytes) : bytes };
 });
-const over = staged.filter(({ name, bytes }) => name.endsWith(".png") && bytes.length > BUDGET);
+const over = staged.filter(
+  ({ name, bytes }) =>
+    name.endsWith(".png") && bytes.length > (name === "play-crt-1.2.png" ? CRT_BUDGET : BUDGET),
+);
 if (over.length)
   throw new Error(
-    `Over the ${BUDGET / 1024} KB budget: ${over.map(({ name, bytes }) => `${name} ${Math.round(bytes.length / 1024)} KB`).join(", ")}`,
+    `Over the media budget (350 KB, CRT 850 KB): ${over.map(({ name, bytes }) => `${name} ${Math.round(bytes.length / 1024)} KB`).join(", ")}`,
   );
 
 mkdirSync(OUT, { recursive: true });

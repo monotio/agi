@@ -44,13 +44,13 @@ const blocked = computed(() =>
         </span>
         <span class="resources-panel__text">
           <b>VIEW {{ entry.view }}</b>
-          <span>{{ entry.description ?? (entry.thumb ? "" : "Does not decode") }}</span>
+          <span>{{ entry.description ?? (entry.thumb ? "" : "Invalid view data") }}</span>
           <small>{{ usageText(entry.usage) }}</small>
         </span>
         <UiButton
           size="sm"
           :disabled="blocked !== undefined || !entry.thumb"
-          :title="entry.thumb ? blocked : 'This view does not decode'"
+          :title="entry.thumb ? blocked : 'Invalid view data'"
           :aria-label="`Open VIEW ${entry.view} in Sprite Studio`"
           :data-testid="`resources-open-${entry.view}`"
           @click="sprites.open(entry.view)"

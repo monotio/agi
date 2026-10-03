@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test.ts";
 import { buildTutorial } from "../../games/adventure-department/game.ts";
 import { isolateStorage, openLibraryActions, textHook } from "./engineProbe.ts";
 import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
@@ -43,11 +43,12 @@ test("hosted games preview, play and resume in the same library without a provid
   await page.goto("/");
   const card = page.getByTestId("hosted-game-card-constructor");
   await card.scrollIntoViewIfNeeded();
-  await expect(card.getByRole("img")).toHaveAttribute("src", /^data:image\/png;base64,/);
   await expect(card).toContainText("The Hosted Workshop");
-  expect(requests.sort()).toEqual(Object.keys(game.files).sort());
+  await expect(card.getByRole("img")).toHaveCount(0);
+  expect(requests).toEqual([]);
   await card.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  expect(requests.sort()).toEqual(Object.keys(game.files).sort());
   await page.getByTestId("btn-exit").click();
   const saved = page.getByTestId("saved-game-card-catalog-constructor-1.0.0");
   await expect(saved.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
@@ -73,12 +74,12 @@ test("hosted games preview, play and resume in the same library without a provid
 test("a hosted game's declared interpreter is the one its library entry and playback use", async ({
   page,
 }) => {
-  // The tutorial detects as 2.936; its GAME.JSON asks for 2.089.
+  // The tutorial detects as 2.936; its GAME.JSON asks for 2.917.
   const gameJson = JSON.stringify({
     format: "monotio.agi",
     version: 1,
     title: "Declared",
-    profile: "2.089",
+    profile: "2.917",
   });
   const declared = {
     ...manifest,
@@ -98,16 +99,16 @@ test("a hosted game's declared interpreter is the one its library entry and play
   await page.goto("/");
   const card = page.getByTestId("hosted-game-card-declared");
   await card.scrollIntoViewIfNeeded();
-  await expect(card.getByRole("img")).toHaveAttribute("src", /^data:image\/png;base64,/);
+  await expect(card.getByRole("img")).toHaveCount(0);
   await card.getByRole("button", { name: "Play", exact: true }).click();
-  await expect.poll(async () => (await textHook(page)).profile).toBe("2.089");
+  await expect.poll(async () => (await textHook(page)).profile).toBe("2.917");
   // The library entry holds the same choice (read through the UI, so the
   // production bundle runs this too).
   await page.getByTestId("btn-exit").click();
   const saved = page.getByTestId("saved-game-card-catalog-declared-1.0.0");
   await openLibraryActions(page, saved);
   await expect(page.getByTestId("interpreter-profile-menu-item")).toContainText(
-    "2.089 (your override)",
+    "2.917 (your override)",
   );
 });
 
@@ -140,6 +141,7 @@ test("catalog and opening failures explain the problem before play and allow ret
   const card = page.getByTestId("hosted-game-card-constructor");
   await expect(card).toBeVisible();
   await card.scrollIntoViewIfNeeded();
+  await card.getByRole("button", { name: "Play", exact: true }).click();
   await expect(card.getByRole("alert")).toContainText("404");
   await expect(card.getByRole("button", { name: "Play", exact: true })).toHaveCount(0);
   fileReady = true;

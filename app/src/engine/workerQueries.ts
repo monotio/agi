@@ -1,5 +1,13 @@
 import type { PatchKind, WorkerControl } from "../worker/workerProtocol.ts";
 
+export class WorkerQueryTimeoutError extends Error {
+  readonly id: number;
+  constructor(id: number, type: string) {
+    super(`worker query ${type} timed out`);
+    this.id = id;
+  }
+}
+
 export interface WorkerQueries {
   readonly query: <T>(
     getWorker: () => Worker | null,
@@ -8,6 +16,8 @@ export interface WorkerQueries {
     timeoutMs?: number,
   ) => Promise<T>;
   readonly resolveQuery: (id: number, value: unknown) => boolean;
+  /** Settle a pending query as refused — a structured worker error reply. */
+  readonly rejectQuery: (id: number, err: Error) => boolean;
   readonly drainPendingQueries: (err?: Error) => void;
 }
 
@@ -46,7 +56,7 @@ export function createWorkerQueries(): WorkerQueries {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new Error(`worker query ${type} timed out`));
+        reject(new WorkerQueryTimeoutError(id, type));
       }, timeoutMs);
       pending.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -69,7 +79,16 @@ export function createWorkerQueries(): WorkerQueries {
     return true;
   }
 
-  return { query, resolveQuery, drainPendingQueries };
+  function rejectQuery(id: number, err: Error): boolean {
+    const q = pending.get(id);
+    if (!q) return false;
+    pending.delete(id);
+    clearTimeout(q.timer);
+    q.reject(err);
+    return true;
+  }
+
+  return { query, resolveQuery, rejectQuery, drainPendingQueries };
 }
 
 /** One resource a `patch` sends, named by the hint of its bytes. */

@@ -1,0 +1,70 @@
+{
+  "name": "project-agent-image-native-tools",
+  "description": "A saved-image operation followed by a native PICTURE tool must retain tracing, attachments and game notes in the coordinated review. Native read-back has no image metadata and must preserve those project documents.",
+  "projectAgent": {
+    "documents": {
+      "logic:0": "return;",
+      "picture:1": "end",
+      "picture:2": "end",
+      "words": "[]",
+      "notes": "Friendly tone.",
+      "bindings": "{}",
+      "attachment:154130d610711e869f6e27796870a4ea3f591ab61abd38ad177a00fedc9f0d84": [
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 244, 34, 127, 138, 0, 0, 0, 1, 115, 82, 71, 66, 0, 174, 206, 28, 233, 0, 0, 0, 20,
+        73, 68, 65, 84, 120, 1, 1, 9, 0, 246, 255, 0, 255, 0, 0, 255, 0, 255, 0, 255, 16, 248, 3,
+        253, 217, 100, 188, 83, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
+      ],
+      "attachment:8e56467a23ff16f4059b738417081abf48600e4d0d9958217178f2d5d4ca93f8": [
+        255, 0, 0, 255, 0, 255, 0, 255
+      ],
+      "images": "{\"format\":\"agi.image-references\",\"version\":1,\"images\":{\"154130d610711e869f6e27796870a4ea3f591ab61abd38ad177a00fedc9f0d84\":{\"title\":\"Two frames\",\"mime\":\"image/png\",\"encoded\":\"154130d610711e869f6e27796870a4ea3f591ab61abd38ad177a00fedc9f0d84\",\"raster\":\"8e56467a23ff16f4059b738417081abf48600e4d0d9958217178f2d5d4ca93f8\",\"width\":2,\"height\":1}},\"traces\":{\"picture:1\":{\"image\":\"154130d610711e869f6e27796870a4ea3f591ab61abd38ad177a00fedc9f0d84\",\"opacity\":0.4}}}"
+    },
+    "request": "Reuse the saved image for tracing and cels, then draw over the tracing",
+    "turns": [
+      {
+        "toolCalls": [
+          {
+            "id": "trace_an_image",
+            "name": "trace_an_image",
+            "input": {
+              "target": "picture:2",
+              "image": "154130d610711e869f6e27796870a4ea3f591ab61abd38ad177a00fedc9f0d84",
+              "opacity": 0.6
+            }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "make_cels_from_an_image",
+            "name": "make_cels_from_an_image",
+            "input": {
+              "target": "view:3",
+              "image": "154130d610711e869f6e27796870a4ea3f591ab61abd38ad177a00fedc9f0d84",
+              "frames": null
+            }
+          }
+        ]
+      },
+      {
+        "toolCalls": [
+          {
+            "id": "write_picture",
+            "name": "write_picture",
+            "input": {
+              "room": 2,
+              "source": "vis 4\nfill 0,0\nend"
+            }
+          }
+        ]
+      },
+      {
+        "text": "Prepared the art.",
+        "toolCalls": []
+      }
+    ],
+    "expectedKeys": ["images", "picture:2", "view:3"]
+  }
+}

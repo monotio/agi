@@ -4,7 +4,13 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildView } from "../../src/view/view.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, isolateStorage, textHook, enterCreateMode } from "./engineProbe.ts";
+import {
+  configureAi,
+  isolateStorage,
+  textHook,
+  enterCreateMode,
+  openWorkspaceAgent,
+} from "./engineProbe.ts";
 
 test("agent playtest reports bounded navigation through the browser without moving the live game", async ({
   page,
@@ -103,11 +109,11 @@ test("agent playtest reports bounded navigation through the browser without movi
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Check walking to the nearby region.");
-  await page.getByTestId("agent-bubble-send").click();
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Check walking to the nearby region.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect.poll(() => toolOutput).toBeTruthy();
   expect(toolOutput).toMatchObject({
     success: true,

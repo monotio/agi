@@ -23,7 +23,10 @@ setting.
 Maintainers are responsible for clarifying and enforcing these standards and
 may remove, edit, or reject contributions that do not align with this Code of
 Conduct. Instances of abusive, harassing, or otherwise unacceptable behavior
-may be reported to the maintainers through the Monotio GitHub organization.
+may be reported through the same
+[private reporting channel](https://github.com/monotio/agi/security/advisories/new)
+as [security reports](SECURITY.md#reporting-a-vulnerability). Label the report
+"Conduct report" and include the relevant messages and context.
 All complaints will be reviewed and investigated promptly and fairly, with the
 privacy of the reporter respected.
 

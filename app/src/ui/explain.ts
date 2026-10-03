@@ -18,6 +18,8 @@ export interface Explainer {
   readonly name: string;
   /** One or two short sentences, at most 140 characters. */
   readonly says: string;
+  /** Original AGI terminology shown on hover. */
+  readonly technical?: string;
   /** Where "Learn more" opens the Help guide. */
   readonly help: HelpTarget;
 }

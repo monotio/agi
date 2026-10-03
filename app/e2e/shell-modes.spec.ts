@@ -1,4 +1,3 @@
-import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { testProjectId } from "../test/identity.ts";
@@ -11,6 +10,7 @@ import {
   waitForCycles,
   waitForRoom,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * The 1.1 shell: a loaded game is shown in Play or Create, the URL names the
@@ -35,11 +35,15 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   page,
 }) => {
   await bootTutorial(page);
-  // 900 rows less the 52 px bar and the 48 px strip leave exactly 800: 4×.
-  expect(await surfaceBox(page)).toMatchObject({ width: 1280, height: 800 });
+  // System fonts can change the strip's height. The fluid frame fills the
+  // available stage at 8:5 instead of assuming one font's chrome height.
+  const available = (await page.locator(".stage:visible").boundingBox())!;
+  const fitWidth = Math.floor(Math.min(available.width, available.height * 1.6));
+  const original = { width: fitWidth, height: fitWidth / 1.6 };
+  await expect.poll(() => surfaceBox(page)).toMatchObject(original);
   await openGameOptions(page, "settings-menu");
   await page.getByTestId("toggle-original-aspect").click();
-  // 4:3 needs 240 rows per step: 800 rows hold 3× (960×720).
+  // 4:3 needs 240 rows per step: the stage holds 3× (960×720).
   await expect.poll(async () => (await surfaceBox(page)).width).toBe(960);
   expect((await surfaceBox(page)).height).toBe(720);
   await page.getByTestId("toggle-original-aspect").click();
@@ -66,7 +70,7 @@ test("Play fits the game to a whole multiple of the frame and the Ask drawer res
   await drawer.getByTestId("agent-bubble-close").click();
   await expect(drawer).toBeHidden();
   await expect(page.getByTestId("input-line")).toBeFocused();
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(1280);
+  await expect.poll(() => surfaceBox(page)).toMatchObject(original);
 });
 
 /** Pairs of top-bar controls whose boxes overlap, and how wide the bar is laid out. */
@@ -96,9 +100,9 @@ test("Play shows the game and its bar only; Developer activity opens from Settin
   page,
 }) => {
   await bootTutorial(page);
-  // The tutorial registers no menu, so the key help does not offer Esc for one.
+  // The tutorial registers a game menu, exposed in the keyboard help.
   await expect(page.locator("#game-input-help")).toContainText("Arrows or numpad walk");
-  await expect(page.locator("#game-input-help")).not.toContainText("game menu");
+  await expect(page.locator("#game-input-help")).toContainText("Esc game menu");
   for (const [width, height] of [
     [1440, 900],
     [1280, 720],
@@ -212,7 +216,7 @@ test("reduced motion: the shell neither animates nor scrolls smoothly", async ({
     page.evaluate(() => (window as unknown as { __scrollBehaviors: string[] }).__scrollBehaviors);
   await expect.poll(async () => (await behaviors()).length).toBeGreaterThan(0);
   expect(await behaviors()).not.toContain("smooth");
-
+  await page.keyboard.press("Escape");
   await page.getByTestId("catalog-play-adventure-department").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   // Scoped component animations too: the key hint's settle, the resume caption.
@@ -237,12 +241,9 @@ test("Create is a route: Back and Forward switch modes and a reload keeps Create
 
   await create.click();
   await expect(page).toHaveURL(new RegExp(`#create/${target}$`));
-  await expect(page.getByTestId("create-dock-left")).toBeVisible();
-  await expect(page.getByTestId("dock-tab-world")).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByTestId("dock-tab-assistant")).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("parts-list")).toBeVisible();
   // The catalog tutorial is read-only: the first edit forks a remix.
-  await expect(page.getByTestId("create-read-only")).toBeVisible();
-  await expect(page.getByTestId("power-up")).toBeVisible();
+  await expect(page.getByTestId("workspace-agent")).toBeVisible();
   await expect(page.getByTestId("menu-assistant")).toHaveCount(0);
   // The same live stage sits in the centre: the game keeps running.
   const cycle = (await textHook(page)).cycle;
@@ -251,11 +252,11 @@ test("Create is a route: Back and Forward switch modes and a reload keeps Create
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`#play/${target}$`));
   await expect(play).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByTestId("create-dock-left")).toHaveCount(0);
+  await expect(page.getByTestId("parts-list")).toHaveCount(0);
   await expect(page.getByTestId("input-line")).toBeFocused();
   await page.goForward();
   await expect(create).toHaveAttribute("aria-checked", "true");
-  await expect(page.getByTestId("create-dock-left")).toBeVisible();
+  await expect(page.getByTestId("parts-list")).toBeVisible();
 
   await waitForAutosaveAfter(page, (await textHook(page)).cycle);
   await page.reload();
@@ -275,7 +276,7 @@ test("keys typed on the shell chrome never reach the game's parser", async ({ pa
   await expect(input).toHaveValue("");
   expect((await textHook(page)).rows.join(" ")).not.toContain("look");
   await page.getByRole("radio", { name: "Create", exact: true }).click();
-  await page.getByTestId("dock-tab-world").focus();
+  await page.getByTestId("part-room:1").focus();
   await page.keyboard.type("look");
   await expect(input).toHaveValue("");
   // Back in Play, the keyboard belongs to the game again.
@@ -394,16 +395,19 @@ test("the strip's key hint never prints over the transport, and Create's stage f
       [1440, 900],
     ] as const) {
       await page.setViewportSize({ width, height });
-      await expect
-        .poll(() => stripOverlaps(page), { message: `${mode} at ${width}×${height}` })
-        .toEqual([]);
-      // The help stays wherever it fits: all of Play, and Create's 780 px column.
-      if (mode === "Play" || width === 1440)
+      if (mode === "Play") {
+        await expect
+          .poll(() => stripOverlaps(page), { message: `${mode} at ${width}×${height}` })
+          .toEqual([]);
         await expect(page.locator("#game-input-help:visible")).toHaveCount(1);
+      } else {
+        await expect(page.locator(".play-strip")).toBeHidden();
+        await expect(page.locator(".game-surface:visible")).toBeInViewport();
+      }
     }
   }
-  // Create's 780×800 centre column at 1440×900: 2× (640) would fill 67% of
-  // what fits, so the screen takes the column's width, as Play would.
-  await expect.poll(async () => (await surfaceBox(page)).width).toBe(780);
-  expect((await surfaceBox(page)).height).toBe(487.5);
+  // At 1440×900, the 252 px parts list leaves an 1188 px game column.
+  // The screen fills that column at its 320×200 aspect.
+  await expect.poll(async () => (await surfaceBox(page)).width).toBe(1188);
+  expect((await surfaceBox(page)).height).toBe(742.5);
 });

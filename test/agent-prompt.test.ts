@@ -5,6 +5,7 @@ import {
   createGenesisPrompt,
   createOrientationPrompt,
 } from "../src/agent/prompt.ts";
+import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { PICTURE_SOURCE_DOC } from "../src/picture/source.ts";
 import { AGENT_TOOLS } from "../src/agent/tools.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
@@ -71,10 +72,7 @@ describe("agent system prompt", () => {
       AGI_SYSTEM_PROMPT.includes("Register vocabulary before writing a said() handler"),
       "vocabulary before said()",
     );
-    assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Call handover when the work is done"),
-      "handover invariant",
-    );
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Call finish when the work is done"), "finish invariant");
     assert.ok(
       AGI_SYSTEM_PROMPT.includes(
         "When patching a player-supplied game, preserve its existing content",
@@ -104,12 +102,12 @@ describe("agent system prompt", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes("160 wide by 168 tall"), "states the surface size");
     assert.ok(AGI_SYSTEM_PROMPT.includes("x 0..159, y 0..167"), "states the coordinate ranges");
     assert.ok(AGI_SYSTEM_PROMPT.includes("EGA"), "mentions EGA");
-    assert.ok(AGI_SYSTEM_PROMPT.includes("0 = unconditional barrier"), "priority 0");
-    assert.ok(AGI_SYSTEM_PROMPT.includes("1 = conditional barrier"), "priority 1");
-    assert.ok(AGI_SYSTEM_PROMPT.includes("2 = trigger"), "priority 2");
-    assert.ok(AGI_SYSTEM_PROMPT.includes("3 = water"), "priority 3");
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Wall 0"), "priority 0");
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Gate 1"), "priority 1");
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Trigger 2"), "priority 2");
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Water 3"), "priority 3");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Default sprite priority is 4 at baseline rows 0..47"),
+      AGI_SYSTEM_PROMPT.includes("Default actor depth is 4 at feet rows 0..47"),
       "priority 4..15 depth bands",
     );
   });
@@ -124,29 +122,29 @@ describe("agent system prompt", () => {
   it("embeds the picture source documentation verbatim and the picture quality bar", () => {
     assert.ok(AGI_SYSTEM_PROMPT.includes(PICTURE_SOURCE_DOC), "PICTURE_SOURCE_DOC verbatim");
     assert.ok(AGI_SYSTEM_PROMPT.includes("LOOK AT THE RETURNED IMAGE"), "look at the render");
-    assert.ok(AGI_SYSTEM_PROMPT.includes("Stop when the requested result is achieved"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("stop when the requested result is achieved"));
     assert.ok(!AGI_SYSTEM_PROMPT.includes("revise at least once"));
     assert.ok(!AGI_SYSTEM_PROMPT.includes("Use all the rounds"));
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("not as a quota"),
+      AGI_SYSTEM_PROMPT.includes("Use fill coverage to diagnose enclosed regions"),
       "coverage is diagnostic, not an art constraint",
     );
     assert.ok(!AGI_SYSTEM_PROMPT.includes("hundreds of commands"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("Enclose every region"), "enclose then fill");
     assert.ok(AGI_SYSTEM_PROMPT.includes("far to near"), "far-to-near ordering");
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("A priority fill floods the whole connected pri-4 region"),
+      AGI_SYSTEM_PROMPT.includes("A Depth fill floods the connected depth-4 region"),
       "priority band recipe warns about flooding",
     );
     assert.ok(
-      AGI_SYSTEM_PROMPT.includes("Do not paint horizontal priority bands across open floor"),
+      AGI_SYSTEM_PROMPT.includes("Paint depth 4 across open walking floor"),
       "open floor is not sliced into artificial priority bands",
     );
     assert.ok(
       !AGI_SYSTEM_PROMPT.includes("Bands must cover every walkable pixel"),
       "removes the harmful full-floor priority-band recipe",
     );
-    assert.ok(AGI_SYSTEM_PROMPT.includes("Texture is an accent"), "stipple is capped");
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Use texture as a sparse accent"), "stipple is capped");
   });
 
   it("couples scene scale, hybrid detail, visible boundaries and composed playtests", () => {
@@ -156,8 +154,8 @@ describe("agent system prompt", () => {
       "visible obstacle",
       "add.to.pic",
       "draw.pic resets",
-      "control/margin 4",
-      "object-object collision",
+      "Control/margin 4",
+      "Actor collisions require animated actors",
       "wall contact",
       "walking behind",
     ]) {
@@ -171,11 +169,11 @@ describe("agent system prompt", () => {
       "raw EGA priority/control",
       "semantic overlay",
       "numeric probes",
-      "real ego",
+      "real hero",
       "drafting aids",
       "compiled outputs",
       "bounded speedrun",
-      "not a full solver guarantee",
+      "Add tests for the other routes a player can take",
     ]) {
       assert.ok(AGI_SYSTEM_PROMPT.includes(contract), `missing inspection contract '${contract}'`);
     }
@@ -184,7 +182,7 @@ describe("agent system prompt", () => {
   it("requires native-resolution simplification and readable interactive objects", () => {
     for (const contract of [
       "broad enclosed fills",
-      "avoid isolated speckles",
+      "Use texture as a sparse accent",
       "quiet contrast",
       "identify each interactive object",
     ]) {
@@ -195,12 +193,12 @@ describe("agent system prompt", () => {
   it("uses VIEW screen objects for interactive state and PICTUREs for painted scenery", () => {
     for (const contract of [
       "player manipulates, picks up or sees animate",
-      "VIEW-backed screen object",
+      "VIEW-backed actor",
       "architecture, terrain, backdrops and broad static fills",
       "commit state when the action commits",
       "room re-entry",
       "static baked detail",
-      "changing prop, pickup or actor",
+      "things that change, can be picked up or move",
       "recognizable silhouettes",
     ]) {
       assert.ok(
@@ -236,18 +234,18 @@ describe("agent system prompt", () => {
   });
 
   it("keeps prose concrete and humor restrained", () => {
-    assert.ok(AGI_SYSTEM_PROMPT.includes("Direct second-person narration"));
-    assert.ok(AGI_SYSTEM_PROMPT.includes("unmannered prose"));
-    assert.ok(AGI_SYSTEM_PROMPT.includes("never break the fourth wall"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Write direct, concrete messages"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("name visible items, actions and immediate outcomes"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Keep narration inside the game world"));
     assert.ok(AGI_SYSTEM_PROMPT.includes("variable 3 (v3)"));
-    assert.ok(AGI_SYSTEM_PROMPT.includes("Humor is occasional"));
-    assert.ok(AGI_SYSTEM_PROMPT.includes("situation-specific"));
-    assert.ok(AGI_SYSTEM_PROMPT.includes("Do not force a joke"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("humor grow from the situation"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Keep routine responses short"));
+    assert.ok(AGI_SYSTEM_PROMPT.includes("Let character voices fit the setting"));
   });
 
   it("keeps individual game briefs and phase framing outside the shared system prompt", () => {
     const brief = "A clockmaker searches for a silver pendulum.";
-    assert.ok(createGenesisPrompt(brief).includes(brief));
+    assert.ok(createGenesisPrompt(brief, createStarterProject("boilerplate")).includes(brief));
     for (const banned of [brief, "GENESIS PHASE", "Genesis Workflow"]) {
       assert.ok(!AGI_SYSTEM_PROMPT.includes(banned), `system prompt must not mention '${banned}'`);
     }
@@ -256,17 +254,36 @@ describe("agent system prompt", () => {
 
 describe("first-turn prompts", () => {
   it("creates a genesis prompt carrying the instructions and the adventure template", () => {
-    const userPrompt = createGenesisPrompt("# The Lost Kingdom\nA test adventure.");
+    const userPrompt = createGenesisPrompt(
+      "# The Lost Kingdom\nA test adventure.",
+      createStarterProject("boilerplate"),
+    );
     assert.ok(userPrompt.includes("# The Lost Kingdom"), "includes template title");
     assert.ok(userPrompt.includes("GENESIS"), "includes genesis instruction");
-    assert.ok(userPrompt.includes("handover"), "names the closing tool");
-    assert.match(
-      userPrompt,
-      /author ONLY the opening room/i,
-      "enforces single-room genesis boundary",
+    assert.ok(userPrompt.includes("finish"), "names the closing tool");
+    assert.match(userPrompt, /author the opening room/i, "enforces single-room genesis boundary");
+    assert.ok(userPrompt.includes("update_plan"), "mandates world storage for roadmap");
+    assert.ok(
+      userPrompt.includes("visible items and immediate outcomes"),
+      "mandates name visible items, actions and immediate outcomes",
     );
-    assert.ok(userPrompt.includes("update_world"), "mandates world storage for roadmap");
-    assert.ok(userPrompt.includes("unmannered prose"), "mandates unmannered prose");
+  });
+
+  it("describes the installed Boilerplate seed's inventory instead of an absent room", () => {
+    const seed = createStarterProject("boilerplate");
+    const prompt = createGenesisPrompt("# Night Train\nA sleeper car mystery.", seed);
+    assert.ok(prompt.includes(seed.seed.templateId), "names the seed's template identity");
+    assert.ok(prompt.includes(seed.profileId), "names the seed's profile");
+    assert.match(prompt, /VIEWS is empty/);
+    assert.match(prompt, /WORDS.TOK knows 0 words/);
+    assert.match(prompt, /Your game starts here/);
+    assert.doesNotMatch(prompt, /boots, walks/);
+    for (const name of ["boot_logic", "first_room", "first_pic", "death_logic", "death_sound"])
+      assert.ok(prompt.includes(name), `names the '${name}' binding`);
+    assert.ok(
+      !/no room exists|does not yet exist|nothing is authored/i.test(prompt),
+      "must not describe the session as empty",
+    );
   });
 
   it("creates an orientation prompt for an installed original without genesis framing", () => {
@@ -282,7 +299,7 @@ describe("first-turn prompts", () => {
     assert.ok(prompt.includes("2.917"), "interpreter profile");
     assert.ok(prompt.includes("next free 2"), "scene brief index");
     assert.ok(prompt.includes("F1=Help"), "scene brief controls");
-    assert.ok(prompt.includes("read_room_context"), "points at the deep read");
+    assert.ok(prompt.includes("read_room"), "points at the deep read");
     assert.ok(!prompt.includes("GENESIS"), "no genesis framing for an installed original");
     assert.ok(!prompt.includes("finish_genesis"), "installed originals do not finish genesis");
     assert.ok(

@@ -31,7 +31,7 @@ export type CelEdit =
  * The edited cel: "Cel 0 · Loop 0" and its size, the mirror chip in the
  * default slot, then one Details disclosure (closed at first, remembered per
  * viewer) with the expert parts as flat rows: resizing with an anchor picker
- * (bottom-centre keeps the feet on the baseline) and a warning before a
+ * (bottom-centre keeps the feet aligned) and a warning before a
  * resize moves the feet; shifting the pixels, which wraps around the edges;
  * the transparent colour; the mirror bit; and where the feet stand. Esc in a
  * size field puts back the cel's size (spriteKeys.ts then leaves the field,
@@ -69,7 +69,7 @@ watch(
 const feet = computed(() => {
   const at = feetOf(cel);
   if (!at) return "no opaque pixels";
-  return at.lift === 0 ? "on the baseline" : `${at.lift} px above the baseline`;
+  return at.lift === 0 ? "bottom row" : `${at.lift} px above the bottom row`;
 });
 const validSize = computed(
   () =>
@@ -91,7 +91,7 @@ const resizeWarning = computed(() => {
   }
 });
 /** Why the cel's edits are off, on their tooltips. */
-const PAUSED = "Editing waits while the view is view only or an AI proposal is open";
+const PAUSED = "Editing pauses while the actor is read-only or an AI change is open";
 const resizeBlocked = computed(() => {
   if (frozen) return PAUSED;
   if (!validSize.value)
@@ -119,7 +119,7 @@ const ANCHOR_LABELS: Record<ResizeAnchor, string> = {
   "middle-center": "Centre",
   "middle-right": "Middle right",
   "bottom-left": "Bottom left",
-  "bottom-center": "Bottom centre (keeps the feet on the baseline)",
+  "bottom-center": "Bottom centre (keeps the feet aligned)",
   "bottom-right": "Bottom right",
 };
 
@@ -321,7 +321,7 @@ defineExpose({ chooseTransparent });
         </section>
 
         <dl class="cel-panel__facts">
-          <dt>Mirror bit <UiExplain v-bind="explain('mirror-bit')" /></dt>
+          <dt>Mirror loop <UiExplain v-bind="explain('mirror-bit')" /></dt>
           <dd>{{ cel.mirrorBit ? "on" : "off" }}{{ cel.mirrored ? " · shown flipped" : "" }}</dd>
           <dt>Feet <UiExplain v-bind="explain('feet')" /></dt>
           <dd data-testid="sprite-feet">{{ feet }}</dd>

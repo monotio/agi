@@ -1,9 +1,9 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
+import { configureAi, textHook } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted options", async ({
   page,
@@ -27,7 +27,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
       content: { tool_use_id: string; is_error: boolean; content: { text: string }[] }[];
     }[];
   }[] = [];
-  await page.route("**/api/anthropic/v1/messages", async (route) => {
+  await page.route("**/api/anthropic/v1/messages*", async (route) => {
     requests.push(route.request().postDataJSON());
     const turn = requests.length;
     await route.fulfill(
@@ -43,7 +43,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
                 {
                   type: "tool_use",
                   id: `inspect-${turn}`,
-                  name: "read_room_context",
+                  name: "read_room",
                   input:
                     turn === 1
                       ? { room: 1, state: null, frames: { count: "9" } }
@@ -66,11 +66,10 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   });
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("agent-bubble")).toBeVisible();
   await configureAi(page, { provider: "anthropic", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Where am I?");
   await page.getByTestId("agent-bubble-send").click();
   await expect(page.getByTestId("agent-conversation")).toContainText("You are in room 1.");
@@ -84,7 +83,7 @@ test("Anthropic Ask recovers from invalid runtime arguments and accepts omitted 
   expect(JSON.parse(rejected.content[0]!.text)).toMatchObject({
     success: false,
     error:
-      "Invalid arguments for read_room_context; nothing was changed. frames.count must be integer or null, got string.",
+      "Invalid arguments for read_room; nothing was changed. frames.count must be integer or null, got string.",
   });
   const accepted = requests[2]!.messages.at(-1)!.content[0]!;
   expect(accepted.tool_use_id).toBe("inspect-2");

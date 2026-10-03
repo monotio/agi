@@ -131,8 +131,8 @@ describe("validateToolArguments", () => {
     assert.doesNotMatch(paged.error ?? "", /required|Invalid arguments/);
   });
 
-  it("bounds read_room_context frames count and stride in the schema instead of clamping silently", () => {
-    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "read_room_context")!;
+  it("bounds read_room frames count and stride in the schema instead of clamping silently", () => {
+    const tool = AGENT_TOOLS.find((candidate) => candidate.name === "read_room")!;
     const frames = (tool.parameters.properties as Record<string, unknown>)["frames"] as {
       type: ["object", "null"];
       properties: Record<string, unknown>;

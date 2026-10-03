@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /** Bounded, row-oriented helpers for mechanical AGI sprite authoring. */
 import { resourceCacheHint } from "./authoringState.ts";
 import type { AgentSessionState, AgentToolResult } from "./agentState.ts";
@@ -23,10 +24,12 @@ const CEL_ROWS_SCHEMA = {
 /** Strict-compatible schemas for the bounded sprite helpers. */
 export const SPRITE_TOOLS: readonly ToolDefinition[] = [
   {
-    name: "patch_view_cels",
-    description:
-      "Patch a subset of cels in view `num`: `patches` carries 1..64 targets. A target supplies `recolor` — {from,to} EGA remaps applied in place (prefer this for color changes; read_view's per-cel color usage gives the mapping, no pixel rows needed) — or replaces a cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color). Transparent pixels are never remapped. Everything is validated against the current view before anything writes; mirrored loops are isolated by copy-on-write. `expectedRevision` must match. Atomic: one compile, one commit, or nothing. Returns the new revision, per-cel geometry and a contact sheet.",
-    parameters: {
+    name: "edit_cels",
+    description: toolDescription(
+      "edit_cels",
+      "Patch a subset of cels in view `num`: `patches` carries 1..64 targets. A target supplies `recolor`. {from,to} EGA remaps applied in place (prefer this for color changes; read_view's per-cel color usage gives the mapping, no pixel rows needed). or replaces a cel's pixels with equal-width EGA hex `rows` (0-F; the cel keeps its transparent color). Transparent pixels are never remapped. Everything is validated against the current view before anything writes; mirrored loops are isolated by copy-on-write. `expectedRevision` must match. Atomic: one compile, one commit, or nothing. Returns the new revision, per-cel geometry and a contact sheet.",
+    ),
+    parameters: parameterDescriptions("edit_cels", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -67,7 +70,7 @@ export const SPRITE_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["num", "expectedRevision", "patches"],
-    },
+    }),
   },
 ];
 
@@ -121,7 +124,7 @@ export function executeSpriteTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name === "patch_view_cels") {
+  if (name === "edit_cels") {
     try {
       const num = integer(args["num"], "View number", 0, 255);
       if (typeof args["expectedRevision"] !== "string") {

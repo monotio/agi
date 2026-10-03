@@ -15,9 +15,11 @@ import UiButton from "../ui/UiButton.vue";
 import UiChip from "../ui/UiChip.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
-import { useGameLibrary } from "../library/useGameLibrary.ts";
+import { useGameLibrary, type LibraryProgress } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
-import { gameStorageKey } from "../project/gameTypes.ts";
+import { gameStorageKey, type InstalledGameDescriptor } from "../project/gameTypes.ts";
+import type { CachedGameMeta } from "../project/gameStorage.ts";
+import { installedProgressTarget, type ProgressTarget } from "../project/progressTarget.ts";
 import { getKnownGameByRevision } from "../../../src/games/knownGames.ts";
 import { catalogProjectId, useProjectRecovery } from "./projectRecovery.ts";
 import { shelfTitle } from "./shelfIdentity.ts";
@@ -29,15 +31,15 @@ const { state, resumeAudio, startOver } = useEngineApi();
 const { llmConfig } = useAiSettings();
 const {
   pendingAutosave,
+  pendingProgressTarget,
   savedGames,
+  savedProgress,
+  installedProgress,
   featuredCatalog,
   catalogEntries,
   catalogOpenings,
   catalogBusy,
   libraryActionBusy,
-  libraryAutosaves,
-  localGames,
-  localAutosave,
   importBusy,
   onResumeAutosave,
   onPlayLocalGame,
@@ -49,73 +51,201 @@ const bridge = useShellBridge();
 const { playGuarded } = useProjectRecovery();
 const now = useNow();
 
-/** The last game played, when it left an autosave to continue from. */
+/**
+ * The last game played, when its proven pending offer is still current. The
+ * offer's own target names the domain: a project locator resolves to the
+ * saved entry of that id, an installed locator to the served folder whose
+ * descriptor binds that exact address. A same-spelled entry from the other
+ * domain lends nothing — no title, no preview.
+ */
 const last = computed(() => {
   const record = pendingAutosave.value;
-  if (!record) return undefined;
-  const project = record.game.identity.project;
-  const saved = savedGames.value.find((game) => game.projectId === project);
-  const installed = (state.installedGames ?? []).find(
-    (game) => gameStorageKey({ installed: true, ...game }) === project,
-  );
+  const target = pendingProgressTarget.value;
+  if (!record || !target) return undefined;
+  const saved =
+    target.kind === "project"
+      ? savedGames.value.find((game) => game.projectId === target.project)
+      : undefined;
+  const installed =
+    target.kind === "installed"
+      ? (state.installedGames ?? []).find(
+          (game) =>
+            game.revision !== undefined &&
+            installedProgressTarget(game, game.revision)?.locator === target.locator,
+        )
+      : undefined;
   return {
     record,
     title:
       (saved ? shelfTitle(saved, catalogEntries.value) : undefined) ??
       installed?.title ??
       getKnownGameByRevision(record.game.identity.revision)?.title ??
-      project,
+      record.game.identity.project,
     screen: record.preview ?? saved?.library?.preview,
   };
 });
 
 /**
- * The game that just quit, with its library entry or, for a game the fixture
- * server installed, its fixture — either one can be played again.
+ * The game that just quit, matched to its exact instance. A note carrying
+ * the run's physical binding resolves by domain — a project locator to the
+ * saved entry of that id, an installed locator to the served descriptor
+ * whose own bound target is the same address — so a same-spelled entry in
+ * the other domain never answers for it. A note with no binding resolves a
+ * spelling only when exactly one domain claims it; a contested spelling is
+ * nobody's.
  */
 const ended = computed(() => {
   const note = state.gameEnded;
   if (!note) return undefined;
-  const game = savedGames.value.find((entry) => entry.projectId === note.projectId);
-  const installed = game
-    ? undefined
-    : localGames.value.find(
-        (entry) => gameStorageKey({ installed: true, ...entry }) === note.projectId,
-      );
+  const binding = note.progressTarget;
+  let game: CachedGameMeta | undefined;
+  let installed: InstalledGameDescriptor | undefined;
+  if (binding?.kind === "project") {
+    // Only the note's own incarnation may lend its card, title and
+    // actions: a ready saved target bound to this exact locator and full
+    // identity. A same-id body on another epoch or another revision — a
+    // removed and recreated project — leaves the note informational.
+    const candidate = savedGames.value.find((entry) => entry.projectId === binding.project);
+    const progress = candidate === undefined ? undefined : savedProgress(candidate.projectId);
+    if (
+      progress?.status === "ready" &&
+      progress.target.locator === binding.locator &&
+      progress.target.identity.project === binding.identity.project &&
+      progress.target.identity.revision === binding.identity.revision
+    )
+      game = candidate;
+  } else if (binding?.kind === "installed") {
+    installed = (state.installedGames ?? []).find(
+      (entry) =>
+        entry.revision !== undefined &&
+        installedProgressTarget(entry, entry.revision)?.locator === binding.locator &&
+        installedProgressTarget(entry, entry.revision)?.identity.revision ===
+          binding.identity.revision,
+    );
+  } else {
+    const saved = savedGames.value.find((entry) => entry.projectId === note.projectId);
+    const local = (state.installedGames ?? []).find(
+      (entry) => gameStorageKey({ installed: true, ...entry }) === note.projectId,
+    );
+    if (local === undefined) game = saved;
+    else if (saved === undefined) installed = local;
+  }
+  const progress = game
+    ? savedProgress(game.projectId)
+    : installed !== undefined
+      ? installedProgress(installed)
+      : undefined;
   return {
-    title: game ? shelfTitle(game, catalogEntries.value) : note.title,
+    source: note,
+    title: game ? shelfTitle(game, catalogEntries.value) : (installed?.title ?? note.title),
     game,
     installed,
+    binding,
     playable: game !== undefined || installed !== undefined,
-    saved: installed
-      ? localAutosave(installed) !== undefined
-      : libraryAutosaves.value[note.projectId] !== undefined,
-    continued: last.value?.record.game.identity.project === note.projectId,
+    saved: progress?.status === "ready" && progress.autosave !== null,
+    continued: binding !== undefined && pendingProgressTarget.value?.locator === binding.locator,
   };
 });
+
+/**
+ * Whether a live progress read still binds the quit note's own physical
+ * target — exact locator plus full identity. A same-id body rebound to
+ * another epoch, or the same epoch serving another revision, is a
+ * different instance and answers false.
+ */
+function bindsNote(progress: LibraryProgress | undefined, binding: ProgressTarget): boolean {
+  return (
+    progress?.status === "ready" &&
+    progress.target.locator === binding.locator &&
+    progress.target.identity.project === binding.identity.project &&
+    progress.target.identity.revision === binding.identity.revision
+  );
+}
+
+/** The exact quit note owns its parked action until it leaves the surface. */
+function ownsAction(note: { readonly source: object }): () => boolean {
+  return () => ended.value?.source === note.source;
+}
 
 /** Play again starts over: a fresh boot, past any progress saved before the quit. */
 function playAgain(): void {
   const note = ended.value;
   if (!note) return;
-  const { game, installed } = note;
+  const { game, installed, binding } = note;
+  const isCurrent = ownsAction(note);
   if (game)
-    void playGuarded(game.projectId, () =>
-      note.saved ? onStartLibraryGameOver(game) : onPlayLibraryGame(game),
-    );
-  else if (installed && note.saved) {
-    resumeAudio();
-    startOver(gameStorageKey({ installed: true, ...installed }), llmConfig());
-  } else if (installed) void onPlayLocalGame(installed.folder ?? installed.hash);
+    void playGuarded(game.projectId, async () => {
+      // The note's captured binding is re-proven at dispatch and again
+      // after the audio wait, and the note itself must still be the one on
+      // show: a stale or departed quit note can never clear or boot the
+      // body recreated under the same id.
+      if (!isCurrent()) return;
+      if (binding !== undefined && !bindsNote(savedProgress(game.projectId), binding)) return;
+      if (!note.saved) {
+        if (binding !== undefined) await resumeAudio();
+        if (!isCurrent()) return;
+        if (binding !== undefined && !bindsNote(savedProgress(game.projectId), binding)) return;
+        await onPlayLibraryGame(game, binding, isCurrent);
+        return;
+      }
+      if (binding === undefined) {
+        await onStartLibraryGameOver(game, isCurrent);
+        return;
+      }
+      await resumeAudio();
+      if (!isCurrent()) return;
+      const progress = savedProgress(game.projectId);
+      if (progress.status !== "ready" || !bindsNote(progress, binding)) return;
+      await startOver(progress.target.locator, llmConfig());
+    });
+  else if (installed) {
+    const progress = installedProgress(installed);
+    if (note.saved && progress.status === "ready") {
+      void (async () => {
+        await resumeAudio();
+        if (!isCurrent()) return;
+        // The live descriptor for the binding's own folder — the card the
+        // note captured may have been replaced while audio waited, and only
+        // the descriptor serving now can answer the note's exact target.
+        const current =
+          binding?.kind === "installed"
+            ? (state.installedGames ?? []).find((entry) => entry.folder === binding.folder)
+            : installed;
+        if (current === undefined) return;
+        const live = installedProgress(current);
+        if (live.status !== "ready") return;
+        if (binding !== undefined && !bindsNote(live, binding)) return;
+        await startOver(live.target.locator, llmConfig());
+      })();
+    } else void onPlayLocalGame(installed.folder ?? installed.hash, binding, isCurrent);
+  }
 }
 
 function continueEnded(): void {
-  const { game, installed } = ended.value ?? {};
-  if (game) void playGuarded(game.projectId, () => onPlayLibraryGame(game));
-  else if (installed) void onPlayLocalGame(installed.folder ?? installed.hash);
+  const note = ended.value;
+  if (!note) return;
+  const { game, installed, binding } = note;
+  const isCurrent = ownsAction(note);
+  if (game)
+    void playGuarded(game.projectId, async () => {
+      // The binding travels into the play path itself: after every awaited
+      // bind and audio wait the live body must still be the exact instance
+      // this note proved — a rebound epoch or replaced revision refuses —
+      // and the note itself must still be the one on show.
+      if (!isCurrent()) return;
+      if (binding !== undefined && !bindsNote(savedProgress(game.projectId), binding)) return;
+      await onPlayLibraryGame(game, binding, isCurrent);
+    });
+  else if (installed) {
+    if (!isCurrent()) return;
+    if (binding !== undefined && !bindsNote(installedProgress(installed), binding)) return;
+    void onPlayLocalGame(installed.folder ?? installed.hash, binding, isCurrent);
+  }
 }
 
-const tutorialScreen = computed(() => catalogOpenings.value[featuredCatalog.id]?.preview);
+const tutorialScreen = computed(
+  () => catalogOpenings.value[featuredCatalog.id]?.preview ?? featuredCatalog.preview,
+);
 
 function onPrimary(): void {
   const record = last.value?.record;
@@ -134,7 +264,7 @@ function onPrimary(): void {
         <BootCard class="hero-boot" /><span class="hero-title__text">AGI IS HERE.</span>
       </h1>
       <p class="hero-line">
-        Play Sierra-style adventures, build your own with AI, and edit every room by hand in the
+        Play Sierra-style adventures. Build your own with the game running beside you, in the
         authentic
         <a
           href="https://en.wikipedia.org/wiki/Adventure_Game_Interpreter"
@@ -165,7 +295,7 @@ function onPrimary(): void {
           :aria-expanded="createOpen"
           @click="bridge.openCreateSection()"
         >
-          Create an adventure
+          Make a new game
         </UiButton>
       </div>
       <p v-if="ended" class="hero-ended" role="status" data-testid="game-ended">

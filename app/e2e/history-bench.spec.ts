@@ -75,10 +75,19 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       boot: HistoryBoot;
     }) => {
       const storage = await import("/src/history/historyStorage.ts");
-      const identity = {
-        project: "bench-game" as never,
-        revision: "0000000000000000000000000000000000000000000000000000000000000001" as never,
+      const { installedProgressTarget } = await import("/src/project/progressTarget.ts");
+      // Each measured tape binds an installed instance of the same name —
+      // the locator, not a shared string key, is the address commits prove.
+      const benchTarget = (name: string) => {
+        const target = installedProgressTarget(
+          { folder: name },
+          "0000000000000000000000000000000000000000000000000000000000000001" as never,
+        );
+        if (target === null) throw new Error(`no installed target binds ${name}`);
+        return target;
       };
+      /** The installed lifetime a boot captures before any receipt exists. */
+      const BENCH_LIFETIME = "initial";
 
       // A batch of realistic shape: a handful of input/mark events and a
       // sync digest — about a kilobyte of tape per commit.
@@ -112,7 +121,7 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       const bootFiles = boot.files;
 
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open("monotio-agi-projects", 1);
+        const req = indexedDB.open("monotio-agi-projects");
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });
@@ -219,17 +228,18 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
         // Each commit's written bytes: the batch record, the rewritten
         // manifest (read back so its real size counts), and the boot blob
         // on a segment opener — exactly what the layout puts per batch.
+        const target = benchTarget(`bench-new-${label}`);
         out[`new-${label}`] = await run(shape, `n${label}`, async (batch) => {
           const batchBytes = JSON.stringify(batch).length;
-          await storage.appendHistoryBatch(`bench-new-${label}`, batch as never, "2.936", identity);
-          const manifest = (await get(`history/bench-new-${label}`))!;
+          await storage.appendHistoryBatch(target, batch as never, "2.936", BENCH_LIFETIME);
+          const manifest = (await get(`history/${target.locator}`))!;
           const blobBytes = batch.boot !== undefined ? JSON.stringify(bootFiles).length : 0;
           return batchBytes + JSON.stringify(manifest).length + blobBytes;
         });
         const t0 = performance.now();
-        await storage.loadGameHistory(`bench-new-${label}`);
+        await storage.loadGameHistory(target.locator);
         out[`new-${label}`]!.loadMs = performance.now() - t0;
-        out[`new-${label}`]!.records = await countRecords(`history/bench-new-${label}`);
+        out[`new-${label}`]!.records = await countRecords(`history/${target.locator}`);
 
         // The old layout on an identical workload — the baseline every
         // number above reads against.
@@ -245,9 +255,10 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       // retention evicts inside the measured run, then time a steady-state
       // tail on the surviving tape. Unmeasured fill commits still run the
       // real path — eviction, blob release and all.
+      const budgetTarget = benchTarget("bench-new-budget");
       for (let s = 0; s < shapes.fillSegments; s++) {
         await storage.appendHistoryBatch(
-          "bench-new-budget",
+          budgetTarget,
           {
             ...makeBatch(`fill${s}`, 1, boot),
             events: [
@@ -266,7 +277,7 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
             end: { seq: 1, tick: 1, cycle: 1, reason: "quit" },
           } as never,
           "2.936",
-          identity,
+          BENCH_LIFETIME,
         );
       }
       const times: number[] = [];
@@ -275,15 +286,15 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
       for (let b = 1; b <= shapes.tailBatches; b++) {
         const batch = makeBatch("tail", b, b === 1 ? boot : undefined);
         const t0 = performance.now();
-        await storage.appendHistoryBatch("bench-new-budget", batch as never, "2.936", identity);
+        await storage.appendHistoryBatch(budgetTarget, batch as never, "2.936", BENCH_LIFETIME);
         times.push(performance.now() - t0);
         bytes += JSON.stringify(batch).length;
-        bytes += JSON.stringify((await get("history/bench-new-budget"))!).length;
+        bytes += JSON.stringify((await get(`history/${budgetTarget.locator}`))!).length;
         if (batch.boot !== undefined) bytes += JSON.stringify(bootFiles).length;
       }
       const sorted = [...times].sort((a, b) => a - b);
       const t0 = performance.now();
-      const tape = await storage.loadGameHistory("bench-new-budget");
+      const tape = await storage.loadGameHistory(budgetTarget.locator);
       const loadMs = performance.now() - t0;
       out["new-near-budget"] = {
         commits: sorted.length,
@@ -293,7 +304,7 @@ test("append-oriented commits stay batch-bounded on a phone-class browser", asyn
         bytesPerCommit: bytes / sorted.length,
         loadMs,
         segments: tape?.segments.length ?? 0,
-        records: await countRecords("history/bench-new-budget"),
+        records: await countRecords(`history/${budgetTarget.locator}`),
         longTasks: longTasks.count,
         heapDelta: heap() - heap0,
       };

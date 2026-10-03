@@ -3,6 +3,7 @@ import {
   enterCreateMode,
   isolateStorage,
   openLibraryActions,
+  openWorkspaceAgent,
   savedGameCard,
   textHook,
 } from "./engineProbe.ts";
@@ -15,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 
 test("first visit has one route per action and aligned sections", async ({ page }) => {
   const hero = page.locator(".hero");
-  await expect(hero.getByRole("button")).toHaveText(["Play the tutorial", "Create an adventure"]);
+  await expect(hero.getByRole("button")).toHaveText(["Play the tutorial", "Make a new game"]);
   await expect(hero.getByRole("link")).toHaveCount(1);
   await expect(hero.getByRole("link")).toHaveAttribute(
     "href",
@@ -23,23 +24,20 @@ test("first visit has one route per action and aligned sections", async ({ page 
   );
   await page.getByTestId("create-adventure-toggle").click();
   await expect(page.getByTestId("create-adventure-disclosure")).toContainText(
-    "Connect your AI provider to generate a game.",
+    "Opens with the game running. Everything you change is saved as you go.",
   );
   await expect(page.getByText(/AI for this adventure|Not configured/)).toHaveCount(0);
-  await expect(page.getByTestId("connect-create-ai")).toHaveText("Connect AI");
+  await expect(page.getByTestId("connect-create-ai")).toBeHidden();
   await expect(page.getByTestId("boot-game")).toBeHidden();
   await expect(page.locator(".create-pane input[type=number]")).toHaveCount(0);
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
-    const sections = await Promise.all(
-      ["#welcome-title", "#create-adventure", "#your-games"].map((selector) =>
-        page.locator(selector).boundingBox(),
-      ),
-    );
-    for (const section of sections.slice(1)) {
-      expect(Math.abs(section!.x - sections[0]!.x)).toBeLessThan(1);
-    }
-    expect(Math.abs(sections[2]!.width - sections[1]!.width)).toBeLessThan(1);
+    const bounds = (await page.locator("#create-adventure").boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await expect(
+      page.getByRole("radiogroup", { name: "Starting point" }).getByRole("radio"),
+    ).toHaveCount(4);
     await page.screenshot({
       path: test.info().outputPath(`first-visit-${width}.png`),
       fullPage: true,
@@ -52,15 +50,15 @@ test("the featured opening image does not move the controls below it", async ({ 
   for (const width of [390, 700]) {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
-    const opening = "**/games/adventure-department/game.ts*";
+    const opening = "**/catalog/adventure-department.png";
     await page.route(opening, async (route) => {
       await held;
       await route.continue();
     });
     await page.setViewportSize({ width, height: 844 });
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     const card = page.getByTestId("catalog-adventure-department");
-    await expect(card.getByTestId("thumbnail-placeholder")).toBeVisible();
+    await expect(card.getByRole("img")).toBeVisible();
     const before = await page.getByTestId("catalog-play-adventure-department").boundingBox();
     release();
     await expect(card.getByRole("img")).toBeVisible();
@@ -82,9 +80,9 @@ test("one Settings menu owns AI and budget while Remix stays compact", async ({ 
   await dialog.getByTestId("task-budget").fill("3");
   await dialog.getByTestId("ai-settings-save").click();
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  const composer = page.getByTestId("agent-bubble");
-  await expect(composer.getByTestId("agent-bubble-input")).toBeEnabled();
+  await openWorkspaceAgent(page);
+  const composer = page.getByTestId("workspace-agent-panel");
+  await expect(composer.getByTestId("agent-message")).toBeEnabled();
   await expect(composer.getByTestId("connect-assistant-ai")).toHaveCount(0);
   await expect(composer.locator("input[type=number]")).toHaveCount(0);
   await expect(composer).not.toContainText(/Change AI settings|Task budget|Not configured/);

@@ -121,14 +121,22 @@ resource readers still reject unavailable data if the scenario requests it.
   1988-07-27 3.5", Manhunter 2 3.02 1989-07-26 3.5" and Gold Rush 2.01
   1988-12-22 3.5". The KQ4 directory indexes pictures 150–151 in a `KQ4VOL.6`
   and views 198–199 in a `KQ4VOL.7`; the MH2 directory indexes sounds 215–216 in
-  an `MH2VOL.6`; the mh2-amiga `dirs` indexes picture 106 in a `VOL.15`. Those
-  volumes are absent from these releases' volume sets, so the entries come from
-  the matched directories themselves, as shipped. The strict volume check still
-  reports them. Walkthrough tooling uses `checkVolumes: "shipped"`, which
-  exempts exactly those volumes for exactly those directory hashes
-  ([test/fixtures.ts](../test/fixtures.ts)); a route that requests one of the
-  six resources still fails at the load. A fingerprint identifies the directory;
-  the volume bytes and the resources a playthrough requests lie outside it.
+  an `MH2VOL.6`. Those volumes are absent from these releases' volume sets, so
+  the entries come from the matched directories themselves, as shipped. The
+  strict volume check still reports them. Walkthrough tooling uses
+  `checkVolumes: "shipped"`, which exempts exactly those volumes for exactly
+  those directory hashes ([test/fixtures.ts](../test/fixtures.ts)); a route
+  that requests one of the six resources still fails at the load. A
+  fingerprint identifies the directory; the volume bytes and the resources a
+  playthrough requests lie outside it.
+- **Absent Amiga directory entries.** The mh2-amiga `dirs` lists picture 106
+  as `ff ff fc`. Under the Amiga 2.31x directory rule — a first byte whose
+  high nibble is `f` marks the entry absent whatever its tail holds
+  (docs/fidelity.md, "Amiga directory absence") — picture 106 is absent, not
+  a reference to an unshipped `VOL.15`. The fixture volume check applies the
+  absence rule of the fixture's own detected profile, so the strict check
+  passes the edition without a waiver, and an entry pointing at a genuinely
+  missing volume still fails.
 - **3.002.149 handler comparison.** The handler comparison in
   `test/mh2-profile.test.ts` requires both 3.002.149 fixtures (`gr1` and `mh2`);
   its logic-reference test requires only `mh2`.
@@ -145,7 +153,7 @@ identified along with the profile it runs:
 | ----------- | ---------------------------------------------------------------------------------------------------- |
 | `"binary"`  | a version string in an interpreter file, an Amiga hunk executable or the Apple IIgs `*.SYS16` banner |
 | `"catalog"` | the `WORDS.TOK` + `OBJECT` fingerprint of a catalogued release                                       |
-| `"default"` | neither; the container shape picks 2.936 or 3.002.149                                                |
+| `"default"` | neither; the container shape picks 2.936, Amiga 2.333 for a `dirs` set, or 3.002.149                 |
 
 The decision also names the identified build, which differs from the profile
 when that build has no promoted profile and the fallback runs. The `Engine`
@@ -230,6 +238,62 @@ regression assertions belong in the test suite, gated by fixture availability.
 Keep captured saves, game resources, disassemblies, screenshots and transcripts
 with local fixtures.
 
+### CI browser checks
+
+Run `npm run check` and the affected specs locally, then push a branch covered by
+CI for the Linux verdict. CI prints `nproc` and memory and uses two
+ordinary Playwright workers per job. Performance budgets and the CPU-throttled
+storage benchmark run alone on one worker; production tests also keep one
+worker. Retries stay at zero so every failure is visible.
+
+The Chromium suite is split into ten spec groups using measured durations in
+`scripts/ci/durations.json`; the storage benchmark runs separately on one worker.
+Tagged WebKit desktop tests use three groups and `scripts/ci/webkit-durations.json`.
+Every run discovers the current specs through Playwright; new specs receive the
+median measured weight. The longest specs are
+assigned first to the lightest group. JSON report artifacts retain per-test
+durations for rebalancing. Each spec runs in exactly one group with every test
+selected by the ordinary suite configuration. The benchmark remains part of
+the required browser gate and nightly repetitions. Timing budgets and
+storage each have their own job, with timing tests first after runner setup.
+The suite matrix runs at most 15 jobs at once; PR burn-in runs one browser job
+at a time. Together with quality and the two production browsers, this uses
+at most 19 concurrent jobs, leaving one of the 20 public-runner slots free.
+
+CI installs the two package roots once and restores the resulting dependency
+cache in test and build jobs. The production build and chunk graph are shared
+with both production browser jobs. Playwright browser caches use the browser,
+version and runner OS; apt archives are cached too, while system dependencies
+are installed on each fresh runner.
+
+Pull requests repeat added or changed specs five times: on a PR's first run
+the specs it changes, and on each later push the specs that push changes. A
+change touching more than 12 specs, such as a release candidate, skips the
+burn-in, since every suite already runs and the nightly repeats find flakes.
+Chromium covers their
+ordinary tests and, in an isolated run, their timing tests. WebKit covers their
+`@webkit-desktop` tests. Changed production specs run in both engines. Reproduce
+with `npm --prefix app run e2e -- e2e/<file>.spec.ts --repeat-each=5` or
+`npm --prefix app run e2e:webkit-desktop -- e2e/<file>.spec.ts --repeat-each=5`.
+
+Repeat the storage benchmark with
+`npm --prefix app run e2e -- e2e/history-bench.spec.ts --repeat-each=5 --workers=1`.
+Selection and reporting helpers have their own regression tests:
+`PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/ci -p 'test_*.py'`.
+
+At 03:17 UTC each night, the full Chromium, WebKit phone, WebKit desktop,
+performance and production suites run with `--repeat-each=3`. The report job
+creates or updates the single **Nightly browser flakes** issue when a test has
+both passing and failing attempts, with counts and the run link. Consistent
+failures remain failures in the run. Only that report job has `issues: write`.
+
+Markdown and documentation asset changes skip browsers and development branch
+builds while the standard gate runs and the required CI contexts complete.
+Main builds and publishes each checked commit. Documentation capture
+code runs the full browser checks. The required browser context also includes
+the PR burn-in when changed specs exist. See the
+[CI job coverage](../CONTRIBUTING.md#ci-verification) for the complete gate.
+
 ### Input and phone checks
 
 Input conformance covers the nineteen-event FIFO, raw/mapped/navigation event
@@ -248,12 +312,11 @@ compatibility on physical Android and iPhone browsers with the keyboard open,
 rotation, interruption and save/restore. Full-game compatibility needs recorded
 completion runs on the specific game edition and interpreter profile.
 
-Desktop Studio runs in WebKit too: `npm --prefix app run e2e:webkit-desktop`
-(`app/playwright.webkit.config.ts`) runs the scenarios tagged `@webkit-desktop`,
-a Room Studio edit kept, reloaded and exported, an export reopened in a fresh
-browser, a mirrored cel repaired in Sprite Studio, a test walk with Play here,
-keyboard-only editing and the unkept-changes dialog. Tag a scenario by ending
-its title with `@webkit-desktop`; it runs from its existing spec.
+Desktop workspace scenarios run in WebKit with
+`npm --prefix app run e2e:webkit-desktop` (`app/playwright.webkit.config.ts`).
+Tag a desktop scenario by ending its title with `@webkit-desktop`; the config
+selects it from its existing spec. Use the tag for visible workspace behavior
+that needs a WebKit check, including editors, keyboard controls and agent review.
 
 The manual HMR proof in `app/e2e/manual/hmr-resume.mjs` temporarily edits
 source; run it in an isolated checkout as described in the script.
@@ -263,7 +326,7 @@ source; run it in an isolated checkout as described in the script.
 A walkthrough is a route through a real game, played from a cold boot with
 normal player inputs on a virtual clock, with assertions at each score,
 inventory and story milestone. Every catalogued route also ships as a tape that
-the app replays under **Watch a playthrough**.
+the app replays under **Watch walkthrough**.
 
 ### Running the walkthroughs
 
@@ -297,7 +360,7 @@ seed. The routes reach these endpoints:
 
 Every game module under `test/speedrun/` owns its catalog entry; the catalog in
 `test/speedrun/walkthroughs.ts` only lists them, and
-`scripts/generate-walkthroughs.ts` ships one tape per entry. Each entry defines
+`npm run walkthrough:generate` (`scripts/generate-walkthroughs.ts`) ships one tape per entry. Each entry defines
 its coverage, route and observable endpoint once for Node, CLI and browser
 checks, and the same catalog includes KQ1's completion proof.
 `scripts/walkthrough.ts` writes a replay for any catalog entry; for example,
@@ -425,8 +488,7 @@ third-party walkthrough text and game resources out of tests. See
 
 ## Walkthrough tools
 
-These tools help write routes. No provider or commercial fixture is needed to
-use them; supply the game directory you want to investigate.
+These local tools help write routes for the game directory you want to investigate.
 
 ### Logic reference
 
@@ -616,9 +678,9 @@ and exact deduplication of committed batches after eviction. The history
 transport browser spec checks seeking, Watch and Undo layouts on phones; it runs
 in both the desktop and phone configurations.
 
-`app/e2e/reference-art.spec.ts` checks reference uploads through actual provider
-request bodies using local stubs, including JPEG/WebP MIME types, pending
-composer attachments and explicit editing intent. It calls no paid providers.
+`app/test/reference-art.test.ts` checks reference handling with deterministic
+inputs. Browser image flows are exercised in `app/e2e/workspace-agent-images.spec.ts`
+and `app/e2e/openai-image-provider.spec.ts` with local provider stubs.
 
 The `app/e2e/history-bench.spec.ts` benchmark uses Chromium's Moto G4 emulation
 with 4× CPU throttling. Representative measurements:

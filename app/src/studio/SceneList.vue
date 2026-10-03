@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from "vue";
 import UiButton from "../ui/UiButton.vue";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import UiExplain from "../ui/UiExplain.vue";
 import UiIcon from "../ui/UiIcon.vue";
 import UiPanel from "../ui/UiPanel.vue";
@@ -224,9 +225,9 @@ function onFilterKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <UiPanel title="Scene" flush class="scene-list">
+  <UiPanel title="Items" flush class="scene-list">
     <template #actions>
-      <span class="scene-list__meta">Order <UiExplain v-bind="explain('order')" /></span>
+      <span class="scene-list__meta">Draw order <UiExplain v-bind="explain('order')" /></span>
       <UiButton
         v-if="folds.length > 0 && matches === null"
         variant="ghost"
@@ -319,10 +320,22 @@ function onFilterKeydown(event: KeyboardEvent): void {
               aria-hidden="true"
             ></i>
           </span>
+          <span v-else-if="(entry.row.lenses?.length ?? 0) > 1" class="scene-list__lenses">
+            <span
+              v-for="lens in entry.row.lenses"
+              :key="lens"
+              role="img"
+              :aria-label="VOCABULARY[lens].label"
+              :title="`${VOCABULARY[lens].label}: ${VOCABULARY[lens].help}`"
+              ><UiIcon
+                :name="lens === 'art' ? 'eye' : lens === 'depth' ? 'layers' : 'footprints'"
+                :size="12"
+            /></span>
+          </span>
           <span
-            v-else-if="entry.row.tag !== quietTag"
+            v-else-if="entry.row.kind === 'walk' && entry.row.tag !== quietTag"
             class="scene-list__tag"
-            :title="`Kind: ${entry.row.kind}`"
+            :title="VOCABULARY.walk.help"
             >{{ entry.row.tag }}</span
           >
           <span
@@ -527,6 +540,12 @@ function onFilterKeydown(event: KeyboardEvent): void {
 .scene-list__tail {
   flex: none;
   white-space: pre;
+}
+.scene-list__lenses {
+  grid-column: 4;
+  display: flex;
+  gap: var(--space-1);
+  color: var(--ink-3);
 }
 .scene-list__tag {
   grid-column: 4;

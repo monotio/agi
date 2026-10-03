@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { gameContainer, workerHarness } from "./worker-ctx.ts";
+import { onWorkerMessage } from "../src/worker/dispatch.ts";
+import { bytesToBase64 } from "../src/project/bytes.ts";
 
 // Blue box outline (10,10)-(60,40), filled — the same fixture bytes
 // test/autosave.test.ts uses.
@@ -11,6 +13,50 @@ const PICTURE_1 = new Uint8Array([
 ]);
 
 const VIEW_0 = new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, 1, 1, 0, 0x51, 0]);
+
+test("a restored room window starts both clocks and its answering key resumes cycling", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const container = gameContainer(
+    [
+      "if(!isset(f200)){set(f200);new.room(2);}call.v(v0);increment(v100);return;",
+      "return;",
+      'if(isset(f5)){assignn(v50,2);load.pic(v50);draw.pic(v50);show.pic();print("Room two");}return;',
+    ],
+    (game) => game.putResource("picture", 2, PICTURE_1),
+  );
+  const { ctx, control, presentation } = workerHarness(container);
+  ctx.fns.tickEngine();
+  assert.equal(ctx.engine!.modalKind, "print");
+  const image = ctx.engine!.autosaveImage();
+  assert.ok(image);
+  let now = 0;
+  ctx.ports.now = () => now;
+  onWorkerMessage(ctx, {
+    type: "boot",
+    files: Object.fromEntries(container.files),
+    words: [],
+    restoreImage: bytesToBase64(image),
+  });
+  t.after(() => ctx.fns.stopTimers());
+  assert.ok(control.some((message) => message.type === "restored" && message.ok));
+  assert.notEqual(ctx.cycle.timer, null);
+  assert.notEqual(ctx.cycle.soundTimer, null);
+  now = 250;
+  t.mock.timers.tick(250);
+  assert.ok(
+    presentation.some(
+      (message) => message.type === "cycle" && message.room === 2 && message.cycle === 0,
+    ),
+  );
+  assert.equal(ctx.engine!.modalKind, "print");
+  onWorkerMessage(ctx, { type: "key", code: 13 });
+  now += 250;
+  t.mock.timers.tick(250);
+  assert.equal(ctx.engine!.modalKind, null);
+  assert.equal(ctx.engine!.vars[0], 2);
+  assert.ok(ctx.engine!.vars[100]! > 0);
+  assert.ok(ctx.cycle.cycleCount > 0);
+});
 
 function drawnGame() {
   return gameContainer(

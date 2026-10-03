@@ -1,0 +1,204 @@
+/**
+ * Build a dependency-closed selection over the kept project. This produces a
+ * candidate, not Keep authorization: reference diagnostics, potential uses in
+ * open drafts/metadata, removal review and storage CAS belong to admission.
+ */
+import { openContainer } from "../container/container.ts";
+import { PROFILES, type ProfileId } from "../runtime/profile.ts";
+import {
+  compileProjectDocuments,
+  ProjectDocumentCompileError,
+  readBindingsDocument,
+} from "./projectDocuments.ts";
+import type { ProjectDraft } from "./projectDraft.ts";
+import { inspectProjectReferences } from "./projectReferences.ts";
+import { PROJECT_RESOURCE_KEY } from "./projectRemoval.ts";
+import { inspectProjectSourceDependencies } from "./projectSourceDependencies.ts";
+
+/** Dependencies of one complete proposal; every document already participates. */
+export function inspectProjectDocumentDependencies(input: {
+  readonly documents: Readonly<Record<string, string | Uint8Array>>;
+  readonly profileId: ProfileId;
+}): Readonly<Record<string, readonly string[]>> {
+  const profile = PROFILES[input.profileId];
+  if (!profile) throw new Error(`Unknown build profile: ${input.profileId}`);
+  const text = input.documents["bindings"];
+  if (text !== undefined && typeof text !== "string")
+    throw new ProjectDocumentCompileError("bindings", new Error("Expected JSON text."));
+  const bindings = readBindingsDocument(text ?? "{}");
+  const dependencies: Record<string, readonly string[]> = Object.create(null);
+  for (const [key, content] of Object.entries(input.documents)) {
+    if (key.startsWith("logic:") && typeof content === "string")
+      dependencies[key] = Object.freeze(
+        inspectProjectSourceDependencies({ source: content, profile, bindings }).dependencies,
+      );
+  }
+  return Object.freeze(dependencies);
+}
+
+export function compileProjectSelection(input: {
+  readonly draft: ProjectDraft;
+  /** Current kept image; callers retain its storage identity through admission. */
+  readonly files: Readonly<Record<string, Uint8Array>>;
+  readonly profileId: ProfileId;
+  readonly keys: readonly string[];
+  /** Additional dependencies supplied by project metadata and editor operations. */
+  readonly dependencies?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * Forwarded to reference inspection: only an explicit room-generation
+   * caller policy downgrades missing `new.room` targets to warnings. Every
+   * other missing-resource diagnostic stays an error.
+   */
+  readonly allowMissingRooms?: boolean;
+}) {
+  const profile = PROFILES[input.profileId];
+  if (!profile) throw new Error(`Unknown build profile: ${input.profileId}`);
+  const keptDocuments = input.draft.select([]).documents();
+  const baselineContainer = openContainer(new Map(Object.entries(input.files)), { profile });
+  const keptBindings = keptDocuments["bindings"];
+  if (keptBindings !== undefined && typeof keptBindings !== "string")
+    throw new Error("Invalid project document bindings: expected JSON text.");
+  const baseline = inspectProjectReferences({
+    container: baselineContainer,
+    profile,
+    bindings: readBindingsDocument(keptBindings ?? "{}"),
+    allowMissingRooms: input.allowMissingRooms === true,
+  });
+  const dependencies: Record<string, string[]> = Object.fromEntries(
+    Object.entries(input.dependencies ?? {}).map(([key, values]) => [key, [...values]]),
+  );
+  const requiredKeys = new Set(input.keys);
+  const dirty = new Set(input.draft.dirtyKeys());
+  let selection = input.draft.select([...requiredKeys], dependencies);
+
+  function addDependency(origin: string, target: string): boolean {
+    const values = (dependencies[origin] ??= []);
+    if (values.includes(target)) return false;
+    values.push(target);
+    return true;
+  }
+
+  // The finite document namespace has 4 * 256 resource slots and six auxiliary
+  // documents. Each pass either selects another document or finishes; no parser
+  // recovery, dependency cycle or malformed draft can create an unbounded loop.
+  for (let pass = 0; pass <= 1030; pass++) {
+    const documents = selection.documents();
+    const bindingDocument = documents["bindings"];
+    if (bindingDocument !== undefined && typeof bindingDocument !== "string")
+      throw new Error("Invalid project document bindings: expected JSON text.");
+    const bindings = readBindingsDocument(bindingDocument ?? "{}");
+    let changed = false;
+    for (const key of selection.keys) {
+      const source = documents[key];
+      if (key.startsWith("logic:") && typeof source === "string") {
+        const analysis = inspectProjectSourceDependencies({ source, profile, bindings });
+        // Select the current binding context before trusting any resolved IDs.
+        // Otherwise an edited binding could pull in its obsolete kept target.
+        const needed =
+          analysis.bindings.length > 0 && !selection.keys.includes("bindings")
+            ? ["bindings"]
+            : analysis.dependencies;
+        for (const dependency of needed) changed = addDependency(key, dependency) || changed;
+      }
+      // A selected removal pulls in the referring draft so its repair can be
+      // compiled together. An unchanged use remains a visible reference error.
+      if (keptDocuments[key] !== undefined && documents[key] === undefined) {
+        for (const [origin, uses] of Object.entries(baseline.dependencies)) {
+          if (uses.includes(key)) changed = addDependency(key, origin) || changed;
+        }
+      }
+    }
+    if (changed) {
+      const next = input.draft.select([...requiredKeys], dependencies);
+      if (next.keys.length !== selection.keys.length) {
+        selection = next;
+        continue;
+      }
+    }
+
+    let compiled: ReturnType<typeof compileProjectDocuments>;
+    try {
+      compiled = compileProjectDocuments({ ...input, documents });
+    } catch (error) {
+      // New vocabulary/bindings may make a kept source invalid. Include its
+      // available draft repair, without compiling every unrelated draft first.
+      if (
+        error instanceof ProjectDocumentCompileError &&
+        !selection.keys.includes(error.key) &&
+        dirty.has(error.key)
+      ) {
+        requiredKeys.add(error.key);
+        selection = input.draft.select([...requiredKeys], dependencies);
+        continue;
+      }
+      throw error;
+    }
+    const candidateContainer = openContainer(compiled.files(), { profile });
+    const references = inspectProjectReferences({
+      container: candidateContainer,
+      profile,
+      bindings,
+      allowMissingRooms: input.allowMissingRooms === true,
+    });
+    changed = false;
+    for (const key of selection.keys) {
+      // A reserved name may intentionally precede its resource. Only actual
+      // source/native uses select that resource; reservations do not pull every
+      // unfinished named asset into an otherwise independent build.
+      if (key === "bindings") continue;
+      for (const dependency of references.dependencies[key] ?? [])
+        changed = addDependency(key, dependency) || changed;
+    }
+    // A context change can recompile kept source to new bytes without selecting
+    // that source's unfinished typing. Include the dependencies of those actual
+    // changed bytes, rather than guessing which bindings/word spellings mattered.
+    for (const [key, uses] of Object.entries(references.dependencies)) {
+      if (
+        !key.startsWith("logic:") ||
+        selection.keys.includes(key) ||
+        typeof documents[key] !== "string"
+      )
+        continue;
+      const num = Number(key.slice(6));
+      let before: Uint8Array | undefined;
+      try {
+        before = baselineContainer.getResource("logic", num) ?? undefined;
+      } catch {
+        // The independently compiled candidate is usable, but equality with a
+        // damaged baseline cannot be proved. Treat its dependencies as changed.
+      }
+      const after = candidateContainer.getResource("logic", num);
+      if (
+        before &&
+        after &&
+        before.length === after.length &&
+        before.every((byte, index) => byte === after[index])
+      )
+        continue;
+      for (const dependency of uses) {
+        if (!selection.keys.includes(dependency)) {
+          requiredKeys.add(dependency);
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      const next = input.draft.select([...requiredKeys], dependencies);
+      if (next.keys.length !== selection.keys.length) {
+        selection = next;
+        continue;
+      }
+    }
+    return {
+      selection,
+      compiled,
+      references,
+      // Only the four AGI resource families are native removals: tagged
+      // source keys such as music:<id> carry intent, not resource bytes.
+      removedResources: Object.keys(keptDocuments)
+        .filter((key) => PROJECT_RESOURCE_KEY.test(key) && documents[key] === undefined)
+        .sort(),
+    };
+  }
+  throw new Error("Project dependency closure exceeded its document limit.");
+}

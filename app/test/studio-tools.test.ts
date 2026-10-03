@@ -144,8 +144,8 @@ describe("tool state machines", () => {
       kind: "art",
     });
     assert.deepEqual(newItemNames(document, "Line", null, 0), {
-      id: "barrier-line-1",
-      label: "Barrier line 1",
+      id: "wall-line-1",
+      label: "Wall line 1",
       kind: "walk",
     });
     assert.deepEqual(newItemNames(document, "Polygon", null, 10), {
@@ -266,7 +266,7 @@ describe("useStudioTools", () => {
     assert.equal(draft.source.value, SOURCE);
   });
 
-  it("clicks out a barrier line in the Walk lens that never touches art", () => {
+  it("clicks out a Wall line in the Walk lens that never touches art", () => {
     const { draft, tools, flush, press } = setup("walk");
     const before = draft.compiled.value;
     tools.setTool("line");
@@ -279,7 +279,7 @@ describe("useStudioTools", () => {
     assert.equal(draft.gesturing.value, false);
     assert.equal(draft.history.value.past.length, 1);
     const item = draft.document.value.items.at(-1)!;
-    assert.deepEqual([item.label, item.kind], ["Barrier line 1", "walk"]);
+    assert.deepEqual([item.label, item.kind], ["Wall line 1", "walk"]);
     const after = draft.compiled.value;
     assert.deepEqual(after.visual, before.visual, "art is byte for byte the same");
     for (let x = 10; x <= 60; x++) assert.equal(after.priority[at(x, 140)], 0);
@@ -353,7 +353,7 @@ describe("useStudioTools", () => {
     assert.ok(refusal && !refusal.ok);
     assert.equal(
       refusal.refusal.message,
-      "A polygon's edges can't cross. Remove the last point or start again.",
+      "These edges cross. Remove the last point or start again.",
     );
     assert.match(refusal.refusal.detail ?? "", /self-intersects/);
     assert.equal(draft.source.value, SOURCE);
@@ -501,7 +501,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
     assert.equal(after.visual[at(21, 130)], before.visual[at(21, 130)]);
   });
 
-  it("clicks out a barrier line: Enter adds a point, Enter on the last point finishes", () => {
+  it("clicks out a Wall line: Enter adds a point, Enter on the last point finishes", () => {
     const { draft, tools, input, move } = keys("walk", 10, 140);
     const before = draft.compiled.value;
     tools.setTool("line");
@@ -515,7 +515,7 @@ describe("the keyboard cursor (useStudioInput)", () => {
     assert.equal(tools.path.value, null);
     assert.equal(draft.history.value.past.length, 1);
     const item = draft.document.value.items.at(-1)!;
-    assert.deepEqual([item.label, item.kind], ["Barrier line 1", "walk"]);
+    assert.deepEqual([item.label, item.kind], ["Wall line 1", "walk"]);
     const after = draft.compiled.value;
     assert.deepEqual(after.visual, before.visual);
     for (let x = 10; x <= 60; x++) assert.equal(after.priority[at(x, 140)], 0);

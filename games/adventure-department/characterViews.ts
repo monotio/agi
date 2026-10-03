@@ -49,191 +49,237 @@ function cel(rows: readonly string[], swap: Record<string, string> = {}): BuildC
 }
 
 // ---------------------------------------------------------------------------
-// The apprentice (VIEW 0): 10x32, brown hair, light cyan tunic, blue trousers.
-// Skin is S; the tunic's near arm is C, so it reads over the tunic.
+// The apprentice (VIEW 0): 10x32, brown hair, light cyan tunic with a dark
+// cyan belt, blue trousers and black shoes. Each loop holds four cels: 0
+// stands, 1 strides with the near leg forward, 2 passes, 3 strides with the
+// far leg forward. On a stride the legs spread and the body drops a row.
 
-const SKIN = "r";
-
-const SIDE_HEAD = [
-  "...NNNN...",
-  "..NNNNNN..",
-  ".NNNNNNNN.",
-  ".NNNNNNNN.",
-  ".NNNNNSKS.",
-  ".NNNNSSSSS",
-  "..NNNSSSS.",
-  "...NNSSR..",
-  "....SSS...",
-  "....SS....",
-];
-
-type ArmSwing = "down" | "back" | "front";
-
-/**
- * Side torso rows 10..20: the tunic, belt and hips, and the near arm (a
- * darker sleeve ending in a hand) hanging, swung back or swung forward.
- */
-function sideTorso(swing: ArmSwing): string[] {
-  const rows = [
-    "...ccccc..",
-    "..ccccccc.",
-    "..ccccccc.",
-    "...ccccc..",
-    "...ccccc..",
-    "...ccccc..",
-    "...ccccc..",
-    "...ccccc..",
-    "...ccccc..",
-    "...CCCCC..",
-    "...BBBBB..",
-  ];
-  const put = (x: number, y: number, c: string) => {
-    rows[y] = rows[y]!.slice(0, x) + c + rows[y]!.slice(x + 1);
-  };
-  // [first sleeve column per row 1..7], then the hand's columns at row 8.
-  const path: Record<ArmSwing, readonly number[]> = {
-    down: [5, 5, 5, 5, 5, 5, 5, 5],
-    back: [4, 4, 3, 3, 2, 2, 1, 1],
-    front: [5, 5, 6, 6, 7, 7, 8, 8],
-  };
-  path[swing].forEach((x, i) => {
-    const c = i === 7 ? "S" : "C";
-    put(x, 1 + i, c);
-    put(x + 1, 1 + i, c);
-  });
-  return rows;
+/** Stack parts top to bottom over a clear top margin, 32 rows in all. */
+function figure(...parts: (readonly string[])[]): BuildCelInput {
+  const rows = parts.flat();
+  return cel([...Array.from({ length: 32 - rows.length }, () => ".".repeat(10)), ...rows]);
 }
 
-/** Side legs rows 21..31. */
-const SIDE_LEGS: Record<"stride" | "pass", readonly string[]> = {
-  stride: [
-    "..BBBBBB..",
-    "..BBB.BBB.",
-    ".BBB...BB.",
-    ".BB....BB.",
-    ".BB.....BB",
-    "BB......BB",
-    "BB......BB",
-    "BB......BB",
-    "KK......BB",
-    "KKK....KKK",
-    "KK.....KKK",
+// Side view, facing right; loop 1 mirrors it. Head rows 0..9.
+const SIDE_HEAD = [
+  "....NNN...",
+  "...NNNNN..",
+  "..NNNNNNN.",
+  "..NNNNNr..",
+  "..NNNNrK..",
+  "..NNNrrrr.",
+  "...NNrrr..",
+  "....rrrr..",
+  "....rrr...",
+  "....rr....",
+];
+
+/** Side torso rows 10..19: the near arm hangs, swings forward or swings back. */
+const SIDE_TORSO = {
+  down: [
+    "...cccc...",
+    "...cCCcc..",
+    "...ccCcc..",
+    "...ccCcc..",
+    "...ccCcc..",
+    "...ccCcc..",
+    "...ccCcc..",
+    "...ccrcc..",
+    "...CCrCC..",
+    "...BBBB...",
   ],
-  pass: [
-    "...BBBBB..",
-    "...BBBBB..",
-    "..BBBBB...",
-    "..BB.BB...",
-    ".BB..BB...",
-    ".BB..BB...",
-    "KK...BB...",
-    "KK...BB...",
-    ".....BB...",
-    ".....KKKK.",
-    ".....KKKK.",
+  front: [
+    "...cccc...",
+    "...cCCcc..",
+    "...ccCcc..",
+    "...ccCcc..",
+    "...cccCc..",
+    "...cccCc..",
+    "...ccccCr.",
+    "...cccccr.",
+    "...CCCCC..",
+    "...BBBB...",
+  ],
+  back: [
+    "...cccc...",
+    "...cCCcc..",
+    "...cCccc..",
+    "...cCccc..",
+    "...Ccccc..",
+    "...Ccccc..",
+    "..rCcccc..",
+    "..rccccc..",
+    "...CCCCC..",
+    "...BBBB...",
   ],
 };
 
-function side(arms: ArmSwing, legs: keyof typeof SIDE_LEGS): BuildCelInput {
-  return cel([...SIDE_HEAD, ...sideTorso(arms), ...SIDE_LEGS[legs]], { S: SKIN });
-}
+/** Side legs from the hips down: 12 rows standing or passing, 11 striding. */
+const SIDE_LEGS = {
+  stand: [
+    "...BBBB...",
+    "...BBBB...",
+    "...BBB....",
+    "...BBB....",
+    "...BBB....",
+    "...BBB....",
+    "...BBB....",
+    "...BBB....",
+    "...BBB....",
+    "...BBB....",
+    "...KKK....",
+    "...KKKK...",
+  ],
+  stride: [
+    "...BBBB...",
+    "...BBBB...",
+    "..BB.BB...",
+    "..BB..BB..",
+    "..BB..BB..",
+    ".BB...BB..",
+    ".BB....BB.",
+    ".BB....BB.",
+    ".BB....BB.",
+    "KKK....KKK",
+    "..KK...KK.",
+  ],
+  pass: [
+    "...BBBB...",
+    "...BBBB...",
+    "...BBBB...",
+    "...BBBB...",
+    "...BBB....",
+    "..BBBB....",
+    "..BBBB....",
+    ".BB.BB....",
+    ".KK.BB....",
+    "..K.BB....",
+    "....KKK...",
+    "....KKKK..",
+  ],
+};
 
+const rightWalk = [
+  figure(SIDE_HEAD, SIDE_TORSO.down, SIDE_LEGS.stand),
+  figure(SIDE_HEAD, SIDE_TORSO.back, SIDE_LEGS.stride),
+  figure(SIDE_HEAD, SIDE_TORSO.down, SIDE_LEGS.pass),
+  figure(SIDE_HEAD, SIDE_TORSO.front, SIDE_LEGS.stride),
+];
+
+// Front and back views: the figure centres on column 4. Head rows 0..9.
 const FRONT_HEAD = [
-  "...NNNN...",
-  "..NNNNNN..",
-  ".NNNNNNNN.",
-  ".NNSSSSNN.",
-  ".NSKSSKSN.",
-  ".NSSSSSSN.",
-  "..SSRRSS..",
-  "..SSSSSS..",
-  "...SSSS...",
-  "....SS....",
+  "...NNN....",
+  "..NNNNN...",
+  ".NNNNNNN..",
+  ".NNrrrNN..",
+  ".NrKrKrN..",
+  "..rrrrr...",
+  "..rrRrr...",
+  "...rrr....",
+  "....r.....",
+  "...rrr....",
 ];
 
 const BACK_HEAD = [
-  "...NNNN...",
-  "..NNNNNN..",
-  ".NNNNNNNN.",
-  ".NNNNNNNN.",
-  ".NNNNNNNN.",
-  ".SNNNNNNS.",
-  "..NNNNNN..",
-  "..NNNNNN..",
-  "...SSSS...",
-  "....SS....",
+  "...NNN....",
+  "..NNNNN...",
+  ".NNNNNNN..",
+  ".NNNNNNN..",
+  ".rNNNNNr..",
+  "..NNNNN...",
+  "..NNNNN...",
+  "...NNN....",
+  "....r.....",
+  "...rrr....",
 ];
 
-/** Front and back torso rows 10..20; `swing` shortens the left (-1) or right (1) arm. */
-function frontTorso(swing: -1 | 0 | 1): string[] {
-  const rows = ["..cccccc..", ...Array.from({ length: 7 }, () => ".CccccccC."), ".SccccccS."];
-  const hand = (x: number) => {
-    rows[7] = rows[7]!.slice(0, x) + "S" + rows[7]!.slice(x + 1);
+/** Front and back torso rows 10..19; `raise` lifts the left (-1) or right (1) hand a row. */
+function frontTorso(raise: -1 | 0 | 1): string[] {
+  const rows = [
+    "..ccccc...",
+    ".CcccccC..",
+    ".CcccccC..",
+    ".CcccccC..",
+    ".CcccccC..",
+    ".CcccccC..",
+    ".CcccccC..",
+    ".rcccccr..",
+    ".rCCCCCr..",
+    "..BBBBB...",
+  ];
+  const lift = (x: number) => {
+    rows[6] = rows[6]!.slice(0, x) + "r" + rows[6]!.slice(x + 1);
     rows[8] = rows[8]!.slice(0, x) + "." + rows[8]!.slice(x + 1);
   };
-  if (swing === -1) hand(1);
-  if (swing === 1) hand(8);
-  return [...rows, "..CCCCCC..", "..BBBBBB.."];
+  if (raise === -1) lift(1);
+  if (raise === 1) lift(7);
+  return rows;
 }
 
-/** Front and back legs rows 21..31; `lift` raises the left (-1) or right (1) foot. */
-function frontLegs(lift: -1 | 0 | 1): string[] {
-  const legs = [
-    "..BBBBBB..",
-    "..BB..BB..",
-    "..BB..BB..",
-    "..BB..BB..",
-    "..BB..BB..",
-    "..BB..BB..",
-    "..BB..BB..",
-    "..BB..BB..",
-    "..BB..BB..",
-    ".KKK..KKK.",
-    ".KKK..KKK.",
+/** Front and back legs: standing, or one knee bent and its shoe raised two rows. */
+const FRONT_LEGS = {
+  stand: [
+    "..BBBBB...",
+    "..BBBBB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    ".KKK.KKK..",
+    ".KKK.KKK..",
+  ],
+  liftLeft: [
+    "..BBBBB...",
+    "..BBBBB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    ".KKK.BB...",
+    ".KKK.BB...",
+    ".....KKK..",
+    ".....KKK..",
+  ],
+  liftRight: [
+    "..BBBBB...",
+    "..BBBBB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.BB...",
+    "..BB.KKK..",
+    "..BB.KKK..",
+    ".KKK......",
+    ".KKK......",
+  ],
+};
+
+/** Stand, step on one foot, stand, step on the other; the opposite hand swings up. */
+function frontLoop(head: readonly string[]): BuildCelInput[] {
+  return [
+    figure(head, frontTorso(0), FRONT_LEGS.stand),
+    figure(head, frontTorso(-1), FRONT_LEGS.liftRight),
+    figure(head, frontTorso(0), FRONT_LEGS.stand),
+    figure(head, frontTorso(1), FRONT_LEGS.liftLeft),
   ];
-  if (lift === -1) {
-    legs[8] = "..KK..BB..";
-    legs[9] = ".KKK..KKK.";
-    legs[10] = "......KKK.";
-  }
-  if (lift === 1) {
-    legs[8] = "..BB..KK..";
-    legs[9] = ".KKK..KKK.";
-    legs[10] = ".KKK......";
-  }
-  return legs;
 }
 
-const rightWalk = [
-  side("back", "stride"),
-  side("down", "pass"),
-  side("front", "stride"),
-  side("down", "pass"),
-];
-const frontWalk = (
-  [
-    [-1, 1],
-    [0, 0],
-    [1, -1],
-    [0, 0],
-  ] as const
-).map(([swing, lift]) =>
-  cel([...FRONT_HEAD, ...frontTorso(swing), ...frontLegs(lift)], { S: SKIN }),
-);
-const backWalk = (
-  [
-    [-1, 1],
-    [0, 0],
-    [1, -1],
-    [0, 0],
-  ] as const
-).map(([swing, lift]) =>
-  cel([...BACK_HEAD, ...frontTorso(swing), ...frontLegs(lift)], { S: SKIN }),
-);
+const frontWalk = frontLoop(FRONT_HEAD);
+const backWalk = frontLoop(BACK_HEAD);
 
 // ---------------------------------------------------------------------------
-// The teaching robot (VIEWs 1 and 2): 14x32, copper, three-quarter view facing
-// right, so its mirrored loop visibly faces left. Its right-hand arm waves.
+// The teaching robot (VIEWs 1 and 2): 14x28, copper, three-quarter view facing
+// right, so its mirrored loop visibly faces left. A clear column parts each
+// arm from the body; the right-hand arm waves. A, E and H are the antenna
+// light, the eyes and the chest light, lit when awake.
 
 const ROBOT_HEAD = [
   "........A.....",
@@ -252,87 +298,81 @@ const ROBOT_HEAD = [
 
 const ROBOT_BODY = [
   "...NNNNNNNN...",
-  "..NYNNNNNNNN..",
-  "..NYNllllllN..",
-  "..NYNlHHlllN..",
-  "..NYNlHHlllN..",
-  "..NYNllllllN..",
-  "..NYNNNNNNNN..",
-  "..NNNNNNNNNN..",
+  "DDDNYNNNNNNDDD",
+  "NN.NYNNNNNN.NN",
+  "NN.NYlllllN.NN",
+  "NN.NYlHHllN.NN",
+  "DD.NYlHHllN.DD",
+  "NN.NYlllllN.NN",
+  "NN.NYNNNNNN.NN",
+  "ll.NNNNNNNN.ll",
   "...DDDDDDDD...",
   "....NN..NN....",
   "....NN..NN....",
   "....DD..DD....",
   "....NN..NN....",
-  "...NNNN.NNNN..",
-  "...NNNNNNNNNN.",
-  "..KKKKKKKKKKK.",
+  "...NNN..NNN...",
+  "...KKK..KKK...",
 ];
 
 type ArmPose = "down" | "raise" | "up" | "wave";
 
 /**
- * The still arm on the left and the waving arm on the right (two columns
- * wide, a grey hand at the end). Only the waving arm changes between cels.
+ * Raise the right-hand arm: clear its hanging pose below the shoulder, then
+ * draw it upward, two columns wide, with an elbow joint and a grey hand.
  */
-function robotArms(rows: string[], pose: ArmPose): void {
+function robotArm(rows: string[], pose: ArmPose): void {
   const put = (x: number, y: number, c: string) => {
     rows[y] = rows[y]!.slice(0, x) + c + rows[y]!.slice(x + 1);
   };
-  const arm = (x: number, y: number, c = "N") => {
-    put(x, y, c);
-    put(x + 1, y, c);
-  };
-  for (let y = 13; y <= 19; y++) arm(0, y, y === 13 ? "D" : "N");
-  arm(0, 20, "l");
-  arm(12, 13, "D");
-  const wave: Record<ArmPose, readonly (readonly [number, number, string?])[]> = {
-    down: [
-      [12, 14],
-      [12, 15],
-      [12, 16],
-      [12, 17],
-      [12, 18],
-      [12, 19],
-      [12, 20, "l"],
-    ],
+  if (pose === "down") return;
+  for (let y = 14; y <= 20; y++) {
+    put(12, y, ".");
+    put(13, y, ".");
+  }
+  const up: Record<Exclude<ArmPose, "down">, readonly (readonly [number, number, string])[]> = {
     raise: [
-      [12, 12],
-      [12, 11],
-      [12, 10, "l"],
+      [12, 12, "N"],
+      [12, 11, "D"],
+      [12, 10, "N"],
+      [12, 9, "l"],
     ],
     up: [
-      [12, 12],
-      [12, 11],
-      [12, 10],
-      [12, 9],
-      [12, 8],
-      [12, 7],
+      [12, 12, "N"],
+      [12, 11, "N"],
+      [12, 10, "D"],
+      [12, 9, "N"],
+      [12, 8, "N"],
+      [12, 7, "N"],
       [12, 6, "l"],
       [12, 5, "l"],
     ],
     wave: [
-      [12, 12],
-      [12, 11],
-      [12, 10],
-      [12, 9],
-      [11, 8],
-      [11, 7],
-      [11, 6, "l"],
+      [12, 12, "N"],
+      [12, 11, "N"],
+      [12, 10, "D"],
+      [12, 9, "N"],
+      [11, 8, "N"],
+      [11, 7, "N"],
+      [10, 6, "l"],
       [10, 5, "l"],
     ],
   };
-  for (const [x, y, c] of wave[pose]) arm(x, y, c);
+  for (const [x, y, c] of up[pose]) {
+    put(x, y, c);
+    put(x + 1, y, c);
+  }
 }
 
 function robot(pose: ArmPose, awake: boolean): BuildCelInput {
   const rows = [...ROBOT_HEAD, ...ROBOT_BODY];
-  robotArms(rows, pose);
+  robotArm(rows, pose);
   if (!awake) {
-    // Asleep: a dark visor and antenna, and a little "z" drifting off.
-    rows[0] = "..........WWW.";
+    // Asleep: a dark visor and antenna, and a "z" drifting off.
+    rows[0] = "..........WWWW";
     rows[1] = ".......D....W.";
-    rows[2] = ".......D...WWW";
+    rows[2] = ".......D...W..";
+    rows[3] = "....NNNNNNWWWW";
   }
   return cel(rows, awake ? { A: "r", E: "Y", H: "r" } : { A: "D", E: "D", H: "D" });
 }
@@ -341,7 +381,8 @@ const robotAsleep = robot("down", false);
 const robotWave = (["down", "raise", "up", "wave"] as const).map((pose) => robot(pose, true));
 
 // ---------------------------------------------------------------------------
-// Felix (VIEW 3): 14x32, a ferret clerk in a green eyeshade and blue waistcoat.
+// Felix (VIEW 3): 14x32, a sable ferret clerk in a green eyeshade and blue
+// waistcoat, with the dark legs and tail of his kind.
 // Rows 0..15 are his head and collar, the part the counter leaves in view.
 
 const FELIX_OPEN = [
@@ -366,16 +407,16 @@ const FELIX_OPEN = [
   ".NBBBBYWBBBBN.",
   ".NBBBBWWBBBBN.",
   ".NBBBBYWBBBBN.",
-  "..WBBBWWBBBW..",
-  "..WBBBBBBBBW..",
-  "...NNNNNNNN...",
-  "...NNNNNNNN...",
-  "...NNN..NNN...",
-  "...NNN..NNN..N",
-  "...NNN..NNN.NN",
-  "...NNN..NNNNN.",
-  "..NNNN..NNNN..",
-  "..WWWN..NWWW..",
+  "..DBBBWWBBBD..",
+  "..DBBBBBBBBD..",
+  "...DDDDDDDD...",
+  "...DDDDDDDD...",
+  "...DDD..DDD...",
+  "...DDD..DDD..D",
+  "...DDD..DDD.DD",
+  "...DDD..DDDDD.",
+  "...DDD..DDD...",
+  "..DDDD..DDDD..",
   "..KKKK..KKKK..",
 ];
 

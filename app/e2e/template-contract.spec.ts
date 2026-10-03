@@ -1,8 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   isolateStorage,
+  agentActivity,
   openDeveloperActivity,
   probe,
+  progressStorageKey,
   screenText,
   textHook,
   waitForCycles,
@@ -24,9 +26,7 @@ async function bootAgentGame(page: Page): Promise<void> {
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
   await expect.poll(async () => (await probe(page)).frame, { timeout: 20_000 }).toBeGreaterThan(0);
   await expect
     .poll(async () => (await textHook(page)).cycle, { timeout: 20_000 })
@@ -49,6 +49,7 @@ async function typeCommand(page: Page, text: string): Promise<void> {
 
 test("the template menu bar drives save and restore on the text surface", async ({ page }) => {
   await bootAgentGame(page);
+  const locator = await progressStorageKey(page, "custom");
 
   // ESC is bound to the menu controller: the bar and the open File column
   // render as engine text, not DOM.
@@ -76,9 +77,14 @@ test("the template menu bar drives save and restore on the text surface", async 
     .poll(
       () =>
         page.evaluate(
-          () =>
-            Object.keys(JSON.parse(localStorage.getItem("monotio_agi.saves.custom") ?? "{}").slots)
-              .length,
+          (key) =>
+            Object.keys(
+              JSON.parse(
+                localStorage.getItem(`monotio_agi.saves.${encodeURIComponent(key)}`) ??
+                  '{"slots":{}}',
+              ).slots,
+            ).length,
+          locator,
         ),
       { timeout: 15_000 },
     )
@@ -93,9 +99,7 @@ test("the template menu bar drives save and restore on the text surface", async 
   await expect.poll(() => screenText(page)).toContain("Checkpoint");
   await page.keyboard.press("Enter");
   await expectModal(page, null);
-  await expect(page.getByTestId("agent-panel")).toContainText(
-    "Restoring saved game from local storage",
-  );
+  await expect.poll(() => agentActivity(page)).toContain("Restoring saved game from local storage");
   // The world is alive after the restore: cycles advance again.
   await waitForCycles(page, 2);
 });

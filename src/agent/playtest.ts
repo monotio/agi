@@ -156,7 +156,10 @@ export class Simulation {
   ) {
     this.cycleBudget = cycleBudget;
     this.resourceSet = resourceSetHint(state);
-    const container = openContainer(state.getFiles(), { kind: state.profile.container });
+    const container = openContainer(state.getFiles(), {
+      kind: state.profile.container,
+      profile: state.profile,
+    });
     const words = container.files.get("WORDS.TOK");
     const dictionary = new Map(words ? parseWordsTok(words).map(({ word, id }) => [word, id]) : []);
     const randomByte = randomSource(123456789);
@@ -1091,7 +1094,7 @@ export function playtestRoom(
           }
           failures.push(`Expected room ${wanted}; observed room ${engine.vars[0]}.`);
           nextSteps.push(
-            "Use read_room_context to inspect the exit logic and priority/control plane. For edge exits, check ego boundary variable v2, horizon, footprint and blocking pixels; for portals, check the position condition that should call new.room. Replay the actual movement after repair.",
+            "Use read_room to inspect the exit logic and priority/control plane. For edge exits, check ego boundary variable v2, horizon, footprint and blocking pixels; for portals, check the position condition that should call new.room. Replay the actual movement after repair.",
           );
         }
       }
@@ -1104,7 +1107,7 @@ export function playtestRoom(
           const item = inventory.find((item) => item.num === id);
           if (item?.room !== 255) {
             nextSteps.push(
-              `Inspect item ${id} with read_room_context and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
+              `Inspect item ${id} with read_room and its interaction logic: get places it in carried inventory (room 255); has tests possession. Check said vocabulary, item location and puzzle preconditions before changing the outcome.`,
             );
             failures.push(
               `Expected item ${id} carried; observed ${item ? `room ${item.room}` : "missing item"}.`,
@@ -1125,7 +1128,7 @@ export function playtestRoom(
           if (actual !== value.value) {
             failures.push(`Expected flag ${id}=${value.value}; observed ${actual}.`);
             nextSteps.push(
-              `Inspect the set/reset paths for f${id}, their input and inventory preconditions, and whether room-entry code resets it each cycle. Use inspect_world_bible to check the binding's purpose and read_command_reference for condition semantics. Replay the triggering action instead of forcing the expected flag.`,
+              `Inspect the set/reset paths for f${id}, their input and inventory preconditions, and whether room-entry code resets it each cycle. Use read_plan to check the binding's purpose and read_command_reference for condition semantics. Replay the triggering action instead of forcing the expected flag.`,
             );
           }
         }
@@ -1213,7 +1216,7 @@ export function playtestRoom(
         if (misses.length) {
           failures.push(`Expected object ${spec.num} ${misses.join(", ")}.`);
           nextSteps.push(
-            `Inspect object ${spec.num} with read_room_context and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
+            `Inspect object ${spec.num} with read_room and the logic that draws, positions or moves it; check the view is loaded and the motion reaches the asserted box on this path.`,
           );
         }
       }
@@ -1261,7 +1264,7 @@ export function playtestRoom(
             `Expected (${reachX},${reachY}) reachable on foot; ego stopped at (${walker.x},${walker.y}).`,
           );
           nextSteps.push(
-            "Walk the route in the composed frame: read the priority and control lines between ego and the target with read_room_context and check the walkTo observation for where progress stopped.",
+            "Walk the route in the composed frame: read the priority and control lines between ego and the target with read_room and check the walkTo observation for where progress stopped.",
           );
         }
       }

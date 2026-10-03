@@ -1,3 +1,4 @@
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 import { decodeRecordedReplay } from "./recordedReplay.ts";
 /**
  * Game tests: playthrough regression tests stored with the game.
@@ -34,8 +35,8 @@ import {
 const MAX_GAME_TESTS = 64;
 /** Tests rerun after one patch; keeps a write tool's latency bounded. */
 const RERUN_LIMIT = 8;
-/** JSON text is escaped again in transport; 3000 characters keeps each page comfortably below 12k. */
-const DEFINITION_PAGE_CHARS = 3000;
+/** Whole ordinary definitions fit inline; larger suites retain character paging. */
+const DEFINITION_PAGE_CHARS = 65536;
 
 /** One resource a successful write touched; rerun selection considers every one of them. */
 export interface TouchedResource {
@@ -401,9 +402,11 @@ const NAMES_SCHEMA = {
 export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
   {
     name: "read_game_tests",
-    description:
+    description: toolDescription(
+      "read_game_tests",
       "Read stored game tests (TESTS.JSON). Null names lists compact summaries. Specified names returns editable definitions as JSON text in bounded pages; concatenate definition chunks using nextOffset until null. offset is a character offset, null or omitted starts at zero. Opaque recording setup is omitted and preserved by write_game_tests merge edits.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("read_game_tests", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -411,24 +414,28 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
         offset: { type: ["integer", "null"], minimum: 0 },
       },
       required: ["names", "offset"],
-    },
+    }),
   },
   {
     name: "run_game_tests",
-    description:
+    description: toolDescription(
+      "run_game_tests",
       "Replay stored game tests against current resources in the bounded simulation: pass count, first failure with room and cycle, per-test outcomes in details and the failing frame as an image. Null `names` runs every stored test. Write tools rerun the tests their change touches.",
-    parameters: {
+    ),
+    parameters: parameterDescriptions("run_game_tests", {
       type: "object",
       additionalProperties: false,
       properties: { names: NAMES_SCHEMA },
       required: ["names"],
-    },
+    }),
   },
   {
     name: "write_game_tests",
-    description:
-      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay} — the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8; with until it walks that way until the predicate holds, as in right until room 2), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words.",
-    parameters: {
+    description: toolDescription(
+      "write_game_tests",
+      "Add or replace stored game tests by name (`mode` merge, default), replace the whole set (`mode` replace) or delete the tests listed in `names` (`mode` remove, `tests` null). Each test is a playtest_room scenario: `room`, optional `spawnX`/`spawnY`, `steps` and `expect`, optional `cycleBudget`, and an optional `setup` {image, replay}. the base64 host image and optional machine-generated recording JSON text, which a recorded test restores and replays before its steps. Merge preserves existing setup when null or omitted; replace uses only supplied setup (no setup boots fresh). Steps are command, move, enter, wait (cycles or an until predicate over room/flag/var), key (PC key word), direction (0..8; with until it walks that way until the predicate holds, as in right until room 2), walkTo (x, y) and answer (prompt text); expectations add score, var ranges, object and reachable to room, carriedItems, flags, vars, printed and text. Commands must use registered words.",
+    ),
+    parameters: parameterDescriptions("write_game_tests", {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -472,7 +479,7 @@ export const GAME_TEST_TOOLS: readonly ToolDefinition[] = [
         },
       },
       required: ["mode", "names", "tests"],
-    },
+    }),
   },
 ];
 

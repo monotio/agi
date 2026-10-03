@@ -5,10 +5,11 @@ import {
   type AgentToolResult,
 } from "./agentState.ts";
 import { sourceRevision, validateAuthoringState, type BindingKind } from "./authoringState.ts";
+import { allocateProjectIds } from "../authoring/resourceAllocation.ts";
 import { disassembleLogic } from "../logic/disassembler.ts";
 import { readPictureSource } from "../picture/source.ts";
 
-/** The exact text read_logic/read_picture show and edit_resource_source patches. */
+/** The exact text read_logic/read_picture show and edit_source patches. */
 export function editableSource(
   state: AgentSessionState,
   kind: "logic" | "picture",
@@ -63,48 +64,9 @@ export function sourceContextRevision(
   });
 }
 
-/** Discover static operands; refuse automatic allocation where runtime indirection obscures usage. */
-function occupiedIds(state: AgentSessionState, kind: BindingKind): Set<number> {
-  const used = new Set(
-    Object.values(state.authoring.bindings)
-      .filter((binding) => binding.kind === kind)
-      .map((binding) => binding.num),
-  );
-  if (kind !== "flag" && kind !== "variable") {
-    for (let num = 0; num < 256; num++) {
-      try {
-        if (state.container.getResource(kind, num)) used.add(num);
-      } catch {
-        used.add(num);
-      }
-    }
-    return used;
-  }
-  for (let num = 0; num < 256; num++) {
-    const payload = state.container.getResource("logic", num);
-    if (!payload) continue;
-    const source = disassembleLogic(payload, {
-      profile: state.profile,
-      dictionary: state.sources.words,
-    });
-    if (
-      source.includes("// !!") ||
-      /\b(?:lindirectv|rindirect|lindirectn|set\.v|reset\.v|toggle\.v|isset\.v)\s*\(/.test(source)
-    )
-      throw new Error(
-        `Logic ${num} has indirect or undecodable state access. Read its logic and bind an explicit ID; automatic allocation cannot establish a free ${kind}.`,
-      );
-    // Remove literals/comments: a message saying 'f32' is not an operand.
-    const code = source.replace(/\/\/[^\n]*|"(?:\\[^\n]|[^"\\\n])*"/g, "");
-    for (const match of code.matchAll(kind === "flag" ? /\bf(\d+)\b/g : /\bv(\d+)\b/g))
-      used.add(Number(match[1]));
-  }
-  return used;
-}
-
 /**
- * Runs reserve_binding and update_world, which change only authoring state.
- * edit_resource_source is not here: resolveSourceEdit patches the text, and
+ * Runs reserve_name and update_plan, which change only authoring state.
+ * edit_source is not here: resolveSourceEdit patches the text, and
  * the dispatcher writes it through the ordinary logic or picture writer.
  */
 export function executeAuthoringTool(
@@ -112,9 +74,9 @@ export function executeAuthoringTool(
   name: string,
   args: Record<string, unknown>,
 ): AgentToolResult | undefined {
-  if (name !== "reserve_binding" && name !== "update_world") return undefined;
+  if (name !== "reserve_name" && name !== "update_plan") return undefined;
   try {
-    if (name === "reserve_binding") {
+    if (name === "reserve_name") {
       let items: { name: unknown; kind: unknown; id: unknown }[];
       if (Array.isArray(args["bindings"])) {
         items = args["bindings"] as { name: unknown; kind: unknown; id: unknown }[];
@@ -127,6 +89,7 @@ export function executeAuthoringTool(
 
       const reservedList: { name: string; kind: BindingKind; num: number; define: string }[] = [];
       const messages: string[] = [];
+      const allocationWarnings = new Set<string>();
 
       for (const item of items) {
         const symbol = item.name;
@@ -150,15 +113,18 @@ export function executeAuthoringTool(
             );
           num = existing.num;
         } else if (num == null) {
-          const used = occupiedIds(state, kind);
-          for (const b of reservedList) {
-            if (b.kind === kind) used.add(b.num);
-          }
-          const start = kind === "flag" || kind === "variable" ? 32 : 1;
-          num = Array.from({ length: 256 - start }, (_, index) => start + index).find(
-            (id) => !used.has(id),
+          // Earlier batch items are already bound, so the live record covers them.
+          const allocation = allocateProjectIds(
+            {
+              container: state.container,
+              profile: state.profile,
+              dictionary: state.sources.words,
+              bindings: state.authoring.bindings,
+            },
+            kind,
           );
-          if (num === undefined) throw new Error(`No free ${kind} IDs remain.`);
+          num = allocation.ids[0]!;
+          for (const warning of allocation.warnings) allocationWarnings.add(warning);
         }
         if (typeof num !== "number" || !Number.isInteger(num) || num < 0 || num > 255)
           throw new Error("id must be null or an integer in 0..255.");
@@ -182,6 +148,7 @@ export function executeAuthoringTool(
             kind: first.kind,
             num: first.num,
             define: first.define,
+            ...(allocationWarnings.size ? { warnings: [...allocationWarnings] } : {}),
             authoringChanged: true,
           },
         };
@@ -193,6 +160,7 @@ export function executeAuthoringTool(
         details: {
           bindings: reservedList,
           defines: reservedList.map((r) => r.define).join("\n"),
+          ...(allocationWarnings.size ? { warnings: [...allocationWarnings] } : {}),
           authoringChanged: true,
         },
       };
@@ -264,7 +232,7 @@ function unchanged(tool: string, error: unknown): AgentToolResult {
   };
 }
 
-/** The text an edit_resource_source call leaves, for the writer to compile. */
+/** The text an edit_source call leaves, for the writer to compile. */
 export interface SourceEdit {
   readonly kind: "logic" | "picture";
   readonly num: number;
@@ -272,7 +240,7 @@ export interface SourceEdit {
 }
 
 /**
- * Resolves edit_resource_source against the revision the agent read: every
+ * Resolves edit_source against the revision the agent read: every
  * find must match exactly one section of the same snapshot. Returns the
  * patched text, or a failure that changed nothing.
  */
@@ -280,7 +248,7 @@ export function resolveSourceEdit(
   state: AgentSessionState,
   args: Record<string, unknown>,
 ): SourceEdit | AgentToolResult {
-  const tool = "edit_resource_source";
+  const tool = "edit_source";
   try {
     const kind = args["kind"];
     const num = args["num"];
@@ -303,8 +271,8 @@ export function resolveSourceEdit(
         "Source revision changed. Read the current source before editing; its text, dictionary, profile, or named bindings may have drifted.",
       );
     const edits = args["edits"];
-    if (!Array.isArray(edits) || !edits.length || edits.length > 64)
-      throw new Error("edits must name 1..64 find/replace pairs.");
+    if (!Array.isArray(edits) || !edits.length || edits.length > 65535)
+      throw new Error("edits must name 1..65535 find/replace pairs.");
     const fail = (message: string, editIndex: number, excerpt: string): AgentToolResult => ({
       success: false,
       error: message,

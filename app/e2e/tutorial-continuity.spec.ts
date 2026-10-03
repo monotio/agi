@@ -9,10 +9,10 @@ import {
   savedGameCard,
   waitForRoom,
 } from "./engineProbe.ts";
-import { seedTutorial10, TUTORIAL_1_0 } from "./tutorialRelease.ts";
+import { seedTutorial10, seedTutorial11, TUTORIAL_1_0, TUTORIAL_1_1 } from "./tutorialRelease.ts";
 
 /**
- * A player who played the 1.0.0 tutorial keeps it after 1.1.0 ships: the
+ * A player who played the 1.0.0 tutorial keeps it after later releases ship: the
  * Tutorial card is the current catalog release only, and the stored 1.0 copy
  * is an ordinary saved-game card titled with its release, "Adventure
  * Department 1.0". A remix of the 1.0 copy keeps its own card. The 1.0 copy
@@ -34,7 +34,7 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
   const gallery = page.getByTestId("saved-game-gallery");
   const tutorial = page.getByTestId("catalog-adventure-department");
   await expect(tutorial).toBeVisible();
-  await expect(tutorial.getByTestId("catalog-play-adventure-department")).toHaveText("Play now");
+  await expect(tutorial.getByTestId("catalog-play-adventure-department")).toHaveText("Play");
 
   // The 1.0 copy is an ordinary saved-game card named for its release; the
   // remix keeps its own card.
@@ -45,9 +45,7 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
   const remix = savedGameCard(page, "Adventure Department Remix");
   await expect(remix).toBeVisible();
 
-  // The 1.0 archive predates stored previews: the cards render their opening
-  // lazily on Home. While it runs, the card shows the designed placeholder;
-  // then the opening frame. It is never blank.
+  // Older archives without a stored preview show their monogram on Home.
   for (const card of [older, remix]) {
     await expect(
       card
@@ -55,20 +53,18 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
         .or(card.getByTestId("thumbnail-placeholder"))
         .or(card.locator(".game-card__monogram")),
     ).toBeVisible();
-    await expect(card.getByTestId("library-thumbnail")).toHaveAttribute("src", /^data:image\/png/, {
-      timeout: 30_000,
-    });
+    await expect(card.locator(".game-card__monogram")).toBeVisible();
   }
   await expect(gallery.getByText("Adventure Department", { exact: true })).toHaveCount(1);
   await page.screenshot({ path: test.info().outputPath("home-older-release.png") });
 
-  // The Tutorial card is the 1.1 release; its ⋯ menu carries no 1.0 items.
+  // The Tutorial card is the current release; its ⋯ menu carries no 1.0 items.
   await openCardMenu(page, "game-actions-adventure-department");
   const menu = page.getByRole("menu", { name: "Game actions", exact: true });
   await expect(menu.getByRole("menuitem", { name: /1\.0/ })).toHaveCount(0);
   await menu.getByRole("menuitem", { name: "Details…" }).click();
   const details = page.getByTestId("card-details");
-  await expect(details).toContainText("1.1.0");
+  await expect(details).toContainText("1.2.0");
   await page.keyboard.press("Escape");
   await expect(details).toBeHidden();
 
@@ -81,9 +77,9 @@ test("a stored 1.0 tutorial is its own saved-game card that resumes the 1.0 copy
   await older.getByTestId("btn-resume-cached").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await expect(page).toHaveURL(new RegExp(`#play/${TUTORIAL_1_0}$`));
-  expect(await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"))).toBe(
-    TUTORIAL_1_0,
-  );
+  expect(
+    await page.evaluate(() => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1]),
+  ).toBe(TUTORIAL_1_0);
 
   // Its Help guide has no Studio lessons: the 1.1 lessons verify 1.1 resources.
   await openGameOptions(page, "help-menu");
@@ -124,13 +120,13 @@ test("the 1.0 card removes through the normal saved-game menu, leaving remix and
     }, TUTORIAL_1_0),
   ).toBe(false);
 
-  // The remix keeps its card; the Tutorial card still plays the 1.1 release.
+  // The remix keeps its card; the Tutorial card still plays the current release.
   await expect(savedGameCard(page, "Adventure Department Remix")).toBeVisible();
   const tutorial = page.getByTestId("catalog-adventure-department");
   await expect(tutorial).toBeVisible();
   await tutorial.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
-  await expect(page).toHaveURL(/#play\/catalog-adventure-department-1\.1\.0$/);
+  await expect(page).toHaveURL(/#play\/catalog-adventure-department-1\.2\.0$/);
 });
 
 test("a 1.0 copy without an autosave still reads as played, and an imported 1.0 download keeps its release name", async ({
@@ -174,8 +170,38 @@ test("a 1.0 copy without an autosave still reads as played, and an imported 1.0 
     "Added another copy of Adventure Department to your library, with its saved progress, map and history.",
   );
   await expect(savedGameCard(page, OLDER_TITLE)).toHaveCount(2);
-  // "Adventure Department" alone is the Tutorial card, the 1.1 release.
+  // "Adventure Department" alone is the Tutorial card, the current release.
   await expect(
     page.getByTestId("saved-game-gallery").getByText("Adventure Department", { exact: true }),
   ).toHaveCount(1);
+});
+
+test("a 1.1 player's copy and progress stay readable while the 1.2 tutorial starts fresh", async ({
+  page,
+}) => {
+  await isolateStorage(page);
+  await page.goto("/");
+  const autosave = await seedTutorial11(page);
+  await page.reload();
+
+  // The 1.1 copy is an ordinary saved-game card named for its release.
+  const older = savedGameCard(page, "Adventure Department 1.1");
+  await expect(older).toBeVisible();
+  await expect(older).toHaveAttribute("data-testid", `saved-game-card-${TUTORIAL_1_1}`);
+
+  // 1.1.0 stored its autosave at the unscoped address: Earlier progress reads it.
+  const details = await openSavedGameDetails(older);
+  await expect(details).toContainText("1.1.0");
+  const section = details.getByTestId("earlier-progress");
+  await expect(section.getByTestId("earlier-row").filter({ hasText: TUTORIAL_1_1 })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // The Tutorial card plays the 1.2 release from its first room.
+  await page.getByTestId("catalog-play-adventure-department").click();
+  await waitForRoom(page, 1, { coldBoot: true });
+  await expect(page).toHaveURL(/#play\/catalog-adventure-department-1\.2\.0$/);
+  // The 1.1 progress stays where 1.1.0 left it.
+  expect(
+    await page.evaluate((key) => localStorage.getItem(key), `monotio_agi.autosave.${TUTORIAL_1_1}`),
+  ).toBe(autosave);
 });

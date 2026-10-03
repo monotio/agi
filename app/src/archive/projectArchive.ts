@@ -1,69 +1,74 @@
+import { readAgentChats, type AgentChats } from "../../../src/agent/chats.ts";
+import { hydrateImageAttachments } from "./projectImageArchive.ts";
+import {
+  readProjectHistory,
+  writeProjectHistory,
+  type PortableProjectHistory,
+} from "../../../src/authoring/projectHistoryCodec.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+  type PortableProjectWorkspace,
+} from "../../../src/authoring/projectWorkspace.ts";
+import {
+  readProjectRecovery,
+  writeProjectRecovery,
+} from "../../../src/authoring/projectRecoveryCodec.ts";
+import type { PortableProjectRecovery } from "../../../src/authoring/projectRecoveryCodec.ts";
 import { buildZip, type ZipFileInput } from "./zip.ts";
-import { sha256Hex } from "../project/crypto.ts";
-import { base64ToBytes, bytesToBase64 } from "../project/bytes.ts";
-import { gameRevision, publicGameMetadata, isPlayableFileName } from "../project/gameMetadata.ts";
+import { bytesToBase64 } from "../project/bytes.ts";
 import { validateAuthoringState } from "../../../src/agent/authoringState.ts";
 import { buildView, type BuildViewInput } from "../../../src/view/view.ts";
-import { buildObjectFile } from "../../../src/agent/agentState.ts";
 import { buildSound, type SoundTrackInput } from "../../../src/agent/soundBuilder.ts";
-import { detectProfile } from "../../../src/runtime/profile.ts";
+import {
+  isSoundDocumentEnvelopeClaim,
+  readSoundDocumentSource,
+} from "../../../src/sound/source.ts";
+import type { ProfileId } from "../../../src/runtime/profile.ts";
+import { sha256Hex as sha256HexSync } from "../../../src/crypto.ts";
 import type { CachedGameData } from "../project/gameTypes.ts";
 import {
   mimeExtension,
   normalizeReferences,
-  rebindStagedReferences,
   type StoredReference,
 } from "../references/referenceArt.ts";
-import { progressEntries, type GameProgress } from "../saves/gameProgress.ts";
-import { mapArchiveData } from "../world/roomMapStore.ts";
+import type { GameProgress } from "../saves/gameProgress.ts";
 import type { RoomMapSidecar } from "../../../src/agent/roomMap.ts";
-import { historyArchiveData, type ProjectHistory } from "./historyArchive.ts";
-
+import type { ProjectHistory } from "./historyArchive.ts";
+import {
+  gameEntries,
+  PROJECT_SESSION_ID_PATTERN,
+  validateTranscript,
+} from "./projectArchiveShared.ts";
 import type { BackupReport } from "./historyBackup.ts";
 
+export { validateTranscript } from "./projectArchiveShared.ts";
+export { continuationTranscript } from "./projectConversation.ts";
+
 export interface ProjectContext {
-  provider: string;
-  model: string;
+  chats?: AgentChats | undefined;
+  provider?: string | undefined;
+  model?: string | undefined;
   sessionId?: string | undefined;
-  transcript: unknown[];
+  transcript?: unknown[] | undefined;
+  recoveryDraft?: PortableProjectRecovery | undefined;
+  workspace?: PortableProjectWorkspace | undefined;
+  projectHistory?: PortableProjectHistory | undefined;
   authoringState?: Record<string, unknown> | undefined;
   conversationHistory?: { provider: string; model: string; transcript: unknown[] }[] | undefined;
   references?: StoredReference[] | undefined;
 }
 
 /**
- * Only current game resources and interpreter identification travel publicly.
- * The playable files ship exactly as stored: every write in the app repacks
- * its container (ResourceContainer.putResource), so a game made or changed
- * here carries no stale bytes, and an untouched original exports as the
- * same bytes it was imported as, with the same revision.
+ * The archived game's own sound context: the interpreter profile the game
+ * resolves to and its stored native SOUND bytes. An `agi.sound-document`
+ * source claim is admitted only against both — the archived game, never the
+ * claim, decides which profile applies, and the stored bytes stay
+ * authoritative.
  */
-function gameEntries(
-  data: Pick<CachedGameData, "files" | "title" | "roomGeneration" | "library">,
-): ZipFileInput[] {
-  const files = new Map(Object.entries(data.files));
-  if (!files.has("OBJECT"))
-    files.set("OBJECT", buildObjectFile([], detectProfile(files, data.library?.profile)));
-  const entries = [...files]
-    .filter(([name]) => isPlayableFileName(name))
-    .map(([name, bytes]) => ({ name, data: bytes }) as ZipFileInput);
-  entries.push({
-    name: "GAME.JSON",
-    data: JSON.stringify({
-      format: "monotio.agi",
-      version: 1,
-      metadata: publicGameMetadata(data.library),
-      title: data.title,
-      // The player's interpreter choice travels with the game; detection
-      // evidence does not — the importer checks the opening itself.
-      ...(data.library?.profile ? { profile: data.library.profile } : {}),
-      roomGeneration: data.roomGeneration === true,
-      // Completion travels apart from generation: a copy that cannot grow
-      // is still unfinished, through every later export.
-      workInProgress: data.roomGeneration === true || data.library?.workInProgress === true,
-    }),
-  });
-  return entries;
+export interface ProjectSoundContext {
+  readonly profileId: ProfileId;
+  readonly nativeSound: (num: number) => Uint8Array | null;
 }
 
 export function buildPublicGameZip(
@@ -79,268 +84,220 @@ export function buildPublicGameZip(
  * the player's progress (save slots and latest autosave) is theirs alone.
  */
 export async function buildProjectZip(
-  data: CachedGameData,
+  offered: CachedGameData,
   progress?: GameProgress,
   map?: RoomMapSidecar,
   history?: ProjectHistory,
   backup?: BackupReport,
 ): Promise<Uint8Array<ArrayBuffer>> {
-  const entries = gameEntries(data);
-  if (backup) {
-    const { recoveryBatches, ...report } = backup;
-    entries.push({ name: "BACKUP.JSON", data: JSON.stringify(report) });
-    if (recoveryBatches.length)
-      entries.push({
-        name: "HISTORY-RECOVERY.JSON",
-        data: JSON.stringify({
-          format: "monotio.agi.history-recovery",
-          version: 1,
-          batches: recoveryBatches,
-        }),
-      });
-  }
-  const tests = data.files["TESTS.JSON"];
-  if (tests) entries.push({ name: "TESTS.JSON", data: tests });
-  if (progress) entries.push(...progressEntries(progress));
-  // Map data is project UI state: a published game never carries it, and an
-  // empty map adds nothing to the archive.
-  if (
-    map &&
-    (map.journal.length || Object.keys(map.layout).length || Object.keys(map.notes).length)
-  )
-    entries.push({ name: "MAP.JSON", data: mapArchiveData(map) });
-  // The session history travels with the project it was recorded in — a
-  // published game export never carries it.
-  if (history && history.recording.segments.length)
-    entries.push({ name: "HISTORY.JSON", data: historyArchiveData(history) });
-  const attachments = new Map<string, string>();
-  async function visit(value: unknown): Promise<unknown> {
-    if (typeof value === "string" && /^(data:image\/(?:png|jpeg|webp);base64,)/.test(value)) {
-      const [, mime, b64] = /^data:(image\/[^;]+);base64,(.*)$/.exec(value)!;
-      return { projectImage: await attach(b64!, mime!) };
-    }
-    if (Array.isArray(value)) return Promise.all(value.map(visit));
-    if (value && typeof value === "object") {
-      const object = value as Record<string, unknown>;
-      if (
-        object["type"] === "base64" &&
-        typeof object["data"] === "string" &&
-        typeof object["media_type"] === "string" &&
-        /^image\/(png|jpeg|webp)$/.test(object["media_type"])
-      ) {
-        return {
-          projectImage: await attach(object["data"], object["media_type"]),
-          anthropicSource: true,
-        };
-      }
-      return Object.fromEntries(
-        await Promise.all(
-          Object.entries(object).map(async ([key, child]) => [key, await visit(child)]),
-        ),
-      );
-    }
-    return value;
-  }
-  async function attach(b64: string, mime: string): Promise<string> {
-    const binary = atob(b64);
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    const hash = await sha256Hex(bytes);
-    let path = attachments.get(hash);
-    if (!path) {
-      path = `IMAGES/${hash}.${mime.split("/")[1]}`;
-      attachments.set(hash, path);
-      entries.push({ name: path, data: bytes });
-    }
-    return path;
-  }
-  validateTranscript(data.transcript ?? [], data.provider);
-  const transcript = await visit(data.transcript ?? []);
-  const conversationHistory = await visit(data.conversationHistory ?? []);
-  // Reference art is project data: metadata rides in PROJECT.JSON, the bytes
-  // in REFERENCES/<id>.<ext> entries. A Game export never carries either.
-  // Verify against the live input before rebinding to the exact exported bytes.
-  // Export may supply a missing OBJECT file, which moves the revision; that
-  // must not strand fresh staging.
-  let exportedReferences = data.references;
-  if (exportedReferences?.length) {
-    const exportedFiles = Object.fromEntries(
-      entries.flatMap((entry) =>
-        typeof entry.data === "string" ? [] : [[entry.name, entry.data]],
-      ),
-    );
-    const [sourceRevision, destinationRevision] = await Promise.all([
-      gameRevision(data.files),
-      gameRevision(exportedFiles),
-    ]);
-    exportedReferences = rebindStagedReferences(
-      exportedReferences,
-      { project: data.projectId, revision: destinationRevision },
-      { project: data.projectId, revision: sourceRevision },
-    );
-  }
-  const references = exportedReferences?.length
-    ? exportedReferences.map((reference) => ({
-        ...reference,
-        images: reference.images.map(({ png: _png, ...meta }) => meta),
-      }))
-    : undefined;
-  for (const reference of data.references ?? [])
-    for (const [index, image] of reference.images.entries())
-      entries.push({
-        name: `REFERENCES/${reference.id}.${index}.${mimeExtension(image.mime)}`,
-        data: base64ToBytes(image.png),
-      });
-  entries.push({
-    name: "PROJECT.JSON",
-    data: JSON.stringify({
-      format: "monotio.agi.project",
-      version: 1,
-      provider: data.provider,
-      model: data.model,
-      sessionId: data.sessionId,
-      conversation: { formatVersion: 1, messages: transcript },
-      authoringState: data.authoringState ?? {},
-      conversationHistory,
-      ...(references !== undefined ? { references } : {}),
-    }),
-  });
-  return finishArchive(entries);
+  return finishArchive(await collectProjectArchiveEntries(offered, progress, map, history, backup));
 }
 
-function finishArchive(entries: ZipFileInput[]): Uint8Array<ArrayBuffer> {
+/** Validate private project entries on the first download action. */
+export async function collectProjectArchiveEntries(
+  offered: CachedGameData,
+  progress?: GameProgress,
+  map?: RoomMapSidecar,
+  history?: ProjectHistory,
+  backup?: BackupReport,
+): Promise<ZipFileInput[]> {
+  // The offer is captured before the module import suspends: the caller
+  // keeps the original objects and may mutate them meanwhile, and a
+  // completed archive must still be the game, the save slots, map, history
+  // and backup report that were offered — not a mix observed at whichever
+  // moment the module arrived. The clones are also what the produced
+  // entries hold, so a native save buffer or sidecar offered here is
+  // detached from the caller's own objects before any write. The writer
+  // clones again on arrival, so its own capture contract holds however it
+  // was reached.
+  const captured = structuredClone(offered);
+  const capturedProgress = progress === undefined ? undefined : structuredClone(progress);
+  const capturedMap = map === undefined ? undefined : structuredClone(map);
+  const capturedHistory = history === undefined ? undefined : structuredClone(history);
+  const capturedBackup = backup === undefined ? undefined : structuredClone(backup);
+  return import("./projectArchiveWriter.ts").then((writer) =>
+    writer.collectProjectArchiveEntries(
+      captured,
+      capturedProgress,
+      capturedMap,
+      capturedHistory,
+      capturedBackup,
+    ),
+  );
+}
+
+/**
+ * The stored-ZIP cost of an entry list: entry count, expanded bytes and
+ * packed STORED bytes (22-byte end record plus 30+name local and 46+name
+ * central headers per entry, names measured as UTF-8 — the same arithmetic
+ * `buildZip` output obeys). Throws the writer's own refusals when a bound
+ * is exceeded, so an admission check fails exactly as a download would.
+ */
+function measureStoredArchive(entries: readonly ZipFileInput[]): {
+  entries: number;
+  expanded: number;
+  packed: number;
+} {
   if (entries.length > 1024) throw new Error("This project has more than 1024 archive entries.");
   const encoder = new TextEncoder();
   let expanded = 0;
+  // Exact stored-ZIP size — a 30+name local header and 46+name central
+  // header per entry plus the 22-byte end record, matching buildZip — is
+  // checked before any output buffer exists, so an over-limit archive
+  // refuses on arithmetic rather than after allocating its result.
+  let packed = 22;
   for (const entry of entries) {
     const size =
       typeof entry.data === "string" ? encoder.encode(entry.data).length : entry.data.length;
     expanded += size;
+    packed += size + 76 + 2 * encoder.encode(entry.name).length;
     if (size > 64 * 1024 * 1024 || expanded > 256 * 1024 * 1024)
       throw new Error(
         "This project exceeds the supported archive size. Choose Settings → This game → Export game… to keep its playable resources.",
       );
+    if (packed > 128 * 1024 * 1024)
+      throw new Error(
+        "This project exceeds the 128 MB archive limit. Choose Settings → This game → Export game… to keep its playable resources.",
+      );
   }
-  const zip = buildZip(entries);
-  if (zip.length > 128 * 1024 * 1024)
-    throw new Error(
-      "This project exceeds the 128 MB archive limit. Choose Settings → This game → Export game… to keep its playable resources.",
-    );
-  return zip;
+  return { entries: entries.length, expanded, packed };
 }
 
-/** Imported history is data, never a source of executable calls or system instructions. */
-export function validateTranscript(messages: unknown, provider: string): unknown[] {
-  if (!Array.isArray(messages) || messages.length > 50000)
-    throw new Error("The project conversation is invalid or too large.");
-  function inspect(value: unknown, depth = 0): void {
-    if (depth > 40) throw new Error("Project conversation nesting is too deep.");
-    if (Array.isArray(value)) {
-      for (const item of value) inspect(item, depth + 1);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
-    const object = value as Record<string, unknown>;
-    if (
-      object["type"] === "input_image" &&
-      (typeof object["image_url"] !== "string" ||
-        !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(object["image_url"]))
-    )
-      throw new Error("Project images must be embedded in the archive.");
-    if (object["type"] === "image") {
-      const source = object["source"] as Record<string, unknown> | undefined;
-      if (
-        !source ||
-        source["type"] !== "base64" ||
-        !["image/png", "image/jpeg", "image/webp"].includes(String(source["media_type"])) ||
-        typeof source["data"] !== "string"
-      )
-        throw new Error("Project images must be embedded in the archive.");
-    }
-    if (["input_file", "file", "document"].includes(String(object["type"])))
-      throw new Error("Unsupported external project attachment.");
-    for (const [key, child] of Object.entries(object)) {
-      if (["__proto__", "prototype", "constructor"].includes(key))
-        throw new Error("Invalid conversation field.");
-      inspect(child, depth + 1);
-    }
-  }
-  inspect(messages);
-  const pending = new Set<string>();
-  for (const item of messages) {
-    if (!item || typeof item !== "object" || Array.isArray(item))
-      throw new Error("Invalid project conversation item.");
-    const value = item as Record<string, unknown>;
-    if (value["role"] && value["role"] !== "user" && value["role"] !== "assistant")
-      throw new Error("Project conversations may contain only user and assistant messages.");
-    if (provider === "anthropic") {
-      if (value["role"] !== "user" && value["role"] !== "assistant")
-        throw new Error("Invalid Anthropic conversation role.");
-      if (typeof value["content"] !== "string" && !Array.isArray(value["content"]))
-        throw new Error("Invalid Anthropic message content.");
-      if (Array.isArray(value["content"]))
-        for (const block of value["content"]) {
-          if (!block || typeof block !== "object")
-            throw new Error("Invalid conversation content block.");
-          if (block.type === "tool_use") {
-            if (
-              typeof block.id !== "string" ||
-              typeof block.name !== "string" ||
-              !block.input ||
-              typeof block.input !== "object"
-            )
-              throw new Error("Invalid archived tool call.");
-            pending.add(block.id);
-          } else if (block.type === "tool_result") {
-            if (!pending.delete(block.tool_use_id))
-              throw new Error("Archived tool result has no matching call.");
-          } else if (!["text", "image", "thinking", "redacted_thinking"].includes(block.type))
-            throw new Error("Unsupported archived message block.");
-        }
-    } else if (provider === "openai") {
-      const type = value["type"];
-      if (type === "function_call") {
-        if (
-          typeof value["call_id"] !== "string" ||
-          typeof value["arguments"] !== "string" ||
-          typeof value["name"] !== "string"
-        )
-          throw new Error("Invalid archived tool call.");
-        pending.add(value["call_id"]);
-      } else if (type === "function_call_output") {
-        if (typeof value["call_id"] !== "string" || !pending.delete(value["call_id"]))
-          throw new Error("Archived tool result has no matching call.");
-      } else if (type !== "reasoning" && value["role"] !== "user" && value["role"] !== "assistant")
-        throw new Error("Unsupported archived conversation item.");
-    } else if (provider !== "stub") throw new Error("Unsupported project conversation provider.");
-  }
-  if (pending.size)
-    throw new Error(
-      "This project has an unfinished tool turn. Save it after generation completes.",
-    );
-  return messages;
+function finishArchive(entries: ZipFileInput[]): Uint8Array<ArrayBuffer> {
+  measureStoredArchive(entries);
+  return buildZip(entries);
 }
 
 const MAX_PROJECT_DEPTH = 40;
 const MAX_PROJECT_NODES = 25_000;
 const MAX_RECONSTRUCTED_CONTENT_CHARS = 8 * 1024 * 1024;
 
+/**
+ * A project archive may carry `agi.sound-document` sources whose `payload`
+ * is one bounded byte array — the envelope codec's own 65,535-byte resource
+ * bound per claim. Declared total for all claimed payloads: the sources list
+ * already caps at 256 entries, so sound bytes together can never exceed
+ * 256 × 65,535 — about 16 MB — without counting each byte as a project node.
+ */
+const MAX_SOUND_SOURCE_PAYLOAD_BYTES = 256 * 65_535;
+
 export function readProjectContext(
   bytes: Uint8Array,
   entries: Map<string, Uint8Array>,
   root: string,
+  soundContext?: ProjectSoundContext,
 ): ProjectContext {
-  const raw = JSON.parse(new TextDecoder().decode(bytes));
+  const envelope = JSON.parse(new TextDecoder().decode(bytes));
   if (
-    raw.format !== "monotio.agi.project" ||
-    raw.version !== 1 ||
-    raw.conversation?.formatVersion !== 1
+    !envelope ||
+    typeof envelope !== "object" ||
+    Array.isArray(envelope) ||
+    envelope.format !== "monotio.agi.project" ||
+    envelope.version !== 1
   )
     throw new Error("This project version is not supported.");
-  if (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
+  // The released version-1 envelope never carried creative data; a claim in
+  // one refuses rather than silently dropping kept art or unfinished work.
+  if (envelope.creative !== undefined || envelope.creativeWork !== undefined)
+    throw new Error("This project version cannot carry creative data.");
+  function knownFields(value: unknown, names: readonly string[]): void {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      Object.keys(value).some((key) => !names.includes(key))
+    )
+      throw new Error("Invalid or unknown project field.");
+  }
+  knownFields(envelope, [
+    "format",
+    "version",
+    "provider",
+    "model",
+    "sessionId",
+    "conversation",
+    "conversationHistory",
+    "authoringState",
+    "references",
+    "recoveryDraft",
+    "workspace",
+    "projectHistory",
+    "chats",
+  ]);
+  const hasAssistant = [
+    "provider",
+    "model",
+    "sessionId",
+    "conversation",
+    "conversationHistory",
+  ].some((key) => envelope[key] !== undefined);
+  const raw = {
+    ...envelope,
+    authoringState: envelope.authoringState === undefined ? {} : envelope.authoringState,
+  };
+  if (hasAssistant && raw.conversation?.formatVersion !== 1)
+    throw new Error("This project conversation version is not supported.");
+  if (
+    hasAssistant &&
+    (!["openai", "anthropic", "stub"].includes(raw.provider) || typeof raw.model !== "string")
+  )
     throw new Error("Invalid project model metadata.");
+  if (hasAssistant) knownFields(raw.conversation, ["formatVersion", "messages"]);
+  if (raw.references !== undefined && !Array.isArray(raw.references))
+    throw new Error("Invalid project reference field.");
+  if (
+    raw.sessionId !== undefined &&
+    (typeof raw.sessionId !== "string" || !PROJECT_SESSION_ID_PATTERN.test(raw.sessionId))
+  )
+    throw new Error("Invalid project session field.");
+  envelope.workspace = hydrateImageAttachments(envelope.workspace, entries, root);
+  envelope.projectHistory = hydrateImageAttachments(envelope.projectHistory, entries, root);
+  const projectHistory =
+    envelope.projectHistory === undefined
+      ? undefined
+      : writeProjectHistory(
+          readProjectHistory(envelope.projectHistory, sha256HexSync),
+          sha256HexSync,
+        );
+  const workspace =
+    envelope.workspace !== undefined
+      ? writeProjectWorkspace(readProjectWorkspace(envelope.workspace))
+      : undefined;
+  const recovered =
+    envelope.recoveryDraft !== undefined ? readProjectRecovery(envelope.recoveryDraft) : undefined;
+  const recoveryDraft =
+    recovered === undefined ? undefined : writeProjectRecovery(recovered.base, recovered.recovery);
+  // The `payload` of a claimed sound document source is one bounded byte
+  // field, not fan-out: it is accounted by length against the declared
+  // sound-source byte budget rather than inflating the generic node count
+  // (a valid 65,535-byte document would otherwise refuse like a giant
+  // conversation). Every element still faces the strict envelope reader in
+  // the sources pass below, and only arrays actually sitting in a claimed
+  // `payload` position get this accounting.
+  const soundPayloads = new Set<unknown>();
+  {
+    const offeredState: unknown = raw.authoringState;
+    const offeredSources =
+      offeredState !== null && typeof offeredState === "object" && !Array.isArray(offeredState)
+        ? (offeredState as Record<string, unknown>)["sources"]
+        : undefined;
+    const offeredSounds =
+      offeredSources !== null &&
+      typeof offeredSources === "object" &&
+      !Array.isArray(offeredSources)
+        ? (offeredSources as Record<string, unknown>)["sounds"]
+        : undefined;
+    if (Array.isArray(offeredSounds))
+      for (const entry of offeredSounds) {
+        if (!Array.isArray(entry) || !isSoundDocumentEnvelopeClaim(entry[1])) continue;
+        const payload = (entry[1] as Record<string, unknown>)["payload"];
+        if (Array.isArray(payload)) soundPayloads.add(payload);
+      }
+  }
 
   let nodeCount = 0;
   let reconstructedChars = 0;
+  let soundPayloadBytes = 0;
 
   function scanRaw(value: unknown, depth = 0): void {
     if (depth > MAX_PROJECT_DEPTH) {
@@ -358,6 +315,13 @@ export function readProjectContext(
       return;
     }
     if (Array.isArray(value)) {
+      if (soundPayloads.has(value)) {
+        soundPayloadBytes += value.length;
+        if (soundPayloadBytes > MAX_SOUND_SOURCE_PAYLOAD_BYTES) {
+          throw new Error("Project sound document payloads exceed the archive's byte budget.");
+        }
+        return;
+      }
       for (const item of value) {
         scanRaw(item, depth + 1);
       }
@@ -391,12 +355,13 @@ export function readProjectContext(
     }
   }
 
-  scanRaw(raw.conversation.messages);
+  if (hasAssistant) scanRaw(raw.conversation.messages);
   scanRaw(raw.authoringState);
   if (raw.conversationHistory) {
     scanRaw(raw.conversationHistory);
   }
   if (raw.references !== undefined) scanRaw(raw.references);
+  if (envelope.chats !== undefined) scanRaw(envelope.chats);
 
   const attachmentCache = new Map<string, unknown>();
 
@@ -427,7 +392,9 @@ export function readProjectContext(
     }
     return value;
   }
-  const transcript = validateTranscript(restore(raw.conversation.messages), raw.provider);
+  const transcript = hasAssistant
+    ? validateTranscript(restore(raw.conversation.messages), raw.provider)
+    : undefined;
   const authoringState = restore(raw.authoringState);
   if (!authoringState || typeof authoringState !== "object" || Array.isArray(authoringState))
     throw new Error("Invalid project authoring state.");
@@ -440,6 +407,22 @@ export function readProjectContext(
       if (entries === undefined) continue;
       if (!Array.isArray(entries) || entries.length > 256)
         throw new Error("Invalid project authoring sources.");
+      // A tagged sound document keeps editor identity (event ids, allocator
+      // cursor), so its resource number must be unique across the sounds
+      // sources — a second entry for the same SOUND would silently discard
+      // one source at map hydration. Legacy track lists are untouched.
+      const soundEntryNums =
+        kind === "sounds" &&
+        entries.some((entry) => Array.isArray(entry) && isSoundDocumentEnvelopeClaim(entry[1]))
+          ? new Map<number, number>()
+          : undefined;
+      if (soundEntryNums !== undefined)
+        for (const entry of entries) {
+          if (!Array.isArray(entry)) continue;
+          const num: unknown = entry[0];
+          if (typeof num === "number" && Number.isInteger(num) && num >= 0 && num <= 255)
+            soundEntryNums.set(num, (soundEntryNums.get(num) ?? 0) + 1);
+        }
       for (const entry of entries) {
         if (
           !Array.isArray(entry) ||
@@ -450,10 +433,29 @@ export function readProjectContext(
         )
           throw new Error("Invalid project source entry.");
         if (kind === "views") buildView(entry[1] as BuildViewInput);
-        else if (kind === "sounds") buildSound(entry[1] as SoundTrackInput[]);
-        else if (typeof entry[1] !== "string") throw new Error("Invalid project text source.");
+        else if (kind === "sounds") {
+          const body: unknown = entry[1];
+          if (isSoundDocumentEnvelopeClaim(body)) {
+            // Tagged SOUND sources carry an optional editing envelope beside
+            // native bytes; the archived game's profile verifies the claim.
+            if ((soundEntryNums?.get(entry[0]) ?? 0) > 1)
+              throw new Error(`Duplicate sound document source for SOUND ${String(entry[0])}.`);
+            if (soundContext === undefined)
+              throw new Error(
+                "The sound document source cannot be verified without the archived game.",
+              );
+            entry[1] = readSoundDocumentSource(
+              body,
+              soundContext.profileId,
+              soundContext.nativeSound(entry[0]),
+            );
+          } else {
+            buildSound(body as SoundTrackInput[]);
+          }
+        } else if (typeof entry[1] !== "string") throw new Error("Invalid project text source.");
       }
     }
+  const chats = envelope.chats === undefined ? undefined : readAgentChats(restore(envelope.chats));
   const history = restore(raw.conversationHistory ?? []);
   if (!Array.isArray(history) || history.length > 100)
     throw new Error("Invalid project conversation archive.");
@@ -490,27 +492,22 @@ export function readProjectContext(
       })
     : undefined;
   return {
-    provider: raw.provider,
-    model: raw.model,
-    ...(typeof raw.sessionId === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(raw.sessionId)
-      ? { sessionId: raw.sessionId }
+    ...(hasAssistant
+      ? {
+          provider: raw.provider,
+          model: raw.model,
+          ...(typeof raw.sessionId === "string" && PROJECT_SESSION_ID_PATTERN.test(raw.sessionId)
+            ? { sessionId: raw.sessionId }
+            : {}),
+          transcript,
+          conversationHistory,
+        }
       : {}),
-    transcript,
     authoringState: authoringState as Record<string, unknown>,
-    conversationHistory,
+    ...(recoveryDraft !== undefined ? { recoveryDraft } : {}),
+    ...(chats !== undefined ? { chats } : {}),
+    ...(workspace !== undefined ? { workspace } : {}),
+    ...(projectHistory !== undefined ? { projectHistory } : {}),
     ...(references !== undefined ? { references: normalizeReferences(references) } : {}),
   };
-}
-
-/** Provider changes retain a readable archive without replaying incompatible protocol items. */
-export function continuationTranscript(
-  data: Pick<CachedGameData, "provider" | "model" | "transcript">,
-  provider: string,
-  model?: string,
-): unknown[] | undefined {
-  if (!data.transcript?.length) return undefined;
-  if (data.provider === provider && (!model || data.model === model))
-    return validateTranscript(data.transcript, provider);
-  const text = `Previous authoring conversation (reference material from an earlier model session; game resources are authoritative):\n${JSON.stringify(data.transcript, (key, value) => (key === "encrypted_content" || key === "signature" || key === "image_url" || key === "data" ? undefined : value))}`;
-  return [{ role: "user", content: text }];
 }

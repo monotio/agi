@@ -59,6 +59,8 @@ export default {
     },
   ],
   options: {
+    // Generated builds and traces can disappear during a browser run.
+    exclude: "^app/(?:dist|test-results)/",
     doNotFollow: { path: "node_modules" },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {

@@ -350,7 +350,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   // `history/<key>/s/<segment>/<batch>`.
   const corrupted = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("monotio-agi-projects", 1);
+      const req = indexedDB.open("monotio-agi-projects");
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -361,7 +361,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
       const req = db
         .transaction("projects", "readonly")
         .objectStore("projects")
-        .get("history/history-transport-fixture");
+        .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
       req.onsuccess = () => resolve(req.result as { segments: { id: string }[] });
       req.onerror = () => reject(req.error);
     });
@@ -374,7 +374,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
     const targets = keys.filter(
       (key) =>
         typeof key === "string" &&
-        key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
+        key.startsWith(
+          `history/${localStorage.getItem("monotio_agi.resumeTarget")}/s/${firstSegment}/`,
+        ),
     );
     let flipped = 0;
     const tx = db.transaction("projects", "readwrite");
@@ -420,7 +422,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
   // notches come from the manifest's segment lanes.
   const aimed = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("monotio-agi-projects", 1);
+      const req = indexedDB.open("monotio-agi-projects");
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -436,7 +438,7 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
         const req = db
           .transaction("projects", "readonly")
           .objectStore("projects")
-          .get("history/history-transport-fixture");
+          .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
         req.onsuccess = () => resolve(req.result as Manifest);
         req.onerror = () => reject(req.error);
       });
@@ -461,7 +463,9 @@ test("a diverged tape labels the position unrestorable and keeps Resume from her
     const targets = keys.filter(
       (key) =>
         typeof key === "string" &&
-        key.startsWith(`history/history-transport-fixture/s/${firstSegment}/`),
+        key.startsWith(
+          `history/${localStorage.getItem("monotio_agi.resumeTarget")}/s/${firstSegment}/`,
+        ),
     );
     const batches = await new Promise<StoredBatch[]>((resolve, reject) => {
       const tx = db.transaction("projects", "readonly");
@@ -566,7 +570,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
   // A record version this app does not know must be refused, not replayed.
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("monotio-agi-projects", 1);
+      const req = indexedDB.open("monotio-agi-projects");
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -574,7 +578,7 @@ test("a tape the app cannot read reports the failure and resumes the verified li
       const req = db
         .transaction("projects", "readonly")
         .objectStore("projects")
-        .get("history/history-transport-fixture");
+        .get(`history/${localStorage.getItem("monotio_agi.resumeTarget")}`);
       req.onsuccess = () => resolve(req.result as Record<string, unknown>);
       req.onerror = () => reject(req.error);
     });

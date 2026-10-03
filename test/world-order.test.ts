@@ -110,7 +110,7 @@ const vault = {
 /** Room 8 before room 3; the key and the sign clue land in room 1 last. */
 function buildReversed(): AgentSessionState {
   const state = newGame();
-  const declared = executeAuthoringTool(state, "update_world", {
+  const declared = executeAuthoringTool(state, "update_plan", {
     rooms: [
       {
         num: 1,
@@ -251,7 +251,7 @@ test("both orders produce the same declared world", () => {
   );
 });
 
-test("stored tests replay and handover validates, then survive export/reimport", () => {
+test("stored tests replay and finish validates, then survive export/reimport", () => {
   const state = buildForward();
   const hasKey = hasKeyFlag(state);
   const written = executeAgentTool(state, "write_game_tests", {
@@ -281,9 +281,9 @@ test("stored tests replay and handover validates, then survive export/reimport",
   const run = executeAgentTool(state, "run_game_tests", { names: null });
   assert.equal(run.success, true, run.error ?? "");
 
-  const handover = executeAgentTool(state, "handover", { notes: null });
-  assert.equal(handover.success, true, handover.error ?? "");
-  const connections = handover.details?.["connections"] as {
+  const finish = executeAgentTool(state, "finish", { notes: null });
+  assert.equal(finish.success, true, finish.error ?? "");
+  const connections = finish.details?.["connections"] as {
     verified: unknown[];
     missing: unknown[];
   };
@@ -298,11 +298,11 @@ test("stored tests replay and handover validates, then survive export/reimport",
   assert.equal(rerun.success, true, rerun.error ?? "");
 });
 
-test("handover accepts declared exits whose source room is not built yet", () => {
+test("finish accepts declared exits whose source room is not built yet", () => {
   // The plan leads the build: room 5 is declared with an exit but has no
   // logic — pending intent, not a defect. Handover must not reject it.
   const state = newGame();
-  const declared = executeAuthoringTool(state, "update_world", {
+  const declared = executeAuthoringTool(state, "update_plan", {
     rooms: [
       { num: 1, title: "The Garden", description: "", exits: [] },
       { num: 5, title: "The Vault", description: "", exits: [{ name: "out", room: 1 }] },
@@ -313,9 +313,9 @@ test("handover accepts declared exits whose source room is not built yet", () =>
   assert.equal(declared?.success, true, declared?.error ?? "");
   writeRoom(state, garden(false));
   state.genesisComplete = true;
-  const handover = executeAgentTool(state, "handover", { notes: null });
-  assert.equal(handover.success, true, handover.error ?? "");
-  const connections = handover.details?.["connections"] as {
+  const finish = executeAgentTool(state, "finish", { notes: null });
+  assert.equal(finish.success, true, finish.error ?? "");
+  const connections = finish.details?.["connections"] as {
     pending: { from: number; name: string; to: number }[];
     missing: unknown[];
   };
@@ -330,7 +330,7 @@ test("Ask mode withholds the authored plan from the assistant context", async ()
   // The plan query itself is refused — intent is creator context.
   const bible = await executeAgentToolAsync(
     state,
-    "inspect_world_bible",
+    "read_plan",
     { filter: "intent", section: "rooms", name: null, offset: null, kind: null },
     readOnly,
   );
@@ -341,18 +341,18 @@ test("Ask mode withholds the authored plan from the assistant context", async ()
   // plan shape — a spoiler even without the entries).
   const overview = await executeAgentToolAsync(
     state,
-    "inspect_world_bible",
+    "read_plan",
     { filter: null, section: null, name: null, offset: null, kind: null },
     readOnly,
   );
   assert.equal(overview.success, true, overview.error ?? "");
   assert.equal(Object.hasOwn(overview.details ?? {}, "authoredIntent"), false);
 
-  // read_room_context no longer attaches the room's plan entry — its exits
+  // read_room no longer attaches the room's plan entry — its exits
   // can name rooms not yet built.
   const room = await executeAgentToolAsync(
     state,
-    "read_room_context",
+    "read_room",
     { room: 3, state: null, frames: null },
     readOnly,
   );
@@ -360,7 +360,7 @@ test("Ask mode withholds the authored plan from the assistant context", async ()
   assert.equal(Object.hasOwn(room.details ?? {}, "intent"), false);
 
   // The creator path keeps the full plan — the authoring agent needs it.
-  const creator = executeAgentTool(state, "inspect_world_bible", {
+  const creator = executeAgentTool(state, "read_plan", {
     filter: "intent",
     section: "rooms",
   });
@@ -371,7 +371,7 @@ test("Ask mode withholds the authored plan from the assistant context", async ()
   );
   const creatorRoom = await executeAgentToolAsync(
     state,
-    "read_room_context",
+    "read_room",
     { room: 3, state: null, frames: null },
     { allowedTools: AUTHORING_TOOL_NAMES },
   );
@@ -381,11 +381,11 @@ test("Ask mode withholds the authored plan from the assistant context", async ()
   );
 });
 
-test("a rewrite that drops a declared exit warns, and handover rejects it", () => {
+test("a rewrite that drops a declared exit warns, and finish rejects it", () => {
   const state = buildForward();
   const picVar = state.authoring.bindings["room_picture_number"]!.num;
   // Room 3 keeps its west return but loses the east door transition.
-  const rewritten = executeAgentTool(state, "write_logic_source", {
+  const rewritten = executeAgentTool(state, "write_logic", {
     room: 3,
     source: `if (isset(f5)) {
   assignn(v${picVar}, 1); load.pic(v${picVar}); draw.pic(v${picVar}); show.pic();
@@ -399,17 +399,17 @@ return;`,
   });
   assert.equal(rewritten.success, true, rewritten.error ?? "");
   assert.deepEqual(rewritten.details?.["droppedPlanExits"], [{ from: 3, name: "right", to: 8 }]);
-  const handover = executeAgentTool(state, "handover", { notes: null });
-  assert.equal(handover.success, false);
-  assert.match(handover.error ?? "", /room 3 declares exit "right" to room 8/);
+  const finish = executeAgentTool(state, "finish", { notes: null });
+  assert.equal(finish.success, false);
+  assert.match(finish.error ?? "", /room 3 declares exit "right" to room 8/);
 });
 
-test("a rewrite that moves a declared exit to the wrong edge warns, and handover rejects it", () => {
+test("a rewrite that moves a declared exit to the wrong edge warns, and finish rejects it", () => {
   const state = buildForward();
   const picVar = state.authoring.bindings["room_picture_number"]!.num;
   // Room 3 still reaches room 8, but the transition leaves the bottom edge —
   // the plan says the east door goes east.
-  const rewritten = executeAgentTool(state, "write_logic_source", {
+  const rewritten = executeAgentTool(state, "write_logic", {
     room: 3,
     source: `if (isset(f5)) {
   assignn(v${picVar}, 1); load.pic(v${picVar}); draw.pic(v${picVar}); show.pic();
@@ -426,8 +426,8 @@ return;`,
   assert.deepEqual(rewritten.details?.["mismatchedPlanExits"], [
     { from: 3, name: "right", to: 8, declared: "right", compiled: "bottom" },
   ]);
-  const handover = executeAgentTool(state, "handover", { notes: null });
-  assert.equal(handover.success, false);
-  assert.match(handover.error ?? "", /room 3 declares exit "right" to room 8/);
-  assert.match(handover.error ?? "", /leaves the bottom edge instead/);
+  const finish = executeAgentTool(state, "finish", { notes: null });
+  assert.equal(finish.success, false);
+  assert.match(finish.error ?? "", /room 3 declares exit "right" to room 8/);
+  assert.match(finish.error ?? "", /leaves the bottom edge instead/);
 });

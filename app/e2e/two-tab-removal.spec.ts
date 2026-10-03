@@ -1,21 +1,18 @@
-import { expect, keepDetectedProfile, test } from "./test.ts";
 import type { Page } from "@playwright/test";
-import { testProjectId } from "../test/identity.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
 import { compilePictureSource } from "../../src/picture/source.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
-  enterCreateMode,
   isolateStorage,
   openLibraryActions,
   savedGameCard,
   storedAutosave,
   textHook,
-  waitForCycles,
-  openWorldRoom,
 } from "./engineProbe.ts";
+import { expect, keepDetectedProfile, test } from "./test.ts";
 
 /**
  * Two tabs of one browser share its storage. Tab B plays a game; tab A
@@ -183,28 +180,6 @@ test("a game removed in another tab stops storing, says so once, and never comes
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
   await expect(page.getByTestId("hero-primary")).toHaveText("Play the tutorial");
   await expect(page.getByTestId("btn-resume-autosave")).toHaveCount(0);
-
-  // Studio's Keep refuses, and its Reopen says the same as the note, never nothing.
-  await note.getByRole("button", { name: "Dismiss" }).click();
-  await expect(note).toHaveCount(0);
-  await enterCreateMode(tabB);
-  const panel = tabB.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
-  const studio = tabB.getByTestId("room-studio");
-  await expect(studio).toBeVisible();
-  await tabB.keyboard.press("2");
-  await studio.locator('[data-row="occluder"]').click();
-  await studio.getByRole("group", { name: /^Canvas/ }).focus();
-  await tabB.keyboard.press("ArrowDown");
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-keep-error")).toBeVisible();
-  await studio.getByTestId("studio-recover").click();
-  await tabB.getByTestId("studio-dialog-reload").click();
-  await expect(studio).toHaveCount(0);
-  await expect(note).toContainText(REMOVED);
-  await waitForCycles(tabB, 2);
-  expect(await held(tabB)).toEqual({ record: false, keys: [], lastGame: null });
 
   // Download game keeps a copy of the running game; Back to games leaves it.
   const download = tabB.waitForEvent("download");

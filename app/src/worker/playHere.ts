@@ -38,10 +38,13 @@ export function createPlayHere(ctx: WorkerContext) {
     const problem = playHereProblem(msg);
     if (problem !== null) return reply(false, problem);
     if (engine.textModeActive) return reply(false, "The game is showing its text screen.");
-    const files = openContainer(engine.containerFiles);
+    const files = openContainer(engine.containerFiles, { profile: engine.profile });
     if (!files.getResource("logic", msg.room))
       return reply(false, `Room ${msg.room} has no logic to enter.`);
 
+    // The first request may have awaited a module import. Release the current
+    // debugger latch only now, when the validated jump actually runs.
+    ctx.fns.debugBeforeReplace();
     if (ctx.recording.recording) ctx.recording.recording.tainted = "Play here moved the game.";
     if (engine.hostInteractionPending) {
       engine.abortInteraction();
@@ -56,9 +59,18 @@ export function createPlayHere(ctx: WorkerContext) {
     engine.vars[2] = 0;
     // The room's logic exists, so an authored game's prepareRoom answers at once.
     engine.reenterRoom(msg.room);
+    ctx.fns.debugSessionReplaced();
     // The room's own entry pass: load, draw and position what it owns.
+    // Armed execution control counts a completed entry pass inside
+    // tickEngine and a stopped or suspended one nowhere — the explicit
+    // finish belongs to the ordinary unarmed pass only.
     ctx.fns.tickEngine();
-    ctx.fns.finishCycle();
+    if (engine.executionStopInfo !== null || engine.executionYieldPending)
+      return reply(
+        false,
+        `Room ${msg.room} entry did not complete. Continue the game to finish setup.`,
+      );
+    if (!engine.executionControlActive) ctx.fns.finishCycle();
     const verdict = engine.hostInteractionPending ? "busy" : placeEgo(engine, msg.x, msg.y);
     ctx.fns.captureStateDiffs();
     ctx.fns.historyResume();

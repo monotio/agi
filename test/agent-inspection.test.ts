@@ -5,7 +5,7 @@ import { executeAgentTool } from "../src/agent/tools.ts";
 
 test("source inspection pages exact editable text with a revision and total lines", () => {
   const state = createAgentSessionState();
-  executeAgentTool(state, "write_logic_source", {
+  executeAgentTool(state, "write_logic", {
     room: 1,
     source: "set(f42);\nnew.room(2);\nreturn;",
   });
@@ -51,7 +51,7 @@ test("live inspection filters state and object tables without losing requested z
   };
   const result = await executeAgentToolAsync(
     state,
-    "read_room_context",
+    "read_room",
     {
       room: null,
       state: { variables: [0, 2], flags: [0], compact: true },
@@ -87,9 +87,9 @@ test("explicit synonym groups preserve multiword parser phrases without silently
 test("world inspection summarizes large authoring history and reads a selected full entry", () => {
   const state = createAgentSessionState();
   for (let i = 0; i < 100; i++) state.authoring.world.facts[`fact_${i}`] = "x".repeat(4000);
-  const summary = executeAgentTool(state, "inspect_world_bible", { filter: "all" });
+  const summary = executeAgentTool(state, "read_plan", { filter: "all" });
   assert.ok(JSON.stringify(summary).length < 12000);
-  const fact = executeAgentTool(state, "inspect_world_bible", {
+  const fact = executeAgentTool(state, "read_plan", {
     filter: "intent",
     section: "facts",
     name: "fact_90",

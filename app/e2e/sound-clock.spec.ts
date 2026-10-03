@@ -1,5 +1,5 @@
 import type { EngineStateReport } from "../../src/runtime/engine.ts";
-import type { SoundOutput } from "../../src/sound/sound.ts";
+import type { SoundTick } from "../src/audio/soundTiming.ts";
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 type WorkerReply =
   | { type: "cycle"; cycle: number }
   | { type: "error"; message: string }
-  | { type: "soundOutput"; output: SoundOutput }
+  | ({ type: "soundTick" } & SoundTick)
   | { type: "stopSound" }
   | { type: "hostRequest"; id: number; op: string; context: Record<string, unknown> }
   | { type: "engineState"; id: number; state: EngineStateReport };
@@ -80,14 +80,15 @@ test("sound ticks and completion continue during a blocking host prompt", async 
           soundDevice: 0,
         });
         const audible = await wait(
-          (message): message is Reply<"soundOutput"> =>
-            message.type === "soundOutput" &&
-            message.output.kind === "speaker" &&
-            message.output.divisor !== null,
+          (message): message is Reply<"soundTick"> =>
+            message.type === "soundTick" &&
+            message.outputs.some((output) => output.kind === "speaker" && output.divisor !== null),
         );
         await wait(
-          (message): message is Reply<"stopSound"> =>
-            message.type === "stopSound" && messages.indexOf(message) > messages.indexOf(audible),
+          (message): message is Reply<"soundTick"> =>
+            message.type === "soundTick" &&
+            message.complete &&
+            messages.indexOf(message) > messages.indexOf(audible),
         );
         const request = await wait(
           (message): message is Reply<"hostRequest"> => message.type === "hostRequest",
@@ -100,7 +101,9 @@ test("sound ticks and completion continue during a blocking host prompt", async 
             message.type === "engineState" && message.id === 1,
         );
         return {
-          audible: audible.output,
+          audible: audible.outputs.find(
+            (output) => output.kind === "speaker" && output.divisor !== null,
+          ),
           prompt: request.op,
           cycleWhileBlocked,
           vars: after.state.vars,

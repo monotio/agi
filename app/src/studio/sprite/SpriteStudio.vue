@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, inject, nextTick, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { StudioFocus } from "../../../../src/agent/studioAssistTools.ts";
 import { viewAssistScope } from "../../../../src/studio/assistScope.ts";
 import { openSprite, type SpriteDocument } from "../../../../src/view/spriteDocument.ts";
@@ -13,6 +13,7 @@ import type { SpriteEdit } from "../../../../src/studio/sprite/spriteOperations.
 import { usageText, type ViewUsage } from "../../../../src/agent/viewUsage.ts";
 import { engineKey, useEngineApi } from "../../engine/engineContext.ts";
 import { aiSettingsKey } from "../../settings/useAiSettings.ts";
+import PaletteStrip from "../workspace/PaletteStrip.vue";
 import UiExplain from "../../ui/UiExplain.vue";
 import UiIconButton from "../../ui/UiIconButton.vue";
 import UiSegmented from "../../ui/UiSegmented.vue";
@@ -25,10 +26,8 @@ import StudioAssistCompare from "../StudioAssistCompare.vue";
 import StudioAssistPanel from "../StudioAssistPanel.vue";
 import StudioKeepDialog from "../StudioKeepDialog.vue";
 import StudioKeySheet from "../StudioKeySheet.vue";
-import StudioTour from "../StudioTour.vue";
 import { SPRITE_TOOL_HINTS, SPRITE_TOOL_NAMES, spriteKeySheet } from "../studioHelp.ts";
 import { readViewerPref, useStudioCalm, writeViewerPref } from "../useStudioCalm.ts";
-import { useStudioTour } from "../useStudioTour.ts";
 import StudioSmallScreen from "../StudioSmallScreen.vue";
 import { useFold } from "../useFold.ts";
 import StudioStatusNotice from "../StudioStatusNotice.vue";
@@ -77,7 +76,7 @@ export type SpriteKeepFn = (
 ) => Promise<ResourceCommitResult>;
 
 /**
- * Sprite Studio: one VIEW's loops and cels, edited as a draft
+ * VIEW editor: one VIEW's loops and cels, edited as a draft
  * (useSpriteDraft) through the sprite kernel and kept through the resource
  * transaction (useStudioKeep). It takes the VIEW bytes and the revision they
  * were read at. Copy-on-write is the default: editing a loop that shares its
@@ -107,7 +106,11 @@ const {
   cyclers = [],
   priorityBase = undefined,
   stagedReference = undefined,
+  embedded = false,
+  workspaceFocus = false,
 } = defineProps<{
+  embedded?: boolean;
+  workspaceFocus?: boolean;
   viewNumber: number;
   bytes: Uint8Array;
   profile: AgiProfile;
@@ -132,11 +135,25 @@ const {
   stagedReference?: string | undefined;
 }>();
 /** `reopen` asks for Studio again; `fromStorage` reloads the game from storage first. */
-const emit = defineEmits<{ close: []; reopen: [fromStorage: boolean] }>();
+const emit = defineEmits<{
+  close: [];
+  edit: [bytes: Uint8Array];
+  "agent-context": [context: { label: string; text: string }];
+  "agent-ask": [];
+  reopen: [fromStorage: boolean];
+}>();
 
 const draft = useSpriteDraft({
   base: () => ({ bytes, revision: baseRevision }),
   profile: () => profile,
+});
+watch([draft.bytes, draft.gesturing], ([next, gesturing]) => {
+  if (
+    embedded &&
+    !gesturing &&
+    (next.length !== bytes.length || !next.every((value, index) => bytes[index] === value))
+  )
+    emit("edit", next.slice());
 });
 /** A Help guide lesson Studio opened from: every successful Keep runs its challenge. */
 const lesson = useStudioLesson();
@@ -178,7 +195,7 @@ const assistHost: StudioAssistHost | null =
     ? {
         run: (request) => engineApi.runStudioAssist(request, aiSettings.llmConfig()),
         cancel: () => engineApi.discardAgent(),
-        resume: () => engineApi.continueAgent(),
+        resume: (requestLimit) => engineApi.continueAgent(requestLimit),
         task: () => engineApi.state.agentTask,
         log: () => engineApi.state.agentLog,
       }
@@ -186,8 +203,8 @@ const assistHost: StudioAssistHost | null =
 /** What an Ask is about: the selected cel, or every cel of its loop. */
 const askScope = ref<"cel" | "loop">("loop");
 const ASK_SCOPES = [
-  { value: "cel", label: "Cel", title: "Ask about this cel" },
-  { value: "loop", label: "Loop", title: "Ask about every cel of this loop" },
+  { value: "cel", label: "Cel", title: "Tell the agent about this cel" },
+  { value: "loop", label: "Loop", title: "Edit every cel in this loop with the agent" },
 ] as const;
 const askCels = computed(() => {
   const cels = draft.document.value.loops[loop.value]?.cels ?? [];
@@ -195,6 +212,24 @@ const askCels = computed(() => {
     return cels[cel.value] ? [{ loop: loop.value, cel: cel.value }] : [];
   return cels.map((_, index) => ({ loop: loop.value, cel: index }));
 });
+watch(
+  [loop, cel],
+  ([selectedLoop, selectedCel]) => {
+    if (embedded)
+      emit("agent-context", {
+        label: `VIEW ${viewNumber} · Loop ${selectedLoop}, cel ${selectedCel}`,
+        text: `Selected VIEW ${viewNumber}, loop ${selectedLoop}, cel ${selectedCel}.`,
+      });
+  },
+  { immediate: true },
+);
+function askAgent(): boolean {
+  if (embedded) {
+    emit("agent-ask");
+    return true;
+  }
+  return assistPanel.value?.focus() ?? false;
+}
 /** Every loop the request leaves alone: pixels and metadata. */
 const askProtected = computed(() =>
   draft.document.value.loops.flatMap((_, index) => (index === loop.value ? [] : [index])),
@@ -221,7 +256,7 @@ const assist = useStudioAssist({
   current: currentView,
   apply: (candidate, focus) => {
     if (candidate.kind !== "view" || focus.scope.kind !== "view")
-      return { ok: false, message: "That proposal is not for this view." };
+      return { ok: false, message: "That change is not for this view." };
     const outcome = draft.adopt(candidate.draft.payload, "AI edit", focus.scope);
     report(outcome);
     return outcome.ok ? outcome : { ok: false, message: outcome.refusal.message };
@@ -359,11 +394,11 @@ function edit(
   feetFrom?: typeof currentCel.value,
 ): void {
   if (frozen()) {
-    say({ tone: "warn", text: "This view is view only: nothing can be changed." });
+    say({ tone: "warn", text: "This actor is read-only." });
     return;
   }
   if (assist.holds.value) {
-    say({ tone: "warn", text: "Accept or reject the AI's proposal first." });
+    say({ tone: "warn", text: "Approve or reject the AI's change first." });
     return;
   }
   const ops = "type" in op ? [op] : op;
@@ -432,7 +467,7 @@ const roomPicture = computed<RoomBackdrop | null>(() => {
   const room = backdropRoom.value;
   if (backdrop.value.kind !== "room" || !room) return null;
   try {
-    const bytes = openContainer(new Map(files)).getResource("picture", room.picture);
+    const bytes = openContainer(new Map(files), { profile }).getResource("picture", room.picture);
     if (!bytes) return null;
     const surface = createPictureSurface();
     renderPicture(bytes, surface, { profile });
@@ -500,6 +535,7 @@ const keepTitle = computed(() =>
 
 const { leave, dialog, requestClose, discardChanges, keepChanges, recover, reopen } = useStudioExit(
   {
+    embedded,
     draft,
     keeper,
     say,
@@ -518,9 +554,15 @@ function history(which: "undo" | "redo"): void {
 
 const keepFocus = useStudioFocus(useTemplateRef("root"));
 const calm = useStudioCalm();
-/** The first-run tour: once per viewer, silent while a lesson's card is open. */
-const tour = useStudioTour("sprite", { lesson: () => lesson.session.value !== null });
-onMounted(() => void tour.offer());
+/**
+ * The status bar's Keys button. Safari leaves a clicked button unfocused, so
+ * activation takes its focus first: the sheet returns focus to what had it when the sheet opened.
+ */
+function openKeySheet(event: MouseEvent): void {
+  if (event.currentTarget instanceof HTMLElement)
+    event.currentTarget.focus({ preventScroll: true });
+  calm.sheetOpen.value = true;
+}
 const keySheet = spriteKeySheet();
 /**
  * The options bar folds what it cannot fit, least used first: the backdrop,
@@ -530,7 +572,10 @@ const keySheet = spriteKeySheet();
 const optionsBar = useTemplateRef("optionsBar");
 const optionsFold = useFold(optionsBar, 3, (bar) => {
   const options = bar.querySelector<HTMLElement>(".sprite-options");
-  return !options || options.scrollWidth <= options.clientWidth;
+  return (
+    !options ||
+    (options.scrollWidth <= options.clientWidth && options.scrollHeight <= bar.clientHeight)
+  );
 });
 const viewFold = computed(() => [0, 1, 1, 2][optionsFold.level.value] ?? 2);
 watch(
@@ -559,7 +604,7 @@ const keys: SpriteKeyActions = {
     else if (next) tools.setTool(next);
     return next !== undefined;
   },
-  ask: () => assistPanel.value?.focus() ?? false,
+  ask: askAgent,
   keySheet: () => (calm.sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */
@@ -590,16 +635,18 @@ const status = computed(() => {
   <div
     ref="root"
     class="sprite-studio"
+    :class="{ 'is-embedded': embedded, 'is-workspace-focus': workspaceFocus }"
     data-testid="sprite-studio"
     tabindex="-1"
     role="region"
-    :aria-label="`Sprite Studio: VIEW ${viewNumber}`"
+    :aria-label="`VIEW editor: ${viewNumber}`"
     @keydown="onKeydown"
     @keyup.stop
     @keypress.stop
     @click="keepFocus"
   >
     <SpriteTopBar
+      v-if="!embedded"
       class="sprite-studio__top"
       :view-number="viewNumber"
       :description
@@ -645,7 +692,7 @@ const status = computed(() => {
         <span
           v-else-if="tools.tool.value === 'eraser'"
           class="sprite-options__note sprite-options__erase"
-          >Paints ∅ transparent <UiExplain v-bind="explain('transparent')"
+          >Paints the transparent colour <UiExplain v-bind="explain('transparent')"
         /></span>
         <span
           v-if="tools.tool.value !== 'recolor' && optionsFold.level.value < 2"
@@ -725,6 +772,13 @@ const status = computed(() => {
       />
     </main>
 
+    <PaletteStrip
+      v-if="embedded && workspaceFocus"
+      :value="color"
+      @choose="color = $event"
+      class="sprite-workspace-palette"
+      data-testid="sprite-palette"
+    />
     <SpriteTimeline
       class="sprite-studio__timeline"
       :document="shown"
@@ -742,7 +796,6 @@ const status = computed(() => {
         v-if="lesson.session.value"
         :session="lesson.session.value"
         :outcome="lesson.outcome.value"
-        @tour="tour.start()"
       />
       <SpritePalette
         v-model="color"
@@ -788,7 +841,7 @@ const status = computed(() => {
         :priority-base="priorityBase"
       />
       <StudioAssistPanel
-        v-if="assistHost"
+        v-if="assistHost && !embedded"
         ref="assistPanel"
         :assist
         :chips="assistChips"
@@ -804,7 +857,7 @@ const status = computed(() => {
             v-if="!assist.holds.value"
             v-model="askScope"
             size="sm"
-            label="Ask about"
+            label="Scope"
             :options="ASK_SCOPES"
           />
         </template>
@@ -844,19 +897,14 @@ const status = computed(() => {
         aria-keyshortcuts="?"
         aria-haspopup="dialog"
         data-testid="studio-keys-button"
-        @click="calm.sheetOpen.value = true"
+        @click="openKeySheet"
       />
     </footer>
     <p class="sprite-studio__sr" aria-live="polite">{{ spoken }}</p>
-    <StudioTour :tour :stage name="Sprite Studio" />
 
-    <StudioKeySheet
-      v-model:open="calm.sheetOpen.value"
-      name="Sprite Studio"
-      :sections="keySheet"
-      @tour="tour.start()"
-    />
+    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="VIEW editor" :sections="keySheet" />
     <StudioKeepDialog
+      v-if="!embedded"
       v-model:ask="dialog"
       :subject="`VIEW ${viewNumber}`"
       noun="view"
@@ -865,7 +913,7 @@ const status = computed(() => {
       @keep="leave.answer('keep')"
       @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
     />
-    <StudioSmallScreen name="Sprite Studio" :draft :keeper @close="emit('close')" />
+    <StudioSmallScreen v-if="!embedded" name="VIEW editor" :draft :keeper @close="emit('close')" />
   </div>
 </template>
 
@@ -927,6 +975,9 @@ const status = computed(() => {
   color: var(--ink);
   font-weight: var(--weight-bold);
 }
+.sprite-options > * {
+  flex-shrink: 0;
+}
 .sprite-options__colour {
   display: inline-flex;
   align-items: center;
@@ -987,6 +1038,7 @@ const status = computed(() => {
   border-left: 1px solid var(--hairline);
 }
 .sprite-studio__status {
+  grid-row: 5;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -1021,6 +1073,44 @@ const status = computed(() => {
   margin: -1px;
   overflow: hidden;
   clip-path: inset(50%);
+  white-space: nowrap;
+}
+.sprite-studio.is-embedded .sprite-options__name {
+  min-width: 0;
+}
+.sprite-studio.is-embedded {
+  grid-template-columns: 44px minmax(0, 1fr) 300px;
+  grid-template-rows: 0 40px minmax(0, 1fr) 120px 28px;
+}
+.sprite-studio.is-embedded .sprite-studio__options {
+  grid-column: 1 / -1;
+}
+.sprite-studio.is-embedded .sprite-options {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.sprite-studio.is-embedded .sprite-studio__panel {
+  grid-row: 3 / 5;
+}
+.sprite-studio.is-workspace-focus {
+  grid-template-columns: 44px minmax(0, 1fr) 0;
+  grid-template-rows: 0 40px minmax(0, 1fr) 52px 120px 28px;
+}
+.sprite-studio.is-workspace-focus .sprite-studio__panel {
+  display: none;
+}
+.sprite-workspace-palette {
+  grid-column: 2;
+  grid-row: 4;
+}
+.sprite-studio.is-workspace-focus .sprite-studio__timeline {
+  grid-row: 5;
+}
+.sprite-studio.is-workspace-focus .sprite-studio__status {
+  grid-row: 6;
+}
+.sprite-studio.is-embedded .sprite-studio__status {
+  overflow: hidden;
   white-space: nowrap;
 }
 </style>

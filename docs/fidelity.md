@@ -227,7 +227,8 @@ same pass. Other details that games depend on:
   next due step into a zero-step re-check.
 - **Ego and the player.** `move.obj`, `move.obj.v` and `wander` on ego take
   control away from the player; arrival or a border stop gives it back and
-  clears v6. `player.control` ends any scripted motion of ego outright.
+  clears v6. `player.control` ends any scripted motion of ego outright (on the
+  later Amiga builds, only when the call follows program control).
 - **Loops and cels.** `set.view` keeps the current loop, and `set.loop` the
   current cel, whenever the new view or loop has enough of them; only an
   out-of-range index falls back to 0.
@@ -1340,7 +1341,26 @@ touches nothing else. Fact: `player.control` ends a running `move.obj`,
 Switching only the coupling would let a scripted ego walk continue after the
 script hands control back; Police Quest depends on the stop.
 
-**Tests:** [ego-motion-control.test.ts](../test/ego-motion-control.test.ts).
+The Amiga builds split on the prior control state (hunk-relative offsets
+resolved through each executable's relocation table; the six-byte dispatch
+record for opcode 0x84 names each entry). SQ1 2.082's handler at h120+0x412
+(hunk `a9b73f7f501b21aa`) matches the DOS form: store 1 in the player-control
+field (state hunk `+0x1a`), clear ego's motion word, done. The five later
+builds — KQ2 2.176, SQ2 2.202, PQ1 2.310, GR 2.316 and MH2 2.333 — share one
+handler at h165+0x41e (hunk `b16f88c2b26e6c01`): it tests the prior control
+field at h206+0x1a and returns without touching ego when player control is
+already selected, so the motion word clears only on a program→player
+transition. Executing each relocated handler against both prior states and
+autonomous modes 1–4 confirms the branch reads the control field, not the
+motion: the later builds preserve modes 1–4 under prior player control and
+clear them under prior program control, 2.082 clears in both, and the
+direction byte is untouched either way. PQ1's logic 0 issues `player.control`
+on every ordinary cycle while its program-control flag is clear, so the
+unconditional form strands its click-walks mid-path with the first heading
+kept. `AgiProfile.playerControlMotionClear` selects between the two forms.
+
+**Tests:** [ego-motion-control.test.ts](../test/ego-motion-control.test.ts),
+[amiga-player-control.test.ts](../test/amiga-player-control.test.ts).
 
 ### Border variables cleared
 
@@ -1554,9 +1574,12 @@ KQ4's closing intro window shows the cycling wave through its top border.
 **Specification:** The spec's modal-text chapter does not address whether object updates continue under
 an open window.
 
-**Evidence:** The shipped main loops gate the object-update call on a state byte set only around the
-full-screen selector UI, never by the window-open routine: the gate byte is `[0x17c7]` in 3.002.086
-and `[0x1757]` in 2.936, set around the selector UI (0x3569 in 3.002.086); the window-open routine
+**Evidence:** The shipped main loops gate the object-update call on the text-screen mode byte, which
+the window-open routine never sets. In KQ4 3.002.086 (static disassembly) the main loop tests
+`[0x17c7]` at 0x241. Action 0x6a `text.screen` (handler 0x7b09, dispatch entry `AGIDATA.OVL`
+0x7c5) sets it at 0x7b14, and action 0x6b `graphics` (handler 0x7b41) clears it through 0x7d0a at
+0x7d0f. A search of the image finds no other direct write. 2.936 gates on `[0x1757]`, which the
+agi-re evidence book attributes to the same pair (0x6a handler 0x76ca). The window-open routine
 (0x204F in 3.002.086) sets `[0xd53]`, which no draw or update path reads.
 
 **Tests:** [kq4-regressions.test.ts](../test/kq4-regressions.test.ts).
@@ -1961,8 +1984,9 @@ Two failure modes arise if hardware latching semantics and rest notes are not mo
    Suppression is a deliberate presentation divergence, not reproduced original
    command-stream behavior. Resolve chip/device semantics before changing it.
 
-**Specification:** The AGI behavioral specification documents the 5-byte note structure and defines
-tone divisor 0 as silence/rest, but does not detail the TI SN76489 chip latching state machine.
+**Specification:** The AGI behavioral specification documents the 5-byte note structure and treats
+control attenuation `0x0f` as silence. It gives tone 0 no rest meaning of its own and does not detail
+the TI SN76489 chip latching state machine.
 
 **Tests:** [audio.test.ts](../app/test/audio.test.ts) (rejection of data bytes on attenuation latches),
 [sound-playback.test.ts](../test/sound-playback.test.ts) (rest note tone suppression).
@@ -2671,6 +2695,45 @@ from GR 2.316 only in version, disk-count and game-ID strings, one init
 routine and relocations. `soundEnvelope` is inert on 2.082, whose driver has
 no envelope table.
 
+### Amiga directory absence
+
+The 2.31x combined-directory loader decides whether a three-byte entry
+names a resource before any volume is opened. Its predicate lives at
+h100+0x118 in the PQ 2.310 and MH2 2.333 executables (sha256
+`72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca` and
+`5ce3b163bd32ee025f6ba8ca8c946b03a06ff2960da8cc723c1d6184a3cc346a`); both
+builds' predicate bytes hash identically
+(`02a9c19a546c9fef0ad9dfcf09df609d3b4b4fa8b6425702d68bb40f88470e87`), and
+GR 2.316 (`7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db`)
+carries the same bytes — a static identity; its routine was not executed.
+
+The original routine was executed unchanged on controlled inputs: 768
+three-byte entries per build, 1536 of 1536 agreeing with the rule that an
+entry whose first byte's high nibble is `f` is absent, regardless of its
+remaining bytes (`00 00 00` and `ef ff fc` present; `f0 00 00`,
+`ff ff fc` and `ff ff ff` absent). That differs from the DOS v3 rule,
+where only the exact `ff ff ff` triple is absent and the nibble can name
+a real `VOL.15`. An absent entry answers "no such resource": the loader
+never reaches the volume open, so an `f`-nibble entry cannot trigger the
+missing-volume report a real `VOL.14` reference produces, and it is never
+treated as a successful load. The MH2 `dirs` (sha256
+`4c4ed1128707c0b5cf35ae978b9bb77b9bb98f18b98e0f87a9911620d54515da`,
+picture section at offset 599) lists picture 106 as `ff ff fc` at file
+offset 0x395: absent under this rule, not a reference to an unshipped
+`VOL.15`.
+
+The probes establish the predicate on the 2.310/2.316/2.333
+combined-directory builds — executed on 2.310 and 2.333, byte-identical
+on 2.316. The earlier Amiga builds and the IIgs were not exercised here.
+In the engine, the rule is the profile's `directoryAbsence`
+(`volume-nibble-f` on these three profiles, `exact-fff` on the DOS v3
+profiles); the same boundary caps a pack's destination volume at 14 for
+the nibble-f rule and 15 under exact-fff.
+
+**Tests:** [amiga-directory.test.ts](../test/amiga-directory.test.ts),
+[amiga-directory-review.test.ts](../test/amiga-directory-review.test.ts),
+[container-profile-roundtrip.test.ts](../app/test/container-profile-roundtrip.test.ts).
+
 ### Original Amiga sound player
 
 The Amiga editions play the same SOUND resources as the PC releases (the
@@ -2899,6 +2962,90 @@ selects `short-r1` for 2.176/2.202 and `center-row-320` for the 2.31x
 generation and the IIgs. Tests:
 [picture-profile.test.ts](../test/picture-profile.test.ts).
 
+### Original native menu dispatch
+
+The Amiga menu event path is separate from `menu.input`. In PQ1 Amiga
+2.310, the action table dispatches that opcode to the no-op h6+0x64.
+Intuition MENUVERIFY and MENUPICK messages enter h106 instead. Addresses
+below identify interpreter machine code, with hunk relocations resolved;
+they describe the original event boundary, not game LOGIC or a browser
+implementation of the native OS.
+
+PQ1 executable SHA-256 is
+`72ddbb3ecda804b8dac2f65ed115099af0241d475ac8d432de48428b28cd5cca`.
+MENUHOT verification at h106+0x106 rejects a nonzero h206+0x410 inhibit,
+text-screen state h180+0 equal to 1, or clear AGI flag 14. The text-screen
+meaning is established by the dispatched text.screen/graphics handlers in
+h179. The separate inhibit is written by dialog and picture-transfer paths;
+it is broader than a single modal kind. Successful verification sets freeze
+flag h4+2 and menu ownership h108+8 only if the freeze was previously clear.
+MENUPICK at h106+0xdc clears those fields only when h108+8 identifies this
+owner. The timer tests h4+2 at h194+0x0c and returns before game-clock and
+pacing updates when it is set. These instructions establish the game-clock
+gate, not original OS scheduling or an audio-pause rule.
+
+Selection h221+0x434 returns immediately for `0xffff` cancellation. Otherwise
+it calls ItemAddress, reads the selected item's status byte at +0x1a,
+sign-extends it, enqueues type 3 through h103+0x40 and follows NextSelect at
++0x20. Controlled M68000 execution of the unchanged selection, queue, input
+drain and condition dispatch tested all 256 status bytes. Only OS ItemAddress
+was replaced with a synthetic lookup; the controller array and surrounding
+memory started zeroed. The drain's h85+0xac arm sign-extends the event word
+again and writes byte 1 relative to controller base h120. Statuses 0..127
+write their positive slots; 128..255 write offsets -128..-1. Condition 12's
+ordinary unsigned controller predicate is true for 0..127 and false for
+128..255 in this controlled case. This proves the consumer does not fold
+negative statuses back to unsigned. It does not establish adjacent-memory
+effects, real disabled-item selection or whole-game behavior, and does not
+justify reproducing the original out-of-bounds write.
+
+Static comparisons extend those inspected instruction boundaries to Gold
+Rush 2.316 (`7bfa2f36616923a41ecb5aa9e3595e7225cdd48ea453e1c1b8310ace0fcdb7db`)
+and MH2 2.333 (`5ce3b163bd32ee025f6ba8ca8c946b03a06ff2960da8cc723c1d6184a3cc346a`).
+Their selection h221+0x434..0x482, signed controller-write arm h85+0xac..0xbe,
+MENUHOT h106+0x106..0x158, MENUPICK h106+0xdc..0x106, flag predicate
+h175+0xa2..0xc2, ItemAddress veneer h248+0x88..0xa0 and initial timer
+h194+0..0x40 match PQ1, including every resolved relocation target. Their
+unsigned controller predicate matches at h23+0x19c..0x1ac. This is static
+identity of those regions; it does not substitute for original OS interaction
+or independently prove every downstream callee.
+
+Earlier native gates differ. Sierra/SQ1 2.082
+(`80c6b0c4912a4ca5b44ad94c1c1b66a42e2b490f8a4ace90fb8b05f1fb39ea0f`)
+MENUHOT h78+0x106 checks inhibitor h80+0x0c and text mode h129+0, with no
+flag-14 test before freeze at +0x12c. KQ2 2.176
+(`62b17ac8049a982e08b1830463f067e102960feb2abb78e992e28bbe15a1cf42`)
+and SQ2 2.202
+(`557215fbbf431193e99578be53372496bd4bf1cfad7c4ba93a61968e5c760dec`)
+check h108+0x0c, text mode h180+0 and flag 14 at h106+0x106..0x158.
+Their print worker restores the prior inhibitor before its nonblocking f15
+return; PQ1 does likewise at h57+0x1a8. A persistent window therefore
+does not itself prove native menu inhibition on these builds.
+
+The early controller paths also sign-extend selected status: SQ1 selection
+h159+0x410 and write h63+0xa2 use controller base h86; KQ2/SQ2 use h85+0xa8
+and h120. SQ1's condition-table h18 slot 12 resolves to h17+0x484, which
+zero-extends the operand before reading h86. KQ2/SQ2's unsigned predicate
+at h23+0x19c matches the later predicate. These are static consumer/predicate
+findings, separately from the executed PQ1 cases.
+
+SQ2 IIgs 1.014 executable SHA-256 is
+`e1a2788f92cb76220e5ac228945bf2eaf7f3a97208f0c3af2ae81d947407717f`.
+Its native menu.input handler seg3+0x142f returns unchanged. The top-bar
+entry at seg3+0x910..0x919 requires flag 14, `$0090==0` and `$00b3!=1`.
+Native selection seg3+0x13d7 masks the identifier to eight bits before
+enqueueing type 3; construction and enable/disable use `id & 0xff | 0x0100`.
+This unsigned path differs from the inspected Amiga consumer. `$00b3` is
+text mode: text.screen seg2+0x6ac writes 1 at +0x6ba, while the graphics
+helper clears it at +0x88c. `$0090` inhibits drawing/dialog interaction:
+picture transfer main+0xf8e sets it and +0xfcc clears it; print/wait
+seg2+0x2251 sets it. The nonblocking f15 return at +0x22a5 branches past
+the clear at +0x2352, so the persistent print window retains menu inhibition
+until window close. This differs from the inspected Amiga f15 return.
+Full TaskMaster completion routing and original time/audio ownership remain
+separate evidence questions. These IIgs findings are static, with no original
+Toolbox execution claimed.
+
 ### Original click-to-walk
 
 Every Amiga build and the Apple IIgs build start a click-move of ego on a
@@ -2972,7 +3119,7 @@ the menu flag set, a click enqueues Enter.
 
 **Apple IIgs 1.014.** The Event Manager loop's mouse-down arm (seg3+0x8eb)
 sends clicks on rows 0-7 (`where.y - 8` negative, signed) to the menu bar
-unless byte `$0090` is set or `$00b3` is 1. Other clicks go through a hit
+when AGI flag 14 is set, `$0090` is zero and `$00b3` is not 1. Other clicks go through a hit
 test (`jsl $000e1f` with the position, seg3+0x9be); a zero result or part 2
 of its four-way table (seg3+0xa3a) reaches the walk arm (seg3+0xa4b), which
 starts the walk when `$1592` and `$00b3` are both zero or `$1590` is set,
@@ -2983,8 +3130,10 @@ and otherwise turns the click into Enter when `$00b3` is 1. The walk arm calls
 flag for mode 4 and hands control back; the mover's edge case
 (`moveobjsse+0x1ec`) finishes only mode 3; `newroomseg+0x115` clears a mode-4
 ego and v6. The IIgs has no `mouse.posn`, flag-19 or nudge surface. The
-meanings of `$0090`, `$00b3`, `$1590`, `$1592` and the hit test's parts are
-not decoded (**not found**), so the engine applies the normal case: rows 0-7
+menu gate fields `$0090` and `$00b3` are described under
+[Original native menu dispatch](#original-native-menu-dispatch). The remaining
+click-specific roles of `$1590`, `$1592` and the hit test's parts are not
+fully decoded, so the engine applies the normal case: rows 0-7
 never walk, and below them the player-control gate decides.
 
 **Engine mapping.** The host reports left-button-downs through

@@ -1,5 +1,5 @@
 import type { GameCatalogEntry } from "./gameCatalog.ts";
-import { readGameFiles, type OpenedGame } from "../archive/gameZip.ts";
+import type { OpenedGame } from "../archive/gameZip.ts";
 import { canonicalResourceName, isPlayableFileName } from "../../../src/container/playableFiles.ts";
 
 const MAX_MANIFEST_BYTES = 1024 * 1024;
@@ -153,6 +153,9 @@ function catalogEntry(
         if (total > MAX_GAME_BYTES) throw new Error("Hosted game exceeds the 256 MB total limit.");
         files.set(name, bytes);
       }
+      // The archive reader loads with the entry's load action, not the
+      // catalog fetch — listing a hosted shelf never needs it.
+      const { readGameFiles } = await import("../archive/gameZip.ts");
       const opened = readGameFiles(files);
       return {
         ...opened,

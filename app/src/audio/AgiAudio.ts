@@ -1,3 +1,9 @@
+import {
+  SOUND_LOOKAHEAD_SECONDS,
+  SOUND_TICK_SECONDS,
+  type SoundTick,
+  type SoundTiming,
+} from "./soundTiming.ts";
 /**
  * Web Audio presentation of the engine's sound command stream.
  * Resource timing, channel selection, envelopes and completion belong to the
@@ -38,7 +44,13 @@ export class AgiAudio {
   private mode: AudioMode = "tandy";
   private volume: number = 0.5;
   private muted: boolean = false;
-  private paused = false;
+  /** The ambient pause channel: setPaused, shared by the local hold owners. */
+  private pausedAmbient = false;
+  /** Identified owners beside the ambient channel (the worker's suspension). */
+  private readonly pauseOwners = new Set<string>();
+  /** A suspend/resume is settling; requests made during it fold into a recheck. */
+  private pauseTransition = false;
+  private pauseRequeue = false;
   private playing = false;
   private family: SoundOutput["kind"] | "paula-2.082" | null = null;
   private channelGains: GainNode[] = [];
@@ -51,9 +63,36 @@ export class AgiAudio {
   private iigsSources: IigsSources | null = null;
   private iigsSynth: IigsSynth | null = null;
   /** Fallback voices without the bank: one triangle per sounding note. */
-  private iigsFallback = new Map<number, { osc: OscillatorNode; gain: GainNode }>();
+  private iigsFallback = new Map<
+    number,
+    { osc: OscillatorNode; gain: GainNode; channel: number }
+  >();
   private readonly contextFactory: (() => AudioContext) | undefined;
-  private activeNodes: { stop?: () => void; disconnect: () => void }[] = [];
+  private activeNodes: { stop?: (when?: number) => void; disconnect: () => void }[] = [];
+  /**
+   * The most recent gain an event programmed per rendered lane; kept even
+   * while a lane gate silences it so ungating restores that exact value.
+   */
+  private laneProgrammed: number[] = [];
+  /**
+   * Per-lane presentation gates; absent or true means audible. They survive
+   * stop() like mute and volume: they are presentation preference, never
+   * event state.
+   */
+  private laneAudible: (boolean | undefined)[] = [];
+  /** A disposed instance never recreates a context or resurrects output. */
+  private closedAudio = false;
+  private stateListener: (() => void) | null = null;
+  private timing: {
+    stream: string;
+    tick: number;
+    at: number;
+    anchorTick: number;
+    anchorTime: number;
+  } | null = null;
+  private readonly retiredStreams = new Set<string>();
+  private readonly retiredGraphs = new Set<typeof this.activeNodes>();
+  private readonly sourceStops = new WeakMap<object, number>();
 
   constructor(options?: {
     mode?: AudioMode;
@@ -83,6 +122,41 @@ export class AgiAudio {
     return this.playing;
   }
 
+  /** Any pause channel held: the ambient flag or a named owner. */
+  get isPaused(): boolean {
+    return this.pausedAmbient || this.pauseOwners.size > 0;
+  }
+
+  /** True after close(): no output, context or pause request is served again. */
+  get closed(): boolean {
+    return this.closedAudio;
+  }
+
+  /**
+   * A presentation gate on one rendered lane (0..3). The event stream still
+   * programs every register while gated — tone-2 divisors keep driving the
+   * noise rate, attenuation commands keep landing in laneProgrammed — so an
+   * ungated lane resumes at the profile's current volume instead of a stale
+   * or fabricated one. Only the rendered gain is touched.
+   */
+  setLaneAudible(lane: number, audible: boolean): void {
+    if (!Number.isInteger(lane) || lane < 0 || lane > 3) return;
+    this.laneAudible[lane] = audible;
+    const gain = this.channelGains[lane];
+    if (gain && this.ctx)
+      gain.gain.setValueAtTime(
+        audible ? (this.laneProgrammed[lane] ?? 0) : 0,
+        this.ctx.currentTime,
+      );
+  }
+
+  /** One lane's rendered gain: the event's value, or 0 while the lane is gated. */
+  private setLaneGain(lane: number, value: number, at: number): void {
+    this.laneProgrammed[lane] = value;
+    const gain = this.channelGains[lane];
+    if (gain) gain.gain.setValueAtTime(this.laneAudible[lane] === false ? 0 : value, at);
+  }
+
   setMode(mode: AudioMode): void {
     this.mode = mode;
     if (this.isPlaying) {
@@ -92,22 +166,12 @@ export class AgiAudio {
 
   setVolume(vol: number): void {
     this.volume = Math.max(0, Math.min(1, vol));
-    if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(
-        this.muted || this.paused ? 0 : this.volume,
-        this.ctx.currentTime,
-      );
-    }
+    this.applyMasterGain();
   }
 
   setMuted(mute: boolean): void {
     this.muted = mute;
-    if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(
-        this.muted || this.paused ? 0 : this.volume,
-        this.ctx.currentTime,
-      );
-    }
+    this.applyMasterGain();
   }
 
   toggleMute(): boolean {
@@ -117,9 +181,10 @@ export class AgiAudio {
 
   /**
    * Resumes AudioContext on user gesture to comply with browser autoplay policies.
+   * A pause owner outranks the unlock: the context stays frozen until released.
    */
   async resume(): Promise<void> {
-    if (this.ctx && this.ctx.state === "suspended") {
+    if (this.ctx && this.ctx.state === "suspended" && !this.isPaused && !this.closedAudio) {
       await this.ctx.resume();
     }
   }
@@ -134,42 +199,173 @@ export class AgiAudio {
         this.ctx = new AudioCtx();
       }
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(
-        this.muted || this.paused ? 0 : this.volume,
-        this.ctx.currentTime,
-      );
+      this.applyMasterGain();
       this.masterGain.connect(this.ctx.destination);
+      // The context can reach "running" on its own — WebKit auto-resumes a
+      // context created suspended, an OS interruption ends — so a held pause
+      // is re-asserted from the state change, not only from our requests.
+      if (typeof this.ctx.addEventListener === "function") {
+        this.stateListener = () => this.syncContextPause();
+        this.ctx.addEventListener("statechange", this.stateListener);
+      }
+      this.syncContextPause();
     }
     return this.ctx;
   }
 
+  /**
+   * The ambient pause channel (the local overlay/walkthrough holds). A named
+   * owner set through setPauseOwner keeps the freeze after this releases.
+   */
   setPaused(paused: boolean): void {
-    this.paused = paused;
-    if (this.masterGain && this.ctx)
-      this.masterGain.gain.setValueAtTime(
-        this.muted || paused ? 0 : this.volume,
-        this.ctx.currentTime,
-      );
+    this.pausedAmbient = paused;
+    this.applyPause();
   }
 
-  /** Apply one authoritative sound-tick output. No separate playback clock or completion timer. */
-  output(event: SoundOutput): void {
+  /**
+   * An identified pause owner: the worker's authoring suspension holds
+   * "worker"; the debugger's run-identified control is the next one. The
+   * context stays frozen until every owner and the ambient channel release.
+   */
+  setPauseOwner(owner: string, paused: boolean): void {
+    if (paused) this.pauseOwners.add(owner);
+    else this.pauseOwners.delete(owner);
+    this.applyPause();
+  }
+
+  /** Silence is immediate; the clock freeze settles through syncContextPause. */
+  private applyPause(): void {
+    this.applyMasterGain();
+    this.syncContextPause();
+  }
+
+  private applyMasterGain(): void {
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setValueAtTime(
+        this.muted || this.isPaused ? 0 : this.volume,
+        this.ctx.currentTime,
+      );
+    }
+  }
+
+  /**
+   * Drive the context toward the owners' answer: suspend() freezes
+   * currentTime — scheduled samples, envelope ramps and oscillator phases —
+   * where the muted master gain cannot. One transition runs at a time; a
+   * request made mid-flight marks a recheck so a rapid pause-release-pause
+   * ends frozen regardless of settle order. Rejections (a closed or
+   * replaced context) are swallowed: the gain is already zero, and the next
+   * request retries. A suspended context is only resumed when nothing holds
+   * the pause — output() and the autoplay unlock never lift an owner's hold.
+   */
+  private syncContextPause(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (this.pauseTransition) {
+      this.pauseRequeue = true;
+      return;
+    }
+    let transition: (() => Promise<void>) | null = null;
+    if (this.isPaused && ctx.state === "running" && typeof ctx.suspend === "function")
+      transition = () => ctx.suspend();
+    else if (!this.isPaused && ctx.state === "suspended" && typeof ctx.resume === "function")
+      transition = () => ctx.resume();
+    if (!transition) return;
+    this.pauseTransition = true;
+    let outcome: Promise<void>;
+    try {
+      outcome = Promise.resolve(transition());
+    } catch (error) {
+      outcome = Promise.reject(error);
+    }
+    void outcome
+      .catch(() => {})
+      .then(() => {
+        this.pauseTransition = false;
+        if (this.pauseRequeue) {
+          this.pauseRequeue = false;
+          this.syncContextPause();
+        }
+      });
+  }
+
+  /** Apply a whole heartbeat at one context time, including natural completion. */
+  outputTick(packet: SoundTick): void {
+    if (this.closedAudio || this.retiredStreams.has(packet.stream)) return;
+    const at = this.tickTime(packet);
+    if (at === null) return;
+    for (const event of packet.outputs) this.render(event, at);
+    if (packet.complete) {
+      this.retiredStreams.add(packet.stream);
+      this.timing = null;
+      this.releaseGraph(at);
+    }
+  }
+
+  /** Immediate register writes, or explicitly identified logical ticks. */
+  output(event: SoundOutput, timing?: SoundTiming): void {
+    if (this.closedAudio) return;
+    const at = timing ? this.tickTime(timing) : this.initContext().currentTime;
+    if (at !== null) this.render(event, at);
+  }
+
+  private tickTime(position: SoundTiming): number | null {
+    if (
+      !Number.isSafeInteger(position.tick) ||
+      position.tick < 0 ||
+      this.retiredStreams.has(position.stream)
+    )
+      return null;
+    const ctx = this.initContext();
+    if (this.timing?.stream !== position.stream) {
+      if (this.timing) {
+        this.retiredStreams.add(this.timing.stream);
+        this.releaseGraph(ctx.currentTime);
+      }
+      this.timing = {
+        stream: position.stream,
+        tick: position.tick,
+        at: ctx.currentTime + SOUND_LOOKAHEAD_SECONDS,
+        anchorTick: position.tick,
+        anchorTime: ctx.currentTime + SOUND_LOOKAHEAD_SECONDS,
+      };
+    }
+    const clock = this.timing;
+    if (position.tick < clock.tick) return null;
+    if (position.tick === clock.tick) return clock.at;
+    let at = clock.anchorTime + (position.tick - clock.anchorTick) * SOUND_TICK_SECONDS;
+    // A late batch gets one new anchor, then keeps its real tick distances.
+    // Same-tick writes reuse clock.at even if delivery crosses a render quantum.
+    if (at < ctx.currentTime) {
+      clock.anchorTick = position.tick;
+      clock.anchorTime = ctx.currentTime + SOUND_LOOKAHEAD_SECONDS;
+      at = clock.anchorTime;
+    }
+    clock.tick = position.tick;
+    clock.at = at;
+    return at;
+  }
+
+  private render(event: SoundOutput, at: number): void {
+    if (this.closedAudio) return;
     // The two Amiga drivers loop different buffers; a source's buffer
     // cannot be reassigned, so a driver change rebuilds the voices.
     const family = event.kind === "paula" && event.driver === "2.082" ? "paula-2.082" : event.kind;
     if (this.family !== family) {
-      this.stop();
+      if (this.family !== null) this.releaseGraph(at);
       this.family = family;
     }
     const ctx = this.initContext();
-    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    // A held pause keeps a fresh or suspended context frozen; without one
+    // this is still the autoplay-unlock retry the suspended state needs.
+    this.syncContextPause();
     this.playing = true;
     const maxFreq = (ctx.sampleRate || 48000) / 2;
     if (event.kind === "iigs") {
       if (this.iigsSources) {
         this.iigsSynth ??= new IigsSynth(ctx, this.masterGain!, this.iigsSources);
-        this.iigsSynth.output(event);
-      } else this.iigsFallbackOutput(ctx, event, maxFreq);
+        this.iigsSynth.output(event, at);
+      } else this.iigsFallbackOutput(ctx, event, maxFreq, at);
       return;
     }
     if (event.kind === "paula") {
@@ -181,7 +377,7 @@ export class AgiAudio {
       if (event.period !== null && event.period > 0)
         source.playbackRate.setValueAtTime(
           PAULA_CLOCK / Math.max(PAULA_MIN_PERIOD, event.period) / ctx.sampleRate,
-          ctx.currentTime,
+          at,
         );
       // Both drivers write AUDxPER 0 for a rest (tone word 0) with the
       // volume its attenuation gives — KQ2's signed attack and 2.082's v23
@@ -189,9 +385,10 @@ export class AgiAudio {
       // audible pitch, so it renders silent (docs/fidelity.md, "Original
       // Amiga sound player"). AUDxVOL bit 6 is Paula's maximum; the
       // drivers only write 0..64, clamped here for safety.
-      this.channelGains[channel]!.gain.setValueAtTime(
+      this.setLaneGain(
+        channel,
         event.period === null || event.period === 0 ? 0 : (Math.min(64, event.volume) / 64) * 0.4,
-        ctx.currentTime,
+        at,
       );
       return;
     }
@@ -199,8 +396,8 @@ export class AgiAudio {
     if (event.kind === "speaker") {
       const divisor = event.divisor;
       const rawFreq = divisor ? 1193180 / divisor : 0;
-      this.oscillators[0]!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), ctx.currentTime);
-      this.channelGains[0]!.gain.setValueAtTime(divisor === null ? 0 : 0.4, ctx.currentTime);
+      this.oscillators[0]!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
+      this.setLaneGain(0, divisor === null ? 0 : 0.4, at);
       return;
     }
     for (const raw of event.bytes) {
@@ -213,9 +410,10 @@ export class AgiAudio {
         // Attenuation registers are latch-only; data bytes are ignored (docs/fidelity.md: SN76489 attenuation latching and rest notes).
         if (!latch) continue;
         const attenuation = byte & 15;
-        this.channelGains[channel]!.gain.setValueAtTime(
+        this.setLaneGain(
+          channel,
           attenuation === 15 ? 0 : Math.pow(10, -attenuation / 10) * 0.25,
-          ctx.currentTime,
+          at,
         );
       } else if (channel < 3) {
         this.divisors[channel] = latch
@@ -223,10 +421,7 @@ export class AgiAudio {
           : (this.divisors[channel]! & 15) | ((byte & 63) << 4);
         const divisor = this.divisors[channel]!;
         const rawFreq = divisor ? PIT_BASE_FREQ / divisor : 0;
-        this.oscillators[channel]!.frequency.setValueAtTime(
-          Math.min(maxFreq, rawFreq),
-          ctx.currentTime,
-        );
+        this.oscillators[channel]!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
       } else {
         // Noise control register is latch-only (docs/fidelity.md: SN76489 attenuation latching and rest notes).
         if (!latch) continue;
@@ -234,32 +429,108 @@ export class AgiAudio {
         const rate = byte & 3;
         const rawFreq =
           rate === 3 ? PIT_BASE_FREQ / Math.max(1, this.divisors[2]!) : 4000 / (1 << rate);
-        this.noiseFilter!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), ctx.currentTime);
+        this.noiseFilter!.frequency.setValueAtTime(Math.min(maxFreq, rawFreq), at);
       }
     }
   }
 
   stop(): void {
-    for (const node of this.activeNodes) {
-      try {
-        node.stop?.();
-      } catch {
-        /* A source can already have ended. */
+    if (this.timing) this.retiredStreams.add(this.timing.stream);
+    this.timing = null;
+    this.releaseGraph();
+    for (const graph of this.retiredGraphs) {
+      for (const node of graph) {
+        try {
+          node.stop?.();
+        } catch {
+          /* Already ended. */
+        }
+        node.disconnect();
       }
-      node.disconnect();
+    }
+    this.retiredGraphs.clear();
+  }
+
+  /** Detach the register state now; let scheduled voices finish at their tick. */
+  private releaseGraph(at?: number): void {
+    const graph = this.activeNodes;
+    const scheduled = at !== undefined && this.ctx !== null && at > this.ctx.currentTime;
+    for (const node of graph) {
+      this.stopSource(node, at);
+      if (!scheduled) node.disconnect();
+    }
+    if (scheduled && graph.length > 0) {
+      this.retiredGraphs.add(graph);
+      // The last sounding source owns cleanup; an earlier note-off cannot
+      // disconnect the other voices while they still have scheduled audio.
+      const sources = graph.filter((node) => node.stop);
+      sources.sort((a, b) => (this.sourceStops.get(b) ?? 0) - (this.sourceStops.get(a) ?? 0));
+      const source = sources[0] as AudioScheduledSourceNode | undefined;
+      if (source)
+        source.onended = () => {
+          for (const node of graph) node.disconnect();
+          this.retiredGraphs.delete(graph);
+        };
     }
     this.activeNodes = [];
     this.channelGains = [];
     this.oscillators = [];
     this.noiseFilter = null;
     this.paulaSources = [];
-    this.iigsSynth?.stop();
-    for (const voice of this.iigsFallback.values()) voice.osc.stop();
+    this.iigsSynth?.stop(at);
     this.iigsFallback.clear();
     this.divisors.fill(0);
     this.latchedRegister = 0;
+    // Fresh channels have no programmed volume; the lane gates themselves
+    // are presentation preference and stay.
+    this.laneProgrammed = [];
     this.playing = false;
     this.family = null;
+  }
+
+  private stopSource(node: (typeof this.activeNodes)[number], at?: number): void {
+    if (!node.stop) return;
+    const previous = this.sourceStops.get(node);
+    if (at !== undefined && previous !== undefined && previous <= at) return;
+    this.sourceStops.set(node, at ?? this.ctx?.currentTime ?? 0);
+    try {
+      node.stop(at);
+    } catch {
+      /* A source can already have ended. */
+    }
+  }
+
+  /**
+   * Dispose this instance only: stop its nodes, disconnect its gains, drop
+   * the state-change listener and close the context it created. A suspend or
+   * resume still in flight is swallowed by the settle handler — with ctx
+   * released it can neither resurrect output nor reject unhandled. The
+   * gameplay instance is another AgiAudio and is untouched.
+   */
+  async close(): Promise<void> {
+    if (this.closedAudio) return;
+    this.closedAudio = true;
+    this.pauseOwners.clear();
+    this.pausedAmbient = false;
+    this.stop();
+    const ctx = this.ctx;
+    try {
+      this.masterGain?.disconnect();
+    } catch {
+      /* The channel graph is already down. */
+    }
+    this.ctx = null;
+    this.masterGain = null;
+    if (ctx && this.stateListener && typeof ctx.removeEventListener === "function")
+      ctx.removeEventListener("statechange", this.stateListener);
+    this.stateListener = null;
+    if (ctx && ctx.state !== "closed" && typeof ctx.close === "function") {
+      try {
+        await ctx.close();
+      } catch {
+        /* A closed or replaced context settles on its own. */
+      }
+    }
   }
 
   /** Short attack/release on a parameter; falls back to a step in test doubles. */
@@ -275,27 +546,36 @@ export class AgiAudio {
    * The IIgs rendition for a game whose files lack SIERRASTANDARD or the
    * SYS16 bank (a data-only copy): a triangle per note, no samples.
    */
-  private iigsFallbackOutput(ctx: AudioContext, event: IigsOutput, maxFreq: number): void {
+  private iigsFallbackOutput(
+    ctx: AudioContext,
+    event: IigsOutput,
+    maxFreq: number,
+    at: number,
+  ): void {
     if (event.event === "all-off") {
-      for (const voice of this.iigsFallback.values()) voice.osc.stop();
+      for (const voice of this.iigsFallback.values()) this.stopSource(voice.osc, at);
       this.iigsFallback.clear();
     } else if (event.event === "note-off") {
       const voice = this.iigsFallback.get(event.voice);
-      voice?.osc.stop();
+      if (voice) this.stopSource(voice.osc, at);
       this.iigsFallback.delete(event.voice);
+    } else if (event.event === "volume") {
+      for (const voice of this.iigsFallback.values())
+        if (voice.channel === event.channel)
+          voice.gain.gain.setValueAtTime((event.volume / 127) * 0.3, at);
     } else if (event.event === "note-on") {
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime((event.volume / 127) * 0.3, ctx.currentTime);
+      gain.gain.setValueAtTime((event.volume / 127) * 0.3, at);
       gain.connect(this.masterGain!);
       const osc = ctx.createOscillator();
       osc.type = "triangle";
-      osc.frequency.setValueAtTime(
-        Math.min(maxFreq, 440 * 2 ** ((event.note - 69) / 12)),
-        ctx.currentTime,
-      );
+      osc.frequency.setValueAtTime(Math.min(maxFreq, 440 * 2 ** ((event.note - 69) / 12)), at);
       osc.connect(gain);
-      osc.start();
-      this.iigsFallback.set(event.voice, { osc, gain });
+      osc.start(at);
+      this.activeNodes.push(osc, gain);
+      const previous = this.iigsFallback.get(event.voice);
+      if (previous) this.stopSource(previous.osc, at);
+      this.iigsFallback.set(event.voice, { osc, gain, channel: event.channel });
     }
   }
 

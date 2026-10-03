@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../../../src/vocabulary.ts";
 import { computed, nextTick, onBeforeUnmount, ref, useId, useTemplateRef, watch } from "vue";
 import ActionMenu from "../../ui/ActionMenu.vue";
 import UiExplain from "../../ui/UiExplain.vue";
@@ -88,7 +89,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
 <template>
   <div class="sprite-view-bar" role="group" aria-label="Canvas view">
     <span v-if="fold < 2" class="sprite-view-bar__backdrop">
-      <label for="sprite-backdrop-select">Backdrop</label>
+      <label for="sprite-backdrop-select">Background</label>
       <UiExplain v-bind="explain('backdrop')" />
       <select id="sprite-backdrop-select" v-model="backdropValue" data-testid="sprite-backdrop">
         <option value="checker-dark">Dark checker</option>
@@ -114,10 +115,11 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
         :aria-expanded="onionOpen"
         :aria-controls="onionOpen ? onionId : undefined"
         aria-haspopup="dialog"
+        :title="VOCABULARY.onionSkin.help"
         data-testid="sprite-onion"
         @click="onionOpen = !onionOpen"
       >
-        Onion<UiIcon name="chevron-down" :size="14" />
+        {{ VOCABULARY.onionSkin.label }}<UiIcon name="chevron-down" :size="14" />
       </button>
       <div
         v-if="onionOpen"
@@ -161,7 +163,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
           :aria-pressed="baseline"
           @click="baseline = !baseline"
         >
-          Baseline
+          Feet
         </button>
         <UiExplain v-bind="explain('feet')" />
       </span>
@@ -175,7 +177,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
         All cels
       </button>
     </template>
-    <ActionMenu v-if="fold > 0" label="More" test-id="sprite-view-more">
+    <ActionMenu v-if="fold > 0" label="More" test-id="actor-view-more">
       <template v-if="!sheet">
         <button type="button" role="menuitemcheckbox" :aria-checked="grid" @click="grid = !grid">
           <UiIcon name="check" :size="16" class="sprite-more__check" />Grid
@@ -186,7 +188,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
           :aria-checked="baseline"
           @click="baseline = !baseline"
         >
-          <UiIcon name="check" :size="16" class="sprite-more__check" />Baseline
+          <UiIcon name="check" :size="16" class="sprite-more__check" />Feet
         </button>
       </template>
       <button type="button" role="menuitemcheckbox" :aria-checked="sheet" @click="sheet = !sheet">
@@ -195,7 +197,7 @@ onBeforeUnmount(() => window.removeEventListener("pointerdown", onOutside, true)
       <template v-if="fold > 1">
         <div role="separator"></div>
         <div role="group" aria-labelledby="sprite-more-backdrop">
-          <p id="sprite-more-backdrop" class="sprite-more__heading">Backdrop</p>
+          <p id="sprite-more-backdrop" class="sprite-more__heading">Background</p>
           <button
             v-for="choice in CHECKERS"
             :key="choice.key"

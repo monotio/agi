@@ -1,0 +1,39 @@
+name: Game compatibility
+description: Report behavior in a particular AGI release.
+title: "Compatibility: "
+labels: [bug]
+body:
+  - type: input
+    id: game
+    attributes:
+      label: Game
+    validations:
+      required: true
+  - type: input
+    id: edition
+    attributes:
+      label: Edition
+      description: Version, platform and language from the game or release notes.
+    validations:
+      required: true
+  - type: input
+    id: words_hash
+    attributes:
+      label: WORDS.TOK SHA-256
+      description: Run sha256sum WORDS.TOK or shasum -a 256 WORDS.TOK on your own copy.
+    validations:
+      required: true
+  - type: input
+    id: profile
+    attributes:
+      label: Interpreter profile
+      description: The selected profile shown in the app's interpreter settings.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Steps and behavior
+      description: Include room, commands, expected and actual behavior, app version and browser. Attach resources only when you have permission to share them.
+    validations:
+      required: true

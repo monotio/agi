@@ -51,7 +51,7 @@ const {
 const emit = defineEmits<{ ask: []; combine: []; ungroup: [] }>();
 const open = defineModel<boolean>("open", { required: true });
 const pickerId = useId();
-const NO_ASK = "AI edits need the game's assistant";
+const NO_ASK = "Choose an AI model in Settings to enable Agent.";
 
 interface Action {
   readonly id: string;
@@ -97,7 +97,7 @@ const actions = computed<{ before: Action[]; after: Action[] }>(() => ({
         : []),
     {
       id: "ask",
-      text: "Ask",
+      text: "Agent",
       icon: "sparkles",
       shortcut: "/",
       disabled: !askable,
@@ -109,7 +109,7 @@ const iconTitle = (action: Action): string =>
   action.disabled && action.id === "ask"
     ? NO_ASK
     : action.id === "ask"
-      ? "Ask about the selection"
+      ? "Tell the agent about the selection"
       : action.text;
 
 function pick(value: number | null): void {
@@ -235,7 +235,7 @@ function pick(value: number | null): void {
         :title="action.disabled ? NO_ASK : undefined"
         @click="action.run"
       >
-        {{ action.id === "ask" ? "Ask about the selection" : action.text }}
+        {{ action.id === "ask" ? "Tell the agent about the selection" : action.text }}
       </button>
     </ActionMenu>
   </div>

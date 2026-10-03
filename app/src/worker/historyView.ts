@@ -310,7 +310,7 @@ export function createHistoryView(
     // restored verbatim — the live-restore redraw would rewrite the text
     // ages the snapshot carries.
     const candidate = new Engine(
-      openContainer(files),
+      openContainer(files, boot.profile ? { profile: boot.profile } : {}),
       ctx.host,
       dictionary,
       boot.profile ? { profile: boot.profile } : undefined,
@@ -331,11 +331,13 @@ export function createHistoryView(
     if (semantic.menus !== undefined) semantic.menus = candidate.readMenuState();
     if (historyFingerprint(semantic).hash !== boot.fingerprint.hash)
       throw new Error("the adopted state is not the recorded state");
+    const admission = ctx.projectLoader.prepareReplacement?.(candidate, boot.project) ?? null;
     ctx.fns.abandonHostRequest();
     endView(false);
     ctx.fns.historyEnd("resume");
     ctx.boot.liveDictionary = dictionary;
     ctx.boot.currentBootFiles = files;
+    ctx.boot.project = boot.project;
     ctx.boot.currentDictionary = dictionary;
     ctx.boot.authorRooms = boot.authorRooms;
     ctx.boot.profile = boot.profile ?? null;
@@ -349,6 +351,8 @@ export function createHistoryView(
     ctx.input.inputBuffer = [...(boot.inputLines ?? [])];
     ctx.input.clickQueue = (boot.clickQueue ?? []).map(([x, y]): [number, number] => [x, y]);
     ctx.engine = candidate;
+    ctx.projectAdmission = admission?.lane ?? null;
+    if (admission !== null) ctx.boot.project = admission.project;
     ctx.fns.armJournal();
     ctx.fns.setKeyWaiting(ctx.engine.awaitingKey);
     ctx.engine.vars[22] = ctx.boot.selectedSoundDevice === 0 ? 1 : 3;
@@ -369,6 +373,10 @@ export function createHistoryView(
     ctx.history.rng = boot.rng;
     ctx.fns.rebaselineJournal();
     ctx.fns.historyResume();
+    // The adopted engine replaced the live run: a debug session mints a new
+    // epoch against the adopted image's build, or detaches if its captured
+    // sources no longer verify.
+    ctx.fns.debugSessionReplaced();
     ctx.presentation.lastVisual = null;
     ctx.fns.postFrame();
   }
@@ -433,6 +441,7 @@ export function createHistoryView(
     // segment it opens verifies the same resume point on replay.
     const boot = stampBoot({
       files: Object.fromEntries([...files].map(([name, data]) => [name, bytesToBase64(data)])),
+      ...(scratch.boot.project !== undefined ? { project: scratch.boot.project } : {}),
       dictionary: [...scratch.boot.liveDictionary.entries()],
       authorRooms: scratch.boot.authorRooms,
       ...(scratch.boot.profile ? { profile: scratch.boot.profile } : {}),

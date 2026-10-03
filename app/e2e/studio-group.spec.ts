@@ -1,19 +1,20 @@
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { testProjectId } from "../test/identity.ts";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
-import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
+import { compilePictureSource } from "../../src/picture/source.ts";
 import { createPictureSurface } from "../../src/types.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
   enterCreateMode,
+  openWorkspacePicture,
   textHook,
   waitForCycles,
-  openWorldRoom,
+  workspaceSaved,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Several Room Studio items as one, end to end on the real app: a stored
@@ -78,7 +79,7 @@ async function resumeInRoom(page: Page): Promise<void> {
     .poll(async () => (await resume.isVisible()) || (await textHook(page)).room === 1)
     .toBe(true);
   if (await resume.isVisible()) await resume.click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await waitForCycles(page, 2);
 }
 
@@ -113,9 +114,7 @@ async function bootGame(page: Page): Promise<void> {
 
 async function openStudio(page: Page): Promise<Locator> {
   await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -166,7 +165,6 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   await bootGame(page);
   const studio = await openStudio(page);
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
-  const status = studio.getByTestId("studio-draft-status");
   const bar = studio.getByTestId("studio-options-bar");
   expect(await rows(studio)).toEqual(["el-1", "el-2", "el-1-2", "el-3"]);
 
@@ -180,10 +178,10 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   await expect(studio.getByTestId("studio-notice")).toHaveText(
     /^Element 1 part 2 flows differently: [\d,]+ cells changed\. (⌘|Ctrl\+)Z undoes it\.$/,
   );
-  await expect(status).toHaveText("1 change");
+  await workspaceSaved(page);
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(status).toHaveText("No changes");
-  expect(await draftBytes(page)).toEqual(original);
+  await workspaceSaved(page);
+  await expect.poll(() => draftBytes(page)).toEqual(original);
 
   // Shift+click on the fill adds its item (the bush's fill, seeded after the trunk).
   await page.keyboard.down("Shift");
@@ -191,18 +189,17 @@ test("an outline and its fill, selected together, move as one and keep exactly t
   await page.keyboard.up("Shift");
   await expect(bar.getByTestId("selection-name")).toHaveText("2 items");
   expect(await selectedRows(studio)).toEqual(["el-1", "el-1-2"]);
-  await expect(studio.getByTestId("group-editor")).toBeVisible();
+  await expect(studio.getByTestId("selection-name")).toHaveText("2 items");
 
   // Right 4 and up 2 from the keyboard: every press moves both, one step each.
   await canvas.focus();
   for (const key of ["ArrowRight", "ArrowRight", "ArrowRight", "ArrowRight", "ArrowUp", "ArrowUp"])
     await page.keyboard.press(key);
-  await expect(status).toHaveText("6 changes");
+  await workspaceSaved(page);
   await expect(studio.getByTestId("studio-notice")).toHaveCount(0);
-  await page.screenshot({ path: "test-results/group-move-selection.png" });
+  await page.screenshot({ path: test.info().outputPath("group-move-selection.png") });
 
-  await studio.getByTestId("studio-keep").click();
-  await expect(status).toHaveText("Kept");
+  await workspaceSaved(page);
   const kept = await storedPicture(page);
   expect(kept).toEqual(await draftBytes(page));
   // Hand-shifted: the outline and the seed 4 right and 2 up; the trunk and stripe stay.
@@ -234,14 +231,16 @@ test("from the keyboard alone: step to an item, grow the run with Shift+Alt+arro
   await page.keyboard.press("Shift+Alt+ArrowDown");
   await page.keyboard.press("Shift+ArrowRight");
   await page.keyboard.press("ArrowDown");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("2 changes");
+  await workspaceSaved(page);
   const moved = planes(await draftBytes(page));
   const expected = planes(compilePictureSource(bush(8, 1, [8, 1])).bytes);
   expect(moved.visual).toEqual(expected.visual);
   // Undo takes back one nudge of all three at a time.
-  await page.keyboard.press("ControlOrMeta+z");
-  await page.keyboard.press("ControlOrMeta+z");
-  expect(await draftBytes(page)).toEqual(PIC_5);
+  await page.getByTestId("workspace-undo").click();
+  await workspaceSaved(page);
+  await expect(page.getByTestId("workspace-undo")).toBeEnabled();
+  await page.getByTestId("workspace-undo").click();
+  await expect.poll(() => draftBytes(page)).toEqual(PIC_5);
 });
 
 test("Shift+drag draws a marquee that selects the items wholly inside it", async ({ page }) => {
@@ -265,7 +264,6 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
 }) => {
   await bootGame(page);
   let studio = await openStudio(page);
-  const status = studio.getByTestId("studio-draft-status");
   await studio.locator('[data-row="el-1"]').click();
   await studio.locator('[data-row="el-1-2"]').click({ modifiers: ["Shift"] });
   await studio.getByTestId("selection-combine").click();
@@ -287,13 +285,12 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
   expect(await rows(studio)).toEqual(["bush", "el-3"]);
   await expect(studio.locator('[data-row="bush"]')).toContainText("Bush");
   await expect(studio.locator('[data-row="bush"]')).toHaveAttribute("aria-selected", "true");
-  await expect(status).toHaveText("1 note change");
+  await workspaceSaved(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toContain(
     '# @item bush "Bush" art',
   );
-  await studio.getByTestId("studio-keep").click();
-  await expect(status).toHaveText("Kept");
+  await workspaceSaved(page);
   expect(await storedPicture(page)).toEqual(PIC_5);
 
   await page.reload();
@@ -310,7 +307,7 @@ test("Group names the bush, keeps the bytes, stays one item after a reload, and 
   expect(await rows(studio)).toEqual(["el-1", "el-2", "el-1-2", "el-3"]);
   expect(await selectedRows(studio)).toEqual(["el-1", "el-2", "el-1-2"]);
   expect(await draftBytes(page)).toEqual(PIC_5);
-  await expect(status).toHaveText("1 note change");
+  await workspaceSaved(page);
   // ⌘G (Ctrl+G) groups them again, through the dialog, and ⇧⌘G ungroups.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ControlOrMeta+g");

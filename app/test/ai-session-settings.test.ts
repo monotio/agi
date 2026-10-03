@@ -31,7 +31,7 @@ test("reconfiguration preserves authored state and chat while the next request u
   const state = createAgentSessionState();
   state.sources.logics.set(7, "return;");
   const session = new AgentSession(
-    { provider: "openai", apiKey: "old-private-key", model: "old-model" },
+    { provider: "openai", apiKey: "old-private-key", model: "gpt-6-sol" },
     (kind, detail, data) => events.push({ kind, detail, data }),
     state,
   );
@@ -40,7 +40,7 @@ test("reconfiguration preserves authored state and chat while the next request u
   const replacement = session.reconfigure({
     provider: "openai",
     apiKey: "new-private-key",
-    model: "new-model",
+    model: "gpt-6.1-sol",
     effort: "high",
   });
   assert.equal(replacement.state, state);
@@ -49,7 +49,7 @@ test("reconfiguration preserves authored state and chat while the next request u
   await replacement.runAsk("Second question?", 7);
 
   assert.equal(requests[1]?.authorization, "Bearer new-private-key");
-  assert.equal(requests[1]?.body["model"], "new-model");
+  assert.equal(requests[1]?.body["model"], "gpt-6.1-sol");
   assert.equal(
     (requests[1]?.body["reasoning"] as Record<string, unknown> | undefined)?.["effort"],
     "high",

@@ -54,8 +54,9 @@
  * (id 0x270f). AGI Studio's spellings of the two, "anyword" and "rol", are
  * accepted as well unless the game's own dictionary defines those words.
  *
- * Variable/flag/object/message/string refs accept v5 / f5 / o5 / m5 / s5
- * tokens or plain numbers. Immediate operands are plain numbers or #defines.
+ * Numbered refs accept v5 / f5 / o5 / i5 / m5 / s5 / w5 / c5 tokens or plain
+ * numbers. Word IDs are 16-bit; other operands are bytes. Numeric #defines
+ * resolve in the command argument's context.
  */
 
 import {
@@ -71,20 +72,56 @@ import {
 } from "./opcodes.ts";
 import { buildLogicResource } from "./resource.ts";
 import { DEFAULT_V2_PROFILE, type AgiProfile } from "../runtime/profile.ts";
+import {
+  AssemblerError,
+  MAX_DEPTH,
+  parseLogicSyntax,
+  type Ref,
+  type Stmt,
+  type TestExpr,
+  type Token,
+} from "./syntax.ts";
 
-export class AssemblerError extends Error {
-  readonly line: number;
-  readonly col: number;
+export { AssemblerError };
 
-  constructor(message: string, line: number, col: number) {
-    super(`${line}:${col}: ${message}`);
-    this.name = "AssemblerError";
-    this.line = line;
-    this.col = col;
-  }
+export interface LogicSourceEntry {
+  readonly emissionId: number;
+  readonly statementId: number;
+  readonly kind: "action" | "return" | "goto" | "if" | "predicate" | "generated-jump";
+  /** Half-open offsets into the exact input source, in UTF-16 code units. */
+  readonly start: number;
+  readonly end: number;
+  /** Half-open byte offsets into code, excluding resource/message framing. */
+  readonly pc: number;
+  readonly endPc: number;
 }
 
+export interface LogicSourceMap {
+  readonly version: 1;
+  /** Exact compiler input, including any caller-supplied prelude. */
+  readonly source: string;
+  readonly profileId: string;
+  readonly codeLength: number;
+  readonly entries: readonly LogicSourceEntry[];
+}
+
+export interface AssembleDiagnostic {
+  readonly code: "condition-effects";
+  readonly message: string;
+  readonly start: number;
+  readonly end: number;
+  readonly line: number;
+  readonly col: number;
+}
+
+// Application work ceilings, not interpreter format limits. Bound both parsing
+// and strict lowering before allocating expanded condition trees.
+const MAX_LOWERING_WORK = 100_000;
+const MAX_CLAUSE_UNITS = 16_384;
+
 export interface AssembleOptions {
+  /** Capture origins for this exact input; never implicitly bind to a live run. */
+  readonly sourceMap?: boolean;
   /** Instruction vocabulary and widths; defaults to AGI 2.936. */
   readonly profile?: AgiProfile;
   /** Lowercase word -> dictionary id, for said() resolution. */
@@ -98,594 +135,80 @@ export interface AssembleResult {
   readonly code: Uint8Array;
   /** 1-based message table (index 0 unused placeholder; `null` = absent slot). */
   readonly messages: readonly (string | null)[];
-}
-
-// ---------- Lexer ----------
-
-type TokenType = "ident" | "number" | "string" | "punct" | "directive" | "eof";
-
-interface Token {
-  readonly type: TokenType;
-  readonly text: string;
-  readonly line: number;
-  readonly col: number;
-}
-
-function lex(source: string): Token[] {
-  const tokens: Token[] = [];
-  let i = 0;
-  let line = 1;
-  let lineStart = 0;
-  const col = () => i - lineStart + 1;
-
-  while (i < source.length) {
-    const ch = source[i]!;
-    if (ch === "\n") {
-      line++;
-      i++;
-      lineStart = i;
-      continue;
-    }
-    if (ch === " " || ch === "\t" || ch === "\r") {
-      i++;
-      continue;
-    }
-    if (ch === "/" && source[i + 1] === "/") {
-      while (i < source.length && source[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === "#") {
-      const start = i;
-      const c = col();
-      i++;
-      while (i < source.length && /[a-zA-Z]/.test(source[i]!)) i++;
-      const dir = source.slice(start, i);
-      if (dir === "#message" || dir === "#define") {
-        tokens.push({ type: "directive", text: dir, line, col: c });
-        continue;
-      }
-      while (i < source.length && source[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === '"') {
-      const c = col();
-      i++;
-      let text = "";
-      for (;;) {
-        if (i >= source.length || source[i] === "\n") {
-          throw new AssemblerError("unterminated string", line, c);
-        }
-        const s = source[i]!;
-        if (s === '"') break;
-        if (s !== "\\") {
-          text += s;
-          i++;
-          continue;
-        }
-        const esc = source[i + 1];
-        if (esc === undefined) throw new AssemblerError("unterminated string", line, c);
-        if (esc === "n") text += "\n";
-        else if (esc === "r") text += "\r";
-        else if (esc === "\\") text += "\\";
-        else if (esc === '"') text += '"';
-        else if (esc === "x") {
-          const hex = source.slice(i + 2, i + 4);
-          if (!/^[0-9a-fA-F]{2}$/.test(hex)) {
-            throw new AssemblerError(`\\x needs two hex digits, got '${hex}'`, line, col());
-          }
-          text += String.fromCharCode(parseInt(hex, 16));
-          i += 2;
-        } else {
-          throw new AssemblerError(
-            `unknown escape '\\${esc}' (use \\n, \\r, \\\\, \\" or \\xNN)`,
-            line,
-            col(),
-          );
-        }
-        i += 2;
-      }
-      i++;
-      tokens.push({ type: "string", text, line, col: c });
-      continue;
-    }
-    if (/[0-9]/.test(ch)) {
-      const start = i;
-      const c = col();
-      while (i < source.length && /[0-9]/.test(source[i]!)) i++;
-      tokens.push({ type: "number", text: source.slice(start, i), line, col: c });
-      continue;
-    }
-    if (/[a-zA-Z_.]/.test(ch)) {
-      const start = i;
-      const c = col();
-      while (i < source.length && /[a-zA-Z0-9_.]/.test(source[i]!)) i++;
-      tokens.push({ type: "ident", text: source.slice(start, i), line, col: c });
-      continue;
-    }
-    if (ch === "&" && source[i + 1] === "&") {
-      tokens.push({ type: "punct", text: "&&", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "|" && source[i + 1] === "|") {
-      tokens.push({ type: "punct", text: "||", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "=" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: "==", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "!" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: "!=", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "<" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: "<=", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === ">" && source[i + 1] === "=") {
-      tokens.push({ type: "punct", text: ">=", line, col: col() });
-      i += 2;
-      continue;
-    }
-    if (ch === "<") {
-      tokens.push({ type: "punct", text: "<", line, col: col() });
-      i++;
-      continue;
-    }
-    if (ch === ">") {
-      tokens.push({ type: "punct", text: ">", line, col: col() });
-      i++;
-      continue;
-    }
-    if (ch === "=") {
-      tokens.push({ type: "punct", text: "=", line, col: col() });
-      i++;
-      continue;
-    }
-    if ("(){};:,!".includes(ch)) {
-      tokens.push({ type: "punct", text: ch, line, col: col() });
-      i++;
-      continue;
-    }
-    throw new AssemblerError(`unexpected character '${ch}'`, line, col());
-  }
-  tokens.push({ type: "eof", text: "", line, col: col() });
-  return tokens;
-}
-
-// ---------- AST ----------
-
-type Ref =
-  /** A number literal keeps its token, so a byte operand out of range reports where it was written. */
-  | { kind: "num"; value: number; tok?: Token }
-  | { kind: "v" | "f" | "o" | "m" | "s"; index: number }
-  | { kind: "str"; text: string };
-
-type TestExpr =
-  | { type: "cond"; name: string; args: Ref[]; tok: Token }
-  | { type: "not"; inner: TestExpr }
-  | { type: "and"; parts: TestExpr[] }
-  | { type: "or"; parts: TestExpr[] }
-  /** Parentheses the author put around a single literal: emit 0xfc markers. */
-  | { type: "group"; inner: TestExpr };
-
-type Stmt =
-  | { type: "action"; name: string; args: Ref[]; tok: Token }
-  | { type: "return" }
-  | { type: "goto"; label: string; tok: Token }
-  | { type: "label"; name: string; tok: Token }
-  | { type: "if"; test: TestExpr; then: Stmt[]; else_: Stmt[] | null };
-
-// ---------- Parser ----------
-
-class Parser {
-  private pos = 0;
-  readonly defines = new Map<string, number>();
-  /** Declared message slots; `null` is an explicitly absent slot. */
-  readonly explicitMessages = new Map<number, string | null>();
-  /** The program in source order; labels are statements that emit no bytes. */
-  readonly program: Stmt[] = [];
-  readonly labels = new Set<string>();
-
-  private readonly tokens: Token[];
-
-  constructor(tokens: Token[]) {
-    this.tokens = tokens;
-  }
-
-  private peek(): Token {
-    return this.tokens[this.pos]!;
-  }
-
-  private next(): Token {
-    return this.tokens[this.pos++]!;
-  }
-
-  private expect(type: TokenType, text?: string): Token {
-    const tok = this.next();
-    if (tok.type !== type || (text !== undefined && tok.text !== text)) {
-      throw new AssemblerError(
-        `expected ${text ?? type}, got '${tok.text || tok.type}'`,
-        tok.line,
-        tok.col,
-      );
-    }
-    return tok;
-  }
-
-  parseProgram(): void {
-    while (this.peek().type !== "eof") {
-      if (this.peek().type === "directive") {
-        this.parseDirective();
-        continue;
-      }
-      this.program.push(this.parseLabel() ?? this.parseStmt());
-    }
-  }
-
-  /** A `name:` label, at any nesting depth; null when the next token is not one. */
-  private parseLabel(): Stmt | null {
-    const tok = this.peek();
-    if (tok.type !== "ident" || this.tokens[this.pos + 1]?.text !== ":") return null;
-    this.next();
-    this.next();
-    if (this.labels.has(tok.text)) {
-      throw new AssemblerError(`duplicate label '${tok.text}'`, tok.line, tok.col);
-    }
-    this.labels.add(tok.text);
-    return { type: "label", name: tok.text, tok };
-  }
-
-  private parseDirective(): void {
-    const dir = this.next();
-    if (dir.text === "#message") {
-      const num = this.expect("number");
-      // No text at all declares an ABSENT slot: the table entry is a zero
-      // offset, which is what the original tools left behind for a hole and
-      // is distinct from `#message N ""`, a present but empty message.
-      const str = this.peek().type === "string" ? this.next() : null;
-      const n = Number(num.text);
-      if (n < 1 || n > 255)
-        throw new AssemblerError("message number must be 1..255", num.line, num.col);
-      if (this.explicitMessages.has(n)) {
-        throw new AssemblerError(`duplicate #message ${n}`, num.line, num.col);
-      }
-      this.explicitMessages.set(n, str === null ? null : str.text);
-    } else if (dir.text === "#define") {
-      const name = this.expect("ident");
-      const num = this.expect("number");
-      const n = Number(num.text);
-      if (n < 0 || n > 255)
-        throw new AssemblerError("#define value must be 0..255", num.line, num.col);
-      if (this.defines.has(name.text)) {
-        throw new AssemblerError(`duplicate #define '${name.text}'`, name.line, name.col);
-      }
-      this.defines.set(name.text, n);
-    } else {
-      throw new AssemblerError(
-        `unknown directive '${dir.text}' (want #message or #define)`,
-        dir.line,
-        dir.col,
-      );
-    }
-  }
-
-  private parseBlock(): Stmt[] {
-    this.expect("punct", "{");
-    const out: Stmt[] = [];
-    while (this.peek().text !== "}") {
-      if (this.peek().type === "eof") {
-        throw new AssemblerError("unterminated block", this.peek().line, this.peek().col);
-      }
-      out.push(this.parseLabel() ?? this.parseStmt());
-    }
-    this.expect("punct", "}");
-    return out;
-  }
-
-  private parseStmt(): Stmt {
-    const tok = this.next();
-    if (tok.type !== "ident") {
-      throw new AssemblerError(
-        `expected statement, got '${tok.text || tok.type}'`,
-        tok.line,
-        tok.col,
-      );
-    }
-    if (tok.text === "if") {
-      this.expect("punct", "(");
-      const test = this.parseOr();
-      this.expect("punct", ")");
-      const then = this.parseBlock();
-      let else_: Stmt[] | null = null;
-      if (this.peek().type === "ident" && this.peek().text === "else") {
-        this.next();
-        else_ = this.parseBlock();
-      }
-      return { type: "if", test, then, else_ };
-    }
-    if (this.peek().text === "=") {
-      this.next();
-      const right = this.parseRef();
-      this.expect("punct", ";");
-      let left: Ref;
-      const m = /^v(\d{1,3})$/.exec(tok.text);
-      if (m) {
-        left = { kind: "v", index: Number(m[1]) };
-      } else {
-        const defined = this.defines.get(tok.text);
-        if (defined !== undefined) left = { kind: "v", index: defined };
-        else throw new AssemblerError(`cannot assign to '${tok.text}'`, tok.line, tok.col);
-      }
-      if (right.kind === "num")
-        return { type: "action", name: "assignn", args: [left, right], tok };
-      if (right.kind === "v") return { type: "action", name: "assignv", args: [left, right], tok };
-      throw new AssemblerError(`cannot assign ${right.kind} to variable`, tok.line, tok.col);
-    }
-    if (tok.text === "return") {
-      this.expect("punct", ";");
-      return { type: "return" };
-    }
-    if (tok.text === "goto") {
-      const label = this.expect("ident");
-      this.expect("punct", ";");
-      return { type: "goto", label: label.text, tok };
-    }
-    const args = this.parseCallArgs();
-    return { type: "action", name: tok.text, args, tok };
-  }
-
-  private parseCallArgs(): Ref[] {
-    this.expect("punct", "(");
-    const args: Ref[] = [];
-    if (this.peek().text !== ")") {
-      for (;;) {
-        args.push(this.parseRef());
-        if (this.peek().text === ",") {
-          this.next();
-          continue;
-        }
-        break;
-      }
-    }
-    this.expect("punct", ")");
-    this.expect("punct", ";");
-    return args;
-  }
-
-  private parseTestArgs(): Ref[] {
-    this.expect("punct", "(");
-    const args: Ref[] = [];
-    if (this.peek().text !== ")") {
-      for (;;) {
-        args.push(this.parseRef());
-        if (this.peek().text === ",") {
-          this.next();
-          continue;
-        }
-        break;
-      }
-    }
-    this.expect("punct", ")");
-    return args;
-  }
-
-  private parseRef(): Ref {
-    const tok = this.next();
-    if (tok.type === "number") {
-      // said() word ids are 16-bit (9999 is the rest-of-line id); every other
-      // operand is a byte, checked where it is emitted.
-      const n = Number(tok.text);
-      if (n > 0xffff) throw new AssemblerError("value out of range 0..65535", tok.line, tok.col);
-      return { kind: "num", value: n, tok };
-    }
-    if (tok.type === "string") return { kind: "str", text: tok.text };
-    if (tok.type === "ident") {
-      const m = /^([vfoms])(\d{1,3})$/.exec(tok.text);
-      if (m) {
-        const idx = Number(m[2]);
-        if (idx > 255) throw new AssemblerError("index out of range 0..255", tok.line, tok.col);
-        return { kind: m[1] as "v" | "f" | "o" | "m" | "s", index: idx };
-      }
-      const defined = this.defines.get(tok.text);
-      if (defined !== undefined) return { kind: "num", value: defined };
-      throw new AssemblerError(
-        `unknown identifier '${tok.text}' (want vN/fN/oN/mN/sN, a number, or a #define)`,
-        tok.line,
-        tok.col,
-      );
-    }
-    throw new AssemblerError(
-      `unexpected '${tok.text || tok.type}' in argument list`,
-      tok.line,
-      tok.col,
-    );
-  }
-
-  private parseOr(): TestExpr {
-    const first = this.parseAnd();
-    if (this.peek().text !== "||") return first;
-    const parts = [first];
-    while (this.peek().text === "||") {
-      this.next();
-      parts.push(this.parseAnd());
-    }
-    return { type: "or", parts };
-  }
-
-  private parseAnd(): TestExpr {
-    const first = this.parseUnary();
-    if (this.peek().text !== "&&") return first;
-    const parts = [first];
-    while (this.peek().text === "&&") {
-      this.next();
-      parts.push(this.parseUnary());
-    }
-    return { type: "and", parts };
-  }
-
-  private parseUnary(): TestExpr {
-    const tok = this.peek();
-    if (tok.text === "!") {
-      this.next();
-      return { type: "not", inner: this.parseUnary() };
-    }
-    if (tok.text === "(") {
-      this.next();
-      const inner = this.parseOr();
-      this.expect("punct", ")");
-      // Parentheses around exactly one literal are meaningful, not redundant:
-      // they ask for a one-term OR group (0xfc <pred> 0xfc). See the header.
-      if (inner.type === "cond" || (inner.type === "not" && inner.inner.type === "cond")) {
-        return { type: "group", inner };
-      }
-      return inner;
-    }
-    if (tok.type !== "ident") {
-      throw new AssemblerError(
-        `expected condition, got '${tok.text || tok.type}'`,
-        tok.line,
-        tok.col,
-      );
-    }
-    const nextTok = this.tokens[this.pos + 1];
-    if (nextTok && ["==", "!=", "<", ">", "<=", ">="].includes(nextTok.text)) {
-      const left = this.parseRef();
-      const op = this.next().text;
-      const right = this.parseRef();
-      return this.buildComparison(left, op, right, tok);
-    }
-    if (nextTok?.text !== "(") {
-      const m = /^f(\d{1,3})$/.exec(tok.text);
-      if (m) {
-        const ref = this.parseRef();
-        return { type: "cond", name: "isset", args: [ref], tok };
-      }
-    }
-    this.next();
-    const args = this.parseTestArgs();
-    return { type: "cond", name: tok.text, args, tok };
-  }
-
-  private buildComparison(left: Ref, op: string, right: Ref, tok: Token): TestExpr {
-    if (left.kind === "f") {
-      const isTrue = right.kind === "num" && right.value === 1;
-      const isFalse = right.kind === "num" && right.value === 0;
-      if (op === "==") {
-        if (isTrue) return { type: "cond", name: "isset", args: [left], tok };
-        if (isFalse)
-          return { type: "not", inner: { type: "cond", name: "isset", args: [left], tok } };
-      }
-      if (op === "!=") {
-        if (isTrue)
-          return { type: "not", inner: { type: "cond", name: "isset", args: [left], tok } };
-        if (isFalse) return { type: "cond", name: "isset", args: [left], tok };
-      }
-      throw new AssemblerError(`unsupported flag comparison '${op}'`, tok.line, tok.col);
-    }
-    if (left.kind === "v") {
-      if (right.kind === "num") {
-        switch (op) {
-          case "==":
-            return { type: "cond", name: "equaln", args: [left, right], tok };
-          case "!=":
-            return {
-              type: "not",
-              inner: { type: "cond", name: "equaln", args: [left, right], tok },
-            };
-          case "<":
-            return { type: "cond", name: "lessn", args: [left, right], tok };
-          case ">":
-            return { type: "cond", name: "greatern", args: [left, right], tok };
-          case "<=":
-            return {
-              type: "not",
-              inner: { type: "cond", name: "greatern", args: [left, right], tok },
-            };
-          case ">=":
-            return {
-              type: "not",
-              inner: { type: "cond", name: "lessn", args: [left, right], tok },
-            };
-        }
-      }
-      if (right.kind === "v") {
-        switch (op) {
-          case "==":
-            return { type: "cond", name: "equalv", args: [left, right], tok };
-          case "!=":
-            return {
-              type: "not",
-              inner: { type: "cond", name: "equalv", args: [left, right], tok },
-            };
-          case "<":
-            return { type: "cond", name: "lessv", args: [left, right], tok };
-          case ">":
-            return { type: "cond", name: "greaterv", args: [left, right], tok };
-          case "<=":
-            return {
-              type: "not",
-              inner: { type: "cond", name: "greaterv", args: [left, right], tok },
-            };
-          case ">=":
-            return {
-              type: "not",
-              inner: { type: "cond", name: "lessv", args: [left, right], tok },
-            };
-        }
-      }
-    }
-    throw new AssemblerError(
-      `unsupported comparison operands (${left.kind} ${op} ${right.kind})`,
-      tok.line,
-      tok.col,
-    );
-  }
+  readonly diagnostics: readonly AssembleDiagnostic[];
+  readonly sourceMap?: LogicSourceMap;
 }
 
 // ---------- Test normalization to CNF ----------
 
-function nnf(t: TestExpr, negate: boolean): TestExpr {
+class LoweringBudget {
+  private remaining = MAX_LOWERING_WORK;
+  private tok: Token;
+
+  constructor(tok: Token) {
+    this.tok = tok;
+  }
+
+  locate(tok: Token): void {
+    this.tok = tok;
+  }
+
+  charge(units = 1, depth = 0): void {
+    if (depth > MAX_DEPTH || units > this.remaining) {
+      throw new AssemblerError(
+        "condition lowering work limit exceeded",
+        this.tok.line,
+        this.tok.col,
+      );
+    }
+    this.remaining -= units;
+  }
+}
+
+function nnf(t: TestExpr, negate: boolean, budget: LoweringBudget, depth = 0): TestExpr {
+  budget.charge(1, depth);
   switch (t.type) {
     case "cond":
       return negate ? { type: "not", inner: t } : t;
     case "not":
-      return nnf(t.inner, !negate);
+      return nnf(t.inner, !negate, budget, depth + 1);
     case "and":
       return negate
-        ? { type: "or", parts: t.parts.map((p) => nnf(p, true)) }
-        : { type: "and", parts: t.parts.map((p) => nnf(p, false)) };
+        ? { type: "or", parts: t.parts.map((p) => nnf(p, true, budget, depth + 1)) }
+        : { type: "and", parts: t.parts.map((p) => nnf(p, false, budget, depth + 1)) };
     case "or":
       return negate
-        ? { type: "and", parts: t.parts.map((p) => nnf(p, true)) }
-        : { type: "or", parts: t.parts.map((p) => nnf(p, false)) };
+        ? { type: "and", parts: t.parts.map((p) => nnf(p, true, budget, depth + 1)) }
+        : { type: "or", parts: t.parts.map((p) => nnf(p, false, budget, depth + 1)) };
     case "group":
       // A group only ever wraps a literal, so negation stays inside it.
-      return { type: "group", inner: nnf(t.inner, negate) };
+      return { type: "group", inner: nnf(t.inner, negate, budget, depth + 1) };
   }
 }
 
 /** Distribute OR over AND until the root is an AND of clauses of ORs of literals. */
-function distribute(t: TestExpr): TestExpr {
+function distribute(t: TestExpr, budget: LoweringBudget, depth = 0): TestExpr {
+  budget.charge(1, depth);
   if (t.type !== "or") {
-    if (t.type === "and") return { type: "and", parts: t.parts.map(distribute) };
+    if (t.type === "and")
+      return { type: "and", parts: t.parts.map((part) => distribute(part, budget, depth + 1)) };
     return t;
   }
-  const parts = t.parts.map(distribute);
+  const parts = t.parts.map((part) => distribute(part, budget, depth + 1));
   const andIdx = parts.findIndex((p) => p.type === "and");
   if (andIdx === -1) return { type: "or", parts };
   const andPart = parts[andIdx] as { type: "and"; parts: TestExpr[] };
   const rest = parts.filter((_, i) => i !== andIdx);
   // (A && B) || rest  =>  (A || rest) && (B || rest)
-  return distribute({
-    type: "and",
-    parts: andPart.parts.map((p) => ({ type: "or", parts: [p, ...rest] })),
-  });
+  budget.charge(andPart.parts.length * (rest.length + 1), depth);
+  return distribute(
+    {
+      type: "and",
+      parts: andPart.parts.map((p) => ({ type: "or", parts: [p, ...rest] })),
+    },
+    budget,
+    depth + 1,
+  );
 }
 
 interface Literal {
@@ -708,22 +231,88 @@ function literalOf(expr: TestExpr): Literal {
   throw new AssemblerError("internal: non-literal in CNF clause", 0, 0);
 }
 
-function toClauses(test: TestExpr): Clause[] {
-  const normalized = distribute(nnf(test, false));
-  const andParts = normalized.type === "and" ? normalized.parts : [normalized];
-  return andParts.map((part): Clause => {
-    // A group surviving as a whole conjunct is the author's one-term OR group;
-    // inside a longer OR the markers are already there, so it just unwraps.
-    if (part.type === "group") return { lits: [literalOf(part.inner)], group: true };
-    const orParts = part.type === "or" ? part.parts : [part];
-    return { lits: orParts.map(literalOf), group: orParts.length > 1 };
-  });
+function toClauses(test: TestExpr, tok: Token, budget: LoweringBudget): Clause[] {
+  budget.locate(tok);
+  const normalized = distribute(nnf(test, false, budget), budget);
+  const clauses: Clause[] = [];
+  let units = 0;
+  const append = (part: TestExpr): void => {
+    budget.charge();
+    if (part.type === "and") {
+      for (const child of part.parts) append(child);
+      return;
+    }
+    const lits: Literal[] = [];
+    const collect = (expr: TestExpr): void => {
+      budget.charge();
+      if (expr.type === "or") {
+        for (const child of expr.parts) collect(child);
+      } else {
+        if (++units > MAX_CLAUSE_UNITS) {
+          throw new AssemblerError("condition clause/literal limit exceeded", tok.line, tok.col);
+        }
+        lits.push(literalOf(expr));
+      }
+    };
+    collect(part);
+    if (++units > MAX_CLAUSE_UNITS) {
+      throw new AssemblerError("condition clause/literal limit exceeded", tok.line, tok.col);
+    }
+    clauses.push({ lits, group: part.type === "group" || lits.length > 1 });
+  };
+  append(normalized);
+  return clauses;
 }
 
 // ---------- Emitter ----------
 
 class Emitter {
   private buf: number[] = [];
+  readonly entries: LogicSourceEntry[] = [];
+  readonly diagnostics: AssembleDiagnostic[] = [];
+  readonly lowering: LoweringBudget;
+  private readonly mapping: boolean;
+  private location: Token;
+
+  constructor(mapping: boolean, location: Token) {
+    this.mapping = mapping;
+    this.location = location;
+    this.lowering = new LoweringBudget(location);
+  }
+
+  locate(tok: Token): void {
+    this.location = tok;
+  }
+
+  record(
+    kind: LogicSourceEntry["kind"],
+    stmt: Stmt,
+    pc: number,
+    endPc: number,
+    origin: { tok: Token; end?: number } = stmt,
+  ): void {
+    if (!this.mapping) return;
+    this.entries.push({
+      emissionId: this.entries.length,
+      statementId: stmt.statementId,
+      kind,
+      start: origin.tok.start,
+      end: origin.end ?? origin.tok.end,
+      pc,
+      endPc,
+    });
+  }
+
+  checkCapacity(count: number): void {
+    // Even a LOGIC without messages needs five framing bytes in its u16 record.
+    if (this.buf.length + count > 65530) {
+      throw new AssemblerError(
+        "logic code length limit exceeded",
+        this.location.line,
+        this.location.col,
+      );
+    }
+  }
   private readonly fixups: { at: number; label: string; tok: Token }[] = [];
   readonly labelPos = new Map<string, number>();
 
@@ -732,20 +321,30 @@ class Emitter {
   }
 
   byte(b: number): void {
+    this.checkCapacity(1);
     this.buf.push(b & 0xff);
   }
 
   /** Signed 16-bit little-endian displacement; patched later or written now. */
   s16(value: number): void {
     if (value < -32768 || value > 32767) {
-      throw new AssemblerError("jump displacement out of s16 range (logic too large)", 0, 0);
+      throw new AssemblerError(
+        "jump displacement out of s16 range (logic too large)",
+        this.location.line,
+        this.location.col,
+      );
     }
+    this.checkCapacity(2);
     this.buf.push(value & 0xff, (value >> 8) & 0xff);
   }
 
   patchS16(at: number, value: number): void {
     if (value < -32768 || value > 32767) {
-      throw new AssemblerError("jump displacement out of s16 range (logic too large)", 0, 0);
+      throw new AssemblerError(
+        "jump displacement out of s16 range (logic too large)",
+        this.location.line,
+        this.location.col,
+      );
     }
     this.buf[at] = value & 0xff;
     this.buf[at + 1] = (value >> 8) & 0xff;
@@ -783,8 +382,8 @@ function refByte(ref: Ref, allowString: false, tok: Token, what: string): number
   if (ref.kind === "str") {
     throw new AssemblerError(`string not allowed as ${what} operand`, tok.line, tok.col);
   }
-  if (ref.kind === "num" && ref.value > 255) {
-    const at = ref.tok ?? tok;
+  if ((ref.kind === "num" ? ref.value : ref.index) > 255) {
+    const at = ref.kind === "num" ? (ref.tok ?? tok) : tok;
     throw new AssemblerError(`byte value out of range 0..255 in ${what}`, at.line, at.col);
   }
   return ref.kind === "num" ? ref.value : ref.index;
@@ -817,6 +416,13 @@ function emitCondition(
     );
   }
   if (spec.name === "said") {
+    if (lit.cond.args.length > 255) {
+      throw new AssemblerError(
+        "said() supports at most 255 words",
+        lit.cond.tok.line,
+        lit.cond.tok.col,
+      );
+    }
     if (lit.cond.args.length === 0) {
       throw new AssemblerError(
         "said() needs at least one word",
@@ -847,6 +453,13 @@ function emitCondition(
       } else {
         id = arg.kind === "num" ? arg.value : arg.index;
       }
+      if (!Number.isInteger(id) || id < 0 || id > 65535) {
+        throw new AssemblerError(
+          "said dictionary id must be 0..65535",
+          lit.cond.tok.line,
+          lit.cond.tok.col,
+        );
+      }
       e.byte(id & 0xff);
       e.byte((id >> 8) & 0xff);
     }
@@ -868,20 +481,57 @@ function emitCondition(
 
 function emitTest(
   e: Emitter,
-  test: TestExpr,
+  stmt: Extract<Stmt, { type: "if" }>,
   dictionary: ReadonlyMap<string, number>,
   profile: AgiProfile,
 ): void {
-  e.byte(IF);
-  for (const clause of toClauses(test)) {
-    if (!clause.group) {
-      emitCondition(e, clause.lits[0]!, dictionary, profile);
-    } else {
-      e.byte(OR);
-      for (const lit of clause.lits) emitCondition(e, lit, dictionary, profile);
-      e.byte(OR);
-    }
+  const clauses = toClauses(stmt.test, stmt.tok, e.lowering);
+  const literals = clauses.flatMap((clause) => clause.lits);
+  const minimumAfter: number[] = [];
+  let minimum = Infinity;
+  for (let i = literals.length - 1; i >= 0; i--) {
+    minimumAfter[i] = minimum;
+    minimum = Math.min(minimum, literals[i]!.cond.tok.start);
   }
+  const counts = new Map<number, number>();
+  for (const { cond } of literals)
+    counts.set(cond.tok.start, (counts.get(cond.tok.start) ?? 0) + 1);
+  const warned = new Set<number>();
+  let maximumBefore = -1;
+  for (let i = 0; i < literals.length; i++) {
+    const { cond } = literals[i]!;
+    const at = cond.tok.start;
+    if (
+      (cond.name === "said" || cond.name === "have.key") &&
+      ((counts.get(at) ?? 0) > 1 || maximumBefore > at || minimumAfter[i]! < at) &&
+      !warned.has(at) &&
+      e.diagnostics.length < 200
+    ) {
+      warned.add(at);
+      e.diagnostics.push({
+        code: "condition-effects",
+        start: at,
+        end: cond.end ?? cond.tok.end,
+        line: cond.tok.line,
+        col: cond.tok.col,
+        message:
+          "Condition lowering repeats or reorders this stateful test; emitted AGI order is preserved.",
+      });
+    }
+    maximumBefore = Math.max(maximumBefore, at);
+  }
+  e.byte(IF);
+  for (const clause of clauses) {
+    if (clause.group) e.byte(OR);
+    for (const lit of clause.lits) {
+      const pc = e.position;
+      e.locate(lit.cond.tok);
+      emitCondition(e, lit, dictionary, profile);
+      e.record("predicate", stmt, pc, e.position, lit.cond);
+    }
+    if (clause.group) e.byte(OR);
+  }
+  e.locate(stmt.tok);
   e.byte(IF);
 }
 
@@ -941,9 +591,12 @@ function emitStmt(
   dictionary: ReadonlyMap<string, number>,
   profile: AgiProfile,
 ): void {
+  e.locate(stmt.tok);
+  const pc = e.position;
   switch (stmt.type) {
     case "return":
       e.byte(RETURN);
+      e.record("return", stmt, pc, e.position);
       return;
     case "label":
       // Emits nothing; it just names the current byte offset for goto.
@@ -951,16 +604,20 @@ function emitStmt(
       return;
     case "goto":
       e.emitGoto(stmt.label, stmt.tok);
+      e.record("goto", stmt, pc, e.position);
       return;
     case "if": {
-      emitTest(e, stmt.test, dictionary, profile);
+      emitTest(e, stmt, dictionary, profile);
       const falseDeltaAt = e.position;
       e.s16(0);
+      e.record("if", stmt, pc, e.position);
       for (const s of stmt.then) emitStmt(e, s, messages, dictionary, profile);
       if (stmt.else_ !== null) {
         const endGotoFixup = e.position;
+        e.locate(stmt.tok);
         e.byte(GOTO);
         e.s16(0);
+        e.record("generated-jump", stmt, endGotoFixup, e.position);
         // False path: skip the 2-byte goto+delta... i.e. land after the goto's delta.
         e.patchS16(falseDeltaAt, e.position - (falseDeltaAt + 2));
         for (const s of stmt.else_) emitStmt(e, s, messages, dictionary, profile);
@@ -995,6 +652,7 @@ function emitStmt(
           e.byte(refByte(arg, false, stmt.tok, `action '${spec.name}'`));
         }
       });
+      e.record("action", stmt, pc, e.position);
       return;
     }
   }
@@ -1003,18 +661,45 @@ function emitStmt(
 // ---------- Public entry ----------
 
 export function assembleLogic(source: string, opts: AssembleOptions): AssembleResult {
-  const parser = new Parser(lex(source));
-  parser.parseProgram();
+  const { tokens, program, explicitMessages } = parseLogicSyntax(source);
 
-  const messages = new MessageTable(parser.explicitMessages);
-  const e = new Emitter();
-  for (const stmt of parser.program)
+  const messages = new MessageTable(explicitMessages);
+  const e = new Emitter(opts.sourceMap === true, tokens[0]!);
+  for (const stmt of program)
     emitStmt(e, stmt, messages, opts.dictionary, opts.profile ?? DEFAULT_V2_PROFILE);
   e.resolveFixups();
 
   const code = e.bytes();
   const messageList = messages.finalize();
   // finalize() returns 1-based with placeholder at 0; resource builder wants 1..N.
-  const payload = buildLogicResource(code, messageList.slice(1));
-  return { payload, code, messages: messageList };
+  let payload: Uint8Array;
+  try {
+    payload = buildLogicResource(code, messageList.slice(1));
+  } catch (error) {
+    const at = tokens.find((token) => token.type === "string") ?? tokens[0]!;
+    throw new AssemblerError(
+      error instanceof Error ? error.message : String(error),
+      at.line,
+      at.col,
+    );
+  }
+  const result: AssembleResult = {
+    payload,
+    code,
+    messages: messageList,
+    diagnostics: e.diagnostics,
+  };
+  if (!opts.sourceMap) return result;
+  return {
+    ...result,
+    sourceMap: {
+      version: 1,
+      source,
+      profileId: (opts.profile ?? DEFAULT_V2_PROFILE).id,
+      codeLength: code.length,
+      entries: e.entries
+        .sort((a, b) => a.pc - b.pc)
+        .map((entry, emissionId) => ({ ...entry, emissionId })),
+    },
+  };
 }

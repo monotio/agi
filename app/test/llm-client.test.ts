@@ -314,3 +314,66 @@ test("malformed complete tool arguments do not turn into an empty successful cal
   await assert.rejects(conversation.sendUserMessage("draw"), /invalid JSON/i);
   assert.match(JSON.stringify(conversation.getTranscript()), /not executed/i);
 });
+
+test("Anthropic accounts for compaction usage in addition to the message", async (t) => {
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response(
+        providerSse("anthropic", {
+          id: "compact",
+          type: "message",
+          role: "assistant",
+          stop_reason: "end_turn",
+          content: [],
+          usage: {
+            input_tokens: 10,
+            output_tokens: 5,
+            cache_read_input_tokens: 20,
+            cache_creation_input_tokens: 0,
+            iterations: [
+              {
+                type: "compaction",
+                input_tokens: 30,
+                output_tokens: 7,
+                cache_read_input_tokens: 40,
+                cache_creation_input_tokens: 50,
+                cache_creation: { ephemeral_5m_input_tokens: 50, ephemeral_1h_input_tokens: 0 },
+              },
+            ],
+          },
+        }),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  );
+  const conversation = createAnthropicConversation({
+    provider: "anthropic",
+    model: "claude-opus-5-5",
+    apiKey: "placeholder",
+  });
+  await conversation.sendUserMessage("Continue.");
+  const usage = conversation.getUsage?.();
+  assert.equal(usage?.input, 150);
+  assert.equal(usage?.output, 12);
+  assert.equal(usage?.cachedInput, 60);
+  assert.equal(usage?.cacheWriteInput, 50);
+  assert.equal(usage?.cacheWrite5m, 50);
+});
+
+for (const provider of ["openai", "anthropic"] as const) {
+  test(`${provider} legacy interruption records use structured user actions`, () => {
+    const config = { provider, model: "test", apiKey: "offline" };
+    const conversation =
+      provider === "openai"
+        ? createOpenAiConversation(config)
+        : createAnthropicConversation(config);
+    conversation.recordInterruption!("Cancelled before adoption.");
+    const message = conversation.getTranscript().at(-1) as { role: string; content: string };
+    assert.equal(message.role, "user");
+    const event = JSON.parse(message.content) as Record<string, unknown>;
+    assert.equal(event["format"], "monotio.agi.user-action");
+    assert.equal(event["decision"], "interruption");
+    assert.equal(event["explanation"], "Cancelled before adoption.");
+  });
+}

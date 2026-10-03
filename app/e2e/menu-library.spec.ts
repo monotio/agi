@@ -43,13 +43,14 @@ test("a first visit leads with tutorial and creation while keeping import availa
   await expect(create).not.toHaveAttribute("open");
   await gallery.getByTestId("shelf-template-custom").click();
   await expect(create).toHaveAttribute("open");
-  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("template-custom")).toHaveAttribute("aria-selected", "true");
   expect(
     await create.evaluate((element) => {
       const importer = document.getElementById("open-game")!;
       return Boolean(element.compareDocumentPosition(importer) & Node.DOCUMENT_POSITION_FOLLOWING);
     }),
   ).toBe(true);
+  await page.getByTestId("create-adventure-close").click();
   await page.getByRole("button", { name: "Add game", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: /ZIP/i })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /folder/i })).toBeVisible();
@@ -83,7 +84,7 @@ test("Create is a focused panel that its hash reopens and Close, Escape or Back 
   await page.keyboard.press("Enter");
   await expect(create).toHaveAttribute("open");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("heading", { name: "Create an adventure" })).toBeFocused();
+  await expect(page.getByTestId("local-create-title")).toBeFocused();
   await expect(page).toHaveURL(/#create-adventure$/);
   await page.reload();
   await expect(create).toHaveAttribute("open");
@@ -95,6 +96,7 @@ test("Create is a focused panel that its hash reopens and Close, Escape or Back 
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(create).toHaveAttribute("open");
+  await expect(page.getByTestId("local-create-title")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(create).not.toHaveAttribute("open");
   await expect(toggle).toBeFocused();
@@ -147,7 +149,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
 
   const saved = await page.evaluate(async () => {
-    const projectId = localStorage.getItem("monotio_agi.lastGame")!;
+    const projectId = localStorage.getItem("monotio_agi.resumeTarget")!;
     const record = JSON.parse(localStorage.getItem(`monotio_agi.autosave.${projectId}`)!);
     const observed = (window as Window & { menuSaveObservation?: SaveObservation })
       .menuSaveObservation;
@@ -178,7 +180,7 @@ test("Resume shows the same saved scene and position, including after reopening 
       if (index % 4 !== 3 && rgba[index] !== actual[index]) differences++;
     }
     return {
-      projectId,
+      projectId: record.game.identity.project,
       preview: record.preview,
       room: record.room,
       matchingSave:
@@ -195,7 +197,7 @@ test("Resume shows the same saved scene and position, including after reopening 
   expect([saved.width, saved.height]).toEqual([320, 200]);
   expect(saved.differences, "preview must match the composed frame of its own save").toBe(0);
   // The tutorial's stored copy is the tutorial's own card.
-  expect(saved.projectId).toBe("catalog-adventure-department-1.1.0");
+  expect(saved.projectId).toBe("catalog-adventure-department-1.2.0");
   const card = page.getByTestId("catalog-adventure-department");
   await expect(card).toHaveAttribute("data-project-id", saved.projectId);
   expect(
@@ -270,7 +272,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
     return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
   };
   expect(await cards.nth(1).getByTestId("btn-resume-cached").evaluate(typography)).toEqual(
-    await page.getByTestId("connect-create-ai").evaluate(typography),
+    await page.getByTestId("hero-primary").evaluate(typography),
   );
 
   for (const width of [1440, 1024, 768, 390]) {
@@ -310,6 +312,7 @@ test("one roomy library reflows across desktop, tablet and phone with accessible
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(create).toHaveAttribute("open");
+  await page.getByTestId("local-create-kind-ai").click();
   await expect(page.getByTestId("template-custom")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(create).not.toHaveAttribute("open");
@@ -328,13 +331,13 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await page.getByTestId("btn-exit").click();
   await expect(page.getByTestId("saved-game-gallery")).toBeVisible();
-  const originalProjectId = await page.evaluate(() =>
-    localStorage.getItem("monotio_agi.lastGame")!,
+  const originalProjectId = await page.evaluate(
+    () => localStorage.getItem("monotio_agi.resumeTarget")!.split(":")[1]!,
   );
   const copy = await page.evaluate(async () => {
     const path = "/src/library/gameLibrary.ts";
     const { copyLibraryGame } = await import(path);
-    return copyLibraryGame(localStorage.getItem("monotio_agi.lastGame")!);
+    return copyLibraryGame(localStorage.getItem("monotio_agi.resumeTarget")!.split(":")[1]!);
   });
   // The reload happened from the menu, so the app stays on the menu; resume the original.
   await page.reload();
@@ -356,8 +359,9 @@ test("a checkpoint cannot resume against changed game resources and remains reco
   const checkpoint = await page.evaluate(async () => {
     const path = "/src/project/gameStorage.ts";
     const storage = await import(path);
-    const projectId = localStorage.getItem("monotio_agi.lastGame")!;
-    const key = `monotio_agi.autosave.${projectId}`;
+    const locator = localStorage.getItem("monotio_agi.resumeTarget")!;
+    const projectId = locator.split(":")[1]!;
+    const key = `monotio_agi.autosave.${locator}`;
     const raw = localStorage.getItem(key);
     if (!raw) throw new Error("No checkpoint was stored before returning to the menu");
     const cached = await storage.loadAuthoredGame(projectId);
@@ -433,7 +437,7 @@ test("the tutorial is one card that carries its progress, ahead of equal-height 
   const height = (await original.boundingBox())!.height;
   expect((await remix.boundingBox())!.height).toBe(height);
   const details = await openSavedGameDetails(original);
-  await expect(details).toContainText("Learn pictures, sprites and priority");
+  await expect(details).toContainText("Learn pictures, views and depth");
   await page.keyboard.press("Escape");
   expect((await original.boundingBox())!.height).toBe(height);
   expect((await remix.boundingBox())!.height).toBe(height);

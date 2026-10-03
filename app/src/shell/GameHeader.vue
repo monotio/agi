@@ -9,6 +9,7 @@
  */
 import HelpGuide from "./HelpGuide.vue";
 import BrandMark from "../ui/BrandMark.vue";
+import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import PlayBar from "./PlayBar.vue";
 import SettingsSheet from "./SettingsSheet.vue";
 import UiButton from "../ui/UiButton.vue";
@@ -63,6 +64,7 @@ const emit = defineEmits<{
   "developer-activity": [];
 }>();
 
+const engine = useEngineApi();
 const {
   state,
   resumeAudio,
@@ -71,15 +73,15 @@ const {
   stopTestRecording,
   cancelTestRecording,
   saveRecordedTest,
-  roomMap,
   retryHistorySave,
   startNewTimeline,
   readOldTimeline,
   currentGame,
-} = useEngineApi();
+} = engine;
 const { aiSettingsUnavailable, openAiSettings, llmConfig } = useAiSettings();
 const bridge = useShellBridge();
 const shell = useShell();
+const workspaceEditor = useWorkspaceEditor();
 const workspace = useCreateWorkspace();
 const { onStartOver: startGameOver } = useGameLibrary();
 
@@ -91,6 +93,7 @@ const settingsOpen = computed(() => settingsSheet.value?.open ?? false);
 function toggleSettings(trigger: HTMLElement): void {
   settingsSheet.value?.toggle(trigger);
 }
+bridge.openSettings = toggleSettings;
 
 /** The Help guide's "Show me" actions this screen can perform right now. */
 const studios = useStudioLauncher();
@@ -152,8 +155,7 @@ function onHelpAction(request: HelpRequest): void {
       controlsOpen.value = true;
       return;
     case "map":
-      if (shell.mode.value === "create") workspace.showPanel("world");
-      else roomMap.openMap({ experience: "play" });
+      engine.roomMap?.openMap({ experience: shell.mode.value });
       return;
     case "hint":
       if (!state.powerUp.open) bridge.togglePowerUp("ask");
@@ -220,9 +222,8 @@ async function onEjectGame(
   ejectRefusal.value = "";
   historyExit.value = false;
   closeNavMenus();
-  // Room Studio's unkept changes are kept or thrown away before the game is left.
-  if (!(await workspace.confirmStudioLeave())) return;
   try {
+    await workspaceEditor.flush.value?.();
     await ejectGame(
       leave === "abandonUnsaved"
         ? { abandonUnsaved: true }
@@ -315,7 +316,7 @@ async function onRecordStop(): Promise<void> {
   if (!snapshot) return;
   if (snapshot.tainted) {
     recordResult.value = "";
-    state.recording.error = `Recording discarded: ${snapshot.tainted}.`;
+    state.recording.error = `Recording discarded. ${snapshot.tainted}`;
     return;
   }
   recordSnapshot.value = snapshot;
@@ -417,6 +418,7 @@ async function onRecordSave(): Promise<void> {
     @exit="onEjectGame()"
     @settings="toggleSettings"
     @help-guide="openHelp()"
+    @keyboard-shortcuts="openHelp('shortcuts')"
     @controls="controlsOpen = true"
     @trigger-key="triggerKey"
     @start-walkthrough="onStartWalkthrough"
@@ -443,7 +445,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy"
           @click="onExportAgiZip(true)"
         >
-          Download project
+          Download game
         </UiButton>
         <UiButton
           size="sm"
@@ -479,7 +481,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="exportBusy"
           @click="onExportAgiZip(true)"
         >
-          Keep a backup first
+          Download a backup
         </UiButton>
       </div>
     </div>

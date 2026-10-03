@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed, inject, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 import type { AgiProfile } from "../../../src/runtime/profile.ts";
@@ -35,6 +36,8 @@ import type { AuthoringFingerprint } from "../project/gameStorage.ts";
 import type { StudioRoomSource } from "../world/studioSource.ts";
 import LessonCard from "../lessons/LessonCard.vue";
 import { useStudioLesson } from "../lessons/useStudioLesson.ts";
+import UiSegmented from "../ui/UiSegmented.vue";
+import PaletteStrip from "./workspace/PaletteStrip.vue";
 import DrawOrderScrubber from "./DrawOrderScrubber.vue";
 import GhostProbe from "./GhostProbe.vue";
 import GhostReadout from "./GhostReadout.vue";
@@ -60,7 +63,6 @@ import StudioToolOverlay from "./StudioToolOverlay.vue";
 import StudioToolRail from "./StudioToolRail.vue";
 import StudioValuePicker from "./StudioValuePicker.vue";
 import StudioTopBar from "./StudioTopBar.vue";
-import StudioTour from "./StudioTour.vue";
 import SharePictureMenu from "./share/SharePictureMenu.vue";
 import { shareFileBase, shareRoomName } from "./share/shareFrame.ts";
 import StudioViewBar from "./StudioViewBar.vue";
@@ -79,7 +81,6 @@ import {
 } from "./studioHelp.ts";
 import { explain } from "./studioTerms.ts";
 import { useStudioCalm } from "./useStudioCalm.ts";
-import { useStudioTour } from "./useStudioTour.ts";
 import { isWalkTool, TOOL_KEYS, type StudioTool } from "./studioTools.ts";
 import { studioKey, type StudioKeyActions } from "./studioKeys.ts";
 import { lensItemLocks, lockedPlanes, NO_UNLOCKS, type LensUnlocks } from "./studioLocks.ts";
@@ -152,7 +153,14 @@ const {
   keep: keepFn = undefined,
   files = undefined,
   walk = undefined,
+  underlay = null,
+  embedded = false,
+  liveGame = false,
+  workspaceFocus = false,
 } = defineProps<{
+  embedded?: boolean;
+  liveGame?: boolean;
+  workspaceFocus?: boolean;
   pictureNumber: number;
   bytes: Uint8Array;
   authoredSource?: string | undefined;
@@ -169,6 +177,11 @@ const {
   files?: ReadonlyMap<string, Uint8Array> | undefined;
   /** The room framing the picture: its logic (doors), bindings, plan and tests. */
   walk?: StudioRoomSource | null | undefined;
+  /**
+   * A prepared reference underlay (160x168 RGBA) from its project attachment,
+   * blended over the art pane as a tracing guide — never a runtime bitmap.
+   */
+  underlay?: { pixels: Uint8Array; opacity: number; behindArt?: boolean } | null;
 }>();
 /**
  * `reopen` asks for Studio again; `fromStorage` reloads the game from storage
@@ -176,6 +189,10 @@ const {
  */
 const emit = defineEmits<{
   close: [];
+  edit: [source: string];
+  "game-host": [host: HTMLElement];
+  "agent-context": [context: { label: string; text: string } | null];
+  "agent-ask": [];
   reopen: [fromStorage: boolean];
   "play-here": [target: PlayHereTarget];
 }>();
@@ -254,7 +271,7 @@ const lesson = useStudioLesson();
 /** The room's logic, editable while its annotated text is trusted (useRoomLogicDraft). */
 const ruleSession = computed<RuleSession | null>(() => {
   if (!walk || !files) return null;
-  const state = createAgentSessionState(openContainer(new Map(files)), profile);
+  const state = createAgentSessionState(openContainer(new Map(files), { profile }), profile);
   state.authoring = structuredClone(walk.authoring);
   state.sources.words.clear();
   for (const [word, id] of walk.words) state.sources.words.set(word, id);
@@ -355,6 +372,9 @@ const keeper = useStudioKeep({
     return result;
   },
 });
+watch([draft.source, draft.gesturing], ([source, gesturing]) => {
+  if (embedded && !gesturing && source !== resolved.value.source) emit("edit", source);
+});
 /** Editing is blocked: view only, or a Keep that needs a reload first. */
 const frozen = (): boolean => draft.kept.value.revision === undefined || keeper.needsReload.value;
 
@@ -365,7 +385,7 @@ const assistHost: StudioAssistHost | null =
     ? {
         run: (request) => engineApi.runStudioAssist(request, aiSettings.llmConfig()),
         cancel: () => engineApi.discardAgent(),
-        resume: () => engineApi.continueAgent(),
+        resume: (requestLimit) => engineApi.continueAgent(requestLimit),
         task: () => engineApi.state.agentTask,
         log: () => engineApi.state.agentLog,
       }
@@ -377,6 +397,29 @@ const askTargets = computed<string[]>(() => {
 });
 const itemLabel = (id: string): string =>
   draft.document.value.items.find((item) => item.id === id)?.label ?? id;
+watch(
+  [askTargets, lens],
+  ([ids, currentLens]) => {
+    if (embedded)
+      emit(
+        "agent-context",
+        ids.length
+          ? {
+              label: `PICTURE ${pictureNumber} · ${ids.map(itemLabel).join(", ")}`,
+              text: `Selected item ids: ${ids.join(", ")}. Lens: ${currentLens}.`,
+            }
+          : null,
+      );
+  },
+  { immediate: true },
+);
+function askAgent(): boolean {
+  if (embedded) {
+    emit("agent-ask");
+    return true;
+  }
+  return assistPanel.value?.focus() ?? false;
+}
 const currentPicture = () => ({ kind: "picture" as const, source: draft.source.value });
 const assist = useStudioAssist({
   host: () => assistHost,
@@ -405,7 +448,7 @@ const assist = useStudioAssist({
   current: currentPicture,
   apply: (candidate, focus) => {
     if (candidate.kind !== "picture" || focus.scope.kind !== "picture")
-      return { ok: false, message: "That proposal is not for this picture." };
+      return { ok: false, message: "That change is not for this picture." };
     const outcome = draft.adopt(candidate.draft.source, "AI edit", focus.scope);
     editing.report(outcome);
     return outcome.ok ? outcome : { ok: false, message: outcome.refusal.message };
@@ -426,7 +469,7 @@ const editing = useStudioEditing({
     const rules = check.violations.map((violation) => violation.rule);
     const [plane] = lockedPlanes(lens.value, unlocks.value);
     if (rules.includes("locked-plane") && plane)
-      return { label: "Unlock for now", run: () => unlockNow({ [plane]: true }) };
+      return { label: "Unlock", run: () => unlockNow({ [plane]: true }) };
     if (rules.includes("walk-depth"))
       return { label: "Allow depth", run: () => unlockNow({ depthInWalk: true }) };
     return undefined;
@@ -436,7 +479,7 @@ const editing = useStudioEditing({
 function unlockNow(patch: Partial<LensUnlocks>): void {
   if (assist.holds.value) return;
   unlocks.value = { ...unlocks.value, ...patch };
-  editing.say({ tone: "ok", text: "Unlocked for now. Try it again." });
+  editing.say({ tone: "ok", text: "Unlocked until you close Studio. Try it again." });
   keepFocus();
 }
 /** The selected items the creator may edit now, when there are several. */
@@ -462,7 +505,13 @@ const undoOrder = useUndoOrder([
 ]);
 
 const stage = useTemplateRef("stage");
-const panes = computed(() => panesFor(lens.value, mode.value));
+const gameHost = useTemplateRef("gameHost");
+watch(gameHost, (host) => {
+  if (host) emit("game-host", host);
+});
+const panes = computed(() =>
+  embedded ? panesFor(lens.value, "blend").slice(0, 1) : panesFor(lens.value, mode.value),
+);
 const { viewport, zoom, dpr, fitted, zoomBy, zoomToFit } = useStudioViewport(
   stage,
   () => panes.value.length,
@@ -960,7 +1009,7 @@ const logicTextOpen = computed({
   },
 });
 
-const RELOAD_FIRST = "Reload game first: the running game isn't the one you saved.";
+const RELOAD_FIRST = "Reload the game to play your saved version.";
 /**
  * Play here: settle unkept changes, then the shell plays from the spot, in
  * this room or, from a walk that went through a door, the room it ended in.
@@ -991,8 +1040,10 @@ const selectionMenu = computed<CanvasMenuItem[]>(() =>
           : [{ id: "ungroup", label: "Ungroup" }]),
         {
           id: "ask",
-          label: "Ask about the selection",
-          ...(assistHost ? {} : { disabled: true, title: "AI edits need the game's assistant" }),
+          label: "Tell the agent about the selection",
+          ...(assistHost
+            ? {}
+            : { disabled: true, title: "An AI model is required. Choose a model in Settings." }),
         },
       ],
 );
@@ -1041,7 +1092,7 @@ function pickMenu(id: string): void {
   else if (id === "priority") priorityOpen.value = true;
   else if (id === "combine") openCombine();
   else if (id === "ungroup") editing.ungroup();
-  else if (id === "ask") assistPanel.value?.focus();
+  else if (id === "ask") askAgent();
   else if (id === "play") void playHere(cell);
   else if (id === "walk-from") {
     pickTool("walk");
@@ -1058,6 +1109,7 @@ function seek(k: number): void {
 
 /** Every way out of Studio, here or in the shell: Keep / Discard / Cancel first. */
 const exit = useStudioExit({
+  embedded,
   draft: room,
   keeper,
   say: (notice) => editing.say(notice),
@@ -1085,12 +1137,18 @@ const changeTotal = room.changes;
 
 // ---- The calm canvas: help in the status bar, the side panels on ⌘\ ----------
 const calm = useStudioCalm();
-/** The first-run tour: once per viewer, silent while a lesson's card is open. */
-const tour = useStudioTour("room", { lesson: () => lesson.session.value !== null });
-onMounted(() => void tour.offer());
 function toggleFocus(): void {
   calm.toggleFocus();
   input.spoken.value = calm.focus.value ? "Side panels hidden" : "Side panels shown";
+}
+/**
+ * The status bar's Keys button. Safari leaves a clicked button unfocused, so
+ * activation takes its focus first: the sheet returns focus to what had it when the sheet opened.
+ */
+function openKeySheet(event: MouseEvent): void {
+  if (event.currentTarget instanceof HTMLElement)
+    event.currentTarget.focus({ preventScroll: true });
+  calm.sheetOpen.value = true;
 }
 const keySheet = computed(() => roomKeySheet(tools.tool.value));
 /** The status bar's line for the active tool (the editing keys while an item is selected). */
@@ -1143,13 +1201,14 @@ const keys: StudioKeyActions = {
   redo: undoOrder.redo,
   tool: toolKey,
   finish: tools.finish,
-  ask: () => assistPanel.value?.focus() ?? false,
+  ask: askAgent,
   insertPoint: insertPointAtCursor,
   focusMode: toggleFocus,
   keySheet: () => (calm.sheetOpen.value = true),
 };
 /** Every key stops here so the game never sees it. */
 function onKeydown(event: KeyboardEvent): void {
+  if (embedded && (event.target as HTMLElement).closest(".play-area")) return;
   event.stopPropagation();
   // An open confirmation, the logic text or the key sheet takes the keys it needs (Esc closes it) and nothing else runs.
   if (
@@ -1171,6 +1230,7 @@ function onKeydown(event: KeyboardEvent): void {
   keepFocus();
 }
 function onKeyup(event: KeyboardEvent): void {
+  if (embedded && (event.target as HTMLElement).closest(".play-area")) return;
   event.stopPropagation();
   input.spaceKey(event, false);
 }
@@ -1180,7 +1240,15 @@ function onKeyup(event: KeyboardEvent): void {
   <div
     ref="root"
     class="studio"
-    :class="{ 'is-focus': calm.focus.value }"
+    :class="{
+      'is-focus': calm.focus.value,
+      'is-embedded': embedded,
+      'is-live-game': liveGame,
+      'has-reference': !!underlay,
+      'is-workspace-focus': workspaceFocus,
+      'is-art-idle': lens === 'art' && !draft.gesturing.value,
+    }"
+    :style="embedded ? { '--picture-zoom': zoom } : undefined"
     data-testid="room-studio"
     tabindex="-1"
     role="region"
@@ -1188,9 +1256,14 @@ function onKeyup(event: KeyboardEvent): void {
     @keydown="onKeydown"
     @keyup="onKeyup"
     @keypress.stop
-    @click="keepFocus"
+    @click="
+      (event) => {
+        if (!(embedded && (event.target as HTMLElement).closest('.play-area'))) keepFocus();
+      }
+    "
   >
     <StudioTopBar
+      v-if="!embedded"
       v-model:lens="lens"
       v-model:unlocks="unlocks"
       class="studio__top"
@@ -1224,6 +1297,18 @@ function onKeyup(event: KeyboardEvent): void {
       /></template>
     </StudioTopBar>
 
+    <PaletteStrip
+      v-if="embedded"
+      class="studio__scrubber"
+      :value="
+        lens === 'art'
+          ? (tools.current.value.visual ?? 0)
+          : typeof tools.current.value.priority === 'number'
+            ? tools.current.value.priority
+            : 4
+      "
+      @choose="tools.setValues(lens === 'art' ? { visual: $event } : { priority: $event })"
+    />
     <SceneList
       v-model:filter="filter"
       class="studio__scene"
@@ -1260,7 +1345,7 @@ function onKeyup(event: KeyboardEvent): void {
         :askable="assistHost !== null"
         :grouped="editing.grouped.value"
         :fold="optionsFold.level.value"
-        @ask="assistPanel?.focus()"
+        @ask="askAgent"
         @combine="openCombine"
         @ungroup="editing.ungroup()"
       />
@@ -1285,7 +1370,19 @@ function onKeyup(event: KeyboardEvent): void {
         :spilled="proposal.sideEffects !== null"
       />
       <span class="studio__spacer"></span>
+      <UiSegmented
+        v-if="embedded"
+        v-model="lens"
+        size="sm"
+        :label="VOCABULARY.lens.label"
+        :options="[
+          { value: 'art', label: VOCABULARY.art.label, title: VOCABULARY.art.help },
+          { value: 'depth', label: VOCABULARY.depth.label, title: VOCABULARY.depth.help },
+          { value: 'walk', label: VOCABULARY.walk.label, title: VOCABULARY.walk.help },
+        ]"
+      />
       <StudioViewBar
+        v-else
         v-model:mode="mode"
         v-model:bands="showBands"
         :lens
@@ -1310,6 +1407,7 @@ function onKeyup(event: KeyboardEvent): void {
       @unlocks="(next) => !assist.holds.value && (unlocks = next)"
     />
     <main class="studio__frame">
+      <div v-if="embedded" ref="gameHost" class="studio__live-game"></div>
       <div
         ref="stage"
         class="studio__stage"
@@ -1346,6 +1444,7 @@ function onKeyup(event: KeyboardEvent): void {
             :spilled="spilledPaths"
             :movable="movable"
             :marquee="drag.marqueeBox.value ?? null"
+            :underlay="layer === 'art' ? underlay : null"
             @hover="input.pointer.hover"
             @press="input.pointer.press"
             @drag="input.pointer.drag"
@@ -1379,6 +1478,7 @@ function onKeyup(event: KeyboardEvent): void {
     </main>
 
     <DrawOrderScrubber
+      v-if="!embedded"
       v-model="playhead"
       class="studio__scrubber"
       data-testid="studio-scrubber"
@@ -1412,7 +1512,6 @@ function onKeyup(event: KeyboardEvent): void {
           v-if="lesson.session.value"
           :session="lesson.session.value"
           :outcome="lesson.outcome.value"
-          @tour="tour.start()"
         />
         <!-- The probe's readout docks here too: on the art, only the ghost and its handle. -->
         <GhostReadout v-if="ghost.active.value" :probe="ghost" :describe-cell="describeCell" />
@@ -1471,7 +1570,7 @@ function onKeyup(event: KeyboardEvent): void {
       </template>
       <template #assist>
         <StudioAssistPanel
-          v-if="assistHost"
+          v-if="assistHost && !embedded"
           ref="assistPanel"
           :assist
           :chips="assistChips"
@@ -1539,19 +1638,14 @@ function onKeyup(event: KeyboardEvent): void {
         aria-keyshortcuts="?"
         aria-haspopup="dialog"
         data-testid="studio-keys-button"
-        @click="calm.sheetOpen.value = true"
+        @click="openKeySheet"
       />
     </footer>
     <p class="studio__sr" aria-live="polite" data-role="announce">{{ input.spoken.value }}</p>
-    <StudioTour :tour :stage name="Room Studio" />
 
-    <StudioKeySheet
-      v-model:open="calm.sheetOpen.value"
-      name="Room Studio"
-      :sections="keySheet"
-      @tour="tour.start()"
-    />
+    <StudioKeySheet v-model:open="calm.sheetOpen.value" name="Room Studio" :sections="keySheet" />
     <StudioKeepDialog
+      v-if="!embedded"
       v-model:ask="dialog"
       :subject="subject"
       noun="picture"
@@ -1561,7 +1655,13 @@ function onKeyup(event: KeyboardEvent): void {
       @keep="leave.answer('keep')"
       @discard="(answer) => (answer ? leave.answer('discard') : discardChanges())"
     />
-    <StudioSmallScreen name="Room Studio" :draft="room" :keeper @close="emit('close')" />
+    <StudioSmallScreen
+      v-if="!embedded"
+      name="Room Studio"
+      :draft="room"
+      :keeper
+      @close="emit('close')"
+    />
     <StudioCombineDialog
       v-model:open="combineOpen"
       :count="editing.targets.value.length"
@@ -1690,6 +1790,7 @@ function onKeyup(event: KeyboardEvent): void {
   grid-column: 4;
 }
 .studio__status {
+  grid-row: 5;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -1773,5 +1874,82 @@ function onKeyup(event: KeyboardEvent): void {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+/* Embedded drawing surrounds the same MAIN stage. The transparent art pane
+   takes editor gestures; only an unfinished gesture paints a preview over MAIN. */
+.studio.is-embedded {
+  grid-template-columns: 0 44px minmax(0, 1fr) minmax(140px, 236px);
+  grid-template-rows: 0 minmax(40px, max-content) minmax(0, 1fr) 52px 28px;
+}
+.studio.is-embedded .studio__options {
+  grid-column: 2 / 5;
+  flex-wrap: wrap;
+  padding-block: var(--space-1);
+}
+.studio.is-embedded .studio__scene {
+  grid-column: 4;
+  grid-row: 3 / 5;
+  border-right: 0;
+  border-left: 1px solid var(--hairline);
+}
+.studio.is-embedded .studio__inspector {
+  display: none;
+}
+.studio.is-embedded .studio__status {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.studio.is-embedded .studio__meta,
+.studio.is-embedded .studio__status-sep {
+  display: none;
+}
+.studio.is-workspace-focus {
+  grid-template-columns: 0 44px minmax(0, 1fr) 0;
+}
+.studio.is-workspace-focus .studio__scene {
+  display: none;
+}
+.studio__live-game {
+  position: absolute;
+  inset: 0;
+}
+.studio.is-live-game .studio__panes {
+  padding: 0;
+  transform: translateY(calc(-8px * var(--picture-zoom)));
+}
+.studio.is-live-game.is-art-idle:not(.has-reference) :deep(.studio-pane canvas) {
+  opacity: 0;
+}
+.studio.is-live-game .studio__frame {
+  background: var(--agi-0);
+}
+.studio__live-game :deep(.play-area) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  height: 100%;
+  --game-aspect: 8 / 5;
+  --game-ratio: 1.6;
+}
+.studio__live-game :deep(.play-strip) {
+  display: none;
+}
+.studio.is-live-game .studio__live-game :deep(.play-area .screen) {
+  --game-width: calc(320px * var(--picture-zoom));
+  width: calc(320px * var(--picture-zoom));
+  height: calc(200px * var(--picture-zoom));
+  max-width: none;
+  box-sizing: content-box;
+}
+.studio__live-game :deep(.stage) {
+  min-height: 0;
+  padding: 0;
+}
+@media (max-height: 800px) {
+  .studio.is-embedded :deep(.tool-rail__tool .ui-icon-btn) {
+    width: var(--control-h-sm);
+    height: var(--control-h-sm);
+  }
 }
 </style>

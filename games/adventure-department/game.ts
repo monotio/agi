@@ -167,6 +167,13 @@ const GRADUATED_HINT = hint("All fixed! Now make your own adventure.");
 
 export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
   0: String.raw`
+#define C_MENU 200
+#define C_SAVE 201
+#define C_RESTORE 202
+#define C_RESTART 203
+#define C_QUIT 204
+#define C_HELP 211
+#define C_INVENTORY 213
 #message 1 "Only EAST and WEST lead anywhere in this building."
 #message 2 "No need to open anything: the doorways are always open. Walk through them, or type EAST or WEST."
 #message 3 "You're the new apprentice at the Adventure Department. Your job: fix all three exhibits."
@@ -192,6 +199,15 @@ export const TUTORIAL_LOGIC_SOURCES: Readonly<Record<number, string>> = {
 #message 23 "Three exhibits need fixing: the mural in the Picture Gallery, the robot in the Sprite Lab and Felix in the Priority Archive. %s1"
 #message 24 "All three exhibits work: the mural, the robot and Felix. You fixed every one!"
 #message 25 "Each exhibit has its own fix. %s1"
+#message 26 "Type a command and press ENTER. Arrow keys walk. TAB opens your inventory. ESC opens the menu."
+#message 27 "File"
+#message 28 "Save Game      F5"
+#message 29 "Restore Game   F7"
+#message 30 "Restart Game   F9"
+#message 31 "Quit          Alt+Z"
+#message 32 "Help"
+#message 33 "Instructions   F1"
+#message 34 "Inventory     Tab"
 
 // Boot once, then dispatch the current room every interpreter cycle.
 if (!isset(f200)) {
@@ -203,6 +219,23 @@ if (!isset(f200)) {
   assignn(v63, 0);
   script.size(100);
   status.line.on();
+  set.menu(m27);
+  set.menu.item(m28, C_SAVE);
+  set.menu.item(m29, C_RESTORE);
+  set.menu.item(m30, C_RESTART);
+  set.menu.item(m31, C_QUIT);
+  set.menu(m32);
+  set.menu.item(m33, C_HELP);
+  set.menu.item(m34, C_INVENTORY);
+  submit.menu();
+  set(f14);
+  set.key(27, 0, C_MENU);
+  set.key(0, 59, C_HELP);
+  set.key(0, 63, C_SAVE);
+  set.key(0, 65, C_RESTORE);
+  set.key(0, 67, C_RESTART);
+  set.key(0, 44, C_QUIT);
+  set.key(9, 0, C_INVENTORY);
   new.room(1);
 }
 if (said("fast") || said("fast", "speed")) {
@@ -241,6 +274,13 @@ if (said("fix", "exhibit")) {
   if (isset(f33)) { print(24); } else { print(25); }
 }
 call.v(v0);
+if (controller(C_MENU)) { menu.input(); }
+if (controller(C_SAVE)) { save.game(); }
+if (controller(C_RESTORE)) { restore.game(); }
+if (controller(C_RESTART)) { restart.game(); }
+if (controller(C_QUIT)) { quit(0); }
+if (controller(C_HELP)) { print(m26); }
+if (controller(C_INVENTORY)) { status(); }
 // Whatever the room did not handle gets a Sierra-style reply naming the
 // unknown word and the room's next step (s1, which each room keeps current).
 if (isset(f2) && !isset(f4)) {
@@ -257,8 +297,9 @@ if (isset(f5)) {
   get.posn(o0, v56, v57);
 }
 get.posn(o0, v54, v55);
+// Stand on cel 0 when still, or held against a wall; walk the cels while moving.
 if (equaln(v6, 0)) {
-  stop.cycling(o0); assignn(v63, 0);
+  stop.cycling(o0); set.cel(o0, 0); assignn(v63, 0);
 }
 if (!equaln(v6, 0) && (!equalv(v54, v56) || !equalv(v55, v57))) {
   start.cycling(o0); assignn(v63, 0);
@@ -273,7 +314,7 @@ if (!equaln(v6, 0) && (!equalv(v54, v56) || !equalv(v55, v57))) {
 }
 if (!equaln(v6, 0) && equalv(v54, v56) && equalv(v55, v57)) {
   if (lessn(v63, 2)) { increment(v63); }
-  if (equaln(v63, 2)) { stop.cycling(o0); }
+  if (equaln(v63, 2)) { stop.cycling(o0); set.cel(o0, 0); }
 }
 assignv(v56, v54); assignv(v57, v55);
 return;
@@ -720,7 +761,7 @@ export function buildTutorial(): TutorialGame {
     title: "Adventure Department",
     roomGeneration: false,
     metadata: {
-      description: "Learn pictures, sprites and priority in a three-room tutorial.",
+      description: "Learn pictures, views and depth in a three-room tutorial.",
       author: "Monotio",
       license: "MIT",
     },

@@ -14,7 +14,7 @@
       "fill": [0, 0, 170]
     }
   ],
-  "tool": "view_reference",
+  "tool": "read_reference_image",
   "args": { "id": "art-0000000000", "size": "full", "region": null, "grid": null },
   "expectedSuccess": false,
   "expectedErrorSnippet": "No reference art has the id art-0000000000. This request has art-3f9a01c2d4."

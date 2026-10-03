@@ -7,6 +7,7 @@ import {
   MAX_MAP_BYTES,
   readMapArchive,
   readMapSidecar,
+  removeMapSidecar,
   writeMapSidecar,
 } from "../src/world/roomMapStore.ts";
 import type { RoomMapSidecar } from "../src/world/useRoomMap.ts";
@@ -110,6 +111,20 @@ test("storage refusal reports false and leaves the record alone", () => {
   allowWrites();
   assert.equal(writeMapSidecar(storage, "game-1", emptyMapSidecar()), true);
   assert.deepEqual(readMapSidecar(storage, "game-1"), emptyMapSidecar());
+});
+
+test("a corrupt existing record refuses the write and keeps its exact bytes", () => {
+  const corrupt = "{not json";
+  const { storage, values } = fakeStorage({ [mapKey("damaged")]: corrupt });
+  assert.equal(writeMapSidecar(storage, "damaged", sidecar), false);
+  assert.equal(values.get(mapKey("damaged")), corrupt);
+});
+
+test("removing the record is the explicit reset that lets a write replace it", () => {
+  const { storage } = fakeStorage({ [mapKey("damaged")]: "{not json" });
+  assert.equal(writeMapSidecar(storage, "damaged", sidecar), false);
+  removeMapSidecar(storage, "damaged");
+  assert.equal(writeMapSidecar(storage, "damaged", sidecar), true);
 });
 
 test("MAP.JSON archive bytes round-trip and reject garbage", () => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { nextTick, ref } from "vue";
 import { compilePictureSource } from "../../src/picture/source.ts";
 import { DEFAULT_V2_PROFILE as profile } from "../../src/runtime/profile.ts";
 import { itemMask } from "../../src/studio/pictureQuery.ts";
@@ -34,6 +35,23 @@ const SMALL = text(
   "end",
 );
 
+test("item lens marks follow drawing commands including all three lenses", () => {
+  const source = text(
+    '# @item all "All lenses" mixed',
+    "vis 4",
+    "pri 10",
+    "line 1,1 3,1",
+    "pri 0",
+    "line 1,2 3,2",
+    "# @end",
+    "end",
+  );
+  const model = buildStudioModel({ bytes: bytesOf(source), authoredSource: source, profile });
+  assert.deepEqual(model.rows[0]?.lenses, ["art", "depth", "walk"]);
+  const single = buildStudioModel({ bytes: bytesOf(SMALL), authoredSource: SMALL, profile });
+  assert.deepEqual(single.rows[0]?.lenses, ["art"]);
+});
+
 test("authored text is used only while it compiles to the exact bytes", () => {
   const bytes = bytesOf(SMALL);
   const trusted = buildStudioModel({ bytes, authoredSource: SMALL, profile });
@@ -66,7 +84,7 @@ test("rows: items in draw order, then loose lines as Unassigned, without the clo
   }));
   assert.deepEqual(summary, [
     { id: "a", kind: "art", entries: [0, 1], swatch: 4, value: 4, tag: "art" },
-    { id: "d", kind: "depth", entries: [2, 3, 4], swatch: 10, value: 10, tag: "pri 10" },
+    { id: "d", kind: "depth", entries: [2, 3, 4], swatch: 10, value: 10, tag: "Depth 10" },
     { id: UNASSIGNED, kind: "loose", entries: [5, 6], swatch: 2, value: 2, tag: "loose" },
   ]);
   // Two unlike items: no groups, and Unassigned stays out of the branches.
@@ -126,7 +144,7 @@ test("branches fold consecutive inferred items of one kind and dominant value in
       ["Brown art · 3", ["el-1", "el-2", "el-3"]],
       [null, ["el-4"]],
       ["Brown art · 2", ["el-5", "el-6"]],
-      ["Band 9 depth · 2", ["el-7", "el-8"]],
+      ["Depth band 9 · 2", ["el-7", "el-8"]],
     ],
   );
   const [first] = model.groups;
@@ -136,7 +154,7 @@ test("branches fold consecutive inferred items of one kind and dominant value in
   assert.equal(first!.id, "(group)el-1");
   assert.deepEqual(
     model.groups.map((group) => group.tag),
-    ["art", "art", "pri 9"],
+    ["art", "art", "Depth 9"],
   );
 });
 
@@ -169,7 +187,7 @@ test("authored items always stand alone: they never join a group, but do break o
       [null, ["el-3"]],
       [null, ["el-4"]],
       ["Brown art · 2", ["el-5", "el-6"]],
-      ["Band 9 depth · 2", ["el-7", "el-8"]],
+      ["Depth band 9 · 2", ["el-7", "el-8"]],
     ],
   );
 });
@@ -240,8 +258,8 @@ test("a list of more than 60 rows folds into draw-order sections", () => {
 test("group labels name the colour, the priority meaning or a covered run", () => {
   assert.equal(groupLabel("art", 6, 12), "Brown art · 12");
   assert.equal(groupLabel("mixed", 7, 2), "Light grey mixed · 2");
-  assert.equal(groupLabel("depth", 9, 4), "Band 9 depth · 4");
-  assert.equal(groupLabel("walk", 0, 3), "Barrier walk · 3");
+  assert.equal(groupLabel("depth", 9, 4), "Depth band 9 · 4");
+  assert.equal(groupLabel("walk", 0, 3), "Wall walk · 3");
   assert.equal(groupLabel("art", null, 2), "Covered art · 2");
 });
 
@@ -269,10 +287,10 @@ test("the demo picture's rows and occluder mask match its hand-placed shapes", (
       "wall:art",
       "bench:art",
       "lamp:art",
-      "bench-occluder:pri 10",
-      "floor-edge:barrier",
-      "gate:conditional",
-      "south-exit:signal",
+      "bench-occluder:Depth 10",
+      "floor-edge:Wall",
+      "gate:Gate",
+      "south-exit:Trigger",
       "pond:mixed",
     ],
   );
@@ -319,6 +337,23 @@ test("the playhead shows the picture drawn up to it and the pixel owners at that
   assert.deepEqual(Uint8Array.from(doc.surface.value.priority), new Uint8Array(160 * 168).fill(4));
   assert.equal(doc.pixelInfo(1, 1).priority.rowId, undefined);
   assert.equal(doc.pixelInfo(1, 0).visual.entry, 1);
+});
+
+test("source trust updates preserve the playhead while changed drawing commands reset it", async () => {
+  const source = ref(SMALL);
+  const trusted = ref(false);
+  const doc = useStudioDocument(() => ({ source: source.value, trusted: trusted.value, profile }));
+  doc.playhead.value = 2;
+  const before = Uint8Array.from(doc.surface.value.visual);
+  trusted.value = true;
+  await nextTick();
+  assert.equal(doc.model.value.trusted, true);
+  assert.equal(doc.playhead.value, 2);
+  assert.deepEqual(Uint8Array.from(doc.surface.value.visual), before);
+  source.value = SMALL.replace(/end\n$/, "vis 1\nline 0,3 3,3\nend\n");
+  await nextTick();
+  assert.equal(doc.total.value, 9);
+  assert.equal(doc.playhead.value, 9);
 });
 
 test("row masks: Unassigned uses the loose lines' pixels", () => {

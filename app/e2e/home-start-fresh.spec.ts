@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { isolateStorage, textHook } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 const UNRELATED_PROJECT_ID = "keep-me";
 
 /** The keys currently in the project store. */
 async function storedKeys(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("monotio-agi-projects", 1);
+      const request = indexedDB.open("monotio-agi-projects");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -33,7 +33,7 @@ test("an unreadable stored tutorial offers Start fresh, which removes only that 
   await page.evaluate(
     async (ids) => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("monotio-agi-projects", 1);
+        const request = indexedDB.open("monotio-agi-projects");
         request.onupgradeneeded = () =>
           request.result.createObjectStore("projects", { keyPath: "projectId" });
         request.onsuccess = () => resolve(request.result);
@@ -96,7 +96,7 @@ test("a saved game whose stored body predates 1.0 offers Start fresh on its own 
   // pre-1.0 stored format.
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("monotio-agi-projects", 1);
+      const request = indexedDB.open("monotio-agi-projects");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
+import { VOCABULARY } from "../../../src/vocabulary.ts";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onWatcherCleanup,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
 import AgentTaskControls from "./AgentTaskControls.vue";
-import SoundPreview from "./SoundPreview.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
@@ -19,6 +27,7 @@ import UiKbd from "../ui/UiKbd.vue";
  */
 const { surface } = defineProps<{ surface: "drawer" | "dock" }>();
 
+const SoundPreview = defineAsyncComponent(() => import("./SoundPreview.vue"));
 const engine = useEngineApi();
 const { state, openPowerUp, closePowerUp, submitPowerUp, stopAgent, continueAgent, discardAgent } =
   engine;
@@ -32,6 +41,15 @@ const { aiConfigured, aiSettingsUnavailable, openAiSettings, llmConfig, taskBudg
  * stored tests — definitions the assistant runs before it finishes an edit,
  * not results.
  */
+watch(
+  () => llmConfig().provider,
+  (provider) => {
+    if (provider === "openai") void import("openai").catch(() => {});
+    else if (provider === "anthropic") void import("@anthropic-ai/sdk").catch(() => {});
+  },
+  { immediate: true },
+);
+prefetchAuthoringStack();
 const storedTests = computed(() => engine.roomMap.resources.value.testCoverage.tests);
 
 /**
@@ -85,12 +103,12 @@ const REMIX_ACTIVITY: Record<string, string> = {
   read_picture: "Examining the scenery…",
   read_words: "Reading the vocabulary…",
   list_resources: "Exploring the game’s resources…",
-  inspect_world_bible: "Checking the world…",
+  read_plan: "Checking the world…",
   write_view: "Drawing sprites…",
   write_picture: "Drawing the scenery…",
-  write_logic_source: "Updating the room’s behavior…",
+  write_logic: "Updating the room’s behavior…",
   write_words: "Adding vocabulary…",
-  write_inventory_objects: "Updating inventory…",
+  write_objects: "Updating inventory…",
   write_sound: "Composing sound…",
   playtest_room: "Checking the updated room…",
 };
@@ -149,6 +167,13 @@ watch(
     else if (!open && wasOpen && creatingRoom.value) bridge.focusGameInput();
   },
 );
+watch(
+  [powerUpEl, () => state.powerUp.busy],
+  ([el, busy]) => {
+    if (!busy) el?.focus({ preventScroll: true });
+  },
+  { flush: "post" },
+);
 watch(progressFeedEl, (el) => {
   if (!el) return;
   const observer = new ResizeObserver(() => {
@@ -179,7 +204,6 @@ async function onPowerUp(mode?: "ask" | "remix"): Promise<void> {
   await nextTick();
   powerUpEl.value?.focus({ preventScroll: true });
 }
-bridge.togglePowerUp = (mode) => void onPowerUp(mode);
 bridge.assistantInputEl = () => powerUpEl.value;
 
 async function onPowerUpSubmit(): Promise<void> {
@@ -228,7 +252,7 @@ async function onBubbleReload(): Promise<void> {
     class="agent-bubble"
     :class="[`agent-bubble--${surface}`]"
     data-testid="agent-bubble"
-    aria-label="Assistant"
+    :aria-label="VOCABULARY.agent.label"
     @click.stop
     @pointerdown.stop
   >
@@ -236,8 +260,12 @@ async function onBubbleReload(): Promise<void> {
       <h2 v-if="creatingRoom" class="agent-bubble-title">
         {{ state.powerUp.error ? "Could not create this room" : "Creating the next room" }}
       </h2>
-      <h2 v-else-if="surface === 'drawer'" class="agent-bubble-title">
-        <UiIcon name="sparkles" :size="16" />Ask
+      <h2
+        v-else-if="surface === 'drawer'"
+        class="agent-bubble-title"
+        :title="VOCABULARY.agent.help"
+      >
+        <UiIcon name="sparkles" :size="16" />{{ VOCABULARY.agent.label }}
       </h2>
       <div v-else class="agent-mode-switch" role="group" aria-label="Agent mode">
         <button
@@ -248,7 +276,7 @@ async function onBubbleReload(): Promise<void> {
           title="Ask about this game"
           @click="state.powerUp.mode = 'ask'"
         >
-          Ask
+          {{ VOCABULARY.agent.label }}
         </button>
         <button
           type="button"
@@ -269,7 +297,7 @@ async function onBubbleReload(): Promise<void> {
           >{{ asking ? "Read-only" : "Paused" }} ·
           {{ state.powerUp.room > 0 ? `room ${state.powerUp.room}` : "…" }}</span
         >
-        <!-- Play's Ask button steps away while the drawer is open: the drawer
+        <!-- Play's Agent button steps away while the drawer is open: the drawer
              names its own way back (hidden on touch, which has no Esc). -->
         <UiKbd
           v-if="surface === 'drawer' && !state.powerUp.busy"
@@ -441,10 +469,11 @@ async function onBubbleReload(): Promise<void> {
         data-testid="agent-bubble-send"
         :disabled="state.powerUp.busy || !powerUpLine.trim()"
       >
-        {{ state.powerUp.busy ? "Working…" : asking ? "Ask" : "Remix" }}
+        {{ state.powerUp.busy ? "Working…" : asking ? "Send" : "Remix" }}
       </UiButton>
       <p v-if="surface === 'dock'" class="agent-budget" data-testid="agent-budget">
-        {{ asking ? "Ask" : "Remix" }} · budget ${{ taskBudget.toFixed(2) }} per task
+        {{ asking ? VOCABULARY.agent.label : "Remix" }} · budget ${{ taskBudget.toFixed(2) }} per
+        task
       </p>
     </form>
     <!-- Playtest recording is editing tooling but needs no AI connection —

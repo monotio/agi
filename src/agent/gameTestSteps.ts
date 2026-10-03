@@ -1,5 +1,5 @@
 import { decodeRecordedReplay } from "./recordedReplay.ts";
-import { validateTarget, type Target } from "./navigation.ts";
+import { validateTarget, type Target } from "./navigationTarget.ts";
 import { rngDraw } from "../runtime/rng.ts";
 /**
  * The game-test step and expectation vocabulary shared by the stored

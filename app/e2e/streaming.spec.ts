@@ -4,7 +4,7 @@ import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { sseEvent, providerSse } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
+import { configureAi, textHook, enterPlayMode } from "./engineProbe.ts";
 
 for (const provider of ["openai", "anthropic"] as const) {
   test(`${provider}: live tool preparation, streamed Ask text, Stop and Continue`, async ({
@@ -55,7 +55,7 @@ for (const provider of ["openai", "anthropic"] as const) {
     if (!address || typeof address === "string") throw new Error("Missing test server address");
     const endpoint = `http://127.0.0.1:${address.port}/stream`;
     await page.route(
-      provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages",
+      provider === "openai" ? "**/api/openai/v1/responses" : "**/api/anthropic/v1/messages*",
       (route) => route.continue({ url: endpoint }),
     );
     const game = createContainer();
@@ -81,10 +81,9 @@ for (const provider of ["openai", "anthropic"] as const) {
       });
       await page.getByTestId("btn-resume-cached").click();
       await expect.poll(async () => (await textHook(page)).room).toBe(1);
-      await enterCreateMode(page);
-      await page.getByTestId("power-up").click();
+      await enterPlayMode(page);
+      await page.getByTestId("menu-assistant").click();
       await configureAi(page, { provider, key: "test-placeholder" });
-      await page.getByTestId("agent-mode-ask").click();
       await page.getByTestId("agent-bubble-input").fill("Where am I?");
       await page.getByTestId("agent-bubble-send").click();
       await expect.poll(() => responses.length).toBe(1);
@@ -123,7 +122,7 @@ for (const provider of ["openai", "anthropic"] as const) {
                   type: "function_call",
                   id: "tool",
                   call_id: "call",
-                  name: "read_room_context",
+                  name: "read_room",
                   arguments: "",
                 },
               }
@@ -133,7 +132,7 @@ for (const provider of ["openai", "anthropic"] as const) {
                 content_block: {
                   type: "tool_use",
                   id: "call",
-                  name: "read_room_context",
+                  name: "read_room",
                   input: {},
                 },
               },
@@ -144,7 +143,7 @@ for (const provider of ["openai", "anthropic"] as const) {
       );
       expect(requests).toHaveLength(1);
       const toolsBeforeCompletion = await page.evaluate(() => JSON.stringify(window.__AGI_TRACE__));
-      expect(toolsBeforeCompletion).not.toContain('"tool":"read_room_context"');
+      expect(toolsBeforeCompletion).not.toContain('"tool":"read_room"');
       if (provider === "openai")
         responses[0]!.end(
           providerSse(provider, {
@@ -160,7 +159,7 @@ for (const provider of ["openai", "anthropic"] as const) {
                 type: "function_call",
                 id: "tool",
                 call_id: "call",
-                name: "read_room_context",
+                name: "read_room",
                 arguments: "{}",
               },
             ],

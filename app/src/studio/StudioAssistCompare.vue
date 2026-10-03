@@ -21,8 +21,8 @@ const OPTIONS = [
 </script>
 
 <template>
-  <div class="compare" role="group" aria-label="AI proposal" data-testid="assist-compare">
-    <span class="compare__label">{{ stale ? "Stale proposal" : "AI proposal" }}</span>
+  <div class="compare" role="group" aria-label="AI change" data-testid="assist-compare">
+    <span class="compare__label">{{ stale ? "Stale change" : "AI change" }}</span>
     <UiSegmented v-model="mode" size="sm" label="Show the canvas" :options="OPTIONS" />
     <span class="compare__key"><i aria-hidden="true"></i>changed</span>
     <span v-if="spilled" class="compare__key is-spilled" data-testid="assist-compare-spilled"

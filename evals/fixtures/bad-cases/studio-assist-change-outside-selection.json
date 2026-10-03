@@ -9,7 +9,7 @@
     "targetIds": ["bridge"],
     "lens": "walk"
   },
-  "tool": "propose_edit",
+  "tool": "propose_changes",
   "args": {
     "baseRevision": "picture-638-246da3a7",
     "summary": "Made the bridge walkable.",

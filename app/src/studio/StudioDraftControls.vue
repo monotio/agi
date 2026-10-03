@@ -89,7 +89,7 @@ const historyBlocked = (which: "undo" | "redo"): string =>
     variant="ghost"
     size="sm"
     :disabled="changes === 0 || status === 'keeping'"
-    :title="status === 'keeping' ? 'Keeping the changes' : changes === 0 ? 'No changes' : undefined"
+    :title="status === 'keeping' ? 'Saving the changes' : changes === 0 ? 'No changes' : undefined"
     data-testid="studio-discard"
     @click="emit('discard')"
   >
@@ -99,11 +99,11 @@ const historyBlocked = (which: "undo" | "redo"): string =>
     variant="primary"
     size="sm"
     :disabled="!canKeep"
-    :title="keepTitle ?? 'Keep saves your changes into the game'"
+    :title="keepTitle ?? 'Save your changes into the game'"
     data-testid="studio-keep"
     @click="emit('keep')"
   >
-    Keep<span v-if="changes > 0" class="draft-controls__count">{{ changes }}</span>
+    Save<span v-if="changes > 0" class="draft-controls__count">{{ changes }}</span>
   </UiButton>
   <UiIconButton
     icon="x"

@@ -24,7 +24,13 @@ import {
   type HistoryBlock,
   type HistoryRetry,
 } from "../src/history/useHistoryController.ts";
-import { clearCachedGame } from "../src/project/gameStorage.ts";
+import {
+  clearCachedGame,
+  readHistoryLifetime,
+  saveAuthoredGame,
+} from "../src/project/gameStorage.ts";
+import { projectProgressTarget } from "../src/project/progressTarget.ts";
+import { bindProgressTarget } from "../src/project/progressBinding.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
 import { installIndexedDbFixture } from "./indexedDbFixture.ts";
 import { testProjectId, testRevision } from "./identity.ts";
@@ -89,24 +95,52 @@ function historyState() {
   };
 }
 
+/** A saved body and the game booted from it: the bound target's epoch carried. */
+async function bootSavedGame(id: string): Promise<BootedGame> {
+  const projectId = testProjectId(id);
+  assert.equal(
+    await saveAuthoredGame(projectId, {
+      title: id,
+      provider: "stub",
+      model: "stub",
+      files: {},
+      words: [],
+    }),
+    true,
+  );
+  const booted = { ...game(id), historyLifetime: await readHistoryLifetime(projectId) };
+  bindProgressTarget(booted);
+  return booted;
+}
+
 test("a tape this version cannot extend refuses permanently; a new timeline continues beside it", async () => {
-  const key = "timeline-legacy";
-  const identity = { project: testProjectId(key), revision: testRevision("tape") };
+  const projectId = testProjectId("timeline-legacy");
+  await saveAuthoredGame(projectId, {
+    title: "Legacy",
+    provider: "stub",
+    model: "stub",
+    files: {},
+    words: [],
+  });
+  const target = projectProgressTarget(
+    projectId,
+    testRevision("tape"),
+    await readHistoryLifetime(projectId),
+  );
+  assert.ok(target !== null);
+  const key = target.locator;
   RECORDS.set(`history/${key}`, legacyTape(key));
   const before = JSON.stringify(RECORDS.get(`history/${key}`));
 
   await assert.rejects(
-    appendHistoryBatch(key, batch("s1.s1", 1, { boot: BOOT }), "2.936", identity),
+    appendHistoryBatch(target, batch("s1.s1", 1, { boot: BOOT }), "2.936"),
     (error: unknown) => error instanceof UnextendableHistoryError && error.stored === "older",
   );
 
   // The player's choice: the old record is kept for its own reader.
-  await startNewTimeline(key, identity, "2.936");
-  assert.equal(
-    await appendHistoryBatch(key, batch("s1.s1", 1, { boot: BOOT }), "2.936", identity),
-    true,
-  );
-  assert.equal(await appendHistoryBatch(key, batch("s1.s1", 2), "2.936", identity), true);
+  await startNewTimeline(target, "2.936");
+  assert.equal(await appendHistoryBatch(target, batch("s1.s1", 1, { boot: BOOT }), "2.936"), true);
+  assert.equal(await appendHistoryBatch(target, batch("s1.s1", 2), "2.936"), true);
   const tape = await loadGameHistory(key);
   assert.deepEqual(
     tape?.segments.map((segment) => segment.id),
@@ -122,7 +156,7 @@ test("a tape this version cannot extend refuses permanently; a new timeline cont
   );
 
   // Removing the game removes both timelines.
-  await clearCachedGame(testProjectId(key));
+  await clearCachedGame(projectId);
   assert.deepEqual(
     [...RECORDS.keys()].filter((k) => String(k).startsWith(`history/${key}`)),
     [],
@@ -130,14 +164,15 @@ test("a tape this version cannot extend refuses permanently; a new timeline cont
 });
 
 test("the host refuses an unextendable tape once: no unsaved ledger, one message, no storage retries", async (t) => {
-  const key = "timeline-host";
+  const booted = await bootSavedGame("timeline-host");
+  const key = booted.progressTarget!.locator;
   RECORDS.set(`history/${key}`, legacyTape(key));
   const state = historyState();
   const logs: string[] = [];
   const nudges: string[] = [];
   const controller = useHistoryController({
     state,
-    getBootedGame: () => game(key),
+    getBootedGame: () => booted,
     getProfile: () => "2.936",
     logAgent: (_kind, message) => logs.push(message),
     retryWorker: () => nudges.push("retry"),
@@ -169,14 +204,14 @@ test("the host refuses an unextendable tape once: no unsaved ledger, one message
 });
 
 test("Try now reports Saving…, then the plain reason, then Saved once storage recovers", async (t) => {
-  const key = "timeline-retry";
+  const booted = await bootSavedGame("timeline-retry");
   const state = historyState();
   // The worker's un-acked batches; a nudge resends the oldest, as it does.
   const sent: HistoryBatch[] = [];
   let resends = 0;
   const controller = useHistoryController({
     state,
-    getBootedGame: () => game(key),
+    getBootedGame: () => booted,
     getProfile: () => "2.936",
     logAgent: () => {},
     retryWorker: () => {

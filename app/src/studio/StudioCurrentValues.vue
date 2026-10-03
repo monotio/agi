@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed, ref, useTemplateRef } from "vue";
 import { priorityForY } from "../../../src/runtime/priority.ts";
 import { EGA_COLOUR_NAMES } from "../../../src/studio/sceneGroups.ts";
@@ -52,7 +53,7 @@ const visualText = computed(() =>
 );
 const priorityText = computed(() => {
   const value = priorityShown.value;
-  if (value === null) return "Depth off";
+  if (value === null) return `${VOCABULARY.drawingDepth.label}: ${VOCABULARY.none.label}`;
   const meaning = `Depth ${value}, ${priorityMeaning(value)}`;
   return values.priority === "band" ? `${meaning} (the band under the cursor)` : meaning;
 });
@@ -112,9 +113,18 @@ function pick(patch: Partial<CurrentValues>): void {
       :data-value="values.priority ?? 'off'"
       @click="toggle('priority')"
     >
-      {{ priorityShown ?? "off" }}<small v-if="values.priority === 'band'">here</small>
+      {{ priorityShown ?? VOCABULARY.none.label
+      }}<small v-if="values.priority === 'band'">here</small>
     </button>
-    <span class="values__name" aria-hidden="true">Depth</span>
+    <span class="values__name"
+      ><UiExplain
+        term="drawing-depth"
+        :name="VOCABULARY.drawingDepth.label"
+        :says="VOCABULARY.drawingDepth.help"
+        :technical="VOCABULARY.drawingDepth.technical"
+        >{{ VOCABULARY.drawingDepth.label }}</UiExplain
+      ></span
+    >
 
     <div
       v-if="open"
@@ -127,7 +137,7 @@ function pick(patch: Partial<CurrentValues>): void {
       <p class="values__title">{{ open === "visual" ? "Art" : "Depth" }} for new shapes</p>
       <template v-if="locked.includes(open)">
         <p class="values__note">{{ lockNote(open) }}</p>
-        <UiButton size="sm" @click="unlock(open)">Unlock for now</UiButton>
+        <UiButton size="sm" @click="unlock(open)">Unlock</UiButton>
       </template>
       <template v-else-if="open === 'visual'">
         <StudioValuePicker
@@ -142,6 +152,7 @@ function pick(patch: Partial<CurrentValues>): void {
           <button
             v-for="control in CONTROL_VALUES"
             :key="control.value"
+            :title="`${control.help} ${control.technical}`"
             type="button"
             role="radio"
             class="values__control"
@@ -167,7 +178,7 @@ function pick(patch: Partial<CurrentValues>): void {
           </button>
         </div>
         <p class="values__note values__with">
-          Walk lines 0–3 only <UiExplain v-bind="explain('walk-lines')" />
+          Wall / Gate / Trigger / Water <UiExplain v-bind="explain('walk-lines')" />
         </p>
       </template>
       <template v-else>
@@ -201,6 +212,7 @@ function pick(patch: Partial<CurrentValues>): void {
   display: grid;
   gap: var(--space-1);
   justify-items: center;
+  max-width: 100%;
 }
 .values__swatch {
   display: grid;
@@ -217,13 +229,21 @@ function pick(patch: Partial<CurrentValues>): void {
   cursor: pointer;
 }
 .values__name {
+  max-width: min(44px, 100%);
+  text-align: center;
   margin-bottom: var(--space-1);
   color: var(--ink-3);
   font-size: var(--text-2xs);
 }
+.values__name :deep(.ui-explain--label) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 /* A very short window keeps the rail's room for its tools: the swatches name themselves on hover. */
 @media (max-height: 540px) {
   .values__name {
+    max-width: 44px;
+    text-align: center;
     display: none;
   }
 }

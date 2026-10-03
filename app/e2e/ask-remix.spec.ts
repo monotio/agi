@@ -3,11 +3,9 @@ import { expect, test } from "./test.ts";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, textHook, enterCreateMode } from "./engineProbe.ts";
+import { configureAi, textHook, enterPlayMode } from "./engineProbe.ts";
 
-test("Ask stays paused, remembers the conversation after reload, and hands context to Remix", async ({
-  page,
-}) => {
+test("Ask stays paused and remembers the conversation after reload", async ({ page }) => {
   const game = createContainer();
   game.putResource(
     "logic",
@@ -33,7 +31,7 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
                 {
                   type: "function_call",
                   call_id: `inspect-${requests.length}`,
-                  name: "read_room_context",
+                  name: "read_room",
                   arguments: JSON.stringify({
                     room: null,
                     state: { compact: true, variables: [requests.length], flags: null },
@@ -64,17 +62,11 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
   });
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await enterPlayMode(page);
+  await page.getByTestId("menu-assistant").click();
+  await expect(page.getByTestId("connect-assistant-ai")).toBeEnabled();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-mode-ask").click();
-  await page.getByTestId("agent-mode-remix").click();
-  await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-mode-ask").click();
   expect(requests.length).toBe(0);
   await page.getByTestId("agent-bubble-input").fill("Could I have a small hint?");
   await page.getByTestId("agent-bubble-send").click();
@@ -95,27 +87,19 @@ test("Ask stays paused, remembers the conversation after reload, and hands conte
   const send = (await page.getByTestId("agent-bubble-send").boundingBox())!;
   expect(Math.abs(input.y - send.y)).toBeLessThan(1);
   expect(Math.abs(input.height - send.height)).toBeLessThan(1);
-  await page.screenshot({ path: "test-results/ask-desktop.png" });
+  await page.screenshot({ path: test.info().outputPath("ask-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
     page.getByRole("button", { name: "Back to game", exact: true }).first(),
   ).toBeInViewport();
   await expect(page.getByTestId("agent-bubble-input")).toBeInViewport();
-  await page.screenshot({ path: "test-results/ask-mobile.png" });
+  await page.screenshot({ path: test.info().outputPath("ask-mobile.png") });
   await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
   await page.reload();
   await page.getByTestId("btn-resume-cached").click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await enterPlayMode(page);
+  await page.getByTestId("menu-assistant").click();
   await expect(conversation).toContainText("Could I have a small hint?");
   await expect(conversation).toContainText("Look around the room for a clue.");
-  await expect(page.getByTestId("agent-mode-remix")).toBeEnabled();
-  await page.getByTestId("agent-mode-remix").click();
-  expect(requests.length).toBe(21);
-  await page.getByTestId("agent-bubble-input").fill("Apply your suggestion");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
-  expect(requests.at(-1)).toContain("Could I have a small hint?");
-  expect(requests.at(-1)).toContain("Apply your suggestion");
 });

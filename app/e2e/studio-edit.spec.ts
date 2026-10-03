@@ -1,23 +1,25 @@
-import { readFile } from "node:fs/promises";
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { testProjectId } from "../test/identity.ts";
-import { readGameZip } from "../src/archive/gameZip.ts";
-import { parseGameHash } from "../src/shell/shellRoute.ts";
+import { readFile } from "node:fs/promises";
 import { createContainer, openContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildWordsTok } from "../../src/logic/words.ts";
-import { compilePictureSource } from "../../src/picture/source.ts";
 import { renderPicture } from "../../src/picture/renderer.ts";
+import { compilePictureSource } from "../../src/picture/source.ts";
 import { createPictureSurface } from "../../src/types.ts";
+import { readGameZip } from "../src/archive/gameZip.ts";
+import { parseGameHash } from "../src/shell/shellRoute.ts";
+import { testProjectId } from "../test/identity.ts";
 import {
   cacheGame,
+  closeWorkspaceEditor,
   enterCreateMode,
   openGameOptions,
+  openWorkspacePicture,
   textHook,
   waitForCycles,
-  openWorldRoom,
+  workspaceSaved,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Room Studio editing, end to end on the real app: a stored project whose
@@ -112,15 +114,13 @@ async function bootStudioGame(page: Page): Promise<void> {
  */
 async function resumeInRoom(page: Page): Promise<void> {
   if (!parseGameHash(new URL(page.url()).hash)) await page.getByTestId("btn-resume-cached").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   await waitForCycles(page, 2);
 }
 
 async function openStudio(page: Page): Promise<Locator> {
   await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -139,10 +139,6 @@ const at = (x: number, y: number) => y * 160 + x;
 /** The latest presented frame's priority value at x,y (the engine's own plane). */
 const framePriority = (page: Page, x: number, y: number): Promise<number | undefined> =>
   page.evaluate(([cx, cy]) => window.__AGI_FRAME__?.()?.priority[cy! * 160 + cx!], [x, y]);
-
-/** Focus is inside Studio: its keys (Esc among them) reach it again. */
-const studioFocused = (studio: Locator): Promise<boolean> =>
-  studio.evaluate((root) => root.contains(document.activeElement));
 
 async function storedFiles(page: Page): Promise<Map<string, Uint8Array>> {
   const files = await page.evaluate(async (id) => {
@@ -183,7 +179,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
 }) => {
   await bootStudioGame(page);
   const studio = await openStudio(page);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  await workspaceSaved(page);
   const original = await draftBytes(page);
   expect(original).toEqual(PIC_5);
 
@@ -196,7 +192,7 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
   await page.keyboard.press("a");
   await expect(studio.locator("[data-handle]")).toHaveCount(6);
   await dragHandle(page, POLYGON_LINE, 2, 10, 0);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   const dragged = await draftBytes(page);
   const before = planes(original);
   const after = planes(dragged);
@@ -207,33 +203,32 @@ test("a depth drag changes only the priority plane, undoes, keeps, reloads, expo
 
   // One drag, one undo step: back to the stored bytes exactly.
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
-  expect(await draftBytes(page)).toEqual(original);
+  await workspaceSaved(page);
+  await expect.poll(() => draftBytes(page)).toEqual(original);
 
   // Another edit from the keyboard: the occluder one row down.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowDown");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   const kept = await draftBytes(page);
   expect(planes(kept).priority[at(80, 106)]).toBe(10);
   expect(planes(kept).visual).toEqual(before.visual);
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-  await expect(studio.getByTestId("studio-notice")).toContainText("Kept PIC 5");
+  await workspaceSaved(page);
+  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
   expect(await storedPicture(page, 5)).toEqual(kept);
 
   // Room 1 draws PIC 5, so the live room re-enters and shows the new depth.
-  await studio.getByTestId("studio-close").click();
-  await expect(studio).toHaveCount(0);
+  await closeWorkspaceEditor(page);
+  await expect(studio).toBeHidden();
   await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
 
   // A reload boots the stored project: Studio opens on the kept bytes.
   await page.reload();
   await resumeInRoom(page);
-  const reopened = await openStudio(page);
+  await openStudio(page);
   expect(await draftBytes(page)).toEqual(kept);
   expect(await storedPicture(page, 5)).toEqual(kept);
-  await reopened.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
 
   const downloading = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
@@ -274,7 +269,7 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   await page.keyboard.down("Alt");
   await page.mouse.move(...cell(80, 89));
   await expect(ghost).toHaveAttribute("data-point", "80,90");
-  await page.screenshot({ path: "test-results/studio-insert-point-hover.png" });
+  await page.screenshot({ path: test.info().outputPath("studio-insert-point-hover.png") });
 
   // Alt+press adds it; the same drag carries it 6 rows up. One step.
   await page.mouse.down();
@@ -282,7 +277,7 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   await page.mouse.up();
   await page.keyboard.up("Alt");
   await expect(ghost).toHaveCount(0);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   // The Point tool shows the new point's handle.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("a");
@@ -292,15 +287,15 @@ test("Alt shows where a point goes on the selected line; Alt+click adds it and I
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(
     polygon("40,90 80,84 119,90 126,98 119,105 40,105"),
   );
-  await page.screenshot({ path: "test-results/studio-insert-point-result.png" });
+  await page.screenshot({ path: test.info().outputPath("studio-insert-point-result.png") });
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("No changes");
+  await workspaceSaved(page);
   expect(await draftBytes(page)).toEqual(PIC_5);
 
   // Insert: the cursor stands where the pointer last hovered, 80,89.
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("Insert");
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
+  await workspaceSaved(page);
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toBe(
     polygon("40,90 80,90 119,90 126,98 119,105 40,105"),
   );
@@ -315,7 +310,6 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await bootStudioGame(page);
   const studio = await openStudio(page);
   const canvas = studio.getByRole("group", { name: /^Canvas/ });
-  const status = studio.getByTestId("studio-draft-status");
   const original = await draftBytes(page);
 
   // A whole item moves whole in any lens: the bench frame nudged in the Depth
@@ -325,9 +319,9 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await canvas.focus();
   await page.keyboard.press("ArrowUp");
   await expect(studio.getByTestId("studio-notice")).toHaveText("Moved Bench with its art.");
-  await expect(status).toHaveText("1 change");
+  await workspaceSaved(page);
   await page.keyboard.press("ControlOrMeta+z");
-  await expect(status).toHaveText("No changes");
+  await workspaceSaved(page);
   // Art is locked in the Depth lens for editing within it: with the Point
   // tool, a corner of the frame dragged up a row is refused, with the count and box of the art
   // cells it would change (row 91 gains 44..116, row 92 loses 45..115), and
@@ -339,33 +333,30 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
     "Art is locked in the Depth lens: 144 cells at 44,91..116,92 would change.",
   );
   await expect(studio.locator('[data-role="refused"]')).toHaveCount(1);
-  await expect(status).toHaveText("No changes");
+  await workspaceSaved(page);
   // The refusal offers the way out: unlocked for the session, the same drag goes through.
   await studio.getByTestId("studio-notice-action").click();
-  await expect(studio.getByTestId("studio-notice")).toHaveText("Unlocked for now. Try it again.");
+  await expect(studio.getByTestId("studio-notice")).toHaveText(
+    "Unlocked until you close Studio. Try it again.",
+  );
   await dragHandle(page, BENCH_LINE, 0, 0, -1);
-  await expect(status).toHaveText("1 change");
+  await workspaceSaved(page);
   await canvas.focus();
   await page.keyboard.press("ControlOrMeta+z");
   await page.keyboard.press("v");
-  // Lock again, from the lock chip by the lens tabs.
-  const chip = studio.locator(".top-bar__lens").getByTestId("studio-lock-chip");
-  await chip.locator("[data-term]").click();
-  await page.getByTestId("explain-pop").getByTestId("studio-unlock").click();
-  await expect(chip).toHaveAttribute("data-locked", "true");
-
   // Nudges: 1 px, and 8 with Shift, each one undo step.
   await studio.locator('[data-row="occluder"]').click();
   await canvas.focus();
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Shift+ArrowDown");
-  await expect(status).toHaveText("2 changes");
+  await workspaceSaved(page);
   expect(await page.evaluate(() => window.__AGI_STUDIO__!.source())).toContain(
     "polygon 41,98 120,98 127,106 120,113 41,113",
   );
   await page.keyboard.press("ControlOrMeta+z");
+  await workspaceSaved(page);
   await page.keyboard.press("ControlOrMeta+z");
-  expect(await draftBytes(page)).toEqual(original);
+  await expect.poll(() => draftBytes(page)).toEqual(original);
 
   // Delete takes the item out; undo brings it back byte for byte.
   await page.keyboard.press("Delete");
@@ -373,7 +364,7 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   expect(planes(await draftBytes(page)).priority.every((value) => value === 4)).toBe(true);
   await page.keyboard.press("ControlOrMeta+z");
   await expect(studio.locator('[data-row="occluder"]')).toHaveCount(1);
-  expect(await draftBytes(page)).toEqual(original);
+  await expect.poll(() => draftBytes(page)).toEqual(original);
 
   // [ moves the occluder back in draw order, ] forward again; neither is typed.
   await studio.locator('[data-row="occluder"]').click();
@@ -386,191 +377,21 @@ test("a lock refusal, keyboard nudges, Delete with undo, and draw-order keys sta
   await page.keyboard.press("]");
   expect(await order()).toEqual(["wall", "floor", "bench", "occluder"]);
   await page.keyboard.press("[");
-  await studio.getByTestId("studio-close").click();
-  // Closing with a change asks first; Esc cancels the question, not Studio.
-  await expect(page.getByTestId("studio-dialog-keep")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("studio-dialog-keep")).toBeHidden();
-  await expect(studio).toBeVisible();
-  // The closed dialog hands focus back to Studio, where Esc with nothing in hand stays.
-  await expect.poll(() => studioFocused(studio)).toBe(true);
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("studio-dialog-keep")).toBeHidden();
-  await expect(studio).toBeVisible();
-  await studio.getByTestId("studio-close").click();
-  await expect(page.getByTestId("studio-dialog-keep")).toBeVisible();
-  await page.getByTestId("studio-dialog-discard").click();
-  await expect(studio).toHaveCount(0);
+  await closeWorkspaceEditor(page);
+  await expect(studio).toBeHidden();
   await expect(page.getByTestId("input-line")).toHaveValue("");
-  expect(await storedPicture(page, 5)).toEqual(original);
 });
 
-/** Nudge the occluder one row down in the Depth lens: one change. */
-async function nudgeOccluder(page: Page, studio: Locator, key = "ArrowDown"): Promise<void> {
-  await page.keyboard.press("2");
-  await studio.locator('[data-row="occluder"]').click();
-  await studio.getByRole("group", { name: /^Canvas/ }).focus();
-  await page.keyboard.press(key);
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-}
-
-/** Reopen after a Keep refused because the game was changed elsewhere: the draft goes, the game reloads. */
-async function reopenFromStorage(page: Page, studio: Locator): Promise<void> {
-  const banner = studio.getByTestId("studio-keep-error");
-  await expect(banner).toContainText(
-    "The game changed since you opened Studio. Reopen to continue.",
-  );
-  await studio.getByTestId("studio-recover").click();
-  // The unkept draft cannot follow the reload: Studio says so, and Cancel stays.
-  const dialog = page.getByRole("dialog", { name: "Reload the saved game?" });
-  await expect(dialog).toContainText(
-    "Your unkept changes in this picture will be discarded because the game was changed elsewhere.",
-  );
-  await page.getByTestId("studio-dialog-cancel").click();
-  await expect(dialog).toBeHidden();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  await studio.getByTestId("studio-recover").click();
-  await page.getByTestId("studio-dialog-reload").click();
-  await expect(page.getByTestId("studio-notice")).toHaveText(
-    "Loaded the latest saved version of this game.",
-  );
-  await expect(page.getByTestId("studio-keep-error")).toHaveCount(0);
-  await expect(page.getByTestId("studio-draft-status")).toHaveText("No changes");
-}
-
-test("Keep refuses as stale when the project changed elsewhere; Reopen reloads it and Keep works again", async ({
-  page,
-}) => {
-  await bootStudioGame(page);
-  const studio = await openStudio(page);
-  await nudgeOccluder(page, studio);
-  // Another tab keeps an edit to the same project: a new PIC 9.
-  const elsewhere = openContainer(await storedFiles(page));
-  elsewhere.putResource("picture", 9, PIC_5);
-  const moved = await page.evaluate(
-    async ([id, files]) => {
-      const path = "/src/project/gameStorage.ts";
-      const { updateAuthoredGameFiles } = await import(path);
-      return updateAuthoredGameFiles(
-        id,
-        Object.fromEntries(files!.map(([name, bytes]) => [name, Uint8Array.from(bytes)])),
-      );
-    },
-    [PROJECT, [...elsewhere.files].map(([name, bytes]) => [name, [...bytes]] as const)] as const,
-  );
-  expect(moved).toBe(true);
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("1 change");
-  await reopenFromStorage(page, studio);
-  const reloaded = page.getByTestId("room-studio");
-  expect(await draftBytes(page)).toEqual(PIC_5);
-  // No dead end: the next Keep lands on the stored project, beside the other edit.
-  await nudgeOccluder(page, reloaded);
-  const kept = await draftBytes(page);
-  await reloaded.getByTestId("studio-keep").click();
-  await expect(reloaded.getByTestId("studio-draft-status")).toHaveText("Kept");
-  expect(await storedPicture(page, 5)).toEqual(kept);
-  expect(await storedPicture(page, 9)).toEqual(PIC_5);
-});
-
-test("two tabs: a Keep in one makes the other's Keep reload the saved game, then keep on it", async ({
-  page,
-  context,
-}) => {
-  await bootStudioGame(page);
-  const studioA = await openStudio(page);
-  await nudgeOccluder(page, studioA);
-
-  // Tab B opens the same project and keeps its own edit first.
-  const tabB = await context.newPage();
-  await tabB.goto("/");
-  await resumeInRoom(tabB);
-  const studioB = await openStudio(tabB);
-  await nudgeOccluder(tabB, studioB, "ArrowUp");
-  const keptB = await draftBytes(tabB);
-  await studioB.getByTestId("studio-keep").click();
-  await expect(studioB.getByTestId("studio-draft-status")).toHaveText("Kept");
-  expect(await storedPicture(tabB, 5)).toEqual(keptB);
-
-  // Tab A's Keep refuses; its Reopen brings the game up to B's saved edit.
-  await studioA.getByTestId("studio-keep").click();
-  await reopenFromStorage(page, studioA);
-  expect(await draftBytes(page)).toEqual(keptB);
-  expect(await storedPicture(page, 5)).toEqual(keptB);
-  // The reloaded game runs, held by the reopened Studio's pause. A game
-  // started from the top may take that pause before its first cycle, still
-  // in room 0: it enters room 1 when Studio lets it go, not before.
-  await expect
-    .poll(() => page.evaluate(() => [window.__AGI_STATE__?.phase, window.__AGI_STATE__?.paused]))
-    .toEqual(["running", true]);
-
-  // Edited on the saved bytes, A's next Keep lands.
-  const reloaded = page.getByTestId("room-studio");
-  await nudgeOccluder(page, reloaded);
-  const keptA = await draftBytes(page);
-  await reloaded.getByTestId("studio-keep").click();
-  await expect(reloaded.getByTestId("studio-draft-status")).toHaveText("Kept");
-  expect(await storedPicture(page, 5)).toEqual(keptA);
-  expect(keptA).not.toEqual(keptB);
-  // Released, the reloaded game plays on in room 1.
-  await reloaded.getByTestId("studio-close").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
-  await tabB.close();
-});
-
-test("a Keep the running game never acknowledges is saved, and Reload game brings it in", async ({
-  page,
-}) => {
-  await bootStudioGame(page);
-  const studio = await openStudio(page);
-  await nudgeOccluder(page, studio);
-  const kept = await draftBytes(page);
-  // The install message never reaches the worker.
-  await page.evaluate(() => {
-    const post = Worker.prototype.postMessage;
-    Worker.prototype.postMessage = function (this: Worker, message: unknown, ...rest: never[]) {
-      if ((message as { type?: string } | null)?.type === "patch") return;
-      return post.call(this, message, ...rest);
-    } as typeof post;
-  });
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Keeping…");
-  // A bounded wait, then the install failure and its one recovery.
-  await expect(studio.getByTestId("studio-keep-error")).toContainText(
-    "did not acknowledge picture 5",
-    { timeout: 20_000 },
-  );
-  expect(await storedPicture(page, 5)).toEqual(kept);
-  await expect(studio.getByTestId("studio-recover")).toHaveText("Reload game");
-  // Until it reloads, Play here would enter a game that differs from the saved one.
-  await page.locator(".studio-pane").last().click({ button: "right" });
-  const menu = page.getByTestId("canvas-menu");
-  const playHere = menu.getByRole("menuitem", { name: "Play here" });
-  await expect(playHere).toBeDisabled();
-  await expect(playHere).toHaveAttribute("title", /^Reload game first/);
-  await page.keyboard.press("Escape");
-  await expect(menu).toBeHidden();
-  await studio.getByTestId("studio-recover").click();
-  await expect(page.getByTestId("studio-notice")).toHaveText(
-    "Loaded the latest saved version of this game.",
-  );
-  expect(await draftBytes(page)).toEqual(kept);
-  await page.getByTestId("studio-close").click();
-  await expect.poll(() => framePriority(page, 80, 106)).toBe(10);
-});
-
-test("the first Keep on a catalog game forks a remix", async ({ page }) => {
+test("the first autosaved edit on a catalog game forks a remix", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await expect.poll(async () => (await textHook(page)).room, { timeout: 30_000 }).toBe(1);
   const catalog = new URL(page.url()).hash;
   await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 1);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
   const studio = page.getByTestId("room-studio");
   // An untitled room's Studio is named by the picture it edits.
-  await expect(studio).toHaveAttribute("aria-label", "Room Studio: PIC 1");
+  await expect(studio).toHaveAttribute("aria-label", "Room Studio: PICTURE 1");
   // The tutorial's own picture text: named objects, not disassembled elements.
   const galleryRows = [
     "Corners & floor line",
@@ -596,16 +417,19 @@ test("the first Keep on a catalog game forks a remix", async ({ page }) => {
   await studio.locator('[role="treeitem"][data-row]').first().click();
   await studio.getByRole("group", { name: /^Canvas/ }).focus();
   await page.keyboard.press("ArrowUp");
-  await studio.getByTestId("studio-keep").click();
-  await expect(studio.getByTestId("studio-draft-status")).toHaveText("Kept");
-  const remix = await page.evaluate(() => localStorage.getItem("monotio_agi.lastGame"));
+  await workspaceSaved(page);
+  const remix = await page.evaluate(
+    () => localStorage.getItem("monotio_agi.resumeTarget")?.split(":")[1],
+  );
   expect(remix).toMatch(/^remix-/);
   // The game runs on as the remix; the URL names it once Studio lets it run.
-  await studio.getByTestId("studio-close").click();
+  await closeWorkspaceEditor(page);
   await expect(page).toHaveURL(new RegExp(`#create/${remix}$`));
   expect(new URL(page.url()).hash).not.toBe(catalog);
   // The remix keeps the named objects with the kept edit.
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 1);
+  await page.keyboard.press("1");
+  await studio.getByRole("searchbox", { name: "Filter items" }).fill("");
   await expect.poll(rowLabels).toEqual(expect.arrayContaining(galleryRows));
   // The picture's own source: nothing says Rebuilt.
   await expect(studio.getByTestId("studio-source-kind")).toHaveCount(0);

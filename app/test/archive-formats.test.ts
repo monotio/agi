@@ -2,10 +2,36 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { buildPublicGameZip } from "../src/archive/projectArchive.ts";
+import {
+  buildProjectZip,
+  readProjectContext,
+  buildPublicGameZip,
+} from "../src/archive/projectArchive.ts";
 import { progressEntries } from "../src/saves/gameProgress.ts";
 import { mapArchiveData } from "../src/world/roomMapStore.ts";
 import { historyArchiveData } from "../src/archive/historyArchive.ts";
+import {
+  readProjectWorkspace,
+  writeProjectWorkspace,
+} from "../../src/authoring/projectWorkspace.ts";
+import {
+  readProjectHistory,
+  writeProjectHistory,
+} from "../../src/authoring/projectHistoryCodec.ts";
+import { ProjectHistory } from "../../src/authoring/projectHistory.ts";
+import { readStoredBody } from "../src/project/gameStorage.ts";
+import { sha256Hex } from "../../src/crypto.ts";
+import { migrateAgentChats } from "../../src/agent/chats.ts";
+import {
+  traceImageChanges,
+  makeCelsChanges,
+  suggestImageFrames,
+} from "../../src/creative/imageOperations.ts";
+import { encodePngRgba } from "../../src/creative/composite.ts";
+import { PROFILES } from "../../src/runtime/profile.ts";
+import { testProjectId } from "./identity.ts";
+import type { ProjectContent } from "../../src/authoring/projectContent.ts";
+import { gameRevision } from "../src/project/gameMetadata.ts";
 
 /**
  * The first released archive formats, as the 1.0 app wrote them: a Game and
@@ -68,6 +94,25 @@ test("a 1.0 Game download reads back as the game it was", async () => {
   assert.equal(member(again, "GAME.JSON"), member(zip, "GAME.JSON"));
 });
 
+test("the released 1.1.0 tutorial's Game download reads back as the game it was", async () => {
+  // Written by the v1.1.0 Game download writer from the v1.1.0 tutorial
+  // sources; never regenerated. Its revision is the 1.1.0 catalog release's.
+  const zip = fixture("tutorial-1.1.zip");
+  const game = await readGameZip(zip);
+  assert.equal(game.title, "Adventure Department");
+  assert.deepEqual(game.metadata, {
+    description: "Learn pictures, sprites and priority in a three-room tutorial.",
+    author: "Monotio",
+    license: "MIT",
+  });
+  assert.equal(game.roomGeneration, false);
+  assert.equal(game.project, undefined);
+  assert.equal(
+    await gameRevision(game.files),
+    "dff9b56afa2c48180b8698dead64d2245333a3b3d829dddd931b3d38c60e7c9a",
+  );
+});
+
 test("a 1.0 Project download restores its session, map, progress and tests", async () => {
   const zip = fixture("project-v1.zip");
   const project = await readGameZip(zip);
@@ -93,4 +138,94 @@ test("a 1.0 Project download restores its session, map, progress and tests", asy
   assert.equal(historyArchiveData(project.history!), member(zip, "HISTORY.JSON"));
   const [autosaveEntry] = progressEntries(project.progress!);
   assert.equal(autosaveEntry?.data, member(zip, "SAVES/AUTOSAVE.JSON"));
+});
+
+test("removed intermediate project formats refuse without changing their input", () => {
+  const project = JSON.parse(member(fixture("project-v1.zip"), "PROJECT.JSON"));
+  for (const version of [2, 3, 4]) {
+    const offered = { ...project, version };
+    const bytes = new TextEncoder().encode(JSON.stringify(offered));
+    const before = bytes.slice();
+    assert.throws(() => readProjectContext(bytes, new Map(), ""), /version is not supported/);
+    assert.deepEqual(bytes, before);
+    const body = { format: "monotio.agi.stored-project", version };
+    assert.throws(() => readStoredBody(body, testProjectId("unknown")), /version is not supported/);
+    assert.deepEqual(body, { format: "monotio.agi.stored-project", version });
+  }
+  const workspace = { ...writeProjectWorkspace({ notes: "Friendly tone." }), version: 2 };
+  const before = structuredClone(workspace);
+  assert.throws(() => readProjectWorkspace(workspace), /Unsupported project workspace version/);
+  assert.deepEqual(workspace, before);
+  const history = {
+    ...writeProjectHistory(new ProjectHistory(sha256Hex).capture(), sha256Hex),
+    version: 2,
+  };
+  assert.throws(
+    () => readProjectHistory(history, sha256Hex),
+    /Unsupported project history version/,
+  );
+});
+
+test("version 1 optional chats, notes, images, native art and History round trip together", async () => {
+  const original = await readGameZip(fixture("game-v1.zip"));
+  const rgba = Uint8Array.of(255, 0, 0, 255, 0, 255, 0, 255);
+  const image = {
+    title: "Two frames",
+    mime: "image/png",
+    encoded: encodePngRgba(2, 1, rgba),
+    width: 2,
+    height: 1,
+    rgba,
+  };
+  const documents: Record<string, ProjectContent> = {
+    notes: "Friendly tone.",
+    "picture:1": Uint8Array.of(255),
+  };
+  for (const change of traceImageChanges(documents, "picture:1", image, 0.5))
+    documents[change.key] = change.content!;
+  for (const change of makeCelsChanges(
+    documents,
+    "view:255",
+    image,
+    suggestImageFrames(image, 2),
+    PROFILES["2.936"]!,
+  ))
+    documents[change.key] = change.content!;
+  const history = new ProjectHistory(sha256Hex);
+  history.record(documents, {
+    label: "Image task",
+    origin: "agent",
+    author: "agent",
+    time: 1,
+    chatId: "task",
+    messageId: "reply",
+  });
+  const workspace = writeProjectWorkspace(documents);
+  const projectHistory = writeProjectHistory(history.capture(), sha256Hex);
+  const chats = migrateAgentChats({});
+  const data = {
+    projectId: testProjectId("optional-data"),
+    title: "Optional data",
+    authoredAt: "",
+    files: original.files,
+    words: original.words,
+    workspace,
+    projectHistory,
+    chats,
+  };
+  const zip = await buildProjectZip(data);
+  const envelope = JSON.parse(member(zip, "PROJECT.JSON"));
+  assert.equal(envelope.version, 1);
+  assert.equal(envelope.workspace.version, 1);
+  assert.equal(envelope.projectHistory.version, 1);
+  const opened = await readGameZip(zip);
+  assert.deepEqual(opened.project?.workspace, workspace);
+  assert.deepEqual(opened.project?.projectHistory, projectHistory);
+  assert.deepEqual(opened.project?.chats, chats);
+  assert.equal(opened.project?.provider, undefined);
+  assert.deepEqual(readProjectWorkspace(opened.project!.workspace), documents);
+  assert.equal(
+    readProjectHistory(opened.project!.projectHistory, sha256Hex).commits[0]?.messageId,
+    "reply",
+  );
 });

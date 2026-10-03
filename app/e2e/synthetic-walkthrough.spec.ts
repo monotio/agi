@@ -28,8 +28,14 @@ test.describe("Synthetic Walkthrough", () => {
     // Verify speed controls
     const speed4 = page.getByTestId("walkthrough-speed-4");
     await expect(speed4).toBeVisible();
-    await speed4.click();
+    const speedBox = (await speed4.boundingBox())!;
+    await page.mouse.move(speedBox.x + speedBox.width / 2, speedBox.y + speedBox.height / 2);
+    await page.mouse.down();
+    await expect(speed4).toBeFocused();
+    expect(await speed4.boundingBox()).toEqual(speedBox);
+    await page.mouse.up();
     await expect(speed4).toHaveClass(/walkthrough-speed-btn--active/);
+    await page.screenshot({ path: test.info().outputPath("walkthrough-speed-4.png") });
 
     // Timeline and markers
     const timeline = page.getByTestId("walkthrough-timeline");

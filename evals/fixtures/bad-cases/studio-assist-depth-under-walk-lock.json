@@ -1,6 +1,6 @@
 {
   "name": "studio-assist-depth-under-walk-lock",
-  "description": "Asked to make a bridge walkable in the Walk lens, a model paints open floor (priority 4) under it. The Walk lens keeps depth values 4-15 locked, for AI proposals as for the creator's own edits: propose_edit must refuse on decoded pixels and say to paint control values 0-3, so the model can retry.",
+  "description": "Asked to make a bridge walkable in the Walk lens, a model paints open floor (priority 4) under it. The Walk lens keeps depth values 4-15 locked, for AI proposals as for the creator's own edits: propose_changes must refuse on decoded pixels and say to paint control values 0-3, so the model can retry.",
   "async": true,
   "studio": {
     "kind": "picture",
@@ -9,7 +9,7 @@
     "targetIds": ["bridge"],
     "lens": "walk"
   },
-  "tool": "propose_edit",
+  "tool": "propose_changes",
   "args": {
     "baseRevision": "picture-638-246da3a7",
     "summary": "Made the bridge walkable.",

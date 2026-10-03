@@ -5,7 +5,7 @@ import { assembleLogic } from "../../src/logic/assembler.ts";
 import { buildSound } from "../../src/agent/tools.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { buildZip } from "../src/archive/zip.ts";
-import { configureAi, enterCreateMode, openDeveloperActivity, textHook } from "./engineProbe.ts";
+import { configureAi, enterPlayMode, openDeveloperActivity, textHook } from "./engineProbe.ts";
 
 type ProviderItem = {
   type?: string;
@@ -89,12 +89,13 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
                   {
                     type: "function_call",
                     call_id: "sound-events",
-                    name: "read_diagnostic",
+                    name: "read_sound",
                     arguments: JSON.stringify({
-                      id: "d1",
-                      fields: ["events"],
-                      offset: null,
-                      limit: null,
+                      num: 5,
+                      channel: null,
+                      representation: "music",
+                      offset: 1,
+                      limit: 1,
                     }),
                   },
                 ]
@@ -103,7 +104,7 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
                     {
                       type: "function_call",
                       call_id: "listen-sound",
-                      name: "preview_sound",
+                      name: "play_sound",
                       arguments: JSON.stringify({
                         num: 5,
                         startSeconds: 0,
@@ -130,10 +131,9 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
 
   await page.goto("/");
   await importSoundGame(page);
-  await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await enterPlayMode(page);
+  await page.getByTestId("menu-assistant").click();
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
-  await page.getByTestId("agent-mode-ask").click();
   await page.getByTestId("agent-bubble-input").fill("Inspect sound 5 and let me hear it.");
   await page.getByTestId("agent-bubble-send").click();
 
@@ -149,8 +149,10 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
     true,
   );
   const readText = readBlocks.find((block) => block.type === "input_text")!.text!;
-  expect(readText).toContain("diagnosticId");
-  expect(readText).toContain("read_diagnostic");
+  const soundRead = JSON.parse(readText);
+  expect(soundRead.details.resource).toEqual({ kind: "sound", num: 5 });
+  expect(soundRead.details.returned).toBe(3);
+  expect(soundRead.details.events).toHaveLength(3);
 
   const eventBlocks = toolOutput(requests[2]!, "sound-events")!;
   const eventText = eventBlocks.find((block) => block.type === "input_text")!.text!;
@@ -216,12 +218,12 @@ test("Ask presents a local WAV while the model receives only sound data and a ti
     ),
   ).not.toMatch(/blob:|audio\/wav|"wav"/);
 
-  await page.screenshot({ path: "test-results/sound-feedback-desktop.png" });
+  await page.screenshot({ path: test.info().outputPath("sound-feedback-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   await preview.scrollIntoViewIfNeeded();
   await expect(audio).toBeInViewport();
   await expect(download).toBeInViewport();
-  await page.screenshot({ path: "test-results/sound-feedback-phone.png" });
+  await page.screenshot({ path: test.info().outputPath("sound-feedback-phone.png") });
 
   await page.getByRole("button", { name: "Back to game", exact: true }).first().click();
   await expect(page.getByTestId("latest-sound-preview")).toBeVisible();

@@ -25,8 +25,9 @@ async function boot(page: Page): Promise<void> {
   await isolateStorage(page);
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  // The worker's existing readiness check precedes the room assertion.
   await waitForCycles(page, 3);
+  await expect.poll(async () => (await textHook(page)).room).toBe(1);
 }
 
 async function download(page: Page) {

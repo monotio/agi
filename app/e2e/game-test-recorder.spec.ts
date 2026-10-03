@@ -1,16 +1,18 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
-import { providerReply } from "../../test/provider-stream.ts";
 import { TUTORIAL_LOGIC_SOURCES } from "../../games/adventure-department/game.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
 import {
   configureAi,
+  enterCreateMode,
   isolateStorage,
   openGameOptions,
+  openWorkspaceAgent,
   textHook,
-  enterCreateMode,
+  waitForRoom,
 } from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Brief item 8, end to end: record a playthrough as a game test, patch the
@@ -53,7 +55,10 @@ function remixResponses(
 
 async function agentFeed(page: Page): Promise<string> {
   return page.evaluate(() =>
-    (window.__AGI_TRACE__ ?? []).map((entry) => String(entry.detail)).join("\n"),
+    [
+      (window.__AGI_TRACE__ ?? []).map((entry) => String(entry.detail)).join("\n"),
+      document.querySelector("[data-testid=workspace-agent-panel]")?.textContent ?? "",
+    ].join("\n"),
   );
 }
 
@@ -68,12 +73,12 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     const turns = [
       ...remixResponses(
         "break",
-        [["write_logic_source", { room: 1, source: BROKEN_ROOM_ONE }]],
+        [["write_logic", { room: 1, source: BROKEN_ROOM_ONE }]],
         "The mural lesson is remixed.",
       ),
       ...remixResponses(
         "repair",
-        [["write_logic_source", { room: 1, source: ROOM_ONE }]],
+        [["write_logic", { room: 1, source: ROOM_ONE }]],
         "The mural lesson is restored.",
       ),
     ];
@@ -83,14 +88,14 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   await page.addInitScript(() => localStorage.setItem("monotio_agi.touchControls", "on"));
   await page.goto("/");
   await page.getByTestId("catalog-play-adventure-department").click();
-  await expect.poll(async () => (await textHook(page)).room).toBe(1);
+  await waitForRoom(page, 1, { coldBoot: true });
 
   // Record: walk to the frame, paint the mural, dismiss the payoff window.
   // Playtest recording lives in the editing tools — the remix bubble.
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
+  await openWorkspaceAgent(page);
   await page.getByTestId("btn-record-test").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await expect(page.getByTestId("workspace-agent-panel")).toHaveCount(0);
   await expect(page.getByTestId("recording-bar")).toBeVisible();
   await page.getByTestId("input-line").focus();
   await page.keyboard.down("ArrowRight");
@@ -124,20 +129,24 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
   // tool reruns every room-1 test and leads with the failure verdict.
   await configureAi(page, { provider: "openai", key: "test-placeholder" });
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Change the mural lesson text");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Change the mural lesson text");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect.poll(() => agentFeed(page)).toContain("Game tests: 6 game tests pass, 2 fail");
 
   // Repair: the same rerun reports the whole selection green again.
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  await expect(page.getByTestId("agent-bubble-input")).toBeEnabled();
-  await page.getByTestId("agent-bubble-input").fill("Restore the mural lesson text");
-  await page.getByTestId("agent-bubble-send").click();
-  await expect(page.getByTestId("agent-bubble")).toBeHidden();
+  await openWorkspaceAgent(page);
+  await expect(page.getByTestId("agent-message")).toBeEnabled();
+  await page.getByTestId("agent-message").fill("Restore the mural lesson text");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.getByTestId("agent-review")).toBeVisible();
+  await page.getByTestId("agent-approve").click();
+  await expect(page.getByTestId("agent-review")).toHaveCount(0);
   await expect.poll(() => agentFeed(page)).toContain("Game tests: 8 game tests pass, 0 fail");
 
   // Export the project; the recorded test travels only in the project archive.
@@ -177,14 +186,17 @@ test("record a playthrough, break and repair it, and rerun it in a fresh browser
     await other.goto(page.url());
     await other.getByTestId("game-zip-input").setInputFiles(projectPath!);
     await other.getByTestId("btn-resume-cached").click();
-    await expect.poll(async () => (await textHook(other)).room).toBe(1);
+    expect(project.progress?.autosave).not.toBeNull();
+    await expect
+      .poll(async () => (await textHook(other)).room)
+      .toBe(project.progress!.autosave!.room);
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
     await enterCreateMode(other);
-    await other.getByTestId("power-up").click();
-    await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
-    await other.getByTestId("agent-bubble-input").fill("Run every stored game test");
-    await other.getByTestId("agent-bubble-send").click();
-    await expect(other.getByTestId("agent-bubble")).toBeHidden();
+    await openWorkspaceAgent(other);
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
+    await other.getByTestId("agent-message").fill("Run every stored game test");
+    await other.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
     await expect
       .poll(() => agentFeed(other), { timeout: 30_000 })
       .toContain("8 game tests pass, 0 fail");

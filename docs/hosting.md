@@ -1,13 +1,22 @@
 # Hosting
 
-AGI IS HERE is a static web app with no server of its own: players' browsers
+AGI IS HERE is a static web app: players' browsers
 talk to their AI provider directly. Any static host that serves HTTPS can run a
 copy.
 
 ## Building and serving
 
-Run `npm run build` and serve `app/dist` over HTTPS. No special response headers
-are required: the app uses no shared memory or isolation-gated features.
+Run `npm run build` and serve `app/dist` over HTTPS. Copy the security and cache
+headers from [app/staticwebapp.config.json](../app/staticwebapp.config.json):
+CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` and
+`Cache-Control`. Keep `https://api.openai.com` and `https://api.anthropic.com` in
+CSP `connect-src` so browser provider requests can reach them. The CSP permits
+local workers, blob media and image previews, and restricts scripts to the app's
+origin. Configure the `/assets/*` immutable cache rule alongside the default
+`no-store` policy.
+
+`node --experimental-strip-types scripts/serve-production.ts` serves `app/dist`
+with those headers for local production checks (`AGI_E2E_PORT`, default 5299).
 
 For a subpath such as `/agi/`, build with:
 
@@ -21,7 +30,7 @@ requests locally.
 
 ## Including games on your site
 
-The bundled tutorial needs no setup. To offer additional games you have
+The tutorial is included in the build. To offer additional games you have
 permission to redistribute, put their public AGI resources under
 `app/public/games/<id>/` and add an entry to `app/public/catalog.json` before
 building. You can also upload these folders and the manifest directly beside a
@@ -111,7 +120,14 @@ To roll back, open a revert pull request and let it pass the same checks.
 Re-running CI rebuilds the same commit, so never re-run an older release job to
 roll back.
 
-Verify a deployment with:
+Verify build identity and asset hashes against a downloaded CI artifact with:
+
+```bash
+npm run verify:deploy -- --url https://agi.monotio.com --commit COMMIT_SHA --artifact ARTIFACT_DIR
+```
+
+Optional `--attempts` and `--delay` control retry count and delay. Then verify
+browser behavior with:
 
 ```bash
 AGI_DEPLOY_URL=https://agi.monotio.com npm --prefix app run e2e:production

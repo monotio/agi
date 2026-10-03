@@ -63,8 +63,8 @@ export function prepareRoomPatch(
     if (nextDictionary.get(word) !== id)
       throw new Error("Room authoring changed existing vocabulary");
   }
-  const staged = openContainer(container.files);
   const effective = detectProfile(container.files, profile);
+  const staged = openContainer(container.files, { profile: effective });
   const resources: RoomPatch["resources"] = [];
   const seen = new Set<string>();
   for (const resource of raw.resources) {

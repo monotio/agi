@@ -1,12 +1,18 @@
+import { validateTranscript } from "../../../src/agent/transcript.ts";
 import type { AgentRun } from "./agentRun.ts";
 /**
  * BYOK LLM client supporting Anthropic (Claude Opus 5.5 / Sonnet 5.5 / Fable 5.1) and OpenAI
  * (GPT-6 Astra / Sol / Luna) directly from the browser with prompt caching.
  */
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
+import type Anthropic from "@anthropic-ai/sdk";
+import type {
+  BetaMessageParam,
+  BetaUsage,
+  BetaToolResultBlockParam,
+} from "@anthropic-ai/sdk/resources/beta/messages/messages";
+import type OpenAI from "openai";
 import type { AgentToolImage, AgentToolResult } from "../../../src/agent/agentState.ts";
-import { AGENT_TOOLS } from "../../../src/agent/tools.ts";
+import { AGENT_TOOLS, type ToolDefinition } from "../../../src/agent/tools.ts";
 import {
   splitToolResult,
   openAiToolContent,
@@ -68,6 +74,7 @@ export interface LlmUsage {
 
 /** One provider request, measured — never assumed complete on a failed stream. */
 export interface LlmRequestTelemetry {
+  readonly sessionId?: string;
   provider: ProviderType;
   model: string;
   /** Provider-assigned response/request id, when delivered. */
@@ -102,12 +109,32 @@ export class LlmResponseError extends Error {
   }
 }
 
-function anthropicUsage(usage: Anthropic.Usage | undefined): LlmUsage {
+export class LlmRefusalError extends LlmResponseError {
+  readonly outcome = "refused";
+}
+
+function userActionText(text: string): string {
+  try {
+    const event = JSON.parse(text) as Record<string, unknown>;
+    if (event?.["format"] === "monotio.agi.user-action" && event["version"] === 1) return text;
+  } catch {
+    // Older callers supply an explanation; retain it in the structured event.
+  }
+  return JSON.stringify({
+    format: "monotio.agi.user-action",
+    version: 1,
+    decision: "interruption",
+    outcome: "interrupted",
+    explanation: text,
+  });
+}
+
+function anthropicUsage(usage: Partial<BetaUsage> | undefined): LlmUsage {
   const input =
     (usage?.input_tokens ?? 0) +
     (usage?.cache_read_input_tokens ?? 0) +
     (usage?.cache_creation_input_tokens ?? 0);
-  return {
+  const total: LlmUsage = {
     input,
     output: usage?.output_tokens ?? 0,
     cachedInput: usage?.cache_read_input_tokens ?? 0,
@@ -124,6 +151,25 @@ function anthropicUsage(usage: Anthropic.Usage | undefined): LlmUsage {
       : {}),
     ...(usage?.service_tier ? { serviceTier: usage.service_tier } : {}),
   };
+  // The API excludes compaction iterations from top-level message usage.
+  for (const iteration of usage?.iterations ?? []) {
+    if (iteration.type !== "compaction") continue;
+    total.input +=
+      iteration.input_tokens +
+      iteration.cache_read_input_tokens +
+      iteration.cache_creation_input_tokens;
+    total.output += iteration.output_tokens;
+    total.cachedInput += iteration.cache_read_input_tokens;
+    total.cacheWriteInput += iteration.cache_creation_input_tokens;
+    total.ordinaryInput = (total.ordinaryInput ?? 0) + iteration.input_tokens;
+    if (iteration.cache_creation) {
+      total.cacheWrite5m =
+        (total.cacheWrite5m ?? 0) + iteration.cache_creation.ephemeral_5m_input_tokens;
+      total.cacheWrite1h =
+        (total.cacheWrite1h ?? 0) + iteration.cache_creation.ephemeral_1h_input_tokens;
+    }
+  }
+  return total;
 }
 
 function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
@@ -134,6 +180,24 @@ function recordUsage(usage: LlmUsage, total: LlmUsage, run?: AgentRun): void {
     const bucket = total as unknown as Record<string, number | undefined>;
     bucket[key] = (bucket[key] ?? 0) + value;
   }
+}
+
+function recordAnthropicUsage(
+  usage: BetaUsage | undefined,
+  total: LlmUsage,
+  run: AgentRun | undefined,
+  model: string,
+): void {
+  const fallback = usage?.iterations?.some((iteration) => iteration.type === "fallback_message");
+  recordUsage(anthropicUsage(usage), total, fallback ? undefined : run);
+  // Fallback iterations identify the serving model, whose price can differ.
+  // Each iteration's tokens are billed once; compaction is also a separate iteration.
+  if (fallback)
+    for (const iteration of usage?.iterations ?? [])
+      run?.recordUsage(
+        anthropicUsage(iteration),
+        "model" in iteration ? (iteration.model ?? model) : model,
+      );
 }
 
 function openAiUsage(usage: OpenAI.Responses.ResponseUsage | null | undefined): LlmUsage {
@@ -174,7 +238,16 @@ function pngPixels(png: Uint8Array): number {
   return view.getUint32(16) * view.getUint32(20);
 }
 
+interface AssistantMessage {
+  readonly id?: string;
+  readonly phase?: "commentary" | "final_answer";
+  readonly status?: string;
+  readonly text: string;
+}
 export interface LlmTurnResult {
+  assistantMessages?: readonly AssistantMessage[];
+  stopReason?: string;
+  outcome?: "completed";
   usage?: LlmUsage;
   telemetry?: LlmRequestTelemetry;
 
@@ -199,7 +272,7 @@ export interface UnifiedConversation {
   sendUserMessage(text: string, images?: readonly AgentToolImage[]): Promise<LlmTurnResult>;
   /**
    * Record tool results into the transcript without a provider request —
-   * every call produced beside a terminal handover must land here too, even
+   * every call produced beside a terminal finish must land here too, even
    * when no next response will be requested.
    */
   appendToolResults(results: { toolCallId: string; result: AgentToolResult }[]): void;
@@ -251,27 +324,53 @@ export function createAnthropicConversation(
   config: LlmConfig,
   initialTranscript?: unknown[],
   run?: AgentRun,
+  /**
+   * A narrower catalog for a scoped session (e.g. the Logic Studio project
+   * assist). Copied at creation and stable for the conversation's life; the
+   * default stays the full AGENT_TOOLS for every existing caller.
+   */
+  catalog?: readonly ToolDefinition[],
+  initialSessionId?: string,
 ): UnifiedConversation {
-  const client = new Anthropic({
-    apiKey: config.apiKey,
-    baseURL: getDevBaseUrl("/api/anthropic"),
-    dangerouslyAllowBrowser: true,
-    // The SDK's own retries (twice, with backoff and retry-after) absorb a
-    // transient 429, 5xx or overload before the turn and its staged work fail.
-    maxRetries: 2,
-    timeout: 600000,
-  });
+  let client: Promise<Anthropic> | undefined;
+  const getClient = () =>
+    (client ??= import("@anthropic-ai/sdk").then(
+      ({ default: Anthropic }) =>
+        new Anthropic({
+          apiKey: config.apiKey,
+          baseURL: getDevBaseUrl("/api/anthropic"),
+          dangerouslyAllowBrowser: true,
+          // The SDK's own retries (twice, with backoff and retry-after) absorb a
+          // transient 429, 5xx or overload before the turn and its staged work fail.
+          maxRetries: 2,
+          timeout: 600000,
+        }),
+    ));
 
-  const tools = anthropicToolDefinitions(AGENT_TOOLS) as unknown as Anthropic.Tool[];
+  // A custom catalog is detached completely — names, descriptions and nested
+  // schemas — so caller mutation afterwards cannot rewrite the cached prefix.
+  const tools = anthropicToolDefinitions(
+    catalog ? catalog.map((tool) => structuredClone(tool)) : AGENT_TOOLS,
+  ) as unknown as Anthropic.Tool[];
   const totalUsage: LlmUsage = { input: 0, output: 0, cachedInput: 0, cacheWriteInput: 0 };
   const catalogHash = fnv1a(JSON.stringify(tools));
   const promptHash = fnv1a(config.systemPrompt ?? AGI_SYSTEM_PROMPT);
   let requestCount = 0;
   let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
 
-  const messages: Anthropic.MessageParam[] = Array.isArray(initialTranscript)
-    ? JSON.parse(JSON.stringify(initialTranscript))
+  const messages: BetaMessageParam[] = Array.isArray(initialTranscript)
+    ? JSON.parse(JSON.stringify(validateTranscript(initialTranscript, config.provider, true)))
     : [];
+
+  const sessionId = initialSessionId || crypto.randomUUID();
+  let contextStart = Math.max(
+    0,
+    messages.findLastIndex(
+      (message) =>
+        Array.isArray(message.content) &&
+        message.content.some((block) => block.type === "compaction" && block.content != null),
+    ),
+  );
 
   function closePending(reason: string): void {
     const pending = new Set<string>();
@@ -294,21 +393,26 @@ export function createAnthropicConversation(
   }
 
   async function step(): Promise<LlmTurnResult> {
+    validateTranscript(messages, "anthropic");
     const requestIndex = ++requestCount;
     const toolContent = pendingToolContent;
     pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
     let firstEventMs: number | undefined;
     let responseMs = 0;
     let usageIncomplete = false;
-    const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+    const send = async (
+      signal?: AbortSignal,
+      maxTokens = modelCapability(config.model, config.provider).maxOutputTokens,
+    ) => {
       const startedAt = performance.now();
       // Official SDK accumulation preserves thinking signatures and complete tool inputs.
       // https://platform.claude.com/docs/en/build-with-claude/streaming
-      const stream = client.messages.stream(
+      const stream = (await getClient()).beta.messages.stream(
         {
           model: config.model || DEFAULT_MODELS.anthropic,
           // Cache the growing tool/result history as well as the static prefix.
           cache_control: { type: "ephemeral" },
+          metadata: { user_id: sessionId },
           output_config: {
             effort: resolveModelEffort(
               config.model || DEFAULT_MODELS.anthropic,
@@ -317,11 +421,31 @@ export function createAnthropicConversation(
             ) as Exclude<ModelEffort, "none">,
           },
           max_tokens: maxTokens,
+          betas: [
+            "server-side-fallback-2026-07-01",
+            "compact-2026-01-12",
+            "thinking-display-updates-2026-08-18",
+          ],
+          fallbacks: "default",
+          context_management: {
+            edits: [
+              {
+                type: "compact_20260112",
+                trigger: {
+                  type: "input_tokens",
+                  value: Math.floor(
+                    modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
+                      .maxInputTokens * 0.75,
+                  ),
+                },
+              },
+            ],
+          },
           // The notes Opus 5.5 and Sonnet 5.5 write between tool calls arrive as thinking
           // blocks, empty without a display; the agent panel shows them.
           ...(modelCapability(config.model || DEFAULT_MODELS.anthropic, "anthropic")
             .summarizedThinking
-            ? { thinking: { type: "adaptive" as const, display: "summarized" as const } }
+            ? { thinking: { type: "adaptive" as const, display: "updates" as const } }
             : {}),
           system: [
             {
@@ -331,18 +455,17 @@ export function createAnthropicConversation(
             },
           ],
           tools,
-          messages,
+          messages: messages.slice(contextStart),
         },
         { ...(signal ? { signal } : {}) },
       );
-      let usage: Anthropic.Usage | undefined;
+      let usage: BetaUsage | undefined;
       try {
         for await (const event of stream) {
           if (firstEventMs === undefined) firstEventMs = performance.now() - startedAt;
           run?.updateProgress();
           if (event.type === "message_start") usage = { ...event.message.usage };
-          if (event.type === "message_delta")
-            usage = { ...usage, ...event.usage } as Anthropic.Usage;
+          if (event.type === "message_delta") usage = { ...usage, ...event.usage } as BetaUsage;
           if (event.type === "content_block_start") {
             if (event.content_block.type === "tool_use")
               run?.updateProgress("tool", "", event.content_block.name);
@@ -355,25 +478,41 @@ export function createAnthropicConversation(
         }
         const response = await stream.finalMessage();
         responseMs = performance.now() - startedAt;
-        recordUsage(anthropicUsage(response.usage), totalUsage, run);
+        recordAnthropicUsage(
+          response.usage,
+          totalUsage,
+          run,
+          config.model || DEFAULT_MODELS.anthropic,
+        );
         return response;
       } catch (error) {
         usageIncomplete = true;
         responseMs = performance.now() - startedAt;
         if (usage) {
-          const partial = anthropicUsage(usage);
-          recordUsage(partial, totalUsage, run);
+          recordAnthropicUsage(usage, totalUsage, run, config.model || DEFAULT_MODELS.anthropic);
         }
         run?.markUsageIncomplete();
         throw error;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await (run
+      ? run.request(
+          send,
+          Math.ceil(
+            JSON.stringify([
+              config.systemPrompt ?? AGI_SYSTEM_PROMPT,
+              tools,
+              messages.slice(contextStart),
+            ]).length / 3,
+          ),
+        )
+      : send());
 
     const usage = anthropicUsage(response.usage);
     const hitShare = cacheHitShare(usage);
     const telemetry: LlmRequestTelemetry = {
       provider: "anthropic",
+      sessionId,
       model: response.model ?? config.model,
       requestId: response.id,
       requestIndex,
@@ -390,10 +529,9 @@ export function createAnthropicConversation(
     };
 
     // Save assistant response to conversation history
-    messages.push({
-      role: "assistant",
-      content: response.content,
-    });
+    if (response.content.some((block) => block.type === "compaction" && block.content !== null))
+      contextStart = messages.length;
+    messages.push({ role: "assistant", content: response.content });
 
     if (!["end_turn", "tool_use", "stop_sequence"].includes(response.stop_reason ?? "")) {
       const reason =
@@ -403,6 +541,17 @@ export function createAnthropicConversation(
             ? `The model declined this request${response.stop_details?.category ? ` (${response.stop_details.category})` : ""}. Rephrase the request or choose another model; nothing was executed.`
             : `The model stopped before completing the turn (${response.stop_reason}).`;
       closePending(reason);
+      if (response.stop_reason === "refusal") {
+        const explanation = response.content
+          .filter((block) => block.type === "text")
+          .map((block) => block.text)
+          .join("\n");
+        throw new LlmRefusalError(
+          `${reason} ${explanation || response.stop_details?.explanation || ""}`.trim(),
+          usage,
+          telemetry,
+        );
+      }
       throw new LlmResponseError(reason, usage, telemetry);
     }
     let text = "";
@@ -428,7 +577,17 @@ export function createAnthropicConversation(
       }
     }
 
-    return { text: text.trim(), toolCalls, usage, telemetry };
+    return {
+      text: text.trim(),
+      toolCalls,
+      usage,
+      telemetry,
+      assistantMessages: [
+        { id: response.id, text: text.trim(), status: response.stop_reason ?? "" },
+      ],
+      stopReason: response.stop_reason ?? "",
+      outcome: "completed",
+    };
   }
 
   return {
@@ -448,7 +607,7 @@ export function createAnthropicConversation(
       return step();
     },
     appendToolResults(results): void {
-      const content: Anthropic.ToolResultBlockParam[] = [];
+      const content: BetaToolResultBlockParam[] = [];
       let textBytes = 0;
       let imageCount = 0;
       let imagePixels = 0;
@@ -469,10 +628,13 @@ export function createAnthropicConversation(
     },
     recordInterruption(text: string): void {
       closePending(text);
-      messages.push({ role: "user", content: text });
+      messages.push({ role: "user", content: userActionText(text) });
     },
     getTranscript(): unknown[] {
       return JSON.parse(JSON.stringify(messages));
+    },
+    getSessionId(): string {
+      return sessionId;
     },
     getUsage(): LlmUsage {
       return { ...totalUsage };
@@ -494,18 +656,33 @@ export function createOpenAiConversation(
   initialTranscript?: unknown[],
   initialSessionId?: string,
   run?: AgentRun,
+  /**
+   * A narrower catalog for a scoped session (e.g. the Logic Studio project
+   * assist). Copied at creation and stable for the conversation's life;
+   * `setAvailableTools` filters against this list, not the global catalog.
+   */
+  catalog?: readonly ToolDefinition[],
 ): UnifiedConversation {
-  const client = new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: getDevBaseUrl("/api/openai/v1"),
-    dangerouslyAllowBrowser: true,
-    // The SDK's own retries (twice, with backoff and retry-after) absorb a
-    // transient 429, 5xx or overload before the turn and its staged work fail.
-    maxRetries: 2,
-    timeout: 600000,
-  });
+  let client: Promise<OpenAI> | undefined;
+  const getClient = () =>
+    (client ??= import("openai").then(
+      ({ default: OpenAI }) =>
+        new OpenAI({
+          apiKey: config.apiKey,
+          baseURL: getDevBaseUrl("/api/openai/v1"),
+          dangerouslyAllowBrowser: true,
+          // The SDK's own retries (twice, with backoff and retry-after) absorb a
+          // transient 429, 5xx or overload before the turn and its staged work fail.
+          maxRetries: 2,
+          timeout: 600000,
+        }),
+    ));
 
-  const tools: OpenAI.Responses.Tool[] = AGENT_TOOLS.map((t) => ({
+  // One captured snapshot drives both the advertised wire tools and the
+  // allowed-tools name lookup for the whole conversation; caller mutation of
+  // the offered records cannot rename or reshape either.
+  const catalogForSession = catalog ? catalog.map((tool) => structuredClone(tool)) : AGENT_TOOLS;
+  const tools: OpenAI.Responses.Tool[] = catalogForSession.map((t) => ({
     type: "function",
     name: t.name,
     description: t.description,
@@ -520,9 +697,14 @@ export function createOpenAiConversation(
   let pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
 
   const input: OpenAI.Responses.ResponseInputItem[] = Array.isArray(initialTranscript)
-    ? JSON.parse(JSON.stringify(initialTranscript))
+    ? JSON.parse(JSON.stringify(validateTranscript(initialTranscript, config.provider, true)))
     : [];
   const sessionId = initialSessionId || crypto.randomUUID();
+
+  let contextStart = Math.max(
+    0,
+    input.findLastIndex((item) => item.type === "compaction"),
+  );
 
   function closePending(reason: string): void {
     const pending = new Set<string>();
@@ -538,18 +720,24 @@ export function createOpenAiConversation(
       });
   }
 
-  async function step(): Promise<LlmTurnResult> {
+  async function step(commentaryTurns = 0): Promise<LlmTurnResult> {
+    validateTranscript(input, "openai");
     const requestIndex = ++requestCount;
     const toolContent = pendingToolContent;
     pendingToolContent = { textBytes: 0, imageCount: 0, imagePixels: 0 };
     let firstEventMs: number | undefined;
     let responseMs = 0;
     let usageIncomplete = false;
-    const send = async (signal?: AbortSignal, maxTokens = 128000) => {
+    const send = async (
+      signal?: AbortSignal,
+      maxTokens = modelCapability(config.model, config.provider).maxOutputTokens,
+    ) => {
       const startedAt = performance.now();
       // Use typed SSE events for presentation; only a terminal response may enter history.
       // https://developers.openai.com/api/docs/guides/streaming-responses
-      const stream = await client.responses.create(
+      const stream = await (
+        await getClient()
+      ).responses.create(
         {
           stream: true,
           max_output_tokens: maxTokens,
@@ -579,7 +767,16 @@ export function createOpenAiConversation(
                   : ("none" as const),
               }
             : {}),
-          input,
+          input: input.slice(contextStart),
+          context_management: [
+            {
+              type: "compaction",
+              compact_threshold: Math.floor(
+                modelCapability(config.model || DEFAULT_MODELS.openai, "openai").maxInputTokens *
+                  0.75,
+              ),
+            },
+          ],
           include: ["reasoning.encrypted_content"],
           store: false,
         },
@@ -616,12 +813,24 @@ export function createOpenAiConversation(
         throw error;
       }
     };
-    const response = await (run ? run.request(send) : send());
+    const response = await (run
+      ? run.request(
+          send,
+          Math.ceil(
+            JSON.stringify([
+              config.systemPrompt ?? AGI_SYSTEM_PROMPT,
+              tools,
+              input.slice(contextStart),
+            ]).length / 3,
+          ),
+        )
+      : send());
 
     const usage = openAiUsage(response.usage);
     const hitShare = cacheHitShare(usage);
     const telemetry: LlmRequestTelemetry = {
       provider: "openai",
+      sessionId,
       model: response.model ?? config.model,
       requestId: response.id,
       requestIndex,
@@ -636,27 +845,38 @@ export function createOpenAiConversation(
       imageCount: toolContent.imageCount,
       imagePixels: toolContent.imagePixels,
     };
-    for (const item of response.output) input.push(item as OpenAI.Responses.ResponseInputItem);
+    for (const item of response.output) {
+      if (item.type === "compaction") contextStart = input.length;
+      input.push(item as OpenAI.Responses.ResponseInputItem);
+    }
     if (response.status !== "completed") {
       const reason =
         response.incomplete_details?.reason === "max_output_tokens"
           ? "The provider response reached its output limit before completion. Partial tool arguments were not executed."
-          : `The model stopped before completing the turn (${response.incomplete_details?.reason ?? response.status}).`;
+          : `The model stopped before completing the turn (${response.incomplete_details?.reason ?? response.status}). ${response.error?.message ?? ""}`;
       closePending(reason);
       throw new LlmResponseError(reason, usage, telemetry);
     }
-    let text = "";
+    const assistantMessages: AssistantMessage[] = [];
+    const refusals: string[] = [];
     const toolCalls: ToolCallItem[] = [];
 
     for (const item of response.output) {
       // Retain all output items verbatim into input (reasoning, function_call, message)
-      // GPT-5.6 reasoning models require the reasoning item immediately before the function_call
+      // Reasoning and tool linkage travel verbatim into the next request.
       if (item.type === "message" && item.role === "assistant") {
-        for (const content of item.content) {
-          if (content.type === "output_text") {
-            text += content.text;
-          }
-        }
+        const text = item.content
+          .filter((content) => content.type === "output_text")
+          .map((content) => content.text)
+          .join("\n");
+        assistantMessages.push({
+          ...(item.id ? { id: item.id } : {}),
+          ...(item.phase ? { phase: item.phase } : {}),
+          ...(item.status ? { status: item.status } : {}),
+          text,
+        });
+        for (const content of item.content)
+          if (content.type === "refusal") refusals.push(content.refusal);
       } else if (item.type === "function_call") {
         let parsedInput: Record<string, unknown>;
         try {
@@ -679,13 +899,40 @@ export function createOpenAiConversation(
       }
     }
 
-    return { text: text.trim(), toolCalls, usage, telemetry };
+    if (refusals.length) {
+      const reason = refusals.join("\n");
+      closePending(reason);
+      throw new LlmRefusalError(reason, usage, telemetry);
+    }
+    if (
+      !toolCalls.length &&
+      assistantMessages.length &&
+      assistantMessages.every((message) => message.phase === "commentary")
+    ) {
+      if (commentaryTurns >= 3)
+        throw new LlmResponseError(
+          "The model returned commentary without a final answer after four responses. Retry the task.",
+          usage,
+          telemetry,
+        );
+      const next = await step(commentaryTurns + 1);
+      return {
+        ...next,
+        assistantMessages: [...assistantMessages, ...(next.assistantMessages ?? [])],
+      };
+    }
+    const text = assistantMessages
+      .filter((message) => message.phase !== "commentary")
+      .map((message) => message.text)
+      .join("\n")
+      .trim();
+    return { text, assistantMessages, toolCalls, usage, telemetry, outcome: "completed" };
   }
 
   return {
     setAvailableTools(names) {
       allowedNames = names
-        ? [...names].filter((name) => AGENT_TOOLS.some((tool) => tool.name === name))
+        ? [...names].filter((name) => catalogForSession.some((tool) => tool.name === name))
         : undefined;
     },
     async sendUserMessage(
@@ -736,7 +983,7 @@ export function createOpenAiConversation(
     },
     recordInterruption(text: string): void {
       closePending(text);
-      input.push({ role: "user", content: text });
+      input.push({ role: "user", content: userActionText(text) });
     },
     getTranscript(): unknown[] {
       return JSON.parse(JSON.stringify(input));

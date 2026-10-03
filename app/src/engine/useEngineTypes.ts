@@ -14,12 +14,41 @@ import type {
 import type { AudioMode } from "../audio/AgiAudio.ts";
 import type { RoomTransitionNotice } from "../worker/workerProtocol.ts";
 import type { InstalledGameDescriptor } from "../project/gameTypes.ts";
+import type { ProgressTarget } from "../project/progressTarget.ts";
 import type { PowerUpUiState } from "../authoring/useAuthoringController.ts";
 import type { PromptState } from "../play/usePromptController.ts";
 import type { WalkthroughUiState } from "../walkthrough/useWalkthroughController.ts";
 import type { HistoryViewMark } from "../history/useHistoryView.ts";
 import type { HistoryBlock, HistoryRetry } from "../history/useHistoryController.ts";
+import type { GenesisStarterOffer } from "../authoring/genesisStarterRecovery.ts";
 import type { ProfileDetectionKind } from "../../../src/runtime/profile.ts";
+
+export function freshHistoryView(): HistoryViewUiState {
+  return {
+    active: false,
+    loading: false,
+    parked: false,
+    seeking: false,
+    playing: false,
+    watching: false,
+    scrubbing: false,
+    speed: 1,
+    segment: 0,
+    generation: 0,
+    segmentCount: 0,
+    tick: 0,
+    seq: 0,
+    room: 0,
+    score: 0,
+    marks: [],
+    canResume: false,
+    branches: 0,
+    pendingSwaps: 0,
+    dropped: 0,
+    diverged: null,
+    error: "",
+  };
+}
 
 /** Engine modal kinds (the engine draws them on its text surface). */
 export type ModalKind = "print" | "inventory" | "menu" | "showObj" | "showPri" | "save" | "restore";
@@ -126,6 +155,12 @@ export interface EngineState {
   gameEdit: { text: string } | null;
   phase: "idle" | "loading" | "running" | "error";
   error: string;
+  /**
+   * A provider-driven Create that ended before finish keeps its prepared
+   * canonical Starter on offer: Home's error surface shows "Open starter"
+   * while this is set. Ephemeral — never stored, retired by the next boot.
+   */
+  genesisStarter: GenesisStarterOffer | null;
   /** Status line text as the engine last reported it (debug/test aid). */
   status: string;
   /** Full-screen text mode (0x6a text.screen / 0x6b graphics) */
@@ -169,7 +204,12 @@ export interface EngineState {
    * again and (when progress was saved before the quit) Continue. A new game
    * session clears it.
    */
-  gameEnded: { projectId: string; title: string } | null;
+  gameEnded: {
+    projectId: string;
+    title: string;
+    /** The ended game's physical progress binding, when it held one. */
+    progressTarget?: ProgressTarget | undefined;
+  } | null;
   /**
    * Storage moved past the running game (another tab committed a newer
    * revision): the stage's note offers Reload game until dismissed.

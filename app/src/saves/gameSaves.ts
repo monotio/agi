@@ -1,12 +1,21 @@
 /** Browser storage for the engine's twelve authentic save images, scoped per game. */
+import type { ProgressTarget } from "../project/progressTarget.ts";
 type SaveStorage = Pick<Storage, "getItem" | "setItem">;
 
 function gameSavesKey(targetKey: string): string {
   return `monotio_agi.saves.${encodeURIComponent(targetKey)}`;
 }
 
-export function readGameSaves(storage: SaveStorage, targetKey: string): Record<string, string> {
-  const stored = storage.getItem(gameSavesKey(targetKey));
+export function readGameSaves(
+  storage: SaveStorage,
+  target: string | ProgressTarget,
+): Record<string, string> {
+  const targetKey = typeof target === "string" ? target : target.locator;
+  const stored =
+    storage.getItem(gameSavesKey(targetKey)) ??
+    (typeof target !== "string" && target.kind === "project" && target.bodyEpoch === "initial"
+      ? storage.getItem(gameSavesKey(target.project))
+      : null);
   if (stored === null) return {};
   const value: unknown = JSON.parse(stored);
   if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -26,16 +35,16 @@ export function readGameSaves(storage: SaveStorage, targetKey: string): Record<s
 
 export function writeGameSave(
   storage: SaveStorage,
-  targetKey: string,
+  target: string | ProgressTarget,
   slot: number,
   image: string,
 ): boolean {
   if (!Number.isInteger(slot) || slot < 1 || slot > 12) return false;
   try {
-    const slots = readGameSaves(storage, targetKey);
+    const slots = readGameSaves(storage, target);
     slots[String(slot)] = image;
     storage.setItem(
-      gameSavesKey(targetKey),
+      gameSavesKey(typeof target === "string" ? target : target.locator),
       JSON.stringify({ format: "monotio.agi.saves", version: 1, slots }),
     );
     return true;

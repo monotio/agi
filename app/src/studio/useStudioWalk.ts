@@ -207,7 +207,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
     const files = options.files();
     if (!files) return out;
     try {
-      const container = openContainer(new Map(files));
+      const container = openContainer(new Map(files), { profile: options.profile() });
       for (let n = 0; n < 256; n++) {
         const payload = container.getResource("logic", n);
         if (payload) out.set(n, payload);
@@ -294,16 +294,16 @@ export function useStudioWalk(options: StudioWalkOptions) {
     done: string,
     onRefusal?: (error: string) => void,
   ): boolean {
-    if (options.frozen()) return refuse("This room is view only: its doors can't be changed.");
-    if (options.paused?.()) return refuse("Accept or reject the AI's proposal first.");
+    if (options.frozen()) return refuse("This room's doors are read-only.");
+    if (options.paused?.()) return refuse("Approve or reject the AI's change first.");
     if (!logic.editable.value)
       return refuse(
-        "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant.",
+        "These exits use a different script structure. Edit them as text or tell the agent to change them.",
       );
     const outcome = logic.apply(op, label);
     if (!outcome.ok) {
       onRefusal?.(outcome.error);
-      return refuse("The door can't be changed that way.", outcome.error);
+      return refuse("Door edit rejected. Open Details for the reason.", outcome.error);
     }
     options.say({ tone: "ok", text: done });
     return true;
@@ -635,7 +635,7 @@ export function useStudioWalk(options: StudioWalkOptions) {
   function draftFiles(): Record<string, Uint8Array> | null {
     const files = options.files();
     if (!files) return null;
-    const container = openContainer(new Map(files));
+    const container = openContainer(new Map(files), { profile: options.profile() });
     container.putResource("picture", options.pictureNumber(), options.pictureBytes());
     if (logic.editable.value && room.value > 0) {
       const followed = logic.forKeep(options.keptPicture(), options.shownPicture());
@@ -763,10 +763,10 @@ export function useStudioWalk(options: StudioWalkOptions) {
     if (!canEditDoors.value) {
       refuse(
         !logic.editable.value
-          ? "This room's script isn't in a form the door tools can change: edit its exits as text, or ask the assistant."
+          ? "This room's script isn't in a form the door tools can change: edit its exits as text, or tell the agent to change them."
           : logicBlocked.value !== null
             ? "Fix the room's rule annotations as text first; door editing is off until then."
-            : "This room is view only: its doors can't be changed.",
+            : "This room's doors are read-only.",
       );
       return true;
     }

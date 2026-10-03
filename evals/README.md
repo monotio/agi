@@ -3,17 +3,17 @@
 Measure whether the authoring agent produces usable AGI resources and whether
 the tools give it enough feedback to correct mistakes.
 
-| Evaluation        | Run                                  | Measures                                                                       |
-| ----------------- | ------------------------------------ | ------------------------------------------------------------------------------ |
-| Stored bad cases  | `npm run eval:replay`                | Exact outcomes for known tool and transport failures                           |
-| Genesis           | `npm run eval:genesis`               | An adventure brief becoming playable resources, with tool failures and usage   |
-| Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds     |
-| Remix benchmark   | `npm run eval:remix`                 | Ask/Remix cases on a real engine: requests, cost, latency and cache per run    |
-| Studio assist     | `npm run eval:studio`                | Selection-scoped Studio edits: candidates, refusals, rounds, tokens and cost   |
-| Reference art     | `npm run eval:references`            | Full images against handles: tokens, cost, view_reference calls and match      |
-| Prompt cache      | `npm run eval:cache`                 | Prefix stability of consecutive requests offline; cache reads and writes live  |
-| Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output |
-| Genesis matrix    | `npm run eval:matrix`                | Cost, content, picture depth and control lines, and brief coverage per run     |
+| Evaluation        | Run                                  | Measures                                                                                    |
+| ----------------- | ------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Stored bad cases  | `npm run eval:replay`                | Exact outcomes for known tool and transport failures                                        |
+| Genesis           | `npm run eval:genesis`               | An adventure brief becoming playable resources, with tool failures and usage                |
+| Picture fidelity  | `npm run eval:picture`               | Render structure, pixel metrics and visual quality across authoring rounds                  |
+| Remix benchmark   | `npm run eval:remix`                 | Play hints and resource changes on a real engine: requests, cost, latency and cache per run |
+| Editor assistance | `npm run eval:studio`                | Selection-scoped editor edits: candidates, refusals, rounds, tokens and cost                |
+| Reference art     | `npm run eval:references`            | Full images against handles: tokens, cost, read_reference_image calls and match             |
+| Prompt cache      | `npm run eval:cache`                 | Prefix stability of consecutive requests offline; cache reads and writes live               |
+| Production effort | `npm --prefix evals run eval:effort` | Complete app Genesis runs, startup payloads, cost, repairs and playable output              |
+| Genesis matrix    | `npm run eval:matrix`                | Cost, content, picture depth and control lines, and brief coverage per run                  |
 
 ## Offline verification
 
@@ -33,9 +33,9 @@ Add one for a recurring failure, replay it through the real toolchain in
 Image transport cases check that rendered previews reach the provider as image
 content and that binary buffers do not expand into JSON properties. A case with a
 `studio` focus (a picture's annotated `source`, `targetIds` and `lens`, or
-a view's `payload` and `targetCels`) replays a Studio assist tool call against that
+a view's `payload` and `targetCels`) replays a Editor assistance tool call against that
 selection. A case with `references` (solid-colour art under manifest fields) replays a
-view_reference call against that art; a `referenceTurn` (attached ids, a tool log and
+read_reference_image call against that art; a `referenceTurn` (attached ids, a tool log and
 the final reply) is graded by the under-fetch rule against `expectedUnviewed`.
 
 ## Live model evaluations
@@ -44,28 +44,28 @@ Choose a provider and model explicitly and set its API key in the environment.
 Live runs are billed to that provider account. A paid run takes consent on the
 command line: every runner calls a provider only with both `--live` and
 `--budget-usd <cap>` (`evals/lib/live-guard.ts`), and
-the promptfoo lanes need `EVAL_LIVE=1` with `EVAL_RUN_BUDGET_USD` (the effort
-lane: `EVAL_EFFORT_RUN_BUDGET_USD`). Without them a runner says what it would
+the promptfoo comparisons need `EVAL_LIVE=1` with `EVAL_RUN_BUDGET_USD` (the effort
+comparison: `EVAL_EFFORT_RUN_BUDGET_USD`). Without them a runner says what it would
 have run and exits non-zero; `tests/live-guard.test.ts` spawns each one with keys
 set and a local server in the provider's place to prove nothing is sent. The cap
 is charged from provider usage at the model's list price and stops the run once
 spent. The runner headers document their options: [genesis](genesis-cli.ts) and
 [picture fidelity](picture-fidelity.ts).
 
-The Studio assist lane (`evals/studio-assist-benchmark.ts`) enforces its cap from
+The editor assistance benchmark (`evals/studio-assist-benchmark.ts`) enforces its cap from
 provider usage across all its runs and has a `--dry-run` that drives the same
 session loop with the offline stub.
 
-The reference art lane (`evals/reference-benchmark.ts`) runs each case twice: with
+The reference art benchmark (`evals/reference-benchmark.ts`) runs each case twice: with
 the full images in the request, the way references travelled before handles, and
-with handles (a manifest line and a thumbnail per image, plus view_reference). Its
+with handles (a manifest line and a thumbnail per image, plus read_reference_image). Its
 reference images are drawn by the script. It scores the output against them
 (palette overlap, layout agreement, silhouette IoU) and records tokens, cost and
-view_reference calls per run. Budget and dry run work as in the Studio assist lane.
+read_reference_image calls per run. Budget and dry run work as in the editor assistance benchmark.
 
-The prompt-cache lane (`evals/cache-probe.ts`) measures what the providers'
+The prompt-cache benchmark (`evals/cache-probe.ts`) measures what the providers'
 prefix caches can reuse. `--dry-run` plays four multi-turn tasks (a Remix with
-reference art, a room build, a Studio assist with a refused proposal, an Ask
+reference art, a room build, an editor task with a refused proposal, a Play hint
 conversation) through the production `AgentSession` and the real Anthropic and
 OpenAI clients with a scripted model behind a mocked `fetch`, then compares each
 request with the one before it: the byte-identical prefix, where they diverge and
@@ -73,8 +73,8 @@ why (tools, system text, a rewritten message), and the share
 of the request a warm cache could serve. `tests/cache-prefix.test.ts` runs the
 same probe under `npm run eval:replay` and fails when a task's prefix stability
 drops below 100% or its cacheable share below the recorded floor. A live run
-(`--provider anthropic|openai --budget-usd N`, budget and pauses as in the Studio
-assist lane) plays the short tasks with a real model and reports the provider's
+(`--provider anthropic|openai --budget-usd N`, budget and pauses as in the editor
+assistance benchmark) plays the short tasks with a real model and reports the provider's
 cache reads, writes and hit rate per request beside the client-side analysis of
 the bodies it sent; `--diagnostics` asks the provider to name the divergence.
 
@@ -90,9 +90,15 @@ requests carry an explicit breakpoint at every turn's end under one routing
 key per session.
 
 Genesis records model calls, compiler feedback, token usage and playtest results.
+Genesis and picture fidelity send provider turns through the app's conversation
+clients, including caching, thinking, compaction and model token limits. Their
+`--effort` option overrides the production model default. Genesis traces carry
+normalized usage, request telemetry and the added provider transcript items.
+`tests/runner-clients.test.ts` checks their request settings, conversation prefixes
+and per-request budget charging with mocked providers.
 Picture evaluation reads a local reference, asks for an art-direction brief,
 recreates the scene through the picture tool, and compares the results. The edit
-lane measures a requested change against the original scene. `--provider fake`
+benchmark measures a requested change against the original scene. `--provider fake`
 exercises the picture pipeline offline when local reference data is available.
 
 Local manifests, rendered references, transcripts and result bundles stay in the
@@ -107,7 +113,7 @@ npm --prefix evals exec -- promptfoo eval -c evals/configs/genesis.ts
 npm --prefix evals exec -- promptfoo eval -c evals/configs/picture.ts
 ```
 
-The production effort lane uses the app's `AgentSession`, provider adapters and
+The production effort comparison uses the app's `AgentSession`, provider adapters and
 tools. It saves the exact first request body (system, Genesis brief and tool
 schemas), provider-reported token usage, generated resources, transcript, events
 and opening frame under ignored `results/effort/`. Request headers and API keys
@@ -155,7 +161,7 @@ can still have poor composition, awkward animation or an unsolvable puzzle.
 Inspect renders and play the game alongside numerical scores.
 
 These Genesis costs cover the playable opening and its boot validation. Later
-room authoring and a complete adventure playthrough are outside this lane.
+room authoring and a complete adventure playthrough are outside this benchmark.
 
 Optimize total cost per usable result, including repairs. Fewer startup tokens or
 a successful boot alone do not establish better value. Compare effort levels on

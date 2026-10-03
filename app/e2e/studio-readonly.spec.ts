@@ -1,6 +1,6 @@
-import { expect, seeStudioTours, test } from "./test.ts";
 import type { Page } from "@playwright/test";
 import type { StudioHarnessProbe } from "../src/studio/harness.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * The read-only Room Studio on its harness (studio-harness.html). Expected
@@ -14,6 +14,7 @@ type HarnessWindow = Window & { studioHarness: StudioHarnessProbe };
 async function open(page: Page, pic: string): Promise<void> {
   await page.goto(`/studio-harness.html?pic=${pic}`);
   await expect(page.locator(".studio-pane canvas")).toHaveCount(1);
+  await page.getByRole("group", { name: /^Canvas/ }).focus();
 }
 
 /** Cells covered by the hover highlight: its fill path is one `M x y h w v1 h-w z` per row run. */
@@ -100,7 +101,7 @@ for (const deviceScaleFactor of [1, 2]) {
       viewport: { width: 1440, height: 900 },
     });
     const page = await context.newPage();
-    await seeStudioTours(page);
+
     await open(page, "demo");
     const zoomLevel = page.getByRole("group", { name: "Zoom" });
     const zooms: string[] = [];
@@ -138,9 +139,7 @@ for (const deviceScaleFactor of [1, 2]) {
       "aria-selected",
       "true",
     );
-    await expect(page.locator('[data-role="announce"]')).toHaveText(
-      "Bench occluder, depth, 18 steps",
-    );
+    await expect(page.locator('[data-role="announce"]')).toHaveText("Bench depth, depth, 18 steps");
     await context.close();
   });
 }
@@ -286,7 +285,7 @@ test("studio shortcuts keep working after clicking studio controls", async ({ pa
   await page.keyboard.press("2");
   await expect(lens("Depth")).toHaveAttribute("aria-checked", "true");
   // Bands shows only under Depth and Walk: after "1" hides it, keys still land in the studio.
-  await page.getByRole("button", { name: "Bands", exact: true }).click();
+  await page.getByRole("button", { name: "Depth bands", exact: true }).click();
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("2");
@@ -377,7 +376,7 @@ test("lens keys switch lenses and studio keys never reach a window listener", as
   await expect(lens("Walk")).toHaveAttribute("aria-checked", "true");
   // The Walk panel lists the walk lines, off the picture.
   await expect(page.locator('.studio__inspector [data-role="control-legend"]')).toContainText(
-    "0 · barrier",
+    "0 · Wall",
   );
   await page.keyboard.press("1");
   await expect(lens("Art")).toHaveAttribute("aria-checked", "true");

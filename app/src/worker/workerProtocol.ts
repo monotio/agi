@@ -1,3 +1,5 @@
+import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
+import type { ResourceRevision } from "../../../src/gameIdentity.ts";
 /**
  * The engine-worker message protocol, shared by both threads.
  *
@@ -30,12 +32,15 @@
  *                       deterministic replay and seeking
  *   soundEnabled / soundDevice
  *   debug / debugWrite / debugTrace / debugEvents / traceAck
+ *   previewUpdate / previewUpdateStatus
+ *                       same-Engine Play-preview candidate admission
  *
  * Messages out:
  *   WorkerControl — hostRequest, interactionCancelled, replay, frames,
  *   engineState, objects, checkpoint, exportFiles, debugWritten, playedHere,
  *   debugEvents, debugTrace, recordingStarted, recordingStopped, flushed,
- *   restored, booted, metadataPatched, patched, paused, error.
+ *   restored, booted, metadataPatched, patched, paused, previewUpdateResult,
+ *   previewUpdateStatus, error.
  *   WorkerPresentation — frame, trace, print, status, shake, showObj,
  *   autosave, controls, inputEdit, cycle, soundEnabled, sound,
  *   soundOutput, soundPaused, stopSound, waitingForKey, log, quit.
@@ -43,19 +48,38 @@
 import type {
   EngineMenuState,
   EngineStateReport,
+  ExecutionBoundary,
   GameControlBinding,
   ScreenObjectState,
   TraceRecord,
 } from "../../../src/runtime/engine.ts";
+import type {
+  ExecutionCause,
+  ExecutionWaitKind,
+} from "../../../src/runtime/executionObservation.ts";
+import type {
+  DebugBreakpointSpec,
+  DebugBreakpointStatus,
+} from "../../../src/runtime/debugBreakpoints.ts";
+import type {
+  DebugWatchChange,
+  DebugWatchSpec,
+  DebugWatchStatus,
+} from "../../../src/runtime/debugWatchpoints.ts";
+import type { DebugValue } from "../../../src/runtime/debugExpression.ts";
 import type { EngineReplayState } from "../../../src/runtime/replayState.ts";
 import type { SoundOutput } from "../../../src/sound/sound.ts";
+import type { SoundTick } from "../audio/soundTiming.ts";
 import type { RecordedOperation } from "../../../src/agent/recordedReplay.ts";
 import type { RecordedEvent } from "../authoring/gameRecording.ts";
 import type { LlmRequest } from "../agent/hostRequests.ts";
 import type { ReplayObservation } from "../walkthrough/replay.ts";
 import type { RingFrame } from "./frameRing.ts";
+import type { PortableProjectHistory } from "../../../src/authoring/projectHistoryCodec.ts";
 import type { HistoryBatch, HistoryBoot, HistoryRecording } from "../../../src/agent/history.ts";
 import type { ProfileDetectionKind, ProfileId } from "../../../src/runtime/profile.ts";
+import type { PreviewUpdateStatus } from "../../../src/runtime/previewAdmission.ts";
+import type { BindingKind } from "../../../src/agent/authoringState.ts";
 
 /** Ops the worker may suspend on; see agent/hostRequests.ts. */
 export type HostRequestOp = LlmRequest["op"];
@@ -80,6 +104,144 @@ export interface DebugEvent {
 
 /** Trace records carry their interpreter cycle plus a stream sequence. */
 export type StampedTrace = TraceRecord & { seq: number; cycle: number };
+
+// ---------- execution-controller (debugger) protocol ----------
+//
+// One debug session owns the live engine's execution gate and observer.
+// Every request echoes the attach-time `epoch` and is answered on the
+// reliable control channel — `debugAck` on success, `debugError` with a
+// structured `code` on refusal — never the presentation-credit stream.
+// Session replacement, restart and history adoption mint a fresh epoch,
+// which invalidates every request, stop, snapshot and run-to target the
+// old epoch issued.
+
+/** Why one visible stop was reported. Order is engine completion order. */
+export type DebugStopReason =
+  | { kind: "pause" }
+  | { kind: "step"; mode: DebugResumeAction; unwind?: boolean }
+  | { kind: "breakpoint"; id: string; hitCount: number; error?: string }
+  | { kind: "watch"; changes: readonly DebugWatchChange[] }
+  | { kind: "runTo" }
+  /** An explicit debugSetValues produced a fresh stop identity + snapshot. */
+  | { kind: "mutated" };
+
+export type DebugResumeAction = "continue" | "into" | "over" | "out" | "cycle";
+export type DebugStepGranularity = "statement" | "instruction";
+export type DebugInspectSection = "stack" | "state" | "objects" | "parser" | "strings" | "all";
+
+/** Structured refusal codes the controller reports on `debugError`. */
+export type DebugErrorCode =
+  | "noEngine"
+  | "notAttached"
+  | "staleEpoch"
+  | "staleStop"
+  | "notStopped"
+  | "staleRevision"
+  | "invalidConfig"
+  | "invalidExpression"
+  | "invalidRequest"
+  | "unavailable";
+
+/**
+ * The complete authored name→number map a project's sources compile under:
+ * resource bindings (logic/picture/view/sound) plus the value slots
+ * (flag/variable/string) the expression evaluator also uses. `bindings` on
+ * debugAttach is the expression-only subview; `sourceBindings` is the full
+ * map the build identity is captured under.
+ */
+export type SourceBindingKind = BindingKind | "string";
+
+// ---------- same-Engine Play-preview admission protocol ----------
+//
+// A frozen-test boot may grant the play-preview lane (`lane:
+// "play-preview"`): the attached session then also owns live update
+// authority for the physical run the boot minted, named by its `runToken`.
+// Every `previewUpdate` settles in exactly one `previewUpdateResult`; a
+// `previewUpdateStatus` query is a read-only reconciliation answer.
+
+/**
+ * The identity tuple a preview request pins and a result reports: the
+ * lane's source epoch, the verified build identity, the installed native
+ * resource revision and the lane-local update serial.
+ */
+export interface PreviewLaneIdentity {
+  /** Complete project document identity; legacy isolated previews omit it. */
+  documentId?: string;
+  epoch: number;
+  buildId: string;
+  revision: string;
+  updateSerial: number;
+}
+
+/** The settled outcome of one previewUpdate — the wire body of its result. */
+export interface PreviewUpdateOutcome {
+  status: PreviewUpdateStatus;
+  /** The request's claimed previous identity, null when it could not be read. */
+  expected: PreviewLaneIdentity | null;
+  /** The lane's actual identity at settle time, null when no lane exists. */
+  current: PreviewLaneIdentity | null;
+  /** Engine native-image generation observed at the verdict. */
+  patchGeneration: number;
+  reason?: string;
+  /** A deliberate replacement acknowledges the new physical Engine authority. */
+  replacementRunToken?: string;
+  roomReentry?: true;
+}
+
+/** The complete immutable candidate a previewUpdate ships. */
+export interface PreviewUpdateCandidateMessage {
+  /** Complete ProjectImage documents and exact identity, required by project admission. */
+  documents?: PortableProjectWorkspace;
+  documentId?: string;
+  /** Complete detached container image: directories, volumes, aux files. */
+  files: Record<string, Uint8Array>;
+  /** Known target profile; a change from the running profile needs a full restart. */
+  profile?: ProfileId;
+  /** Authored source per LOGIC number (string keys). */
+  sources: Record<string, string>;
+  /** The complete authored binding map the candidate build is captured under. */
+  sourceBindings: Record<string, { kind: SourceBindingKind; num: number }>;
+  /** Claimed verified build identity — checked against the real capture. */
+  buildId: string;
+  /** Claimed native resource revision — recomputed and checked. */
+  revision: string;
+  /** Host document versions the candidate was assembled under. */
+  origins: { key: string; version: number }[];
+}
+
+/**
+ * Isolated-test admission policy, consumed synchronously inside the boot
+ * branch BEFORE any timer, input, sound clock or logic runs: the debugger
+ * attaches under the verified build, the initial breakpoint/watchpoint
+ * configuration lands atomically, and (unless `stopOnEntry` is explicitly
+ * false) the engine latches an idle stop — `booted` posts only after all of
+ * it. A refused admission posts `debugError` under `id` and never falls back
+ * to running play: no timers start and no `booted` is posted. The policy
+ * also pins room authoring off and disables ordinary history recording and
+ * autosave for the run.
+ */
+export interface FrozenTestBoot {
+  /** Correlates the admission replies (debugAttached / debugConfigured / debugAck / debugError). */
+  id: number;
+  /**
+   * The lane this isolated run serves. Absent or `"debug"` is the frozen
+   * test session; `"play-preview"` additionally grants same-Engine preview
+   * update authority — the `debugAttached` reply then carries the run's
+   * `preview` block (token + lane identity) the update protocol pins.
+   * `stopOnEntry:false` alone does not grant the lane.
+   */
+  lane?: "debug" | "play-preview";
+  /** Authored source per LOGIC number (string keys); each must reproduce the booted bytes. */
+  sources?: Record<string, string>;
+  /** The complete authored binding map — every kind, verified as the capture identity. */
+  sourceBindings?: Record<string, { kind: SourceBindingKind; num: number }>;
+  /** The expression-evaluator subview of sourceBindings; must agree exactly where they overlap. */
+  bindings?: Record<string, { kind: "variable" | "flag" | "string"; num: number }>;
+  breakpoints?: DebugBreakpointSpec[];
+  watchpoints?: DebugWatchSpec[];
+  /** Latch the pre-first-cycle idle stop at admission (default true). */
+  stopOnEntry?: boolean;
+}
 
 export interface BootMessage {
   type: "boot";
@@ -113,9 +275,22 @@ export interface BootMessage {
   /**
    * Live-session PRNG seed for the recorded history stream — the original's
    * 16-bit word (docs/fidelity.md, "Original RNG"); recorded into the
-   * segment's boot so the same random sequence replays offline.
+   * segment's boot so the same random sequence replays offline. Under a
+   * frozenTest policy it seeds the run's RNG directly.
    */
   rngSeed?: number;
+  /**
+   * Isolated-test admission: when present the boot is a frozen test run —
+   * debugger attached, configured and paused before the first tick, room
+   * authoring pinned off, history/autosave disabled. Replay seeds, autosave
+   * resume images and session ids are refused: a test run boots the actual
+   * LOGIC 0 of the shipped build, never a parked continuation.
+   */
+  frozenTest?: FrozenTestBoot;
+  /** Explicit live authoring authority for the MAIN run. */
+  projectMode?: "create";
+  projectDocuments?: PortableProjectWorkspace;
+  projectHistory?: PortableProjectHistory;
 }
 
 /** A container resource the `patch` message replaces. */
@@ -129,6 +304,7 @@ export interface PatchResource {
 }
 
 export type WorkerInbound =
+  | { type: "observeSentences"; enabled: boolean }
   | BootMessage
   | { type: "pause"; paused: boolean }
   | { type: "key"; code: number; sessionId?: number }
@@ -164,6 +340,12 @@ export type WorkerInbound =
       files: Partial<Record<"WORDS.TOK" | "OBJECT" | "TESTS.JSON", Uint8Array>>;
     }
   | { type: "state"; id: number }
+  | {
+      type: "imageHeroPreview";
+      runToken: string;
+      bytes: Uint8Array | null;
+      loops?: readonly number[];
+    }
   | { type: "objects"; id: number }
   | { type: "frames"; id: number; count?: number; stride?: number; since?: number | null }
   | { type: "checkpoint"; id: number }
@@ -209,6 +391,98 @@ export type WorkerInbound =
    * the consumer is stalled. epoch invalidates acks from a replaced session.
    */
   | { type: "traceAck"; epoch: number; batch: number }
+  /**
+   * Attach the execution controller to the live engine: captures the running
+   * build (sources are verified against the live bytes), mints a session
+   * epoch, and ends the live history segment with reason "debugger" —
+   * normal recording stays in hiatus until detach. Answered by
+   * `debugAttached`, or `debugError` when the build cannot be verified.
+   */
+  | {
+      type: "debugAttach";
+      id: number;
+      /** Authored source per LOGIC number (string keys); each must reproduce the live bytes. */
+      sources?: Record<string, string>;
+      /** Named var/flag/string slots the expression evaluator and conditions resolve. */
+      bindings?: Record<string, { kind: "variable" | "flag" | "string"; num: number }>;
+      /**
+       * The complete authored binding map (resource and value names alike).
+       * When present it is the map the build identity is captured under and
+       * `bindings` must be its exact flag/variable/string subview — a name
+       * that disagrees or is missing refuses the attach. Old callers omitting
+       * it capture under `bindings` alone, unchanged.
+       */
+      sourceBindings?: Record<string, { kind: SourceBindingKind; num: number }>;
+    }
+  /** Release the controller's latch, control hooks and history hiatus. */
+  | { type: "debugDetach"; id: number; epoch: number }
+  /**
+   * Atomically replace the breakpoint/watchpoint configuration. `revision`
+   * is a session-monotonic serial — a stale revision is refused and the
+   * previous configuration survives any invalid replacement untouched.
+   * An absent list keeps that domain's current specs.
+   */
+  | {
+      type: "debugConfigure";
+      id: number;
+      epoch: number;
+      revision: number;
+      breakpoints?: DebugBreakpointSpec[];
+      watchpoints?: DebugWatchSpec[];
+    }
+  /** Latch a stop over whatever the engine is doing — a wait stop when parked. */
+  | { type: "debugPause"; id: number; epoch: number }
+  /**
+   * Release the stop named by `stopId`. `continue` clears the latch only;
+   * the step actions install a one-shot plan relative to the stop's resume
+   * location (null origin is legal for `into`/`cycle`, refused for
+   * `over`/`out`). Queued host answers apply once after release.
+   */
+  | {
+      type: "debugResume";
+      id: number;
+      epoch: number;
+      stopId: number;
+      action: DebugResumeAction;
+      granularity?: DebugStepGranularity;
+    }
+  /** Continue until the next boundary at `location`; the target dies on resume/replace. */
+  | {
+      type: "debugRunTo";
+      id: number;
+      epoch: number;
+      stopId: number;
+      location: { logic: number; pc: number };
+    }
+  /** Read one detached section of the pinned stop state. */
+  | {
+      type: "debugInspect";
+      id: number;
+      epoch: number;
+      stopId: number;
+      section?: DebugInspectSection;
+    }
+  /** Pure expression evaluation against the pinned stop snapshot. */
+  | {
+      type: "debugEvaluate";
+      id: number;
+      epoch: number;
+      stopId: number;
+      expression: string;
+    }
+  /**
+   * The one legal mutation while the debugger owns execution: validates the
+   * whole change set before any write, then publishes a fresh stop
+   * identity/snapshot. Supersedes the legacy `debugWrite` while attached.
+   */
+  | {
+      type: "debugSetValues";
+      id: number;
+      epoch: number;
+      stopId: number;
+      vars?: [number, number][];
+      flags?: [number, number][];
+    }
   /**
    * The host persisted one history batch — frees the worker's in-flight
    * credit so the next queued batch posts. epoch invalidates stale acks.
@@ -277,13 +551,48 @@ export type WorkerInbound =
    * those causes produced; a later Resume here reinstalls the checkpoint
    * that belongs to the adopted bytes.
    */
-  | { type: "authoring"; snapshot: Record<string, unknown> };
+  | { type: "authoring"; snapshot: Record<string, unknown> }
+  /**
+   * Project admission pins one complete candidate to the running identity.
+   * Create boots and isolated play-preview boots grant it; deliberate
+   * restart and room-entry actions require Create authority. Every settled request is
+   * answered by exactly one `previewUpdateResult`. `id` is a strictly
+   * increasing run-local transaction id; the exact request digest dedupes
+   * retransmission, so a duplicate replays its settled outcome and an id
+   * reused with different content refuses.
+   */
+  | {
+      type: "previewUpdate";
+      id: number;
+      runToken: string;
+      expected: PreviewLaneIdentity;
+      candidate: PreviewUpdateCandidateMessage;
+      mode?: "restart" | "reenter";
+    }
+  /**
+   * Read-only reconciliation: reports the lane's actual current identity —
+   * always recomputed, never a cached ACK — plus, when `transactionId`
+   * names a prior update, that transaction's retained outcome,
+   * `unavailable` when the id is at or below the lane's admission mark but
+   * no result is retained, or `unknown` for an id above the mark that was
+   * never admitted. The bounded ledger cannot separate an evicted outcome
+   * from a skipped lower id: `unavailable` asserts neither execution nor
+   * commit, and no caller may infer rollback from it.
+   */
+  | { type: "previewUpdateStatus"; id: number; transactionId?: number }
+  | {
+      type: "projectCreate";
+      id: number;
+      documents?: PortableProjectWorkspace;
+      history?: PortableProjectHistory;
+    };
 
 /**
  * Worker → host control channel: request/response traffic and lifecycle
  * notices. Posted through sendControl; not suppressed while seeking.
  */
 export type WorkerControl =
+  | { type: "missedSentence"; text: string; room: number; unknown: string }
   | { type: "paused"; paused: boolean; cycle: number }
   | {
       type: "hostRequest";
@@ -302,7 +611,7 @@ export type WorkerControl =
   | { type: "frames"; id: number; source: "history" | "recent"; frames: RingFrame[] }
   | { type: "engineState"; id: number; state: EngineStateReport | null }
   | { type: "objects"; id: number; objects: ScreenObjectState[] }
-  | { type: "debugWritten"; id: number }
+  | { type: "debugWritten"; id: number; error?: string }
   /** ok: ego stands at the spot; otherwise `reason`, and where the game is now. */
   | {
       type: "playedHere";
@@ -345,7 +654,12 @@ export type WorkerControl =
       egoY?: number;
       message?: string;
     }
-  | { type: "booted"; profile: string; kind: ProfileDetectionKind }
+  | {
+      type: "booted";
+      profile: string;
+      kind: ProfileDetectionKind;
+      projectAdmission?: { runToken: string; identity: PreviewLaneIdentity };
+    }
   /**
    * One posted history batch: the always-on recording's transport unit.
    * Batches are committed with the anchor they carry, then acknowledged with
@@ -436,7 +750,149 @@ export type WorkerControl =
       message?: string;
       /** The resourceSet revision the worker adopted — checked against the record's. */
       resourceSet?: string;
-    };
+    }
+  // ---------- execution-controller replies and events ----------
+  /**
+   * The attach handshake: session epoch and verified build identity. On a
+   * play-preview boot the `preview` block reports the granted lane's own
+   * identity — its physical run token and the tuple every previewUpdate
+   * pins its `expected` claim against.
+   */
+  | {
+      type: "debugAttached";
+      id: number;
+      epoch: number;
+      buildId: string;
+      preview?: PreviewLaneIdentity & { runToken: string };
+    }
+  /** Success reply for detach/pause/resume/runTo. */
+  | { type: "debugAck"; id: number; epoch: number; buildId: string }
+  /**
+   * Structured refusal: echoes the request's epoch/build when they are
+   * knowable so the caller can match stale traffic to its session.
+   */
+  | {
+      type: "debugError";
+      id: number;
+      epoch: number | null;
+      buildId: string | null;
+      code: DebugErrorCode;
+      error: string;
+    }
+  /** A configure reply carries the applied revision and resolved bindings. */
+  | {
+      type: "debugConfigured";
+      id: number;
+      epoch: number;
+      buildId: string;
+      revision: number;
+      breakpoints: readonly DebugBreakpointStatus[];
+      watchpoints: readonly DebugWatchStatus[];
+    }
+  | {
+      type: "debugInspection";
+      id: number;
+      epoch: number;
+      buildId: string;
+      stopId: number;
+      section: DebugInspectSection;
+      data: unknown;
+    }
+  | {
+      type: "debugEvaluation";
+      id: number;
+      epoch: number;
+      buildId: string;
+      stopId: number;
+      ok: boolean;
+      value?: DebugValue;
+      error?: string;
+    }
+  /** Set-values applied; `stopId` is the fresh identity that supersedes the old one. */
+  | {
+      type: "debugSetValuesAck";
+      id: number;
+      epoch: number;
+      buildId: string;
+      stopId: number;
+    }
+  /**
+   * One visible execution stop — reliable control traffic, never credit-
+   * limited. `stopId` is the session's monotonic stop serial; `boundarySeq`
+   * is the resume boundary's occurrence serial, null when no resumable
+   * LOGIC encounter exists (a pure phase or idle stop fabricates none).
+   */
+  | {
+      type: "debugStopped";
+      epoch: number;
+      buildId: string;
+      stopId: number;
+      boundarySeq: number | null;
+      cause: ExecutionCause;
+      location: ExecutionBoundary | null;
+      wait: ExecutionWaitKind | null;
+      reasons: readonly DebugStopReason[];
+      state: EngineStateReport;
+      /** Host-request ids queued while stopped — applied once on resume. */
+      answerReady: number[];
+    }
+  /** The session ended: requested, superseded by an engine replacement, or build-invalid. */
+  | { type: "debugDetached"; epoch: number; buildId: string; reason: string }
+  /**
+   * The session survived an engine replacement under a new epoch: prior
+   * stops, snapshots and run-to targets are invalid, and breakpoints were
+   * rebound against the recaptured build.
+   */
+  | {
+      type: "debugSessionReset";
+      /** Exact source image adopted at a live update. */
+      sources?: Record<string, string>;
+      epoch: number;
+      buildId: string;
+      breakpoints: readonly DebugBreakpointStatus[];
+      watchpoints: readonly DebugWatchStatus[];
+    }
+  /** A host answer arrived while stopped: raw-queued until the latch releases. */
+  | { type: "debugAnswerReady"; epoch: number; stopId: number; id: number; op: string }
+  /**
+   * The one terminal settlement of a `previewUpdate` — committed, unchanged,
+   * deferred, restartRequired or refused — correlated by the request's id
+   * and run token. A busy boundary settles `deferred` immediately; the
+   * worker keeps no pending-commit queue and retries come as fresh ids.
+   * `expected` echoes the request's claimed identity; `current` is always
+   * the lane's actual recomputed identity.
+   */
+  | {
+      type: "projectCreated";
+      id: number;
+      grant?: { runToken: string; identity: PreviewLaneIdentity };
+      reason?: string;
+    }
+  | ({ type: "previewUpdateResult"; id: number; runToken: string } & PreviewUpdateOutcome)
+  /**
+   * The read-only reconciliation answer. `current` is recomputed from the
+   * live engine and lane — a lost ACK is reconciled here, never by
+   * inferring rollback. `transaction` reports the retained outcome for the
+   * queried id, "unavailable" for an id at or below the lane's admission
+   * mark with no retained result (bounded retention cannot tell an evicted
+   * outcome from a skipped id), or "unknown" for an id above the mark the
+   * lane never admitted.
+   */
+  | {
+      type: "previewUpdateStatus";
+      id: number;
+      runToken: string | null;
+      current: PreviewLaneIdentity | null;
+      transaction: { id: number; outcome: PreviewUpdateOutcome } | "unavailable" | "unknown" | null;
+    }
+  /** A logpoint's text, stamped with the boundary sequence that produced it. */
+  | { type: "debugLog"; epoch: number; sequence: number; breakpoint: string; text: string }
+  /**
+   * The debugger's audio hold — a named pause owner distinct from the
+   * ambient channel and the worker-authoring hold. Set while stopped;
+   * the main thread clears it only for the epoch that set it.
+   */
+  | { type: "debugAudio"; epoch: number; paused: boolean };
 
 /**
  * Worker → host presentation channel: the frame stream, text-surface
@@ -488,6 +944,7 @@ export type WorkerPresentation =
   | {
       type: "autosave";
       image: string;
+      revision?: ResourceRevision;
       menus: EngineMenuState;
       cycle: number;
       room: number;
@@ -506,6 +963,7 @@ export type WorkerPresentation =
   | { type: "soundPaused"; paused: boolean }
   | { type: "sound"; soundNum: number }
   | { type: "soundOutput"; output: SoundOutput }
+  | ({ type: "soundTick" } & SoundTick)
   | { type: "stopSound" }
   | { type: "quit" }
   | { type: "log"; text: string };
@@ -556,6 +1014,7 @@ export type WorkerOutbound = WorkerControl | WorkerPresentation;
  * waiter table because a flush can outlive the caller's await (pagehide).
  */
 interface WorkerQueryReplies {
+  projectCreate: Extract<WorkerControl, { type: "projectCreated" }>;
   state: Extract<WorkerControl, { type: "engineState" }>;
   objects: Extract<WorkerControl, { type: "objects" }>;
   frames: Extract<WorkerControl, { type: "frames" }>;
@@ -577,12 +1036,24 @@ interface WorkerQueryReplies {
   playHere: Extract<WorkerControl, { type: "playedHere" }>;
   debugTrace: Extract<WorkerControl, { type: "debugTrace" }>;
   debugEvents: Extract<WorkerControl, { type: "debugEvents" }>;
+  debugAttach: Extract<WorkerControl, { type: "debugAttached" }>;
+  debugDetach: Extract<WorkerControl, { type: "debugAck" }>;
+  debugConfigure: Extract<WorkerControl, { type: "debugConfigured" }>;
+  debugPause: Extract<WorkerControl, { type: "debugAck" }>;
+  debugResume: Extract<WorkerControl, { type: "debugAck" }>;
+  debugRunTo: Extract<WorkerControl, { type: "debugAck" }>;
+  debugInspect: Extract<WorkerControl, { type: "debugInspection" }>;
+  debugEvaluate: Extract<WorkerControl, { type: "debugEvaluation" }>;
+  debugSetValues: Extract<WorkerControl, { type: "debugSetValuesAck" }>;
+  previewUpdate: Extract<WorkerControl, { type: "previewUpdateResult" }>;
+  previewUpdateStatus: Extract<WorkerControl, { type: "previewUpdateStatus" }>;
 }
 
 export type WorkerQueryType = keyof WorkerQueryReplies;
 
 /** The value a reply resolves its pending query with. */
 export interface WorkerQueryPayload {
+  projectCreate: WorkerQueryReplies["projectCreate"];
   state: WorkerQueryReplies["state"]["state"];
   objects: WorkerQueryReplies["objects"]["objects"];
   frames: WorkerQueryReplies["frames"]["frames"];
@@ -604,6 +1075,17 @@ export interface WorkerQueryPayload {
   playHere: WorkerQueryReplies["playHere"];
   debugTrace: WorkerQueryReplies["debugTrace"];
   debugEvents: WorkerQueryReplies["debugEvents"];
+  debugAttach: WorkerQueryReplies["debugAttach"];
+  debugDetach: WorkerQueryReplies["debugDetach"];
+  debugConfigure: WorkerQueryReplies["debugConfigure"];
+  debugPause: WorkerQueryReplies["debugPause"];
+  debugResume: WorkerQueryReplies["debugResume"];
+  debugRunTo: WorkerQueryReplies["debugRunTo"];
+  debugInspect: WorkerQueryReplies["debugInspect"];
+  debugEvaluate: WorkerQueryReplies["debugEvaluate"];
+  debugSetValues: WorkerQueryReplies["debugSetValues"];
+  previewUpdate: WorkerQueryReplies["previewUpdate"];
+  previewUpdateStatus: WorkerQueryReplies["previewUpdateStatus"];
 }
 
 /** The typed query function the worker link hands to consumers. */

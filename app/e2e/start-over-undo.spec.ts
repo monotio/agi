@@ -16,8 +16,7 @@ import {
  */
 
 const note = (page: Page) => page.getByTestId("start-over-note");
-const startedOverMarks = (page: Page) =>
-  page.locator('.history-marker--restart[title="Started over"]');
+const startedOverMarks = (page: Page) => page.locator(".transport-marker--restart");
 
 /** Exit to Home and use Start over on the tutorial's saved card. */
 async function startOverFromHome(page: Page): Promise<void> {
@@ -60,6 +59,9 @@ test("Undo start over returns to the earlier session, and the timeline marks the
   await expect(undo, "the note never takes focus").not.toBeFocused();
   await expect(startedOverMarks(page)).toHaveCount(1);
   // The note sits clear of the command line: the engine's input row (22 of 25).
+  await note(page).evaluate(async (el) => {
+    await Promise.all(el.getAnimations({ subtree: true }).map((animation) => animation.finished));
+  });
   const noteBox = (await note(page).boundingBox())!;
   const screen = (await page.locator(".game-surface:visible").boundingBox())!;
   const inputRowTop = screen.y + (screen.height * 22) / 25;

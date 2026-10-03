@@ -1,0 +1,44 @@
+name: Nightly browser burn-in
+on:
+  schedule:
+    - cron: "17 3 * * *"
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: nightly-browser-burn-in
+  cancel-in-progress: true
+jobs:
+  prepare:
+    uses: ./.github/workflows/prepare.yml
+  build:
+    needs: prepare
+    uses: ./.github/workflows/build.yml
+  suites:
+    needs: [prepare, build]
+    uses: ./.github/workflows/browser-suites.yml
+    with:
+      repeat: 3
+      production: true
+  flakes:
+    name: Report intermittent browser failures
+    if: always() && needs.suites.result != 'skipped' && needs.suites.result != 'cancelled'
+    needs: suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: browser-report-*
+          path: reports
+      - name: Update the nightly flake issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/tools.py issue --directory reports --url "$RUN_URL"

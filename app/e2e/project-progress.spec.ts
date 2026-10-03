@@ -10,6 +10,7 @@ import { buildWordsTok } from "../../src/logic/words.ts";
 import { Engine } from "../../src/runtime/engine.ts";
 import {
   isolateStorage,
+  agentActivity,
   openDeveloperActivity,
   openGameOptions,
   savedGameCard,
@@ -19,7 +20,7 @@ import {
   waitForCycles,
 } from "./engineProbe.ts";
 
-const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.1.0";
+const TUTORIAL_PROJECT_ID = "catalog-adventure-department-1.2.0";
 
 test("project import names each stored and refused progress entry", async ({ page }, testInfo) => {
   const container = createContainer();
@@ -97,9 +98,12 @@ test("project import names each stored and refused progress entry", async ({ pag
     const { listCachedGames } = await import("/src/project/gameStorage.ts");
     const { readGameSaves } = await import("/src/saves/gameSaves.ts");
     const projectId = listCachedGames()[0]!.projectId;
+    const bindingPath = "/src/project/progressBinding.ts";
+    const { bindSavedProgressTarget } = await import(bindingPath);
+    const target = await bindSavedProgressTarget(projectId);
     return {
-      slots: Object.keys(readGameSaves(localStorage, projectId)),
-      autosave: localStorage.getItem(`monotio_agi.autosave.${projectId}`),
+      slots: Object.keys(readGameSaves(localStorage, target!.locator)),
+      autosave: localStorage.getItem(`monotio_agi.autosave.${target!.locator}`),
     };
   });
   expect(stored).toEqual({ slots: ["1"], autosave: null });
@@ -267,14 +271,14 @@ test("a reload resumes into the checkpoint's parked window", async ({ page }) =>
  * Enter to finish the interrupted pass.
  */
 test("a reload resumes the parked window in an agent-authored room", async ({ page }) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
   await isolateStorage(page);
   await page.goto("/");
   await openDeveloperActivity(page);
   await page.getByTestId("boot-agent").click();
   await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("agent-panel")).toContainText("assembled room 1", {
-    timeout: 30_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 30_000 }).toContain("assembled room 1");
 
   // Room 1's entry window is parked too; acknowledge it, then walk east so
   // the stub authors room 2 and its entry print parks the pass there.
@@ -284,9 +288,7 @@ test("a reload resumes the parked window in an agent-authored room", async ({ pa
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 5_000 }).toBe(null);
   await input.fill("east");
   await input.press("Enter");
-  await expect(page.getByTestId("agent-panel")).toContainText("authored room 2", {
-    timeout: 10_000,
-  });
+  await expect.poll(() => agentActivity(page), { timeout: 10_000 }).toContain("authored room 2");
   await expect.poll(async () => (await textHook(page)).modal, { timeout: 10_000 }).toBe("print");
   const parked = await textHook(page);
   expect(parked.rows.join(" ")).toContain("generated room 2");
@@ -294,14 +296,29 @@ test("a reload resumes the parked window in an agent-authored room", async ({ pa
     .poll(async () => (await textHook(page)).autosave, { timeout: 30_000 })
     .toBeGreaterThanOrEqual(parked.cycle);
 
+  // Hold the lazy game surface while the worker restores its parked window.
+  // The probe can report the window before that surface handles keyboard input.
+  let release!: () => void;
+  const surface = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/src/play/PlayArea.vue", async (route) => {
+    await surface;
+    await route.continue();
+  });
   await page.reload();
 
   // The authored bytes persisted beside the image, so the continuation is
   // still keyed on identical logic: the same window is back up.
-  await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
-  expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
-
-  await page.keyboard.press("Enter");
+  try {
+    await expect.poll(async () => (await textHook(page)).modal, { timeout: 30_000 }).toBe("print");
+    expect((await textHook(page)).rows.join(" ")).toContain("generated room 2");
+    expect(await input.count()).toBe(0);
+  } finally {
+    release();
+  }
+  await expect(input).toBeVisible();
+  await input.press("Enter");
   await expect.poll(async () => (await textHook(page)).modal).toBe(null);
   await expect.poll(async () => (await textHook(page)).room).toBe(2);
   await expect.poll(async () => (await textHook(page)).cycle).toBeGreaterThan(parked.cycle);

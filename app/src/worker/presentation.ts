@@ -26,6 +26,7 @@ export function createPresentation(ctx: WorkerContext) {
     }
     const frame = ctx.engine.getPresentation();
     if (capture) captureFrame(frame);
+    if (ctx.engine === ctx.imagePreviewEngine) ctx.imageHeroPreview?.(frame, ctx.cycle.cycleCount);
     const modal = ctx.engine.modalKind;
     const textCells = frame.text;
     // Armed inspector channels join the sameness check so a sprite's sub-pixel

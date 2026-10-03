@@ -205,10 +205,28 @@ export async function waitForAutosaveAfter(
 }
 
 /** The autosave record the host stored for `gameKey`, straight out of localStorage. */
+/** The live storage address bound to a saved body or a served fixture. */
+export async function progressStorageKey(page: Page, gameKey: string): Promise<string> {
+  return page.evaluate(async (key) => {
+    const bindingPath = "/src/project/progressBinding.ts";
+    const { bindSavedProgressTarget } = await import(/* @vite-ignore */ bindingPath);
+    const saved = await bindSavedProgressTarget(key);
+    if (saved) return saved.locator;
+    const discoveryPath = "/src/library/gameDiscovery.ts";
+    const metadataPath = "/src/project/gameMetadata.ts";
+    const targetPath = "/src/project/progressTarget.ts";
+    const { fetchFixtureFiles } = await import(/* @vite-ignore */ discoveryPath);
+    const { gameRevision } = await import(/* @vite-ignore */ metadataPath);
+    const { installedProgressLocator } = await import(/* @vite-ignore */ targetPath);
+    return installedProgressLocator(key, await gameRevision(await fetchFixtureFiles(key)))!;
+  }, gameKey);
+}
+
 export async function storedAutosave(
   page: Page,
   gameKey: string,
 ): Promise<{ room: number; cycle: number; imageLength: number } | null> {
+  const locator = await progressStorageKey(page, gameKey);
   return page.evaluate((key) => {
     const raw = localStorage.getItem(`monotio_agi.autosave.${key}`);
     if (!raw) return null;
@@ -218,7 +236,7 @@ export async function storedAutosave(
       cycle: Number(parsed.cycle),
       imageLength: atob(String(parsed.image)).length,
     };
-  }, gameKey);
+  }, locator);
 }
 
 /**
@@ -259,12 +277,9 @@ export async function isolateStorage(page: Page): Promise<void> {
       // The marker itself is what survives the reload, so the check has to be
       // in localStorage rather than in a page variable.
       if (localStorage.getItem("monotio_agi.e2e.isolated") === "1") return;
-      // The Studio tour's record, when a fixture seeded it (test.ts), outlives the clear.
-      const tour = localStorage.getItem("monotio_agi.studioTour");
       localStorage.clear();
       sessionStorage.clear();
       localStorage.setItem("monotio_agi.e2e.isolated", "1");
-      if (tour !== null) localStorage.setItem("monotio_agi.studioTour", tour);
     } catch {
       /* a context that blocks storage is already isolated */
     }
@@ -298,11 +313,12 @@ export async function openSavedGameDetails(card: Locator): Promise<Locator> {
   return dialog;
 }
 
-/** Open the native Create an adventure disclosure without toggling it closed. */
+/** Open the new game page on its AI starting point. */
 export async function openCreateAdventure(page: Page): Promise<void> {
   const details = page.getByTestId("create-adventure-disclosure");
   if ((await details.getAttribute("open")) === null)
     await page.getByTestId("create-adventure-toggle").click();
+  await page.getByTestId("local-create-kind-ai").click();
 }
 
 /**
@@ -440,6 +456,7 @@ export async function openWorldMap(
  * whole stage for the game) and close the sheet again.
  */
 export async function openInspector(page: Page): Promise<void> {
+  await enterPlayMode(page);
   await openGameOptions(page, "settings-menu");
   const advanced = page.getByTestId("settings-advanced");
   if ((await advanced.getAttribute("aria-expanded")) !== "true") await advanced.click();
@@ -467,11 +484,124 @@ export async function openWorldRoom(panel: Locator, room: number): Promise<void>
   await expect(panel.getByTestId("map-detail")).toHaveAttribute("data-room", String(room));
 }
 
+/** Open a room's real PICTURE through the workspace parts list. */
+export async function openWorkspacePicture(
+  page: Page,
+  room: number,
+  showGame = true,
+): Promise<Locator> {
+  await enterCreateMode(page);
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  await page.locator(`[data-testid^="part-room:${room}:picture:"]`).first().click();
+  if (showGame && (await show.isVisible())) await show.click();
+  if (
+    !showGame &&
+    (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
+  )
+    await page.getByTestId("workspace-focus").click();
+  const studio = page.getByTestId("room-studio").filter({ visible: true });
+  await expect(studio).toBeVisible();
+  await studio.getByRole("group", { name: /^Canvas/ }).focus();
+  return studio;
+}
+
+/** Open a VIEW beside MAIN through the workspace parts list. */
+export async function openWorkspaceView(
+  page: Page,
+  view: number,
+  showGame = true,
+): Promise<Locator> {
+  await enterCreateMode(page);
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  await page.getByTestId(`part-view:${view}`).click();
+  if (showGame && (await show.isVisible())) await show.click();
+  if (
+    !showGame &&
+    (await page.getByTestId("workspace-focus").getAttribute("aria-pressed")) === "false"
+  )
+    await page.getByTestId("workspace-focus").click();
+  const studio = page.getByTestId("sprite-studio").filter({ visible: true });
+  await expect(studio).toBeVisible();
+  await studio.getByTestId("sprite-stage").focus();
+  return studio;
+}
+
+/** Close the selected editor tab while keeping MAIN running. */
+export async function closeWorkspaceEditor(page: Page): Promise<void> {
+  const show = page.getByTestId("workspace-show-game");
+  if (await show.isVisible()) await show.click();
+  const tab = page.getByRole("tab", { selected: true });
+  await tab
+    .locator("..")
+    .getByRole("button", { name: /^Close / })
+    .click();
+}
+
+/** Observe completed gesture publication and durable autosave. */
+export async function workspaceSaved(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const probe = window as unknown as {
+            __AGI_PROJECT__: {
+              getSession(): { saveStatus(): { state: string; message: string } } | undefined;
+            };
+          };
+          const status = probe.__AGI_PROJECT__.getSession()?.saveStatus();
+          return status?.state === "failed" || status?.state === "conflict"
+            ? status.message
+            : status?.state;
+        }),
+      { intervals: [100] },
+    )
+    .toBe("saved");
+  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+  await page.evaluate(async () => {
+    const probe = window as unknown as {
+      __AGI_PROJECT__: { getSession(): { flush(): Promise<void> } };
+    };
+    await probe.__AGI_PROJECT__.getSession().flush();
+  });
+  await expect(page.getByTestId("workspace-saved")).toHaveText("Saved");
+}
+
 export async function enterCreateMode(page: Page): Promise<void> {
   const create = page.getByRole("radio", { name: "Create", exact: true });
   if ((await create.getAttribute("aria-checked")) !== "true") await create.click();
   await expect(create).toHaveAttribute("aria-checked", "true");
   await expect(page).toHaveURL(/#create\//);
+}
+
+/** Open the Create assistant through its registered workspace command. */
+export async function openWorkspaceAgent(page: Page): Promise<void> {
+  await enterCreateMode(page);
+  const panel = page.getByTestId("workspace-agent-panel").or(page.getByTestId("agent-bubble"));
+  if (await panel.isVisible()) return;
+  await page.getByTestId("workspace-agent").click();
+  await expect(panel).toBeVisible();
+}
+
+/** Developer activity remains published while its dialog is closed. */
+export async function agentActivity(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const state = (
+      window as unknown as {
+        __AGI_STATE__: { agentLog: { kind: string; detail: string }[] };
+      }
+    ).__AGI_STATE__;
+    return state.agentLog.map((entry) => `[${entry.kind}] ${entry.detail}`).join("\n");
+  });
+}
+
+/** Return to the full game before opening player tools. */
+export async function enterPlayMode(page: Page): Promise<void> {
+  const play = page.getByRole("radio", { name: "Play", exact: true });
+  if ((await play.getAttribute("aria-checked")) !== "true") await play.click();
+  await expect(play).toHaveAttribute("aria-checked", "true");
+  await expect(page).toHaveURL(/#play\//);
 }
 
 /** Seed through the production persistence boundary, so fixtures use the release contract. */

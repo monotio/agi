@@ -29,7 +29,7 @@ test("remixing 2.230 writes packed sprite loops that mirror when selected", () =
 test("remixing early profiles writes plain OBJECT metadata", () => {
   for (const version of ["2.089", "2.230", "2.272"]) {
     const state = session(version);
-    const result = executeAgentTool(state, "write_inventory_objects", {
+    const result = executeAgentTool(state, "write_objects", {
       objects: [{ name: "key", startingRoom: 7 }],
     });
     assert.equal(result.success, true, result.error ?? "tool failed");
@@ -49,7 +49,7 @@ test("v3 picture feedback measures the actual profile's two-pixel radius-one bru
 
 test("remix logic compiler and reader use the imported profile's action vocabulary", () => {
   const state = session("3.002.149");
-  const written = executeAgentTool(state, "write_logic_source", {
+  const written = executeAgentTool(state, "write_logic", {
     room: 7,
     source: "allow.menu(1); release.key(); return;",
   });
@@ -60,12 +60,12 @@ test("remix logic compiler and reader use the imported profile's action vocabula
   assert.match(read.message ?? "", /allow.menu/);
   assert.doesNotMatch(read.message ?? "", /\/\/ !!/);
   const early = session("2.230");
-  const quit = executeAgentTool(early, "write_logic_source", {
+  const quit = executeAgentTool(early, "write_logic", {
     room: 7,
     source: "quit(); return;",
   });
   assert.equal(quit.success, true, quit.error ?? "tool failed");
-  const unavailable = executeAgentTool(early, "write_logic_source", {
+  const unavailable = executeAgentTool(early, "write_logic", {
     room: 7,
     source: "release.key();",
   });
@@ -80,7 +80,7 @@ test("inventory remix preserves the imported drawable-object capacity", () => {
     ]),
   );
   const state = createAgentSessionState(container);
-  const result = executeAgentTool(state, "write_inventory_objects", {
+  const result = executeAgentTool(state, "write_objects", {
     objects: [{ name: "key", startingRoom: 7 }],
   });
   assert.equal(result.success, true, result.error ?? "tool failed");

@@ -27,3 +27,6 @@ games/*
 # Stryker mutation sandboxes and reports.
 .stryker-tmp/
 reports/
+
+# Local scratch work.
+.local/

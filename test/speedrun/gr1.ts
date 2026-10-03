@@ -474,7 +474,7 @@ export function gr1Complete(run: Speedrun): void {
   control(run, "the sale script hands control back", 10000);
   frontStreetWest(run, 5);
   frontStreetWest(run, 9);
-  // Post office: same closing-door handover as the newspaper building. The
+  // Post office: same closing-door finish as the newspaper building. The
   // mail only arrives after the fourth minute.
   assert.ok(run.engine.vars[153]! >= 4, "letter has arrived");
   walk(run, 51, 121);

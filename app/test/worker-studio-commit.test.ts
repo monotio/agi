@@ -23,6 +23,7 @@ import { createWorkerContext, type WorkerContext } from "../src/worker/context.t
 import { createEngineHost } from "../src/worker/host.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import { gameRevision } from "../src/project/gameMetadata.ts";
+import { bindProgressTarget } from "../src/project/progressBinding.ts";
 import {
   clearCachedGame,
   loadAuthoredGame,
@@ -517,6 +518,7 @@ test("an edit whose bytes and source already match commits nothing", async (t) =
 for (const origin of ["catalog", "installed"] as const) {
   test(`the first Keep on a ${origin} game forks a remix and keeps the source intact`, async (t) => {
     let projectId: ProjectId | null = null;
+    let installedBoot: BootedGame | null = null;
     let r: Rig;
     let revision: ResourceRevision;
     if (origin === "catalog") {
@@ -524,15 +526,20 @@ for (const origin of ["catalog", "installed"] as const) {
     } else {
       const files = gameFiles();
       revision = await gameRevision(files);
-      r = rig(t, files, {
+      installedBoot = {
         installed: true,
+        // A folder spelling outside the project-id alphabet: its logical
+        // identity is minted from the folder digest, not the shared hash.
+        folder: "Studio Edition",
         hash: "studio-installed",
         alias: "studio",
         title: "Studio edition",
         revision,
         files,
         words: [],
-      });
+      };
+      bindProgressTarget(installedBoot);
+      r = rig(t, files, installedBoot);
     }
     const result = await r.controller.commitPictureEdit({
       pictureNumber: 1,
@@ -549,11 +556,20 @@ for (const origin of ["catalog", "installed"] as const) {
     assert.equal(r.game().installed, false);
     assert.equal(r.game().revision, result.revision);
     assert.equal(r.game().historyLifetime, await readHistoryLifetime(remix));
+    assert.equal(
+      r.game().progressTarget?.locator,
+      `project:${remix}:${await readHistoryLifetime(remix)}`,
+      "the adopted owner is bound to its own saved body's epoch",
+    );
+    assert.equal(r.game().progressTarget?.identity.revision, result.revision);
 
     const fork = (await loadAuthoredGame(remix))!;
     assert.equal(fork.library?.source, "remix");
     assert.equal(fork.library?.revision, result.revision);
-    assert.deepEqual(fork.library?.parent?.revision, revision);
+    assert.deepEqual(fork.library?.parent, {
+      project: projectId ?? installedBoot!.progressTarget!.identity.project,
+      revision,
+    });
     assert.deepEqual(storedPicture(fork.files), compile(RED));
     const pictures = (fork.authoringState?.["sources"] as { pictures: [number, string][] })
       .pictures;
@@ -1374,6 +1390,8 @@ function autosaves(r: Rig, onBehindStorage?: () => void) {
     bootGame: async () => {},
     bootAuthoredGame: async () => {},
     configForGame: (_project, config) => config,
+    // No resume intent is armed in these tests; retirement is unreachable.
+    retireFailedRecovery: () => {},
   });
 }
 

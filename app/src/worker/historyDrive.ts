@@ -11,6 +11,8 @@
  * caller supplies the context factory — context.ts's createWorkerContext —
  * so this module never imports the context it runs inside.
  */
+import type { ProfileId } from "../../../src/runtime/profile.ts";
+import type { HistoryProjectDocuments } from "../../../src/agent/history.ts";
 import { Engine } from "../../../src/runtime/engine.ts";
 import { openContainer } from "../../../src/container/container.ts";
 import type { GameContainer } from "../../../src/types.ts";
@@ -60,8 +62,15 @@ function foldFiles(
   dictionary: Map<string, number>,
   events: readonly HistoryEvent[],
   seq: number,
-): { wordsPatched: boolean } {
+  profile: ProfileId | undefined,
+  initialProject: HistoryProjectDocuments | undefined,
+): {
+  project: HistoryProjectDocuments | undefined;
+  wordsPatched: boolean;
+  files: ReadonlyMap<string, Uint8Array>;
+} {
   let wordsPatched = false;
+  let project = initialProject;
   const applyCommitted = (patch: HistoryCommittedPatch): void => {
     for (const r of patch.resources) container.putResource(r.kind, r.num, base64ToBytes(r.data));
     if (patch.words !== undefined) {
@@ -77,7 +86,19 @@ function foldFiles(
   for (const event of events) {
     if (event.seq >= seq) break;
     const cause = event.cause;
-    if (cause.kind === "patch")
+    if (cause.kind === "projectImage") {
+      container = openContainer(
+        new Map(Object.entries(cause.files).map(([name, data]) => [name, base64ToBytes(data)])),
+        profile === undefined ? {} : { profile },
+      );
+      project = { documents: cause.documents, documentId: cause.documentId };
+      const words = container.files.get("WORDS.TOK");
+      if (words !== undefined) {
+        dictionary.clear();
+        for (const { word, id } of parseWordsTok(words)) dictionary.set(word, id);
+        wordsPatched = true;
+      }
+    } else if (cause.kind === "patch")
       container.putResource(cause.resource, cause.num, base64ToBytes(cause.data));
     else if (cause.kind === "patchMeta") {
       if (cause.words !== undefined) {
@@ -93,7 +114,7 @@ function foldFiles(
       applyCommitted(cause.patch);
     }
   }
-  return { wordsPatched };
+  return { project, wordsPatched, files: container.files };
 }
 
 /** Ports the drive's scratch session posts through; `now` stays drive-owned. */
@@ -153,6 +174,11 @@ function captureSemanticState(
     soundDevice: ctx.boot.selectedSoundDevice,
     resourceSet: resourceSetHint({ getFiles: () => files }),
   };
+  if (template.documentId !== undefined) {
+    if (ctx.boot.project === undefined)
+      throw new Error("project documents are missing at the restored boundary");
+    out.documentId = ctx.boot.project.documentId;
+  }
   if (template.authorRooms !== undefined) out.authorRooms = ctx.boot.authorRooms;
   if (template.dictionary !== undefined)
     out.dictionary = [...ctx.boot.liveDictionary.entries()].sort(([a], [b]) =>
@@ -259,9 +285,23 @@ export function openHistoryDrive(
     const baseFiles = new Map<string, Uint8Array>();
     for (const [name, data] of Object.entries(segment.boot.files))
       baseFiles.set(name, base64ToBytes(data));
-    const foldContainer = openContainer(baseFiles);
-    const { wordsPatched } = foldFiles(foldContainer, dictionary, segment.events, startSeq);
-    const files = new Map(foldContainer.files);
+    const foldContainer = openContainer(
+      baseFiles,
+      segment.boot.profile ? { profile: segment.boot.profile } : {},
+    );
+    const {
+      wordsPatched,
+      files: foldedFiles,
+      project,
+    } = foldFiles(
+      foldContainer,
+      dictionary,
+      segment.events,
+      startSeq,
+      segment.boot.profile,
+      segment.boot.project,
+    );
+    const files = new Map(foldedFiles);
     const recordedSet = anchor ? anchor.resourceSet : segment.boot.resourceSet;
     if (resourceSetHint({ getFiles: () => files }) !== recordedSet) {
       outcome.error =
@@ -272,6 +312,7 @@ export function openHistoryDrive(
       return drive;
     }
 
+    ctx.boot.project = project;
     ctx.boot.liveDictionary = dictionary;
     ctx.boot.currentBootFiles = files;
     ctx.boot.currentDictionary = dictionary;
@@ -280,7 +321,7 @@ export function openHistoryDrive(
     ctx.boot.authoredWords = wordsPatched ? (files.get("WORDS.TOK") ?? null) : null;
     ctx.boot.profile = segment.boot.profile ?? null;
     ctx.engine = new Engine(
-      openContainer(files),
+      openContainer(files, ctx.boot.profile ? { profile: ctx.boot.profile } : {}),
       ctx.host,
       dictionary,
       ctx.boot.profile ? { profile: ctx.boot.profile } : undefined,
@@ -468,6 +509,23 @@ export function openHistoryDrive(
           ...(cause.room !== undefined ? { room: cause.room } : {}),
         });
         return;
+      case "projectImage": {
+        ctx.boot.project = { documents: cause.documents, documentId: cause.documentId };
+        const files = new Map(
+          Object.entries(cause.files).map(([name, data]) => [name, base64ToBytes(data)]),
+        );
+        const result = engine!.commitPreviewUpdate(engine!.preparePreviewUpdate({ files }));
+        if (result.status !== "committed" && result.status !== "unchanged")
+          throw new Error(`Recorded project image refused: ${result.status}`);
+        ctx.boot.currentBootFiles = new Map(engine!.containerFiles);
+        const words = files.get("WORDS.TOK");
+        if (words !== undefined) {
+          ctx.boot.liveDictionary.clear();
+          for (const { word, id } of parseWordsTok(words)) ctx.boot.liveDictionary.set(word, id);
+          ctx.boot.authoredWords = words;
+        }
+        return;
+      }
       case "patch":
         engine!.patchResources([
           { kind: cause.resource, num: cause.num, payload: base64ToBytes(cause.data) },

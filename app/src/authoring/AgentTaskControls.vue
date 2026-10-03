@@ -3,8 +3,9 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
 import type { AgentRunState } from "../agent/agentRun.ts";
 const { task, showText = true } = defineProps<{ task: AgentRunState | null; showText?: boolean }>();
-defineEmits<{ stop: []; resume: []; discard: [] }>();
+defineEmits<{ stop: []; resume: [requestLimit?: number]; discard: [] }>();
 const now = ref(Date.now());
+const requestLimit = ref(5);
 let clock: ReturnType<typeof setInterval>;
 onMounted(() => {
   clock = setInterval(() => {
@@ -15,12 +16,12 @@ onUnmounted(() => clearInterval(clock));
 const TOOL_SUBJECTS: Record<string, string> = {
   write_picture: "scenery",
   write_view: "sprites",
-  write_logic_source: "room behavior",
+  write_logic: "room behavior",
   write_words: "vocabulary",
-  write_inventory_objects: "inventory",
+  write_objects: "inventory",
   write_sound: "sound",
   write_music: "music",
-  read_room_context: "a room inspection",
+  read_room: "a room inspection",
   playtest_room: "a playtest",
 };
 const activity = computed(() => {
@@ -71,7 +72,7 @@ const quiet = computed(() =>
             ? task.status === "idle"
               ? `Last task: $${task.spent.toFixed(2)} est.`
               : `$${task.spent.toFixed(2)} est. / $${task.budget.toFixed(2)}`
-            : "Usage estimate unavailable"
+            : `Spend unknown · ${task.requests} requests`
         }}
         <span v-if="task.usageIncomplete"> · partial usage</span>
       </span>
@@ -82,7 +83,7 @@ const quiet = computed(() =>
         v-else-if="task.status === 'paused'"
         variant="primary"
         data-testid="agent-continue"
-        @click="$emit('resume')"
+        @click="$emit('resume', task.priceKnown ? undefined : requestLimit)"
       >
         {{
           task.reason.startsWith("Budget")
@@ -92,6 +93,16 @@ const quiet = computed(() =>
       </UiButton>
     </div>
     <template v-if="task.status === 'paused'">
+      <label v-if="!task.priceKnown">
+        Requests
+        <input
+          v-model.number="requestLimit"
+          type="number"
+          min="1"
+          step="1"
+          data-testid="agent-request-limit"
+        />
+      </label>
       <p role="status" data-testid="agent-pause-reason">{{ task.reason }}</p>
       <UiButton variant="danger" data-testid="agent-discard" @click="$emit('discard')">
         Discard this attempt

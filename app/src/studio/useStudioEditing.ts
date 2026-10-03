@@ -11,7 +11,7 @@
  * followedItem).
  */
 
-import { computed, onScopeDispose, shallowRef, type Ref } from "vue";
+import { computed, onScopeDispose, shallowRef, watch, type Ref } from "vue";
 import { limitMove, type EditOperation } from "../../../src/studio/editOperations.ts";
 import {
   groupPart,
@@ -62,6 +62,7 @@ export function useStudioEditing(options: {
 }) {
   const { draft, selectedId } = options;
   const { notice, say, dismiss } = useStudioNotice();
+  watch(draft.source, () => say(null), { flush: "sync" });
   const flash = shallowRef<Uint8Array | null>(null);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
   onScopeDispose(() => clearTimeout(flashTimer));
@@ -213,7 +214,7 @@ export function useStudioEditing(options: {
   /** Move the item back (-1, drawn earlier) or forward (+1, drawn later) in draw order. */
   function reorder(step: 1 | -1): boolean {
     if (several.value) {
-      say({ tone: "warn", text: "Draw order changes one item at a time: select just one." });
+      say({ tone: "warn", text: "Select one item to change its draw order." });
       return false;
     }
     return run(
@@ -304,7 +305,7 @@ export function useStudioEditing(options: {
       if (!art || followedItem(document, door.item)) continue;
       say({
         tone: "warn",
-        text: `${door.label} stays put now: Ungroup split ${art.label} into drawing elements.`,
+        text: `${door.label} stays put now: Ungroup split ${art.label} into items.`,
       });
       break;
     }

@@ -7,7 +7,9 @@ import { validateRoomInventory } from "../../../src/agent/inventory.ts";
 
 /** A candidate tool call owns its container and every mutable authoring map. */
 export function forkAgentState(source: AgentSessionState): AgentSessionState {
-  const next = createAgentSessionState(openContainer(source.getFiles()));
+  const next = createAgentSessionState(
+    openContainer(source.getFiles(), { profile: source.profile }),
+  );
   Object.assign(next, { profile: source.profile });
   Object.assign(next.sources, structuredClone(source.sources));
   next.authoring = validateAuthoringState(source.authoring);

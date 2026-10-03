@@ -11,6 +11,12 @@ import {
   type GameHash,
   type KnownAgiGame,
 } from "../src/games/knownGames.ts";
+import {
+  AMIGA_INTERPRETER_FILES,
+  INTERPRETER_FILES,
+  canonicalResourceName,
+} from "../src/container/playableFiles.ts";
+import { detectProfile } from "../src/runtime/profile.ts";
 
 export { KNOWN_GAME_HASH, type GameHash };
 
@@ -309,9 +315,40 @@ const UNSHIPPED_VOLUMES: Record<string, readonly number[]> = {
   "3ceb755dc98398f3369038d21528763c05aac926238681ad88efac74c60d4d2d": [6, 7],
   // Manhunter 2 3.02 (1989-07-26, 3.5"): sounds 215-216.
   f646929faac4b905c4ed9fe3d8661cb33c97e4ae3168c38fa097cf3e1dbd8948: [6],
-  // Manhunter 2 (Amiga): picture 106.
-  "4c4ed1128707c0b5cf35ae978b9bb77b9bb98f18b98e0f87a9911620d54515da": [15],
 };
+
+/**
+ * The file map profile detection sees for a fixture folder: every name under
+ * its canonical spelling, with real bytes behind the names detection reads —
+ * the interpreter executables and the WORDS.TOK/OBJECT catalog pair. Other
+ * files keep placeholder bytes; detection only asks their names.
+ */
+function fixtureDetectionFiles(
+  dir: string,
+  onDisk: ReadonlyMap<string, string>,
+): Map<string, Uint8Array> {
+  const files = new Map<string, Uint8Array>();
+  for (const actual of onDisk.values()) {
+    const canonical = canonicalResourceName(actual);
+    const upper = canonical.toUpperCase();
+    const read =
+      INTERPRETER_FILES.includes(upper) ||
+      /^[A-Z0-9_-]+\.(?:COM|SYS16)$/.test(upper) ||
+      Object.hasOwn(AMIGA_INTERPRETER_FILES, upper) ||
+      upper === "WORDS.TOK" ||
+      upper === "OBJECT";
+    let bytes = new Uint8Array(0);
+    if (read) {
+      try {
+        bytes = new Uint8Array(readFileSync(dir + actual));
+      } catch {
+        // An unreadable file is reported by the required-name check below.
+      }
+    }
+    files.set(canonical, bytes);
+  }
+  return files;
+}
 
 function referencedVolumes(entries: Uint8Array, exactAbsence: boolean): Set<number> {
   const volumes = new Set<number>();
@@ -387,8 +424,21 @@ export function fixtureReadiness(
       options.checkVolumes === "shipped"
         ? (UNSHIPPED_VOLUMES[createHash("sha256").update(bytes).digest("hex")] ?? [])
         : [];
+    // The absence rule of the fixture's own interpreter decides whether an
+    // entry references a volume at all — detected on the fixture's real
+    // bytes, through the same pipeline the container opens with. An Amiga
+    // `dirs` entry whose volume nibble reads f names no VOL.15 (docs/testing.md).
+    // The volumes are what this check computes, so detection cannot see the
+    // container family off them; the combined directory itself declares it
+    // through the unconditionally required first volume.
+    const detectionFiles = fixtureDetectionFiles(dir, onDisk);
+    detectionFiles.set(`${prefix}VOL.0`, detectionFiles.get(`${prefix}VOL.0`) ?? new Uint8Array(0));
+    const exactAbsence = detectProfile(detectionFiles).directoryAbsence === "exact-fff";
     for (let i = 0; i < 4; i++) {
-      for (const volume of referencedVolumes(bytes.subarray(offsets[i], offsets[i + 1]), true))
+      for (const volume of referencedVolumes(
+        bytes.subarray(offsets[i], offsets[i + 1]),
+        exactAbsence,
+      ))
         if (!unshipped.includes(volume)) required.add(`${prefix}VOL.${volume}`);
     }
   } else if (resources && options.checkVolumes !== false) {

@@ -37,8 +37,10 @@ test("tutorial plays its opening and earned cues through the real sound worker a
             probe.started.push(data.soundNum);
             probe.active = data.soundNum;
           }
-          if (data.type === "stopSound") probe.active = null;
+          if (data.type === "stopSound" || (data.type === "soundTick" && data.complete))
+            probe.active = null;
           if (data.type === "soundOutput") probe.outputs++;
+          if (data.type === "soundTick") probe.outputs += data.outputs.length;
         });
       }
     };

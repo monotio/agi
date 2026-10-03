@@ -12,6 +12,7 @@ import {
   type WalkthroughCheckpoint,
 } from "./walkthrough.ts";
 import { findInstalledFolder, type InstalledGameDescriptor } from "../project/gameTypes.ts";
+import { PROFILES } from "../../../src/runtime/profile.ts";
 import type { AgentLogEntry } from "../agent/agentLog.ts";
 import type { LlmConfig } from "../agent/llmClient.ts";
 import { getCachedGameMeta, listCachedGames, type ProjectId } from "../project/gameStorage.ts";
@@ -46,6 +47,23 @@ export interface WalkthroughUiState {
   error: string;
 }
 
+/**
+ * The tape's recorded interpreter is part of the run's contract: under
+ * another profile a checkpoint can diverge or an action can land on a
+ * dispatch slot the selected build lacks. `reported` is the worker's own
+ * `booted` report — null when it has not posted one, which refuses as
+ * missing rather than admitting on the descriptor's declared override.
+ */
+function profileAdmissionError(required: string, reported: string | null): string {
+  if (!Object.hasOwn(PROFILES, required)) {
+    return `This walkthrough requires an unsupported interpreter profile: ${required}. Choose another walkthrough.`;
+  }
+  if (reported === null) {
+    return `This walkthrough needs interpreter ${required}; the running game reported no interpreter profile. Restart the game and try again.`;
+  }
+  return `This walkthrough was recorded for interpreter ${required}, but this game is running ${reported}.`;
+}
+
 export function createInitialWalkthroughState(): WalkthroughUiState {
   return {
     active: false,
@@ -78,9 +96,15 @@ export interface WalkthroughControllerContext {
     soundPlaying: boolean;
     resumed: boolean;
   };
-  readonly audio: AgiAudio;
+  readonly audio: AgiAudio | null;
   readonly replayDriver: ReplayDriver;
   readonly getWorker: () => Worker | null;
+  /**
+   * The interpreter profile the current worker reported on `booted`
+   * (state.profile) — null while a fresh boot has not reported yet. Never
+   * the descriptor's declared override; admission compares the real one.
+   */
+  readonly getWorkerProfile: () => string | null;
   readonly getBootedGame: () => BootedGame | null;
   readonly isCurrentGame: (targetGame: string) => boolean;
   readonly nextSessionId: () => number;
@@ -123,7 +147,7 @@ export interface WalkthroughController {
 }
 
 export function useWalkthroughController(ctx: WalkthroughControllerContext): WalkthroughController {
-  const { state, audio, replayDriver } = ctx;
+  const { state, replayDriver } = ctx;
   let walkthroughAbortController: AbortController | null = null;
   let seekTargetTick: number | null = null;
   const resumeWaiters = new Set<() => void>();
@@ -139,6 +163,10 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   /** True while a `playBatch` call is in flight — a seek retarget can only
    * retune a live runner. */
   let batchActive = false;
+  /** Preflight supersession: every new start and every `abort` (stop,
+   * eject, seek restart) bumps it, so a late artifact load can't commit
+   * over the request or game that arrived while it was in flight. */
+  let startRequest = 0;
 
   function advanceDialog(): boolean {
     if (skipDialogDwell) {
@@ -162,12 +190,43 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   }
 
   function abort(): void {
+    startRequest += 1;
     transport.dispose();
     batchActive = false;
     if (walkthroughAbortController) {
       walkthroughAbortController.abort();
       walkthroughAbortController = null;
     }
+  }
+
+  /**
+   * A start refused in preflight touches nothing the running game owns —
+   * the worker session, prompts, queries, audio, autosave and a live
+   * walkthrough's tape all continue; the refused request only reports
+   * through `error`. With nothing playing, that error is the whole state.
+   */
+  function refusePreflight(message: string): void {
+    state.walkthrough.error = message;
+    if (!state.walkthrough.active) state.walkthrough.status = "error";
+  }
+
+  /**
+   * A start refused after it committed — a different edition, a game absent
+   * from the library, or the interpreter the boot actually reported — is
+   * deactivated coherently: its artifact, seed and seek bookkeeping retire
+   * with it while the game it booted or reset keeps running under its own
+   * profile.
+   */
+  function retireAttemptedRun(message: string): void {
+    abort();
+    activeArtifact = null;
+    snapshotResume = new Map();
+    seekTargetTick = null;
+    ctx.setActiveReplaySeed(null);
+    state.walkthrough.active = false;
+    state.walkthrough.seeking = false;
+    state.walkthrough.status = "error";
+    state.walkthrough.error = message;
   }
 
   /**
@@ -236,11 +295,11 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
             }
           }
           if (state.walkthrough.status === "playing" && !state.walkthrough.scrubbing) {
-            audio.setPaused(false);
+            ctx.audio?.setPaused(false);
           } else {
             state.soundPlaying = false;
-            audio.stop();
-            audio.setPaused(true);
+            ctx.audio?.stop();
+            ctx.audio?.setPaused(true);
           }
           ctx.getWorker()?.postMessage({ type: "renderFrame" } satisfies WorkerInbound);
         },
@@ -306,7 +365,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         state.walkthrough.status = "completed";
         state.walkthrough.percent = 100;
         state.soundPlaying = false;
-        audio.stop();
+        ctx.audio?.stop();
       }
     } catch (err) {
       if (ctx.getActiveSessionId() !== sessionId) {
@@ -322,7 +381,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         state.walkthrough.error = String(err);
       }
       state.soundPlaying = false;
-      audio.stop();
+      ctx.audio?.stop();
     } finally {
       // A superseded batch leaves the flag to the run that replaced it.
       if (walkthroughAbortController === abortController) batchActive = false;
@@ -365,12 +424,17 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     targetGame: string,
     options?: { speed?: number; initialTick?: number; keepPaused?: boolean } | number,
   ): Promise<void> {
-    abort();
-    ctx.cancelPendingPrompts();
-    ctx.drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
-
-    const sessionId = ctx.nextSessionId();
-    state.walkthrough.error = "";
+    // A start's preflight carries a controller-local request token, never a
+    // worker session: the session only moves once the start commits, so a
+    // refused or superseded preflight leaves the running game's session —
+    // and the frames, prompts, queries, audio and autosave it serves —
+    // untouched. A newer request, stop, eject or seek restart (all routed
+    // through `abort`) retires an in-flight preflight before it can commit.
+    const request = ++startRequest;
+    const worker = ctx.getWorker();
+    const game = ctx.getBootedGame();
+    const superseded = () =>
+      request !== startRequest || ctx.getWorker() !== worker || ctx.getBootedGame() !== game;
 
     // Load artifact (memoized with validation and failure eviction); the
     // loader throws on fetch or validation failure, so surface that here
@@ -379,12 +443,38 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     try {
       artifact = await loadWalkthrough(targetGame);
     } catch (e) {
-      if (ctx.getActiveSessionId() !== sessionId) return;
-      state.walkthrough.status = "error";
-      state.walkthrough.error = e instanceof Error ? e.message : String(e);
+      if (superseded()) return;
+      refusePreflight(e instanceof Error ? e.message : String(e));
       return;
     }
-    if (ctx.getActiveSessionId() !== sessionId) return;
+    if (superseded()) return;
+
+    // An interpreter this build does not know can never match the worker's
+    // report — refuse before a boot or a reset touches the running game.
+    if (!Object.hasOwn(PROFILES, artifact.profile)) {
+      refusePreflight(profileAdmissionError(artifact.profile, null));
+      return;
+    }
+
+    // A worker already running this game has either reported its
+    // interpreter — compared now, before the reset touches it — or is
+    // still booting and reports after the tick-0 observation instead.
+    const runningHere = worker !== null && ctx.isCurrentGame(targetGame);
+    if (runningHere) {
+      const reported = ctx.getWorkerProfile();
+      if (reported !== null && reported !== artifact.profile) {
+        refusePreflight(profileAdmissionError(artifact.profile, reported));
+        return;
+      }
+    }
+
+    // Preflight passed — commit under the slot it validated: retire the
+    // current run, drain its pending work and take the worker session the
+    // reset or boot runs under.
+    abort();
+    ctx.cancelPendingPrompts();
+    ctx.drainPendingQueries(new DOMException("Walkthrough reset", "AbortError"));
+    const sessionId = ctx.nextSessionId();
 
     activeArtifact = artifact;
     // A checkpoint's replay tick is the sum of the advance durations before
@@ -436,9 +526,9 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     }
 
     state.soundPlaying = false;
-    audio.stop();
+    ctx.audio?.stop();
     if (target > 0 || keepPaused) {
-      audio.setPaused(true);
+      ctx.audio?.setPaused(true);
     }
 
     ctx.setActiveReplaySeed(artifact.seed);
@@ -475,9 +565,9 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       );
     });
 
-    // Boot game with the seed (or fast reset if already booted in worker)
-    const worker = ctx.getWorker();
-    if (ctx.isCurrentGame(targetGame) && worker) {
+    // Boot game with the seed (or fast reset if already booted in worker);
+    // `runningHere` and `worker` were captured and re-validated in preflight.
+    if (runningHere) {
       worker.postMessage({
         type: "resetReplay",
         seed: artifact.seed,
@@ -507,10 +597,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         );
       } else if (!import.meta.env?.DEV) {
         void observationPromise.catch(() => {});
-        abortController.abort();
-        state.walkthrough.active = false;
-        state.walkthrough.status = "error";
-        state.walkthrough.error = "Add this game to your library first, then run its walkthrough.";
+        retireAttemptedRun("Add this game to your library first, then run its walkthrough.");
         return;
       } else {
         await ctx.bootGame(findInstalledFolder(ctx.state.installedGames, targetGame));
@@ -538,10 +625,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
         if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
         // Reject the pending observation wait so its listener is released.
         void observationPromise.catch(() => {});
-        abortController.abort();
-        state.walkthrough.active = false;
-        state.walkthrough.status = "error";
-        state.walkthrough.error = `This walkthrough was recorded for a different edition of the game.`;
+        retireAttemptedRun(`This walkthrough was recorded for a different edition of the game.`);
         return;
       }
     }
@@ -554,6 +638,17 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       throw e;
     }
     if (ctx.getActiveSessionId() !== sessionId || abortController.signal.aborted) return;
+
+    // The worker's own report — not the descriptor's declared override — is
+    // the interpreter this tape runs under. `booted` posts before the tick-0
+    // observation on a fresh boot, so the profile is known here on every
+    // route; anything but the recorded interpreter refuses before the tape
+    // submits its first action.
+    const reportedProfile = ctx.getWorkerProfile();
+    if (reportedProfile !== artifact.profile) {
+      retireAttemptedRun(profileAdmissionError(artifact.profile, reportedProfile));
+      return;
+    }
 
     // Run the batch!
     await runBatch(artifact, sessionId, abortController);
@@ -570,7 +665,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     seekTargetTick = null;
     state.walkthrough.seeking = false;
     state.soundPlaying = false;
-    audio.stop();
+    ctx.audio?.stop();
     notifyResume();
     state.walkthrough.status = "stopped";
     if (takeControl) {
@@ -619,8 +714,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
       state.walkthrough.score = targetCp.score;
     }
     state.soundPlaying = false;
-    audio.stop();
-    audio.setPaused(true);
+    ctx.audio?.stop();
+    ctx.audio?.setPaused(true);
 
     if (
       clamped < currentTick ||
@@ -651,8 +746,8 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
     if (state.walkthrough.active && state.walkthrough.status === "playing") {
       state.walkthrough.status = "paused";
       state.soundPlaying = false;
-      audio.stop();
-      audio.setPaused(true);
+      ctx.audio?.stop();
+      ctx.audio?.setPaused(true);
       if (skipDialogDwell) {
         const skip = skipDialogDwell;
         skipDialogDwell = null;
@@ -664,7 +759,7 @@ export function useWalkthroughController(ctx: WalkthroughControllerContext): Wal
   function resumeWalkthrough(): void {
     if (state.walkthrough.active && state.walkthrough.status === "paused") {
       state.walkthrough.status = "playing";
-      audio.setPaused(false);
+      ctx.audio?.setPaused(false);
       notifyResume();
     }
   }

@@ -1,0 +1,20 @@
+Bundled UI fonts
+================
+
+The browser UI includes Geist and Geist Mono 1.7.2, Copyright 2024 The Geist
+Project Authors (https://github.com/vercel/geist-font), under the SIL Open Font
+License 1.1. These fonts and their derivatives are not covered by this project's
+MIT license.
+
+AGI Geist is a renamed Latin subset of Geist with static symbol outlines from
+Inter 4.1, Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter),
+and Noto Sans Math and Noto Sans Symbols 2, Copyright 2022 The Noto Project Authors
+(https://github.com/notofonts/math and https://github.com/notofonts/symbols).
+Those outlines are also licensed under the SIL Open Font License 1.1.
+Geist Mono is a Latin subset of the upstream variable font.
+
+The complete upstream OFL notices ship in app/public/licenses/geist-OFL.txt,
+inter-OFL.txt, noto-math-OFL.txt and noto-symbols-OFL.txt. Source identities and
+subset generation are documented in CONTRIBUTING.md. The notice also ships as
+app/public/fonts/NOTICE.txt. The fonts apply to browser UI and code editors;
+the interpreter's original project 8x8 game font remains separate.

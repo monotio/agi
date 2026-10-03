@@ -14,7 +14,13 @@ export function createInput(ctx: WorkerContext) {
   }
 
   function flushDeferredMovement(): void {
-    if (!ctx.engine || ctx.engine.modalKind !== null || ctx.engine.continuationPending) return;
+    if (
+      !ctx.engine ||
+      ctx.engine.modalKind !== null ||
+      ctx.engine.continuationPending ||
+      ctx.fns.debugStoppedHeld()
+    )
+      return;
     for (const key of ctx.input.deferredMovement.splice(0)) {
       if (key === 0) {
         if (ctx.recording.recording)
@@ -33,7 +39,9 @@ export function createInput(ctx: WorkerContext) {
    * up later.
    */
   function deliverQueuedKey(): void {
-    if (!ctx.engine?.awaitingKey) return;
+    // Keys queued before the stop keep their acceptance: they wait in the
+    // queue and deliver when the resumed pass asks again.
+    if (!ctx.engine?.awaitingKey || ctx.fns.debugStoppedHeld()) return;
     const queued = ctx.input.keyQueue.shift();
     if (queued === undefined) return;
     setKeyWaiting(false);
@@ -42,11 +50,14 @@ export function createInput(ctx: WorkerContext) {
       // the same shape a live suspension produces. Recording the delivery
       // inside the tick run keeps it in the list: outside a run, tape.host
       // drops calls, and a recording that started on this wait would lose it.
-      ctx.recording.recording.tape.run("tick", () => {
-        ctx.recording.recording!.tape.host(["waitKey", queued]);
-        ctx.engine!.deliverHostAnswer(queued);
-        ctx.engine!.tick();
-      });
+      // runTickEntry counts the pass's controlled completion at this entry.
+      ctx.fns.runTickEntry(() =>
+        ctx.recording.recording!.tape.run("tick", () => {
+          ctx.recording.recording!.tape.host(["waitKey", queued]);
+          ctx.engine!.deliverHostAnswer(queued);
+          ctx.engine!.tick();
+        }),
+      );
       if (ctx.engine.awaitingHostAnswer) ctx.recording.recording.tape.holdTick();
     } else {
       ctx.engine.deliverHostAnswer(queued);
@@ -67,6 +78,10 @@ export function createInput(ctx: WorkerContext) {
     ) {
       return;
     }
+    // An explicit debugger stop rejects new gameplay input outright — typing
+    // does not accumulate. (A step parked at a genuine host input is not
+    // stopped: the latch is clear and keys flow normally.)
+    if (ctx.fns.debugStoppedHeld()) return;
     flushDeferredMovement();
     const key = Number(msg.code) & 0xffff;
     ctx.fns.historyRecord({ kind: "key", code: key });
@@ -96,6 +111,12 @@ export function createInput(ctx: WorkerContext) {
     }
     const dir = Number(msg.dir) & 0xff;
     if (dir === 0) {
+      // A release for a direction accepted before the stop is cleanup, not
+      // new input: queue it for delivery when the latch releases.
+      if (ctx.fns.debugStoppedHeld()) {
+        if (ctx.input.deferredMovement.length < 19) ctx.input.deferredMovement.push(0);
+        return;
+      }
       // The main thread captures the gate even while save/restore blocks us.
       // In replay the tape's ordering is exact, so the engine's own gate is
       // truth; the mirrored holdToMove goes stale while frames are
@@ -112,6 +133,8 @@ export function createInput(ctx: WorkerContext) {
       flushDeferredMovement();
       return;
     }
+    // New directional presses are rejected while the latch holds the run.
+    if (ctx.fns.debugStoppedHeld()) return;
     const dirKey = DIRECTION_KEYS[dir];
     if (ctx.engine.modalKind !== null) {
       // Arrows steer the open modal (inventory selection, menu) instead of
@@ -165,7 +188,8 @@ export function createInput(ctx: WorkerContext) {
       engine.modalKind !== null ||
       engine.awaitingKey ||
       engine.awaitingHostAnswer ||
-      engine.profile.clickMove === "none"
+      engine.profile.clickMove === "none" ||
+      ctx.fns.debugStoppedHeld()
     )
       return;
     ctx.fns.historyRecord({ kind: "click", x, y });
@@ -173,13 +197,14 @@ export function createInput(ctx: WorkerContext) {
   }
 
   function onInput(msg: Inbound<"input">): void {
+    if (ctx.fns.debugStoppedHeld()) return;
     const text = String(msg.text);
     ctx.fns.historyRecord({ kind: "input", text });
     ctx.input.inputBuffer.push(text);
   }
 
   function onEdit(msg: Inbound<"edit">): void {
-    if (!ctx.engine) return;
+    if (!ctx.engine || ctx.fns.debugStoppedHeld()) return;
     // Live mirror of the host's input widget onto the engine's input row.
     ctx.fns.historyRecord({ kind: "edit", text: String(msg.text) });
     ctx.recording.recording?.tape.record(["edit", String(msg.text)]);
@@ -190,7 +215,7 @@ export function createInput(ctx: WorkerContext) {
   }
 
   function onDismissPrint(): void {
-    if (!ctx.engine) return;
+    if (!ctx.engine || ctx.fns.debugStoppedHeld()) return;
     ctx.recording.recording?.tape.record(["ack"]);
     ctx.fns.historyRecord({ kind: "dismiss" });
     const pending = ctx.engine.hostInteraction;

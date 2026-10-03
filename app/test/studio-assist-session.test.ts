@@ -118,7 +118,7 @@ test("stub: a proposal that touches locked art is refused and the retry is the c
   assert.equal(result.candidate?.candidateId, "c2");
   assert.ok(
     events.some((line) =>
-      /propose_edit -> Refused; nothing was proposed: the art \(visual plane\) is locked/.test(
+      /propose_changes -> Refused; nothing was proposed: the art \(visual plane\) is locked/.test(
         line,
       ),
     ),
@@ -143,11 +143,11 @@ test("stub: an impossible request reads the selection and declines with its reas
 
 test("a model that judges its own candidate wrong withdraws it; the request ends with none", async (t) => {
   // The live pattern: a real change, the host's "walkable 0 -> 0", then the
-  // model's verdict that it should not be accepted — now a withdraw_edit.
+  // model's verdict that it should not be accepted — now a withdraw_changes.
   const reply = "The walkway cannot make the bridge walkable, so I withdrew it.";
   const pictureOpFields = Object.keys(
     (
-      STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_edit")!.parameters.properties[
+      STUDIO_ASSIST_TOOLS.find((tool) => tool.name === "propose_changes")!.parameters.properties[
         "pictureOps"
       ] as { items: { properties: object } }
     ).items.properties,
@@ -161,7 +161,7 @@ test("a model that judges its own candidate wrong withdraws it; the request ends
   };
   const turns = [
     {
-      name: "propose_edit",
+      name: "propose_changes",
       arguments: {
         baseRevision: bridgeFocus().scope.baseRevision,
         summary: "Opened the banks under the bridge.",
@@ -173,7 +173,10 @@ test("a model that judges its own candidate wrong withdraws it; the request ends
         spriteOps: null,
       },
     },
-    { name: "withdraw_edit", arguments: { reason: "It changes nothing the player can walk on." } },
+    {
+      name: "withdraw_changes",
+      arguments: { reason: "It changes nothing the player can walk on." },
+    },
   ];
   let calls = 0;
   t.mock.method(globalThis, "fetch", async () => {
@@ -195,7 +198,7 @@ test("a model that judges its own candidate wrong withdraws it; the request ends
   });
   const events: string[] = [];
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     (_kind, detail) => events.push(detail),
     state(),
   );
@@ -204,11 +207,11 @@ test("a model that judges its own candidate wrong withdraws it; the request ends
     focus: bridgeFocus(),
   });
   assert.ok(
-    events.some((line) => line.startsWith("[Studio] propose_edit -> Candidate c1")),
+    events.some((line) => line.startsWith("[Studio] propose_changes -> Candidate c1")),
     events.join("\n"),
   );
   assert.ok(
-    events.some((line) => line.startsWith("[Studio] withdraw_edit -> Withdrew candidate c1")),
+    events.some((line) => line.startsWith("[Studio] withdraw_changes -> Withdrew candidate c1")),
   );
   assert.equal(result.candidate, null);
   assert.deepEqual([result.proposals, result.refusals], [1, 0]);
@@ -242,7 +245,7 @@ test("a provider turn offers only the Studio task tools and is denied anything e
   });
   const live = state();
   const session = new AgentSession(
-    { provider: "openai", apiKey: "test-placeholder", model: "test" },
+    { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" },
     () => {},
     live,
   );
@@ -255,8 +258,8 @@ test("a provider turn offers only the Studio task tools and is denied anything e
   const choice = bodies[0]!["tool_choice"] as { tools: { name: string }[] };
   assert.deepEqual(
     choice.tools.map((tool) => tool.name),
-    // A request without reference art is not offered view_reference.
-    [...STUDIO_ASSIST_TASK_TOOLS].filter((name) => name !== "view_reference"),
+    // A request without reference art is not offered read_reference_image.
+    [...STUDIO_ASSIST_TASK_TOOLS].filter((name) => name !== "read_reference_image"),
   );
   assert.match(
     JSON.stringify(bodies[1]!["input"]),
@@ -288,4 +291,42 @@ test("the request's tools read the draft under the Studio's profile, not the ses
   };
   assert.doesNotMatch((await read())!, /pen is not available/);
   assert.match((await read(PROFILES["2.089"]))!, /pen is not available in profile 2\.089/);
+});
+
+test("Studio completes after more than eight distinct tool rounds", async (t) => {
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    const n = ++requests;
+    const output =
+      n <= 12
+        ? [
+            {
+              type: "function_call",
+              call_id: `c${n}`,
+              name: "read_logic",
+              arguments: JSON.stringify({ num: n }),
+            },
+          ]
+        : [
+            {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "Inspection complete." }],
+            },
+          ];
+    return new Response(providerSse("openai", { id: `r${n}`, output }), {
+      headers: { "content-type": "text/event-stream" },
+    });
+  });
+  const session = new AgentSession(
+    { provider: "openai", apiKey: "placeholder", model: "gpt-6-sol" },
+    () => {},
+    state(),
+  );
+  const result = await session.runStudioAssist({
+    instruction: "Inspect every dependency.",
+    focus: bridgeFocus(),
+  });
+  assert.equal(result.text, "Inspection complete.");
+  assert.equal(requests, 13);
 });

@@ -5,6 +5,7 @@ const remote = process.env["AGI_DEPLOY_URL"];
 const PORT = Number(process.env["AGI_E2E_PORT"] ?? 5299);
 export default defineConfig({
   testDir: "./production",
+  outputDir: `./test-results/production-${PORT}`,
   timeout: 60_000,
   workers: 1,
   retries: 0,

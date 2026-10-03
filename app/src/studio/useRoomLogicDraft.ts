@@ -150,7 +150,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
   function apply(op: RuleEditOp, label: string): LogicOutcome {
     const at = session();
     const state = current.value;
-    if (!at || !state) return { ok: false, error: "This room's logic can't be edited here." };
+    if (!at || !state) return { ok: false, error: "This room's logic is read-only here." };
     const result = applyRuleEdit(document.value, op, at);
     if (!result.ok) return result;
     if (Object.keys(result.newBindings).length > 0)
@@ -192,7 +192,7 @@ export function useRoomLogicDraft(options: RoomLogicDraftOptions) {
     | LogicOutcome {
     const at = session();
     const state = current.value;
-    if (!at || !state) return { ok: false, error: "This room's logic can't be edited here." };
+    if (!at || !state) return { ok: false, error: "This room's logic is read-only here." };
     const followed = followPictureEdit(document.value, before, after, at);
     if (!followed.ok) return followed;
     let { document: doc, source, bytes } = followed;

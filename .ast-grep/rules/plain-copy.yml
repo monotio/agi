@@ -9,8 +9,10 @@ message: >-
   aside into a colon, a semicolon or two sentences
 note: |
   Flagged: " — " asides, "no longer", "rather than", "instead of", ", not "
-  and "never". Use a colon, a semicolon or two sentences; state the
-  positive. Status lines such as "Not built yet" or "No changes" pass.
+  and "never". Also flag capability pitches such as "no engine needed",
+  "without an API key", "with or without AI" and "simply click".
+  Name the feature or action directly. Necessary status and consequence
+  lines such as "No changes" and "This cannot be undone" pass.
   A literal that is exactly " — " is a separator code joins two parts with.
   BAD:  title: "Ask about this game — answers without changing it"
   GOOD: title: "Ask about this game"
@@ -21,7 +23,7 @@ ignores:
   - app/src/agent/**
 rule:
   kind: string_fragment
-  regex: "(?i) — |no longer|rather than|instead of|, not |\\bnever\\b"
+  regex: "(?i) — |no longer|rather than|instead of|, not |\\bnever\\b|\\bno (?:AI |API )?(?:engine|key|provider|server|account|setup|coding|code) (?:needed|required|necessary)\\b|\\bwithout (?:an? )?(?:AI|API key|AI key|AI connection|AI provider|coding)\\b|\\bwith or without AI\\b|\\b(?:simply|just) (?:click|choose|connect|enter|open|select|type|start)\\b|\\bediting works either way\\b|\\b(?:drawing|imports) stay(?:s)? available without\\b|\\bnothing is written until you approve\\b"
   not:
     regex: "^ — $"
 ---
@@ -44,4 +46,4 @@ rule:
   any:
     - kind: text
     - kind: attribute_value
-  regex: "(?i) — |no longer|rather than|instead of|, not |\\bnever\\b"
+  regex: "(?i) — |no longer|rather than|instead of|, not |\\bnever\\b|\\bno (?:AI |API )?(?:engine|key|provider|server|account|setup|coding|code) (?:needed|required|necessary)\\b|\\bwithout (?:an? )?(?:AI|API key|AI key|AI connection|AI provider|coding)\\b|\\bwith or without AI\\b|\\b(?:simply|just) (?:click|choose|connect|enter|open|select|type|start)\\b|\\bediting works either way\\b|\\b(?:drawing|imports) stay(?:s)? available without\\b|\\bnothing is written until you approve\\b"

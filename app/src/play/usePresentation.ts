@@ -6,7 +6,7 @@
  */
 import { inject, provide, ref, shallowRef } from "vue";
 import type { InjectionKey } from "vue";
-import { AgiStage } from "../three/AgiStage.ts";
+import type { AgiStage } from "../three/AgiStage.ts";
 import {
   FRAME_HEIGHT,
   FRAME_WIDTH,
@@ -160,6 +160,13 @@ export function createPresentation() {
     if (stage) stage.crt = on;
   }
 
+  let attention = { focused: false, standby: false };
+  /** Light the glass while the game has the keyboard; dim it in standby. */
+  function setAttention(focused: boolean, standby: boolean): void {
+    attention = { focused, standby };
+    stage?.setAttention(focused, standby);
+  }
+
   function setExplodedMode(on: boolean): void {
     stage?.setExplodedMode(on);
   }
@@ -187,10 +194,14 @@ export function createPresentation() {
   /** Create the GPU stage once the canvas is mounted. */
   async function initStage(crt: boolean): Promise<void> {
     if (!gpuCanvasEl.value) return;
-    stage = await AgiStage.create(gpuCanvasEl.value);
+    const canvas = gpuCanvasEl.value;
+    const { AgiStage } = await import("../three/AgiStage.ts");
+    if (gpuCanvasEl.value !== canvas) return;
+    stage = await AgiStage.create(canvas);
     gpuBackend.value = stage?.backend;
     if (stage) {
       stage.crt = crt;
+      stage.setAttention(attention.focused, attention.standby);
       if (lastFrame.value) present(lastFrame.value);
     }
   }
@@ -218,6 +229,7 @@ export function createPresentation() {
     repaint,
     presentWithText,
     setCrt,
+    setAttention,
     setExplodedMode,
     debugProject,
     debugPick3d,

@@ -1,6 +1,11 @@
-import { expect, test } from "./test.ts";
 import type { Locator, Page } from "@playwright/test";
-import { enterCreateMode, isolateStorage, waitForRoom, openWorldRoom } from "./engineProbe.ts";
+import {
+  enterCreateMode,
+  isolateStorage,
+  openWorkspacePicture,
+  waitForRoom,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 /**
  * Room Studio's tool rail fits its column. The Walk lens adds three tools,
@@ -22,9 +27,7 @@ async function openLabStudio(page: Page): Promise<Locator> {
   await page.getByTestId("catalog-play-adventure-department").click();
   await waitForRoom(page, 1, { coldBoot: true });
   await enterCreateMode(page);
-  const panel = page.getByTestId("world-panel");
-  await openWorldRoom(panel, 2);
-  await panel.getByTestId("world-open-studio").click();
+  await openWorkspacePicture(page, 2);
   const studio = page.getByTestId("room-studio");
   await expect(studio).toBeVisible();
   return studio;
@@ -40,7 +43,6 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     const studio = await openLabStudio(page);
     const rail = studio.getByRole("toolbar", { name: "Tools" });
-    const scrubber = studio.getByRole("region", { name: "Draw order" });
     for (const [key, lens, tools] of [
       ["1", "Art", 10],
       ["2", "Depth", 10],
@@ -51,13 +53,13 @@ for (const viewport of VIEWPORTS) {
         tools,
       );
       const column = (await rail.boundingBox())!;
-      const scrubberTop = (await scrubber.boundingBox())!.y;
+      const scrubberTop = (await studio.locator(".studio__status").boundingBox())!.y;
       expect(bottom(column), `${lens}: the rail ends above the scrubber`).toBeLessThanOrEqual(
         scrubberTop,
       );
       const buttons = rail.getByRole("button");
       const count = await buttons.count();
-      expect(count).toBe(tools + 2);
+      expect(count).toBe(tools + 3);
       for (let k = 0; k < count; k++) {
         const button = buttons.nth(k);
         const name = `${lens}: ${await button.getAttribute("aria-label")}`;
@@ -78,7 +80,7 @@ for (const viewport of VIEWPORTS) {
         expect(hit, `${name} is under its own centre`).toBe(true);
       }
       // No ancestor scrolled to reveal a tool: the scrubber stayed where it was.
-      expect((await scrubber.boundingBox())!.y).toBe(scrubberTop);
+      expect((await studio.locator(".studio__status").boundingBox())!.y).toBe(scrubberTop);
     }
     // A tool picked by its key scrolls into view: back at the top, H is out of sight.
     const tools = studio.getByTestId("studio-rail-tools");
@@ -107,11 +109,9 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
   await page.setViewportSize({ width: 1024, height: 600 });
   const studio = await openLabStudio(page);
   const top = {
-    lens: studio.getByTestId("studio-lens"),
-    lock: studio.locator(".top-bar__lens").getByTestId("studio-lock-chip"),
-    undo: studio.getByTestId("studio-undo"),
-    status: studio.getByTestId("studio-draft-status"),
-    keep: studio.getByTestId("studio-keep"),
+    lens: studio.getByRole("radiogroup", { name: "Lens", exact: true }),
+    undo: page.getByTestId("workspace-undo"),
+    status: page.getByTestId("workspace-saved"),
   };
   const stage = {
     view: studio.getByRole("toolbar", { name: "View" }),
@@ -136,9 +136,6 @@ test("at 1024×600 nothing in Room Studio's top bar or stage bars overlaps, in e
           expect(overlaps(boxA, boxB), `${lens}: ${a} overlaps ${b}`).toBe(false);
     }
   }
-  // The Walk legend is a row of the Walk panel; the status bar carries the size.
-  await expect(studio.locator('.studio__inspector [data-role="control-legend"]')).toBeVisible();
-  await expect(studio.getByTestId("studio-size")).toHaveText(/^[\d,]+ bytes · [\d,]+ steps$/);
   await page.screenshot({ path: test.info().outputPath("studio-walk-1024x600.png") });
   await page.keyboard.press("1");
   await studio.locator('[data-row="west-wall"]').click();

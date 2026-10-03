@@ -288,7 +288,7 @@ describe("useStudioAssist", () => {
     assert.deepEqual(studio.assist.steps.value, [
       "Read the selection",
       "Proposed a change",
-      `Withdrew its proposal: ${STUB_WITHDRAW_REASON}`,
+      `Withdrew its change: ${STUB_WITHDRAW_REASON}`,
     ]);
     assert.equal(studio.draft.source.value, BRIDGE_SOURCE);
     assert.deepEqual(studio.applied, []);
@@ -630,9 +630,9 @@ describe("assist words", () => {
       assistSteps([
         entry("request", '[Studio] "walk" (picture 1)'),
         entry("request", "[Studio] read_edit_context"),
-        entry("request", "[Studio] propose_edit"),
-        entry("error", "[Studio] propose_edit -> Refused", refused),
-        entry("request", "[Studio] propose_edit"),
+        entry("request", "[Studio] propose_changes"),
+        entry("error", "[Studio] propose_changes -> Refused", refused),
+        entry("request", "[Studio] propose_changes"),
       ]),
       ["Reading the selection…", "Refused: would change the depth; trying again", "Proposing…"],
     );

@@ -1,32 +1,65 @@
 <script setup lang="ts">
-/**
- * Create an adventure: a focused panel on the Home screen with the template
- * picker, the shared adventure brief editor, the AI-connect prompt and the
- * launch button. It opens from the hero, a template card on the shelf, the
- * Help guide or the `#create-adventure` hash, and registers
- * `openCreateSection` and the create button's element on the shell bridge so
- * the header and the AI settings flow can reach them. It is a non-modal
- * dialog: the header (AI settings, Help) stays usable while it is open.
- */
-import { nextTick, onBeforeUnmount, onMounted, useTemplateRef, watch } from "vue";
-import UiButton from "../ui/UiButton.vue";
+/** The new game page shares one name and one starting-point choice. */
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
 import UiIconButton from "../ui/UiIconButton.vue";
+import UiButton from "../ui/UiButton.vue";
+import AdventureOutline from "./AdventureOutline.vue";
 import { BUILTIN_TEMPLATES } from "../library/gameTemplates.ts";
 import { useAiSettings } from "../settings/useAiSettings.ts";
 import { useGameLibrary } from "../library/useGameLibrary.ts";
 import { useShellBridge } from "../shell/shellBridge.ts";
-import { prefetchAuthoringStack } from "../agent/authoringLoader.ts";
+import { useEngineApi } from "../engine/engineContext.ts";
+import { useShell } from "../shell/useShell.ts";
+import type { StarterKind } from "../../../src/authoring/starterProject.ts";
+import { openEmptyProject } from "./emptyProjectRoute.ts";
+import type { ProjectId } from "../../../src/gameIdentity.ts";
 
 const open = defineModel<boolean>("open", { required: true });
+const LocalProjectForm = defineAsyncComponent(() => import("./LocalProjectForm.vue"));
 const { aiConfigured, aiSettingsUnavailable, openAiSettings } = useAiSettings();
-const { selectedTemplateId, adventureDraft, onBootSelectedTemplate } = useGameLibrary();
+const {
+  selectedTemplateId,
+  adventureDraft,
+  adventureDrafts,
+  onBootSelectedTemplate,
+  refreshLibrary,
+  onBootSavedGame,
+} = useGameLibrary();
+const shell = useShell();
+const engine = useEngineApi();
 const bridge = useShellBridge();
-// Creating an adventure runs Genesis: warm the authoring stack while the player writes the brief.
-watch(open, (shown) => shown && prefetchAuthoringStack(), { immediate: true });
+// The boot resolves while the game is still loading; the shell holds the
+// Create switch until this project is the running one.
+async function onLocalCreated(projectId: ProjectId, kind: StarterKind): Promise<void> {
+  engine.setProjectMode("create");
+  refreshLibrary(projectId);
+  if (kind === "blank") {
+    await openEmptyProject(projectId);
+    return;
+  }
+  await onBootSavedGame();
+  shell.expectCreate(projectId);
+}
 
 const panel = useTemplateRef("panel");
-const heading = useTemplateRef("heading");
-const createButton = useTemplateRef("createButton");
+const form = useTemplateRef("form");
+watch(
+  form,
+  (value) => {
+    if (open.value) value?.focus();
+  },
+  { flush: "post" },
+);
+
 const HASH = "#create-adventure";
 let returnFocus: HTMLElement | null = null;
 
@@ -36,17 +69,20 @@ async function openCreateSection(updateHash = true): Promise<void> {
   open.value = true;
   if (updateHash && location.hash !== HASH) history.pushState(null, "", HASH);
   await nextTick();
-  heading.value?.focus({ preventScroll: true });
+  if (selectedTemplateId.value) form.value?.select("ai");
+  if (form.value) form.value.focus();
+  else panel.value?.focus({ preventScroll: true });
   panel.value?.scrollIntoView({
     behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
     block: "start",
   });
 }
 
-function closeCreateSection(): void {
+async function closeCreateSection(): Promise<void> {
   open.value = false;
   if (location.hash === HASH)
     history.replaceState(null, "", `${location.pathname}${location.search}`);
+  await nextTick();
   returnFocus?.focus({ preventScroll: true });
   returnFocus = null;
 }
@@ -59,7 +95,57 @@ onMounted(() => window.addEventListener("hashchange", onHashChange));
 onBeforeUnmount(() => window.removeEventListener("hashchange", onHashChange));
 
 bridge.openCreateSection = (updateHash) => void openCreateSection(updateHash);
-bridge.createButtonEl = () => createButton.value?.$el;
+bridge.createButtonEl = () =>
+  panel.value?.querySelector<HTMLButtonElement>('[data-testid="boot-game"]');
+
+function chooseAi(): void {
+  if (!selectedTemplateId.value) selectedTemplateId.value = BUILTIN_TEMPLATES[0]!.id;
+}
+watch(selectedTemplateId, (id) => {
+  if (id) form.value?.select("ai");
+});
+// Keep the complete source in the existing per-adventure draft store.
+watch(
+  selectedTemplateId,
+  (id) => {
+    const draft = adventureDrafts.value[id];
+    if (!draft || !draft.frontmatter || id === "custom") return;
+    const original = BUILTIN_TEMPLATES.find((template) => template.id === id);
+    const body = original?.rawMarkdown.slice(draft.frontmatter.length).trimStart();
+    draft.brief =
+      original && draft.brief === body
+        ? original.rawMarkdown
+        : `${draft.frontmatter}\n${draft.brief}`;
+    draft.frontmatter = "";
+  },
+  { immediate: true },
+);
+const outlineFile = computed(
+  () => `${selectedTemplateId.value === "custom" ? "your-premise" : selectedTemplateId.value}.md`,
+);
+const editingOutline = ref(false);
+watch(selectedTemplateId, () => {
+  editingOutline.value = false;
+});
+const outlineInput = useTemplateRef("outlineInput");
+const outlinePreview = useTemplateRef("outlinePreview");
+async function toggleOutline(): Promise<void> {
+  editingOutline.value = !editingOutline.value;
+  await nextTick();
+  if (editingOutline.value) outlineInput.value?.focus();
+  else outlinePreview.value?.querySelector<HTMLElement>("article")?.focus();
+}
+
+async function onAiCreated(title: string): Promise<void> {
+  adventureDraft.value.title = title;
+  const { completeAdventureOutline } = await import("../library/gameTemplates.ts");
+  adventureDraft.value.brief = completeAdventureOutline(adventureDraft.value.brief, title).trim();
+  adventureDraft.value.frontmatter = "";
+  await onBootSelectedTemplate();
+  const { currentGame } = engine;
+  const projectId = currentGame()?.projectId;
+  if (projectId) shell.expectCreate(projectId);
+}
 </script>
 <template>
   <dialog
@@ -67,17 +153,15 @@ bridge.createButtonEl = () => createButton.value?.$el;
     ref="panel"
     class="create-pane"
     data-testid="create-adventure-disclosure"
+    tabindex="-1"
     :open
     aria-labelledby="create-title"
     @keydown.esc.stop="closeCreateSection"
   >
     <header class="create-head">
       <div>
-        <h2 id="create-title" ref="heading" tabindex="-1">Create an adventure</h2>
-        <p class="create-intro">
-          Pick a template or write your own premise. The AI builds it as a real AGI game you can
-          play, remix and export.
-        </p>
+        <h1 id="create-title">Make a new game</h1>
+        <p class="lead">Pick a place to start. You can change everything later.</p>
       </div>
       <UiIconButton
         icon="x"
@@ -86,236 +170,172 @@ bridge.createButtonEl = () => createButton.value?.$el;
         @click="closeCreateSection"
       />
     </header>
-    <div class="create-body">
-      <div class="template-grid" role="group" aria-label="Starting point">
-        <button
-          v-for="tmpl in BUILTIN_TEMPLATES"
-          :key="tmpl.id"
-          type="button"
-          class="template-card"
-          :class="{ selected: selectedTemplateId === tmpl.id }"
-          :aria-pressed="selectedTemplateId === tmpl.id"
-          :data-testid="`template-${tmpl.id}`"
-          @click="selectedTemplateId = tmpl.id"
-        >
-          <span class="template-title">{{ tmpl.title }}</span>
-          <span class="template-desc">{{ tmpl.description }}</span>
-        </button>
-        <button
-          type="button"
-          class="template-card custom-card"
-          :class="{ selected: selectedTemplateId === 'custom' }"
-          :aria-pressed="selectedTemplateId === 'custom'"
-          data-testid="template-custom"
-          @click="selectedTemplateId = 'custom'"
-        >
-          <span class="template-title">Your own premise</span>
-          <span class="template-desc">Start from a blank brief.</span>
-        </button>
-      </div>
-
-      <div class="create-editor">
-        <!-- Adventure brief shared by templates and custom games -->
-        <div v-if="selectedTemplateId" class="custom-editor">
-          <label for="adventure-name">Adventure name</label>
-          <input
-            id="adventure-name"
-            v-model="adventureDraft.title"
-            placeholder="Midnight at the Museum"
-            maxlength="100"
-          />
-          <label for="adventure-brief">Adventure brief</label>
-          <p id="adventure-brief-help" class="create-help">
-            Describe your hero, the world and what happens.
-          </p>
-          <textarea
-            id="adventure-brief"
-            v-model="adventureDraft.brief"
-            aria-label="Adventure brief"
-            aria-describedby="adventure-brief-help"
-            spellcheck="false"
-            placeholder="You are the night guard at a museum where the exhibits come alive. A tiny dinosaur has stolen your keys. Get them back before sunrise.&#10;&#10;Tell us about your hero, the setting, and the trouble they find themselves in."
-            rows="8"
-            data-testid="custom-adventure-input"
-          />
+    <LocalProjectForm
+      v-if="open"
+      ref="form"
+      :initial-choice="selectedTemplateId ? 'ai' : 'starter'"
+      :ai-ready="aiConfigured"
+      :ai-unavailable="aiSettingsUnavailable"
+      :ai-valid="Boolean(adventureDraft.brief.trim())"
+      @created="onLocalCreated"
+      @ai="onAiCreated"
+      @choice="$event === 'ai' && chooseAi()"
+      @connect="openAiSettings($event, 'create')"
+    >
+      <template #ai>
+        <div class="ai-pick">
+          <div class="ai-list" role="listbox" aria-label="Adventure">
+            <button
+              v-for="template in BUILTIN_TEMPLATES"
+              :key="template.id"
+              type="button"
+              role="option"
+              :aria-selected="selectedTemplateId === template.id"
+              :data-testid="`template-${template.id}`"
+              @click="selectedTemplateId = template.id"
+            >
+              <strong>{{ template.title }}</strong
+              ><span>{{ template.description }}</span>
+            </button>
+            <button
+              type="button"
+              role="option"
+              :aria-selected="selectedTemplateId === 'custom'"
+              data-testid="template-custom"
+              @click="selectedTemplateId = 'custom'"
+            >
+              <strong>Your own premise</strong><span>Start from an empty outline.</span>
+            </button>
+          </div>
+          <div class="ai-brief">
+            <div class="ai-brief-h">
+              <span id="outline-label" class="outline-label">Outline</span>
+              <UiButton v-if="selectedTemplateId !== 'custom'" size="sm" @click="toggleOutline">
+                {{ editingOutline ? "View outline" : "Edit as text" }}
+              </UiButton>
+            </div>
+            <div v-if="selectedTemplateId !== 'custom' && !editingOutline" ref="outlinePreview">
+              <AdventureOutline :source="adventureDraft.brief" />
+            </div>
+            <textarea
+              v-else
+              id="adventure-brief"
+              ref="outlineInput"
+              v-model="adventureDraft.brief"
+              aria-label="Adventure outline"
+              spellcheck="false"
+              data-testid="custom-adventure-input"
+            />
+            <span v-if="editingOutline" class="id">{{ outlineFile }}</span>
+            <p class="note">
+              AI starts from Boilerplate and builds the game while you watch. You can edit every
+              part afterwards.
+            </p>
+          </div>
         </div>
-        <p v-else class="create-empty">Choose a starting point to write the brief.</p>
-
-        <div v-if="!aiConfigured" class="ai-connect" data-testid="create-ai-connect">
-          <p>Connect your AI provider to generate a game.</p>
-          <UiButton
-            variant="primary"
-            data-testid="connect-create-ai"
-            :disabled="aiSettingsUnavailable"
-            @click="openAiSettings($event, 'create')"
-          >
-            Connect AI
-          </UiButton>
-        </div>
-
-        <div v-if="aiConfigured" class="boot-row">
-          <UiButton
-            ref="createButton"
-            variant="primary"
-            icon="sparkles"
-            data-testid="boot-game"
-            :disabled="!selectedTemplateId || !adventureDraft.brief.trim()"
-            @click="onBootSelectedTemplate"
-          >
-            Create adventure
-          </UiButton>
-        </div>
-      </div>
-    </div>
+      </template>
+    </LocalProjectForm>
   </dialog>
 </template>
 
 <style scoped>
-/* A non-modal dialog laid out in the page flow, not floated by the UA sheet. */
 .create-pane {
   position: static;
-  width: 100%;
-  max-width: none;
+  width: min(960px, 100%);
   box-sizing: border-box;
-  margin: 0;
-  padding: var(--space-7);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-lg);
+  margin: 0 auto;
+  padding: var(--space-9) 0;
+  border: 0;
   color: var(--ink);
-  background: var(--surface-1);
+  background: transparent;
   font-family: var(--font-sans);
-  scroll-margin-top: var(--space-6);
 }
 .create-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-7);
 }
-.create-head h2 {
-  margin: 0 0 var(--space-1);
-  font: var(--weight-semibold) var(--text-xl) / var(--leading-tight) var(--font-sans);
+.create-head h1 {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  text-wrap: balance;
 }
-.create-intro {
-  max-width: 60ch;
+.lead {
+  margin: var(--space-2) 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-lg);
+}
+.ai-pick {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: var(--space-5);
+}
+.ai-list {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+.ai-list button {
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  background: var(--surface-1);
+  display: grid;
+  gap: var(--space-0);
+  cursor: pointer;
+}
+.ai-list button span {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.ai-list button[aria-selected="true"] {
+  border-color: var(--action);
+  box-shadow: 0 0 0 1px var(--action);
+}
+.ai-brief {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+.ai-brief-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.outline-label {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.id {
+  font: var(--text-2xs) var(--font-mono);
+  color: var(--ink-3);
+}
+.ai-brief textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-0);
+  color: var(--ink);
+  font: var(--text-sm) / 1.6 var(--font-mono);
+}
+.note {
   margin: 0;
   color: var(--ink-2);
   font-size: var(--text-sm);
 }
-.create-body {
-  display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  gap: var(--space-7);
-  align-items: start;
-}
-.template-grid {
-  display: grid;
-  gap: var(--space-3);
-}
-.template-card {
-  display: flex;
-  flex-direction: column;
-  padding: var(--space-4);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  color: inherit;
-  background: var(--surface-2);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out);
-}
-.template-card:hover {
-  border-color: var(--hairline-strong);
-  background: var(--surface-3);
-}
-.template-card.selected {
-  border-color: var(--action);
-  background: var(--action-soft);
-}
-.template-title {
-  margin-bottom: var(--space-1);
-  color: var(--ink);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-.template-desc {
-  color: var(--ink-2);
-  font-size: var(--text-xs);
-  line-height: 1.5;
-}
-.create-empty {
-  margin: 0 0 var(--space-6);
-  padding: var(--space-8) var(--space-6);
-  border: 1px dashed var(--hairline-strong);
-  border-radius: var(--radius);
-  color: var(--ink-3);
-  text-align: center;
-}
-.custom-editor label {
-  display: block;
-  margin: 0 0 var(--space-3);
-  color: var(--ink-2);
-  font: var(--weight-medium) var(--text-md) / var(--leading) var(--font-sans);
-}
-.custom-editor input + label {
-  margin-top: var(--space-5);
-}
-.create-help {
-  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
-  color: var(--ink-3);
-  font-size: var(--text-sm);
-}
-.custom-editor input,
-.custom-editor textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: var(--space-4);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius);
-  color: var(--ink);
-  background: var(--surface-0);
-  font: var(--text-lg) / 1.65 var(--font-sans);
-}
-.custom-editor textarea {
-  min-height: 230px;
-  resize: vertical;
-}
-.custom-editor textarea::placeholder,
-.custom-editor input::placeholder {
-  color: var(--ink-3);
-  opacity: 1;
-}
-.ai-connect {
-  margin-top: var(--space-6);
-  color: var(--ink-2);
-  font-size: var(--text-md);
-}
-.ai-connect p {
-  margin: 0 0 var(--space-4);
-}
-.boot-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-top: var(--space-6);
-}
 @media (max-width: 760px) {
-  .create-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .template-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 520px) {
-  .create-pane {
-    padding: var(--space-5);
-  }
-  .template-grid {
+  .ai-pick {
     grid-template-columns: minmax(0, 1fr);
   }
 }

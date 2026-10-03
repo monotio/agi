@@ -1,4 +1,4 @@
-import { cacheGame, configureAi } from "./engineProbe.ts";
+import { cacheGame, configureAi, agentActivity } from "./engineProbe.ts";
 import { providerReply } from "../../test/provider-stream.ts";
 import { test, expect } from "@playwright/test";
 import { testProjectId } from "../test/identity.ts";
@@ -74,17 +74,17 @@ for (const fail of [false, true])
       }
       const calls = [
         [
-          "read_room_context",
+          "read_room",
           {
             room: null,
             state: { variables: null, flags: null, compact: true },
             frames: null,
           },
         ],
-        ["read_room_context", { room: null, state: null, frames: null }],
+        ["read_room", { room: null, state: null, frames: null }],
         ["read_view", { num: 0 }],
         [
-          "write_inventory_objects",
+          "write_objects",
           {
             objects: [
               { name: "Old key", startingRoom: 1 },
@@ -94,7 +94,7 @@ for (const fail of [false, true])
         ],
         ["write_picture", { room: 2, source: "vis 1\nfill 0,0\nend" }],
         [
-          "write_logic_source",
+          "write_logic",
           {
             room: 2,
             source:
@@ -117,8 +117,8 @@ for (const fail of [false, true])
               : [
                   {
                     type: "function_call",
-                    call_id: "room-handover",
-                    name: "handover",
+                    call_id: "room-finish",
+                    name: "finish",
                     arguments: JSON.stringify({ notes: null }),
                   },
                 ],
@@ -132,30 +132,18 @@ for (const fail of [false, true])
       await page.keyboard.down("ArrowRight");
       await expect.poll(() => requests).toBe(1);
       await page.keyboard.up("ArrowRight");
-      const panel = page.getByTestId("agent-bubble");
-      await expect(panel).toContainText("Creating the next room");
-      await expect(panel.getByTestId("agent-bubble-room")).toContainText("2");
-      await expect(page.getByTestId("agent-bubble-input")).toBeHidden();
-      await page.keyboard.press("Escape");
-      await expect(panel).toBeVisible();
-      await expect(page.getByTestId("menu-assistant")).toBeDisabled();
+      expect(requests).toBe(1);
       release();
       if (fail) {
-        await expect(page.getByTestId("agent-bubble-error")).toContainText(
-          "Room generation test failure",
-        );
-        await panel.getByRole("button", { name: "Back to game" }).click();
-        await expect(panel).toBeHidden();
+        await expect.poll(() => agentActivity(page)).toContain("Room generation test failure");
         await expect.poll(async () => (await textHook(page)).room).toBe(1);
       } else {
         await expect.poll(() => requests).toBe(2);
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText(
-          "read_room_context -> ok",
-        );
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText("read_view -> ok");
+        await expect.poll(() => agentActivity(page)).toContain("read_room -> ok");
+        await expect.poll(() => agentActivity(page)).toContain("read_view -> ok");
         const tools = (providerRequests[0]!["tool_choice"] as { tools: { name: string }[] }).tools;
-        expect(tools.some((tool) => tool.name === "read_room_context")).toBe(true);
-        expect(tools.some((tool) => tool.name === "handover")).toBe(true);
+        expect(tools.some((tool) => tool.name === "read_room")).toBe(true);
+        expect(tools.some((tool) => tool.name === "finish")).toBe(true);
         const input = providerRequests[1]!["input"] as {
           type: string;
           call_id?: string;
@@ -168,23 +156,19 @@ for (const fail of [false, true])
         const live = details.live;
         expect(live.room).toBe(1);
         expect(live.inventory).toEqual([{ num: 0, name: "Old key", room: 255 }]);
-        // The full state section is oversized: it evicts into a diagnostic
-        // the model pages with read_diagnostic.
-        expect(details.truncatedFields).toContain("state");
-        expect(details.diagnosticId).toBeTruthy();
+        // The selected model can carry the complete state inline.
+        expect(details.state).toBeDefined();
+        expect(details.truncatedFields).toBeUndefined();
         const viewOutput = input.find(
           (item) => item.type === "function_call_output" && item.call_id === "call2",
         )!;
         expect(viewOutput.output!.some((block) => block.type === "input_image")).toBe(true);
-        await expect(panel.getByTestId("agent-bubble-feed")).toContainText(
-          "write_inventory_objects -> ok",
-        );
+        await expect.poll(() => agentActivity(page)).toContain("write_objects -> ok");
         await page.setViewportSize({ width: 390, height: 844 });
-        await page.screenshot({ path: "test-results/creating-next-room.png" });
+        await page.screenshot({ path: test.info().outputPath("creating-next-room.png") });
         finish();
-        await expect(panel).toBeHidden();
         await expect.poll(async () => (await textHook(page)).room).toBe(2);
-        expect(requests, "the validated handover finishes without another provider turn").toBe(2);
+        expect(requests, "the validated finish finishes without another provider turn").toBe(2);
         await page.keyboard.press("Tab");
         await expect.poll(async () => (await textHook(page)).rows.join(" ")).toContain("Letter");
         expect((await textHook(page)).rows.join(" ")).toContain("Old key");

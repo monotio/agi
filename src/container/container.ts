@@ -15,7 +15,12 @@ import {
   type GameContainer,
   type ResourceKind,
 } from "../types.ts";
-import { detectProfile } from "../runtime/profile.ts";
+import {
+  detectProfile,
+  type AgiProfile,
+  type DirectoryAbsence,
+  type ProfileId,
+} from "../runtime/profile.ts";
 import { toggleMessageEncryption } from "../logic/resource.ts";
 
 /** Directory file per family (v2 split profile). */
@@ -43,6 +48,13 @@ const RECORD_MAGIC_0 = 0x12;
 const RECORD_MAGIC_1 = 0x34;
 
 export interface ContainerOptions {
+  /**
+   * Explicit interpreter edition choice (the same override the engine
+   * accepts): pins the directory absence policy and the volume number a
+   * pack may still write. Detection over the incoming files supplies it
+   * when the override is omitted.
+   */
+  readonly profile?: ProfileId | AgiProfile;
   /** Auto-detected from directory/volume filenames when omitted. */
   readonly kind?: "v2-split" | "v3-combined";
   /** Game prefix for v3 DIR and VOL.N files; empty is valid. */
@@ -160,6 +172,7 @@ class ResourceContainer implements GameContainer {
   readonly #prefix: string;
   readonly #combinedName: string | null;
   readonly #headerBytes: number;
+  readonly #directoryAbsence: DirectoryAbsence;
   readonly #maxVolume: number;
 
   /** Takes ownership of `files` (already private copies). */
@@ -175,13 +188,20 @@ class ResourceContainer implements GameContainer {
       owned.set(canonical, bytes);
     }
     this.#files = owned;
+    // The directory absence policy is chosen once, here, through the same
+    // detection pipeline the engine uses; the frozen scalar below cannot be
+    // reinterpreted by a later edit of the caller's profile object.
+    const profile = detectProfile(owned, options.profile);
+    this.#directoryAbsence = profile.directoryAbsence;
     const inferred =
       options.kind && options.prefix !== undefined ? options : detectContainerFormat(owned);
     this.#v3 = (options.kind ?? inferred.kind) === "v3-combined";
     this.#prefix = this.#v3 ? (options.prefix ?? inferred.prefix ?? "") : "";
     this.#combinedName = this.#v3 && owned.has(`${this.#prefix}DIR`) ? `${this.#prefix}DIR` : null;
     this.#headerBytes = this.#v3 ? 7 : RECORD_HEADER_BYTES;
-    this.#maxVolume = this.#v3 ? 15 : VOLUME_MAX_NUMBER;
+    // An entry spelling that can name VOL.15 (exact-fff) may pack there;
+    // every nibble-f-absent interpreter tops out at volume 14.
+    this.#maxVolume = this.#directoryAbsence === "exact-fff" ? 15 : VOLUME_MAX_NUMBER;
     if (this.#combinedName) this.#sections();
     // Normalize: every family has a directory; at least VOL.0 exists.
     for (const kind of RESOURCE_KINDS) {
@@ -236,7 +256,11 @@ class ResourceContainer implements GameContainer {
     if (p + ENTRY_BYTES > dir.length) return null;
     const b0 = dir[p]!;
     const volume = b0 >> 4;
-    if (this.#v3 ? b0 === 255 && dir[p + 1] === 255 && dir[p + 2] === 255 : volume === 15)
+    if (
+      this.#directoryAbsence === "exact-fff"
+        ? b0 === 255 && dir[p + 1] === 255 && dir[p + 2] === 255
+        : volume === 15
+    )
       return null;
     const offset = ((b0 & 0x0f) << 16) | (dir[p + 1]! << 8) | dir[p + 2]!;
     return { volume, offset };
@@ -291,36 +315,53 @@ class ResourceContainer implements GameContainer {
   }
 
   putResources(
-    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[],
+    resources: readonly { kind: ResourceKind; num: number; payload: Uint8Array | null }[],
   ): void {
-    const byKey = new Map<string, { kind: ResourceKind; num: number; payload: Uint8Array }>();
+    const byKey = new Map<
+      string,
+      { kind: ResourceKind; num: number; payload: Uint8Array | null }
+    >();
     for (const resource of resources) {
-      const { num, payload } = resource;
+      const { kind, num, payload } = resource;
+      if (!RESOURCE_KINDS.includes(kind)) {
+        throw new RangeError(`unknown resource kind: ${kind}`);
+      }
       checkResourceNum(num);
       if (num >= INITIAL_DIRECTORY_ENTRIES) throw new RangeError("resource number must be 0..255");
-      if (payload.length > PAYLOAD_MAX_BYTES) {
+      if (payload !== null && !(payload instanceof Uint8Array)) {
+        throw new TypeError("resource payload must be a Uint8Array or null");
+      }
+      if (payload !== null && payload.length > PAYLOAD_MAX_BYTES) {
         throw new RangeError(
           `payload of ${payload.length} bytes exceeds the u16le record length limit of ${PAYLOAD_MAX_BYTES}`,
         );
       }
       // A later entry for the same resource wins, as a later put would.
-      byKey.set(`${resource.kind} ${num}`, resource);
+      byKey.set(`${kind} ${num}`, resource);
     }
-    this.pack([...byKey.values()]);
+    const replacements = [...byKey.values()].filter(
+      ({ kind, num, payload }) => payload !== null || this.#readEntry(kind, num) !== null,
+    );
+    // An absent-only removal must not incidentally compact imported files.
+    if (byKey.size > 0 && replacements.length === 0) return;
+    this.pack(replacements);
   }
 
   /**
-   * Repack every indexed record with `replacements` in place. All replacement
-   * bytes are built first; validation failure leaves the live map untouched.
+   * Repack every indexed record with `replacements` applied; a null payload
+   * removes the entry. All record bytes are built first; validation failure
+   * leaves the live map untouched.
    */
   pack(
-    replacements: readonly { kind: ResourceKind; num: number; payload: Uint8Array }[] = [],
+    replacements: readonly { kind: ResourceKind; num: number; payload: Uint8Array | null }[] = [],
   ): void {
     const directories = RESOURCE_KINDS.map((kind) => {
       const original = this.#directory(kind);
       const required = Math.max(
         0,
-        ...replacements.filter((r) => r.kind === kind).map((r) => (r.num + 1) * ENTRY_BYTES),
+        ...replacements
+          .filter((r) => r.kind === kind && r.payload !== null)
+          .map((r) => (r.num + 1) * ENTRY_BYTES),
       );
       const bytes = new Uint8Array(Math.max(original.length, required)).fill(0xff);
       bytes.set(original);
@@ -335,15 +376,21 @@ class ResourceContainer implements GameContainer {
       const directory = directories[k]!;
       for (let num = 0; num < Math.min(256, Math.floor(directory.length / ENTRY_BYTES)); num++) {
         const replacement = replacements.find((r) => r.kind === kind && r.num === num);
-        const replacing = replacement !== undefined;
+        const patch = replacement === undefined ? undefined : replacement.payload;
+        if (patch === null) {
+          // Deletion writes the canonical absent entry and packs no record;
+          // a shared record survives through its remaining entries.
+          directory.fill(0xff, num * ENTRY_BYTES, num * ENTRY_BYTES + ENTRY_BYTES);
+          continue;
+        }
         const entry = this.#readEntry(kind, num);
-        if (!replacing && !entry) continue;
-        const key = entry && !replacing ? `${entry.volume}:${entry.offset}` : null;
+        if (patch === undefined && !entry) continue;
+        const key = entry && patch === undefined ? `${entry.volume}:${entry.offset}` : null;
         let destination = key ? aliases.get(key) : undefined;
         if (!destination) {
           let record: Uint8Array;
-          if (replacing) {
-            const payload = replacement!.payload;
+          if (patch !== undefined) {
+            const payload = patch;
             record = new Uint8Array(this.#headerBytes + payload.length);
             record.set([
               RECORD_MAGIC_0,

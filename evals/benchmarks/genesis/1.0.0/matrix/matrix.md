@@ -41,9 +41,9 @@ Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and
 
 | lane | logic 0 | logic 255 | picture writes (using pri) | control cmds written | visible prose chars | top tools |
 | --- | --- | --- | --- | --- | --- | --- |
-| claude-opus-5-5 high | modified: msgs 17,18; +1 insns (assignn(7,215)) | identical | 2 (1) | 2 | 40762 | write_view 3, playtest_room 3, edit_resource_source 2, inspect_world_bible 1 |
-| claude-opus-5-5 medium | modified: msgs 17,18; +2 insns (assignn(7,215) status()) | modified: msgs 3; +0 insns () | 2 (1) | 1 | 15739 | write_view 4, edit_resource_source 4, read_logic 2, inspect_world_bible 1 |
-| gpt-6-astra medium | modified: msgs 18; +1 insns (assignn(7,215)) | identical | 2 (1) | 2 | 608 | write_view 4, read_authoring_guide 3, update_world 2, write_logic_source 2 |
+| claude-opus-5-5 high | modified: msgs 17,18; +1 insns (assignn(7,215)) | identical | 2 (1) | 2 | 40760 | write_view 3, playtest_room 3, edit_source 2, read_plan 1 |
+| claude-opus-5-5 medium | modified: msgs 17,18; +2 insns (assignn(7,215) status()) | modified: msgs 3; +0 insns () | 2 (1) | 1 | 15739 | write_view 4, edit_source 4, read_logic 2, read_plan 1 |
+| gpt-6-astra medium | modified: msgs 18; +1 insns (assignn(7,215)) | identical | 2 (1) | 2 | 608 | write_view 4, read_authoring_guide 3, update_plan 2, write_logic 2 |
 | gpt-6-luna medium | identical | identical | 6 (5) | 2 | 0 | playtest_room 5, write_words 4, write_view 4, read_picture 4 |
 | gpt-6-sol medium | identical | identical | 3 (3) | 5 | 0 | playtest_room 5, read_authoring_guide 3, read_logic 2, write_words 2 |
 
@@ -70,10 +70,10 @@ Definitions: *room code B* = bytecode bytes of room logics (excludes logic 0 and
 ### Representative tool failures (verbatim, truncated)
 
 - claude-opus-5-5 medium `playtest_room` [playtest-walk]: steps[9]: walkTo did not reach its goal: unreachable_under_current_model (No route in the current static model.).
-- gpt-6-astra medium `write_logic_source` [assembler]: Assembler error in logic 1: AssemblerError: 52:3: unknown action 'ignore.objects' or action not available in profile 2.936 (check spelling and the selected profile). Use read_comma
+- gpt-6-astra medium `write_logic` [assembler]: Assembler error in logic 1: AssemblerError: 52:3: unknown action 'ignore.objects' or action not available in profile 2.936 (check spelling and the selected profile). Use read_comma
 - gpt-6-luna medium `write_words` [dictionary]: Dictionary compilation error: Error: 'about' is an ignored word (group 0) and cannot join a synonym group.
-- gpt-6-luna medium `patch_view_cels` [view]: View cels were not patched: Error: patches[0] (loop 0, cel 0).recolor[0]: from 0 is the cel's transparent color; use rows to change transparency.
-- gpt-6-sol medium `write_logic_source` [assembler]: Assembler error in logic 1: AssemblerError: 79:7: word 'file' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing voc
+- gpt-6-luna medium `edit_cels` [view]: View cels were not patched: Error: patches[0] (loop 0, cel 0).recolor[0]: from 0 is the cel's transparent color; use rows to change transparency.
+- gpt-6-sol medium `write_logic` [assembler]: Assembler error in logic 1: AssemblerError: 79:7: word 'file' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing voc
 - gpt-6-sol medium `read_view` [view]: View 0 is not present in the container.
 
 ### Images
@@ -143,10 +143,10 @@ Judgment (single run per lane):
 
 | lane | logic 0 | logic 255 | picture writes (using pri) | control cmds written | visible prose chars | top tools |
 | --- | --- | --- | --- | --- | --- | --- |
-| claude-opus-5-5 high | modified: msgs 21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41; +35 insns (assignn(7,230) print(21) print(22)) | identical | 1 (1) | 1 | 46018 | playtest_room 5, write_view 3, read_logic 2, edit_resource_source 2 |
-| claude-opus-5-5 medium | modified: msgs 18; +1 insns (assignn(7,230)) | identical | 2 (1) | 2 | 16979 | write_view 3, playtest_room 3, read_logic 2, reserve_binding 2 |
+| claude-opus-5-5 high | modified: msgs 21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41; +35 insns (assignn(7,230) print(21) print(22)) | identical | 1 (1) | 1 | 46018 | playtest_room 5, write_view 3, read_logic 2, edit_source 2 |
+| claude-opus-5-5 medium | modified: msgs 18; +1 insns (assignn(7,230)) | identical | 2 (1) | 2 | 16989 | write_view 3, playtest_room 3, read_logic 2, reserve_name 2 |
 | gpt-6-astra medium | modified: msgs 18; +1 insns (assignn(7,230)) | identical | 2 (2) | 8 | 545 | write_view 6, playtest_room 4, read_authoring_guide 3, read_logic 2 |
-| gpt-6-luna medium | identical | identical | 4 (4) | 14 | 0 | write_view 13, inspect_world_bible 6, playtest_room 4, read_logic 3 |
+| gpt-6-luna medium | identical | identical | 4 (4) | 14 | 0 | write_view 13, read_plan 6, playtest_room 4, read_logic 3 |
 | gpt-6-sol medium | identical | identical | 2 (2) | 4 | 0 | write_view 5, playtest_room 4, read_logic 3, read_authoring_guide 2 |
 
 ### Brief checklist (HEURISTIC keyword/structure checks against the brief's starting room; not a quality judgment)
@@ -173,9 +173,9 @@ Judgment (single run per lane):
 
 ### Representative tool failures (verbatim, truncated)
 
-- claude-opus-5-5 medium `write_logic_source` [assembler]: Assembler error in logic 1: AssemblerError: 4:27: expected number, got 'f32'. Use read_command_reference for the active profile's exact signatures and semantics. Candidates below a
+- claude-opus-5-5 medium `write_logic` [assembler]: Assembler error in logic 1: AssemblerError: 4:27: expected number, got 'f32'. Use read_command_reference for the active profile's exact signatures and semantics. Candidates below a
 - gpt-6-astra medium `write_view` [view]: View 1 was not written: line 2: unknown command "#": use cel, loop, description or endview.
-- gpt-6-luna medium `write_logic_source` [assembler]: Assembler error in logic 1: AssemblerError: 47:54: word 'pick' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vo
+- gpt-6-luna medium `write_logic` [assembler]: Assembler error in logic 1: AssemblerError: 47:54: word 'pick' is not in the dictionary. Use read_words to inspect existing word groups, then write_words to register the missing vo
 - gpt-6-luna medium `write_view` [view]: View 1 was not written: line 47: cel wf0 row 13 has 8 symbols; its width is 7. Send exactly 7.
 - gpt-6-sol medium `write_view` [view]: View 4 was not written: line 11: cel gator0 row 7 has 29 symbols; its width is 28. Send exactly 28.
 

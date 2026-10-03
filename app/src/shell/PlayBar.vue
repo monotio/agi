@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 /**
  * The in-game top bar: back to Home, the game and its current room, the
  * Play | Create switch, and the player's tools — world map, the game's own
@@ -7,19 +8,23 @@
  */
 import { computed } from "vue";
 import ActionMenu from "../ui/ActionMenu.vue";
+import UiButton from "../ui/UiButton.vue";
+import UiChip from "../ui/UiChip.vue";
+import { useWorkspaceEditor } from "./workspaceEditor.ts";
 import UiIconButton from "../ui/UiIconButton.vue";
+import { useOptionalCommands } from "./commands/commandContext.ts";
 import UiSegmented from "../ui/UiSegmented.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
 import { gameShortcuts } from "../play/gameControls.ts";
 import { hasWalkthrough } from "../walkthrough/walkthrough.ts";
 import { useShell, type ShellMode } from "./useShell.ts";
-import { useCreateWorkspace } from "./useCreateWorkspace.ts";
 
 const { settingsOpen } = defineProps<{ settingsOpen: boolean }>();
 const emit = defineEmits<{
   exit: [];
   settings: [trigger: HTMLElement];
   "help-guide": [];
+  "keyboard-shortcuts": [];
   controls: [];
   "trigger-key": [code: number];
   "start-walkthrough": [alias: string];
@@ -27,12 +32,11 @@ const emit = defineEmits<{
 
 const { state, currentGame, roomMap } = useEngineApi();
 const shell = useShell();
-const workspace = useCreateWorkspace();
+const commands = useOptionalCommands();
+const editor = useWorkspaceEditor();
 
-/** Play opens the world-map window; Create shows its docked World panel. */
 function showMap(): void {
-  if (shell.mode.value === "create") workspace.showPanel("world");
-  else roomMap.openMap({ experience: "play" });
+  roomMap.openMap({ experience: shell.mode.value });
 }
 
 const game = computed(() => {
@@ -75,7 +79,7 @@ const shortcutsBlocked = computed(
     <nav class="play-bar__nav" aria-label="App options">
       <UiIconButton
         icon="chevron-left"
-        :label="state.leaving ? 'Saving…' : 'Exit to game selection'"
+        :label="state.leaving ? 'Saving…' : 'Back to library'"
         data-testid="btn-exit"
         :disabled="state.powerUp.busy || state.leaving"
         @click="emit('exit')"
@@ -84,10 +88,53 @@ const shortcutsBlocked = computed(
         <h1 class="play-bar__game">{{ game?.title ?? "AGI IS HERE" }}</h1>
         <span v-if="roomLabel" class="play-bar__room" data-testid="play-room">{{ roomLabel }}</span>
       </div>
+      <UiButton
+        v-if="mode === 'create'"
+        size="sm"
+        variant="ghost"
+        data-testid="workspace-saved"
+        :title="VOCABULARY.saved.help"
+        @click="
+          editor.save.value === 'Could not save. Retry'
+            ? editor.retry.value?.()
+            : (editor.history.value = !editor.history.value)
+        "
+        ><UiChip :tone="editor.save.value === 'Saved' ? 'ok' : 'warn'" dot>{{
+          editor.save.value
+        }}</UiChip></UiButton
+      >
       <UiSegmented v-model="mode" class="play-bar__modes" label="Mode" :options="modes" />
       <div class="play-bar__actions">
+        <template v-if="mode === 'create'">
+          <UiIconButton
+            icon="undo"
+            label="Undo"
+            :title="VOCABULARY.undo.help"
+            data-testid="workspace-undo"
+            :disabled="!editor.canUndo.value || editor.busy.value"
+            @click="editor.step('undo')"
+          />
+          <UiIconButton
+            icon="redo"
+            label="Redo"
+            :title="VOCABULARY.redo.help"
+            data-testid="workspace-redo"
+            :disabled="!editor.canRedo.value || editor.busy.value"
+            @click="editor.step('redo')"
+          />
+          <UiButton
+            size="sm"
+            variant="ghost"
+            icon="sparkles"
+            data-testid="workspace-agent"
+            :title="`${VOCABULARY.agent.help} (⌘I)`"
+            :disabled="!commands?.commands.value.some((command) => command.id === 'agent.focus')"
+            @click="commands?.execute('agent.focus')"
+            >Agent</UiButton
+          >
+        </template>
         <UiIconButton icon="map" label="World map" data-testid="btn-world-map" @click="showMap" />
-        <ActionMenu label="Save or restore" icon-only icon="save">
+        <ActionMenu v-if="mode === 'play'" label="Save or restore" icon-only icon="save">
           <button
             v-for="shortcut in saveShortcuts"
             :key="shortcut.key"
@@ -116,6 +163,15 @@ const shortcutsBlocked = computed(
             @click="emit('help-guide')"
           >
             <span>Help guide<small>Playing, creating and your games</small></span>
+          </button>
+          <button
+            v-if="commands?.commands.value.length"
+            type="button"
+            role="menuitem"
+            data-testid="btn-keyboard-shortcuts"
+            @click="emit('keyboard-shortcuts')"
+          >
+            <span>Keyboard shortcuts</span>
           </button>
           <button
             type="button"
@@ -163,7 +219,7 @@ const shortcutsBlocked = computed(
 }
 .play-bar__nav {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
   height: 100%;

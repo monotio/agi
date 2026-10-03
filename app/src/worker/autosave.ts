@@ -4,6 +4,7 @@
  */
 import { createProgressPreview, isBlackFrame } from "../saves/progressPreview.ts";
 import { bytesToBase64 } from "../project/bytes.ts";
+import { computeResourceRevision } from "../../../src/authoring/resourceRevision.ts";
 import type { WorkerPresentation } from "./workerProtocol.ts";
 import type { Inbound, WorkerContext } from "./context.ts";
 
@@ -32,6 +33,9 @@ export function createAutosave(ctx: WorkerContext) {
   function autosave(force: boolean): boolean {
     if (!ctx.engine) return false;
     if (!force && ctx.cycle.cycleCount === ctx.autosave.lastAutosaveCycle) return false;
+    // A debugger-parked or armed mid-pass engine has no resumable boundary:
+    // the engine would throw on capture, so the last good image is kept.
+    if (ctx.fns.debugCaptureBlocked()) return false;
     // A game that quit has ended: its image would resume a stopped
     // interpreter. The autosave taken before the quit stays the one to continue.
     if (ctx.engine.readLeanState().terminated) return false;
@@ -46,9 +50,12 @@ export function createAutosave(ctx: WorkerContext) {
       return false;
     }
     if (!image) return false;
+    const files = Object.fromEntries(ctx.engine.containerFiles);
+    if (ctx.boot.authoredWords) files["WORDS.TOK"] = ctx.boot.authoredWords;
     const msg: Extract<WorkerPresentation, { type: "autosave" }> = {
       type: "autosave",
       image: bytesToBase64(image),
+      revision: computeResourceRevision(files),
       menus: ctx.engine.readMenuState(),
       cycle: ctx.cycle.cycleCount,
       room: ctx.engine.vars[0]!,
@@ -91,12 +98,18 @@ export function createAutosave(ctx: WorkerContext) {
 
   function onCheckpoint(msg: Inbound<"checkpoint">): void {
     // The paused interpreter's resumable image — the candidate preview's
-    // restore point. null outside a resumable cycle boundary.
-    ctx.ports.control({
-      type: "checkpoint",
-      id: msg.id,
-      image: ctx.engine ? ctx.engine.autosaveImage() : null,
-    });
+    // restore point. null outside a resumable cycle boundary, including a
+    // debugger-parked or armed mid-pass engine. The pre-check cannot see a
+    // private cycle cursor, so a capture refusal lands as null too.
+    let image: Uint8Array | null = null;
+    if (ctx.engine && !ctx.fns.debugCaptureBlocked()) {
+      try {
+        image = ctx.engine.autosaveImage();
+      } catch {
+        image = null;
+      }
+    }
+    ctx.ports.control({ type: "checkpoint", id: msg.id, image });
   }
 
   function onFlush(msg: Inbound<"flush">): void {

@@ -812,7 +812,7 @@ describe("editable template boilerplate", () => {
         'reset(f202); assignn(v250, 42); set.string(s11, "Continue"); set.key(27, 0, 50); return;',
       ],
     ] as const) {
-      const result = executeAgentTool(state, "write_logic_source", { room, source });
+      const result = executeAgentTool(state, "write_logic", { room, source });
       assert.equal(result.success, true, result.error ?? "");
       assert.equal(state.sources.logics.get(room), source);
     }
@@ -845,7 +845,7 @@ describe("editable template boilerplate", () => {
       ["flag", 202],
       ["variable", 250],
     ] as const) {
-      const result = executeAgentTool(state, "reserve_binding", {
+      const result = executeAgentTool(state, "reserve_name", {
         name: `custom_${kind}`,
         kind,
         id,
@@ -856,16 +856,16 @@ describe("editable template boilerplate", () => {
     // f200, allocation must skip it based on actual code, not ownership.
     for (let id = 32; id < 200; id++)
       state.authoring.bindings[`used_${id}`] = { kind: "flag", num: id };
-    const before = executeAgentTool(state, "reserve_binding", {
+    const before = executeAgentTool(state, "reserve_name", {
       name: "before_rewrite",
       kind: "flag",
       id: null,
     });
     assert.equal(before.success, true, before.error ?? "");
     assert.notEqual(state.authoring.bindings["before_rewrite"]!.num, 200);
-    const rewrite = executeAgentTool(state, "write_logic_source", { room: 0, source: "return;" });
+    const rewrite = executeAgentTool(state, "write_logic", { room: 0, source: "return;" });
     assert.equal(rewrite.success, true, rewrite.error ?? "");
-    const after = executeAgentTool(state, "reserve_binding", {
+    const after = executeAgentTool(state, "reserve_name", {
       name: "after_rewrite",
       kind: "flag",
       id: null,

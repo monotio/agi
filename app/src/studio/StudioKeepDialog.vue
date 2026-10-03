@@ -38,7 +38,7 @@ const open = computed({
 });
 const closing = computed(() => ask.value === "close");
 const TITLES = {
-  close: "Keep your changes?",
+  close: "Save your changes?",
   reload: "Reload the saved game?",
   discard: "Discard your changes?",
 } as const;
@@ -69,11 +69,11 @@ const description = computed(() =>
         v-if="closing"
         variant="primary"
         :disabled="!canKeep"
-        :title="canKeep ? undefined : 'Keep waits for a reload or the Keep in progress'"
+        :title="canKeep ? undefined : 'Save waits for a reload or the Save in progress'"
         data-testid="studio-dialog-keep"
         @click="emit('keep')"
       >
-        Keep
+        Save
       </UiButton>
     </template>
   </UiDialog>

@@ -48,20 +48,12 @@ import {
 } from "../walkthrough/walkthrough.ts";
 import type { AgentSession } from "../agent/agentSession.ts";
 import type { AuthoringState } from "../../../src/agent/authoringState.ts";
-import { gameStorageKey, type BootedGame, type Frame } from "../project/gameTypes.ts";
-import type { ResourceRevision } from "../../../src/gameIdentity.ts";
-import type { AuthoringFingerprint } from "../project/gameStorage.ts";
-import { openDraft } from "../project/projectTransaction.ts";
+import type { BootedGame, Frame } from "../project/gameTypes.ts";
+import { resolveProgressTarget } from "../project/progressBinding.ts";
+import type { ProgressTarget } from "../project/progressTarget.ts";
 import type { EngineState, TextHook } from "../engine/useEngineTypes.ts";
 import { emptyMapSidecar, readMapSidecar, writeMapSidecar } from "./roomMapStore.ts";
-import {
-  studioPictureSource,
-  studioRoomSource,
-  studioSpriteSource,
-  type StudioPictureSource,
-  type StudioRoomSource,
-  type StudioSpriteSource,
-} from "./studioSource.ts";
+
 import type { RoomTransitionNotice } from "../worker/workerProtocol.ts";
 
 /** Durable journal cap — the sidecar contract bounds at the same number. The
@@ -98,16 +90,6 @@ interface PlanFieldEdit {
 }
 
 /** The detail pane's edit session for one room's plan entry. */
-/** What a Studio draft opens on and keeps against: the booted bytes and the authoring content. */
-interface StudioBase {
-  readonly baseRevision: ResourceRevision;
-  readonly baseAuthoring: AuthoringFingerprint | undefined;
-}
-
-function studioBase(game: BootedGame): StudioBase {
-  return { baseRevision: game.revision, baseAuthoring: openDraft(game) };
-}
-
 export interface PlanRoomEdit {
   room: number;
   title: PlanFieldEdit;
@@ -228,15 +210,7 @@ export interface RoomMap {
   thumbnailFor(room: number): MapThumbnail | null;
   /** The static scan of the booted resources (files, logic scans, pictures, stored tests). */
   readonly resources: ComputedRef<ScannedResources>;
-  /** One picture's Room Studio input and the base it was read at (the draft's to keep against). */
-  studioSource(picture: number): (StudioPictureSource & StudioBase) | null;
-  /** The Walk view's input for `room`: its logic, bindings, plan, tests and the rooms a door can reach. */
-  studioRoom(room: number): StudioRoomSource | null;
-  /**
-   * One VIEW's Sprite Studio input and the booted revision it was read at;
-   * `bytes` stands in for a view not in the game yet (a staged candidate).
-   */
-  spriteSource(view: number, bytes?: Uint8Array): (StudioSpriteSource & StudioBase) | null;
+  projectImageAdmitted(generation: number): void;
   observeFrame(frame: Frame): void;
   exportSidecar(): RoomMapSidecar;
   retrySave(): void;
@@ -434,6 +408,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   const thumbs = new Map<number, MapThumbnail>();
   /** Pending thumbnail binds: "patchGeneration:cycle" → room (last wins). */
   const pendingThumbs = new Map<string, number>();
+  let admittedThumb: { room: number; generation: number } | undefined;
   /** Rendered picture thumbs by room; cleared when the scan revision moves. */
   const staticThumbs = new Map<number, MapThumbnail>();
   /** Auto-assigned positions (in-memory only; manual moves persist). */
@@ -461,8 +436,9 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     if (scanned && scanned.key === key && scanned.files === game.files) return scanned;
     const logicPayloads = new Map<number, Uint8Array>();
     const picture = new Set<number>();
+    const profile = detectProfile(new Map(Object.entries(game.files)), override);
     try {
-      const container = openContainer(new Map(Object.entries(game.files)));
+      const container = openContainer(new Map(Object.entries(game.files)), { profile });
       for (let num = 0; num < 256; num++) {
         const payload = container.getResource("logic", num);
         if (payload) logicPayloads.set(num, payload);
@@ -482,7 +458,6 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       };
       return scanned;
     }
-    const profile = detectProfile(new Map(Object.entries(game.files)), override);
     const { scans, shared } = scanContainerExits(logicPayloads, profile);
     scanned = {
       key,
@@ -568,15 +543,22 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     persist();
   }
 
-  /** Serialize the current in-memory map; storage may still refuse it. */
+  /** Capture detached map data for storage and project downloads. */
   function exportSidecar(): RoomMapSidecar {
     return {
-      journal: [...journal],
+      journal: journal.map((entry) => ({
+        ...entry,
+        gained: [...entry.gained],
+        lost: [...entry.lost],
+        ...(entry.history ? { history: { ...entry.history } } : {}),
+      })),
       discovered: {
         rooms: Object.fromEntries(discovered.rooms),
-        edges: [...discovered.edges.values()],
+        edges: [...discovered.edges.values()].map((edge) => ({ ...edge })),
       },
-      layout: { ...layout },
+      layout: Object.fromEntries(
+        Object.entries(layout).map(([room, position]) => [room, { ...position }]),
+      ),
       notes: { ...notes },
       edgeNotes: { ...edgeNotes },
     };
@@ -589,9 +571,22 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   let unsavedRetries = 0;
   let unsavedTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /**
+   * The physical map target a booted game resolves to: an installed instance
+   * binds its exact folder's digest, a saved project its captured body epoch.
+   * Null names no durable record — an unbound game has no write authority.
+   */
+  function mapTarget(game: BootedGame | null): ProgressTarget | null {
+    return game ? resolveProgressTarget(game) : null;
+  }
+
   function persist(): void {
-    // A removed project stores nothing; its map lives on in memory only.
+    // A removed or unbound project stores nothing; its map lives on in memory only.
     if (!loadedKey || !storage || loadedGame?.removed) return;
+    // A queued write lands only while the slot's live game still resolves to
+    // the target this map was loaded for — after a swap the handoff flush owns
+    // the old address and nothing follows the incoming game under it.
+    if (mapTarget(deps.getBootedGame())?.locator !== loadedKey) return;
     if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
       unsaved.value = false;
       unsavedRetries = 0;
@@ -601,8 +596,22 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     scheduleSaveRetry();
   }
 
+  /**
+   * The handoff write: the outgoing map's last state lands under the target
+   * it was loaded for even as the slot moves on — its own captured address,
+   * never the incoming game's.
+   */
+  function flushLoaded(): void {
+    if (!loadedKey || !storage || loadedGame?.removed) return;
+    if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
+      unsaved.value = false;
+      unsavedRetries = 0;
+    }
+  }
+
   function retrySave(): void {
-    if (!loadedKey || !storage) return;
+    if (!loadedKey || !storage || loadedGame?.removed) return;
+    if (mapTarget(deps.getBootedGame())?.locator !== loadedKey) return;
     if (writeMapSidecar(storage, loadedKey, exportSidecar())) {
       unsaved.value = false;
       unsavedRetries = 0;
@@ -621,6 +630,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   function storedSidecar(target: string): RoomMapSidecar {
+    // The live map answers only its exact loaded physical locator; every
+    // other spelling — a released legacy key included — reads its own record.
     if (target === loadedKey) return exportSidecar();
     if (!storage) return emptyMapSidecar();
     try {
@@ -632,8 +643,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
 
   /** Load (or reset) the map for the game now in the slot. */
   function loadFor(game: BootedGame | null): void {
-    const key = game ? gameStorageKey(game) : "";
-    if (key === loadedKey) {
+    const target = mapTarget(game);
+    const key = target?.locator ?? "";
+    // A bound target compares by locator; an unbound game ("") only continues
+    // the map while the same game object still owns the slot — a different
+    // unbound game never inherits another session's map.
+    if (key === loadedKey && (key !== "" || game === loadedGame)) {
       // Same game rebooting: drain the old session's last notices, then keep
       // discovery and start a new session — a stale frame can never bind.
       drainJournal();
@@ -645,12 +660,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
       return;
     }
     drainJournal();
-    if (loadedKey) persist();
+    if (loadedKey) flushLoaded();
     loadedKey = key;
     loadedGame = game;
     resetMapMemory();
     revision = game?.revision ?? "";
-    if (key && storage) loadStoredSidecar(key);
+    if (target && storage) loadStoredSidecar(target);
     session = journal.reduce((max, e) => Math.max(max, e.session), 0) + 1;
   }
 
@@ -683,7 +698,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   }
 
   /** Read the stored sidecar into memory; a read failure is reported, not fatal. */
-  function loadStoredSidecar(key: string): void {
+  function loadStoredSidecar(key: ProgressTarget): void {
     if (!storage) return;
     try {
       const stored = readMapSidecar(storage, key);
@@ -708,7 +723,7 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   /** The game left the slot: persist, then release the in-memory map. */
   function unload(): void {
     drainJournal();
-    if (loadedKey) persist();
+    if (loadedKey) flushLoaded();
     loadedKey = "";
     loadedGame = null;
     state.roomJournal.splice(0, state.roomJournal.length);
@@ -925,9 +940,12 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
   function observeFrame(frame: Frame): void {
     if (frame.patchGeneration === undefined || frame.cycle === undefined) return;
     const key = `${frame.patchGeneration}:${frame.cycle}`;
-    const room = pendingThumbs.get(key);
+    const room =
+      pendingThumbs.get(key) ??
+      (admittedThumb?.generation === frame.patchGeneration ? admittedThumb.room : undefined);
     if (room === undefined) return;
     pendingThumbs.delete(key);
+    if (admittedThumb?.generation === frame.patchGeneration) admittedThumb = undefined;
     thumbs.delete(room);
     thumbs.set(room, {
       pixels: frame.visual.slice(),
@@ -970,8 +988,8 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     }
     if (missing.length === 0) return;
     const files = new Map(Object.entries(scan.files));
-    const container = openContainer(files);
     const profile = scan.profile ?? detectProfile(files);
+    const container = openContainer(files, { profile });
     let produced = false;
     for (const [room, pic] of missing) {
       try {
@@ -1386,41 +1404,13 @@ export function useRoomMap(deps: RoomMapDeps): RoomMap {
     noteIntentFor,
     thumbnailFor,
     resources,
-    studioSource: (picture) => {
-      // The scan and the revision must describe the same booted files.
-      const game = deps.getBootedGame();
-      const scanned = scanResources();
-      if (!game || scanned.files !== game.files) return null;
-      const source = studioPictureSource(
-        scanned,
-        picture,
-        deps.getSession()?.state,
-        game.authoredGame?.authoringState,
-      );
-      return source && { ...source, ...studioBase(game) };
-    },
-    studioRoom: (room) => {
-      const game = deps.getBootedGame();
-      const scanned = scanResources();
-      if (!game || scanned.files !== game.files) return null;
-      const rooms = graph.value.nodes
-        .filter((node) => node.room > 0)
-        .map((node) => ({ room: node.room, title: node.title ?? "" }))
-        .sort((a, b) => a.room - b.room);
-      return studioRoomSource(
-        scanned,
-        room,
-        rooms,
-        deps.getSession()?.state,
-        game.authoredGame?.authoringState,
-      );
-    },
-    spriteSource: (view, bytes) => {
-      const game = deps.getBootedGame();
-      const scanned = scanResources();
-      if (!game || scanned.files !== game.files) return null;
-      const source = studioSpriteSource(scanned, view, currentRoom.value ?? undefined, bytes);
-      return source && { ...source, ...studioBase(game) };
+    projectImageAdmitted(generation) {
+      thumbs.clear();
+      staticThumbs.clear();
+      const room = currentRoom.value;
+      admittedThumb = room === null ? undefined : { room, generation };
+      thumbVersion.value++;
+      prepareStaticThumbs();
     },
     observeFrame,
     exportSidecar,

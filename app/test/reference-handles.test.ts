@@ -1,7 +1,7 @@
 /**
  * Reference art by handle at the session level: what a turn with stored
  * references sends to the provider (a manifest and one contact strip, never
- * the full images), a region the model views with view_reference, the
+ * the full images), a region the model views with read_reference_image, the
  * viewed image staying in the append-only transcript across later turns, the
  * scripted stub scenarios, and the character-sheet reference's handles.
  * Provider requests are read from the real OpenAI transport with fetch mocked.
@@ -142,7 +142,12 @@ const say = (text: string) => [
   { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
 ];
 const call = (id: string, args: Record<string, unknown>) => [
-  { type: "function_call", call_id: id, name: "view_reference", arguments: JSON.stringify(args) },
+  {
+    type: "function_call",
+    call_id: id,
+    name: "read_reference_image",
+    arguments: JSON.stringify(args),
+  },
 ];
 
 /** Every image block in a request's input, as its PNG width and height. */
@@ -159,7 +164,7 @@ function imageSizes(value: unknown): { width: number; height: number }[] {
   return sizes;
 }
 
-const MODEL = { provider: "openai", apiKey: "test-placeholder", model: "test" } as const;
+const MODEL = { provider: "openai", apiKey: "test-placeholder", model: "gpt-6-sol" } as const;
 
 test("a remix turn with three references sends manifests and one strip, and views a region", async (t) => {
   const stored = references();
@@ -183,7 +188,7 @@ test("a remix turn with three references sends manifests and one strip, and view
   assert.match(request, /Character sheet, right-facing row · view 0 · 64x12/);
   // No full image: only the contact strip, three 64-pixel tiles and a 4-pixel gutter.
   assert.deepEqual(imageSizes(first.input), [{ width: 3 * 64 + 4 * 4, height: 64 + 2 * 4 }]);
-  assert.ok(first.tool_choice!.tools.some((tool) => tool.name === "view_reference"));
+  assert.ok(first.tool_choice!.tools.some((tool) => tool.name === "read_reference_image"));
 
   // The region comes back enlarged by floor(512 / 40) = 12: 384x480.
   const second = bodies[1]!;
@@ -218,20 +223,23 @@ test("a viewed reference stays in the transcript across later turns, unrewritten
   );
 });
 
-test("a turn without references neither lists nor runs view_reference", async (t) => {
+test("a turn without references neither lists nor runs read_reference_image", async (t) => {
   const bodies = scriptProvider(t, [
     call("v1", { id: "art-0123456789", size: "small", region: null, grid: null }),
     say("Done."),
   ]);
   const session = sessionWith(MODEL, []);
   await session.runPowerUp("Add a lamp.", 1);
-  assert.ok(!bodies[0]!.tool_choice!.tools.some((tool) => tool.name === "view_reference"));
+  assert.ok(!bodies[0]!.tool_choice!.tools.some((tool) => tool.name === "read_reference_image"));
   assert.deepEqual(imageSizes(bodies[0]!.input), []);
-  assert.match(JSON.stringify(bodies[1]!.input), /'view_reference' is not available in this phase/);
+  assert.match(
+    JSON.stringify(bodies[1]!.input),
+    /'read_reference_image' is not available in this phase/,
+  );
   // The dispatcher refuses it the same way for any list the helper narrowed.
   const refused = await executeAgentToolAsync(
     createAgentSessionState(),
-    "view_reference",
+    "read_reference_image",
     { id: "art-0123456789", size: "small", region: null, grid: null },
     { allowedTools: withReferences(REMIX_TOOLS, undefined) },
   );
@@ -363,12 +371,12 @@ test("the Anthropic transcript keeps a viewed reference on later user messages",
     ],
   };
   const conversation = createAnthropicConversation(
-    { provider: "anthropic", model: "test", apiKey: "placeholder" },
+    { provider: "anthropic", model: "gpt-6-sol", apiKey: "placeholder" },
     [
       { role: "user", content: "Look at the harbour." },
       {
         role: "assistant",
-        content: [{ type: "tool_use", id: "t1", name: "view_reference", input: {} }],
+        content: [{ type: "tool_use", id: "t1", name: "read_reference_image", input: {} }],
       },
       viewed,
       { role: "assistant", content: [{ type: "text", text: "Seen." }] },
@@ -423,7 +431,7 @@ test("a Studio assist request carries attached art as a handle, and the stub vie
     referenceIds: ["ref-robot"],
   });
   // The stub names the art the manifest marked attached, views it (the turn
-  // offers view_reference: the host dispatcher refuses tools off its list),
+  // offers read_reference_image: the host dispatcher refuses tools off its list),
   // and reports the images the request itself carried: one contact strip
   // of the four 64 px thumbnails, a 4 px gutter before each 64 px cell and
   // after the last (4 + 4 × 68 = 276 wide), none of the art itself.
@@ -432,9 +440,11 @@ test("a Studio assist request carries attached art as a handle, and the stub vie
     `I viewed ${id} and left the selection as it is; this request carried its reference list and one image (276x72).`,
   );
   assert.equal(result.candidate, null);
-  assert.ok(events.some((message) => message.startsWith("[Studio] view_reference -> ")));
+  assert.ok(events.some((message) => message.startsWith("[Studio] read_reference_image -> ")));
   assert.ok(
-    !events.some((message) => /view_reference -> .*(not available|not allowed)/.test(message)),
+    !events.some((message) =>
+      /read_reference_image -> .*(not available|not allowed)/.test(message),
+    ),
   );
   // The manifest rode that request; the next one on the same art does not repeat it.
   const again = await session.runStudioAssist({ instruction: "Match the reference", focus });

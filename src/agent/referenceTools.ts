@@ -1,8 +1,9 @@
+import { toolDescription, parameterDescriptions } from "../vocabulary.ts";
 /**
  * Reference art by handle. The player's uploads (room plates, character
  * sheets, mood boards) reach the model as ids: a turn carries one
  * manifest line per image plus a single contact strip of 64-pixel thumbnails,
- * and the model calls view_reference for the size or region it needs. A
+ * and the model calls read_reference_image for the size or region it needs. A
  * viewed image stays in the conversation: the transcript is append-only so
  * the provider's prompt cache keeps serving it at the cache-read rate, which
  * is far cheaper than rewriting the history that follows it to drop it
@@ -20,9 +21,9 @@ import type { AgentToolImage, AgentToolResult } from "./agentState.ts";
 import type { ToolDefinition } from "./tools.ts";
 import { REFERENCE_WORKING_EDGE } from "./toolTransport.ts";
 
-/** Longest edge of a thumbnail: the manifest strip and view_reference size "thumb". */
+/** Longest edge of a thumbnail: the manifest strip and read_reference_image size "thumb". */
 const THUMB_EDGE = 64;
-/** Longest edge of view_reference size "small". */
+/** Longest edge of read_reference_image size "small". */
 const SMALL_EDGE = 256;
 /** Longest edge a region is enlarged to at size "full"; "small" and "thumb" use their own edges. */
 const REGION_EDGE = 512;
@@ -299,7 +300,7 @@ export async function referenceManifest(
   return {
     text: [
       "### REFERENCE ART",
-      "The player's reference art, one line per image: id · what it is · target · size in pixels · main AGI colours · note. The strip shows each as a thumbnail; only the thumbnails are in view. Call view_reference with an id before you match anything to it. It shows the whole image at the working size unless you ask for a smaller look or a region.",
+      "The player's reference art, one line per image: id · what it is · target · size in pixels · main AGI colours · note. The strip shows each as a thumbnail; only the thumbnails are in view. Call read_reference_image with an id before you match anything to it. It shows the whole image at the working size unless you ask for a smaller look or a region.",
       ...lines,
     ].join("\n"),
     image: {
@@ -333,10 +334,12 @@ function moreViews(
 }
 
 export const VIEW_REFERENCE_TOOL: ToolDefinition = {
-  name: "view_reference",
-  description:
+  name: "read_reference_image",
+  description: toolDescription(
+    "read_reference_image",
     "Look at the player's reference art by `id`, the art-… handle from the reference list. The request carries only a manifest line and a thumbnail per reference; view one before you match anything to it. `size`: null or full shows the stored image (up to 1024 px, longest edge), the size for tracing shapes, poses and outlines; small (256 px) and thumb (64 px) are cheaper looks at colour and composition. `region` crops x, y, w, h in the reference's own pixels (the size its manifest line gives) and enlarges the crop by a whole factor up to 512 px (256 at small, 64 at thumb); null shows the whole image. `grid`: true draws lines labelled in the reference's pixel coordinates, so the next region can be exact. Each result names the views that would show more. A viewed image stays in the conversation, so view each reference once at the size and region you need.",
-  parameters: {
+  ),
+  parameters: parameterDescriptions("read_reference_image", {
     type: "object",
     additionalProperties: false,
     properties: {
@@ -356,7 +359,7 @@ export const VIEW_REFERENCE_TOOL: ToolDefinition = {
       grid: { type: ["boolean", "null"] },
     },
     required: ["id", "size", "region", "grid"],
-  },
+  }),
 };
 
 export const NO_REFERENCES = "No reference art is attached to this task.";
@@ -443,7 +446,7 @@ function drawGrid(
     if (at + 1 >= bottom) bottom = label(String(value), 1, at + 1).bottom + scale;
 }
 
-/** view_reference: the image at a size or a region, with an optional grid. */
+/** read_reference_image: the image at a size or a region, with an optional grid. */
 export async function viewReference(
   source: ReferenceSource | undefined,
   args: Record<string, unknown>,
@@ -531,11 +534,11 @@ export async function viewReference(
 /** Tools whose success writes art a reference could be matched against. */
 const ART_WRITES: ReadonlySet<string> = new Set([
   "write_picture",
-  "write_scene",
+  "draw_picture_items",
   "write_room",
   "write_view",
-  "patch_view_cels",
-  "propose_edit",
+  "edit_cels",
+  "propose_changes",
 ]);
 
 /** A reply that says the work follows the reference. */
@@ -544,7 +547,7 @@ const MATCH_CLAIM =
 
 /**
  * Under-fetch: attached references a turn wrote art for, or claimed to
- * match, without a successful view_reference of that id. Read from the
+ * match, without a successful read_reference_image of that id. Read from the
  * turn's tool log; the claim is read from its final reply.
  */
 export function referenceUnderFetch(turn: {
@@ -559,7 +562,7 @@ export function referenceUnderFetch(turn: {
   if (!turn.attached.length) return [];
   const viewed = new Set(
     turn.calls
-      .filter((call) => call.tool === "view_reference" && call.success)
+      .filter((call) => call.tool === "read_reference_image" && call.success)
       .map((call) => call.args["id"]),
   );
   const wrote = turn.calls.some((call) => ART_WRITES.has(call.tool) && call.success);
@@ -584,7 +587,7 @@ export function createReferenceWatch(source: ReferenceSource | undefined) {
       if (!missing.length) return result;
       return {
         ...result,
-        message: `${result.message ?? "Done."}\nReference art attached to this request has not been viewed: ${missing.join(", ")}. Call view_reference before matching the art to it.`,
+        message: `${result.message ?? "Done."}\nReference art attached to this request has not been viewed: ${missing.join(", ")}. Call read_reference_image before matching the art to it.`,
       };
     },
     unviewed(text: string): string[] {

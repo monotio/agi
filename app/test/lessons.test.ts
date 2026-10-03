@@ -27,15 +27,16 @@ const PROFILE = PROFILES["2.936"]!;
 
 // ---- registry ---------------------------------------------------------------
 
-const TUTORIAL_1_1 = { id: "adventure-department", version: "1.1.0" };
+const TUTORIAL = { id: "adventure-department", version: "1.2.0" };
 
 test("lesson sets are found by catalog release: id and version", async () => {
-  const set = await lessonSetFor(TUTORIAL_1_1);
+  const set = await lessonSetFor(TUTORIAL);
   assert.ok(set, "the tutorial registers a lesson set");
   assert.equal(set.catalogId, "adventure-department");
   assert.equal(set.lessons.length, 3);
-  // The 1.0 release stays in players' libraries; these lessons verify 1.1 resources.
+  // Older releases stay in players' libraries; these lessons verify 1.2 resources.
   assert.equal(await lessonSetFor({ id: "adventure-department", version: "1.0.0" }), undefined);
+  assert.equal(await lessonSetFor({ id: "adventure-department", version: "1.1.0" }), undefined);
   assert.equal(await lessonSetFor({ id: "kings-quest-1", version: "1.1.0" }), undefined);
   assert.equal(await lessonSetFor(undefined), undefined);
   // A prototype key is not a registered catalog id.
@@ -73,9 +74,9 @@ const library = (patch: Partial<LibraryMetadata>) => ({ library: patch as Librar
 
 test("a game's lesson release is its catalog release, or its remix chain's", () => {
   const records: Record<string, ReturnType<typeof library>> = {
-    "catalog-adventure-department-1.1.0": library({
+    "catalog-adventure-department-1.2.0": library({
       source: "catalog",
-      catalog: { id: "adventure-department", version: "1.1.0" },
+      catalog: { id: "adventure-department", version: "1.2.0" },
     }),
     "catalog-adventure-department-1.0.0": library({
       source: "catalog",
@@ -83,7 +84,7 @@ test("a game's lesson release is its catalog release, or its remix chain's", () 
     }),
     "remix-a": library({
       source: "remix",
-      parent: { project: "catalog-adventure-department-1.1.0" } as LibraryMetadata["parent"],
+      parent: { project: "catalog-adventure-department-1.2.0" } as LibraryMetadata["parent"],
     }),
     "remix-b": library({
       source: "remix",
@@ -99,9 +100,9 @@ test("a game's lesson release is its catalog release, or its remix chain's", () 
   };
   const meta = (id: string) => records[id] ?? null;
   const OLD = { id: "adventure-department", version: "1.0.0" };
-  assert.deepEqual(lessonCatalogId("catalog-adventure-department-1.1.0", meta), TUTORIAL_1_1);
-  assert.deepEqual(lessonCatalogId("remix-a", meta), TUTORIAL_1_1);
-  assert.deepEqual(lessonCatalogId("remix-b", meta), TUTORIAL_1_1);
+  assert.deepEqual(lessonCatalogId("catalog-adventure-department-1.2.0", meta), TUTORIAL);
+  assert.deepEqual(lessonCatalogId("remix-a", meta), TUTORIAL);
+  assert.deepEqual(lessonCatalogId("remix-b", meta), TUTORIAL);
   assert.deepEqual(lessonCatalogId("catalog-adventure-department-1.0.0", meta), OLD);
   assert.deepEqual(lessonCatalogId("remix-old", meta), OLD, "a 1.0 remix keeps its release");
   assert.equal(lessonCatalogId("zip-game", meta), undefined);

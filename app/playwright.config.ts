@@ -5,9 +5,11 @@ const PORT = Number(process.env["AGI_E2E_PORT"] ?? 5199);
 
 export default defineConfig({
   testDir: "./e2e",
+  // Runs on separate ports must not clear each other's screenshots and traces.
+  outputDir: `./test-results/${PORT}`,
   timeout: 60_000,
   retries: 0,
-  ...(process.env["CI"] ? { workers: 2 } : {}),
+  ...(process.env["CI"] ? { workers: Number(process.env["PLAYWRIGHT_WORKERS"] ?? 2) } : {}),
   use: {
     baseURL: `http://localhost:${PORT}`,
     headless: true,

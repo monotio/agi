@@ -19,10 +19,39 @@ export function createPauseHolds(deps: {
   const owners = new Set<string>();
 
   function pauseEngine(owner = "generic"): void {
+    // A throwing freeze post registers nothing; a failure after registration
+    // rolls the owner back and compensates only this call's posted freeze, so
+    // a partial pause can never leak an owner beside a live hold — the earlier
+    // dialog's resume must still reach an empty set. Cleanup failures never
+    // mask the original error.
     if (owners.size === 0) deps.post(true);
+    const fresh = !owners.has(owner);
     owners.add(owner);
-    deps.audio.setPaused(true);
-    deps.state.paused = true;
+    try {
+      deps.audio.setPaused(true);
+      deps.state.paused = true;
+    } catch (error) {
+      // A repeat pause on an existing owner added nothing; leave that hold.
+      if (fresh) owners.delete(owner);
+      if (owners.size === 0) {
+        try {
+          deps.state.paused = false;
+        } catch {
+          // The registration failure stands.
+        }
+        try {
+          deps.audio.setPaused(false);
+        } catch {
+          // The registration failure stands.
+        }
+        try {
+          deps.post(false);
+        } catch {
+          // The registration failure stands.
+        }
+      }
+      throw error;
+    }
   }
 
   function resumeEngine(owner = "generic"): void {

@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useSaveSlotController } from "../src/saves/useSaveSlotController.ts";
+import { requireResourceRevision } from "../../src/gameIdentity.ts";
 import type { BootedGame } from "../src/project/gameTypes.ts";
+import { testProjectId } from "./identity.ts";
 
 function createMockStorage(): Pick<Storage, "getItem" | "setItem"> {
   const store = new Map<string, string>();
@@ -14,6 +16,30 @@ function createMockStorage(): Pick<Storage, "getItem" | "setItem"> {
     },
   };
 }
+
+test("released numbered saves remain restorable and survive the first bound save", async () => {
+  const storage = createMockStorage();
+  const game: BootedGame = {
+    installed: false,
+    projectId: testProjectId("released-slots"),
+    title: "Released",
+    revision: requireResourceRevision("ab".repeat(32)),
+    historyLifetime: "initial",
+    files: {},
+    words: [],
+  };
+  const original = btoa("a released save image padded to forty characters");
+  const raw = JSON.stringify({ format: "monotio.agi.saves", version: 1, slots: { "1": original } });
+  storage.setItem("monotio_agi.saves.released-slots", raw);
+  const controller = useSaveSlotController({ storage, getBootedGame: () => game });
+  assert.equal(await controller.handleSaveSlotRequest("restore", { slot: 1 }), original);
+  assert.equal(
+    controller.handleSaveSlotRequest("saveWrite", { slot: 2, image: btoa("new image") }),
+    "true",
+  );
+  assert.equal(await controller.handleSaveSlotRequest("restore", { slot: 1 }), original);
+  assert.equal(storage.getItem("monotio_agi.saves.released-slots"), raw);
+});
 
 test("useSaveSlotController handles saveList, saveWrite, and restore lifecycle", async () => {
   const storage = createMockStorage();
@@ -37,11 +63,13 @@ test("useSaveSlotController handles saveList, saveWrite, and restore lifecycle",
     true,
   );
 
-  // Boot an installed game with a content hash
+  // Boot an installed game: its folder and full revision bind the target.
   booted = {
     installed: true,
+    folder: "test-folder",
     hash: "test-hash-1234",
     title: "Test Game",
+    revision: requireResourceRevision("ab".repeat(32)),
   } as BootedGame;
 
   // Initially empty save list
@@ -63,11 +91,13 @@ test("useSaveSlotController handles saveList, saveWrite, and restore lifecycle",
   const restored = await controller.handleSaveSlotRequest("restore", { slot: 1 });
   assert.equal(restored, testPayload);
 
-  // Authoring game uses projectId
+  // An authored project binds its id to the live body epoch captured at boot.
   booted = {
     installed: false,
     projectId: "project-alpha",
     title: "Authored Game",
+    revision: requireResourceRevision("cd".repeat(32)),
+    historyLifetime: "initial",
   } as BootedGame;
 
   // Different game namespace: initially empty

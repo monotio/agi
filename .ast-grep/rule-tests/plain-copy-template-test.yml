@@ -3,8 +3,18 @@ valid:
   - "<button>Review staged</button>"
   - '<button title="Ask about this game">Ask</button>'
   - "<p>Not built yet</p>"
+  - "<p>No changes</p>"
+  - "<p>This cannot be undone.</p>"
+  - '<button title="Connect OpenAI to generate art">Connect</button>'
   - "<!-- An aside — in a comment -->"
 invalid:
+  - "<p>Connect AI. Editing works either way.</p>"
+  - "<p>Drawing and imports stay available without one.</p>"
+  - "<p>Nothing is written until you approve.</p>"
+  - "<span>Edit<small>Open in Logic Studio; no engine needed</small></span>"
+  - "<p>Build a game without an API key.</p>"
+  - "<p>Create with or without AI.</p>"
+  - '<button title="Just click to start">Start</button>'
   - "<button>Staged — inspect</button>"
   - '<button title="Ask about this game — answers without changing it">Ask</button>'
   - "<small>Never saved</small>"

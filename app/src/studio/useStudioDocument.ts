@@ -78,6 +78,8 @@ export interface SceneRow {
   value: number | null;
   /** Short tag: the kind, or the one priority/control value a depth/walk item draws. */
   tag: string;
+  /** Lenses painted by this row’s drawing commands. */
+  lenses?: readonly StudioLens[];
 }
 
 /** An automatic group of consecutive items (sceneGroups.ts), as a row of its own. */
@@ -146,10 +148,10 @@ function tagFor(kind: SceneRow["kind"], entries: readonly TimelineEntry[]): stri
   ];
   if (values.length !== 1) return kind;
   const value = values[0]!;
-  return value < 4 ? CONTROL_VALUES[value]!.name : `pri ${value}`;
+  return value < 4 ? CONTROL_VALUES[value]!.name : `Depth ${value}`;
 }
 
-/** "Brown art · 12", "Band 9 depth · 4", "Barrier walk · 3"; "Covered" when no pixel is left. */
+/** "Brown art · 12", "Depth band 9 · 4", "Wall walk · 3"; "Covered" when no pixel is left. */
 export function groupLabel(kind: SceneRow["kind"], value: number | null, count: number): string {
   const name =
     value === null
@@ -157,7 +159,8 @@ export function groupLabel(kind: SceneRow["kind"], value: number | null, count: 
       : kind === "depth" || kind === "walk"
         ? priorityMeaning(value)
         : EGA_COLOUR_NAMES[value]!;
-  return `${name[0]!.toUpperCase()}${name.slice(1)} ${kind} · ${count}`;
+  const label = `${name[0]!.toUpperCase()}${name.slice(1)}`;
+  return `${label}${kind === "depth" && value !== null ? "" : ` ${kind}`} · ${count}`;
 }
 
 /** Fold consecutive items into automatic groups; one-item groups stay plain rows. */
@@ -177,6 +180,7 @@ function branchesOf(items: readonly SceneRow[]): SceneBranch[] {
         swatch: first.swatch,
         value,
         tag: tags.size === 1 ? first.tag : kind,
+        lenses: [...new Set(rows.flatMap((row) => row.lenses ?? []))],
         members: rows.map((row) => row.id),
       },
       rows,
@@ -303,6 +307,16 @@ export function buildStudioModel(input: StudioSource | ResolvedStudioSource): St
         : primary === 1 && own < 4
           ? CONTROL_VALUES[own]!.colour
           : own;
+    const drawing = row.entries
+      .map((k) => timeline[k]!)
+      .filter((entry) => tickFor(entry).kind !== "state");
+    row.lenses = (["art", "depth", "walk"] as const).filter((lens) =>
+      drawing.some((entry) =>
+        lens === "art"
+          ? entry.visual !== null
+          : entry.priority !== null && (lens === "walk" ? entry.priority < 4 : entry.priority >= 4),
+      ),
+    );
     row.tag = tagFor(
       row.kind,
       row.entries.map((k) => timeline[k]!),
@@ -415,7 +429,8 @@ export function useStudioDocument(source: MaybeRefOrGetter<StudioSource | Resolv
   let held: number | undefined;
   watch(
     model,
-    (next) => {
+    (next, previous) => {
+      if (previous?.source === next.source && previous.profile === next.profile) return;
       playhead.value = held === undefined ? next.commands : Math.min(held, next.commands);
       held = undefined;
     },

@@ -11,6 +11,9 @@ import { buildView } from "../../src/view/view.ts";
 import { gameContainer, replayHistorySegment } from "./worker-ctx.ts";
 import { createWorkerContext, type WorkerPorts } from "../src/worker/context.ts";
 import { createEngineHost } from "../src/worker/host.ts";
+import { createPlayHere } from "../src/worker/playHere.ts";
+import { createPlayHereLoader } from "../src/worker/playHereLoader.ts";
+import { workerHarness } from "./worker-ctx.ts";
 import { onWorkerMessage } from "../src/worker/dispatch.ts";
 import type { WorkerControl, WorkerInbound } from "../src/worker/workerProtocol.ts";
 
@@ -37,7 +40,7 @@ function game() {
   );
 }
 
-function harness() {
+function harness(eager = true) {
   const control: WorkerControl[] = [];
   let now = 0;
   const ports: WorkerPorts = {
@@ -50,6 +53,7 @@ function harness() {
   };
   const ctx = createWorkerContext(ports);
   ctx.host = createEngineHost(ctx);
+  if (eager) Object.assign(ctx.fns, createPlayHere(ctx));
   let acked = 0;
   const send = (msg: WorkerInbound): void => {
     onWorkerMessage(ctx, msg);
@@ -187,4 +191,66 @@ test("a room without logic, or a malformed spot, changes nothing", () => {
   }
   assert.equal(segments(control).length, 1, "the recording goes on uninterrupted");
   assert.equal(segments(control)[0]!.end, undefined);
+});
+
+test("Play here refuses placement when room entry stops before setup completes", () => {
+  const { ctx, control, tick, playHere } = harness();
+  tick(6);
+  ctx.engine!.setExecutionGate(() => {
+    const ego = ctx.engine!.screenObjects[0]!;
+    return ctx.engine!.vars[0] === 2 && ego.active && ego.x === 80 && ego.y === 120;
+  });
+  const reply = playHere(2, 30, 140);
+  assert.equal(reply.ok, false);
+  assert.match(reply.reason ?? "", /entry.*complete/);
+  assert.deepEqual([reply.x, reply.y], [80, 120]);
+  assert.ok(ctx.engine!.executionStopInfo);
+  assert.equal(segments(control).length, 1, "no replay boot from a partial entry pass");
+});
+
+test("a breakpoint during Play here loading is released at the actual jump", async () => {
+  const { ctx, control } = workerHarness(game());
+  Object.assign(ctx.fns, createPlayHereLoader(ctx));
+  ctx.fns.tickEngine();
+  ctx.fns.onDebugAttach({ type: "debugAttach", id: 1 });
+  const epoch = ctx.debugger.epoch;
+  const answered = new Promise<void>((resolve) => {
+    const post = ctx.ports.control;
+    ctx.ports.control = (message) => {
+      post(message);
+      if (message.type === "playedHere") resolve();
+    };
+  });
+  onWorkerMessage(ctx, { type: "playHere", id: 902, room: 2, x: 30, y: 140 });
+  const epochWhileLoading = ctx.debugger.epoch;
+  ctx.fns.onDebugPause({ type: "debugPause", id: 2, epoch: ctx.debugger.epoch });
+  assert.ok(ctx.engine!.executionStopInfo);
+  await answered;
+  const reply = control.findLast((message) => message.type === "playedHere");
+  assert.ok(reply?.type === "playedHere");
+  assert.equal(reply.ok, true, reply.reason ?? "the deferred jump succeeds");
+  assert.equal(epochWhileLoading, epoch, "loading preserves the debugger's identity");
+  assert.ok(ctx.debugger.epoch > epoch);
+});
+
+test("Play here loads on demand and refuses a command whose game was replaced during loading", async (t) => {
+  const h = harness(false);
+  t.after(() => h.ctx.fns.stopTimers());
+  h.send({ type: "playHere", id: 901, room: 2, x: 60, y: 150 });
+  assert.equal(
+    h.control.some((message) => message.type === "playedHere"),
+    false,
+  );
+  h.send({ type: "boot", files: Object.fromEntries(game().files), words: [] });
+  for (
+    let turn = 0;
+    turn < 400 && !h.control.some((message) => message.type === "playedHere");
+    turn++
+  ) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const reply = h.control.find((message) => message.type === "playedHere");
+  assert.ok(reply?.type === "playedHere");
+  assert.equal(reply.id, 901);
+  assert.equal(reply.ok, false);
 });

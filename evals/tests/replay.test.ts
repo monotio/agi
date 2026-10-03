@@ -120,6 +120,8 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
     const content = JSON.parse(readFileSync(filePath, "utf-8"));
 
     it(`replays bad case: ${content.name} (${file})`, async () => {
+      // Complete-project tasks have their own real session replay driver.
+      if (content.projectAgent) return;
       // A turn's tool log and reply, graded by the under-fetch rule.
       if (content.referenceTurn) {
         assert.deepEqual(
@@ -178,6 +180,16 @@ describe("stored bad cases regression suite (evals/fixtures/bad-cases)", () => {
         const store = new Map<string, typeof res>();
         const projected = projectToolResult(res, store, "replay-1");
         const details = (projected.details ?? {}) as Record<string, unknown>;
+        if (content.projected.inline) {
+          assert.deepEqual(projected, res, `${file}: ordinary details must stay inline`);
+          assert.equal(store.size, 0, `${file}: ordinary details need no diagnostic eviction`);
+          for (const [field, expected] of Object.entries(content.projected.details)) {
+            const actual = details[field] as Record<string, unknown>;
+            for (const [key, value] of Object.entries(expected as Record<string, unknown>))
+              assert.deepEqual(actual[key], value, `${file}: ${field}.${key}`);
+          }
+          return;
+        }
         assert.equal(details["diagnosticId"], "replay-1", `${file}: no diagnostic pointer`);
         for (const [field, expected] of Object.entries(
           content.projected.details as Record<string, Record<string, unknown>>,

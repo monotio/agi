@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 import {
-  isolateStorage,
-  openCreateAdventure,
-  openAiSettings,
   enterCreateMode,
+  isolateStorage,
+  openAiSettings,
+  openCreateAdventure,
+  openWorkspaceAgent,
 } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -13,7 +14,12 @@ test.beforeEach(async ({ page }) => {
 
 test("the start page uses concise tutorial copy and readable primary actions", async ({ page }) => {
   await expect(
-    page.getByText("Play Sierra-style adventures, build your own with AI", { exact: false }),
+    page.getByText(
+      "Play Sierra-style adventures. Build your own with the game running beside you,",
+      {
+        exact: false,
+      },
+    ),
   ).toBeVisible();
   await expect(page.getByText("The future has 16 colors. And you can rewrite it.")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Play the tutorial" })).toBeVisible();
@@ -21,7 +27,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     page
       // First visit: the Continue card introduces the tutorial; shelf cards keep one meta line.
       .getByTestId("home-continue")
-      .getByText("Learn pictures, sprites and priority in a three-room tutorial."),
+      .getByText("Learn pictures, views and depth in a three-room tutorial."),
   ).toBeVisible();
 
   await expect(page.getByTestId("create-adventure-disclosure")).not.toHaveAttribute("open");
@@ -52,9 +58,10 @@ test("the start page uses concise tutorial copy and readable primary actions", a
     expect((await select.boundingBox())?.height).toBeGreaterThanOrEqual(controlHeight);
   }
   await dialog.getByTestId("ai-settings-cancel").click();
+  await page.getByTestId("create-adventure-close").click();
   for (const action of [
     page.getByTestId("catalog-play-adventure-department"),
-    page.getByTestId("connect-create-ai"),
+    page.getByTestId("create-adventure-toggle"),
   ]) {
     const type = await action.evaluate((element) => {
       const style = getComputedStyle(element);
@@ -65,7 +72,7 @@ test("the start page uses concise tutorial copy and readable primary actions", a
         height: element.getBoundingClientRect().height,
       };
     });
-    expect(type.family).toContain("system-ui");
+    expect(type.family).toContain("AGI Geist");
     expect(type.size).toBeGreaterThanOrEqual(14);
     expect(type.weight).toBeGreaterThanOrEqual(700);
     // --control-h (40px) on fine pointers; UiButton grows to 44px under pointer: coarse.
@@ -75,9 +82,8 @@ test("the start page uses concise tutorial copy and readable primary actions", a
   await expect(page.getByTestId("catalog-play-adventure-department")).toBeEnabled();
   await page.getByTestId("catalog-play-adventure-department").click();
   await enterCreateMode(page);
-  await expect(page.getByTestId("power-up")).toBeVisible();
-  await page.getByTestId("power-up").click();
-  await page.getByTestId("connect-assistant-ai").click();
+  await openWorkspaceAgent(page);
+  await page.locator(".agent-panel__model").click();
   const remixKeyLink = dialog.getByRole("link", { name: "Get an API key" });
   await expect(remixKeyLink).toHaveAttribute("href", "https://platform.openai.com/api-keys");
   await dialog.getByTestId("provider-select").selectOption("anthropic");

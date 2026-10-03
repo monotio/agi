@@ -9,7 +9,7 @@ import { readGameZip } from "../src/archive/gameZip.ts";
 
 test("musical intent survives a saved project and resets after raw effect authoring", async () => {
   const state = createAgentSessionState();
-  executeAgentTool(state, "write_logic_source", { room: 0, source: "return;" });
+  executeAgentTool(state, "write_logic", { room: 0, source: "return;" });
   executeAgentTool(state, "write_music", {
     num: 5,
     tempo: 90,
@@ -21,13 +21,13 @@ test("musical intent survives a saved project and resets after raw effect author
       },
     ],
   });
-  const config = { provider: "openai" as const, apiKey: "test-placeholder", model: "test" };
+  const config = { provider: "openai" as const, apiKey: "test-placeholder", model: "gpt-6-sol" };
   const session = new AgentSession(config, () => {}, state);
   const archive = await buildProjectZip({
     title: "Musical project",
     projectId: testProjectId("music-test"),
     provider: "openai",
-    model: "test",
+    model: "gpt-6-sol",
     authoredAt: "2026-09-06",
     files: { ...Object.fromEntries(state.getFiles()), "WORDS.TOK": new Uint8Array(52) },
     words: [],

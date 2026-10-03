@@ -17,6 +17,88 @@ interface MemoryRequest<T> {
 export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
   const records = new Map<IDBValidKey, unknown>();
   let writeTail: Promise<void> = Promise.resolve();
+  // A read-write transaction journals its writes into a private overlay
+  // instead of the committed map: reads fall through to `records`, puts and
+  // deletes stage on top, and the journal applies only when the transaction
+  // completes. An abort or failed request drops the journal, and the overlay
+  // is taken lazily so a queued writer starts from what the previous one
+  // committed. Read-only transactions keep reading the committed map
+  // directly. Reads and the commit-time apply go through the map's own
+  // methods so tests that fault-inject them see the same calls as before.
+  interface StoreView {
+    get(key: IDBValidKey): unknown;
+    set(key: IDBValidKey, value: unknown): void;
+    delete(key: IDBValidKey): void;
+    keys(): Iterable<IDBValidKey>;
+    values(): Iterable<unknown>;
+  }
+  interface Stage {
+    puts: Map<IDBValidKey, unknown>;
+    deletes: Set<IDBValidKey>;
+  }
+  const view = (transaction: Record<string, unknown>): StoreView => {
+    if (transaction["mode"] !== "readwrite") return records;
+    let stage = transaction["stage"] as Stage | undefined;
+    if (stage === undefined) {
+      const puts = new Map<IDBValidKey, unknown>();
+      const deletes = new Set<IDBValidKey>();
+      stage = {
+        puts,
+        deletes,
+      };
+      transaction["stage"] = stage;
+    }
+    const { puts, deletes } = stage;
+    const keys = () => {
+      const merged = new Set<IDBValidKey>();
+      for (const key of records.keys()) if (!deletes.has(key)) merged.add(key);
+      for (const key of puts.keys()) merged.add(key);
+      return merged;
+    };
+    const get = (key: IDBValidKey) =>
+      deletes.has(key) ? undefined : puts.has(key) ? puts.get(key) : records.get(key);
+    return {
+      get,
+      set: (key, value) => {
+        puts.set(key, value);
+        deletes.delete(key);
+      },
+      delete: (key) => {
+        puts.delete(key);
+        deletes.add(key);
+      },
+      keys: () => keys(),
+      values: () => [...keys()].map(get),
+    };
+  };
+  const complete = (transaction: Record<string, unknown>) => {
+    if (transaction["settled"]) return;
+    const stage = transaction["stage"] as Stage | undefined;
+    const before = new Map(records);
+    try {
+      if (stage !== undefined) {
+        for (const key of stage.deletes) records.delete(key);
+        for (const [key, value] of stage.puts) records.set(key, value);
+      }
+    } catch (error) {
+      // Publication hooks can fail after earlier writes. Restore through the
+      // native Map methods so the same injected fault cannot break rollback.
+      Map.prototype.clear.call(records);
+      for (const [key, value] of before) Map.prototype.set.call(records, key, value);
+      transaction["aborted"] = true;
+      transaction["settled"] = true;
+      transaction["error"] = error;
+      queueMicrotask(() => {
+        (transaction["onerror"] as (() => void) | null)?.();
+        (transaction["onabort"] as (() => void) | null)?.();
+        (transaction["release"] as (() => void) | undefined)?.();
+      });
+      return;
+    }
+    transaction["settled"] = true;
+    (transaction["oncomplete"] as (() => void) | null)?.();
+    (transaction["release"] as (() => void) | undefined)?.();
+  };
   const request = <T>(transaction: Record<string, unknown>, operation: () => T): IDBRequest<T> => {
     transaction["pending"] = Number(transaction["pending"]) + 1;
     const value: MemoryRequest<T> = {
@@ -28,16 +110,13 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
     queueMicrotask(() => {
       const gate = transaction["gate"] as Promise<void> | undefined;
       const run = () => {
+        if (transaction["settled"]) return;
         try {
           value.result = operation();
           value.onsuccess?.();
           transaction["pending"] = Number(transaction["pending"]) - 1;
           queueMicrotask(() => {
-            if (!transaction["aborted"] && transaction["pending"] === 0) {
-              transaction["settled"] = true;
-              (transaction["oncomplete"] as (() => void) | null)?.();
-              (transaction["release"] as (() => void) | undefined)?.();
-            }
+            if (!transaction["aborted"] && transaction["pending"] === 0) complete(transaction);
           });
         } catch (error) {
           // A failed request settles its transaction the way IndexedDB does:
@@ -61,6 +140,7 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
     return value as unknown as IDBRequest<T>;
   };
   const database = {
+    objectStoreNames: { contains: (name: string) => name === "projects" },
     onversionchange: null,
     close: () => {},
     createObjectStore: () => ({}),
@@ -72,6 +152,7 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
         aborted: false,
         settled: false,
         pending: 0,
+        mode,
       };
       if (mode === "readwrite") {
         transaction["gate"] = writeTail;
@@ -81,14 +162,12 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
         // An empty transaction commits as soon as the creating task yields.
         queueMicrotask(() =>
           queueMicrotask(() => {
-            if (transaction["pending"] === 0 && !transaction["settled"]) {
-              transaction["settled"] = true;
-              (transaction["release"] as (() => void) | undefined)?.();
-            }
+            if (transaction["pending"] === 0 && !transaction["settled"]) complete(transaction);
           }),
         );
       }
       transaction["abort"] = () => {
+        if (transaction["settled"]) return;
         transaction["aborted"] = true;
         transaction["settled"] = true;
         queueMicrotask(() => {
@@ -99,14 +178,17 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
       transaction["objectStore"] = () => ({
         get: (key: IDBValidKey) =>
           request(transaction, () => {
-            const value = records.get(key);
+            const value = view(transaction).get(key);
             return value === undefined ? undefined : structuredClone(value);
           }),
-        getAll: () => request(transaction, () => structuredClone([...records.values()])),
-        getAllKeys: () => request(transaction, () => [...records.keys()].sort() as IDBValidKey[]),
+        getAll: () => request(transaction, () => structuredClone([...view(transaction).values()])),
+        getAllKeys: () =>
+          request(transaction, () => [...view(transaction).keys()].sort() as IDBValidKey[]),
         openCursor: (range?: { lower?: IDBValidKey | null; upper?: IDBValidKey | null }) => {
           // Cursor over a key snapshot, in key order — enough surface for
-          // prefix deletes (key + delete() + continue()).
+          // prefix deletes (key + delete() + continue()). A failing key read
+          // or clone settles the transaction the way a failed request does:
+          // the request errors, then the transaction errors and aborts.
           const cursorRequest: Record<string, unknown> = {
             result: null,
             error: null,
@@ -114,43 +196,73 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
             onerror: null,
           };
           transaction["pending"] = Number(transaction["pending"]) + 1;
+          const fail = (error: unknown) => {
+            if (transaction["settled"]) return;
+            cursorRequest["error"] = error;
+            (cursorRequest["onerror"] as (() => void) | null)?.();
+            transaction["pending"] = Number(transaction["pending"]) - 1;
+            transaction["aborted"] = true;
+            transaction["settled"] = true;
+            transaction["error"] = error;
+            queueMicrotask(() => {
+              (transaction["onerror"] as (() => void) | null)?.();
+              (transaction["onabort"] as (() => void) | null)?.();
+              (transaction["release"] as (() => void) | undefined)?.();
+            });
+          };
           let keys: IDBValidKey[] = [];
           let index = -1;
           const advance = () => {
+            if (transaction["settled"]) return;
             index++;
             const key = keys[index];
-            cursorRequest["result"] =
-              key === undefined
-                ? null
-                : {
-                    key,
-                    delete: () => {
-                      records.delete(key);
-                    },
-                    continue: () => advance(),
-                  };
-            (cursorRequest["onsuccess"] as (() => void) | null)?.();
-            if (key === undefined) {
+            let continued = false;
+            try {
+              cursorRequest["result"] =
+                key === undefined
+                  ? null
+                  : {
+                      key,
+                      value: structuredClone(view(transaction).get(key)),
+                      delete: () => {
+                        view(transaction).delete(key);
+                      },
+                      continue: () => {
+                        continued = true;
+                        advance();
+                      },
+                    };
+              (cursorRequest["onsuccess"] as (() => void) | null)?.();
+            } catch (error) {
+              fail(error);
+              return;
+            }
+            if (key === undefined || (!continued && !transaction["settled"])) {
+              // A drained cursor — or one parked by a handler that returned
+              // without continue() — has no further events; like real
+              // IndexedDB it settles, and the transaction may complete once
+              // nothing else is pending.
               transaction["pending"] = Number(transaction["pending"]) - 1;
               queueMicrotask(() => {
-                if (!transaction["aborted"] && transaction["pending"] === 0) {
-                  transaction["settled"] = true;
-                  (transaction["oncomplete"] as (() => void) | null)?.();
-                  (transaction["release"] as (() => void) | undefined)?.();
-                }
+                if (!transaction["aborted"] && transaction["pending"] === 0) complete(transaction);
               });
             }
           };
           queueMicrotask(() => {
             const run = () => {
-              keys = [...records.keys()]
-                .filter(
-                  (key) =>
-                    typeof key === "string" &&
-                    (range?.lower == null || key >= range.lower) &&
-                    (range?.upper == null || key <= range.upper),
-                )
-                .sort();
+              try {
+                keys = [...view(transaction).keys()]
+                  .filter(
+                    (key) =>
+                      typeof key === "string" &&
+                      (range?.lower == null || key >= range.lower) &&
+                      (range?.upper == null || key <= range.upper),
+                  )
+                  .sort();
+              } catch (error) {
+                fail(error);
+                return;
+              }
               advance();
             };
             const gate = transaction["gate"] as Promise<void> | undefined;
@@ -162,23 +274,34 @@ export function installIndexedDbFixture(): Map<IDBValidKey, unknown> {
         put: (value: { projectId?: IDBValidKey }) =>
           request(transaction, () => {
             const key = value.projectId!;
-            records.set(key, structuredClone(value));
+            view(transaction).set(key, structuredClone(value));
+            return key;
+          }),
+        add: (value: { projectId?: IDBValidKey }) =>
+          request(transaction, () => {
+            const key = value.projectId!;
+            if (view(transaction).get(key) !== undefined)
+              throw new DOMException("Key already exists in the object store.", "ConstraintError");
+            view(transaction).set(key, structuredClone(value));
             return key;
           }),
         delete: (key: IDBValidKey) =>
           request(transaction, () => {
-            records.delete(key);
+            view(transaction).delete(key);
             return undefined;
           }),
       });
       return transaction;
     },
   };
-  // The prefix-delete surface needs a key-range value; only bound() is used.
+  // The prefix-delete surface needs key-range values. The fake treats a
+  // bound as inclusive on both ends — callers that want an exclusive upper
+  // bound must still check each visited key's prefix themselves.
   Object.defineProperty(globalThis, "IDBKeyRange", {
     configurable: true,
     value: {
       bound: (lower: IDBValidKey, upper: IDBValidKey) => ({ lower, upper }),
+      lowerBound: (lower: IDBValidKey) => ({ lower }),
     },
   });
   Object.defineProperty(globalThis, "indexedDB", {

@@ -17,7 +17,7 @@ function solidView(width: number, height: number): Uint8Array {
   return new Uint8Array([0, 0, 1, 0, 0, 7, 0, 1, 3, 0, width, height, 0, ...rows]);
 }
 
-function clickGame(): Buffer {
+function clickGame(repeatPlayerControl = false): Buffer {
   const game = createContainer();
   game.putResource(
     "logic",
@@ -29,6 +29,7 @@ function clickGame(): Buffer {
          animate.obj(o0); load.view(0); set.view(o0, 0); position(o0, 20, 100);
          assignn(v251, 1); step.size(o0, v251); step.time(o0, v251); draw(o0);
        }
+       ${repeatPlayerControl ? "player.control();" : ""}
        return;`,
       { dictionary: new Map() },
     ).payload,
@@ -40,17 +41,26 @@ function clickGame(): Buffer {
   return Buffer.from(buildZip(files));
 }
 
-async function importClickGame(page: Page, name: string): Promise<void> {
+async function importClickGame(
+  page: Page,
+  name: string,
+  repeatPlayerControl = false,
+): Promise<void> {
   await page.getByTestId("game-zip-input").setInputFiles({
     name: `${name}.zip`,
     mimeType: "application/zip",
-    buffer: clickGame(),
+    buffer: clickGame(repeatPlayerControl),
   });
 }
 
 /** Boot the imported game under `profile` and wait for ego at (20, 100). */
-async function bootClickGame(page: Page, name: string, profile: string): Promise<void> {
-  await importClickGame(page, name);
+async function bootClickGame(
+  page: Page,
+  name: string,
+  profile: string,
+  repeatPlayerControl = false,
+): Promise<void> {
+  await importClickGame(page, name, repeatPlayerControl);
   const picker = page.getByTestId("profile-picker-dialog");
   await expect(picker).toBeVisible();
   await page.getByTestId("profile-picker-select").selectOption(profile);
@@ -95,3 +105,35 @@ test("the same click leaves ego still on a PC profile", async ({ page }) => {
   await observe(page);
   expect((await textHook(page)).egoX).toBe(20);
 });
+
+for (const target of [
+  { name: "horizontal", x: 51, y: 108, egoX: 23, egoY: 100 },
+  { name: "vertical", x: 45, y: 105, egoX: 20, egoY: 97 },
+  { name: "diagonal", x: 51, y: 105, egoX: 23, egoY: 97 },
+]) {
+  test(`later Amiga repeated player.control retains ${target.name} click destination`, async ({
+    page,
+  }) => {
+    await isolateStorage(page);
+    await page.goto("/");
+    await bootClickGame(page, `click-repeat-${target.name}`, "amiga-2.310", true);
+    await clickFramePixel(page, target.x, target.y);
+    // The heartbeat may still predate the click by up to 250 ms. Establish
+    // a post-input observation before counting cycles; otherwise twelve
+    // reported cycles can include time before the click was delivered.
+    await expect
+      .poll(async () => {
+        const state = await textHook(page);
+        return [state.egoX, state.egoY];
+      })
+      .not.toEqual([20, 100]);
+    // Reading after twelve further cycles catches walking through the target.
+    await waitForCycles(page, 12);
+    const arrived = await textHook(page);
+    expect([arrived.egoX, arrived.egoY]).toEqual([target.egoX, target.egoY]);
+    await waitForCycles(page, 4);
+    const settled = await textHook(page);
+    expect([settled.egoX, settled.egoY]).toEqual([target.egoX, target.egoY]);
+    await page.screenshot({ path: test.info().outputPath(`${target.name}-arrival.png`) });
+  });
+}

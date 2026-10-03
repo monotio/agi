@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onWatcherCleanup, ref, useTemplateRef, watch } from "vue";
-import DebugDock from "../inspector/DebugDock.vue";
-import InspectorOverlay from "../inspector/InspectorOverlay.vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  onWatcherCleanup,
+  ref,
+  useTemplateRef,
+  watch,
+} from "vue";
+import { PAGE_CONTROLS } from "./useGameKeys.ts";
+
 import TouchControls from "./TouchControls.vue";
 import TransportBar from "../history/TransportBar.vue";
 import { useEngineApi } from "../engine/engineContext.ts";
@@ -23,6 +33,9 @@ const props = defineProps<{
   inspectorDocked?: boolean;
 }>();
 
+const DebugDock = defineAsyncComponent(() => import("../inspector/DebugDock.vue"));
+const InspectorOverlay = defineAsyncComponent(() => import("../inspector/InspectorOverlay.vue"));
+
 const engine = useEngineApi();
 const {
   state,
@@ -40,9 +53,47 @@ const {
 const presentation = usePresentation();
 const { gpuBackend, debugOpen, debugViewMode, splitAt } = presentation;
 const bridge = useShellBridge();
+const agentBlocksGame = computed(() => state.powerUp.open && !props.inspectorDocked);
 
 /** The DOM input is the keyboard capture; its text lives on the engine's input row. */
 const inputEl = useTemplateRef("inputEl");
+/**
+ * Whether keys reach the game: its input has focus, or in Play the page
+ * itself does (useGameKeys). Every page control keeps its own keys. The
+ * stage and the strip show the answer.
+ */
+const gameFocused = ref(false);
+function readKeyboard(): void {
+  const active = document.activeElement;
+  gameFocused.value =
+    document.hasFocus() &&
+    (active === inputEl.value ||
+      (!props.inspectorDocked && !(active instanceof Element && active.closest(PAGE_CONTROLS))));
+}
+/** Focus moves out of one element before it lands on the next; read after both. */
+function onFocusMove(): void {
+  setTimeout(readKeyboard, 0);
+}
+onMounted(() => {
+  document.addEventListener("focusin", onFocusMove);
+  document.addEventListener("focusout", onFocusMove);
+  window.addEventListener("focus", onFocusMove);
+  window.addEventListener("blur", onFocusMove);
+  readKeyboard();
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("focusin", onFocusMove);
+  document.removeEventListener("focusout", onFocusMove);
+  window.removeEventListener("focus", onFocusMove);
+  window.removeEventListener("blur", onFocusMove);
+});
+watch(() => props.inspectorDocked, readKeyboard);
+watch(
+  [gameFocused, () => props.inspectorDocked, () => props.touchControls, () => state.phase],
+  ([focused, creating, touch, phase]) =>
+    presentation.setAttention(focused, !focused && !creating && !touch && phase === "running"),
+  { immediate: true },
+);
 const screenEl = useTemplateRef("screenEl");
 const stageEl = useTemplateRef("stageEl");
 
@@ -71,6 +122,16 @@ const stageStyle = computed(() => {
 const inputLine = ref("");
 const promptLine = ref("");
 const composing = ref(false);
+// v-model preserves the native IME draft across renders. Keep its buffer
+// separate from the engine line so onInputEdit can compare the previous text.
+const nativeInput = ref("");
+watch(
+  [inputLine, promptLine, () => state.prompt],
+  () => {
+    nativeInput.value = state.prompt ? promptLine.value : inputLine.value;
+  },
+  { flush: "sync" },
+);
 
 function bindCanvas(el: unknown): void {
   presentation.canvasEl.value = el instanceof HTMLCanvasElement ? el : undefined;
@@ -84,7 +145,7 @@ watch(
   (phase) => {
     if (phase === "running" && !props.touchControls) {
       nextTick(() => {
-        inputEl.value?.focus({ preventScroll: true });
+        claimGameFocus();
       });
     }
   },
@@ -195,7 +256,7 @@ function sendScreenClick(ev: MouseEvent): void {
   if (
     state.walkthrough.active ||
     state.paused ||
-    state.powerUp.open ||
+    agentBlocksGame.value ||
     state.modal !== null ||
     state.waitingForKey
   ) {
@@ -212,6 +273,11 @@ function sendScreenClick(ev: MouseEvent): void {
 
 function focusInput(): void {
   inputEl.value?.focus({ preventScroll: true });
+}
+
+/** A late-loaded surface respects the control the player already chose. */
+function claimGameFocus(): void {
+  if (document.activeElement === document.body) focusInput();
 }
 
 function triggerKey(code: number): void {
@@ -354,6 +420,7 @@ function onInputEdit(event: Event): void {
           : next.slice(start, newEnd);
       for (const char of entered) sendKey(char.charCodeAt(0));
       // Raw-key answers do not edit the parser command that preceded them.
+      nativeInput.value = previous;
       input.value = previous;
       return;
     }
@@ -364,6 +431,7 @@ function onInputEdit(event: Event): void {
       else inserted += char;
     }
     inputLine.value = next.slice(0, start) + inserted + next.slice(newEnd);
+    nativeInput.value = inputLine.value;
     if (input.value !== inputLine.value) input.value = inputLine.value;
     sendEdit(inputLine.value);
   }
@@ -386,7 +454,7 @@ function onTouchDirection(dir: number): void {
     if (wasWalking && state.phase === "running") sendDirection(0);
     return;
   }
-  if (state.phase !== "running" || state.powerUp.open || state.prompt) return;
+  if (state.phase !== "running" || agentBlocksGame.value || state.prompt) return;
   touchMovementActive = state.modal === null && !state.waitingForKey;
   if (state.waitingForKey || state.modal === "save" || state.modal === "restore")
     sendKey(DIRECTION_KEYS[dir]!);
@@ -395,7 +463,7 @@ function onTouchDirection(dir: number): void {
 
 function onVirtualKey(code: number): void {
   resumeAudio();
-  if (state.phase !== "running" || state.powerUp.open || composing.value) return;
+  if (state.phase !== "running" || agentBlocksGame.value || composing.value) return;
   if (state.prompt) {
     if (code === AGI_KEY.ENTER || code === AGI_KEY.ESCAPE) {
       submitPrompt(code === AGI_KEY.ESCAPE ? "" : promptLine.value, code === AGI_KEY.ESCAPE);
@@ -520,6 +588,7 @@ function onSplitUp(): void {
 
 onMounted(() => {
   void presentation.initStage(props.crtEnabled);
+  if (!props.touchControls) nextTick(claimGameFocus);
   // Callers close whatever held the keyboard first (the assistant, a sheet);
   // the input re-enables on the next render, so focus lands after it.
   bridge.focusGameInput = () => void nextTick(focusInput);
@@ -561,6 +630,8 @@ defineExpose({
         class="screen"
         :class="{
           active: state.phase === 'running',
+          'gpu-stage': !!gpuBackend,
+          tube: !!gpuBackend && crtEnabled,
           shake: state.shake,
           remixing: state.powerUp.open && state.powerUp.mode !== 'ask',
         }"
@@ -596,14 +667,14 @@ defineExpose({
           <input
             id="game-command"
             :disabled="
-              state.powerUp.open ||
+              agentBlocksGame ||
               state.historyView.active ||
               (!state.inputReady && !state.walkthrough.active)
             "
             aria-label="Game command"
             aria-describedby="game-input-help"
             ref="inputEl"
-            :value="state.prompt ? promptLine : inputLine"
+            v-model="nativeInput"
             :inputmode="state.prompt?.kind === 'getnum' ? 'numeric' : 'text'"
             data-testid="input-line"
             autocomplete="off"
@@ -664,7 +735,7 @@ defineExpose({
 
     <TouchControls
       v-if="touchControls && state.phase === 'running'"
-      :disabled="state.powerUp.open || state.paused"
+      :disabled="agentBlocksGame || state.paused"
       :navigating="state.modal !== null"
       :hold="state.holdToMove"
       @direction="onTouchDirection"
@@ -708,12 +779,30 @@ defineExpose({
             Press Enter to continue
           </span>
         </template>
-        <p id="game-input-help" class="input-help">
+        <button
+          v-if="!touchControls"
+          type="button"
+          class="keys-led"
+          :class="{ on: gameFocused }"
+          data-testid="game-keys"
+          @click="focusInput"
+        >
+          <span class="led" aria-hidden="true"></span>
+          <span class="keys-led-label">
+            <span>{{ gameFocused ? "Keys go to the game" : "Click the game to play" }}</span>
+          </span>
+        </button>
+        <p
+          id="game-input-help"
+          class="input-help"
+          :class="{ 'input-help--hidden': !gameFocused && !touchControls }"
+        >
           <template v-if="touchControls">Type for the keyboard · Keys for F1–F10</template>
           <template v-else
             >Type to talk · Arrows or numpad walk<template v-if="escOpensMenu">
               · <kbd>Esc</kbd> game menu</template
-            ></template
+            >
+            · <kbd>Shift</kbd>+<kbd>Tab</kbd> leaves the game</template
           >
         </p>
         <!-- Shell actions docked in the strip (Play's Ask), clear of the stage. -->
@@ -795,6 +884,9 @@ defineExpose({
   background: var(--agi-0);
   box-shadow: 0 0 0 1px var(--hairline);
   transition: box-shadow var(--duration) var(--ease-out);
+}
+.screen.tube {
+  box-shadow: none;
 }
 .screen.remixing {
   box-shadow: 0 0 0 2px var(--warn-line);
@@ -932,6 +1024,9 @@ defineExpose({
   margin: 0;
   animation: hint-settle 1.2s ease-in 60s forwards;
 }
+.input-help--hidden {
+  visibility: hidden;
+}
 .input-help kbd {
   padding: 0 var(--space-1);
   border: 1px solid var(--hairline-strong);
@@ -988,8 +1083,57 @@ defineExpose({
 .input-row input {
   font-size: var(--text-lg);
 }
-.screen:has(.input-row input:focus-visible) {
+/* The GPU stage lights its own glass while the game has the keyboard
+   (AgiStage setAttention); the 2D fallback keeps an outline. */
+.screen:not(.gpu-stage):has(.input-row input:focus) {
   outline: 2px solid var(--action-line);
   outline-offset: 3px;
+}
+.keys-led {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* Reserve the widest label so focus cannot reflow the strip during a click. */
+.keys-led-label {
+  display: grid;
+}
+.keys-led-label > span,
+.keys-led-label::after {
+  grid-area: 1 / 1;
+}
+.keys-led-label::after {
+  content: "Click the game to play";
+  visibility: hidden;
+}
+.keys-led:hover {
+  color: var(--ink);
+}
+.keys-led.on {
+  color: var(--ink-2);
+  cursor: default;
+}
+.led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-disabled);
+  transition:
+    background var(--duration) var(--ease-out),
+    box-shadow var(--duration) var(--ease-out);
+}
+.keys-led.on .led {
+  background: var(--action);
+  box-shadow: 0 0 6px var(--action);
 }
 </style>

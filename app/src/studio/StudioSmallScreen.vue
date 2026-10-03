@@ -86,7 +86,7 @@ watch(
           data-testid="studio-small-keep"
           @click="keep"
         >
-          Keep
+          Save
         </UiButton>
       </div>
     </div>

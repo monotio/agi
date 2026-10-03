@@ -2,10 +2,21 @@ id: plain-copy-literal
 valid:
   - 'const title = "Ask about this game";'
   - 'const note = "Not built yet";'
+  - 'const note = "No changes";'
+  - 'const error = "This cannot be undone.";'
+  - 'const help = "Connect OpenAI to generate art.";'
+  - 'const status = "Saved just now";'
   - 'const error = "Nothing is recorded yet. Play a little first.";'
   - "const label = `${room} — ${brief}`;"
   - "type Never = never;"
 invalid:
+  - 'const hint = "Connect AI. Editing works either way.";'
+  - 'const hint = "Drawing and imports stay available without one.";'
+  - 'const hint = "Nothing is written until you approve.";'
+  - 'const title = "Open in Logic Studio; no engine needed";'
+  - 'const hint = "Build a game without an API key";'
+  - 'const hint = "Create with or without AI";'
+  - 'const hint = "Simply click Create to start";'
   - 'const title = "Ask about this game — answers without changing it";'
   - 'const error = "This game is no longer in your library.";'
   - 'const note = "Game text uses its own font, rather than the built-in one.";'

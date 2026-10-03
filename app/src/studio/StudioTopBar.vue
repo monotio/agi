@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { VOCABULARY } from "../../../src/vocabulary.ts";
 import { computed } from "vue";
 import UiChip from "../ui/UiChip.vue";
 import UiExplain from "../ui/UiExplain.vue";
@@ -62,9 +63,9 @@ const emit = defineEmits<{
 const lens = defineModel<StudioLens>("lens", { required: true });
 const unlocks = defineModel<LensUnlocks>("unlocks", { required: true });
 const LENSES = [
-  { value: "art", label: "Art", shortcut: "1", title: "Art · what the player sees" },
-  { value: "depth", label: "Depth", shortcut: "2", title: "Depth · what stands in front" },
-  { value: "walk", label: "Walk", shortcut: "3", title: "Walk · where the hero can go" },
+  { value: "art", label: VOCABULARY.art.label, shortcut: "1", title: VOCABULARY.art.help },
+  { value: "depth", label: VOCABULARY.depth.label, shortcut: "2", title: VOCABULARY.depth.help },
+  { value: "walk", label: VOCABULARY.walk.label, shortcut: "3", title: VOCABULARY.walk.help },
 ] as const;
 const lenses = computed(() =>
   LENSES.map((option) => ({

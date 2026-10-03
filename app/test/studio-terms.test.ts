@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { STUDIO_TERMS } from "../src/studio/studioTerms.ts";
 import { HELP_SECTIONS } from "../src/shell/helpContent.ts";
+import { CONTROL_VALUES } from "../src/studio/studioView.ts";
 
 /**
  * The Studios' explainers (studioTerms.ts) under the owner's copy rules: a
@@ -14,6 +15,25 @@ import { HELP_SECTIONS } from "../src/shell/helpContent.ts";
 const RETIRED = [" — ", "not a", "never", "no longer", "rather than", "instead of"];
 
 const entries = Object.entries(STUDIO_TERMS);
+
+test("editor explainers and walk labels use the shared vocabulary", () => {
+  assert.deepEqual(
+    CONTROL_VALUES.map(({ name }) => name),
+    ["Wall", "Gate", "Trigger", "Water"],
+  );
+  assert.equal(STUDIO_TERMS.depth.says, "What stands in front. Lower on the screen is nearer.");
+  assert.equal(STUDIO_TERMS.ghost.name, "Stand-in");
+  assert.equal(STUDIO_TERMS.backdrop.name, "Background");
+  assert.equal(STUDIO_TERMS.onion.name, "Onion skin");
+  assert.equal(
+    STUDIO_TERMS.transparent.says,
+    "Pixels in this colour show the room behind the character.",
+  );
+  assert.equal(
+    STUDIO_TERMS.order.says,
+    "The order a picture draws its items. Later items cover earlier ones.",
+  );
+});
 
 test("every Studio term says what it is in at most 140 characters", () => {
   assert.ok(entries.length >= 33, `${entries.length} terms`);

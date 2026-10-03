@@ -4,6 +4,7 @@ import { AUTHORING_GUIDE, readAuthoringGuide } from "../src/agent/authoringGuide
 import { createAgentSessionState } from "../src/agent/agentState.ts";
 import { ASK_TOOLS, AGENT_TOOLS, executeAgentTool } from "../src/agent/tools.ts";
 import { AGI_SYSTEM_PROMPT, createGenesisPrompt } from "../src/agent/prompt.ts";
+import { createStarterProject } from "../src/authoring/starterProject.ts";
 import { assembleLogic } from "../src/logic/assembler.ts";
 
 /**
@@ -30,19 +31,19 @@ test("the guide states the interpreter behaviors the engine follows", () => {
   const text = AUTHORING_GUIDE["text-and-captions"]!.body;
   assert.match(text, /next row at column 0/);
   assert.match(text, /show\.pic repaints the whole picture band/);
-  assert.match(text, /every updating sprite's per-cycle redraw/);
-  assert.match(text, /returns when the sprite moves on or is erased/);
-  const sprites = AUTHORING_GUIDE["sprites-and-animation"]!.body;
-  assert.match(sprites, /set\.view keeps the object's current loop/);
-  assert.match(sprites, /call set\.cel\(o, 0\) explicitly/);
+  assert.match(text, /every updating actor's per-cycle redraw/);
+  assert.match(text, /returns when the actor moves on or is erased/);
+  const actors = AUTHORING_GUIDE["sprites-and-animation"]!.body;
+  assert.match(actors, /set\.view keeps the object's current loop/);
+  assert.match(actors, /call set\.cel\(o, 0\) explicitly/);
   const walking = AUTHORING_GUIDE["walking-barriers-and-water"]!.body;
-  assert.match(walking, /f3 is set for ego when ANY baseline pixel touches control 2/);
-  assert.match(walking, /f0 is set only when EVERY baseline pixel is on water/);
-  assert.match(walking, /zero-distance move\.obj on ego/);
+  assert.match(walking, /f3 is set for hero when ANY feet row pixel touches control 2/);
+  assert.match(walking, /f0 is set only when EVERY feet row pixel is on water/);
+  assert.match(walking, /zero-distance move\.obj on hero/);
   const timing = AUTHORING_GUIDE["timing-and-pacing"]!.body;
   assert.match(timing, /have\.key\(\) polled once per cycle/);
   assert.match(timing, /ten minutes/);
-  assert.match(timing, /pressing the direction the ego already walks stops it/);
+  assert.match(timing, /pressing the direction the hero already walks stops it/);
 });
 
 test("the tool is catalogued for Ask turns and validates its topic argument", () => {
@@ -58,17 +59,24 @@ test("the tool is catalogued for Ask turns and validates its topic argument", ()
   const rejected = executeAgentTool(state, "read_authoring_guide", { topic: "jokes" });
   assert.equal(rejected.success, false);
   assert.ok(AGI_SYSTEM_PROMPT.includes("read_authoring_guide"));
-  assert.ok(createGenesisPrompt("A brief").includes("read_authoring_guide"));
+  assert.ok(
+    createGenesisPrompt("A brief", createStarterProject("boilerplate")).includes(
+      "read_authoring_guide",
+    ),
+  );
 });
 
 test("the genesis prompt names the template boot without prescribing the opening's shape", () => {
-  const prompt = createGenesisPrompt("# Night Train\nA sleeper car mystery.");
+  const prompt = createGenesisPrompt(
+    "# Night Train\nA sleeper car mystery.",
+    createStarterProject("boilerplate"),
+  );
   assert.ok(prompt.startsWith("### GENESIS:"));
-  assert.match(prompt, /recommended starting point/);
+  assert.match(prompt, /extend or replace this starting point/);
   assert.match(prompt, /call\(255\)/);
   assert.match(prompt, /text-screen intro/);
   assert.ok(!/Use this logic 0 boot script/.test(prompt));
-  assert.match(prompt, /extend or replace any of it/);
+  assert.match(prompt, /extend or replace this starting point/);
   assert.match(AUTHORING_GUIDE["base-template"]!.body, /ordinary game resources/);
 });
 

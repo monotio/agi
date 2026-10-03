@@ -6,6 +6,10 @@ import {
   isolateStorage,
   openCardMenu,
   openDeveloperActivity,
+  openGameOptions,
+  waitForCycles,
+  waitForFrames,
+  waitForRoom,
 } from "./engineProbe.ts";
 
 const missing = fixtureSkip(KNOWN_GAME_HASH.KQ1, ["AGIDATA.OVL"]);
@@ -989,6 +993,114 @@ test.describe("Walkthrough UI", () => {
     // The untouched edition still gets the offer under its own menu.
     await openCardMenu(page, "game-actions-synthetic-copy");
     await expect(page.getByTestId("run-walkthrough")).toBeVisible();
+  });
+
+  test("refuses a walkthrough when the running interpreter differs from the tape's profile", async ({
+    page,
+  }) => {
+    // The same bundle revision the tape was recorded on, served under a
+    // declared different interpreter: the edition check passes and the
+    // profile check must stop the tape before its first action.
+    const synthetic = getKnownGameByAlias("synthetic")!;
+    await page.route("**/fixtures/", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            folder: "synthetic",
+            hash: synthetic.wordsSha256,
+            alias: "synthetic",
+            title: "SYNTHETIC",
+            wordsSha256: synthetic.wordsSha256,
+            objectSha256: synthetic.objectSha256,
+            revision: synthetic.targetRevision,
+            profile: "2.917",
+          },
+        ]),
+      }),
+    );
+    await isolateStorage(page);
+    await page.goto("/");
+
+    await openCardMenu(page, "game-actions-synthetic");
+    await page.getByTestId("run-walkthrough").click();
+
+    // The refusal names the tape's interpreter and the running one, and the
+    // replay never advances past the boot's tick 0.
+    const refusal = page.getByTestId("walkthrough-error");
+    await expect(refusal).toBeVisible({ timeout: 30_000 });
+    await expect(refusal).toContainText("2.936");
+    await expect(refusal).toContainText("2.917");
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status ?? ""))
+      .toBe("error");
+    const tick = await page.evaluate(() => window.__AGI_REPLAY__?.latest?.tick ?? -1);
+    expect(tick).toBe(0);
+  });
+
+  test("a refused walkthrough on a mismatched running game leaves it playable", async ({
+    page,
+  }) => {
+    // The declared-2.917 copy of the tape's own bundle: the edition check
+    // passes and the running game's own report decides. Booting it twice
+    // puts the worker on a nonzero replay session — the state a refused
+    // preflight must not strand by moving the session underneath it.
+    const synthetic = getKnownGameByAlias("synthetic")!;
+    await page.route("**/fixtures/", (route) =>
+      route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            folder: "synthetic",
+            hash: synthetic.wordsSha256,
+            alias: "synthetic",
+            title: "SYNTHETIC",
+            wordsSha256: synthetic.wordsSha256,
+            objectSha256: synthetic.objectSha256,
+            revision: synthetic.targetRevision,
+            profile: "2.917",
+          },
+        ]),
+      }),
+    );
+    await isolateStorage(page);
+    await page.goto("/");
+
+    await page.getByTestId("boot-synthetic").click();
+    await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
+    await waitForRoom(page, 1, { coldBoot: true });
+    await page.getByTestId("btn-exit").click();
+    await expect(page.getByTestId("boot-synthetic")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("boot-synthetic").click();
+    await expect(page.getByTestId("input-line")).toBeVisible({ timeout: 30_000 });
+    await waitForRoom(page, 1, { coldBoot: true });
+
+    // The refusal names the tape's interpreter and the running one; the
+    // rejected start stays an inactive error, not a run.
+    await openGameOptions(page, "help-menu");
+    await page.getByTestId("btn-run-walkthrough").click();
+    const refusal = page.getByTestId("walkthrough-error");
+    await expect(refusal).toBeVisible();
+    await expect(refusal).toContainText("2.936");
+    await expect(refusal).toContainText("2.917");
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.status ?? ""))
+      .toBe("error");
+    await expect
+      .poll(() => page.evaluate(() => window.__AGI_STATE__?.walkthrough.active ?? true))
+      .toBe(false);
+
+    // The same bytes keep running their declared interpreter: no tape
+    // action ever landed, the profile override is still the descriptor's,
+    // cycles and frames keep arriving on the session the refusal kept,
+    // and a typed command still moves ego to the next room.
+    expect(await page.evaluate(() => window.__AGI_REPLAY__?.latest ?? null)).toBeNull();
+    expect(await page.evaluate(() => window.__AGI_STATE__?.profile)).toBe("2.917");
+    await waitForCycles(page, 3);
+    await waitForFrames(page, 1);
+    await page.getByTestId("input-line").fill("east");
+    await page.getByTestId("input-line").press("Enter");
+    await waitForRoom(page, 2);
   });
 
   test("scrubbing back and forth in kq1 during dialogue does not throw bridge cancellation error", async ({

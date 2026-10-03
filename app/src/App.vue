@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import AgentLogPanel from "./authoring/AgentLogPanel.vue";
-import AgentBubble from "./authoring/AgentBubble.vue";
+import { VOCABULARY } from "../../src/vocabulary.ts";
 import GameHeader from "./shell/GameHeader.vue";
-import AiSettingsDialog from "./settings/AiSettings.vue";
-import SoundPreview from "./authoring/SoundPreview.vue";
 import WalkthroughBar from "./walkthrough/WalkthroughBar.vue";
-import PlayArea from "./play/PlayArea.vue";
-import AssistantStart from "./shell/AssistantStart.vue";
-import CreateDock from "./shell/CreateDock.vue";
+import { createWorkspaceEditor, provideWorkspaceEditor } from "./shell/workspaceEditor.ts";
+import { createCommandRegistry } from "./shell/commands/commandRegistry.ts";
+import { emptyCommandContext, provideCommands } from "./shell/commands/commandContext.ts";
 import UiButton from "./ui/UiButton.vue";
 import UiDialog from "./ui/UiDialog.vue";
+import UiChip from "./ui/UiChip.vue";
 import UiToast from "./ui/UiToast.vue";
 import {
   computed,
@@ -24,8 +22,7 @@ import {
 import { useEngine, type AutosaveRecord } from "./engine/useEngine.ts";
 import { MODEL_OPTIONS } from "../../src/agent/modelEffort.ts";
 import { reconcileGameIndex } from "./project/gameStorage.ts";
-import { resolveGameHash } from "../../src/games/knownGames.ts";
-import { findInstalledFolder, gameStorageKey } from "./project/gameTypes.ts";
+import type { ProjectId } from "./project/gameTypes.ts";
 import { useGameKeys } from "./play/useGameKeys.ts";
 
 import { provideEngine } from "./engine/engineContext.ts";
@@ -34,17 +31,29 @@ import { createAiSettings, provideAiSettings } from "./settings/useAiSettings.ts
 import { createGameLibrary, provideGameLibrary } from "./library/useGameLibrary.ts";
 import { createPresentation, providePresentation } from "./play/usePresentation.ts";
 import SetupPanel from "./home/SetupPanel.vue";
+import { followEmptyProjectRoute } from "./home/emptyProjectRoute.ts";
 import StaleTabNote from "./play/StaleTabNote.vue";
 import StartOverNote from "./play/StartOverNote.vue";
 import { nextViewportLayout } from "./play/viewportLayout.ts";
-import ReferenceUpload from "./references/ReferenceUpload.vue";
 import { createShell, provideShell } from "./shell/useShell.ts";
 import { isGameRoute, parseGameHash } from "./shell/shellRoute.ts";
 import { createCreateWorkspace, provideCreateWorkspace } from "./shell/useCreateWorkspace.ts";
 import { useCreateMode } from "./shell/useCreateMode.ts";
 import { usePlayHereFromStudio } from "./shell/usePlayHere.ts";
 import { createInspector, provideInspector } from "./inspector/useInspector.ts";
+import { referenceUpload } from "./references/referenceUploadState.ts";
 
+const AgentLogPanel = defineAsyncComponent(() => import("./authoring/AgentLogPanel.vue"));
+const AgentBubble = defineAsyncComponent(() => import("./authoring/AgentBubble.vue"));
+const AiSettingsDialog = defineAsyncComponent(() => import("./settings/AiSettings.vue"));
+const SoundPreview = defineAsyncComponent(() => import("./authoring/SoundPreview.vue"));
+const PlayArea = defineAsyncComponent(() => import("./play/PlayArea.vue"));
+const ReferenceUpload = defineAsyncComponent(() => import("./references/ReferenceUpload.vue"));
+const AgentPanel = defineAsyncComponent(() => import("./agent/AgentPanel.vue"));
+const ProjectRestartNotice = defineAsyncComponent(
+  () => import("./project/ProjectRestartNotice.vue"),
+);
+const CreateKeyboard = defineAsyncComponent(() => import("./shell/commands/CreateKeyboard.vue"));
 const testMode = import.meta.env.MODE === "test";
 const touchControls = ref(
   localStorage.getItem("monotio_agi.touchControls") === "on" ||
@@ -80,10 +89,7 @@ providePresentation(presentation);
 const { gpuBackend, debugOpen } = presentation;
 const playArea = useTemplateRef("playArea");
 
-watch(crtEnabled, (on) => {
-  localStorage.setItem("monotio_agi.crt", on ? "on" : "off");
-  presentation.setCrt(on);
-});
+watch(crtEnabled, (on) => localStorage.setItem("monotio_agi.crt", on ? "on" : "off"));
 
 function onMenuHashChange(): void {
   if (location.hash === "#create-adventure") shellBridge.openCreateSection(false);
@@ -105,9 +111,10 @@ provideInspector(createInspector(engine, presentation));
 
 // The map's graph code loads only when the player opens it — never on boot.
 const WorldMap = defineAsyncComponent(() => import("./world/WorldMap.vue"));
-const RoomStudio = defineAsyncComponent(() => import("./studio/RoomStudio.vue"));
-const SpriteStudio = defineAsyncComponent(() => import("./studio/sprite/SpriteStudio.vue"));
-const mapOpen = engine.roomMap.open;
+const CreateWorkspace = defineAsyncComponent(
+  () => import("./studio/workspace/CreateWorkspace.vue"),
+);
+const mapOpen = computed(() => engine.roomMap?.open.value ?? false);
 // A modal can swallow the keyup of a held direction; release it on open.
 watch(mapOpen, (isOpen) => {
   if (isOpen) releaseMovement();
@@ -119,7 +126,6 @@ const {
   startWalkthrough,
   stopWalkthrough,
   releaseAgentAudioPreviews,
-  resumeLastGame,
   resumeFromRecord,
   flushAutosave,
   lastAutosaveRecord,
@@ -128,6 +134,20 @@ const {
 
 const shellBridge = createShellBridge();
 provideShellBridge(shellBridge);
+shellBridge.togglePowerUp = (mode) => {
+  if (state.powerUp.busy) return;
+  if (state.powerUp.open) {
+    if (mode !== undefined && state.powerUp.mode !== mode && state.powerUp.mode !== "room") {
+      state.powerUp.mode = mode;
+      return;
+    }
+    engine.closePowerUp();
+    shellBridge.focusGameInput();
+    return;
+  }
+  if (mode !== undefined) state.powerUp.mode = mode;
+  void engine.openPowerUp(ai.llmConfig());
+};
 const aiSettingsDialog = useTemplateRef("aiSettingsDialog");
 const ai = createAiSettings(engine, {
   dialog: aiSettingsDialog,
@@ -162,8 +182,8 @@ const studioFits = computed(() => {
 });
 /** The Create docks' tabs and folds, and the centre's Studio (shell/useCreateWorkspace.ts). */
 const workspace = createCreateWorkspace({
-  pauseEngine: engine.pauseEngine,
-  resumeEngine: engine.resumeEngine,
+  pauseEngine: () => {},
+  resumeEngine: () => {},
   focusGame: () => shellBridge.focusGameInput(),
   viewOnly: () => phone.value,
   studioFits: () => studioFits.value,
@@ -176,13 +196,33 @@ const shell = createShell({
   librarySource: (projectId) =>
     lib.savedGames.value.find((game) => game.projectId === projectId)?.library?.source,
   initialMode: parseGameHash(location.hash)?.mode ?? "play",
-  createGuard: { unkept: workspace.studioUnkept, confirm: workspace.confirmStudioLeave },
 });
 provideShell(shell);
+engine.setProjectMode(shell.mode.value);
 const creating = computed(() => state.phase === "running" && shell.mode.value === "create");
-const studio = workspace.studio;
-/** Room Studio takes the whole workspace; the docks wait hidden, still mounted, as they were. */
-const studioOpen = computed(() => creating.value && studio.value !== null);
+/** CRT is a Play presentation; editing always shows the crisp frame. */
+const crtShown = computed(() => crtEnabled.value && !creating.value);
+watch(crtShown, (on) => presentation.setCrt(on));
+const createKeyboard = useTemplateRef("createKeyboard");
+const commands = createCommandRegistry(
+  () => createKeyboard.value?.context() ?? emptyCommandContext(),
+);
+provideCommands(commands);
+const workspaceEditor = createWorkspaceEditor(engine);
+provideWorkspaceEditor(workspaceEditor);
+watch(workspace.studio, (request) => {
+  if (!request) return;
+  workspaceEditor.open(
+    request.kind === "picture" ? `picture:${request.pictureNumber}` : `view:${request.viewNumber}`,
+  );
+  workspace.closeStudio();
+});
+watch(
+  () => state.phase,
+  (phase) => {
+    if (phase === "idle") workspaceEditor.reset();
+  },
+);
 const sheetOpen = workspace.sheetOpen;
 /** Room Studio's Play here: leave Studio, show Play, jump the game to the spot. */
 const playHereFromStudio = usePlayHereFromStudio({
@@ -193,7 +233,7 @@ const playHereFromStudio = usePlayHereFromStudio({
 const { onDockKey } = useCreateMode({
   state,
   workspace,
-  roomMap: engine.roomMap,
+  roomMap: () => engine.roomMap,
   creating,
   phone,
   debugOpen,
@@ -201,26 +241,25 @@ const { onDockKey } = useCreateMode({
 });
 const { onKeydown: onGlobalKeydown, onKeyup: onGlobalKeyup } = useGameKeys({
   engine,
+  creating: () => creating.value,
   playArea: () => playArea.value,
-  // Create's dock keys, and Studio holding the paused game: nothing reaches it.
-  intercept: (ev) => onDockKey(ev) || studio.value !== null,
+  // Workspace keys reach MAIN only while the game zone owns focus.
+  intercept: (ev) =>
+    onDockKey(ev) ||
+    (creating.value &&
+      (createKeyboard.value?.blocksGame(ev) ?? ev.target !== playArea.value?.inputEl)),
 });
-/** Create keeps Developer activity in its Activity tab while that shows. */
-const activityDocked = computed(
-  () =>
-    creating.value &&
-    !phone.value &&
-    workspace.active.right === "activity" &&
-    !workspace.collapsed.right,
-);
+/** The stored-project studios' keyup gets the same isolation as its keydown. */
+function onShellKeyup(ev: KeyboardEvent): void {
+  onGlobalKeyup(ev);
+}
 /**
  * Developer activity is off the page everywhere: Settings → Advanced opens
- * it, as a dialog — or, in Create on a desktop, as the Activity tab.
+ * it as a dialog.
  */
 const activitySheetOpen = ref(false);
 function openDeveloperActivity(): void {
-  if (creating.value && !phone.value) workspace.showPanel("activity");
-  else activitySheetOpen.value = true;
+  activitySheetOpen.value = true;
 }
 const assistantShown = computed(() =>
   phone.value
@@ -229,6 +268,7 @@ const assistantShown = computed(() =>
 );
 
 watch(shell.mode, (mode) => {
+  engine.setProjectMode(mode);
   releaseMovement();
   // The switch keeps focus otherwise, and a focused control swallows game keys.
   if (mode === "play" && !state.powerUp.open && !touchControls.value)
@@ -272,7 +312,12 @@ watch(
 );
 
 /** Back and Forward between Play and Create; at the menu a stale game route is cleared. */
-function onPopState(): void {
+async function onPopState(): Promise<void> {
+  if (state.phase === "idle" && followUnsupportedProjectRoute()) {
+    clearPlayHash();
+    return;
+  }
+  if (state.phase === "idle" && (await followEmptyProjectRoute())) return;
   if (state.phase === "running") shell.followRoute(location.hash);
   else if (state.phase === "idle" && isGameRoute(location.hash)) clearPlayHash();
 }
@@ -284,6 +329,31 @@ async function onStartWalkthrough(targetGame: string): Promise<void> {
   await startWalkthrough(targetGame);
 }
 shellBridge.startWalkthrough = (target) => void onStartWalkthrough(target);
+async function openProjectPart(projectId: ProjectId, family: "logic" | "sound"): Promise<void> {
+  engine.setProjectMode("create");
+  if (engine.currentGame()?.projectId !== projectId) {
+    const stored = lib.savedGames.value.find((game) => game.projectId === projectId);
+    if (!stored) return;
+    shell.expectCreate(projectId);
+    await lib.onPlayLibraryGame(stored);
+    shell.expectCreate(projectId);
+  } else shell.setMode("create");
+  const { loadAuthoredGame } = await import("./project/gameStorage.ts");
+  const data = await loadAuthoredGame(projectId);
+  const { inspectEditableProject } = await import("./project/projectWorkspaceSource.ts");
+  const keys = data
+    ? Object.keys(inspectEditableProject(data).documents)
+        .filter((key) => key.startsWith(`${family}:`))
+        .sort((a, b) => Number(a.split(":")[1]) - Number(b.split(":")[1]))
+    : [];
+  workspaceEditor.open(keys.includes(`${family}:1`) ? `${family}:1` : (keys[0] ?? `${family}:1`));
+}
+shellBridge.openLogicProject = (id) => {
+  void openProjectPart(id, "logic");
+};
+shellBridge.openSoundProject = (id) => {
+  void openProjectPart(id, "sound");
+};
 
 const WATCH_HASH_PREFIX = "#watch/";
 
@@ -350,6 +420,10 @@ function clearPlayHash(): void {
 const latestAgentAudio = computed(
   () => [...state.agentLog].reverse().find((entry) => entry.audio?.length)?.audio ?? [],
 );
+const workspaceAgentAvailable = computed(() => {
+  void state.patchTick;
+  return creating.value && engine.getProjectSession() !== null;
+});
 
 function releaseMovement(): void {
   playArea.value?.releaseMovement();
@@ -430,14 +504,16 @@ if (import.meta.hot) {
   });
 }
 
-onMounted(async () => {
+// Resolve a game link before Home starts previews of unrelated library cards.
+const initialRoutePending = ref(parseGameHash(location.hash) !== null);
+async function mountApplication(): Promise<void> {
   // An unreadable game route can never resume: drop it before anything waits.
   if (isGameRoute(location.hash) && !parseGameHash(location.hash)) clearPlayHash();
   window.addEventListener("blur", releaseMovement);
   window.visualViewport?.addEventListener("resize", resizeViewport);
   window.addEventListener("resize", resizeViewport);
   window.addEventListener("keydown", onGlobalKeydown);
-  window.addEventListener("keyup", onGlobalKeyup);
+  window.addEventListener("keyup", onShellKeyup);
   window.addEventListener("hashchange", onMenuHashChange);
   window.addEventListener("popstate", onPopState);
   document.addEventListener("visibilitychange", onPageHidden);
@@ -445,6 +521,7 @@ onMounted(async () => {
   try {
     await reconcileGameIndex();
     lib.refreshLibrary();
+    await lib.refreshUnsupportedProjects();
   } catch (error) {
     lib.libraryActionError.value = `Your saved game library could not be refreshed: ${String(error).replace(/^Error: /, "")}`;
   }
@@ -457,12 +534,12 @@ onMounted(async () => {
   // keeps offering the Resume card from the pending autosave.
   // A hot module update hands the running game over in memory: no reload
   // happened, so there is nothing to read back and the resume is instant.
-  const handover = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
+  const finish = import.meta.hot?.data?.["monotio_agi_resume"] as AutosaveRecord | undefined;
   if (import.meta.hot?.data) delete import.meta.hot.data["monotio_agi_resume"];
   lib.refreshPendingAutosave();
   const playKey = parseGameHash(location.hash)?.key ?? null;
   const watchTarget = watchHashTarget();
-  if (handover) await resumeFromRecord(handover, llmConfig());
+  if (finish) await resumeFromRecord(finish, llmConfig());
   else if (watchTarget)
     // startWalkthrough drives the tape to completion: await would suspend the
     // rest of mount — including the GPU stage the walkthrough paints into.
@@ -470,34 +547,42 @@ onMounted(async () => {
       state.phase = "error";
       state.error = e instanceof Error ? e.message : String(e);
     });
-  else if (
-    playKey &&
-    (() => {
-      const pending = lib.pendingAutosave.value?.game;
-      if (!pending) return false;
-      if (playKey === pending.identity.project) return true;
-      // The URL names an installed edition by any of its query spellings
-      // (alias, folder, hash); the record keys on its storage key.
-      return (
-        pending.installed &&
-        gameStorageKey({
-          installed: true,
-          folder: findInstalledFolder(state.installedGames, playKey),
-          hash: resolveGameHash(playKey) ?? undefined,
-        }) === pending.identity.project
-      );
-    })()
-  )
-    await resumeLastGame(llmConfig());
-  else if (playKey) await openRoutedGame(playKey);
+  else if (followUnsupportedProjectRoute()) {
+    shell.reset();
+  } else if (await followEmptyProjectRoute()) {
+    return;
+  } else if (playKey) {
+    // Only a routed key that proves no resume offer takes the ordinary routed
+    // open. An offer that was attempted and refused stays the runtime's own
+    // visible result — never retried and never booted over by this caller.
+    if ((await lib.routedResume(playKey)) === "absent") await openRoutedGame(playKey);
+  }
   if (state.phase === "idle") {
     shell.reset();
     clearPlayHash();
   }
-});
+}
+onMounted(() =>
+  mountApplication().finally(() => {
+    initialRoutePending.value = false;
+  }),
+);
 
 /** Home's note about the link it was opened with; cleared once any game runs. */
 const routeNote = ref("");
+const unsupportedRouteId = ref("");
+const unsupportedRouteProject = computed(() =>
+  lib.unsupportedProjects.value.find((game) => game.projectId === unsupportedRouteId.value),
+);
+
+/** A future project link opens its recovery actions before any playable reader runs. */
+function followUnsupportedProjectRoute(): boolean {
+  const key = parseGameHash(location.hash)?.key;
+  const game = lib.unsupportedProjects.value.find((entry) => entry.projectId === key);
+  if (!game) return false;
+  unsupportedRouteId.value = game.projectId;
+  return true;
+}
 
 /**
  * A cold `#play/<target>` or `#create/<target>` whose game has no pending
@@ -519,7 +604,12 @@ async function openRoutedGame(key: string): Promise<void> {
     return;
   }
   const navigation = performance.getEntriesByType("navigation")[0];
-  if (navigation instanceof PerformanceNavigationTiming && navigation.type === "reload") return;
+  if (
+    navigation instanceof PerformanceNavigationTiming &&
+    navigation.type === "reload" &&
+    parseGameHash(location.hash)?.mode !== "create"
+  )
+    return;
   if (stored) return lib.onPlayLibraryGame(stored);
   try {
     await lib.onPlayLocalGame(key);
@@ -537,7 +627,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", resizeViewport);
   presentation.dispose();
   window.removeEventListener("keydown", onGlobalKeydown);
-  window.removeEventListener("keyup", onGlobalKeyup);
+  window.removeEventListener("keyup", onShellKeyup);
   window.removeEventListener("hashchange", onMenuHashChange);
   window.removeEventListener("popstate", onPopState);
   document.removeEventListener("visibilitychange", onPageHidden);
@@ -554,11 +644,18 @@ onUnmounted(() => {
 // player ejected, or a boot failed) the hash is cleared, the next game opens
 // in Play, and the autosave slot is re-read so the offer below matches storage.
 watch(
-  () => [state.phase, state.paused, state.walkthrough.active, state.walkthrough.tick] as const,
+  () =>
+    [
+      state.phase,
+      state.paused,
+      state.walkthrough.active,
+      state.walkthrough.tick,
+      state.patchTick,
+    ] as const,
   ([phase, paused, watching]) => {
     if (phase === "running") {
       routeNote.value = "";
-      if (!paused) {
+      if (!paused || (!watching && !state.historyView.active)) {
         if (watching) updateWatchHash();
         else shell.markRoute();
       }
@@ -583,11 +680,18 @@ watch(
       'layout-portrait': viewport.height >= viewport.width,
       'layout-landscape-short': viewport.width > viewport.height && viewport.height <= 600,
       'original-aspect': originalAspect,
-      'studio-open': studioOpen,
+      'studio-open': creating && workspaceEditor.focus.value,
     }"
     :style="{ '--layout-height': `${viewport.height}px` }"
   >
     <div class="shell">
+      <CreateKeyboard
+        v-if="creating"
+        ref="createKeyboard"
+        :registry="commands"
+        @focus-game="playArea?.focusInput()"
+        @zone-change="releaseMovement"
+      />
       <GameHeader
         :touch-controls="touchControls"
         :crt-enabled="crtEnabled"
@@ -625,9 +729,24 @@ watch(
            takes the right column. -->
       <div
         class="shell-body"
+        :style="
+          creating
+            ? {
+                '--workspace-game': `minmax(0, ${workspaceEditor.effectiveSplit.value}fr)`,
+                '--workspace-edit': `minmax(0, ${100 - workspaceEditor.effectiveSplit.value}fr)`,
+              }
+            : undefined
+        "
         :class="{
           'shell-body--create': creating,
-          'shell-body--studio': studioOpen,
+          'shell-body--workspace': creating,
+          'shell-body--agent': creating && state.powerUp.open && !workspaceEditor.focus.value,
+          'shell-body--no-editor': creating && !workspaceEditor.selected.value,
+          'shell-body--logic': creating && workspaceEditor.kind.value === 'logic',
+          'shell-body--sound': creating && workspaceEditor.kind.value === 'sound',
+          'shell-body--picture': creating && workspaceEditor.pictureLive.value,
+          'shell-body--focus':
+            creating && workspaceEditor.focus.value && !!workspaceEditor.selected.value,
           'shell-body--sheet': creating && phone,
           'shell-body--fold-left': creating && !phone && workspace.collapsed.left,
           'shell-body--fold-right': creating && !phone && workspace.collapsed.right,
@@ -635,130 +754,101 @@ watch(
           'assistant-open': state.phase === 'running' && state.powerUp.open,
         }"
       >
-        <CreateDock
-          v-if="creating && !phone"
-          v-show="!studioOpen"
-          v-model:active="workspace.active.left"
-          side="left"
-          class="shell-dock shell-dock--left"
-          :collapsed="workspace.collapsed.left"
-          data-shell-keys
-          @toggle="workspace.toggleDock('left')"
+        <CreateWorkspace
+          v-if="
+            state.phase === 'running' && (creating || workspaceEditor.retained.value.length > 0)
+          "
+          :creating="creating"
         />
-        <PlayArea
-          v-show="!studio"
-          ref="playArea"
-          :touch-controls="touchControls"
-          :crt-enabled="crtEnabled"
-          :original-aspect="originalAspect"
-          :inspector-docked="creating"
+        <Teleport
+          :to="workspaceEditor.gameHost.value ?? 'body'"
+          :disabled="
+            !creating ||
+            !workspaceEditor.pictureLive.value ||
+            workspaceEditor.focus.value ||
+            !workspaceEditor.gameHost.value
+          "
         >
-          <template #stage-actions>
-            <UiToast
-              v-if="playHereFromStudio.note.value"
-              tone="warn"
-              dismissible
-              data-testid="play-here-note"
-              @dismiss="playHereFromStudio.dismiss()"
-            >
-              {{ playHereFromStudio.note.value }}
-            </UiToast>
-            <StaleTabNote />
-          </template>
-          <template #screen-notes>
-            <StartOverNote />
-          </template>
-          <template #strip-actions>
-            <UiButton
-              v-if="state.phase === 'running' && !creating"
-              icon="sparkles"
-              size="sm"
-              class="ask-button"
-              :class="{ 'ask-button--away': state.powerUp.open }"
-              data-testid="menu-assistant"
-              :aria-expanded="state.powerUp.open"
-              :title="state.powerUp.open ? 'Back to game (Esc)' : 'Ask about this game'"
-              :disabled="
-                (state.powerUp.mode === 'room' && state.powerUp.open) ||
-                state.recording.active ||
-                state.historyView.active
-              "
-              @click="shell.toggleAsk()"
-            >
-              Ask
-            </UiButton>
-          </template>
-        </PlayArea>
-        <RoomStudio
-          v-if="studioOpen && studio?.kind === 'picture'"
-          class="shell-center"
-          :picture-number="studio.pictureNumber"
-          :bytes="studio.bytes"
-          :authored-source="studio.authoredSource"
-          :profile="studio.profile"
-          :title="studio.title"
-          :subtitle="studio.subtitle"
-          :base-revision="studio.baseRevision"
-          :base-authoring="studio.baseAuthoring"
-          :files="studio.files"
-          :walk="studio.walk"
-          @close="workspace.closeStudio()"
-          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
-          @play-here="(target) => void playHereFromStudio.play(target)"
-        />
-        <SpriteStudio
-          v-else-if="studioOpen && studio?.kind === 'sprite'"
-          :key="`${studio.viewNumber}:${studio.baseRevision}:${studio.stagedReference ?? ''}`"
-          class="shell-center"
-          :view-number="studio.viewNumber"
-          :bytes="studio.bytes"
-          :profile="studio.profile"
-          :title="studio.title"
-          :base-revision="studio.baseRevision"
-          :base-authoring="studio.baseAuthoring"
-          :files="studio.files"
-          :usage="studio.usage"
-          :rooms="studio.rooms"
-          :speed="studio.speed"
-          :cyclers="studio.cyclers"
-          :priority-base="studio.priorityBase"
-          :staged-reference="studio.stagedReference"
-          @close="workspace.closeStudio()"
-          @reopen="(fromStorage) => void workspace.reopenStudio(fromStorage)"
-        />
+          <PlayArea
+            v-if="state.phase === 'running'"
+            v-show="!creating || !workspaceEditor.focus.value || !workspaceEditor.selected.value"
+            ref="playArea"
+            :touch-controls="touchControls"
+            :crt-enabled="crtShown"
+            :original-aspect="originalAspect"
+            :inspector-docked="creating"
+          >
+            <template #stage-actions>
+              <UiToast
+                v-if="playHereFromStudio.note.value"
+                tone="warn"
+                dismissible
+                data-testid="play-here-note"
+                @dismiss="playHereFromStudio.dismiss()"
+              >
+                {{ playHereFromStudio.note.value }}
+              </UiToast>
+              <UiChip
+                v-if="creating && workspaceEditor.debugStatus.value"
+                tone="warn"
+                data-testid="workspace-debug-status"
+                >{{ workspaceEditor.debugStatus.value }}</UiChip
+              >
+              <UiChip
+                v-else-if="creating"
+                :tone="workspaceEditor.pendingAdmission.value ? 'warn' : 'ok'"
+                dot
+                data-testid="workspace-live"
+                >{{
+                  workspaceEditor.pendingAdmission.value ? VOCABULARY.waitingUpdate.label : "LIVE"
+                }}</UiChip
+              >
+              <ProjectRestartNotice v-if="creating && engine.pendingProjectRestart.value" />
+              <StaleTabNote />
+            </template>
+            <template #screen-notes>
+              <StartOverNote />
+            </template>
+            <template #strip-actions>
+              <UiButton
+                v-if="state.phase === 'running' && !creating"
+                icon="sparkles"
+                size="sm"
+                class="ask-button"
+                :class="{ 'ask-button--away': state.powerUp.open }"
+                data-testid="menu-assistant"
+                :aria-expanded="state.powerUp.open"
+                :title="VOCABULARY.agent.help"
+                :disabled="
+                  (state.powerUp.mode === 'room' && state.powerUp.open) ||
+                  state.recording.active ||
+                  state.historyView.active
+                "
+                @click="shell.toggleAsk()"
+              >
+                {{ VOCABULARY.agent.label }}
+              </UiButton>
+            </template>
+          </PlayArea>
+        </Teleport>
         <aside
-          v-show="!studioOpen"
+          v-show="!creating || (state.powerUp.open && !workspaceEditor.focus.value)"
           class="shell-side"
           :class="{ 'shell-side--sheet': creating && phone, 'shell-side--open': sheetOpen }"
-          :aria-label="creating ? 'Assistant panels' : 'Ask'"
+          aria-label="Agent"
           data-shell-keys
         >
-          <CreateDock
-            v-if="creating && phone"
-            v-model:active="workspace.active.sheet"
-            side="sheet"
-            :built-in="['assistant']"
-            :collapsed="!sheetOpen"
-            @toggle="workspace.sheetOpen.value = !workspace.sheetOpen.value"
-          />
-          <CreateDock
-            v-else-if="creating"
-            v-model:active="workspace.active.right"
-            side="right"
-            :built-in="['assistant']"
-            :collapsed="workspace.collapsed.right"
-            @toggle="workspace.toggleDock('right')"
-          />
           <div v-show="!creating || assistantShown" class="assistant-host">
             <!-- Mounted through the turn, so it sees the panel open and close. -->
-            <AssistantStart v-if="creating" v-show="!state.powerUp.open" :phone />
-            <AgentBubble :surface="creating && !phone ? 'dock' : 'drawer'" />
+            <AgentPanel v-if="workspaceAgentAvailable && state.powerUp.open" />
+            <AgentBubble v-else-if="state.powerUp.open" surface="drawer" />
           </div>
         </aside>
       </div>
     </div>
 
     <AiSettingsDialog
+      v-if="ai.dialogRequested.value"
       ref="aiSettingsDialog"
       :settings="aiSettings"
       :budget-usd="taskBudget"
@@ -770,28 +860,30 @@ watch(
       @closed="onAiSettingsClosed"
     />
 
-    <SetupPanel :route-note="routeNote" />
+    <SetupPanel
+      :route-note="routeNote"
+      :route-pending="initialRoutePending"
+      :unsupported-project="unsupportedRouteProject"
+    />
 
     <!-- Below the fold: while Studio holds the page still they wait hidden,
          out of Tab's reach. -->
     <SoundPreview
       v-if="!state.powerUp.open && latestAgentAudio.length"
-      v-show="!studioOpen"
       :audio="latestAgentAudio"
       data-testid="latest-sound-preview"
     />
 
     <UiDialog
-      v-if="!activityDocked"
       v-model:open="activitySheetOpen"
       title="Developer activity"
       size="lg"
       data-testid="developer-activity-sheet"
     >
-      <AgentLogPanel @booted="activitySheetOpen = false" />
+      <AgentLogPanel v-if="activitySheetOpen" @booted="activitySheetOpen = false" />
     </UiDialog>
 
-    <ReferenceUpload v-if="state.phase === 'running'" />
+    <ReferenceUpload v-if="referenceUpload.open" />
 
     <WorldMap v-if="mapOpen" />
   </div>

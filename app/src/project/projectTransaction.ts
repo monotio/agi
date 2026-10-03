@@ -1,3 +1,4 @@
+import type { PortableProjectWorkspace } from "../../../src/authoring/projectWorkspace.ts";
 /**
  * The project transaction boundary. Every write that puts a running game's
  * work into browser storage — a Studio Keep, an AI remix, a room built from
@@ -51,6 +52,10 @@ import type { BootedGame } from "./gameTypes.ts";
 import { listenForProjectWrites, type NoticeChannel } from "./projectBroadcast.ts";
 import type { PatchResource, WorkerInbound, WorkerQueryFn } from "../worker/workerProtocol.ts";
 import type { AwaitPatchedFn } from "../engine/workerQueries.ts";
+
+/** A stale conversation is kept in this tab until the saved project reloads. */
+export const STALE_SAVE_MESSAGE =
+  "The game was changed elsewhere, so this conversation was not saved over it. Reload the game to continue from the saved project.";
 
 /** Why a project transaction refused or failed; `code` picks the UI's wording. */
 export type ResourceCommitErrorCode =
@@ -116,8 +121,12 @@ const authoringBases = new WeakMap<BootedGame, AuthoringBase>();
 export function hydrateAuthoring(
   game: BootedGame,
   authoringState: Record<string, unknown> | undefined,
+  workspace?: PortableProjectWorkspace | null,
 ): boolean {
-  const fingerprint = authoringFingerprint(authoringState);
+  const fingerprint = authoringFingerprint(
+    authoringState,
+    workspace === undefined ? game.authoredGame?.workspace : (workspace ?? undefined),
+  );
   const base = authoringBases.get(game);
   if (base === undefined) authoringBases.set(game, { fingerprint, stale: false });
   else if (base.fingerprint !== fingerprint) base.stale = true;
@@ -128,8 +137,12 @@ export function hydrateAuthoring(
 export function advanceAuthoring(
   game: BootedGame,
   authoringState: Record<string, unknown> | undefined,
+  workspace?: PortableProjectWorkspace | null,
 ): void {
-  const fingerprint = authoringFingerprint(authoringState);
+  const fingerprint = authoringFingerprint(
+    authoringState,
+    workspace === undefined ? game.authoredGame?.workspace : (workspace ?? undefined),
+  );
   const base = authoringBases.get(game);
   if (base === undefined) authoringBases.set(game, { fingerprint, stale: false });
   else base.fingerprint = fingerprint;
@@ -175,7 +188,7 @@ async function readSaved(projectId: ProjectId): Promise<SavedProject | null> {
     data,
     lifetime,
     revision: await gameRevision(data.files),
-    fingerprint: authoringFingerprint(data.authoringState),
+    fingerprint: authoringFingerprint(data.authoringState, data.workspace),
     generation: generationOf(data),
   };
 }
@@ -411,7 +424,11 @@ export async function requireSaved(game: BootedGame, base: SavedBase): Promise<S
     markBehindStorage(game);
     throw stale();
   }
-  if (base.authoring && !hydrateAuthoring(game, saved.data.authoringState)) throw stale();
+  if (
+    base.authoring &&
+    !hydrateAuthoring(game, saved.data.authoringState, saved.data.workspace ?? null)
+  )
+    throw stale();
   return saved;
 }
 

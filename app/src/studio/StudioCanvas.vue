@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, useTemplateRef, watchEffect } from "vue";
+import { EGA_PALETTE } from "../render/palette.ts";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "../../../src/types.ts";
 import type { LineHandle, LinePoint } from "../../../src/studio/editPoints.ts";
 import { toLogical, type Viewport, type ViewportPoint } from "../../../src/studio/viewport.ts";
@@ -47,6 +48,7 @@ const {
   flash = null,
   changed = null,
   spilled = null,
+  underlay = null,
   movable = false,
   marquee = null,
 } = defineProps<{
@@ -70,6 +72,11 @@ const {
   changed?: MaskPaths | null;
   /** The proposal's side effects: cells of other items it changes, outside the selection. */
   spilled?: MaskPaths | null;
+  /**
+   * A prepared reference (160x168 RGBA) blended above art, or behind its marks.
+   * It changes the drawing surface only; the PICTURE retains its native data.
+   */
+  underlay?: { pixels: Uint8Array; opacity: number; behindArt?: boolean } | null;
   /** The pointer is over the selection, which a drag moves: the move cursor. */
   movable?: boolean;
   /** A selection box being drawn, in logical cells (inclusive). */
@@ -126,6 +133,7 @@ const readableLabels = computed(() => {
 
 let image: ImageData | undefined;
 let scratch: HTMLCanvasElement | undefined;
+let underlayScratch: HTMLCanvasElement | undefined;
 
 watchEffect(
   () => {
@@ -142,7 +150,26 @@ watchEffect(
     if (target.height !== backingHeight.value) target.height = backingHeight.value;
     const context = target.getContext("2d")!;
     context.imageSmoothingEnabled = false;
-    context.drawImage(scratch, 0, 0, target.width, target.height);
+    context.fillStyle = `rgb(${EGA_PALETTE[15]!.join(" ")})`;
+    context.fillRect(0, 0, target.width, target.height);
+    if (!underlay?.behindArt) context.drawImage(scratch, 0, 0, target.width, target.height);
+    if (underlay !== null && underlay.opacity > 0) {
+      underlayScratch ??= document.createElement("canvas");
+      underlayScratch.width = SCREEN_WIDTH;
+      underlayScratch.height = SCREEN_HEIGHT;
+      const pixels = new ImageData(SCREEN_WIDTH, SCREEN_HEIGHT);
+      pixels.data.set(underlay.pixels);
+      underlayScratch.getContext("2d")!.putImageData(pixels, 0, 0);
+      context.globalAlpha = underlay.opacity;
+      context.drawImage(underlayScratch, 0, 0, target.width, target.height);
+      context.globalAlpha = 1;
+      if (underlay.behindArt) {
+        // White is the PICTURE paper; coloured marks cover a reference placed behind art.
+        for (let i = 0; i < visual.length; i++) if (visual[i] === 15) image.data[i * 4 + 3] = 0;
+        scratch.getContext("2d")!.putImageData(image, 0, 0);
+      }
+    }
+    if (underlay?.behindArt) context.drawImage(scratch, 0, 0, target.width, target.height);
   },
   { flush: "post" },
 );

@@ -10,6 +10,8 @@
  */
 import { computed, nextTick, ref } from "vue";
 import UiButton from "../ui/UiButton.vue";
+import KeyboardShortcuts from "./commands/KeyboardShortcuts.vue";
+import { useOptionalCommands } from "./commands/commandContext.ts";
 import UiChip from "../ui/UiChip.vue";
 import UiDialog from "../ui/UiDialog.vue";
 import { HELP_SECTIONS, type HelpActionKind, type HelpRequest } from "./helpContent.ts";
@@ -23,6 +25,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ action: [request: HelpRequest]; lesson: [lesson: StudioLesson] }>();
 
+const commands = useOptionalCommands();
+const shortcutsShown = computed(() => sectionId.value === "shortcuts" && commands);
 const LESSONS_SECTION = "lessons";
 const shown = ref(false);
 const sectionId = ref(HELP_SECTIONS[0]!.id);
@@ -78,11 +82,22 @@ defineExpose({ open });
           v-for="entry in HELP_SECTIONS"
           :key="entry.id"
           type="button"
-          :aria-current="!lessonSection && entry.id === section.id ? 'true' : undefined"
+          :aria-current="
+            !lessonSection && !shortcutsShown && entry.id === section.id ? 'true' : undefined
+          "
           :data-testid="`help-section-${entry.id}`"
           @click="sectionId = entry.id"
         >
           {{ entry.title }}
+        </button>
+        <button
+          v-if="commands?.commands.value.length"
+          type="button"
+          :aria-current="shortcutsShown ? 'true' : undefined"
+          data-testid="help-section-shortcuts"
+          @click="sectionId = 'shortcuts'"
+        >
+          Keyboard shortcuts
         </button>
         <button
           v-if="lessons"
@@ -94,7 +109,12 @@ defineExpose({ open });
           {{ lessons.title }}
         </button>
       </nav>
-      <div v-if="lessonSection" class="help-topics" :data-testid="`help-topics-${LESSONS_SECTION}`">
+      <KeyboardShortcuts v-if="shortcutsShown" :registry="shortcutsShown" />
+      <div
+        v-else-if="lessonSection"
+        class="help-topics"
+        :data-testid="`help-topics-${LESSONS_SECTION}`"
+      >
         <section
           v-for="lesson in lessonSection.lessons"
           :key="lesson.id"

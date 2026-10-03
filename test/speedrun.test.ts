@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fixtureSkip, KNOWN_GAME_HASH } from "./fixtures.ts";
 import { Speedrun, randomSource } from "./speedrun/runner.ts";
-import { readWalkthroughArtifact, walkthroughServedRevisions } from "./speedrun/artifact.ts";
+import {
+  readWalkthroughArtifact,
+  walkthroughFixtureHashes,
+  walkthroughServedRevisions,
+} from "./speedrun/artifact.ts";
 import { BUILTIN_GAME_BUILDERS } from "./game-fixture.ts";
 import { walkthrough } from "./speedrun/walkthroughs.ts";
 
@@ -125,7 +129,7 @@ test("type() backspaces a diverged input row and retypes it, as a player would",
   assert.equal(backspaces, 2, "only the diverged tail is erased");
 });
 
-test("every shipped walkthrough is a v2 artifact bound to its bundle revision", async () => {
+test("every shipped walkthrough binds its bundle revision and builtin fixture hashes", async () => {
   // Runs without fixtures: builtin targets resolve their served revision from
   // the builder; fixture targets still prove schema, binding field, and shape.
   const dir = "app/public/walkthroughs";
@@ -147,6 +151,11 @@ test("every shipped walkthrough is a v2 artifact bound to its bundle revision", 
       const artifact = await readWalkthroughArtifact(path);
       const served = await walkthroughServedRevisions(hash);
       assert.equal(artifact.identity.revision, served[0], `${file} binds the served revision`);
+      assert.deepEqual(
+        artifact.fixtureHashes,
+        walkthroughFixtureHashes(hash),
+        `${file} binds the exact builtin resources`,
+      );
     }
   }
 });

@@ -1,11 +1,17 @@
-import { providerReply } from "../../test/provider-stream.ts";
-import { expect, test } from "./test.ts";
 import { readFile } from "node:fs/promises";
 import { createContainer } from "../../src/container/container.ts";
 import { assembleLogic } from "../../src/logic/assembler.ts";
-import { buildZip } from "../src/archive/zip.ts";
+import { providerReply } from "../../test/provider-stream.ts";
 import { readGameZip } from "../src/archive/gameZip.ts";
-import { configureAi, isolateStorage, openGameOptions, enterCreateMode } from "./engineProbe.ts";
+import { buildZip } from "../src/archive/zip.ts";
+import {
+  configureAi,
+  enterCreateMode,
+  isolateStorage,
+  openGameOptions,
+  openWorkspaceAgent,
+} from "./engineProbe.ts";
+import { expect, test } from "./test.ts";
 
 test("Download project resumes private history in a fresh browser; Download game has only playable resources", async ({
   page,
@@ -69,7 +75,9 @@ test("Download project resumes private history in a fresh browser; Download game
   expect(saved.suggestedFilename()).toMatch(/-project.zip$/);
   const data = await readGameZip(new Uint8Array(await readFile((await saved.path())!)));
   expect(data.project?.transcript).toEqual(transcript);
-  expect(data.files["OBJECT"]).toEqual(Uint8Array.of(65, 118, 150));
+  // A private backup preserves the exact resource revision, including absence.
+  // Only the public Game export below supplies a missing inventory file.
+  expect(data.files).toEqual(files);
   expect(data.project?.authoringState).toEqual(context.authoringState);
   const publicDownload = page.waitForEvent("download");
   await openGameOptions(page, "settings-menu");
@@ -112,7 +120,7 @@ test("Download project resumes private history in a fresh browser; Download game
     expect(restored.index.transcript).toBeUndefined();
     expect(await other.evaluate(() => localStorage.getItem("monotio_agi.aiSettings"))).toBeNull();
     expect(calls).toBe(0);
-    await other.screenshot({ path: "test-results/project-ready.png" });
+    await other.screenshot({ path: test.info().outputPath("project-ready.png") });
     await other.getByTestId("btn-resume-cached").click();
     // Keep interception enabled while the worker imports its modules. The
     // specific mock below overrides the API-blocking fallback without a gap.
@@ -133,17 +141,17 @@ test("Download project resumes private history in a fresh browser; Download game
       );
     });
     await enterCreateMode(other);
-    await other.getByTestId("power-up").click();
+    await openWorkspaceAgent(other);
     await configureAi(other, { provider: "openai", key: "test-placeholder" });
-    await expect(other.getByTestId("agent-bubble-input")).toBeEnabled();
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
     expect(requests).toHaveLength(0);
-    await other.getByTestId("agent-bubble-input").fill("Continue our garden.");
-    await other.getByTestId("agent-bubble-send").click();
-    await expect(other.getByTestId("agent-bubble")).toBeHidden();
-    expect(requests).toHaveLength(1);
+    await other.getByTestId("agent-message").fill("Continue our garden.");
+    await other.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(other.getByTestId("agent-message")).toBeEnabled();
+    expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests[0])).toContain("Private genesis idea");
     expect(JSON.stringify(requests[0])).toContain("Continue our garden.");
-    expect(requests[0]?.["model"]).toBe("gpt-6-astra");
+    expect(requests[1]?.["model"]).toBe("gpt-6.1-sol");
     const continuationDownload = other.waitForEvent("download");
     await openGameOptions(other, "settings-menu");
     await other.getByTestId("btn-download-game").click();
@@ -156,7 +164,7 @@ test("Download project resumes private history in a fresh browser; Download game
     );
     expect(continuation.project?.provider).toBe("openai");
     expect(continuation.project?.conversationHistory?.[0]?.transcript).toEqual(transcript);
-    expect(JSON.stringify(continuation.project?.transcript)).toContain("Continue our garden.");
+    expect(JSON.stringify(continuation.project?.chats)).toContain("Continue our garden.");
     expect(
       new TextDecoder().decode(new Uint8Array(await readFile((await continued.path())!))),
     ).not.toContain("test-placeholder");

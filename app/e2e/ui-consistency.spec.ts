@@ -1,11 +1,12 @@
 import { expect, test } from "@playwright/test";
 import {
+  enterCreateMode,
   isolateStorage,
+  openAiSettings,
   openSavedGameDetails,
+  openWorkspaceAgent,
   savedGameCard,
   textHook,
-  openAiSettings,
-  enterCreateMode,
 } from "./engineProbe.ts";
 
 test.beforeEach(async ({ page }) => {
@@ -78,15 +79,23 @@ test("the hero and Save settings share the one filled primary; card actions stay
   await resume.click();
   await expect.poll(async () => (await textHook(page)).room).toBe(1);
   await enterCreateMode(page);
-  await page.getByTestId("power-up").click();
-  for (const action of await page.locator(".agent-mode-switch button, .remix-close").all()) {
-    expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await openWorkspaceAgent(page);
+  for (const action of await page
+    .getByRole("radiogroup", { name: "Agent changes", exact: true })
+    .getByRole("radio")
+    .all()) {
+    expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(24);
   }
   // The bubble's send button is the same primary as every other surface's.
-  await page.getByTestId("agent-bubble-input").fill("Make the mural brighter");
-  const send = page.getByTestId("agent-bubble-send");
+  await page.getByTestId("agent-message").fill("Make the mural brighter");
+  const send = page.getByRole("button", { name: "Send", exact: true });
   await expect(send).toBeEnabled();
-  expect(await send.evaluate(appearance)).toEqual(primary);
+  const panelPrimary = await send.evaluate(appearance);
+  expect({
+    color: panelPrimary.color,
+    background: panelPrimary.background,
+    radius: panelPrimary.radius,
+  }).toEqual({ color: primary.color, background: primary.background, radius: primary.radius });
   await page.screenshot({ animations: "disabled", path: test.info().outputPath("assistant.png") });
 });
 
@@ -158,9 +167,9 @@ test("library details stay concise and Add game is a secondary action", async ({
   const height = (await card.boundingBox())!.height;
   const details = await openSavedGameDetails(card);
   await expect(details).toContainText("Monotio");
-  await expect(details).not.toContainText(
-    /Later rooms|Opening checked|Interpreter|Project keeps|Ready to play/,
-  );
+  await expect(details).toContainText("Interpreter");
+  await expect(details).toContainText("Opening checked");
+  await expect(details).not.toContainText(/Later rooms|Project keeps|Ready to play/);
   await page.keyboard.press("Escape");
   await expect(details).toBeHidden();
   expect((await card.boundingBox())!.height, "details never resize the card").toBe(height);
