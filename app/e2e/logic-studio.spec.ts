@@ -168,10 +168,13 @@ test("library Edit opens LOGIC: completion, hover, definition, diagnostics and a
   await focusWorkspaceLogic(page);
   await workspaceDocumentEnd(page);
   await page.keyboard.insertText('\nif (said("lo');
+  const viewport = page.viewportSize()!;
+  await page.setViewportSize({ ...viewport, height: viewport.height - 100 });
   await page.keyboard.press("Control+Space");
   await expect(page.locator(".suggest-widget")).toBeVisible();
   await expect(page.locator(".suggest-widget")).toContainText("look");
   await page.keyboard.press("Escape");
+  await page.setViewportSize(viewport);
   await replaceWorkspaceDocument(page, "logic:1", originalSource + '\nif (said("look")) {}\n');
 
   // Hover documentation answers through the analysis worker.

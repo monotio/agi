@@ -87,6 +87,9 @@ function layout(): void {
   cancelAnimationFrame(layoutFrame);
   layoutFrame = requestAnimationFrame(() => {
     editor?.layout();
+    const position = editor?.getPosition();
+    if (props.active && editor?.hasTextFocus() && position)
+      editor.revealPositionInCenterIfOutsideViewport(position);
     if (props.active && props.stoppedLine && model?.getValue() === props.runningSource)
       editor?.revealLineInCenterIfOutsideViewport(props.stoppedLine);
   });

@@ -330,7 +330,9 @@ test("a reload resumes into the checkpoint's parked window @webkit-desktop", asy
   await page.reload();
 
   // The #play hash boots straight into the checkpoint: the same window is
-  // still up, on the identical instruction.
+  // still up, on the identical instruction. Check the running surface before
+  // polling its modal so cold worker loading is a separate assertion.
+  await expect(page.getByTestId("input-line")).toBeVisible();
   await expect.poll(async () => (await textHook(page)).modal).toBe("print");
   expect((await textHook(page)).rows.join(" ")).toContain("Checkpoint window");
 

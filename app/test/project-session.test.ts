@@ -1,3 +1,4 @@
+import { installWebLocksFixture } from "./webLocksFixture.ts";
 import type { PreviewUpdateOutcome } from "../src/worker/workerProtocol.ts";
 import type { CachedGameData } from "../src/project/gameTypes.ts";
 import assert from "node:assert/strict";
@@ -8,6 +9,8 @@ import { compileProjectDocuments } from "../../src/authoring/projectDocuments.ts
 import { createContainer } from "../../src/container/container.ts";
 import { writeProjectWorkspace } from "../../src/authoring/projectWorkspace.ts";
 import { requireProjectId } from "../../src/gameIdentity.ts";
+
+installWebLocksFixture();
 
 test("session admits before saving, keeps invalid source and restores History on reopen", async () => {
   const documents = { "logic:0": "return;" };

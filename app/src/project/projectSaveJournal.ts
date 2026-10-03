@@ -1,4 +1,4 @@
-/** Edited document journals survive teardown while IndexedDB commits settle. */
+/** Accepted project captures recover interrupted storage acknowledgements. */
 import type { ProjectId } from "../../../src/gameIdentity.ts";
 import type { ProjectCommitRequest, ProjectCommitReceipt } from "./gameStorage.ts";
 import {
