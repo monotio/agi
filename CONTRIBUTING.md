@@ -204,7 +204,37 @@ the model and History while MAIN runs the previous image. `pendingRestart` names
 the reason and action; `restartWithChanges()` validates the complete current
 image before replacing the Engine, and `reenterRoom()` admits it at the same
 strict idle boundary as live edits before running real room-entry semantics.
-Both publish the running identity only after worker acknowledgement. Re-entry
+The workspace flush barrier drains editor submissions and awaits the session's
+IndexedDB acknowledgement. Edits arriving during either await are included until
+the queue and durable owner are both settled; continuous typing can extend that
+barrier. A refused edit identifies its document and retains its draft. Retry has
+the same success contract. Exit, project replacement, export and version naming
+await this barrier. Discard and exit deliberately retires pending editor work.
+A named version contains the visible documents, including invalid source, while
+the playable image remains the last admissible build. Restore, Undo and Redo keep
+their busy guards.
+
+Before debounce or worker admission, each editor event synchronously journals
+its latest document content and session/project identity. SOUND bytes and tempo
+share that intent. The journal carries edited documents and operations since the
+durable base, rather than compiled files or serialized History per keystroke.
+Recovery validates the project lifetime and base, then replays preparation and
+History. Invalid LOGIC stays editable and retains the prior runnable image.
+Only durable acknowledgement retires the exact captured editor intents. Recovery
+requires available browser storage; clearing site data or exhausting recovery
+storage can prevent immediate-close recovery. Saved confirms the IndexedDB
+project acknowledgement.
+
+A writing session holds an exclusive Web Lock named by its journal key until
+it closes. Recovery requests that lock with `ifAvailable` and skips live owners.
+Acknowledgement re-reads under the lock and removes only processed commit IDs;
+conflict restoration likewise preserves entries appended during its await.
+Browsers without `navigator.locks` use identity-qualified acknowledgement on the
+latest read. They cannot atomically fence another tab between that localStorage
+read and write, so cross-tab racing recovery retains a residual risk. Conditional
+IndexedDB commits still fence project lifetimes and generations.
+
+Restart and re-entry publish the running identity only after worker acknowledgement. Re-entry
 preserves global state through `new.room`; room LOGIC controls subsequent actor
 placement and side effects. Each action opens a rewind segment with the admitted
 image, retaining the preceding run and its queued recording batches.

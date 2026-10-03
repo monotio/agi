@@ -1,9 +1,5 @@
 import { readAgentChats, appendAgentTasks, type AgentChat } from "../../../src/agent/chats.ts";
-import {
-  encodeJournalValue,
-  journalCandidate,
-  type ProjectJournalCapture,
-} from "./projectJournalCapture.ts";
+import { encodeJournalValue, type ProjectJournalCapture } from "./projectJournalCapture.ts";
 import { resumeProjectSaveJournals } from "./projectSaveJournal.ts";
 import { historyBlobKeys, type StoredProjectHistory } from "./projectHistoryStorageHeader.ts";
 import {
@@ -1501,7 +1497,7 @@ async function recoverProjectJournal(
     commit: commitProject,
     fingerprint: authoringFingerprint,
   });
-  return commitProject(journalCandidate(capture, rebuilt), capture.hash);
+  return commitProject(rebuilt, capture.hash);
 }
 
 export async function loadAuthoredGame(projectId: ProjectId): Promise<CachedGameData | null> {

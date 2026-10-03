@@ -223,10 +223,11 @@ async function onEjectGame(
   historyExit.value = false;
   closeNavMenus();
   try {
-    await workspaceEditor.flush.value?.();
+    if (leave === "abandonUnsaved") workspaceEditor.discard.value?.();
+    else await workspaceEditor.flush.value?.();
     await ejectGame(
       leave === "abandonUnsaved"
-        ? { abandonUnsaved: true }
+        ? { abandonUnsaved: true, abandonProject: true, abandonHistory: true }
         : leave === "abandonHistory"
           ? { abandonHistory: true }
           : undefined,
@@ -235,6 +236,14 @@ async function onEjectGame(
     // Only the timeline is still owed: its own question, not a refusal.
     if (error instanceof HistoryUnsavedError) historyExit.value = true;
     else ejectRefusal.value = String(error).replace(/^Error: /, "");
+  }
+}
+async function retryExit(): Promise<void> {
+  try {
+    await workspaceEditor.retry.value?.();
+    await onEjectGame();
+  } catch (cause) {
+    ejectRefusal.value = cause instanceof Error ? cause.message : String(cause);
   }
 }
 const ejectRefusal = ref<string>("");
@@ -434,15 +443,16 @@ async function onRecordSave(): Promise<void> {
     </div>
     <div v-if="ejectRefusal" class="export-refusal" data-testid="eject-refusal" role="alert">
       <p>{{ ejectRefusal }}</p>
+      <p>Discard and exit removes pending edits and unsaved play progress.</p>
       <div class="notice-actions">
         <UiButton
           variant="primary"
           size="sm"
           data-testid="eject-retry"
           :disabled="state.leaving"
-          @click="onEjectGame()"
+          @click="retryExit"
         >
-          Try again
+          Retry
         </UiButton>
         <UiButton
           size="sm"
@@ -458,7 +468,7 @@ async function onRecordSave(): Promise<void> {
           :disabled="state.leaving"
           @click="onEjectGame('abandonUnsaved')"
         >
-          Leave anyway
+          Discard and exit
         </UiButton>
         <UiButton size="sm" data-testid="eject-dismiss" @click="ejectRefusal = ''">
           Back to game

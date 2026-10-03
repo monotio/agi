@@ -233,7 +233,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         id: "studio-source",
         title: "Rebuilt pictures",
         body: [
-          "Imported pictures are rebuilt into editable steps and named items. Rebuilt identifies source recovered from bytes. Editing saves that source alongside the picture.",
+          "Imported pictures are rebuilt into editable steps and named items. Rebuilt identifies source recovered from bytes. Editing starts saving that source alongside the picture.",
         ],
       },
       {

@@ -83,6 +83,7 @@ export interface ProjectJournalCapture {
   readonly operations: readonly ProjectJournalOperation[];
   readonly metadata: Patch;
   readonly hash: string;
+  readonly editorIntent?: true;
 }
 export function captureProjectJournal(input: {
   readonly request: ProjectCommitRequest;
@@ -92,6 +93,7 @@ export function captureProjectJournal(input: {
   readonly baseImage: string;
   readonly image: string;
   readonly operations: readonly ProjectJournalOperation[];
+  readonly editorIntent?: true;
 }): ProjectJournalCapture {
   const { data, documents, ...identity } = input.request;
   const original = metadata(data);
@@ -112,6 +114,7 @@ export function captureProjectJournal(input: {
     image: input.image,
     operations: input.operations,
     metadata: patch,
+    ...(input.editorIntent ? { editorIntent: true as const } : {}),
   };
   return {
     ...capture,
@@ -121,6 +124,7 @@ export function captureProjectJournal(input: {
 export function journalCandidate(
   capture: ProjectJournalCapture,
   rebuilt: ProjectCommitRequest["data"],
+  rebuiltIdentity?: Pick<ProjectCommitRequest, "buildId" | "documents">,
 ): ProjectCommitRequest {
   const restored = applyPatch(metadata(rebuilt), capture.metadata) as Record<string, unknown>;
   const versionByKey = Object.fromEntries(
@@ -132,6 +136,7 @@ export function journalCandidate(
       key,
       version: versionByKey[key] ?? 1,
     })),
+    ...rebuiltIdentity,
     data: {
       ...restored,
       files: rebuilt.files,

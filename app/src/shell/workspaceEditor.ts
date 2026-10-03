@@ -12,6 +12,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
   const debugging = ref(false);
   const debugStatus = ref("");
   const flush = shallowRef<() => Promise<void>>();
+  const discard = shallowRef<() => void>();
   const retry = shallowRef<() => Promise<void>>();
   const pictureLive = ref(false);
   const gameHost = shallowRef<HTMLElement | null>(null);
@@ -142,6 +143,7 @@ export function createWorkspaceEditor(engine: EngineApi) {
     debugging,
     debugStatus,
     flush,
+    discard,
     retry,
     pictureLive,
     gameHost,

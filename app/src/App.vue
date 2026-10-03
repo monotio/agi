@@ -101,6 +101,9 @@ const engine = useEngine(
     engine.observeMapFrame(frame);
   },
   {
+    flushWorkspace: async () => {
+      await workspaceEditor.flush.value?.();
+    },
     onPromptType: (text) => {
       playArea.value?.handlePromptType(text);
     },
@@ -210,6 +213,14 @@ const commands = createCommandRegistry(
 provideCommands(commands);
 const workspaceEditor = createWorkspaceEditor(engine);
 provideWorkspaceEditor(workspaceEditor);
+async function exportWorkspaceGame(project: boolean): Promise<void> {
+  try {
+    await workspaceEditor.flush.value?.();
+    await lib.onExportAgiZip(true, project);
+  } catch (cause) {
+    exportRefusal.value = cause instanceof Error ? cause.message : String(cause);
+  }
+}
 watch(workspace.studio, (request) => {
   if (!request) return;
   workspaceEditor.open(
@@ -705,7 +716,7 @@ watch(
         @update:original-aspect="originalAspect = $event"
         @update:debug-open="debugOpen = $event"
         @trigger-key="(code) => playArea?.triggerKey(code)"
-        @export-zip="(project) => lib.onExportAgiZip(true, project)"
+        @export-zip="exportWorkspaceGame"
         @start-walkthrough="onStartWalkthrough"
         @developer-activity="openDeveloperActivity"
       >

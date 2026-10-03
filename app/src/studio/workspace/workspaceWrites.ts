@@ -3,6 +3,7 @@ import type { ProjectContent } from "../../../../src/authoring/projectContent.ts
 /** Completed gestures serialize; a typing burst submits its latest complete source. */
 export function createWorkspaceWrites(input: {
   write(key: string, content: ProjectContent): Promise<void>;
+  durable?(): Promise<void>;
   changed(drafts: Readonly<Record<string, ProjectContent>>, busy: boolean): void;
   error(cause: unknown): void;
   delay?: number;
@@ -10,13 +11,23 @@ export function createWorkspaceWrites(input: {
 }) {
   let drafts: Record<string, ProjectContent> = {};
   const pending: Record<string, ProjectContent> = {};
+  const failures: Record<string, unknown> = {};
   let tail = Promise.resolve();
   let active = 0;
   let disposed = false;
   let delay: ReturnType<typeof setTimeout> | undefined;
   let maximum: ReturnType<typeof setTimeout> | undefined;
   function notify(): void {
-    input.changed({ ...drafts }, active > 0 || Object.keys(pending).length > 0);
+    const busy = active > 0 || Object.keys(pending).length > 0;
+    const key = Object.keys(drafts).find((key) => Object.hasOwn(failures, key));
+    if (!busy && key !== undefined) input.error(saveError(key));
+    input.changed({ ...drafts }, busy);
+  }
+  function saveError(key: string): Error {
+    const cause = failures[key];
+    return new Error(
+      `Could not save ${key}: ${cause instanceof Error ? cause.message : String(cause)}. Retry the save.`,
+    );
   }
   function submit(key: string, content: ProjectContent): void {
     active++;
@@ -26,9 +37,13 @@ export function createWorkspaceWrites(input: {
         if (!disposed) {
           await input.write(key, content);
           succeeded = true;
+          delete failures[key];
         }
       })
-      .catch(input.error)
+      .catch((cause: unknown) => {
+        failures[key] = cause;
+        input.error(cause);
+      })
       .finally(() => {
         active--;
         if (succeeded && drafts[key] === content) delete drafts[key];
@@ -45,6 +60,21 @@ export function createWorkspaceWrites(input: {
     }
     notify();
   }
+  async function flush(): Promise<void> {
+    let captured: Promise<void>;
+    do {
+      drain();
+      captured = tail;
+      await captured;
+      if (captured !== tail || Object.keys(pending).length > 0) continue;
+      const key = Object.keys(drafts)[0];
+      if (key !== undefined) {
+        throw saveError(key);
+      }
+
+      await input.durable?.();
+    } while (captured !== tail || Object.keys(pending).length > 0);
+  }
   return {
     edit(key: string, content: ProjectContent): void {
       if (disposed) return;
@@ -57,15 +87,12 @@ export function createWorkspaceWrites(input: {
       } else submit(key, content);
       notify();
     },
-    flush(): Promise<void> {
-      drain();
-      return tail;
-    },
+    flush,
     async retry(): Promise<void> {
       await tail;
       for (const [key, content] of Object.entries(drafts)) pending[key] = content;
       drain();
-      await tail;
+      await flush();
     },
     dispose(): void {
       disposed = true;

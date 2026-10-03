@@ -314,6 +314,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : {}),
           };
     if (opening !== undefined && !opening.isCurrent()) return;
+    const beforeFlush = ++lifecycleEpoch;
+    await options.flushProject?.();
+    if (beforeFlush !== lifecycleEpoch || (opening !== undefined && !opening.isCurrent())) return;
     const previousGame = booted;
     const previousSurface = { phase: state.phase, loading: state.loading, error: state.error };
     if (!autosave.beginResumeBoot(resumeCarrier)) return;
@@ -379,7 +382,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       if (resumeCarrier !== undefined && !resumeCarrier.isCurrent()) return;
       // A successful remix is saved as its own local game before playback resumes.
       const activeReplaySeed = options.getActiveReplaySeed();
-      await options.flushProject?.();
       if (
         bootEpoch !== lifecycleEpoch ||
         (opening !== undefined && !opening.isCurrent()) ||
@@ -548,6 +550,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
    */
   async function ejectGame(ejectOptions?: {
     abandonUnsaved?: boolean;
+    abandonProject?: boolean;
     abandonHistory?: boolean;
   }): Promise<void> {
     if (state.leaving || state.powerUp.busy) return;
@@ -557,7 +560,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
     const ejectEpoch = lifecycleEpoch;
     autosave.beginResumeBoot();
     try {
-      await options.flushProject?.();
+      if (!ejectOptions?.abandonProject) await options.flushProject?.();
       if (ejectEpoch !== lifecycleEpoch) {
         state.leaving = false;
         return;
@@ -571,6 +574,7 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       // authoring storage no longer holds. Nothing is saved over the newer
       // project — found now or by the save itself — and leaving is fine.
       if (
+        !ejectOptions?.abandonProject &&
         game &&
         session &&
         !storageMovedPast(game) &&
@@ -832,6 +836,9 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
               : {}),
           };
     if (opening !== undefined && !opening.isCurrent()) return;
+    const beforeFlush = ++lifecycleEpoch;
+    await options.flushProject?.();
+    if (beforeFlush !== lifecycleEpoch || (opening !== undefined && !opening.isCurrent())) return;
     const previousGame = booted;
     const previousSurface = { phase: state.phase, loading: state.loading, error: state.error };
     const resumeCarrier = bootOptions?.resumeCarrier;
@@ -960,7 +967,6 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
             if (bootEpoch !== lifecycleEpoch) return;
           }
           options.authoring?.setSession(cachedSession);
-          await options.flushProject?.();
           if (
             bootEpoch !== lifecycleEpoch ||
             (opening !== undefined && !opening.isCurrent()) ||
@@ -1202,6 +1208,8 @@ export function useGameLifecycle(options: GameLifecycleOptions) {
       throw new Error("Wait for the current authoring turn to finish before saving.");
     const game = booted;
     if (!game) throw new Error("No game is running.");
+    await options.flushProject?.();
+    if (game !== booted) throw new Error("The game changed during download. Try again.");
     const progressTarget = game.progressTarget;
     const session = options.authoring?.getSession() ?? null;
     const data: CachedGameData | null = game.installed

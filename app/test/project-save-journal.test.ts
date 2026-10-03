@@ -135,3 +135,37 @@ test("unsupported commit metadata cannot become valid through journal serializat
     assert.equal(cache.getItem(key), original);
   }
 });
+
+test("recovery acknowledges only its exact entry when a writer appends during the await", async () => {
+  const first = request("journal-append");
+  const next = { ...first, commitId: "newest" };
+  const key = projectSaveJournalKey(first.projectId, "writer");
+  writeProjectSaveJournal(cache, key, [{ request: first, attempted: true }]);
+  await resumeProjectSaveJournals(cache, first.projectId, async (input) => {
+    const result = await commitProject(input);
+    writeProjectSaveJournal(cache, key, [
+      { request: first, attempted: true },
+      { request: next, attempted: false },
+    ]);
+    return result;
+  });
+  // The next recovery uses the acknowledged predecessor's receipt.
+  assert.equal((await loadAuthoredGame(first.projectId))!.generation, 2);
+});
+
+test("conflict restoration preserves an entry appended while recovery awaits", async () => {
+  const first = request("journal-conflict-append");
+  const next = { ...first, commitId: "newest" };
+  const key = projectSaveJournalKey(first.projectId, "writer");
+  writeProjectSaveJournal(cache, key, [{ request: first, attempted: false }]);
+  await resumeProjectSaveJournals(cache, first.projectId, async () => {
+    writeProjectSaveJournal(cache, key, [
+      { request: first, attempted: true },
+      { request: next, attempted: false },
+    ]);
+    throw Object.assign(new Error("conflict"), { name: "ConcurrencyConflictError" });
+  });
+  const raw = cache.getItem(key)!;
+  assert.match(raw, /newest/);
+  assert.equal(raw.includes("true"), false);
+});

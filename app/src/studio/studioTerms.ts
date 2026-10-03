@@ -151,7 +151,7 @@ export const STUDIO_TERMS = {
   },
   rebuilt: {
     name: "Rebuilt",
-    says: "These steps come from the game's bytes. Your first edit saves their source.",
+    says: "These steps come from the game's bytes. Your first edit starts saving their source.",
     help: topic("studio-source"),
   },
   issues: {
